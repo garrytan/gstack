@@ -122,7 +122,14 @@ Two rounds max of context gathering, then proceed with what you have and note as
 
 ## Step 2: Taste Memory
 
-Read prior approved designs to bias generation toward the user's demonstrated taste:
+Read both the persistent taste profile (cross-session) AND the per-session approved
+designs to bias generation toward the user's demonstrated taste.
+
+**Persistent taste profile (v1 schema at `~/.gstack/projects/$SLUG/taste-profile.json`):**
+
+{{TASTE_PROFILE}}
+
+**Per-session approved.json files (legacy, still supported):**
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
@@ -130,13 +137,16 @@ _TASTE=$(find ~/.gstack/projects/$SLUG/designs/ -name "approved.json" -maxdepth 
 ```
 
 If prior sessions exist, read each `approved.json` and extract patterns from the
-approved variants. Include a taste summary in the design brief:
-
-"The user previously approved designs with these characteristics: [high contrast,
-generous whitespace, modern sans-serif typography, etc.]. Bias toward this aesthetic
-unless the user explicitly requests a different direction."
+approved variants. Merge these into the taste-profile.json-derived signal — if the
+profile already says "user prefers Geist font" (from aggregated history), the
+approved.json files add the specific recent approval context.
 
 Limit to last 10 sessions. Try/catch JSON parse on each (skip corrupted files).
+
+**Updating taste profile after a design-shotgun session:** When the user picks a
+variant, call `{{BIN_DIR}}/gstack-taste-update approved <variant-path>`. When they
+explicitly reject a variant, call `{{BIN_DIR}}/gstack-taste-update rejected <variant-path>`.
+The CLI handles schema migration from approved.json, decay, and conflict flagging.
 
 ## Step 3: Generate Variants
 
@@ -166,6 +176,15 @@ C) "Name" — one-line visual description of this direction
 ```
 
 Draw on DESIGN.md, taste memory, and the user's request to make each concept distinct.
+
+**Anti-convergence directive (hard requirement):** Each variant MUST use a different
+font family, color palette, and layout approach. If two variants look like siblings
+— same typographic feel, overlapping color temperature, comparable layout rhythm —
+one of them failed. Regenerate the weaker one with a deliberately different direction.
+
+Concrete test: if someone could swap the headline text between two variants without
+noticing, they're too similar. Variants should feel like they came from three
+different design teams, not the same team at three different coffee levels.
 
 ### Step 3b: Concept Confirmation
 

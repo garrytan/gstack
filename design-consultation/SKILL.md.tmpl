@@ -99,6 +99,25 @@ Ask the user a single question that covers everything you need to know. Pre-fill
 
 If the README or office-hours output gives you enough context, pre-fill and confirm: *"From what I can see, this is [X] for [Y] in the [Z] space. Sound right? And would you like me to research what's out there in this space, or should I work from what I know?"*
 
+**Memorable-thing forcing question.** Before moving on, ask the user: *"What's the one
+thing you want someone to remember after they see this product for the first time?"*
+
+One sentence answer. Could be a feeling ("this is serious software for serious work"),
+a visual ("the blue that's almost black"), a claim ("faster than anything else"), or
+a posture ("for builders, not managers"). Write it down. Every subsequent design
+decision should serve this memorable thing. Design that tries to be memorable for
+everything is memorable for nothing.
+
+### Taste profile (if this user has prior sessions)
+
+{{TASTE_PROFILE}}
+
+If a taste profile exists for this project, factor it into your Phase 3 proposal.
+The profile reflects what the user has actually approved in prior sessions — treat
+it as a demonstrated preference, not a constraint. You may still deliberately
+depart from it if the product direction demands something different; when you do,
+say so explicitly and connect the departure to the memorable-thing answer above.
+
 ---
 
 ## Phase 2: Research (only if user said yes)
@@ -218,7 +237,17 @@ The SAFE/RISK breakdown is critical. Design coherence is table stakes — every 
 Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New (for body)
 
 **Overused fonts** (never recommend as primary — use only if user specifically requests):
-Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins
+Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins, Space Grotesk.
+
+Space Grotesk is on the list specifically because every AI design tool converges on it
+as "the safe alternative to Inter." That's the convergence trap. Treat it the same as
+Inter: only use if the user asks for it by name.
+
+**Anti-convergence directive:** Across multiple generations in the same project, VARY
+light/dark, fonts, and aesthetic directions. Never propose the same choices twice
+without explicit justification. If the user's prior session used Geist + dark + editorial,
+propose something different this time (or explicitly acknowledge you're doubling down
+because it fits the brief). Convergence across generations is slop.
 
 **AI slop anti-patterns** (never include in your recommendations):
 - Purple/violet gradients as default accent
@@ -227,6 +256,7 @@ Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins
 - Uniform bubbly border-radius on all elements
 - Gradient buttons as the primary CTA pattern
 - Generic stock-photo-style hero sections
+- system-ui / -apple-system as the primary display or body font (the "I gave up on typography" signal)
 - "Built for X" / "Designed for Y" marketing copy patterns
 
 ### Coherence Validation
@@ -281,6 +311,13 @@ $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 ```
 
 Show each variant inline (Read tool on each PNG) for instant preview.
+
+**Before presenting to the user, self-gate:** For each variant, ask yourself: *"Would
+a human designer be embarrassed to put their name on this?"* If yes, discard the
+variant and regenerate. This is a hard gate. A mediocre AI mockup is worse than no
+mockup. Embarrassment triggers include: purple gradient hero, 3-column SaaS grid,
+centered-everything, Inter body text, generic stock-photo vibe, system-ui font,
+gradient CTA button, bubble-radius everything. Any of those = reject and regenerate.
 
 Tell the user: "I've generated 3 visual directions applying your design system to a realistic [product type] screen. Pick your favorite in the comparison board that just opened in your browser. You can also remix elements across variants."
 

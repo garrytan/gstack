@@ -55,16 +55,6 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
-# Question tuning (opt-in; see /plan-tune + docs/designs/PLAN_TUNING_V0.md)
-_QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
-echo "QUESTION_TUNING: $_QUESTION_TUNING"
-# Writing style (V1: default = ELI10-style, terse = V0 prose. See docs/designs/PLAN_TUNING_V1.md)
-_EXPLAIN_LEVEL=$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")
-if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
-echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
-# V1 upgrade migration pending-prompt flag
-_WRITING_STYLE_PENDING=$([ -f ~/.gstack/.writing-style-prompt-pending ] && echo "yes" || echo "no")
-echo "WRITING_STYLE_PENDING: $_WRITING_STYLE_PENDING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"plan-eng-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
@@ -109,6 +99,12 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
+echo "MODEL_OVERLAY: claude"
+# Checkpoint mode (explicit = no auto-commit, continuous = WIP commits as you go)
+_CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode 2>/dev/null || echo "explicit")
+_CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
+echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
+echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -124,7 +120,38 @@ or invoking other gstack skills, use the `/gstack-` prefix (e.g., `/gstack-qa` i
 of `/qa`, `/gstack-ship` instead of `/ship`). Disk paths are unaffected — always use
 `~/.claude/skills/gstack/[skill-name]/SKILL.md` for reading skill files.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
+
+If output shows `JUST_UPGRADED <from> <to>` AND `SPAWNED_SESSION` is NOT set: tell
+the user "Running gstack v{to} (just updated!)" and then check for new features to
+surface. For each per-feature marker below, if the marker file is missing AND the
+feature is plausibly useful for this user, use AskUserQuestion to let them try it.
+Fire once per feature per user, NOT once per upgrade.
+
+**In spawned sessions (`SPAWNED_SESSION` = "true"): SKIP feature discovery entirely.**
+Just print "Running gstack v{to}" and continue. Orchestrators do not want interactive
+prompts from sub-sessions.
+
+**Feature discovery markers and prompts** (one at a time, max one per session):
+
+1. `~/.claude/skills/gstack/.feature-prompted-continuous-checkpoint` →
+   Prompt: "Continuous checkpoint auto-commits your work as you go with `WIP:` prefix
+   so you never lose progress to a crash. Local-only by default — doesn't push
+   anywhere unless you turn that on. Want to try it?"
+   Options: A) Enable continuous mode, B) Show me first (print the section from
+   the preamble Continuous Checkpoint Mode), C) Skip.
+   If A: run `~/.claude/skills/gstack/bin/gstack-config set checkpoint_mode continuous`.
+   Always: `touch ~/.claude/skills/gstack/.feature-prompted-continuous-checkpoint`
+
+2. `~/.claude/skills/gstack/.feature-prompted-model-overlay` →
+   Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
+   shown in the preamble output tells you which behavioral patch is applied.
+   Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
+   --model gpt-5.4`). Default is claude."
+   Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
+
+After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
+workflow.
 
 If `WRITING_STYLE_PENDING` is `yes`: You're on the first skill run after upgrading
 to gstack v1. Ask the user once about the new default writing style. Use AskUserQuestion:
@@ -249,8 +276,7 @@ Key routing rules:
 - Design system, brand → invoke design-consultation
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
-- Save progress, save state, save my work → invoke context-save
-- Resume, where was I, pick up where I left off → invoke context-restore
+- Save progress, checkpoint, resume → invoke checkpoint
 - Code quality, health check → invoke health
 ```
 
@@ -300,7 +326,23 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
+## Model-Specific Behavioral Patch (claude)
 
+The following nudges are tuned for the claude model family. They are
+**subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
+safety, and /ship review gates. If a nudge below conflicts with skill instructions,
+the skill wins. Treat these as preferences, not rules.
+
+**Todo-list discipline.** When working through a multi-step plan, mark each task
+complete individually as you finish it. Do not batch-complete at the end. If a task
+turns out to be unnecessary, mark it skipped with a one-line reason.
+
+**Think before heavy actions.** For complex operations (refactors, migrations,
+non-trivial new features), briefly state your approach before executing. This lets
+the user course-correct cheaply instead of mid-flight.
+
+**Dedicated tools over Bash.** Prefer Read, Edit, Write, Glob, Grep over shell
+equivalents (cat, sed, find, grep). The dedicated tools are cheaper and clearer.
 
 ## Voice
 
@@ -534,6 +576,65 @@ Ask the user. Do not guess on architectural or data model decisions.
 
 This does NOT apply to routine coding, small features, or obvious changes.
 
+## Continuous Checkpoint Mode
+
+If `CHECKPOINT_MODE` is `"continuous"` (from preamble output): auto-commit work as
+you go with `WIP:` prefix so session state survives crashes and context switches.
+
+**When to commit (continuous mode only):**
+- After creating a new file (not scratch/temp files)
+- After finishing a function/component/module
+- After fixing a bug that's verified by a passing test
+- Before any long-running operation (install, full build, full test suite)
+
+**Commit format** — include structured context in the body:
+
+```
+WIP: <concise description of what changed>
+
+[gstack-context]
+Decisions: <key choices made this step>
+Remaining: <what's left in the logical unit>
+Tried: <failed approaches worth recording> (omit if none)
+Skill: </skill-name-if-running>
+[/gstack-context]
+```
+
+**Rules:**
+- Stage only files you intentionally changed. NEVER `git add -A` in continuous mode.
+- Do NOT commit with known-broken tests. Fix first, then commit. The [gstack-context]
+  example values MUST reflect a clean state.
+- Do NOT commit mid-edit. Finish the logical unit.
+- Push ONLY if `CHECKPOINT_PUSH` is `"true"` (default is false). Pushing WIP commits
+  to a shared remote can trigger CI, deploys, and expose secrets — that is why push
+  is opt-in, not default.
+- Background discipline — do NOT announce each commit to the user. They can see
+  `git log` whenever they want.
+
+**When `/context-restore` runs,** it parses `[gstack-context]` blocks from WIP
+commits on the current branch to reconstruct session state. When `/ship` runs, it
+filter-squashes WIP commits only (preserving non-WIP commits) via
+`git rebase --autosquash` so the PR contains clean bisectable commits.
+
+If `CHECKPOINT_MODE` is `"explicit"` (the default): no auto-commit behavior. Commit
+only when the user explicitly asks, or when a skill workflow (like /ship) runs a
+commit step. Ignore this section entirely.
+
+## Context Health (soft directive)
+
+During long-running skill sessions, periodically write a brief `[PROGRESS]` summary
+(2-3 sentences: what's done, what's next, any surprises). Example:
+
+`[PROGRESS] Found 3 auth bugs. Fixed 2. Remaining: session expiry race in auth.ts:147. Next: write regression test.`
+
+If you notice you're going in circles — repeating the same diagnostic, re-reading the
+same file, or trying variants of a failed fix — STOP and reassess. Consider escalating
+or calling /context-save to save progress and start fresh.
+
+This is a soft nudge, not a measurable feature. No thresholds, no enforcement. The
+goal is self-awareness during long sessions. If the session stays short, skip it.
+Progress summaries must NEVER mutate git state — they are reporting, not committing.
+
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
 **Before each AskUserQuestion.** Pick a registered `question_id` (see
@@ -669,80 +770,29 @@ remote binary only runs if telemetry is not off and the binary exists.
 
 ## Plan Mode Safe Operations
 
-When in plan mode, these operations are always allowed because they produce
-artifacts that inform the plan, not code changes:
-
-- `$B` commands (browse: screenshots, page inspection, navigation, snapshots)
-- `$D` commands (design: generate mockups, variants, comparison boards, iterate)
-- `codex exec` / `codex review` (outside voice, plan review, adversarial challenge)
-- Writing to `~/.gstack/` (config, analytics, review logs, design artifacts, learnings)
-- Writing to the plan file (already allowed by plan mode)
-- `open` commands for viewing generated artifacts (comparison boards, HTML previews)
-
-These are read-only in spirit — they inspect the live site, generate visual artifacts,
-or get independent opinions. They do NOT modify project source files.
+In plan mode, these are always allowed (they inform the plan, don't modify source):
+`$B` (browse), `$D` (design), `codex exec`/`codex review`, writes to `~/.gstack/`,
+writes to the plan file, `open` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
-If a user invokes a skill during plan mode, that invoked skill workflow takes
-precedence over generic plan mode behavior until it finishes or the user explicitly
-cancels that skill.
-
-Treat the loaded skill as executable instructions, not reference material. Follow
-it step by step. Do not summarize, skip, reorder, or shortcut its steps.
-
-If the skill says to use AskUserQuestion, do that. Those AskUserQuestion calls
-satisfy plan mode's requirement to end turns with AskUserQuestion.
-
-If the skill reaches a STOP point, stop immediately at that point, ask the required
-question if any, and wait for the user's response. Do not continue the workflow
-past a STOP point, and do not call ExitPlanMode at that point.
-
-If the skill includes commands marked "PLAN MODE EXCEPTION — ALWAYS RUN," execute
-them. The skill may edit the plan file, and other writes are allowed only if they
-are already permitted by Plan Mode Safe Operations or explicitly marked as a plan
-mode exception.
-
-Only call ExitPlanMode after the active skill workflow is complete and there are no
-other invoked skill workflows left to run, or if the user explicitly tells you to
-cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, that skill takes precedence over generic plan mode behavior. Treat it as executable instructions, not reference. Follow step
+by step. AskUserQuestion calls satisfy plan mode's end-of-turn requirement. At a STOP
+point, stop immediately. Do not continue the workflow past a STOP point and do not call ExitPlanMode there. Commands marked "PLAN
+MODE EXCEPTION — ALWAYS RUN" execute. Other writes need to be already permitted
+above or explicitly exception-marked. Call ExitPlanMode only after the skill
+workflow completes — only then call ExitPlanMode (or if the user tells you to cancel the skill or leave plan mode).
 
 ## Plan Status Footer
 
-When you are in plan mode and about to call ExitPlanMode:
+In plan mode, before ExitPlanMode: if the plan file lacks a `## GSTACK REVIEW REPORT`
+section, run `~/.claude/skills/gstack/bin/gstack-review-read` and append a report.
+With JSONL entries (before `---CONFIG---`), format the standard runs/status/findings
+table. With `NO_REVIEWS` or empty, append a 5-row placeholder table (CEO/Codex/Eng/
+Design/DX Review) with all zeros and verdict "NO REVIEWS YET — run `/autoplan`".
+If a richer review report already exists, skip — review skills wrote it.
 
-1. Check if the plan file already has a `## GSTACK REVIEW REPORT` section.
-2. If it DOES — skip (a review skill already wrote a richer report).
-3. If it does NOT — run this command:
-
-\`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
-\`\`\`
-
-Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
-
-- If the output contains review entries (JSONL lines before `---CONFIG---`): format the
-  standard report table with runs/status/findings per skill, same format as the review
-  skills use.
-- If the output is `NO_REVIEWS` or empty: write this placeholder table:
-
-\`\`\`markdown
-## GSTACK REVIEW REPORT
-
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | \`/plan-ceo-review\` | Scope & strategy | 0 | — | — |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | 0 | — | — |
-| Design Review | \`/plan-design-review\` | UI/UX gaps | 0 | — | — |
-| DX Review | \`/plan-devex-review\` | Developer experience gaps | 0 | — | — |
-
-**VERDICT:** NO REVIEWS YET — run \`/autoplan\` for full review pipeline, or individual reviews above.
-\`\`\`
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
-file you are allowed to edit in plan mode. The plan file review report is part of the
-plan's living status.
+PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
 
 
@@ -1092,46 +1142,24 @@ When uncertain whether a change is a regression, err on the side of writing the 
 Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
 
 ```
-CODE PATH COVERAGE
-===========================
-[+] src/services/billing.ts
-    │
-    ├── processPayment()
-    │   ├── [★★★ TESTED] Happy path + card declined + timeout — billing.test.ts:42
-    │   ├── [GAP]         Network timeout — NO TEST
-    │   └── [GAP]         Invalid currency — NO TEST
-    │
-    └── refundPayment()
-        ├── [★★  TESTED] Full refund — billing.test.ts:89
-        └── [★   TESTED] Partial refund (checks non-throw only) — billing.test.ts:101
+CODE PATHS                                            USER FLOWS
+[+] src/services/billing.ts                           [+] Payment checkout
+  ├── processPayment()                                  ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
+  │   ├── [★★★ TESTED] happy + declined + timeout      ├── [GAP] [→E2E] Double-click submit
+  │   ├── [GAP]         Network timeout                 └── [GAP]        Navigate away mid-payment
+  │   └── [GAP]         Invalid currency
+  └── refundPayment()                                 [+] Error states
+      ├── [★★  TESTED] Full refund — :89                ├── [★★  TESTED] Card declined message
+      └── [★   TESTED] Partial (non-throw only) — :101  └── [GAP]        Network timeout UX
 
-USER FLOW COVERAGE
-===========================
-[+] Payment checkout flow
-    │
-    ├── [★★★ TESTED] Complete purchase — checkout.e2e.ts:15
-    ├── [GAP] [→E2E] Double-click submit — needs E2E, not just unit
-    ├── [GAP]         Navigate away during payment — unit test sufficient
-    └── [★   TESTED]  Form validation errors (checks render only) — checkout.test.ts:40
+LLM integration: [GAP] [→EVAL] Prompt template change — needs eval test
 
-[+] Error states
-    │
-    ├── [★★  TESTED] Card declined message — billing.test.ts:58
-    ├── [GAP]         Network timeout UX (what does user see?) — NO TEST
-    └── [GAP]         Empty cart submission — NO TEST
-
-[+] LLM integration
-    │
-    └── [GAP] [→EVAL] Prompt template change — needs eval test
-
-─────────────────────────────────
-COVERAGE: 5/13 paths tested (38%)
-  Code paths: 3/5 (60%)
-  User flows: 2/8 (25%)
-QUALITY:  ★★★: 2  ★★: 2  ★: 1
-GAPS: 8 paths need tests (2 need E2E, 1 needs eval)
-─────────────────────────────────
+COVERAGE: 5/13 paths tested (38%)  |  Code paths: 3/5 (60%)  |  User flows: 2/8 (25%)
+QUALITY: ★★★:2 ★★:2 ★:1  |  GAPS: 8 (2 E2E, 1 eval)
 ```
+
+Legend: ★★★ behavior + edge + error  |  ★★ happy path  |  ★ smoke check
+[→E2E] = needs integration test  |  [→EVAL] = needs LLM eval
 
 **Fast path:** All paths covered → "Test review: All new code paths have test coverage ✓" Continue.
 

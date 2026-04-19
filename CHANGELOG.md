@@ -1,5 +1,86 @@
 # Changelog
 
+## [1.3.0.0] - 2026-04-19
+
+## **Your design skills learn your taste.**
+## **Your session state becomes files you can grep, not a black box.**
+
+v1.3 is about the things you do every day. `/design-shotgun` now remembers which fonts, colors, and layouts you approve across sessions, so the next round of variants leans toward your actual taste instead of resetting to Inter every time. `/design-consultation` has a "would a human designer be embarrassed by this?" self-gate in Phase 5 and a "what's the one thing someone will remember?" forcing question in Phase 1, AI-slop output gets discarded before it reaches you. `/context-save` and `/context-restore` write session state to plaintext markdown in `~/.gstack/projects/$SLUG/checkpoints/`, you can read and edit and move between machines. Flip on continuous checkpoint mode (`gstack-config set checkpoint_mode continuous`) and it also drops `WIP:` commits with structured `[gstack-context]` bodies into your git log. Claude Code already manages its own session state, this is a parallel track you control, in formats you own.
+
+### The numbers that matter
+
+Setup: these come from the v1.3 feature surface. Reproducible via `grep "Generate a different" design-shotgun/SKILL.md.tmpl`, `ls model-overlays/`, `cat bin/gstack-taste-update` for the schema, and `gstack-config get checkpoint_mode` for the runtime wiring.
+
+| Metric                                           | BEFORE v1.3                 | AFTER v1.3                              | Δ           |
+|--------------------------------------------------|------------------------------|-----------------------------------------|-------------|
+| **Design-variant convergence gate**              | no requirement               | **3 axes required** (font + palette + layout must differ) | **+3**  |
+| **AI-slop font blacklist**                       | ~8 fonts                     | **10+** (added Space Grotesk, system-ui as primary) | **+2+** |
+| **Taste memory across `/design-shotgun` rounds** | none                         | **per-project JSON, 5%/wk decay**       | **new**     |
+| **Session state format**                         | Claude Code's opaque session store | **markdown in `~/.gstack/` by default, plus `WIP:` git commits if you opt into continuous mode** (parallel track) | **new** |
+| **`/context-restore` sources**                   | markdown files only          | **markdown + `[gstack-context]` from WIP commits** | **+1** |
+| **Models with behavioral overlays**              | 1 (Claude implicit)          | **5** (claude, gpt, gpt-5.4, gemini, o-series) | **+4** |
+
+The single most striking row: session state stops being a black box. Claude Code's built-in session management works fine on its own terms, but you can't `grep` it, you can't read it, you can't hand it to a different tool. `/context-save` writes markdown to `~/.gstack/projects/$SLUG/checkpoints/` you can open in any editor. Continuous mode (opt-in) also drops `WIP:` commits with structured `[gstack-context]` bodies into your git log, so `git log --grep "WIP:"` shows the whole thread. Either way, plain text you own, not a proprietary store.
+
+### What this means for gstack users
+
+If you're a solo builder or founder shipping a product one sprint at a time, `/design-shotgun` stops handing you the same four variants every time and starts learning which ones you pick. `/design-consultation` stops defaulting to Inter + gray + rounded-corners and forces itself to answer "what's memorable?" before it finishes. `/context-save` and `/context-restore` give you a parallel, inspectable record of session state that lives alongside Claude Code's own, markdown files in your home directory by default, plus git commits if you opt into continuous mode. When you need to hand work off to a different tool or just review what your agent actually decided, you open a file or read `git log`. Run `/gstack-upgrade`, try `/design-shotgun` on your next landing page, and approve a variant so the taste engine has a starting signal.
+
+### Itemized changes
+
+### Added
+
+#### Design skills that stop looking like AI
+
+- **Anti-slop design constraints.** `/design-consultation` now asks "What's the one thing someone will remember?" as a forcing question in Phase 1, and runs a "Would a human designer be embarrassed by this?" self-gate in Phase 5 — output that fails the gate gets discarded and regenerated. `/design-shotgun` gets an anti-convergence directive: each variant must use a different font, palette, and layout, or one of them failed. Space Grotesk (the new "safe alternative to Inter") added to the overused-fonts list. `system-ui` as a primary font added to the AI-slop blacklist.
+- **Design taste engine.** Your approvals and rejections in `/design-shotgun` get written to a persistent per-project taste profile at `~/.gstack/projects/$SLUG/taste-profile.json`. Tracks fonts, colors, layouts, and aesthetic directions with Laplace-smoothed confidence. Decays 5% per week so stale preferences fade. `/design-consultation` and `/design-shotgun` both factor in your demonstrated preferences on future runs, so variant #3 this month remembers what you liked in variant #1 last month.
+
+#### Session state you can see, grep, and move
+
+- **Continuous checkpoint mode (opt-in, local by default).** Flip it on with `gstack-config set checkpoint_mode continuous` and skills auto-commit your work with `WIP: <description>` prefix and a structured `[gstack-context]` body (decisions made, remaining work, failed approaches) directly into your project's git log. Runs alongside Claude Code's built-in session management and alongside the default `/context-save` markdown files in `~/.gstack/`. The git-based track is useful when you want `git log --grep "WIP:"` to show you the whole reasoning thread on a branch, or when you want to review what your agent did without opening a file. Push is opt-in via `checkpoint_push=true`, default is local-only so you don't accidentally trigger CI on every WIP commit.
+- **`/context-restore` reads WIP commits.** In addition to the markdown saved-context files, `/context-restore` now parses `[gstack-context]` blocks from WIP commits on the current branch. When you want to pick up where you left off with structured decisions and remaining-work in view, it's right there.
+- **`/ship` non-destructively squashes WIP commits** before creating the PR. Uses `git rebase --autosquash` scoped to WIP commits only. Non-WIP commits on the branch are preserved. Aborts on conflict with a `BLOCKED` status instead of destroying real work. So you can go wild with `WIP:` commits all week and still ship a clean bisectable PR.
+
+#### Quality-of-life
+
+- **Feature discovery prompt after upgrade.** When `JUST_UPGRADED` fires, gstack offers to enable new features once per user (per-feature marker files at `~/.gstack/.feature-prompted-{name}`). Skipped entirely in spawned sessions. No more silent features that never get discovered.
+- **Context health soft directive (T2+ skills).** During long-running skills (`/qa`, `/investigate`, `/cso`), gstack now nudges you to write periodic `[PROGRESS]` summaries. If you notice you're going in circles, STOP and reassess. Self-monitoring for 50+ tool-call sessions. No fake thresholds, no enforcement. Progress reports never mutate git state.
+
+#### Cross-host support
+
+- **Per-model behavioral overlays via `--model` flag.** Different LLMs need different nudges. Run `bun run gen:skill-docs --model gpt-5.4` and every generated skill picks up GPT-tuned behavioral patches. Five overlays ship in `model-overlays/`: claude (todo-list discipline), gpt (anti-termination + completeness), gpt-5.4 (anti-verbosity, inherits gpt), gemini (conciseness), o-series (structured output). Overlay files are plain markdown — edit in place, no code changes. `MODEL_OVERLAY: {model}` prints in the preamble output so you know which one is active.
+
+#### Config
+
+- **`gstack-config list` and `defaults`** subcommands. `list` shows all config keys with current value AND source (user-set vs default). `defaults` shows the defaults table. Fixes the prior gap where `get` returned empty for missing keys instead of falling back to the documented defaults.
+- **`checkpoint_mode` and `checkpoint_push` config keys.** New knobs for continuous checkpoint mode. Both default to safe values (`explicit` mode, no auto-push).
+
+#### Power-user / internal
+
+- **`gstack-model-benchmark` CLI + `/benchmark-models` skill.** Run the same prompt across Claude, GPT (via Codex CLI), and Gemini side-by-side. Compares latency, tokens, cost, and optionally output quality via an Anthropic SDK judge (`--judge`, ~$0.05/run). Per-provider auth detection, pricing tables, tool-compatibility map, parallel execution, per-provider error isolation. Output as table / JSON / markdown. `--dry-run` validates flags + auth without spending API calls. `/benchmark-models` wraps the CLI in an interactive flow (pick prompt → confirm providers → decide on judge → run → interpret) for when you want to know "which model is actually best for my `/qa` skill" with data instead of vibes.
+
+### Changed
+
+- **Preamble split into submodules.** `scripts/resolvers/preamble.ts` was 740 lines with 18 generators inline. Now it's a ~100-line composition root that imports each generator from `scripts/resolvers/preamble/*.ts`. Output is byte-identical (verified via `diff -r` on all 135 generated SKILL.md files across all hosts before and after the refactor). Maintenance gets easier: adding a new preamble section is now "create one file, add one import line" instead of "find a spot in the god-file." This also absorbs main's v1.1.2 mode-posture and v1.0 writing-style additions as submodules (`generate-writing-style.ts`, `generate-writing-style-migration.ts`).
+- **Anti-slop dead code removed.** `scripts/gen-skill-docs.ts` had a duplicate copy of `AI_SLOP_BLACKLIST`, `OPENAI_HARD_REJECTIONS`, and `OPENAI_LITMUS_CHECKS`. Deleted — `scripts/resolvers/constants.ts` is now the single source. No more drift risk.
+- **Token ceiling raised from 25K to 40K.** Skills legitimately packing a lot of behavior (`/ship`, `/plan-ceo-review`, `/office-hours`) were tripping warnings that no longer reflect real risk given today's 200K-1M context windows and prompt caching. CLAUDE.md's guidance reframes the ceiling as a "watch for runaway growth" signal rather than a forcing compression target.
+
+### Fixed
+
+- **Codex adapter works in temp working directories.** The GPT adapter (via `codex exec`) now passes `--skip-git-repo-check` so benchmarks running in non-git temp dirs stop hitting "Not inside a trusted directory" errors. `-s read-only` stays the safety boundary; the flag only skips the interactive trust prompt.
+- **`--models` list deduplication.** Passing `--models claude,claude,gpt` no longer runs Claude twice and double-bills. The flag parser dedupes via Set while preserving first-occurrence order.
+- **CI Docker build on Ubicloud runners.** Two fixes merged during the branch's life: (1) switched the Node.js install from NodeSource apt to direct download of the official nodejs.org tarball, since Ubicloud runners regularly couldn't reach archive.ubuntu.com / security.ubuntu.com; (2) added `xz-utils` to the system deps so `tar -xJ` on the `.tar.xz` tarball actually works.
+
+### For contributors
+
+- **Test infrastructure for multi-provider benchmarking.** `test/helpers/providers/{types,claude,gpt,gemini}.ts` defines a uniform `ProviderAdapter` interface and three adapters wrapping the existing CLI runners. `test/helpers/pricing.ts` has per-model cost tables (update quarterly). `test/helpers/tool-map.ts` declares which tools each provider's CLI exposes — benchmarks that need Edit/Glob/Grep correctly skip Gemini and report `unsupported_tool`.
+- **Model taxonomy in neutral `scripts/models.ts`.** Avoids an import cycle through `hosts/index.ts` that would have happened if `Model` lived in `scripts/resolvers/types.ts`. `resolveModel()` handles family heuristics: `gpt-5.4-mini` → `gpt-5.4`, `o3` → `o-series`, `claude-opus-4-7` → `claude`.
+- **`scripts/resolvers/preamble/`** — 18 single-purpose generators, 16-160 lines each. The composition root in `scripts/resolvers/preamble.ts` imports them and wires them into the tier-gated section list.
+- **Plan and reviews persisted.** Implementation followed `~/.claude/plans/declarative-riding-cook.md` which went through CEO review (SCOPE EXPANSION, 6 expansions accepted), DX review (POLISH, 5 gaps fixed), Eng review (4 architecture issues), and Codex review (11 brutal findings, all integrated and 2 prior decisions reversed).
+- **Mode-posture energy in Writing Style rules 2-4** (ported from main's v1.1.2.0). Rule 2 and rule 4 now cover three framings — pain reduction, capability unlocked, forcing-question pressure — so expansion, builder, and forcing-question skills keep their edge instead of collapsing into diagnostic-pain framing. Rule 3 adds an explicit exception for stacked forcing questions. Came in via the merge; sits on top of the submodule refactor already shipped in v1.3.
+- **Lite E2E coverage for v1.3 primitives.** Three new test files fill the real coverage gaps flagged in initial review: `test/taste-engine.test.ts` (24 tests — schema shape, Laplace-smoothed confidence, 5%/week decay clamped at 0, multi-dimension extraction, case-insensitive first-casing-wins policy, session cap via seed-then-one-call, legacy profile migration, taste-drift conflict warning, malformed-JSON recovery), `test/benchmark-cli.test.ts` (12 tests — CLI flag wiring, provider defaults, unknown-provider WARN path, NOT-READY branch regression catcher that strips auth env vars), `test/skill-e2e-benchmark-providers.test.ts` (8 periodic-tier live-API tests — trivial "echo ok" prompt through claude/codex/gemini adapters, assertions on parsed output + tokens + cost + timeout error codes + Promise.allSettled parallel isolation).
+- **Ship golden fixtures for three hosts.** `test/fixtures/golden/{claude,codex,factory}-ship-SKILL.md` — byte-exact regression pins on the `/ship` generated output. The adversarial subagent pass during /review caught two real bugs before merge: Geist/GEIST casing policy in the taste engine was unpinned, and the live-E2E workdir was created at module load and never cleaned up.
+
 ## [1.1.3.0] - 2026-04-19
 
 ### Changed
