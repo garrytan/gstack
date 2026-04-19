@@ -27,6 +27,45 @@ Upgrade gstack to the latest version and show what's new.
 
 This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
 
+### Step 0: Pre-upgrade supply chain review (optional hook)
+
+Before asking the user to upgrade, check if a supply-chain-review skill is installed. When present, run it first so the user sees a risk score before deciding. This is **opt-in based on skill presence** — users without the skill see the original flow, unchanged.
+
+```bash
+_PRE_HOOK=""
+_SKIP="${GSTACK_SKIP_SUPPLY_CHAIN_REVIEW:-}"
+for p in \
+  "$HOME/.claude/skills/supply-chain-review/SKILL.md" \
+  ".claude/skills/supply-chain-review/SKILL.md" \
+  "$HOME/.claude/plugins/cache/supply-chain-review/SKILL.md"; do
+  [ -f "$p" ] && _PRE_HOOK="$p" && break
+done
+echo "PRE_HOOK=$_PRE_HOOK"
+echo "SKIP_HOOK=$_SKIP"
+```
+
+**If `PRE_HOOK` is empty:** No hook installed — skip to Step 1.
+
+**If `SKIP_HOOK` is `1` or `true`:** Append `"$(date -u +%FT%TZ) skipped old=v{old} new=v{new}"` to `~/.gstack/supply-chain-skip.log` (create parent dir if needed), then skip to Step 1. Tell the user: "Supply chain review skipped via `GSTACK_SKIP_SUPPLY_CHAIN_REVIEW`."
+
+**Otherwise:** Invoke the `/supply-chain-review` skill, passing:
+- `tool_name`: `gstack`
+- `current_version`: `{old}` (from the `UPGRADE_AVAILABLE` output)
+- `new_version`: `{new}` (from the `UPGRADE_AVAILABLE` output)
+- `repo_url`: `https://github.com/garrytan/gstack`
+
+Wait for the review to complete and note the risk tier it returns (`LOW` / `MEDIUM` / `HIGH` / `CRITICAL`).
+
+**If tier is `LOW`:** Tell the user "Supply chain review: LOW — proceeding." Then proceed to Step 1 normally.
+
+**If tier is `MEDIUM`, `HIGH`, or `CRITICAL`:** Do **not** auto-proceed to Step 1. Use AskUserQuestion:
+- Question: "Supply chain review returned **{tier}**. Review findings above. Proceed with upgrade anyway?"
+- Options: `["Yes, proceed with upgrade", "No, abort upgrade"]`
+
+If the user picks "Yes, proceed", proceed to Step 1. If "No, abort", stop the upgrade flow entirely — do not ask the standard upgrade question, do not snooze, do not modify config. Tell the user: "Upgrade aborted per supply chain review. Re-run `/gstack-upgrade` when ready."
+
+This Step 0 override is intentional: when the hook exists, it replaces the unconditional upgrade prompt so risky upgrades cannot slip through on reflex.
+
 ### Step 1: Ask the user (or auto-upgrade)
 
 First, check if auto-upgrade is enabled:
