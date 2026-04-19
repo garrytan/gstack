@@ -344,6 +344,10 @@ I open sourced how I build software. You can fork it and make it your own.
 > Come work at YC — [ycombinator.com/software](https://ycombinator.com/software)
 > Extremely competitive salary and equity. San Francisco, Dogpatch District.
 
+## Desktop GUI
+
+If you'd rather not memorise slash commands, [gstack Studio](https://github.com/arunrajiah/gstack-studio) is an open-source desktop companion (macOS / Windows / Linux) built on top of this repo. It gives you a visual Sprint Board for all 23 agents, one-click daemon management, a live log stream, and a Browse Console — no CLI required.
+
 ## Docs
 
 | Doc | What it covers |
