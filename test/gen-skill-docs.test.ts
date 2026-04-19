@@ -1983,6 +1983,24 @@ describe('Parameterized host smoke tests', () => {
         }
       });
 
+      if (hostConfig.name === 'hermes') {
+        test('Hermes frontmatter names are namespaced to match generated skill names', () => {
+          Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'hermes'], {
+            cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+          });
+
+          const reviewContent = fs.readFileSync(path.join(hostDir, 'gstack-review', 'SKILL.md'), 'utf-8');
+          const qaContent = fs.readFileSync(path.join(hostDir, 'gstack-qa', 'SKILL.md'), 'utf-8');
+          const shipContent = fs.readFileSync(path.join(hostDir, 'gstack-ship', 'SKILL.md'), 'utf-8');
+          const rootContent = fs.readFileSync(path.join(hostDir, 'gstack', 'SKILL.md'), 'utf-8');
+
+          expect(reviewContent).toMatch(/^name:\s*gstack-review$/m);
+          expect(qaContent).toMatch(/^name:\s*gstack-qa$/m);
+          expect(shipContent).toMatch(/^name:\s*gstack-ship$/m);
+          expect(rootContent).toMatch(/^name:\s*gstack$/m);
+        });
+      }
+
       test('--dry-run freshness check passes', () => {
         const result = Bun.spawnSync(
           ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', hostConfig.name, '--dry-run'],

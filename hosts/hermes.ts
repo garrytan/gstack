@@ -15,6 +15,7 @@ const hermes: HostConfig = {
     mode: 'allowlist',
     keepFields: ['name', 'description'],
     descriptionLimit: null,
+    nameTransform: 'external-skill-name',
   },
 
   generation: {

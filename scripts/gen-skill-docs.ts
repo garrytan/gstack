@@ -200,7 +200,7 @@ policy:
  * Codex: keeps name + description only, enforces 1024-char limit.
  * Factory: keeps name + description + user-invocable, conditionally adds disable-model-invocation.
  */
-function transformFrontmatter(content: string, host: Host): string {
+function transformFrontmatter(content: string, host: Host, generatedSkillName?: string): string {
   const hostConfig = getHostConfig(host);
   const fm = hostConfig.frontmatter;
 
@@ -224,6 +224,9 @@ function transformFrontmatter(content: string, host: Host): string {
   const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4);
   const { name, description } = extractNameAndDescription(content);
+  const emittedName = fm.nameTransform === 'external-skill-name' && generatedSkillName
+    ? generatedSkillName
+    : name;
 
   // Description limit enforcement
   if (fm.descriptionLimit) {
@@ -231,11 +234,11 @@ function transformFrontmatter(content: string, host: Host): string {
     if (description.length > fm.descriptionLimit) {
       if (behavior === 'error') {
         throw new Error(
-          `${hostConfig.displayName} description for "${name}" is ${description.length} chars (max ${fm.descriptionLimit}). ` +
+          `${hostConfig.displayName} description for "${emittedName}" is ${description.length} chars (max ${fm.descriptionLimit}). ` +
           `Compress the description in the .tmpl file.`
         );
       } else if (behavior === 'warn') {
-        console.warn(`WARNING: ${hostConfig.displayName} description for "${name}" exceeds ${fm.descriptionLimit} chars`);
+        console.warn(`WARNING: ${hostConfig.displayName} description for "${emittedName}" exceeds ${fm.descriptionLimit} chars`);
       }
       // 'truncate' — silently proceed
     }
@@ -243,7 +246,7 @@ function transformFrontmatter(content: string, host: Host): string {
 
   // Build frontmatter with allowed fields
   const indentedDesc = description.split('\n').map(l => `  ${l}`).join('\n');
-  let newFm = `---\nname: ${name}\ndescription: |\n${indentedDesc}\n`;
+  let newFm = `---\nname: ${emittedName}\ndescription: |\n${indentedDesc}\n`;
 
   // Add extra fields (host-wide)
   if (fm.extraFields) {
@@ -369,7 +372,7 @@ function processExternalHost(
   const safetyProse = extractHookSafetyProse(tmplContent);
 
   // Transform frontmatter (host-aware)
-  let result = transformFrontmatter(content, host);
+  let result = transformFrontmatter(content, host, name);
 
   // Insert safety advisory at the top of the body (after frontmatter)
   if (safetyProse) {

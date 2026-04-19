@@ -46,6 +46,8 @@ export interface HostConfig {
     descriptionLimit?: number | null;
     /** What to do when description exceeds limit. Default: 'error'. */
     descriptionLimitBehavior?: 'error' | 'truncate' | 'warn';
+    /** Override the emitted frontmatter name for generated skills. */
+    nameTransform?: 'identity' | 'external-skill-name';
     /** Additional frontmatter fields to inject (host-wide). */
     extraFields?: Record<string, unknown>;
     /** Rename fields from template (e.g., { 'voice-triggers': 'triggers' }). */
