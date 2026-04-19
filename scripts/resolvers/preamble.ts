@@ -65,7 +65,7 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 //
 // Skills by tier:
 //   T1: browse, setup-cookies, benchmark
-//   T2: investigate, cso, retro, doc-release, setup-deploy, canary, checkpoint, health
+//   T2: investigate, cso, retro, doc-release, setup-deploy, canary, context-save, context-restore, health
 //   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
 //   T4: ship, review, qa, qa-only, design-review, land-deploy
 export function generatePreamble(ctx: TemplateContext): string {

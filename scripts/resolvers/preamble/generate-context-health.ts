@@ -10,7 +10,7 @@ During long-running skill sessions, periodically write a brief \`[PROGRESS]\` su
 
 If you notice you're going in circles — repeating the same diagnostic, re-reading the
 same file, or trying variants of a failed fix — STOP and reassess. Consider escalating
-or calling /checkpoint to save progress and start fresh.
+or calling /context-save to save progress and start fresh.
 
 This is a soft nudge, not a measurable feature. No thresholds, no enforcement. The
 goal is self-awareness during long sessions. If the session stays short, skip it.

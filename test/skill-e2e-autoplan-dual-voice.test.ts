@@ -70,31 +70,58 @@ Add a new /greet skill that prints a welcome message.
       // If Codex is unavailable on the test machine, the skill should print
       // [codex-unavailable] and still complete the Claude subagent half.
       const result = await runSkillTest({
-        name: 'autoplan-dual-voice',
-        workdir: workDir,
+        testName: 'autoplan-dual-voice',
+        workingDirectory: workDir,
         prompt: `/autoplan ${planPath}`,
-        timeoutMs: 300_000, // 5 min
-        evalCollector,
+        timeout: 300_000, // 5 min
+        // /autoplan spawns subagents and calls codex via Bash; it needs the
+        // full tool set to get past Phase 1. Bash+Read+Write alone wasn't
+        // enough — the skill stalled trying to invoke Agent/Skill.
+        allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Agent', 'Skill'],
+        maxTurns: 30,
+        runId,
       });
 
       // Accept EITHER outcome as success:
       //   (a) Both voices produced output (ideal case)
       //   (b) Codex unavailable + Claude voice produced output (graceful degrade)
-      const out = result.stdout + result.stderr;
-      const claudeVoiceFired = /Claude\s+(CEO|subagent)|claude-subagent/i.test(out);
-      const codexVoiceFired = /codex\s+(exec|review|CEO\s+voice)|\[via:codex\]/i.test(out);
-      const codexUnavailable = /\[codex-unavailable\]|AUTH_FAILED|codex_cli_missing/i.test(out);
+      // Search ONLY the tool-call structure — NOT the prompt string that went in.
+      // Matching against full transcript is risky because the prompt itself
+      // contains "plan-ceo-review" and other marker strings that would produce
+      // false positives regardless of skill behavior. Filter to tool_result
+      // content + assistant messages emitted DURING execution.
+      const transcript = Array.isArray(result.transcript) ? result.transcript : [];
+      const executionContent = transcript
+        .filter((entry: any) => entry && (entry.type === 'tool_use' || entry.type === 'tool_result' || entry.role === 'assistant'))
+        .map((entry: any) => JSON.stringify(entry))
+        .join('\n');
+      const out = (result.output ?? '') + '\n' + executionContent;
+
+      // Claude voice: require evidence of a dispatched Agent subagent, not
+      // merely the literal string "Agent(" (which could appear in any text).
+      // Task/Agent tool_use entries have name:"Agent" or subagent_type:"..."
+      const claudeVoiceFired = /"name":\s*"Agent"|"subagent_type":\s*"[^"]/.test(out) ||
+                               /Claude\s+(CEO|subagent)\s+(review|complete|finished)|claude-subagent\s/i.test(out);
+      // Codex voice: require evidence of codex CLI invocation (command string in
+      // a Bash tool_use), not prompt-text mentions.
+      const codexVoiceFired = /"command":\s*"[^"]*codex\s+(exec|review)/.test(out) ||
+                              /CODEX SAYS\s*\(/i.test(out);
+      // Unavailable markers: explicit probe-failure strings emitted by the skill.
+      const codexUnavailable = /\[codex-unavailable\]|AUTH_FAILED\b|CODEX_NOT_AVAILABLE\b|codex_cli_missing|Codex CLI not found/i.test(out);
 
       expect(claudeVoiceFired).toBe(true);
       expect(codexVoiceFired || codexUnavailable).toBe(true);
 
-      // Hang protection: if the skill reached Phase 1 at all, our hardening worked.
-      // If it didn't, this is a regression from the pre-wave stdin-deadlock era.
-      const reachedPhase1 = /Phase 1|CEO\s+Review|Strategy\s*&\s*Scope/i.test(out);
+      // Hang protection: require phase completion evidence, not name mentions.
+      // "Phase 1 complete" or a phase-transition marker, not "plan-ceo-review"
+      // as a bare string (which appears in the prompt itself).
+      const reachedPhase1 = /Phase\s+1\s+(complete|done|finished)|CEO\s+Review\s+(complete|done|approved)|Strategy\s*&\s*Scope\s+(complete|done)|Phase\s+2\s+(started|begin)/i.test(out);
       expect(reachedPhase1).toBe(true);
 
-      logCost(result);
-      recordE2E('autoplan-dual-voice', result);
+      logCost('autoplan-dual-voice', result);
+      recordE2E(evalCollector, 'autoplan-dual-voice', 'Autoplan dual-voice E2E', result, {
+        passed: claudeVoiceFired && (codexVoiceFired || codexUnavailable) && reachedPhase1,
+      });
     },
     330_000, // per-test timeout slightly > spawn timeout so cleanup can run
   );

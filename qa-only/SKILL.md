@@ -607,7 +607,7 @@ Skill: </skill-name-if-running>
 - Background discipline — do NOT announce each commit to the user. They can see
   `git log` whenever they want.
 
-**When `/checkpoint resume` runs,** it parses `[gstack-context]` blocks from WIP
+**When `/context-restore` runs,** it parses `[gstack-context]` blocks from WIP
 commits on the current branch to reconstruct session state. When `/ship` runs, it
 filter-squashes WIP commits only (preserving non-WIP commits) via
 `git rebase --autosquash` so the PR contains clean bisectable commits.
@@ -625,7 +625,7 @@ During long-running skill sessions, periodically write a brief `[PROGRESS]` summ
 
 If you notice you're going in circles — repeating the same diagnostic, re-reading the
 same file, or trying variants of a failed fix — STOP and reassess. Consider escalating
-or calling /checkpoint to save progress and start fresh.
+or calling /context-save to save progress and start fresh.
 
 This is a soft nudge, not a measurable feature. No thresholds, no enforcement. The
 goal is self-awareness during long sessions. If the session stays short, skip it.

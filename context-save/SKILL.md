@@ -1,18 +1,15 @@
 ---
-name: codex
-preamble-tier: 3
+name: context-save
+preamble-tier: 2
 version: 1.0.0
 description: |
-  OpenAI Codex CLI wrapper — three modes. Code review: independent diff review via
-  codex review with pass/fail gate. Challenge: adversarial mode that tries to break
-  your code. Consult: ask codex anything with session continuity for follow-ups.
-  The "200 IQ autistic developer" second opinion. Use when asked to "codex review",
-  "codex challenge", "ask codex", "second opinion", or "consult codex". (gstack)
-  Voice triggers (speech-to-text aliases): "code x", "code ex", "get another opinion".
-triggers:
-  - codex review
-  - second opinion
-  - outside voice challenge
+  Save working context. Captures git state, decisions made, and remaining work
+  so any future session can pick up without losing a beat.
+  Use when asked to "save progress", "save state", "context save", or
+  "save my work". Pair with /context-restore to resume later.
+  Formerly /checkpoint — renamed because Claude Code treats /checkpoint as a
+  native rewind alias in current environments, which was shadowing this skill.
+  (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -20,6 +17,11 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+triggers:
+  - save progress
+  - save state
+  - save my work
+  - context save
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -54,7 +56,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"codex","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"context-save","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -79,7 +81,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"codex","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"context-save","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -644,7 +646,7 @@ Progress summaries must NEVER mutate git state — they are reporting, not commi
 
 **After the user answers.** Log it (non-fatal — best-effort):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"codex","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"context-save","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 **Offer inline tune (two-way only, skip on one-way).** Add one line:
@@ -666,24 +668,6 @@ Write (only after confirmation for free-form):
 
 Exit code 2 = write rejected as not user-originated. Tell the user plainly; do not
 retry. On success, confirm inline: "Set `<id>` → `<preference>`. Active immediately."
-
-## Repo Ownership — See Something, Say Something
-
-`REPO_MODE` controls how to handle issues outside your branch:
-- **`solo`** — You own everything. Investigate and offer to fix proactively.
-- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
-
-Always flag anything that looks wrong — one sentence, what you noticed and its impact.
-
-## Search Before Building
-
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
-- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
-
-**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
-```bash
-jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
-```
 
 ## Completion Status Protocol
 
@@ -791,607 +775,346 @@ If a richer review report already exists, skip — review skills wrote it.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
-## Step 0: Detect platform and base branch
+# /context-save — Save Working Context
 
-First, detect the git hosting platform from the remote URL:
+You are a **Staff Engineer who keeps meticulous session notes**. Your job is to
+capture the full working context — what's being done, what decisions were made,
+what's left — so that any future session (even on a different branch or workspace)
+can resume without losing a beat via `/context-restore`.
 
-```bash
-git remote get-url origin 2>/dev/null
-```
-
-- If the URL contains "github.com" → platform is **GitHub**
-- If the URL contains "gitlab" → platform is **GitLab**
-- Otherwise, check CLI availability:
-  - `gh auth status 2>/dev/null` succeeds → platform is **GitHub** (covers GitHub Enterprise)
-  - `glab auth status 2>/dev/null` succeeds → platform is **GitLab** (covers self-hosted)
-  - Neither → **unknown** (use git-native commands only)
-
-Determine which branch this PR/MR targets, or the repo's default branch if no
-PR/MR exists. Use the result as "the base branch" in all subsequent steps.
-
-**If GitHub:**
-1. `gh pr view --json baseRefName -q .baseRefName` — if succeeds, use it
-2. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` — if succeeds, use it
-
-**If GitLab:**
-1. `glab mr view -F json 2>/dev/null` and extract the `target_branch` field — if succeeds, use it
-2. `glab repo view -F json 2>/dev/null` and extract the `default_branch` field — if succeeds, use it
-
-**Git-native fallback (if unknown platform, or CLI commands fail):**
-1. `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`
-2. If that fails: `git rev-parse --verify origin/main 2>/dev/null` → use `main`
-3. If that fails: `git rev-parse --verify origin/master 2>/dev/null` → use `master`
-
-If all fail, fall back to `main`.
-
-Print the detected base branch name. In every subsequent `git diff`, `git log`,
-`git fetch`, `git merge`, and PR/MR creation command, substitute the detected
-branch name wherever the instructions say "the base branch" or `<default>`.
+**HARD GATE:** Do NOT implement code changes. This skill captures state only.
 
 ---
 
-# /codex — Multi-AI Second Opinion
+## Detect command
 
-You are running the `/codex` skill. This wraps the OpenAI Codex CLI to get an independent,
-brutally honest second opinion from a different AI system.
+Parse the user's input to determine the mode:
 
-Codex is the "200 IQ autistic developer" — direct, terse, technically precise, challenges
-assumptions, catches things you might miss. Present its output faithfully, not summarized.
+- `/context-save` or `/context-save <title>` → **Save**
+- `/context-save list` → **List**
 
----
+If the user provides a title after the command (e.g., `/context-save auth refactor`),
+use it as the title. Otherwise, infer a title from the current work.
 
-## Step 0: Check codex binary
-
-```bash
-CODEX_BIN=$(which codex 2>/dev/null || echo "")
-[ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
-```
-
-If `NOT_FOUND`: stop and tell the user:
-"Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
-
-If `NOT_FOUND`, also log the event:
-```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null && _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
-```
+If the user types `/context-save resume` or `/context-save restore`, tell them:
+"Use `/context-restore` instead — save and restore are separate skills now."
 
 ---
 
-## Step 0.5: Auth probe + version check
+## Save flow
 
-Before building expensive prompts, verify Codex has valid auth AND the installed
-CLI version isn't in the known-bad list. Sourcing `gstack-codex-probe` loads the
-shared helpers that both `/codex` and `/autoplan` use.
+### Step 1: Gather state
 
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+```
 
-if ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
-  echo "AUTH_FAILED"
+Collect the current working state:
+
+```bash
+echo "=== BRANCH ==="
+git rev-parse --abbrev-ref HEAD 2>/dev/null
+echo "=== STATUS ==="
+git status --short 2>/dev/null
+echo "=== DIFF STAT ==="
+git diff --stat 2>/dev/null
+echo "=== STAGED DIFF STAT ==="
+git diff --cached --stat 2>/dev/null
+echo "=== RECENT LOG ==="
+git log --oneline -10 2>/dev/null
+```
+
+### Step 2: Summarize context
+
+Using the gathered state plus your conversation history, produce a summary covering:
+
+1. **What's being worked on** — the high-level goal or feature
+2. **Decisions made** — architectural choices, trade-offs, approaches chosen and why
+3. **Remaining work** — concrete next steps, in priority order
+4. **Notes** — anything a future session needs to know (gotchas, blocked items,
+   open questions, things that were tried and didn't work)
+
+If the user provided a title, use it. Otherwise, infer a concise title (3-6 words)
+from the work being done.
+
+### Step 3: Compute session duration
+
+Try to determine how long this session has been active:
+
+```bash
+if [ -n "$_TEL_START" ]; then
+  START_EPOCH="$_TEL_START"
+elif [ -n "$PPID" ]; then
+  START_EPOCH=$(ps -o lstart= -p $PPID 2>/dev/null | xargs -I{} date -jf "%c" "{}" "+%s" 2>/dev/null || echo "")
 fi
-_gstack_codex_version_check   # warns if known-bad, non-blocking
-```
-
-If the output contains `AUTH_FAILED`, stop and tell the user:
-"No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
-
-If the version check printed a `WARN:` line, pass it through to the user verbatim
-(non-blocking — Codex may still work, but the user should upgrade).
-
-The probe multi-signal auth logic accepts: `$CODEX_API_KEY` set, `$OPENAI_API_KEY`
-set, or `${CODEX_HOME:-~/.codex}/auth.json` exists. Avoids false-negatives for
-env-auth users (CI, platform engineers) that file-only checks would reject.
-
-**Update the known-bad list** in `bin/gstack-codex-probe` when a new Codex CLI version
-regresses. Current entries (`0.120.0`, `0.120.1`, `0.120.2`) trace to the stdin
-deadlock fixed in #972.
-
----
-
-## Step 1: Detect mode
-
-Parse the user's input to determine which mode to run:
-
-1. `/codex review` or `/codex review <instructions>` — **Review mode** (Step 2A)
-2. `/codex challenge` or `/codex challenge <focus>` — **Challenge mode** (Step 2B)
-3. `/codex` with no arguments — **Auto-detect:**
-   - Check for a diff (with fallback if origin isn't available):
-     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
-   - If a diff exists, use AskUserQuestion:
-     ```
-     Codex detected changes against the base branch. What should it do?
-     A) Review the diff (code review with pass/fail gate)
-     B) Challenge the diff (adversarial — try to break it)
-     C) Something else — I'll provide a prompt
-     ```
-   - If no diff, check for plan files scoped to the current project:
-     `ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1`
-     If no project-scoped match, fall back to: `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-     but warn the user: "Note: this plan may be from a different project."
-   - If a plan file exists, offer to review it
-   - Otherwise, ask: "What would you like to ask Codex?"
-4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
-
-**Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
-note it and remove it from the prompt text before passing to Codex. When `--xhigh`
-is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
-per-mode default below. Otherwise, use the per-mode defaults:
-- Review (2A): `high` — bounded diff input, needs thoroughness
-- Challenge (2B): `high` — adversarial but bounded by diff
-- Consult (2C): `medium` — large context, interactive, needs speed
-
----
-
-## Filesystem Boundary
-
-All prompts sent to Codex MUST be prefixed with this boundary instruction:
-
-> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
-
-This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
-mode (persona prompt). Reference this section as "the filesystem boundary" below.
-
----
-
-## Step 2A: Review Mode
-
-Run Codex code review against the current branch diff.
-
-1. Create temp files for output capture:
-```bash
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
-```
-
-2. Run the review (5-minute timeout). **Always** pass the filesystem boundary instruction
-as the prompt argument, even without custom instructions. If the user provided custom
-instructions, append them after the boundary separated by a newline:
-```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-# Fix 1: wrap with timeout. 330s (5.5min) is slightly longer than the Bash 300s
-# so the shell wrapper only fires if Bash's own timeout doesn't.
-_gstack_codex_timeout_wrapper 330 codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
-_CODEX_EXIT=$?
-if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "330"
-  _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 5.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+if [ -n "$START_EPOCH" ]; then
+  NOW=$(date +%s)
+  DURATION=$((NOW - START_EPOCH))
+  echo "SESSION_DURATION_S=$DURATION"
+else
+  echo "SESSION_DURATION_S=unknown"
 fi
 ```
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+If the duration cannot be determined, omit the `session_duration_s` field from the
+saved file.
 
-Use `timeout: 300000` on the Bash call. If the user provided custom instructions
-(e.g., `/codex review focus on security`), append them after the boundary:
+### Step 4: Write saved-context file
+
+Compute the path in bash (NOT in the LLM prompt) so user-supplied titles can't
+inject shell metacharacters into any subsequent command. The sanitizer is an
+allowlist: only `a-z 0-9 - .` survive.
+
 ```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-focus on security" --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+CHECKPOINT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/checkpoints"
+mkdir -p "$CHECKPOINT_DIR"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+# Bash-side title sanitize. Pass the raw title as $1 when running this block.
+# Example: TITLE_RAW="wintermute progress" bash -c '...'
+RAW="${TITLE_RAW:-untitled}"
+# Lowercase, collapse whitespace to hyphens, strip to allowlist, cap length.
+TITLE_SLUG=$(printf '%s' "$RAW" | tr '[:upper:]' '[:lower:]' | tr -s ' \t' '-' | tr -cd 'a-z0-9.-' | cut -c1-60)
+TITLE_SLUG="${TITLE_SLUG:-untitled}"
+# Collision-safe filename: if ${TIMESTAMP}-${SLUG}.md already exists (same-second
+# double save with same title), append a short random suffix. Filenames are
+# append-only — never overwrite.
+FILE="${CHECKPOINT_DIR}/${TIMESTAMP}-${TITLE_SLUG}.md"
+if [ -e "$FILE" ]; then
+  SUFFIX=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c 4 || printf '%04x' "$$")
+  FILE="${CHECKPOINT_DIR}/${TIMESTAMP}-${TITLE_SLUG}-${SUFFIX}.md"
+fi
+echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
+echo "TIMESTAMP=$TIMESTAMP"
+echo "FILE=$FILE"
 ```
 
-3. Capture the output. Then parse cost from stderr:
-```bash
-grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
+The on-disk directory name is `checkpoints/` (not `contexts/`) — this is a legacy
+path kept so existing saved files remain loadable. Users never see it.
+
+Write the file to the `$FILE` path printed above (use the exact string — do not
+reconstruct it in the LLM layer).
+
+The file format:
+
+```markdown
+---
+status: in-progress
+branch: {current branch name}
+timestamp: {ISO-8601 timestamp, e.g. 2026-04-18T14:30:00-07:00}
+session_duration_s: {computed duration, omit if unknown}
+files_modified:
+  - path/to/file1
+  - path/to/file2
+---
+
+## Working on: {title}
+
+### Summary
+
+{1-3 sentences describing the high-level goal and current progress}
+
+### Decisions Made
+
+{Bulleted list of architectural choices, trade-offs, and reasoning}
+
+### Remaining Work
+
+{Numbered list of concrete next steps, in priority order}
+
+### Notes
+
+{Gotchas, blocked items, open questions, things tried that didn't work}
 ```
 
-4. Determine gate verdict by checking the review output for critical findings.
-   If the output contains `[P1]` — the gate is **FAIL**.
-   If no `[P1]` markers are found (only `[P2]` or no findings) — the gate is **PASS**.
+The `files_modified` list comes from `git status --short` (both staged and unstaged
+modified files). Use relative paths from the repo root.
 
-5. Present the output:
-
-```
-CODEX SAYS (code review):
-════════════════════════════════════════════════════════════
-<full codex output, verbatim — do not truncate or summarize>
-════════════════════════════════════════════════════════════
-GATE: PASS                    Tokens: 14,331 | Est. cost: ~$0.12
-```
-
-or
+After writing, confirm to the user:
 
 ```
-GATE: FAIL (N critical findings)
+CONTEXT SAVED
+════════════════════════════════════════
+Title:    {title}
+Branch:   {branch}
+File:     {path to saved file}
+Modified: {N} files
+Duration: {duration or "unknown"}
+════════════════════════════════════════
+
+Restore later with /context-restore.
 ```
-
-6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
-   earlier in this conversation, compare the two sets of findings:
-
-```
-CROSS-MODEL ANALYSIS:
-  Both found: [findings that overlap between Claude and Codex]
-  Only Codex found: [findings unique to Codex]
-  Only Claude found: [findings unique to Claude's /review]
-  Agreement rate: X% (N/M total unique findings overlap)
-```
-
-7. Persist the review result:
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
-```
-
-Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
-GATE ("pass" or "fail"), findings (count of [P1] + [P2] markers),
-findings_fixed (count of findings that were addressed/fixed before shipping).
-
-8. Clean up temp files:
-```bash
-rm -f "$TMPERR"
-```
-
-## Plan File Review Report
-
-After displaying the Review Readiness Dashboard in conversation output, also update the
-**plan file** itself so review status is visible to anyone reading the plan.
-
-### Detect the plan file
-
-1. Check if there is an active plan file in this conversation (the host provides plan file
-   paths in system messages — look for plan file references in the conversation context).
-2. If not found, skip this section silently — not every review runs in plan mode.
-
-### Generate the report
-
-Read the review log output you already have from the Review Readiness Dashboard step above.
-Parse each JSONL entry. Each skill logs different fields:
-
-- **plan-ceo-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`mode\`, \`scope_proposed\`, \`scope_accepted\`, \`scope_deferred\`, \`commit\`
-  → Findings: "{scope_proposed} proposals, {scope_accepted} accepted, {scope_deferred} deferred"
-  → If scope fields are 0 or missing (HOLD/REDUCTION mode): "mode: {mode}, {critical_gaps} critical gaps"
-- **plan-eng-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`issues_found\`, \`mode\`, \`commit\`
-  → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
-- **plan-design-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`unresolved\`, \`decisions_made\`, \`commit\`
-  → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
-- **plan-devex-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`product_type\`, \`tthw_current\`, \`tthw_target\`, \`mode\`, \`persona\`, \`competitive_tier\`, \`unresolved\`, \`commit\`
-  → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
-- **devex-review**: \`status\`, \`overall_score\`, \`product_type\`, \`tthw_measured\`, \`dimensions_tested\`, \`dimensions_inferred\`, \`boomerang\`, \`commit\`
-  → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
-- **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
-  → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
-
-All fields needed for the Findings column are now present in the JSONL entries.
-For the review you just completed, you may use richer details from your own Completion
-Summary. For prior reviews, use the JSONL fields directly — they contain all required data.
-
-Produce this markdown table:
-
-\`\`\`markdown
-## GSTACK REVIEW REPORT
-
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
-| Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
-| DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
-\`\`\`
-
-Below the table, add these lines (omit any that are empty/not applicable):
-
-- **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
-- **UNRESOLVED:** total unresolved decisions across all reviews
-- **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
-  If Eng Review is not CLEAR and not skipped globally, append "eng review required".
-
-### Write to the plan file
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
-file you are allowed to edit in plan mode. The plan file review report is part of the
-plan's living status.
-
-- Search the plan file for a \`## GSTACK REVIEW REPORT\` section **anywhere** in the file
-  (not just at the end — content may have been added after it).
-- If found, **replace it** entirely using the Edit tool. Match from \`## GSTACK REVIEW REPORT\`
-  through either the next \`## \` heading or end of file, whichever comes first. This ensures
-  content added after the report section is preserved, not eaten. If the Edit fails
-  (e.g., concurrent edit changed the content), re-read the plan file and retry once.
-- If no such section exists, **append it** to the end of the plan file.
-- Always place it as the very last section in the plan file. If it was found mid-file,
-  move it: delete the old location and append at the end.
 
 ---
 
-## Step 2B: Challenge (Adversarial) Mode
+<<<<<<< HEAD:checkpoint/SKILL.md.tmpl
+## Resume flow
 
-Codex tries to break your code — finding edge cases, race conditions, security holes,
-and failure modes that a normal review would miss.
-
-1. Construct the adversarial prompt. **Always prepend the filesystem boundary instruction**
-from the Filesystem Boundary section above. If the user provided a focus area
-(e.g., `/codex challenge security`), include it after the boundary:
-
-Default prompt (no focus):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems."
-
-With focus (e.g., "security"):
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
-
-2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls (5-minute timeout):
-
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+### Step 1: Find checkpoints
 
 ```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-# Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
-# capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
-TMPERR=${TMPERR:-$(mktemp /tmp/codex-err-XXXXXX.txt)}
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
-import sys, json
-turn_completed_count = 0
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        t = obj.get('type','')
-        if t == 'item.completed' and 'item' in obj:
-            item = obj['item']
-            itype = item.get('type','')
-            text = item.get('text','')
-            if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}', flush=True)
-                print(flush=True)
-            elif itype == 'agent_message' and text:
-                print(text, flush=True)
-            elif itype == 'command_execution':
-                cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}', flush=True)
-        elif t == 'turn.completed':
-            turn_completed_count += 1
-            usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}', flush=True)
-    except: pass
-# Fix 2: completeness check — warn if no turn.completed received
-if turn_completed_count == 0:
-    print('[codex warning] No turn.completed event received — possible mid-stream disconnect.', flush=True, file=sys.stderr)
-"
-_CODEX_EXIT=${PIPESTATUS[0]}
-# Fix 1: hang detection — log + surface actionable message
-if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
-  _gstack_codex_log_hang "challenge" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
-fi
-# Fix 2: surface auth errors from captured stderr instead of dropping them
-if grep -qiE "auth|login|unauthorized" "$TMPERR" 2>/dev/null; then
-  echo "[codex auth error] $(head -1 "$TMPERR")"
-  _gstack_codex_log_event "codex_auth_failed"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
+if [ -d "$CHECKPOINT_DIR" ]; then
+  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -20
+else
+  echo "NO_CHECKPOINTS"
 fi
 ```
 
-This parses codex's JSONL events to extract reasoning traces, tool calls, and the final
-response. The `[codex thinking]` lines show what codex reasoned through before its answer.
+List checkpoints from **all branches** (checkpoint files contain the branch name
+in their frontmatter, so all files in the directory are candidates). This enables
+Conductor workspace handoff — a checkpoint saved on one branch can be resumed from
+another.
 
-3. Present the full streamed output:
+### Step 1.5: Check for WIP commit context (continuous checkpoint mode)
 
-```
-CODEX SAYS (adversarial challenge):
-════════════════════════════════════════════════════════════
-<full output from above, verbatim>
-════════════════════════════════════════════════════════════
-Tokens: N | Est. cost: ~$X.XX
-```
+If `CHECKPOINT_MODE` was `"continuous"` during prior work, the branch may have
+`WIP:` commits with structured `[gstack-context]` blocks in their bodies. These
+are a second recovery trail alongside the markdown checkpoint files.
 
----
-
-## Step 2C: Consult Mode
-
-Ask Codex anything about the codebase. Supports session continuity for follow-ups.
-
-1. **Check for existing session:**
 ```bash
-cat .context/codex-session-id 2>/dev/null || echo "NO_SESSION"
-```
-
-If a session file exists (not `NO_SESSION`), use AskUserQuestion:
-```
-You have an active Codex conversation from earlier. Continue it or start fresh?
-A) Continue the conversation (Codex remembers the prior context)
-B) Start a new conversation
-```
-
-2. Create temp files:
-```bash
-TMPRESP=$(mktemp /tmp/codex-resp-XXXXXX.txt)
-TMPERR=$(mktemp /tmp/codex-err-XXXXXX.txt)
-```
-
-3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
-or if plan files exist and the user said `/codex` with no arguments:
-```bash
-setopt +o nomatch 2>/dev/null || true  # zsh compat
-ls -t ~/.claude/plans/*.md 2>/dev/null | xargs grep -l "$(basename $(pwd))" 2>/dev/null | head -1
-```
-If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null | head -1`
-but warn: "Note: this plan may be from a different project — verify before sending to Codex."
-
-**IMPORTANT — embed content, don't reference path:** Codex runs sandboxed to the repo
-root (`-C`) and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
-read the plan file yourself and embed its FULL CONTENT in the prompt below. Do NOT tell
-Codex the file path or ask it to read the plan file — it will waste 10+ tool calls
-searching and fail.
-
-Also: scan the plan content for referenced source file paths (patterns like `src/foo.ts`,
-`lib/bar.py`, paths containing `/` that exist in the repo). If found, list them in the
-prompt so Codex reads them directly instead of discovering them via rg/find.
-
-**Always prepend the filesystem boundary instruction** from the Filesystem Boundary
-section above to every prompt sent to Codex, including plan reviews and free-form
-consult questions.
-
-Prepend the boundary and persona to the user's prompt:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-You are a brutally honest technical reviewer. Review this plan for: logical gaps and
-unstated assumptions, missing error handling or edge cases, overcomplexity (is there a
-simpler approach?), feasibility risks (what could go wrong?), and missing dependencies
-or sequencing issues. Be direct. Be terse. No compliments. Just the problems.
-Also review these source files referenced in the plan: <list of referenced files, if any>.
-
-THE PLAN:
-<full plan content, embedded verbatim>"
-
-For non-plan consult prompts (user typed `/codex <question>`), still prepend the boundary:
-"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-<user's question>"
-
-4. Run codex exec with **JSONL output** to capture reasoning traces (5-minute timeout):
-
-If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
-
-For a **new session:**
-```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-# Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        t = obj.get('type','')
-        if t == 'thread.started':
-            tid = obj.get('thread_id','')
-            if tid: print(f'SESSION_ID:{tid}', flush=True)
-        elif t == 'item.completed' and 'item' in obj:
-            item = obj['item']
-            itype = item.get('type','')
-            text = item.get('text','')
-            if itype == 'reasoning' and text:
-                print(f'[codex thinking] {text}', flush=True)
-                print(flush=True)
-            elif itype == 'agent_message' and text:
-                print(text, flush=True)
-            elif itype == 'command_execution':
-                cmd = item.get('command','')
-                if cmd: print(f'[codex ran] {cmd}', flush=True)
-        elif t == 'turn.completed':
-            usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}', flush=True)
-    except: pass
-"
-# Fix 1: hang detection for Consult new-session (mirrors Challenge + resume)
-_CODEX_EXIT=${PIPESTATUS[0]}
-if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
-  _gstack_codex_log_hang "consult" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+_BRANCH=$(git branch --show-current 2>/dev/null)
+# Detect if this branch has any WIP commits against the nearest remote ancestor
+_BASE=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/master 2>/dev/null)
+if [ -n "$_BASE" ]; then
+  WIP_COMMITS=$(git log "$_BASE"..HEAD --grep="^WIP:" --format="%H" 2>/dev/null | head -20)
+  if [ -n "$WIP_COMMITS" ]; then
+    echo "WIP_COMMITS_FOUND"
+    # Extract [gstack-context] blocks from each WIP commit body
+    for SHA in $WIP_COMMITS; do
+      echo "--- commit $SHA ---"
+      git log -1 "$SHA" --format="%s%n%n%b" 2>/dev/null | \
+        awk '/\[gstack-context\]/,/\[\/gstack-context\]/ { print }'
+    done
+  else
+    echo "NO_WIP_COMMITS"
+  fi
 fi
 ```
 
-For a **resumed session** (user chose "Continue"):
+If `WIP_COMMITS_FOUND`: Read the extracted `[gstack-context]` blocks. Each block
+represents a logical unit of prior work with Decisions/Remaining/Tried/Skill.
+Merge these with the markdown checkpoint file to reconstruct session state. The
+git history shows the chronological arc; the markdown checkpoint shows the
+intentional save points. Both matter.
+
+**Important:** Do NOT delete WIP commits during resume. They remain the recovery
+trail until /ship squashes them into clean commits during PR creation.
+
+### Step 2: Load checkpoint
+
+If the user specified a checkpoint (by number, title fragment, or date), find the
+matching file. Otherwise, load the **most recent** checkpoint.
+
+Read the checkpoint file and present a summary:
+
+```
+RESUMING CHECKPOINT
+════════════════════════════════════════
+Title:       {title}
+Branch:      {branch from checkpoint}
+Saved:       {timestamp, human-readable}
+Duration:    Last session was {formatted duration} (if available)
+Status:      {status}
+════════════════════════════════════════
+
+### Summary
+{summary from checkpoint}
+
+### Remaining Work
+{remaining work items from checkpoint}
+
+### Notes
+{notes from checkpoint}
+```
+
+If the current branch differs from the checkpoint's branch, note this:
+"This checkpoint was saved on branch `{branch}`. You are currently on
+`{current branch}`. You may want to switch branches before continuing."
+
+### Step 3: Offer next steps
+
+After presenting the checkpoint, ask via AskUserQuestion:
+
+- A) Continue working on the remaining items
+- B) Show the full checkpoint file
+- C) Just needed the context, thanks
+
+If A, summarize the first remaining work item and suggest starting there.
+
+---
+
+=======
+>>>>>>> origin/main:context-save/SKILL.md.tmpl
+## List flow
+
+### Step 1: Gather saved contexts
+
 ```bash
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-# Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
-<same python streaming parser as above, with flush=True on all print() calls>
-"
-# Fix 1: same hang detection pattern as new-session block
-_CODEX_EXIT=${PIPESTATUS[0]}
-if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
-  _gstack_codex_log_hang "consult-resume" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+CHECKPOINT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/checkpoints"
+if [ -d "$CHECKPOINT_DIR" ]; then
+  echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
+  # Use find + sort instead of ls -1t: filename YYYYMMDD-HHMMSS prefix is the
+  # canonical order (stable across copies/rsync; mtime is not), and empty-result
+  # behavior is clean (no files → no output, no "lists cwd" fallback).
+  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r
+else
+  echo "NO_CHECKPOINTS"
 fi
-
-5. Capture session ID from the streamed output. The parser prints `SESSION_ID:<id>`
-   from the `thread.started` event. Save it for follow-ups:
-```bash
-mkdir -p .context
-```
-Save the session ID printed by the parser (the line starting with `SESSION_ID:`)
-to `.context/codex-session-id`.
-
-6. Present the full streamed output:
-
-```
-CODEX SAYS (consult):
-════════════════════════════════════════════════════════════
-<full output, verbatim — includes [codex thinking] traces>
-════════════════════════════════════════════════════════════
-Tokens: N | Est. cost: ~$X.XX
-Session saved — run /codex again to continue this conversation.
 ```
 
-7. After presenting, note any points where Codex's analysis differs from your own
-   understanding. If there is a disagreement, flag it:
-   "Note: Claude Code disagrees on X because Y."
+### Step 2: Display table
 
----
+**Default behavior:** Show saved contexts for the **current branch** only.
 
-## Model & Reasoning
+If the user passes `--all` (e.g., `/context-save list --all`), show contexts
+from **all branches**.
 
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
+Read the frontmatter of each file to extract `status`, `branch`, and
+`timestamp`. Parse the title from the filename (the part after the timestamp).
 
-**Reasoning effort (per-mode defaults):**
-- **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
-- **Challenge (2B):** `high` — adversarial but bounded by diff size
-- **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
+Present as a table:
 
-`xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
-tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
-(e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
+```
+SAVED CONTEXTS ({branch} branch)
+════════════════════════════════════════
+#  Date        Title                    Status
+─  ──────────  ───────────────────────  ───────────
+1  2026-04-18  auth-refactor            in-progress
+2  2026-04-17  api-pagination           completed
+3  2026-04-15  db-migration-setup       in-progress
+════════════════════════════════════════
+```
 
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
+If `--all` is used, add a Branch column:
 
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
-or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
+```
+SAVED CONTEXTS (all branches)
+════════════════════════════════════════
+#  Date        Title                    Branch              Status
+─  ──────────  ───────────────────────  ──────────────────  ───────────
+1  2026-04-18  auth-refactor            feat/auth           in-progress
+2  2026-04-17  api-pagination           main                completed
+3  2026-04-15  db-migration-setup       feat/db-migration   in-progress
+════════════════════════════════════════
+```
 
----
-
-## Cost Estimation
-
-Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
-
-Display as: `Tokens: N`
-
-If token count is not available, display: `Tokens: unknown`
-
----
-
-## Error Handling
-
-- **Binary not found:** Detected in Step 0. Stop with install instructions.
-- **Auth error:** Codex prints an auth error to stderr. Surface the error:
-  "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
-- **Timeout (Bash outer gate):** If the Bash call times out (5 min for Review/Challenge, 10 min for Consult), tell the user:
-  "Codex timed out. The prompt may be too large or the API may be slow. Try again or use a smaller scope."
-- **Timeout (inner `timeout` wrapper, exit 124):** If the shell `timeout 600` wrapper fires first, the skill's hang-detection block auto-logs a telemetry event + operational learning and prints: "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
-- **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
-  "Codex returned no response. Check stderr for errors."
-- **Session resume failure:** If resume fails, delete the session file and start fresh.
+If there are no saved contexts, tell the user: "No saved contexts yet. Run
+`/context-save` to save your current working state."
 
 ---
 
 ## Important Rules
 
-- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
-- **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
-  before showing it. Show it in full inside the CODEX SAYS block.
-- **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
-- **5-minute timeout** on all Bash calls to codex (`timeout: 300000`).
-- **No double-reviewing.** If the user already ran `/review`, Codex provides a second
-  independent opinion. Do not re-run Claude Code's own review.
-- **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
-  that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
-  `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
-  warning: "Codex appears to have read gstack skill files instead of reviewing your
-  code. Consider retrying."
+- **Never modify code.** This skill only reads state and writes the context file.
+- **Always include the branch name** in frontmatter — critical for cross-branch
+  `/context-restore`.
+- **Saved files are append-only.** Never overwrite or delete existing files. Each
+  save creates a new file.
+- **Infer, don't interrogate.** Use git state and conversation context to fill in
+  the file. Only use AskUserQuestion if the title genuinely cannot be inferred.
+- **This is a gstack skill, not a Claude Code built-in.** When the user types
+  `/context-save`, invoke this skill via the Skill tool. The old `/checkpoint`
+  name collided with Claude Code's native `/rewind` alias — the rename fixed that.

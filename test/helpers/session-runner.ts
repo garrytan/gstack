@@ -126,6 +126,10 @@ export async function runSkillTest(options: {
   runId?: string;
   /** Model to use. Defaults to claude-sonnet-4-6 (overridable via EVALS_MODEL env). */
   model?: string;
+  /** Extra env vars merged into the spawned claude -p process. Useful for
+   *  per-test GSTACK_HOME overrides so the test doesn't have to spell out
+   *  env setup in the prompt itself. */
+  env?: Record<string, string>;
 }): Promise<SkillTestResult> {
   const {
     prompt,
@@ -135,6 +139,7 @@ export async function runSkillTest(options: {
     timeout = 120_000,
     testName,
     runId,
+    env: extraEnv,
   } = options;
   const model = options.model ?? process.env.EVALS_MODEL ?? 'claude-sonnet-4-6';
 
@@ -171,6 +176,7 @@ export async function runSkillTest(options: {
 
   const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | claude ${args.map(a => `"${a}"`).join(' ')}`], {
     cwd: workingDirectory,
+    env: extraEnv ? { ...process.env, ...extraEnv } : undefined,
     stdout: 'pipe',
     stderr: 'pipe',
   });

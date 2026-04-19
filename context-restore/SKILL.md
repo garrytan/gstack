@@ -1,26 +1,27 @@
 ---
-name: checkpoint
+name: context-restore
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Save and resume working state checkpoints. Captures git state, decisions made,
-  and remaining work so you can pick up exactly where you left off — even across
-  Conductor workspace handoffs between branches.
-  Use when asked to "checkpoint", "save progress", "where was I", "resume",
-  "what was I working on", or "pick up where I left off".
-  Proactively suggest when a session is ending, the user is switching context,
-  or before a long break. (gstack)
+  Restore working context saved earlier by /context-save. Loads the most recent
+  saved state (across all branches by default) so you can pick up where you
+  left off — even across Conductor workspace handoffs.
+  Use when asked to "resume", "restore context", "where was I", or
+  "pick up where I left off". Pair with /context-save.
+  Formerly /checkpoint resume — renamed because Claude Code treats /checkpoint
+  as a native rewind alias in current environments. (gstack)
 allowed-tools:
   - Bash
   - Read
-  - Write
   - Glob
   - Grep
   - AskUserQuestion
 triggers:
-  - save progress
-  - checkpoint this
   - resume where i left off
+  - restore context
+  - where was i
+  - pick up where i left off
+  - context restore
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -55,7 +56,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"checkpoint","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"context-restore","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -80,7 +81,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"checkpoint","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"context-restore","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -609,7 +610,7 @@ Skill: </skill-name-if-running>
 - Background discipline — do NOT announce each commit to the user. They can see
   `git log` whenever they want.
 
-**When `/checkpoint resume` runs,** it parses `[gstack-context]` blocks from WIP
+**When `/context-restore` runs,** it parses `[gstack-context]` blocks from WIP
 commits on the current branch to reconstruct session state. When `/ship` runs, it
 filter-squashes WIP commits only (preserving non-WIP commits) via
 `git rebase --autosquash` so the PR contains clean bisectable commits.
@@ -627,7 +628,7 @@ During long-running skill sessions, periodically write a brief `[PROGRESS]` summ
 
 If you notice you're going in circles — repeating the same diagnostic, re-reading the
 same file, or trying variants of a failed fix — STOP and reassess. Consider escalating
-or calling /checkpoint to save progress and start fresh.
+or calling /context-save to save progress and start fresh.
 
 This is a soft nudge, not a measurable feature. No thresholds, no enforcement. The
 goal is self-awareness during long sessions. If the session stays short, skip it.
@@ -645,7 +646,7 @@ Progress summaries must NEVER mutate git state — they are reporting, not commi
 
 **After the user answers.** Log it (non-fatal — best-effort):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"checkpoint","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"context-restore","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 **Offer inline tune (two-way only, skip on one-way).** Add one line:
@@ -774,314 +775,128 @@ If a richer review report already exists, skip — review skills wrote it.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
-# /checkpoint — Save and Resume Working State
+# /context-restore — Restore Saved Working Context
 
-You are a **Staff Engineer who keeps meticulous session notes**. Your job is to
-capture the full working context — what's being done, what decisions were made,
-what's left — so that any future session (even on a different branch or workspace)
-can resume without losing a beat.
+You are a **Staff Engineer reading a colleague's meticulous session notes** to
+pick up exactly where they left off. Your job is to load the most recent saved
+context and present it clearly so the user can resume work without losing a beat.
 
-**HARD GATE:** Do NOT implement code changes. This skill captures and restores
-context only.
+**HARD GATE:** Do NOT implement code changes. This skill only reads saved
+context files and presents the summary.
+
+**Default: load the most recent saved context across ALL branches.** This is
+intentionally different from `/context-save list`, which defaults to the current
+branch. `/context-restore` is for Conductor workspace handoff — a context saved
+on one branch can be resumed from another.
+
+**Do NOT filter the candidate set by current branch.** The `list` flow does
+that; `/context-restore` does not.
 
 ---
 
 ## Detect command
 
-Parse the user's input to determine which command to run:
+Parse the user's input:
 
-- `/checkpoint` or `/checkpoint save` → **Save**
-- `/checkpoint resume` → **Resume**
-- `/checkpoint list` → **List**
-
-If the user provides a title after the command (e.g., `/checkpoint auth refactor`),
-use it as the checkpoint title. Otherwise, infer a title from the current work.
+- `/context-restore` → load the most recent saved context (any branch)
+- `/context-restore <title-fragment-or-number>` → load a specific saved context
+- `/context-restore list` → tell the user "Use `/context-save list` — listing
+  lives on the save side" and exit. No mode detection here.
 
 ---
 
-## Save flow
+## Restore flow
 
-### Step 1: Gather state
+### Step 1: Find saved contexts
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-```
-
-Collect the current working state:
-
-```bash
-echo "=== BRANCH ==="
-git rev-parse --abbrev-ref HEAD 2>/dev/null
-echo "=== STATUS ==="
-git status --short 2>/dev/null
-echo "=== DIFF STAT ==="
-git diff --stat 2>/dev/null
-echo "=== STAGED DIFF STAT ==="
-git diff --cached --stat 2>/dev/null
-echo "=== RECENT LOG ==="
-git log --oneline -10 2>/dev/null
-```
-
-### Step 2: Summarize context
-
-Using the gathered state plus your conversation history, produce a summary covering:
-
-1. **What's being worked on** — the high-level goal or feature
-2. **Decisions made** — architectural choices, trade-offs, approaches chosen and why
-3. **Remaining work** — concrete next steps, in priority order
-4. **Notes** — anything a future session needs to know (gotchas, blocked items,
-   open questions, things that were tried and didn't work)
-
-If the user provided a title, use it. Otherwise, infer a concise title (3-6 words)
-from the work being done.
-
-### Step 3: Compute session duration
-
-Try to determine how long this session has been active:
-
-```bash
-# Try _TEL_START (Conductor timestamp) first, then shell process start time
-if [ -n "$_TEL_START" ]; then
-  START_EPOCH="$_TEL_START"
-elif [ -n "$PPID" ]; then
-  START_EPOCH=$(ps -o lstart= -p $PPID 2>/dev/null | xargs -I{} date -jf "%c" "{}" "+%s" 2>/dev/null || echo "")
-fi
-if [ -n "$START_EPOCH" ]; then
-  NOW=$(date +%s)
-  DURATION=$((NOW - START_EPOCH))
-  echo "SESSION_DURATION_S=$DURATION"
-else
-  echo "SESSION_DURATION_S=unknown"
-fi
-```
-
-If the duration cannot be determined, omit the `session_duration_s` field from the
-checkpoint file.
-
-### Step 4: Write checkpoint file
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
-mkdir -p "$CHECKPOINT_DIR"
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
-echo "TIMESTAMP=$TIMESTAMP"
-```
-
-Write the checkpoint file to `{CHECKPOINT_DIR}/{TIMESTAMP}-{title-slug}.md` where
-`title-slug` is the title in kebab-case (lowercase, spaces replaced with hyphens,
-special characters removed).
-
-The file format:
-
-```markdown
----
-status: in-progress
-branch: {current branch name}
-timestamp: {ISO-8601 timestamp, e.g. 2026-03-31T14:30:00-07:00}
-session_duration_s: {computed duration, omit if unknown}
-files_modified:
-  - path/to/file1
-  - path/to/file2
----
-
-## Working on: {title}
-
-### Summary
-
-{1-3 sentences describing the high-level goal and current progress}
-
-### Decisions Made
-
-{Bulleted list of architectural choices, trade-offs, and reasoning}
-
-### Remaining Work
-
-{Numbered list of concrete next steps, in priority order}
-
-### Notes
-
-{Gotchas, blocked items, open questions, things tried that didn't work}
-```
-
-The `files_modified` list comes from `git status --short` (both staged and unstaged
-modified files). Use relative paths from the repo root.
-
-After writing, confirm to the user:
-
-```
-CHECKPOINT SAVED
-════════════════════════════════════════
-Title:    {title}
-Branch:   {branch}
-File:     {path to checkpoint file}
-Modified: {N} files
-Duration: {duration or "unknown"}
-════════════════════════════════════════
-```
-
----
-
-## Resume flow
-
-### Step 1: Find checkpoints
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
-if [ -d "$CHECKPOINT_DIR" ]; then
-  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -20
-else
+CHECKPOINT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/checkpoints"
+if [ ! -d "$CHECKPOINT_DIR" ]; then
   echo "NO_CHECKPOINTS"
-fi
-```
-
-List checkpoints from **all branches** (checkpoint files contain the branch name
-in their frontmatter, so all files in the directory are candidates). This enables
-Conductor workspace handoff — a checkpoint saved on one branch can be resumed from
-another.
-
-### Step 1.5: Check for WIP commit context (continuous checkpoint mode)
-
-If `CHECKPOINT_MODE` was `"continuous"` during prior work, the branch may have
-`WIP:` commits with structured `[gstack-context]` blocks in their bodies. These
-are a second recovery trail alongside the markdown checkpoint files.
-
-```bash
-_BRANCH=$(git branch --show-current 2>/dev/null)
-# Detect if this branch has any WIP commits against the nearest remote ancestor
-_BASE=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/master 2>/dev/null)
-if [ -n "$_BASE" ]; then
-  WIP_COMMITS=$(git log "$_BASE"..HEAD --grep="^WIP:" --format="%H" 2>/dev/null | head -20)
-  if [ -n "$WIP_COMMITS" ]; then
-    echo "WIP_COMMITS_FOUND"
-    # Extract [gstack-context] blocks from each WIP commit body
-    for SHA in $WIP_COMMITS; do
-      echo "--- commit $SHA ---"
-      git log -1 "$SHA" --format="%s%n%n%b" 2>/dev/null | \
-        awk '/\[gstack-context\]/,/\[\/gstack-context\]/ { print }'
-    done
+else
+  # Use find + sort instead of ls -1t. Two reasons:
+  # 1. Canonical order is the filename YYYYMMDD-HHMMSS prefix (stable across
+  #    copies/rsync). Filesystem mtime drifts and is not authoritative.
+  # 2. On macOS, `find ... | xargs ls -1t` with zero results falls back to
+  #    listing cwd. `sort -r` on empty input cleanly returns nothing.
+  # Cap at 20 most recent: a user with 10k saved files shouldn't blow the
+  # context window just listing them. /context-save list handles pagination.
+  FILES=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -20)
+  if [ -z "$FILES" ]; then
+    echo "NO_CHECKPOINTS"
   else
-    echo "NO_WIP_COMMITS"
+    echo "$FILES"
   fi
 fi
 ```
 
-If `WIP_COMMITS_FOUND`: Read the extracted `[gstack-context]` blocks. Each block
-represents a logical unit of prior work with Decisions/Remaining/Tried/Skill.
-Merge these with the markdown checkpoint file to reconstruct session state. The
-git history shows the chronological arc; the markdown checkpoint shows the
-intentional save points. Both matter.
+**Candidates include every `.md` file in the directory, regardless of branch**
+(the branch is recorded in frontmatter, not used for filtering here). This
+enables Conductor workspace handoff.
 
-**Important:** Do NOT delete WIP commits during resume. They remain the recovery
-trail until /ship squashes them into clean commits during PR creation.
+### Step 2: Load the right file
 
-### Step 2: Load checkpoint
+- If the user specified a title fragment or number: find the matching file among
+  the candidates.
+- Otherwise: load the **first file returned by the `sort -r` above** — that is
+  the newest `YYYYMMDD-HHMMSS` prefix, which is the canonical "most recent."
 
-If the user specified a checkpoint (by number, title fragment, or date), find the
-matching file. Otherwise, load the **most recent** checkpoint.
-
-Read the checkpoint file and present a summary:
+Read the chosen file and present a summary:
 
 ```
-RESUMING CHECKPOINT
+RESUMING CONTEXT
 ════════════════════════════════════════
 Title:       {title}
-Branch:      {branch from checkpoint}
+Branch:      {branch from frontmatter}
 Saved:       {timestamp, human-readable}
 Duration:    Last session was {formatted duration} (if available)
 Status:      {status}
 ════════════════════════════════════════
 
 ### Summary
-{summary from checkpoint}
+{summary from saved file}
 
 ### Remaining Work
-{remaining work items from checkpoint}
+{remaining work items}
 
 ### Notes
-{notes from checkpoint}
+{notes}
 ```
 
-If the current branch differs from the checkpoint's branch, note this:
-"This checkpoint was saved on branch `{branch}`. You are currently on
+If the current branch differs from the saved context's branch, note this:
+"This context was saved on branch `{branch}`. You are currently on
 `{current branch}`. You may want to switch branches before continuing."
 
 ### Step 3: Offer next steps
 
-After presenting the checkpoint, ask via AskUserQuestion:
+After presenting, ask via AskUserQuestion:
 
 - A) Continue working on the remaining items
-- B) Show the full checkpoint file
+- B) Show the full saved file
 - C) Just needed the context, thanks
 
 If A, summarize the first remaining work item and suggest starting there.
 
 ---
 
-## List flow
+## If no saved contexts exist
 
-### Step 1: Gather checkpoints
+If Step 1 printed `NO_CHECKPOINTS`, tell the user:
 
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-CHECKPOINT_DIR="$HOME/.gstack/projects/$SLUG/checkpoints"
-if [ -d "$CHECKPOINT_DIR" ]; then
-  echo "CHECKPOINT_DIR=$CHECKPOINT_DIR"
-  find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null
-else
-  echo "NO_CHECKPOINTS"
-fi
-```
-
-### Step 2: Display table
-
-**Default behavior:** Show checkpoints for the **current branch** only.
-
-If the user passes `--all` (e.g., `/checkpoint list --all`), show checkpoints
-from **all branches**.
-
-Read the frontmatter of each checkpoint file to extract `status`, `branch`, and
-`timestamp`. Parse the title from the filename (the part after the timestamp).
-
-Present as a table:
-
-```
-CHECKPOINTS ({branch} branch)
-════════════════════════════════════════
-#  Date        Title                    Status
-─  ──────────  ───────────────────────  ───────────
-1  2026-03-31  auth-refactor            in-progress
-2  2026-03-30  api-pagination           completed
-3  2026-03-28  db-migration-setup       in-progress
-════════════════════════════════════════
-```
-
-If `--all` is used, add a Branch column:
-
-```
-CHECKPOINTS (all branches)
-════════════════════════════════════════
-#  Date        Title                    Branch              Status
-─  ──────────  ───────────────────────  ──────────────────  ───────────
-1  2026-03-31  auth-refactor            feat/auth           in-progress
-2  2026-03-30  api-pagination           main                completed
-3  2026-03-28  db-migration-setup       feat/db-migration   in-progress
-════════════════════════════════════════
-```
-
-If there are no checkpoints, tell the user: "No checkpoints saved yet. Run
-`/checkpoint` to save your current working state."
+"No saved contexts yet. Run `/context-save` first to save your current working
+state, then `/context-restore` will find it."
 
 ---
 
 ## Important Rules
 
-- **Never modify code.** This skill only reads state and writes checkpoint files.
-- **Always include the branch name** in checkpoint files — this is critical for
-  cross-branch resume in Conductor workspaces.
-- **Checkpoint files are append-only.** Never overwrite or delete existing checkpoint
-  files. Each save creates a new file.
-- **Infer, don't interrogate.** Use git state and conversation context to fill in
-  the checkpoint. Only use AskUserQuestion if the title genuinely cannot be inferred.
+- **Never modify code.** This skill only reads saved files and presents them.
+- **Always search across all branches by default.** Cross-branch resume is the
+  whole point. Only filter by branch if the user explicitly asks via a
+  title-fragment match that happens to be branch-specific.
+- **"Most recent" means the filename `YYYYMMDD-HHMMSS` prefix**, not
+  `ls -1t` (filesystem mtime). Filenames are stable across file-system
+  operations; mtime is not.
+- **This is a gstack skill, not a Claude Code built-in.** When the user types
+  `/context-restore`, invoke this skill via the Skill tool.

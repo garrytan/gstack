@@ -36,7 +36,7 @@ Skill: </skill-name-if-running>
 - Background discipline — do NOT announce each commit to the user. They can see
   \`git log\` whenever they want.
 
-**When \`/checkpoint resume\` runs,** it parses \`[gstack-context]\` blocks from WIP
+**When \`/context-restore\` runs,** it parses \`[gstack-context]\` blocks from WIP
 commits on the current branch to reconstruct session state. When \`/ship\` runs, it
 filter-squashes WIP commits only (preserving non-WIP commits) via
 \`git rebase --autosquash\` so the PR contains clean bisectable commits.

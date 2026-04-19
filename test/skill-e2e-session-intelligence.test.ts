@@ -15,10 +15,11 @@ const evalCollector = createEvalCollector('e2e-session-intelligence');
 
 // --- Session Intelligence E2E ---
 // Tests the core contract: timeline events flow in, context recovery flows out,
-// checkpoints round-trip.
+// /context-save + /context-restore round-trip.
 
 describeIfSelected('Session Intelligence E2E', [
-  'timeline-event-flow', 'context-recovery-artifacts', 'checkpoint-save-resume',
+  'timeline-event-flow', 'context-recovery-artifacts',
+  'context-save-writes-file', 'context-restore-loads-latest',
 ], () => {
   let workDir: string;
   let gstackHome: string;
@@ -194,28 +195,28 @@ IMPORTANT:
     console.log(`Context recovery: artifacts=${foundArtifacts}, lastSession=${foundLastSession}, timeline=${foundTimeline}`);
   }, 180_000);
 
-  // --- Test 3: Checkpoint save and resume ---
-  // Run /checkpoint save via claude -p, verify file created. Then run /checkpoint resume
-  // and verify it reads the checkpoint back.
-  testConcurrentIfSelected('checkpoint-save-resume', async () => {
+  // --- Test 3: /context-save writes a file ---
+  // Hand-feed the save section of context-save/SKILL.md to claude -p and verify
+  // a file gets written to the project's checkpoints dir with valid frontmatter.
+  testConcurrentIfSelected('context-save-writes-file', async () => {
     const projectDir = path.join(gstackHome, 'projects', slug);
     fs.mkdirSync(path.join(projectDir, 'checkpoints'), { recursive: true });
 
-    // Copy the /checkpoint skill
-    copyDirSync(path.join(ROOT, 'checkpoint'), path.join(workDir, 'checkpoint'));
+    // Copy the /context-save skill
+    copyDirSync(path.join(ROOT, 'context-save'), path.join(workDir, 'context-save'));
 
-    // Add a staged change so /checkpoint has something to capture
+    // Add a staged change so /context-save has something to capture
     fs.writeFileSync(path.join(workDir, 'feature.ts'), 'export function newFeature() { return true; }\n');
     spawnSync('git', ['add', 'feature.ts'], { cwd: workDir, stdio: 'pipe', timeout: 5000 });
 
-    // Extract the checkpoint save section from the skill template
-    const full = fs.readFileSync(path.join(ROOT, 'checkpoint', 'SKILL.md'), 'utf-8');
-    const saveStart = full.indexOf('## Save');
-    const resumeStart = full.indexOf('## Resume');
-    const saveSection = full.slice(saveStart, resumeStart > saveStart ? resumeStart : undefined);
+    // Extract the save section from the skill template (before the List section)
+    const full = fs.readFileSync(path.join(ROOT, 'context-save', 'SKILL.md'), 'utf-8');
+    const saveStart = full.indexOf('## Save flow');
+    const listStart = full.indexOf('## List flow');
+    const saveSection = full.slice(saveStart, listStart > saveStart ? listStart : undefined);
 
     const result = await runSkillTest({
-      prompt: `You are testing the /checkpoint skill. Follow these instructions to save a checkpoint.
+      prompt: `You are testing the /context-save skill. Follow these instructions to save a context file.
 
 ${saveSection.slice(0, 2000)}
 
@@ -223,7 +224,7 @@ IMPORTANT:
 - Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
 - The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
   Replace any references to ~/.claude/skills/gstack/bin/ with ./bin/ when running commands.
-- Save the checkpoint to ${projectDir}/checkpoints/ with a filename like "20260401-test-checkpoint.md".
+- Save the file to ${projectDir}/checkpoints/ with a filename like "20260401-test-context.md".
 - Include YAML frontmatter with status, branch, and timestamp.
 - Include a summary of what's being worked on (you can see from git status).
 - Do NOT use AskUserQuestion.`,
@@ -231,38 +232,134 @@ IMPORTANT:
       maxTurns: 10,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
       timeout: 120_000,
-      testName: 'checkpoint-save-resume',
+      testName: 'context-save-writes-file',
       runId,
     });
 
-    logCost('checkpoint save', result);
+    logCost('context-save', result);
 
-    // Check that a checkpoint file was created
+    // Check that a context file was created
     const checkpointDir = path.join(projectDir, 'checkpoints');
-    const checkpointFiles = fs.existsSync(checkpointDir)
+    const files = fs.existsSync(checkpointDir)
       ? fs.readdirSync(checkpointDir).filter(f => f.endsWith('.md'))
       : [];
 
     const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
-    const checkpointCreated = checkpointFiles.length > 0;
+    const fileCreated = files.length > 0;
 
-    let checkpointContent = '';
-    if (checkpointCreated) {
-      checkpointContent = fs.readFileSync(path.join(checkpointDir, checkpointFiles[0]), 'utf-8');
+    let fileContent = '';
+    if (fileCreated) {
+      fileContent = fs.readFileSync(path.join(checkpointDir, files[0]), 'utf-8');
     }
 
-    // Verify checkpoint has expected structure
-    const hasYamlFrontmatter = checkpointContent.includes('---') && checkpointContent.includes('status:');
-    const hasBranch = checkpointContent.includes('branch:') || checkpointContent.includes('main');
+    const hasYamlFrontmatter = fileContent.includes('---') && fileContent.includes('status:');
+    const hasBranch = fileContent.includes('branch:') || fileContent.includes('main');
 
-    recordE2E(evalCollector, 'checkpoint save-resume', 'Session Intelligence E2E', result, {
-      passed: exitOk && checkpointCreated && hasYamlFrontmatter,
+    recordE2E(evalCollector, 'context-save writes file', 'Session Intelligence E2E', result, {
+      passed: exitOk && fileCreated && hasYamlFrontmatter,
     });
 
     expect(exitOk).toBe(true);
-    expect(checkpointCreated).toBe(true);
+    expect(fileCreated).toBe(true);
     expect(hasYamlFrontmatter).toBe(true);
 
-    console.log(`Checkpoint: ${checkpointFiles.length} files created, YAML frontmatter: ${hasYamlFrontmatter}, branch: ${hasBranch}`);
+    console.log(`context-save: ${files.length} files created, YAML frontmatter: ${hasYamlFrontmatter}, branch: ${hasBranch}`);
+  }, 180_000);
+
+  // --- Test 4: /context-restore loads the newest file across branches ---
+  // Seed two saved-context files with different YYYYMMDD-HHMMSS prefixes and
+  // different branches in their frontmatter. Hand-feed the restore section to
+  // claude -p. Verify the agent identifies the newer file (by filename prefix)
+  // and presents its content, regardless of the current branch.
+  testConcurrentIfSelected('context-restore-loads-latest', async () => {
+    const projectDir = path.join(gstackHome, 'projects', slug);
+    const checkpointDir = path.join(projectDir, 'checkpoints');
+    fs.mkdirSync(checkpointDir, { recursive: true });
+
+    // Copy the /context-restore skill
+    copyDirSync(path.join(ROOT, 'context-restore'), path.join(workDir, 'context-restore'));
+
+    // Seed two files: older on branch-a (title "old-work"), newer on branch-b
+    // (title "newer-wintermute-work"). Current branch (main) matches neither.
+    const olderFile = path.join(checkpointDir, '20260101-120000-old-work.md');
+    const newerFile = path.join(checkpointDir, '20260202-130000-newer-wintermute-work.md');
+    fs.writeFileSync(olderFile, `---
+status: in-progress
+branch: branch-a
+timestamp: 2026-01-01T12:00:00-07:00
+---
+
+## Working on: old work
+
+### Summary
+This is older work on branch-a.
+
+### Remaining Work
+1. Should NOT be loaded by default restore.
+`);
+    fs.writeFileSync(newerFile, `---
+status: in-progress
+branch: branch-b
+timestamp: 2026-02-02T13:00:00-07:00
+---
+
+## Working on: newer wintermute work
+
+### Summary
+This is the newest saved context. Cross-branch restore should load THIS file.
+
+### Remaining Work
+1. Finish the wintermute integration.
+`);
+
+    // Deliberately scramble mtimes so filesystem mtime DISAGREES with filename
+    // prefix — this proves we're using filename ordering, not ls -1t.
+    const pastOlderMtime = Math.floor(Date.now() / 1000);       // now (newest mtime)
+    const pastNewerMtime = pastOlderMtime - 60 * 60 * 24 * 30;  // 30 days ago
+    fs.utimesSync(olderFile, pastOlderMtime, pastOlderMtime);
+    fs.utimesSync(newerFile, pastNewerMtime, pastNewerMtime);
+
+    // Extract the restore-flow section from the skill template
+    const full = fs.readFileSync(path.join(ROOT, 'context-restore', 'SKILL.md'), 'utf-8');
+    const restoreStart = full.indexOf('## Restore flow');
+    const importantStart = full.indexOf('## Important Rules', restoreStart);
+    const restoreSection = full.slice(restoreStart, importantStart > restoreStart ? importantStart : undefined);
+
+    const result = await runSkillTest({
+      prompt: `You are testing the /context-restore skill. Follow these instructions to restore the most recent saved context.
+
+${restoreSection.slice(0, 2500)}
+
+IMPORTANT:
+- Use GSTACK_HOME="${gstackHome}" as an environment variable when running bin scripts.
+- The bin scripts are at ./bin/ (relative to this directory), not at ~/.claude/skills/gstack/bin/.
+- Look in ${checkpointDir} for saved context files.
+- Current branch is "main" — do NOT filter by current branch. Load across all branches.
+- The newest file by YYYYMMDD-HHMMSS prefix is the canonical "most recent". Filesystem mtime has been scrambled — do not use it.
+- Do NOT use AskUserQuestion. Just present the content of the newest file.`,
+      workingDirectory: workDir,
+      maxTurns: 8,
+      allowedTools: ['Bash', 'Read', 'Grep', 'Glob'],
+      timeout: 120_000,
+      testName: 'context-restore-loads-latest',
+      runId,
+    });
+
+    logCost('context-restore', result);
+
+    const output = result.output ?? '';
+    const loadedNewer = output.includes('newer wintermute work') || output.includes('wintermute integration');
+    const loadedOlder = output.includes('old work') && !output.includes('newer');
+    const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
+
+    recordE2E(evalCollector, 'context-restore loads latest', 'Session Intelligence E2E', result, {
+      passed: exitOk && loadedNewer && !loadedOlder,
+    });
+
+    expect(exitOk).toBe(true);
+    expect(loadedNewer).toBe(true);
+    expect(loadedOlder).toBe(false);
+
+    console.log(`context-restore: loadedNewer=${loadedNewer}, loadedOlder=${loadedOlder}`);
   }, 180_000);
 });
