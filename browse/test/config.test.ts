@@ -195,6 +195,11 @@ describe('resolveServerScript', () => {
     expect(() => resolveServerScript({}, '/nonexistent/$bunfs', '/nonexistent/browse'))
       .toThrow('Cannot find server.ts');
   });
+
+  test('Windows startup does not eagerly resolve server.ts at module load', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../src/cli.ts'), 'utf-8');
+    expect(src).toContain('const SERVER_SCRIPT = IS_WINDOWS ? null : resolveServerScript();');
+  });
 });
 
 describe('resolveNodeServerScript', () => {
