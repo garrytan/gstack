@@ -236,7 +236,13 @@ always BLOCKs (deterministic).
 **Env knobs:**
 - `GSTACK_SECURITY_OFF=1` — emergency kill switch. Classifier stays off even if
   warmed. Canary is still injected; just the ML scan is skipped.
+- `GSTACK_SECURITY_ENSEMBLE=deberta` — opt-in DeBERTa-v3 ensemble. Adds
+  ProtectAI DeBERTa-v3-base-injection-onnx as L4c classifier for cross-model
+  agreement. 721MB first-run download. With ensemble enabled, BLOCK requires
+  2-of-3 ML classifiers agreeing at >= WARN (testsavant, deberta, transcript).
+  Without ensemble (default), BLOCK requires testsavant + transcript at >= WARN.
 - Classifier model cache: `~/.gstack/models/testsavant-small/` (112MB, first run only)
+  plus `~/.gstack/models/deberta-v3-injection/` (721MB, only when ensemble enabled)
 - Attack log: `~/.gstack/security/attempts.jsonl` (salted sha256 + domain only,
   rotates at 10MB, 5 generations)
 - Per-device salt: `~/.gstack/security/device-salt` (0600)
