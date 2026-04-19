@@ -31,6 +31,24 @@ describe('Server auth security', () => {
     expect(healthBlock).toContain('chrome-extension://');
   });
 
+  // Test 1a: /health never serves the token while a tunnel is active.
+  //
+  // Regression: the v0.15.13.0 "serve token only to extension / headed"
+  // fix was later refactored with an OR that re-allowed the leak whenever
+  // connection mode is 'headed', even if the daemon was exposed to the
+  // internet via /tunnel/start (pair-agent --client default) or
+  // BROWSE_TUNNEL=1. Gate the headed branch on `!tunnelActive` so that
+  // an internet-reachable daemon cannot hand out AUTH_TOKEN regardless
+  // of mode.
+  test('/health suppresses the token when a tunnel is active', () => {
+    const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
+    // The headed-mode gate must reference tunnelActive. The ordering
+    // inside the expression is flexible (!tunnelActive && headed ===
+    // headed && !tunnelActive) but the negation + variable must appear.
+    expect(healthBlock).toContain('tunnelActive');
+    expect(healthBlock).toMatch(/!tunnelActive|tunnelActive\s*===\s*false/);
+  });
+
   // Test 1b: /health does not expose sensitive browsing state
   test('/health does not expose currentUrl or currentMessage', () => {
     const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");

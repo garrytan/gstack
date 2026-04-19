@@ -1420,13 +1420,18 @@ async function start() {
           mode: browserManager.getConnectionMode(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          // Auth token for extension bootstrap. Safe: /health is localhost-only.
-          // Previously served unconditionally, but that leaks the token if the
-          // server is tunneled to the internet (ngrok, SSH tunnel).
-          // In headed mode the server is always local, so return token unconditionally
-          // (fixes Playwright Chromium extensions that don't send Origin header).
-          ...(browserManager.getConnectionMode() === 'headed' ||
-              req.headers.get('origin')?.startsWith('chrome-extension://')
+          // Auth token for extension bootstrap. Safe only while the daemon
+          // is reachable from localhost only. Two qualifying shapes:
+          //   1. Same-origin chrome-extension:// caller (MV3 isolation).
+          //   2. Headed mode AND no active tunnel. Playwright's local
+          //      extension bootstrap omits Origin, so we keep that branch,
+          //      but when /tunnel/start (or BROWSE_TUNNEL=1) has exposed
+          //      the daemon via ngrok, /health becomes internet-reachable
+          //      and must not emit AUTH_TOKEN regardless of the browser
+          //      mode. The `pair-agent --client` flow triggers exactly
+          //      this state by default.
+          ...(req.headers.get('origin')?.startsWith('chrome-extension://') ||
+              (browserManager.getConnectionMode() === 'headed' && !tunnelActive)
               ? { token: AUTH_TOKEN } : {}),
           chatEnabled: true,
           agent: {
