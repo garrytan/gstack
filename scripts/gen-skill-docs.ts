@@ -495,6 +495,19 @@ function processExternalHost(
   if (hostConfig.generation.propagateSubdirs && !symlinkLoop) {
     const srcSkillDir = path.join(ROOT, skillDir);
     for (const subdir of hostConfig.generation.propagateSubdirs) {
+      // Reject traversal or absolute paths — propagateSubdirs is a simple
+      // allowlist of plain directory names (e.g., 'references'), not a path.
+      if (
+        subdir === "" ||
+        subdir.includes("/") ||
+        subdir.includes("\\") ||
+        subdir.includes("..") ||
+        path.isAbsolute(subdir)
+      ) {
+        throw new Error(
+          `propagateSubdirs entry must be a plain directory name, got: ${JSON.stringify(subdir)} (host: ${host})`,
+        );
+      }
       const srcSubdir = path.join(srcSkillDir, subdir);
       if (!fs.existsSync(srcSubdir)) continue;
       if (!fs.statSync(srcSubdir).isDirectory()) continue;
