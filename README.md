@@ -377,6 +377,7 @@ gstack includes **opt-in** usage telemetry to help improve the project. Here's e
 - **What's sent (if you opt in):** skill name, duration, success/fail, gstack version, OS. That's it.
 - **What's never sent:** code, file paths, repo names, branch names, prompts, or any user-generated content.
 - **Change anytime:** `gstack-config set telemetry off` disables everything instantly.
+- **Update checks:** Once per hour, gstack fetches the current version number from GitHub to check for updates. This is a plain GET request that reveals your IP to GitHub. Set `update_check: false` to disable it entirely.
 
 Data is stored in [Supabase](https://supabase.com) (open source Firebase alternative). The schema is in [`supabase/migrations/`](supabase/migrations/) — you can verify exactly what's collected. The Supabase publishable key in the repo is a public key (like a Firebase API key) — row-level security policies deny all direct access. Telemetry flows through validated edge functions that enforce schema checks, event type allowlists, and field length limits.
 

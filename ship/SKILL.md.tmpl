@@ -768,9 +768,9 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. Print the existing URL and continue to Step 20.
+If an **open** PR/MR already exists: **update** the PR body using `gh api -X PATCH repos/owner/repo/pulls/N -F body=@body.md` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. Print the existing URL and continue to Step 20.
 
-If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
+If no PR/MR exists: create a pull request using `gh api -X POST repos/owner/repo/pulls -F title="$(git log <base>..HEAD --format=%s | head -1)" -F body=@body.md -F head="$(git branch --show-current)" -F base=<base>` (GitHub) or create a merge request (GitLab) using the platform detected in Step 0.
 
 The PR/MR body should contain these sections:
 
