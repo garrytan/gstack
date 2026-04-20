@@ -127,12 +127,53 @@ function showSecurityBanner(event) {
   const expandBtn = document.getElementById('security-banner-expand');
   const details = document.getElementById('security-banner-details');
   const chevron = banner.querySelector('.security-banner-chevron');
+  const suspectLabel = document.getElementById('security-banner-suspect-label');
+  const suspectEl = document.getElementById('security-banner-suspect');
+  const actions = document.getElementById('security-banner-actions');
+  const btnAllow = document.getElementById('security-banner-btn-allow');
+  const btnBlock = document.getElementById('security-banner-btn-block');
+
+  // Reviewable path: the agent paused and is waiting for our decision.
+  // Title + subtitle change to framing-as-review, action buttons appear,
+  // suspected-text excerpt shows in the expandable details.
+  const reviewable = !!event.reviewable;
+  const tabId = Number(event.tabId);
 
   // Title + subtitle
-  if (title) title.textContent = 'Session terminated';
+  if (title) title.textContent = reviewable ? 'Review suspected injection' : 'Session terminated';
   if (subtitle) {
     const fromDomain = event.domain ? ` from ${event.domain}` : '';
-    subtitle.textContent = `— prompt injection detected${fromDomain}`;
+    const toolLabel = event.tool ? ` in ${event.tool} output` : '';
+    subtitle.textContent = reviewable
+      ? `possible prompt injection${toolLabel}${fromDomain} — allow to continue, block to end session`
+      : `— prompt injection detected${fromDomain}`;
+  }
+
+  // Suspected text excerpt (reviewable only)
+  if (suspectEl && suspectLabel) {
+    if (reviewable && typeof event.suspected_text === 'string' && event.suspected_text.length > 0) {
+      suspectEl.textContent = event.suspected_text;
+      suspectEl.hidden = false;
+      suspectLabel.hidden = false;
+    } else {
+      suspectEl.textContent = '';
+      suspectEl.hidden = true;
+      suspectLabel.hidden = true;
+    }
+  }
+
+  // Action buttons — wire fresh handlers each render so we capture the
+  // current tabId. Remove previous listeners by cloning the node.
+  if (actions && btnAllow && btnBlock) {
+    actions.hidden = !reviewable;
+    if (reviewable) {
+      const freshAllow = btnAllow.cloneNode(true);
+      const freshBlock = btnBlock.cloneNode(true);
+      btnAllow.parentNode.replaceChild(freshAllow, btnAllow);
+      btnBlock.parentNode.replaceChild(freshBlock, btnBlock);
+      freshAllow.addEventListener('click', () => postSecurityDecision(tabId, 'allow'));
+      freshBlock.addEventListener('click', () => postSecurityDecision(tabId, 'block'));
+    }
   }
 
   // Layer signals list (mono scores)
@@ -168,11 +209,13 @@ function showSecurityBanner(event) {
     }
   }
 
-  // Reset expand state on each render
+  // Reset expand state on each render. For reviewable banners, auto-expand
+  // so the user sees the suspected text without an extra click — they need
+  // that context to decide.
   if (expandBtn && details) {
-    expandBtn.setAttribute('aria-expanded', 'false');
-    details.hidden = true;
-    if (chevron) chevron.style.transform = 'rotate(0deg)';
+    expandBtn.setAttribute('aria-expanded', reviewable ? 'true' : 'false');
+    details.hidden = !reviewable;
+    if (chevron) chevron.style.transform = reviewable ? 'rotate(180deg)' : 'rotate(0deg)';
   }
 
   banner.style.display = 'block';
@@ -181,6 +224,33 @@ function showSecurityBanner(event) {
 function hideSecurityBanner() {
   const banner = document.getElementById('security-banner');
   if (banner) banner.style.display = 'none';
+}
+
+/**
+ * Send the user's decision on a reviewable BLOCK event to the server.
+ * Server writes a per-tab decision file that sidebar-agent polls.
+ */
+async function postSecurityDecision(tabId, decision) {
+  if (!serverUrl || !Number.isFinite(tabId)) {
+    hideSecurityBanner();
+    return;
+  }
+  try {
+    await fetch(`${serverUrl}/security-decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
+      },
+      body: JSON.stringify({ tabId, decision, reason: 'user' }),
+    });
+  } catch (err) {
+    console.error('[sidepanel] postSecurityDecision failed', err);
+  }
+  // Hide the banner optimistically. If the user chose "allow", the session
+  // continues. If "block", sidebar-agent will kill and emit agent_error,
+  // which shows up in chat regardless.
+  hideSecurityBanner();
 }
 
 // Shield icon state update — consumes /health.security.status.
