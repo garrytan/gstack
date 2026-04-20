@@ -289,7 +289,12 @@ function acquireServerLock(): (() => void) | null {
     fs.writeSync(fd, `${process.pid}\n`);
     fs.closeSync(fd);
     return () => { safeUnlink(lockPath); };
-  } catch {
+  } catch (err: any) {
+    if (err?.code !== 'EEXIST') {
+      // Unexpected error — surface it rather than masking as phantom lock contention
+      console.error(`[browse] acquireServerLock: unexpected ${err?.code || ''} opening ${lockPath}: ${err?.message}`);
+      return null;
+    }
     // Lock already held — check if the holder is still alive
     try {
       const holderPid = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
@@ -299,7 +304,8 @@ function acquireServerLock(): (() => void) | null {
       // Stale lock — remove and retry
       fs.unlinkSync(lockPath);
       return acquireServerLock();
-    } catch {
+    } catch (err: any) {
+      console.error(`[browse] acquireServerLock: stale-lock read failed: ${err?.message}`);
       return null;
     }
   }
