@@ -423,8 +423,32 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       console.error('[browse] Command timed out after 30s');
       process.exit(1);
     }
-    // Connection error — server may have crashed
-    if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+    // Connection error — server may have crashed, or the user just asked
+    // it to shut down. Bun's fetch emits `code: 'ConnectionRefused'` /
+    // `'ConnectionReset'` (PascalCase) — Node uses `'ECONNREFUSED'` /
+    // `'ECONNRESET'`. We match both so this code path doesn't change
+    // behavior depending on which runtime executes the binary.
+    const isConnError =
+      err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' ||
+      err.code === 'ConnectionRefused' || err.code === 'ConnectionReset' ||
+      err.message?.includes('fetch failed') ||
+      err.message?.includes('Unable to connect');
+    if (isConnError) {
+      // Special case: 'stop' shut the server down on purpose. The HTTP listener
+      // closed mid-response (or before we even reached it), so the fetch sees
+      // ConnectionRefused/Reset — but that IS the success signal for stop.
+      // Don't trigger the auto-restart path here, or we'll spawn a fresh
+      // server and emit the misleading "Unable to connect" error after a
+      // 5-second hang. Best-effort cleanup of the recorded pid in case the
+      // server's shutdown() didn't get to it, then exit clean.
+      if (command === 'stop') {
+        const oldState = readState();
+        if (oldState && oldState.pid && isProcessAlive(oldState.pid)) {
+          await killServer(oldState.pid);
+        }
+        process.stdout.write('Server stopped\n');
+        return;
+      }
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
       // Kill the old server to avoid orphaned chromium processes
