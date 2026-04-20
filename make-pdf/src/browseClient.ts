@@ -62,13 +62,17 @@ export function resolveBrowseBin(): string {
   const envOverride = process.env.BROWSE_BIN;
   if (envOverride && isExecutable(envOverride)) return envOverride;
 
+  const isWin = process.platform === "win32";
+  const exeSuffix = isWin ? ".exe" : "";
+  const binName = `browse${exeSuffix}`;
+
   // Sibling: look relative to this process's binary
   // (for when make-pdf and browse live next to each other in dist/)
   const selfDir = path.dirname(process.argv[0]);
   const siblingCandidates = [
-    path.resolve(selfDir, "../browse/dist/browse"),
-    path.resolve(selfDir, "../../browse/dist/browse"),
-    path.resolve(selfDir, "../browse"),
+    path.resolve(selfDir, `../browse/dist/${binName}`),
+    path.resolve(selfDir, `../../browse/dist/${binName}`),
+    path.resolve(selfDir, `../${binName}`),
   ];
   for (const candidate of siblingCandidates) {
     if (isExecutable(candidate)) return candidate;
@@ -76,15 +80,18 @@ export function resolveBrowseBin(): string {
 
   // Global install
   const home = os.homedir();
-  const globalPath = path.join(home, ".claude/skills/gstack/browse/dist/browse");
+  const globalPath = path.join(home, ".claude/skills/gstack/browse/dist", binName);
   if (isExecutable(globalPath)) return globalPath;
 
-  // PATH lookup
+  // PATH lookup — Windows uses `where`, Unix uses `which`
+  const lookupCmd = isWin ? "where" : "which";
   try {
-    const which = execFileSync("which", ["browse"], { encoding: "utf8" }).trim();
-    if (which && isExecutable(which)) return which;
+    const out = execFileSync(lookupCmd, [binName], { encoding: "utf8" }).trim();
+    // `where` can return multiple lines; take first
+    const first = out.split(/\r?\n/)[0]?.trim();
+    if (first && isExecutable(first)) return first;
   } catch {
-    // `which` exited non-zero; fall through to error
+    // lookup exited non-zero; fall through to error
   }
 
   throw new BrowseClientError(
@@ -94,24 +101,32 @@ export function resolveBrowseBin(): string {
       "browse binary not found.",
       "",
       "make-pdf needs browse (the gstack Chromium daemon) to render PDFs.",
+      `Platform: ${process.platform} (looking for "${binName}")`,
       "Tried:",
       `  - $BROWSE_BIN (${envOverride || "unset"})`,
       `  - sibling: ${siblingCandidates.join(", ")}`,
       `  - global: ${globalPath}`,
-      "  - PATH: `browse`",
+      `  - PATH: \`${lookupCmd} ${binName}\``,
       "",
       "To fix: run gstack setup from the gstack repo:",
       "  cd ~/.claude/skills/gstack && ./setup",
       "",
       "Or set BROWSE_BIN explicitly:",
-      "  export BROWSE_BIN=/path/to/browse",
+      isWin
+        ? '  setx BROWSE_BIN "C:\\path\\to\\browse.exe"'
+        : "  export BROWSE_BIN=/path/to/browse",
     ].join("\n"),
   );
 }
 
 function isExecutable(p: string): boolean {
   try {
-    fs.accessSync(p, fs.constants.X_OK);
+    // Windows: NTFS has no execute bit. X_OK is unreliable — use F_OK
+    // (file exists) and let the OS decide at execFile time.
+    const mode = process.platform === "win32"
+      ? fs.constants.F_OK
+      : fs.constants.X_OK;
+    fs.accessSync(p, mode);
     return true;
   } catch {
     return false;
