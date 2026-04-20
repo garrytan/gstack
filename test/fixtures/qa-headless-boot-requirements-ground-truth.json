@@ -1,0 +1,22 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-webhook-handler/main.py",
+  "scenario": "DB_PATH env var unset, no Postgres available — script imports sqlite3 and writes to a file derived from env",
+  "expected_behaviors": [
+    "Static scan detects sqlite3 import and DB_PATH env var requirement",
+    "Live probe (or env var check) determines DB_PATH is unset OR file path unwritable",
+    "Skill surfaces a clear pre-run error naming the missing prerequisite",
+    "Skill does NOT run the webhook handler with a guessed DB_PATH"
+  ],
+  "bugs": [
+    {
+      "id": "missing-db-path",
+      "category": "prerequisite",
+      "severity": "high",
+      "description": "Skill must refuse to run when DB_PATH is unset and surface a clear 'set DB_PATH and re-run' error. Silent failures break user trust.",
+      "detection_hint": "DB_PATH|env var|prerequisite|missing|set"
+    }
+  ],
+  "total_bugs": 1,
+  "minimum_detection": 1,
+  "max_false_positives": 1
+}

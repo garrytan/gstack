@@ -1,0 +1,22 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-worker-celery/tasks.py",
+  "scenario": "Celery task with @shared_task. Skill must invoke synchronously via task.apply() rather than booting Redis broker + celery worker process.",
+  "expected_behaviors": [
+    "Skill detects shape as 'queue worker' (Celery task)",
+    "Skill plans synchronous invocation: send_user_notification.apply(args=[...], kwargs={'dry_run': True})",
+    "Skill does NOT attempt to start a Redis broker or 'celery worker' process",
+    "Skill captures the Slack POST that the task makes"
+  ],
+  "bugs": [
+    {
+      "id": "celery-sync-invocation",
+      "category": "tooling",
+      "severity": "high",
+      "description": "Skill must use Celery's .apply() (synchronous) — not .delay() (async, needs broker). Booting a broker for QA is wrong; sync invocation is the right v1 answer.",
+      "detection_hint": "apply|sync|synchronous|broker|delay|task.apply"
+    }
+  ],
+  "total_bugs": 1,
+  "minimum_detection": 1,
+  "max_false_positives": 1
+}

@@ -1,0 +1,22 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-async-httpx/notifier.py",
+  "expected_behaviors": [
+    "Detects shape as 'notifier'",
+    "Detects httpx.AsyncClient (async) — NOT just httpx",
+    "Selects respx (or aioresponses) for capture, NOT responses",
+    "Captures the async POST to Slack",
+    "Renders the captured payload"
+  ],
+  "bugs": [
+    {
+      "id": "async-detection",
+      "category": "tooling",
+      "severity": "critical",
+      "description": "Skill must recognize httpx.AsyncClient and select an async-capable mock library (respx). Picking 'responses' would silently miss the call.",
+      "detection_hint": "respx|async|AsyncClient|aioresponses"
+    }
+  ],
+  "total_bugs": 1,
+  "minimum_detection": 1,
+  "max_false_positives": 1
+}

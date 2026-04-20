@@ -19,6 +19,7 @@ import { generateInvokeSkill } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
 import { generateGBrainContextLoad, generateGBrainSaveResults } from './gbrain';
+import { generateQAFixLoopHead, generateQAFixLoopTail } from './qa-shared';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -66,4 +67,6 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   DX_FRAMEWORK: generateDxFramework,
   GBRAIN_CONTEXT_LOAD: generateGBrainContextLoad,
   GBRAIN_SAVE_RESULTS: generateGBrainSaveResults,
+  QA_FIX_LOOP_HEAD: generateQAFixLoopHead,
+  QA_FIX_LOOP_TAIL: generateQAFixLoopTail,
 };

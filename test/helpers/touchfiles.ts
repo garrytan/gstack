@@ -53,6 +53,17 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'qa-fix-loop':    ['qa/**', 'browse/src/**', 'browse/test/test-server.ts'],
   'qa-bootstrap':   ['qa/**', 'ship/**'],
 
+  // QA-headless — Python-only end-to-end in v1, shape detection across all 4 langs
+  'qa-headless-shape-detection':   ['qa-headless/**', 'scripts/resolvers/qa-shared.ts', 'test/fixtures/qa-headless/**', 'test/fixtures/qa-headless-shape-detection-ground-truth.json'],
+  'qa-headless-python-cron':       ['qa-headless/**', 'scripts/resolvers/qa-shared.ts', 'test/fixtures/qa-headless/py-cron-slack/**', 'test/fixtures/qa-headless-python-cron-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-dry-run-proposal':  ['qa-headless/**', 'test/fixtures/qa-headless/py-cron-slack-no-dryrun/**', 'test/fixtures/qa-headless-dry-run-proposal-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-boot-requirements': ['qa-headless/**', 'test/fixtures/qa-headless/py-webhook-handler/**', 'test/fixtures/qa-headless-boot-requirements-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-empty-diff':        ['qa-headless/**', 'test/fixtures/qa-headless/py-cron-slack/**', 'test/fixtures/qa-headless-empty-diff-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-trigger-discovery': ['qa-headless/**', 'test/fixtures/qa-headless/py-cron-slack/**', 'test/fixtures/qa-headless-trigger-discovery-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-async-capture':     ['qa-headless/**', 'qa-headless/references/capture-libs.md', 'test/fixtures/qa-headless/py-async-httpx/**', 'test/fixtures/qa-headless-async-capture-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-celery-sync':       ['qa-headless/**', 'test/fixtures/qa-headless/py-worker-celery/**', 'test/fixtures/qa-headless-celery-sync-ground-truth.json', 'test/helpers/llm-judge.ts'],
+  'qa-headless-regression':        ['qa-headless/**', 'scripts/resolvers/qa-shared.ts', 'test/fixtures/qa-headless/py-cron-slack/**', 'test/fixtures/qa-headless-regression-ground-truth.json'],
+
   // Review
   'review-sql-injection':     ['review/**', 'test/fixtures/review-eval-vuln.rb'],
   'review-enum-completeness': ['review/**', 'test/fixtures/review-eval-enum*.rb'],
@@ -208,6 +219,17 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'qa-only-no-fix': 'gate',     // CRITICAL guardrail: Edit tool forbidden
   'qa-fix-loop': 'periodic',
   'qa-bootstrap': 'gate',
+
+  // QA-headless — gate for deterministic + regression, periodic for LLM-judged
+  'qa-headless-shape-detection': 'gate',     // Deterministic classification, blocks merge on regression
+  'qa-headless-regression': 'gate',          // Frozen golden, blocks merge if motivating case breaks
+  'qa-headless-python-cron': 'periodic',     // LLM-judged end-to-end run
+  'qa-headless-dry-run-proposal': 'periodic',
+  'qa-headless-boot-requirements': 'periodic',
+  'qa-headless-empty-diff': 'periodic',
+  'qa-headless-trigger-discovery': 'periodic',
+  'qa-headless-async-capture': 'periodic',
+  'qa-headless-celery-sync': 'periodic',
 
   // Review — gate for functional/guardrails, periodic for quality
   'review-sql-injection': 'gate',     // Security guardrail

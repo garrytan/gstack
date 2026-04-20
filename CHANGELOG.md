@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.0.0] - 2026-04-17
+
+### Added
+- **`/qa-headless` — QA for backend features that have no UI.** Cron jobs, queue workers, webhook handlers, notifiers, CLIs, ETL pipelines. Same fix-loop shape as `/qa` (find bug → propose fix → atomic commit → re-verify), but the "re-verify" step runs the script in dry-run instead of clicking buttons in a browser. v1 ships Python end-to-end: shape detection across cron/worker/webhook/notifier/CLI/ETL, trigger discovery from argparse/click/Celery task signatures, boot-requirement live probes (pg_isready, redis-cli ping, not just static import scanning), dry-run flag detection or proposal with explicit user approval before any patch lands, and HTTP capture that drives existing libraries instead of reinventing — `responses` for sync requests, `respx` for sync OR async httpx, `aioresponses` for aiohttp, `unittest.mock` fallbacks. Async coverage matters: FastAPI codebases are overwhelmingly `httpx.AsyncClient`, and `responses` would silently miss every async call. Captured payloads render as structured trees: Slack Block Kit becomes a navigable type/text/fields/actions tree, MIME emails get From/To/Subject/Body, generic JSON gets pretty-printed with auth headers redacted. Goldens live in your repo at `.gstack/qa-headless/golden/<feature>.json`, not buried in the skill directory.
+- **`/qa-headless` motivating case end-to-end:** a daily Slack call digest cron at `scripts/run_call_digest.py --date=YYYY-MM-DD --dry-run` produces "5 groups, 9 calls, 1 unrouted, Block Kit valid, ship-ready." That exact summary is the gate-tier regression golden — any change that breaks the reproduction trips CI.
+- **Node / Ruby / Go shape detection** (capture coming in follow-ups). When `/qa-headless` detects a BullMQ Worker, an ActiveJob notifier, or a Go cmd/main.go, it classifies the shape correctly, then prints manual guidance referencing the right per-language mock library (`nock`, `WebMock`, `httpmock`) and exits cleanly. No silent failures, no half-implemented capture.
+- **`scripts/resolvers/qa-shared.ts`** — extracted the locate/fix/commit/classify/regression-test/self-regulate framing from `qa/SKILL.md.tmpl` into shared resolvers (`{{QA_FIX_LOOP_HEAD}}` and `{{QA_FIX_LOOP_TAIL}}`). Both `/qa` and `/qa-headless` reference these placeholders. Future fix-loop changes propagate to both skills automatically; you can't accidentally drift them apart.
+- **9 eval scenarios** wired into the suite (`test/skill-e2e-qa-headless.test.ts` + 9 ground-truth fixtures): shape detection across all 4 languages (gate, deterministic), motivating Python cron end-to-end (periodic, LLM-judged), dry-run proposal flow, boot-requirement prereq check, empty-diff fallback (the primary "QA this cron that's been live for months" use case), trigger discovery from argparse, async httpx capture via respx, sync Celery invocation via `.apply()` with no broker boot, and the regression golden.
+
+### For contributors
+- Skills are auto-discovered by `scripts/discover-skills.ts` (filesystem glob), so adding `/qa-headless` required zero registry edits. Drop the `.tmpl`, `bun run gen:skill-docs`, done.
+- The 7 `/qa-headless` fixtures live under `test/fixtures/qa-headless/` (matches existing `test/fixtures/review-eval-*.rb` convention — small per-shape files, not full per-language project directories). Each fixture is the minimum code needed to exercise one shape detection path or one capture mechanism.
+- Touchfile entries use `qa-headless/**` + per-fixture paths, so eval selection only fires the relevant tests when those files change. Two evals (shape-detection + regression) are gate-tier; the rest are periodic so they don't burn API cost on every PR.
+
 ## [0.18.1.0] - 2026-04-16
 
 ### Fixed

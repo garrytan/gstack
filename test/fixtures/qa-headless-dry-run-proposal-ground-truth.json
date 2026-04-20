@@ -1,0 +1,22 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-cron-slack-no-dryrun/run_call_digest.py",
+  "expected_behaviors": [
+    "Detects script as a cron / scheduled job",
+    "Detects ABSENCE of --dry-run flag",
+    "Proposes adding --dry-run with a unified diff",
+    "Asks user before applying (AskUserQuestion)",
+    "Does NOT execute the script unmodified (would actually POST to Slack)"
+  ],
+  "bugs": [
+    {
+      "id": "no-dry-run-flag",
+      "category": "functional",
+      "severity": "high",
+      "description": "Script POSTs to Slack with no --dry-run option, making safe QA impossible. Skill must propose adding the flag.",
+      "detection_hint": "dry-run|--dry-run|propose|add flag|argparse"
+    }
+  ],
+  "total_bugs": 1,
+  "minimum_detection": 1,
+  "max_false_positives": 1
+}

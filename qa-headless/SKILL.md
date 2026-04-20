@@ -1,17 +1,18 @@
 ---
-name: qa
+name: qa-headless
 preamble-tier: 4
-version: 2.0.0
+version: 1.0.0
 description: |
-  Systematically QA test a web application and fix bugs found. Runs QA testing,
-  then iteratively fixes bugs in source code, committing each fix atomically and
-  re-verifying. Use when asked to "qa", "QA", "test this site", "find bugs",
-  "test and fix", or "fix what's broken".
-  Proactively suggest when the user says a feature is ready for testing
-  or asks "does this work?". Three tiers: Quick (critical/high only),
-  Standard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,
-  fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only. (gstack)
-  Voice triggers (speech-to-text aliases): "quality check", "test the app", "run QA".
+  Systematically QA test backend features that have no UI — cron jobs, queue
+  workers, webhook handlers, notifiers, CLIs, ETL/data pipelines — and fix
+  bugs found. Pairs with /qa (browser-driven) to close the backend QA gap.
+  Use when asked to "qa-headless", "test this cron", "test this worker",
+  "test this notifier", "qa the backend", "test the digest", or when you
+  need to verify a backend feature whose output is a side effect (Slack
+  message, email, DB write, log line) rather than a rendered page. v1
+  ships Python end-to-end; Node, Ruby, and Go shape detection works,
+  with HTTP capture coming in follow-up PRs. (gstack)
+  Voice triggers (speech-to-text aliases): "test the cron", "test the worker", "test the notifier", "qa the backend", "test the digest".
 allowed-tools:
   - Bash
   - Read
@@ -22,9 +23,11 @@ allowed-tools:
   - AskUserQuestion
   - WebSearch
 triggers:
-  - qa test this
-  - find bugs on site
-  - test the site
+  - qa headless
+  - test this cron
+  - test the worker
+  - test the notifier
+  - qa the backend
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -59,7 +62,7 @@ echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"qa","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"qa-headless","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
@@ -84,7 +87,7 @@ else
   echo "LEARNINGS: 0"
 fi
 # Session timeline: record skill start (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"qa","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"qa-headless","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 # Check if CLAUDE.md has routing rules
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
@@ -617,9 +620,15 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 
 
-# /qa: Test → Fix → Verify
+# /qa-headless: Test → Fix → Verify (no browser)
 
-You are a QA engineer AND a bug-fix engineer. Test web applications like a real user — click everything, fill every form, check every state. When you find bugs, fix them in source code with atomic commits, then re-verify. Produce a structured report with before/after evidence.
+You are a QA engineer AND a bug-fix engineer for backend features. Cron jobs, queue workers, webhook handlers, notifiers, CLIs, ETL pipelines — anything whose observable output is a side effect (Slack message, email, DB write, log line, file produced) rather than a rendered page. Drive the feature in dry-run, capture the side effects readably, find bugs, fix them with atomic commits, re-verify. Same shape as `/qa` but no browser.
+
+## v1 scope reminder
+
+- **Python**: shape detection, HTTP capture (sync + async), dry-run proposal, fix loop — all functional.
+- **Node, Ruby, Go**: shape detection works. HTTP capture is **not** in v1. For these languages, the skill detects the shape, then prints manual guidance and exits gracefully. Capture support ships in follow-up PRs.
+- **Out of scope (v1)**: DB-write capture beyond trivial ORM hooks, gRPC/websocket capture, real staging-env testing.
 
 ## Setup
 
@@ -627,25 +636,17 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 
 | Parameter | Default | Override example |
 |-----------|---------|-----------------:|
-| Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
+| Target | (auto-detect from diff or repo scan) | `scripts/run_call_digest.py`, `app/workers/send_digest.rb` |
 | Tier | Standard | `--quick`, `--exhaustive` |
-| Mode | full | `--regression .gstack/qa-reports/baseline.json` |
-| Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
-| Scope | Full app (or diff-scoped) | `Focus on the billing page` |
-| Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
+| Mode | full | `--regression .gstack/qa-headless/golden/<feature>.json` |
+| Output dir | `.gstack/qa-headless-reports/` | `Output to /tmp/qa` |
+| Trigger args | (auto-discovered) | `--date=2026-04-15`, `--user-id=42` |
+| Channel | dry-run (capture only) | `--channel=test` (POST to a test webhook) |
 
 **Tiers determine which issues get fixed:**
 - **Quick:** Fix critical + high severity only
 - **Standard:** + medium severity (default)
 - **Exhaustive:** + low/cosmetic severity
-
-**If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
-
-**CDP mode detection:** Before starting, check if the browse server is connected to the user's real browser:
-```bash
-$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
-```
-If `CDP_MODE=true`: skip cookie import prompts (the real browser already has cookies), skip user-agent overrides (real browser has real user-agent), and skip headless detection workarounds. The user's real auth sessions are already available.
 
 **Check for clean working tree:**
 
@@ -655,53 +656,15 @@ git status --porcelain
 
 If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
 
-"Your working tree has uncommitted changes. /qa needs a clean tree so each bug fix gets its own atomic commit."
+"Your working tree has uncommitted changes. /qa-headless needs a clean tree so each bug fix gets its own atomic commit."
 
 - A) Commit my changes — commit all current changes with a descriptive message, then start QA
-- B) Stash my changes — stash, run QA, pop the stash after
+- B) Stash my changes — stash, run QA-headless, pop the stash after
 - C) Abort — I'll clean up manually
 
-RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before QA adds its own fix commits.
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before QA-headless adds its own fix commits.
 
 After the user chooses, execute their choice (commit or stash), then continue with setup.
-
-**Find the browse binary:**
-
-## SETUP (run this check BEFORE any browse command)
-
-```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "READY: $B"
-else
-  echo "NEEDS_SETUP"
-fi
-```
-
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed:
-   ```bash
-   if ! command -v bun >/dev/null 2>&1; then
-     BUN_VERSION="1.3.10"
-     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
-     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
-     actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
-     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
-       echo "ERROR: bun install script checksum mismatch" >&2
-       echo "  expected: $BUN_INSTALL_SHA" >&2
-       echo "  got:      $actual_sha" >&2
-       rm "$tmpfile"; exit 1
-     fi
-     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
-     rm "$tmpfile"
-   fi
-   ```
 
 **Check test framework (bootstrap if needed):**
 
@@ -862,7 +825,8 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 **Create output directories:**
 
 ```bash
-mkdir -p .gstack/qa-reports/screenshots
+mkdir -p .gstack/qa-headless-reports/payloads
+mkdir -p .gstack/qa-headless/golden
 ```
 
 ---
@@ -907,337 +871,275 @@ smarter on their codebase over time.
 
 ## Test Plan Context
 
-Before falling back to git diff heuristics, check for richer test plan sources:
+Before guessing what to test, check for richer test plan sources:
 
-1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
+1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files
    ```bash
    setopt +o nomatch 2>/dev/null || true  # zsh compat
    eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
 2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
-3. **Use whichever source is richer.** Fall back to git diff analysis only if neither is available.
+3. Use whichever source is richer. Fall back to repo scan only if neither is available.
 
 ---
 
-## Phases 1-6: QA Baseline
+## Phase 1: Detect Feature Shape
 
-## Modes
+Goal: classify the changed/target code as one of: **cron / scheduled job**, **queue worker**, **webhook handler**, **notifier**, **CLI / management command**, or **data pipeline / ETL**.
 
-### Diff-aware (automatic when on a feature branch with no URL)
+**Input sources, in order of preference:**
 
-This is the **primary mode** for developers verifying their work. When the user says `/qa` without a URL and the repo is on a feature branch, automatically:
+1. **User-specified target** — if the invocation includes a file path (e.g., `/qa-headless scripts/run_call_digest.py`), use it. Always honored.
+2. **`git diff` against the base branch** — `git diff <base>...HEAD --name-only`. Scan changed files for shape markers (table below).
+3. **Empty-diff fallback (CRITICAL — primary use case for shipped features):** If diff is empty or no file matches a shape marker, scan the repo for cron-like / worker-like / CLI-like entry points. Present the top 5 candidates via AskUserQuestion. **Never silently dead-end on empty diff.**
 
-1. **Analyze the branch diff** to understand what changed:
-   ```bash
-   git diff main...HEAD --name-only
-   git log main..HEAD --oneline
-   ```
+**Shape markers:**
 
-2. **Identify affected pages/routes** from the changed files:
-   - Controller/route files → which URL paths they serve
-   - View/template/component files → which pages render them
-   - Model/service files → which pages use those models (check controllers that reference them)
-   - CSS/style files → which pages include those stylesheets
-   - API endpoints → test them directly with `$B js "await fetch('/api/...')"`
-   - Static pages (markdown, HTML) → navigate to them directly
+| Shape | Python | Node | Ruby | Go |
+|---|---|---|---|---|
+| cron / scheduled | APScheduler import, Procfile `clock`/`scheduler`, Celery `beat_schedule`, k8s `CronJob` manifests, `if __name__ == "__main__"` in `scripts/`/`jobs/` | `node-cron`, `agenda`, `bree`, Procfile `clock`, k8s CronJob | `whenever` gem, `config/schedule.rb`, `rake` task, k8s CronJob | `time.Tick` patterns in `cmd/*/main.go`, k8s CronJob |
+| queue worker | `@celery.task`, `@shared_task`, RQ Worker, Dramatiq actor | `bullmq` Processor, `bee-queue`, `agenda` define, Faktory worker | `Sidekiq::Worker`, `ActiveJob::Base` perform, Resque `@queue` | channel-based `for { select { case ... } }` workers |
+| webhook handler | FastAPI/Flask route that imports `requests`/`httpx`/DB writes and returns 200 | Express/Fastify route doing same | Rails route doing same | `http.HandlerFunc` doing same |
+| notifier | Outbound `requests.post` to Slack/Twilio/SendGrid/Postmark/SES, or `smtplib.SMTP` | `axios.post`/`fetch` to same APIs, `nodemailer` | `Net::HTTP.post` to same APIs, `Mail.deliver` | `http.Post` to same APIs, `net/smtp` |
+| CLI / management cmd | argparse, click, typer, Django `management/commands` | commander, yargs, oclif | thor, `rails runner`, rake | cobra, `flag` package in `cmd/` |
+| data pipeline / ETL | pandas/polars scripts, dbt models, raw SQL with side effects | `etl` libs, batch processors | rake tasks doing batch work | batch processors |
 
-   **If no obvious pages/routes are identified from the diff:** Do not skip browser testing. The user invoked /qa because they want browser-based verification. Fall back to Quick mode — navigate to the homepage, follow the top 5 navigation targets, check console for errors, and test any interactive elements found. Backend, config, and infrastructure changes affect app behavior — always verify the app still works.
+**Confirmation gate (CRITICAL — prevents silent misclassification):**
 
-3. **Detect the running app** — check common local dev ports:
-   ```bash
-   $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \
-   $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \
-   $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
-   ```
-   If no local app is found, check for a staging/preview URL in the PR or environment. If nothing works, ask the user for the URL.
+After classification, show the user what was detected and ask for confirmation via AskUserQuestion:
 
-4. **Test each affected page/route:**
-   - Navigate to the page
-   - Take a screenshot
-   - Check console for errors
-   - If the change was interactive (forms, buttons, flows), test the interaction end-to-end
-   - Use `snapshot -D` before and after actions to verify the change had the expected effect
+```
+Detected: <shape> in <file:lines>.
+Markers found: <list of matched markers>
 
-5. **Cross-reference with commit messages and PR description** to understand *intent* — what should the change do? Verify it actually does that.
+Is this correct?
+A) Yes, proceed
+B) No, this is a <other shape> — let me pick the right one
+C) Cancel — I'll invoke /qa-headless with an explicit target
+```
 
-6. **Check TODOS.md** (if it exists) for known bugs or issues related to the changed files. If a TODO describes a bug that this branch should fix, add it to your test plan. If you find a new bug during QA that isn't in TODOS.md, note it in the report.
+If A: continue to Phase 2. If B: list all 6 shapes, let user pick. If C: exit cleanly.
 
-7. **Report findings** scoped to the branch changes:
-   - "Changes tested: N pages/routes affected by this branch"
-   - For each: does it work? Screenshot evidence.
-   - Any regressions on adjacent pages?
+**Language fallback (Node / Ruby / Go in v1):**
 
-**If the user provides a URL with diff-aware mode:** Use that URL as the base but still scope testing to the changed files.
+If detected language is not Python, print:
 
-### Full (default when URL is provided)
-Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
+> Detected a <shape> in <language>. Shape detection is supported in v1. HTTP capture for <language> ships in a follow-up PR (issue #TBD-<language>). Manual path:
+>
+> 1. Add a `--dry-run` flag to your script if it doesn't have one (skill can help with this in Phase 4).
+> 2. Use a language-native HTTP mock library: <nock for Node, WebMock for Ruby, httpmock for Go>.
+> 3. Run with the mock library activated, eyeball the captured output.
+>
+> When v1.x ships <language> capture, /qa-headless will do this end-to-end automatically.
 
-### Quick (`--quick`)
-30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score. No detailed issue documentation.
-
-### Regression (`--regression <baseline>`)
-Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta? Append regression section to report.
+Then exit cleanly. Do not attempt capture.
 
 ---
 
-## Workflow
+## Phase 2: Discover Trigger Inputs
 
-### Phase 1: Initialize
+Shape detection tells you *what* to run; this step tells you *how to invoke it*. Without this, "run the script" is a no-op for anything that takes args or a payload.
 
-1. Find browse binary (see Setup above)
-2. Create output directories
-3. Copy report template from `qa/templates/qa-report-template.md` to output dir
-4. Start timer for duration tracking
+**Per shape:**
 
-### Phase 2: Authenticate (if needed)
+- **CLI / management command** — Read the file. Parse the argparse / click / typer / Django command spec to extract required args, optional args with defaults, and help text. Present discovered args via AskUserQuestion; let the user fill or override.
+- **cron / scheduled job** — Check for example invocations in `README.md`, `Procfile`, `config/schedule.rb`, `Makefile`, CI workflows under `.github/workflows/`, or existing tests. Offer those as starting points. If the script accepts args (e.g., `--date=`), use today's date as a sensible default and let the user override.
+- **queue worker / Celery task** — Read the task definition to extract its signature (positional + keyword args). Plan to invoke synchronously: `task.apply(args=..., kwargs=...)` for Celery, `perform_now(...)` for ActiveJob, `Worker.new.perform(...)` for Sidekiq. **Do not boot a full broker + worker process in v1.** Ask user to fill kwargs if not obvious from tests.
+- **webhook handler** — Scan `tests/` for sample request payloads matching this route. If none, prompt user for a JSON body (with the route's path/method as context). Plan to invoke the route handler directly: FastAPI → call the function with a `Request` mock; Express → synthesize a `req` object; Rails → use `ActionDispatch::IntegrationTest` style direct call.
+- **notifier** — Identify the function that triggers the send. Discover its signature from imports at the call site.
 
-**If the user specified auth credentials:**
+**Discovery output:**
+
+Present what was discovered + what's still needed via AskUserQuestion:
+
+```
+Trigger discovery for <shape> in <file>:
+  Required args:    <list with discovered defaults or <ASK>>
+  Optional args:    <list>
+  Invocation plan:  <e.g., "python scripts/run_call_digest.py --date=2026-04-16 --dry-run">
+
+A) Use these args
+B) Let me adjust the args
+C) Cancel
+```
+
+If trigger inputs cannot be discovered AND user can't fill them, exit cleanly. **Never silently guess.**
+
+---
+
+## Phase 3: Detect Boot Requirements
+
+Two-phase check — static scan identifies what's needed, then **live probes** verify it's actually reachable.
+
+**Static scan (read the script + transitively imported modules):**
+
+- Imports that imply external services: `psycopg`, `psycopg2`, `sqlalchemy`, `redis`, `celery`, `boto3`, `kafka`, `pymongo`, `aiohttp.client`, `httpx`, `requests`
+- `os.environ["..."]` / `os.getenv` references — list every env var the script touches
+- Project-level signals: `.env.example`, `docker-compose.yml`, `Procfile`, `config/database.yml`, `pyproject.toml` `[tool.poetry.dependencies]`
+
+**Live probes (REQUIRED — static alone is not enough):**
+
+For each detected service, probe before proceeding:
 
 ```bash
-$B goto <login-url>
-$B snapshot -i                    # find the login form
-$B fill @e3 "user@example.com"
-$B fill @e4 "[REDACTED]"         # NEVER include real passwords in report
-$B click @e5                      # submit
-$B snapshot -D                    # verify login succeeded
+# Postgres
+pg_isready -h "$PGHOST" -p "$PGPORT" 2>/dev/null && echo "OK:postgres" || echo "DOWN:postgres"
+# Or generic TCP probe with 1s timeout:
+python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('${PGHOST}', ${PGPORT})); print('OK')" 2>/dev/null
+
+# Redis
+redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG && echo "OK:redis" || echo "DOWN:redis"
+
+# Generic
+nc -z -w 1 "$HOST" "$PORT" 2>/dev/null && echo "OK" || echo "DOWN"
 ```
 
-**If the user provided a cookie file:**
+For env vars: check `os.environ` at probe time — not just "is it in `.env.example`".
 
-```bash
-$B cookie-import cookies.json
-$B goto <target-url>
+**Classification:**
+
+- **(a) reachable** — live probe succeeded, env var set with a value
+- **(b) satisfiable** — service defined in `docker-compose.yml` but not running. Skill prints exact command: `docker compose up -d <service>`
+- **(c) missing** — env var unset with no default, or required service not defined anywhere
+
+**If any (c):** Surface a clear pre-run error and exit:
+
+```
+Cannot run <script>. Missing prerequisites:
+  - PGHOST/PGPORT: env vars unset, no .env.example default
+  - Postgres on localhost:5432: pg_isready returned not-ready
+    Start it with: docker compose up -d postgres
+    (then re-run /qa-headless)
+
+Refusing to run with guesses. Fix prerequisites and re-invoke.
 ```
 
-**If 2FA/OTP is required:** Ask the user for the code and wait.
-
-**If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
-
-### Phase 3: Orient
-
-Get a map of the application:
-
-```bash
-$B goto <target-url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/initial.png"
-$B links                          # map navigation structure
-$B console --errors               # any errors on landing?
-```
-
-**Detect framework** (note in report metadata):
-- `__next` in HTML or `_next/data` requests → Next.js
-- `csrf-token` meta tag → Rails
-- `wp-content` in URLs → WordPress
-- Client-side routing with no page reloads → SPA
-
-**For SPAs:** The `links` command may return few results because navigation is client-side. Use `snapshot -i` to find nav elements (buttons, menu items) instead.
-
-### Phase 4: Explore
-
-Visit pages systematically. At each page:
-
-```bash
-$B goto <page-url>
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
-$B console --errors
-```
-
-Then follow the **per-page exploration checklist** (see `qa/references/issue-taxonomy.md`):
-
-1. **Visual scan** — Look at the annotated screenshot for layout issues
-2. **Interactive elements** — Click buttons, links, controls. Do they work?
-3. **Forms** — Fill and submit. Test empty, invalid, edge cases
-4. **Navigation** — Check all paths in and out
-5. **States** — Empty state, loading, error, overflow
-6. **Console** — Any new JS errors after interactions?
-7. **Responsiveness** — Check mobile viewport if relevant:
-   ```bash
-   $B viewport 375x812
-   $B screenshot "$REPORT_DIR/screenshots/page-mobile.png"
-   $B viewport 1280x720
-   ```
-
-**Depth judgment:** Spend more time on core features (homepage, dashboard, checkout, search) and less on secondary pages (about, terms, privacy).
-
-**Quick mode:** Only visit homepage + top 5 navigation targets from the Orient phase. Skip the per-page checklist — just check: loads? Console errors? Broken links visible?
-
-### Phase 5: Document
-
-Document each issue **immediately when found** — don't batch them.
-
-**Two evidence tiers:**
-
-**Interactive bugs** (broken flows, dead buttons, form failures):
-1. Take a screenshot before the action
-2. Perform the action
-3. Take a screenshot showing the result
-4. Use `snapshot -D` to show what changed
-5. Write repro steps referencing screenshots
-
-```bash
-$B screenshot "$REPORT_DIR/screenshots/issue-001-step-1.png"
-$B click @e5
-$B screenshot "$REPORT_DIR/screenshots/issue-001-result.png"
-$B snapshot -D
-```
-
-**Static bugs** (typos, layout issues, missing images):
-1. Take a single annotated screenshot showing the problem
-2. Describe what's wrong
-
-```bash
-$B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
-```
-
-**Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
-
-### Phase 6: Wrap Up
-
-1. **Compute health score** using the rubric below
-2. **Write "Top 3 Things to Fix"** — the 3 highest-severity issues
-3. **Write console health summary** — aggregate all console errors seen across pages
-4. **Update severity counts** in the summary table
-5. **Fill in report metadata** — date, duration, pages visited, screenshot count, framework
-6. **Save baseline** — write `baseline.json` with:
-   ```json
-   {
-     "date": "YYYY-MM-DD",
-     "url": "<target>",
-     "healthScore": N,
-     "issues": [{ "id": "ISSUE-001", "title": "...", "severity": "...", "category": "..." }],
-     "categoryScores": { "console": N, "links": N, ... }
-   }
-   ```
-
-**Regression mode:** After writing the report, load the baseline file. Compare:
-- Health score delta
-- Issues fixed (in baseline but not current)
-- New issues (in current but not baseline)
-- Append the regression section to the report
+**Never proceed with a guess.** No silent failures.
 
 ---
 
-## Health Score Rubric
+## Phase 4: Find or Propose a Dry-Run Harness
 
-Compute each category score (0-100), then take the weighted average.
+Detect existing dry-run mechanism:
 
-### Console (weight: 15%)
-- 0 errors → 100
-- 1-3 errors → 70
-- 4-10 errors → 40
-- 10+ errors → 10
+- argparse/click/typer flag named `--dry-run`, `--dry`, `--no-send`, `--noop`
+- Env var read at startup: `DRY_RUN`, `NOOP`, `TEST_MODE`
+- Function-level kwarg: `dry_run=True`
 
-### Links (weight: 10%)
-- 0 broken → 100
-- Each broken link → -15 (minimum 0)
+If found, plan to use it. Continue to Phase 5.
 
-### Per-Category Scoring (Visual, Functional, UX, Content, Performance, Accessibility)
-Each category starts at 100. Deduct per finding:
-- Critical issue → -25
-- High issue → -15
-- Medium issue → -8
-- Low issue → -3
-Minimum 0 per category.
+**If none present:**
 
-### Weights
-| Category | Weight |
-|----------|--------|
-| Console | 15% |
-| Links | 10% |
-| Visual | 10% |
-| Functional | 20% |
-| UX | 15% |
-| Performance | 10% |
-| Content | 5% |
-| Accessibility | 15% |
+The skill mutates user code only with explicit approval (matches `/qa` fix-loop pattern).
 
-### Final Score
-`score = Σ (category_score × weight)`
-
----
-
-## Framework-Specific Guidance
-
-### Next.js
-- Check console for hydration errors (`Hydration failed`, `Text content did not match`)
-- Monitor `_next/data` requests in network — 404s indicate broken data fetching
-- Test client-side navigation (click links, don't just `goto`) — catches routing issues
-- Check for CLS (Cumulative Layout Shift) on pages with dynamic content
-
-### Rails
-- Check for N+1 query warnings in console (if development mode)
-- Verify CSRF token presence in forms
-- Test Turbo/Stimulus integration — do page transitions work smoothly?
-- Check for flash messages appearing and dismissing correctly
-
-### WordPress
-- Check for plugin conflicts (JS errors from different plugins)
-- Verify admin bar visibility for logged-in users
-- Test REST API endpoints (`/wp-json/`)
-- Check for mixed content warnings (common with WP)
-
-### General SPA (React, Vue, Angular)
-- Use `snapshot -i` for navigation — `links` command misses client-side routes
-- Check for stale state (navigate away and back — does data refresh?)
-- Test browser back/forward — does the app handle history correctly?
-- Check for memory leaks (monitor console after extended use)
-
----
-
-## Important Rules
-
-1. **Repro is everything.** Every issue needs at least one screenshot. No exceptions.
-2. **Verify before documenting.** Retry the issue once to confirm it's reproducible, not a fluke.
-3. **Never include credentials.** Write `[REDACTED]` for passwords in repro steps.
-4. **Write incrementally.** Append each issue to the report as you find it. Don't batch.
-5. **Never read source code.** Test as a user, not a developer.
-6. **Check console after every interaction.** JS errors that don't surface visually are still bugs.
-7. **Test like a user.** Use realistic data. Walk through complete workflows end-to-end.
-8. **Depth over breadth.** 5-10 well-documented issues with evidence > 20 vague descriptions.
-9. **Never delete output files.** Screenshots and reports accumulate — that's intentional.
-10. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-11. **Show screenshots to the user.** After every `$B screenshot`, `$B snapshot -a -o`, or `$B responsive` command, use the Read tool on the output file(s) so the user can see them inline. For `responsive` (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.
-12. **Never refuse to use the browser.** When the user invokes /qa or /qa-only, they are requesting browser-based testing. Never suggest evals, unit tests, or other alternatives as a substitute. Even if the diff appears to have no UI changes, backend changes affect app behavior — always open the browser and test.
-
-Record baseline health score at end of Phase 6.
-
----
-
-## Output Structure
+1. Identify all side-effect callsites in the script (every `requests.post`, `smtplib.send`, `db.execute("INSERT ...")`).
+2. Generate a minimal patch:
+   - Add `parser.add_argument('--dry-run', action='store_true')` (or equivalent)
+   - Pass `dry_run` through to side-effect callsites
+   - Wrap each side-effect call: `if dry_run: capture_for_qa(payload) else: do_the_send(payload)`
+3. Show the diff via AskUserQuestion:
 
 ```
-.gstack/qa-reports/
-├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
-├── screenshots/
-│   ├── initial.png                        # Landing page annotated screenshot
-│   ├── issue-001-step-1.png               # Per-issue evidence
-│   ├── issue-001-result.png
-│   ├── issue-001-before.png               # Before fix (if fixed)
-│   ├── issue-001-after.png                # After fix (if fixed)
-│   └── ...
-└── baseline.json                          # For regression mode
+This script has no --dry-run flag. To safely capture side effects, /qa-headless
+proposes adding one. Diff:
+
+  <unified diff>
+
+A) Apply the patch and commit (recommended)
+B) Apply the patch but don't commit yet
+C) Skip — I'll add --dry-run myself, re-run /qa-headless after
+D) Cancel
 ```
 
-Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
+If A: apply, commit as `chore(qa-headless): add --dry-run flag for QA harness`. If B: apply only. If C/D: exit cleanly.
 
 ---
 
-## Phase 7: Triage
+## Phase 5: Capture Side Effects (Python v1)
 
-Sort all discovered issues by severity, then decide which to fix based on the selected tier:
+**Do not reinvent HTTP capture.** Drive existing libraries. Library selection is automatic based on imports detected in Phase 3:
 
-- **Quick:** Fix critical + high only. Mark medium/low as "deferred."
-- **Standard:** Fix critical + high + medium. Mark low as "deferred."
-- **Exhaustive:** Fix all, including cosmetic/low severity.
+| Detected import | Capture library |
+|---|---|
+| `requests` (sync) | `responses` or `requests-mock` (whichever is installed; install `responses` to a temp venv if neither) |
+| `httpx` (sync) | `respx` |
+| `httpx.AsyncClient` (async) | `respx` (handles both) |
+| `aiohttp` (async) | `aioresponses` |
+| `urllib` / `urllib3` (sync) | `responses` (handles transitively); fallback `unittest.mock.patch` on `urlopen` |
+| `smtplib` | `aiosmtpd` local server, fallback `unittest.mock.patch` on `smtplib.SMTP` |
+| `grpc` or websockets | **Unsupported in v1.** Print: "This feature uses <transport>. Capture not in v1 — skipping." Do not run blind. |
 
-Mark issues that cannot be fixed from source code (e.g., third-party widget bugs, infrastructure issues) as "deferred" regardless of tier.
+**Never modify user's `requirements.txt` / `pyproject.toml`.** If a capture library needs to be installed, do it in a temp venv: `python3 -m venv /tmp/qa-headless-venv && /tmp/qa-headless-venv/bin/pip install responses respx aioresponses`.
+
+**Capture protocol:**
+
+1. Set up the chosen mock library to intercept all outbound HTTP from the targeted shape's runtime.
+2. Invoke the script per Phase 2's plan (CLI args, sync task `.apply()`, etc.).
+3. Collect every intercepted request: method, URL, headers (auth-redacted), body.
+4. Save raw payloads to `.gstack/qa-headless-reports/payloads/<feature>-<timestamp>.json`.
+
+**Auth redaction (always-on):** before saving, redact headers matching `Authorization`, `X-API-Key`, `X-Auth-Token`, `Cookie`. Replace value with `<redacted>`.
+
+---
+
+## Phase 6: Render Captured Payloads Readably
+
+Per payload, render based on detected destination:
+
+- **Slack Block Kit** (URL contains `hooks.slack.com` and body has `blocks` array) → **structured tree**:
+  ```
+  Slack message → #digest-channel
+    [header]    "Daily Call Digest — 2026-04-15"
+    [section]   "9 groups, 47 calls, 1 unrouted"
+    [divider]
+    [section]   fields: [Group A: 12 calls, Group B: 8 calls, ...]
+    [actions]   buttons: [View dashboard, Snooze]
+  ```
+  Faux-Slack visual preview is v2. v1 is structured tree (diff-friendly, unambiguous).
+
+- **MIME email** (smtplib captured or `Content-Type: message/rfc822`):
+  ```
+  From:    digest@example.com
+  To:      mj@belalbadat.com
+  Subject: Daily Call Digest — 2026-04-15
+  Body (first 40 lines):
+    <body excerpt>
+  ```
+
+- **Twilio SMS** (URL contains `api.twilio.com`):
+  ```
+  SMS → +15555551234
+  From: +15555550000
+  Body: "Your verification code is 123456"
+  ```
+
+- **Generic JSON POST** (everything else):
+  ```
+  POST https://api.sendgrid.com/v3/mail/send
+    Headers: Content-Type=application/json, Authorization=<redacted>
+    Body:
+      <pretty-printed JSON>
+  ```
+
+Print rendered output to terminal AND save alongside raw payload as `<feature>-<timestamp>.rendered.txt`.
+
+---
+
+## Phase 7: Optional Golden-File Diff
+
+Goldens live in **user's repo** at `.gstack/qa-headless/golden/<feature>.json`.
+
+- If `--regression <golden>` was passed: diff captured payload against golden. Any difference = surface as an issue.
+- If no golden exists yet: ask user via AskUserQuestion whether to save current capture as the golden ("Yes, this output is correct" / "No, there's a bug — let's fix it first").
+- If golden exists and matches: report PASS.
+- If golden exists and differs: show diff, ask whether (A) the change is intentional and the golden should be updated, (B) it's a bug that needs fixing.
 
 ---
 
 ## Phase 8: Fix Loop
 
-For each fixable issue, in severity order:
+For each fixable issue (e.g., "0 groups returned — date boundary bug?", "Block Kit invalid — missing required `text` field", "Unrouted subsection rendered with wrong template"), in severity order:
 
 ### 8a. Locate source
 
@@ -1259,25 +1161,26 @@ For each fixable issue, in severity order:
 
 ```bash
 git add <only-changed-files>
-git commit -m "fix(qa): ISSUE-NNN — short description"
+git commit -m "fix(qa-headless): ISSUE-NNN — short description"
 ```
 
 - One commit per fix. Never bundle multiple fixes.
-- Message format: `fix(qa): ISSUE-NNN — short description`
+- Message format: `fix(qa-headless): ISSUE-NNN — short description`
 
-### 8d. Re-test
+### 8d. Re-test (qa-headless specific)
 
-- Navigate back to the affected page
-- Take **before/after screenshot pair**
-- Check console for errors
-- Use `snapshot -D` to verify the change had the expected effect
+- Re-invoke the script per Phase 2's plan with the same trigger args
+- Capture side effects again (Phase 5)
+- Render readably (Phase 6)
+- Compare new rendered output to the bug repro
 
 ```bash
-$B goto <affected-url>
-$B screenshot "$REPORT_DIR/screenshots/issue-NNN-after.png"
-$B console --errors
-$B snapshot -D
+# Example — re-run motivating case
+python scripts/run_call_digest.py --date=2026-04-15 --dry-run
+# Then check the freshly written .gstack/qa-headless-reports/payloads/<latest>.json
 ```
+
+If golden mode is active, also re-run the golden diff (Phase 7).
 
 ### 8e. Classify
 
@@ -1311,8 +1214,8 @@ The test MUST:
 - Include full attribution comment:
   ```
   // Regression: ISSUE-NNN — {what broke}
-  // Found by /qa on {YYYY-MM-DD}
-  // Report: .gstack/qa-reports/qa-report-{domain}-{date}.md
+  // Found by /qa-headless on {YYYY-MM-DD}
+  // Report: .gstack/qa-headless-reports/qa-headless-report-{feature}-{date}.md
   ```
 
 Generate unit tests. Mock all external dependencies (DB, API, Redis, file system).
@@ -1326,7 +1229,7 @@ Use auto-incrementing names to avoid collisions: check existing `{name}.regressi
 ```
 
 **4. Evaluate:**
-- Passes → commit: `git commit -m "test(qa): regression test for ISSUE-NNN — {desc}"`
+- Passes → commit: `git commit -m "test(qa-headless): regression test for ISSUE-NNN — {desc}"`
 - Fails → fix test once. Still failing → delete test, defer.
 - Taking >2 min exploration → skip and defer.
 
@@ -1350,21 +1253,24 @@ WTF-LIKELIHOOD:
 
 **Hard cap: 50 fixes.** After 50 fixes, stop regardless of remaining issues.
 
-**Test type decision (qa-specific):**
-- Console error / JS exception / logic bug → unit or integration test
-- Broken form / API failure / data flow bug → integration test with request/response
-- Visual bug with JS behavior (broken dropdown, animation) → component test
-- Pure CSS → skip (caught by QA reruns)
+**Test type decision (qa-headless specific):**
+- Date / boundary bug → unit test on the date-handling function
+- Wrong grouping / aggregation → unit test on the grouping function with curated input
+- Invalid Block Kit / payload schema → schema validation test (use `jsonschema` if present)
+- Notification not sent under condition X → integration test that asserts the capture library recorded the call
+- Silent failure / no output → test that asserts the script raises or logs a clear error
 
 ---
 
-## Phase 9: Final QA
+## Phase 9: Final Run
 
 After all fixes are applied:
 
-1. Re-run QA on all affected pages
-2. Compute final health score
-3. **If final score is WORSE than baseline:** WARN prominently — something regressed
+1. Re-run the script one more time, fresh capture
+2. Re-render payloads
+3. If golden mode: final golden diff
+4. Compute final summary: groups detected, payloads captured, schema validity, runtime
+5. **If a fix made things worse (capture now missing, payload now invalid):** WARN prominently — something regressed
 
 ---
 
@@ -1372,7 +1278,7 @@ After all fixes are applied:
 
 Write the report to both local and project-scoped locations:
 
-**Local:** `.gstack/qa-reports/qa-report-{domain}-{YYYY-MM-DD}.md`
+**Local:** `.gstack/qa-headless-reports/qa-headless-report-{feature}-{YYYY-MM-DD}.md`
 
 **Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
@@ -1380,20 +1286,34 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gst
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
-**Per-issue additions** (beyond standard report template):
-- Fix Status: verified / best-effort / reverted / deferred
-- Commit SHA (if fixed)
-- Files Changed (if fixed)
-- Before/After screenshots (if fixed)
+**Report sections:**
 
-**Summary section:**
-- Total issues found
-- Fixes applied (verified: X, best-effort: Y, reverted: Z)
-- Deferred issues
-- Health score delta: baseline → final
+```markdown
+# /qa-headless Report — <feature>
+Date: <YYYY-MM-DD>
+Branch: <branch>
+Shape: <cron/worker/webhook/notifier/CLI/etl>
+Language: <python/node/ruby/go>
+Invocation: <exact command>
 
-**PR Summary:** Include a one-line summary suitable for PR descriptions:
-> "QA found N issues, fixed M, health score X → Y."
+## Summary
+- N payloads captured
+- M schema-valid, K invalid
+- L issues found, J fixed, I deferred
+- Runtime: <duration>
+
+## Captured Payloads
+[For each payload: rendered tree + path to raw .json]
+
+## Issues
+[For each: ISSUE-NNN, severity, description, fix status (verified/best-effort/reverted/deferred), commit SHA, before/after rendered diff]
+
+## Golden Diff (if applicable)
+PASS / FAIL with diff
+
+## PR Summary
+"qa-headless: N issues found, M fixed, K deferred. Captured payloads: <list>."
+```
 
 ---
 
@@ -1401,8 +1321,8 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
 If the repo has a `TODOS.md`:
 
-1. **New deferred bugs** → add as TODOs with severity, category, and repro steps
-2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa on {branch}, {date}"
+1. **New deferred bugs** → add as TODOs with severity, category, repro command
+2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa-headless on {branch}, {date}"
 
 ---
 
@@ -1412,7 +1332,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"qa","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"qa-headless","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -1433,10 +1353,13 @@ already knows. A good test: would this insight save time in a future session? If
 
 
 
-## Additional Rules (qa-specific)
+## Additional Rules (qa-headless specific)
 
 11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
 12. **One commit per fix.** Never bundle multiple fixes into one commit.
-13. **Only modify tests when generating regression tests in Phase 8e.5.** Never modify CI configuration. Never modify existing tests — only create new test files.
-14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
-15. **Self-regulate.** Follow the WTF-likelihood heuristic. When in doubt, stop and ask.
+13. **Never modify user's `requirements.txt` / `pyproject.toml` / `Pipfile`.** Capture libraries go into a temp venv. The skill is non-invasive on dependency files.
+14. **Never proceed with missing prerequisites.** If Phase 3's live probes fail, exit with a clear error. Guessing breaks user trust faster than refusing.
+15. **Never silently misclassify.** Phase 1 always confirms shape with the user before Phase 2.
+16. **Never silently dead-end on empty diff.** Phase 1's empty-diff fallback presents repo entry-point candidates.
+17. **v1 = Python end-to-end. Other languages: shape detection only, then exit gracefully with manual guidance.**
+18. **Confirmation gates are loud-by-default.** Misclassification, missing prereqs, dry-run proposal, golden update — all require explicit user yes.

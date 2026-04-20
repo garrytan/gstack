@@ -1,0 +1,56 @@
+{
+  "fixture": "test/fixtures/qa-headless/",
+  "expected_classifications": [
+    {
+      "path": "py-cron-slack/run_call_digest.py",
+      "shape": "cron",
+      "language": "python",
+      "rationale": "Procfile clock entry, Slack webhook POST, --date arg"
+    },
+    {
+      "path": "py-cron-slack-no-dryrun/run_call_digest.py",
+      "shape": "cron",
+      "language": "python",
+      "rationale": "Same as above, just missing --dry-run flag"
+    },
+    {
+      "path": "py-worker-celery/tasks.py",
+      "shape": "queue worker",
+      "language": "python",
+      "rationale": "@shared_task decorator, Celery import"
+    },
+    {
+      "path": "py-webhook-handler/main.py",
+      "shape": "webhook handler",
+      "language": "python",
+      "rationale": "FastAPI @app.post route with side-effect writes (DB + Slack POST)"
+    },
+    {
+      "path": "py-async-httpx/notifier.py",
+      "shape": "notifier",
+      "language": "python",
+      "rationale": "httpx.AsyncClient POST to Slack webhook"
+    },
+    {
+      "path": "node-worker-bullmq/worker.js",
+      "shape": "queue worker",
+      "language": "node",
+      "rationale": "BullMQ Worker class processing jobs, posts to Slack"
+    },
+    {
+      "path": "ruby-notifier-activejob/digest_notifier_job.rb",
+      "shape": "notifier",
+      "language": "ruby",
+      "rationale": "ApplicationJob (ActiveJob) sending Slack notification via Net::HTTP"
+    },
+    {
+      "path": "go-cmd-notifier/main.go",
+      "shape": "CLI",
+      "language": "go",
+      "rationale": "Go cmd/main.go with flag.Parse, http.Post to Slack — both CLI and notifier match; CLI wins per disambiguation rules"
+    }
+  ],
+  "minimum_correct": 6,
+  "total": 8,
+  "notes": "Ruby ActiveJob and notifier both technically apply to digest_notifier_job.rb. notifier is preferred (more specific). Go CLI also matches notifier; CLI wins because it accepts args."
+}

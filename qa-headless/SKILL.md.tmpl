@@ -1,0 +1,482 @@
+---
+name: qa-headless
+preamble-tier: 4
+version: 1.0.0
+description: |
+  Systematically QA test backend features that have no UI — cron jobs, queue
+  workers, webhook handlers, notifiers, CLIs, ETL/data pipelines — and fix
+  bugs found. Pairs with /qa (browser-driven) to close the backend QA gap.
+  Use when asked to "qa-headless", "test this cron", "test this worker",
+  "test this notifier", "qa the backend", "test the digest", or when you
+  need to verify a backend feature whose output is a side effect (Slack
+  message, email, DB write, log line) rather than a rendered page. v1
+  ships Python end-to-end; Node, Ruby, and Go shape detection works,
+  with HTTP capture coming in follow-up PRs. (gstack)
+voice-triggers:
+  - "test the cron"
+  - "test the worker"
+  - "test the notifier"
+  - "qa the backend"
+  - "test the digest"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - qa headless
+  - test this cron
+  - test the worker
+  - test the notifier
+  - qa the backend
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+{{GBRAIN_CONTEXT_LOAD}}
+
+# /qa-headless: Test → Fix → Verify (no browser)
+
+You are a QA engineer AND a bug-fix engineer for backend features. Cron jobs, queue workers, webhook handlers, notifiers, CLIs, ETL pipelines — anything whose observable output is a side effect (Slack message, email, DB write, log line, file produced) rather than a rendered page. Drive the feature in dry-run, capture the side effects readably, find bugs, fix them with atomic commits, re-verify. Same shape as `/qa` but no browser.
+
+## v1 scope reminder
+
+- **Python**: shape detection, HTTP capture (sync + async), dry-run proposal, fix loop — all functional.
+- **Node, Ruby, Go**: shape detection works. HTTP capture is **not** in v1. For these languages, the skill detects the shape, then prints manual guidance and exits gracefully. Capture support ships in follow-up PRs.
+- **Out of scope (v1)**: DB-write capture beyond trivial ORM hooks, gRPC/websocket capture, real staging-env testing.
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|-----------------:|
+| Target | (auto-detect from diff or repo scan) | `scripts/run_call_digest.py`, `app/workers/send_digest.rb` |
+| Tier | Standard | `--quick`, `--exhaustive` |
+| Mode | full | `--regression .gstack/qa-headless/golden/<feature>.json` |
+| Output dir | `.gstack/qa-headless-reports/` | `Output to /tmp/qa` |
+| Trigger args | (auto-discovered) | `--date=2026-04-15`, `--user-id=42` |
+| Channel | dry-run (capture only) | `--channel=test` (POST to a test webhook) |
+
+**Tiers determine which issues get fixed:**
+- **Quick:** Fix critical + high severity only
+- **Standard:** + medium severity (default)
+- **Exhaustive:** + low/cosmetic severity
+
+**Check for clean working tree:**
+
+```bash
+git status --porcelain
+```
+
+If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
+
+"Your working tree has uncommitted changes. /qa-headless needs a clean tree so each bug fix gets its own atomic commit."
+
+- A) Commit my changes — commit all current changes with a descriptive message, then start QA
+- B) Stash my changes — stash, run QA-headless, pop the stash after
+- C) Abort — I'll clean up manually
+
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before QA-headless adds its own fix commits.
+
+After the user chooses, execute their choice (commit or stash), then continue with setup.
+
+**Check test framework (bootstrap if needed):**
+
+{{TEST_BOOTSTRAP}}
+
+**Create output directories:**
+
+```bash
+mkdir -p .gstack/qa-headless-reports/payloads
+mkdir -p .gstack/qa-headless/golden
+```
+
+---
+
+{{LEARNINGS_SEARCH}}
+
+## Test Plan Context
+
+Before guessing what to test, check for richer test plan sources:
+
+1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files
+   ```bash
+   setopt +o nomatch 2>/dev/null || true  # zsh compat
+   {{SLUG_EVAL}}
+   ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
+   ```
+2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
+3. Use whichever source is richer. Fall back to repo scan only if neither is available.
+
+---
+
+## Phase 1: Detect Feature Shape
+
+Goal: classify the changed/target code as one of: **cron / scheduled job**, **queue worker**, **webhook handler**, **notifier**, **CLI / management command**, or **data pipeline / ETL**.
+
+**Input sources, in order of preference:**
+
+1. **User-specified target** — if the invocation includes a file path (e.g., `/qa-headless scripts/run_call_digest.py`), use it. Always honored.
+2. **`git diff` against the base branch** — `git diff <base>...HEAD --name-only`. Scan changed files for shape markers (table below).
+3. **Empty-diff fallback (CRITICAL — primary use case for shipped features):** If diff is empty or no file matches a shape marker, scan the repo for cron-like / worker-like / CLI-like entry points. Present the top 5 candidates via AskUserQuestion. **Never silently dead-end on empty diff.**
+
+**Shape markers:**
+
+| Shape | Python | Node | Ruby | Go |
+|---|---|---|---|---|
+| cron / scheduled | APScheduler import, Procfile `clock`/`scheduler`, Celery `beat_schedule`, k8s `CronJob` manifests, `if __name__ == "__main__"` in `scripts/`/`jobs/` | `node-cron`, `agenda`, `bree`, Procfile `clock`, k8s CronJob | `whenever` gem, `config/schedule.rb`, `rake` task, k8s CronJob | `time.Tick` patterns in `cmd/*/main.go`, k8s CronJob |
+| queue worker | `@celery.task`, `@shared_task`, RQ Worker, Dramatiq actor | `bullmq` Processor, `bee-queue`, `agenda` define, Faktory worker | `Sidekiq::Worker`, `ActiveJob::Base` perform, Resque `@queue` | channel-based `for { select { case ... } }` workers |
+| webhook handler | FastAPI/Flask route that imports `requests`/`httpx`/DB writes and returns 200 | Express/Fastify route doing same | Rails route doing same | `http.HandlerFunc` doing same |
+| notifier | Outbound `requests.post` to Slack/Twilio/SendGrid/Postmark/SES, or `smtplib.SMTP` | `axios.post`/`fetch` to same APIs, `nodemailer` | `Net::HTTP.post` to same APIs, `Mail.deliver` | `http.Post` to same APIs, `net/smtp` |
+| CLI / management cmd | argparse, click, typer, Django `management/commands` | commander, yargs, oclif | thor, `rails runner`, rake | cobra, `flag` package in `cmd/` |
+| data pipeline / ETL | pandas/polars scripts, dbt models, raw SQL with side effects | `etl` libs, batch processors | rake tasks doing batch work | batch processors |
+
+**Confirmation gate (CRITICAL — prevents silent misclassification):**
+
+After classification, show the user what was detected and ask for confirmation via AskUserQuestion:
+
+```
+Detected: <shape> in <file:lines>.
+Markers found: <list of matched markers>
+
+Is this correct?
+A) Yes, proceed
+B) No, this is a <other shape> — let me pick the right one
+C) Cancel — I'll invoke /qa-headless with an explicit target
+```
+
+If A: continue to Phase 2. If B: list all 6 shapes, let user pick. If C: exit cleanly.
+
+**Language fallback (Node / Ruby / Go in v1):**
+
+If detected language is not Python, print:
+
+> Detected a <shape> in <language>. Shape detection is supported in v1. HTTP capture for <language> ships in a follow-up PR (issue #TBD-<language>). Manual path:
+>
+> 1. Add a `--dry-run` flag to your script if it doesn't have one (skill can help with this in Phase 4).
+> 2. Use a language-native HTTP mock library: <nock for Node, WebMock for Ruby, httpmock for Go>.
+> 3. Run with the mock library activated, eyeball the captured output.
+>
+> When v1.x ships <language> capture, /qa-headless will do this end-to-end automatically.
+
+Then exit cleanly. Do not attempt capture.
+
+---
+
+## Phase 2: Discover Trigger Inputs
+
+Shape detection tells you *what* to run; this step tells you *how to invoke it*. Without this, "run the script" is a no-op for anything that takes args or a payload.
+
+**Per shape:**
+
+- **CLI / management command** — Read the file. Parse the argparse / click / typer / Django command spec to extract required args, optional args with defaults, and help text. Present discovered args via AskUserQuestion; let the user fill or override.
+- **cron / scheduled job** — Check for example invocations in `README.md`, `Procfile`, `config/schedule.rb`, `Makefile`, CI workflows under `.github/workflows/`, or existing tests. Offer those as starting points. If the script accepts args (e.g., `--date=`), use today's date as a sensible default and let the user override.
+- **queue worker / Celery task** — Read the task definition to extract its signature (positional + keyword args). Plan to invoke synchronously: `task.apply(args=..., kwargs=...)` for Celery, `perform_now(...)` for ActiveJob, `Worker.new.perform(...)` for Sidekiq. **Do not boot a full broker + worker process in v1.** Ask user to fill kwargs if not obvious from tests.
+- **webhook handler** — Scan `tests/` for sample request payloads matching this route. If none, prompt user for a JSON body (with the route's path/method as context). Plan to invoke the route handler directly: FastAPI → call the function with a `Request` mock; Express → synthesize a `req` object; Rails → use `ActionDispatch::IntegrationTest` style direct call.
+- **notifier** — Identify the function that triggers the send. Discover its signature from imports at the call site.
+
+**Discovery output:**
+
+Present what was discovered + what's still needed via AskUserQuestion:
+
+```
+Trigger discovery for <shape> in <file>:
+  Required args:    <list with discovered defaults or <ASK>>
+  Optional args:    <list>
+  Invocation plan:  <e.g., "python scripts/run_call_digest.py --date=2026-04-16 --dry-run">
+
+A) Use these args
+B) Let me adjust the args
+C) Cancel
+```
+
+If trigger inputs cannot be discovered AND user can't fill them, exit cleanly. **Never silently guess.**
+
+---
+
+## Phase 3: Detect Boot Requirements
+
+Two-phase check — static scan identifies what's needed, then **live probes** verify it's actually reachable.
+
+**Static scan (read the script + transitively imported modules):**
+
+- Imports that imply external services: `psycopg`, `psycopg2`, `sqlalchemy`, `redis`, `celery`, `boto3`, `kafka`, `pymongo`, `aiohttp.client`, `httpx`, `requests`
+- `os.environ["..."]` / `os.getenv` references — list every env var the script touches
+- Project-level signals: `.env.example`, `docker-compose.yml`, `Procfile`, `config/database.yml`, `pyproject.toml` `[tool.poetry.dependencies]`
+
+**Live probes (REQUIRED — static alone is not enough):**
+
+For each detected service, probe before proceeding:
+
+```bash
+# Postgres
+pg_isready -h "$PGHOST" -p "$PGPORT" 2>/dev/null && echo "OK:postgres" || echo "DOWN:postgres"
+# Or generic TCP probe with 1s timeout:
+python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('${PGHOST}', ${PGPORT})); print('OK')" 2>/dev/null
+
+# Redis
+redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG && echo "OK:redis" || echo "DOWN:redis"
+
+# Generic
+nc -z -w 1 "$HOST" "$PORT" 2>/dev/null && echo "OK" || echo "DOWN"
+```
+
+For env vars: check `os.environ` at probe time — not just "is it in `.env.example`".
+
+**Classification:**
+
+- **(a) reachable** — live probe succeeded, env var set with a value
+- **(b) satisfiable** — service defined in `docker-compose.yml` but not running. Skill prints exact command: `docker compose up -d <service>`
+- **(c) missing** — env var unset with no default, or required service not defined anywhere
+
+**If any (c):** Surface a clear pre-run error and exit:
+
+```
+Cannot run <script>. Missing prerequisites:
+  - PGHOST/PGPORT: env vars unset, no .env.example default
+  - Postgres on localhost:5432: pg_isready returned not-ready
+    Start it with: docker compose up -d postgres
+    (then re-run /qa-headless)
+
+Refusing to run with guesses. Fix prerequisites and re-invoke.
+```
+
+**Never proceed with a guess.** No silent failures.
+
+---
+
+## Phase 4: Find or Propose a Dry-Run Harness
+
+Detect existing dry-run mechanism:
+
+- argparse/click/typer flag named `--dry-run`, `--dry`, `--no-send`, `--noop`
+- Env var read at startup: `DRY_RUN`, `NOOP`, `TEST_MODE`
+- Function-level kwarg: `dry_run=True`
+
+If found, plan to use it. Continue to Phase 5.
+
+**If none present:**
+
+The skill mutates user code only with explicit approval (matches `/qa` fix-loop pattern).
+
+1. Identify all side-effect callsites in the script (every `requests.post`, `smtplib.send`, `db.execute("INSERT ...")`).
+2. Generate a minimal patch:
+   - Add `parser.add_argument('--dry-run', action='store_true')` (or equivalent)
+   - Pass `dry_run` through to side-effect callsites
+   - Wrap each side-effect call: `if dry_run: capture_for_qa(payload) else: do_the_send(payload)`
+3. Show the diff via AskUserQuestion:
+
+```
+This script has no --dry-run flag. To safely capture side effects, /qa-headless
+proposes adding one. Diff:
+
+  <unified diff>
+
+A) Apply the patch and commit (recommended)
+B) Apply the patch but don't commit yet
+C) Skip — I'll add --dry-run myself, re-run /qa-headless after
+D) Cancel
+```
+
+If A: apply, commit as `chore(qa-headless): add --dry-run flag for QA harness`. If B: apply only. If C/D: exit cleanly.
+
+---
+
+## Phase 5: Capture Side Effects (Python v1)
+
+**Do not reinvent HTTP capture.** Drive existing libraries. Library selection is automatic based on imports detected in Phase 3:
+
+| Detected import | Capture library |
+|---|---|
+| `requests` (sync) | `responses` or `requests-mock` (whichever is installed; install `responses` to a temp venv if neither) |
+| `httpx` (sync) | `respx` |
+| `httpx.AsyncClient` (async) | `respx` (handles both) |
+| `aiohttp` (async) | `aioresponses` |
+| `urllib` / `urllib3` (sync) | `responses` (handles transitively); fallback `unittest.mock.patch` on `urlopen` |
+| `smtplib` | `aiosmtpd` local server, fallback `unittest.mock.patch` on `smtplib.SMTP` |
+| `grpc` or websockets | **Unsupported in v1.** Print: "This feature uses <transport>. Capture not in v1 — skipping." Do not run blind. |
+
+**Never modify user's `requirements.txt` / `pyproject.toml`.** If a capture library needs to be installed, do it in a temp venv: `python3 -m venv /tmp/qa-headless-venv && /tmp/qa-headless-venv/bin/pip install responses respx aioresponses`.
+
+**Capture protocol:**
+
+1. Set up the chosen mock library to intercept all outbound HTTP from the targeted shape's runtime.
+2. Invoke the script per Phase 2's plan (CLI args, sync task `.apply()`, etc.).
+3. Collect every intercepted request: method, URL, headers (auth-redacted), body.
+4. Save raw payloads to `.gstack/qa-headless-reports/payloads/<feature>-<timestamp>.json`.
+
+**Auth redaction (always-on):** before saving, redact headers matching `Authorization`, `X-API-Key`, `X-Auth-Token`, `Cookie`. Replace value with `<redacted>`.
+
+---
+
+## Phase 6: Render Captured Payloads Readably
+
+Per payload, render based on detected destination:
+
+- **Slack Block Kit** (URL contains `hooks.slack.com` and body has `blocks` array) → **structured tree**:
+  ```
+  Slack message → #digest-channel
+    [header]    "Daily Call Digest — 2026-04-15"
+    [section]   "9 groups, 47 calls, 1 unrouted"
+    [divider]
+    [section]   fields: [Group A: 12 calls, Group B: 8 calls, ...]
+    [actions]   buttons: [View dashboard, Snooze]
+  ```
+  Faux-Slack visual preview is v2. v1 is structured tree (diff-friendly, unambiguous).
+
+- **MIME email** (smtplib captured or `Content-Type: message/rfc822`):
+  ```
+  From:    digest@example.com
+  To:      mj@belalbadat.com
+  Subject: Daily Call Digest — 2026-04-15
+  Body (first 40 lines):
+    <body excerpt>
+  ```
+
+- **Twilio SMS** (URL contains `api.twilio.com`):
+  ```
+  SMS → +15555551234
+  From: +15555550000
+  Body: "Your verification code is 123456"
+  ```
+
+- **Generic JSON POST** (everything else):
+  ```
+  POST https://api.sendgrid.com/v3/mail/send
+    Headers: Content-Type=application/json, Authorization=<redacted>
+    Body:
+      <pretty-printed JSON>
+  ```
+
+Print rendered output to terminal AND save alongside raw payload as `<feature>-<timestamp>.rendered.txt`.
+
+---
+
+## Phase 7: Optional Golden-File Diff
+
+Goldens live in **user's repo** at `.gstack/qa-headless/golden/<feature>.json`.
+
+- If `--regression <golden>` was passed: diff captured payload against golden. Any difference = surface as an issue.
+- If no golden exists yet: ask user via AskUserQuestion whether to save current capture as the golden ("Yes, this output is correct" / "No, there's a bug — let's fix it first").
+- If golden exists and matches: report PASS.
+- If golden exists and differs: show diff, ask whether (A) the change is intentional and the golden should be updated, (B) it's a bug that needs fixing.
+
+---
+
+## Phase 8: Fix Loop
+
+For each fixable issue (e.g., "0 groups returned — date boundary bug?", "Block Kit invalid — missing required `text` field", "Unrouted subsection rendered with wrong template"), in severity order:
+
+{{QA_FIX_LOOP_HEAD:qa-headless}}
+
+### 8d. Re-test (qa-headless specific)
+
+- Re-invoke the script per Phase 2's plan with the same trigger args
+- Capture side effects again (Phase 5)
+- Render readably (Phase 6)
+- Compare new rendered output to the bug repro
+
+```bash
+# Example — re-run motivating case
+python scripts/run_call_digest.py --date=2026-04-15 --dry-run
+# Then check the freshly written .gstack/qa-headless-reports/payloads/<latest>.json
+```
+
+If golden mode is active, also re-run the golden diff (Phase 7).
+
+{{QA_FIX_LOOP_TAIL:qa-headless}}
+
+**Test type decision (qa-headless specific):**
+- Date / boundary bug → unit test on the date-handling function
+- Wrong grouping / aggregation → unit test on the grouping function with curated input
+- Invalid Block Kit / payload schema → schema validation test (use `jsonschema` if present)
+- Notification not sent under condition X → integration test that asserts the capture library recorded the call
+- Silent failure / no output → test that asserts the script raises or logs a clear error
+
+---
+
+## Phase 9: Final Run
+
+After all fixes are applied:
+
+1. Re-run the script one more time, fresh capture
+2. Re-render payloads
+3. If golden mode: final golden diff
+4. Compute final summary: groups detected, payloads captured, schema validity, runtime
+5. **If a fix made things worse (capture now missing, payload now invalid):** WARN prominently — something regressed
+
+---
+
+## Phase 10: Report
+
+Write the report to both local and project-scoped locations:
+
+**Local:** `.gstack/qa-headless-reports/qa-headless-report-{feature}-{YYYY-MM-DD}.md`
+
+**Project-scoped:** Write test outcome artifact for cross-session context:
+```bash
+{{SLUG_SETUP}}
+```
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
+
+**Report sections:**
+
+```markdown
+# /qa-headless Report — <feature>
+Date: <YYYY-MM-DD>
+Branch: <branch>
+Shape: <cron/worker/webhook/notifier/CLI/etl>
+Language: <python/node/ruby/go>
+Invocation: <exact command>
+
+## Summary
+- N payloads captured
+- M schema-valid, K invalid
+- L issues found, J fixed, I deferred
+- Runtime: <duration>
+
+## Captured Payloads
+[For each payload: rendered tree + path to raw .json]
+
+## Issues
+[For each: ISSUE-NNN, severity, description, fix status (verified/best-effort/reverted/deferred), commit SHA, before/after rendered diff]
+
+## Golden Diff (if applicable)
+PASS / FAIL with diff
+
+## PR Summary
+"qa-headless: N issues found, M fixed, K deferred. Captured payloads: <list>."
+```
+
+---
+
+## Phase 11: TODOS.md Update
+
+If the repo has a `TODOS.md`:
+
+1. **New deferred bugs** → add as TODOs with severity, category, repro command
+2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa-headless on {branch}, {date}"
+
+---
+
+{{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
+
+## Additional Rules (qa-headless specific)
+
+11. **Clean working tree required.** If dirty, use AskUserQuestion to offer commit/stash/abort before proceeding.
+12. **One commit per fix.** Never bundle multiple fixes into one commit.
+13. **Never modify user's `requirements.txt` / `pyproject.toml` / `Pipfile`.** Capture libraries go into a temp venv. The skill is non-invasive on dependency files.
+14. **Never proceed with missing prerequisites.** If Phase 3's live probes fail, exit with a clear error. Guessing breaks user trust faster than refusing.
+15. **Never silently misclassify.** Phase 1 always confirms shape with the user before Phase 2.
+16. **Never silently dead-end on empty diff.** Phase 1's empty-diff fallback presents repo entry-point candidates.
+17. **v1 = Python end-to-end. Other languages: shape detection only, then exit gracefully with manual guidance.**
+18. **Confirmation gates are loud-by-default.** Misclassification, missing prereqs, dry-run proposal, golden update — all require explicit user yes.

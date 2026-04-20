@@ -1,0 +1,22 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-cron-slack/",
+  "scenario": "Repo on a branch with NO diff (no changed files). Skill must not dead-end — it must scan the repo for entry points and let the user pick.",
+  "expected_behaviors": [
+    "Skill detects empty/irrelevant diff",
+    "Skill scans repo for cron-like / worker-like entry points (scripts/, jobs/, Procfile, k8s CronJob, bin/)",
+    "Skill presents top candidates via AskUserQuestion (or equivalent prompt)",
+    "Skill does NOT silently exit with 'nothing to QA'"
+  ],
+  "bugs": [
+    {
+      "id": "empty-diff-fallback",
+      "category": "discovery",
+      "severity": "high",
+      "description": "Empty-diff is the PRIMARY use case ('QA this cron that's been live for months'). Skill must offer a repo scan, not dead-end.",
+      "detection_hint": "scan|entry point|Procfile|scripts|candidates|pick"
+    }
+  ],
+  "total_bugs": 1,
+  "minimum_detection": 1,
+  "max_false_positives": 1
+}

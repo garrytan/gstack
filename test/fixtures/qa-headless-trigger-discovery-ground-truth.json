@@ -1,0 +1,22 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-cron-slack/run_call_digest.py",
+  "scenario": "Script takes --date and --dry-run. Skill must parse argparse spec, surface required + optional args, and either auto-fill sensible defaults (today's date) or prompt the user.",
+  "expected_behaviors": [
+    "Skill reads the argparse.ArgumentParser definition",
+    "Skill identifies --date (with default=date.today()) and --dry-run (action='store_true')",
+    "Skill proposes an invocation like 'python run_call_digest.py --date=YYYY-MM-DD --dry-run' with concrete values",
+    "Skill does NOT invoke with no args (would still work since --date defaults, but the discovery output must show it understood the spec)"
+  ],
+  "bugs": [
+    {
+      "id": "trigger-args-discovery",
+      "category": "discovery",
+      "severity": "medium",
+      "description": "Skill must show its work: parse argparse spec, surface what args exist, show invocation plan with concrete values.",
+      "detection_hint": "argparse|--date|--dry-run|invocation|args"
+    }
+  ],
+  "total_bugs": 1,
+  "minimum_detection": 1,
+  "max_false_positives": 1
+}

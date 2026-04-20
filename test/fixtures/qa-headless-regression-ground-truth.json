@@ -1,0 +1,18 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-cron-slack/run_call_digest.py",
+  "scenario": "Run the motivating fixture end-to-end. Output must match the frozen golden ('5 groups, 9 calls, 1 unrouted, Block Kit valid, ship-ready').",
+  "expected_summary_keywords": [
+    "5 groups",
+    "9 calls",
+    "1 unrouted",
+    "Block Kit valid",
+    "ship-ready"
+  ],
+  "expected_payload_count": 5,
+  "expected_block_types_per_payload": ["header", "section"],
+  "bugs": [],
+  "total_bugs": 0,
+  "minimum_detection": 0,
+  "max_false_positives": 0,
+  "notes": "Gate-tier regression test. Any change to qa-headless/SKILL.md.tmpl, scripts/resolvers/qa-shared.ts, or the fixture itself that breaks the reproduction trips CI. Frozen golden lives at test/fixtures/qa-headless/py-cron-slack/golden.txt (the printed summary line)."
+}

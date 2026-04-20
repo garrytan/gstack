@@ -1,0 +1,17 @@
+{
+  "fixture": "test/fixtures/qa-headless/py-cron-slack/run_call_digest.py",
+  "expected_summary_keywords": [
+    "5 groups",
+    "9 calls",
+    "1 unrouted",
+    "Block Kit valid"
+  ],
+  "expected_payload_count": 5,
+  "expected_payload_destination": "hooks.slack.com",
+  "expected_block_types": ["header", "section"],
+  "bugs": [],
+  "total_bugs": 0,
+  "minimum_detection": 0,
+  "max_false_positives": 1,
+  "notes": "Motivating fixture has no planted bugs — this eval verifies the skill can RUN it and report the correct summary. The agent should produce a report mentioning '5 groups, 9 calls' and the Block Kit structure."
+}
