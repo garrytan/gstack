@@ -229,6 +229,66 @@ describe('check-careful.sh', () => {
     }
   });
 
+  // --- False positive prevention: patterns in text-output command arguments ---
+
+  describe('false positive prevention: text-output command segments', () => {
+    test('git commit -m with "rm -rf" in message allows', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "fix: remove old cache files with rm -rf ~/.cache"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git commit --message with DROP TABLE in message allows', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit --message "chore: drop old analytics tables DROP TABLE events"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('echo with dangerous pattern in argument allows', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('echo "About to run: rm -rf /tmp/stale-cache"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('printf with dangerous pattern in format string allows', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('printf "Deleting with: rm -rf %s\\n" "/tmp/old-build"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('chained command where git commit -m is filtered but rm follows allows the rm warning', () => {
+      // git commit -m gets filtered, but the `rm -rf /tmp/data` after && should still warn
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('git commit -m "cleanup rm -rf /tmp/data" && rm -rf /tmp/data'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
+
+    test('cat with dangerous pattern in filename allows', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('cat /tmp/notes-about-rm-rf-commands.txt'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+  });
+
   // --- Edge cases ---
 
   describe('edge cases', () => {
