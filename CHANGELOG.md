@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.4.1.0] - 2026-04-20
+
+## **/make-pdf goes from "demo-quality" to "actually ship this to a VC partner."**
+
+Three visible bugs in the v1.4.0.0 release made the output look broken. Page footers showed "6 of 8" twice on every page because Chromium's native footer and our print CSS were both rendering numbers. A markdown title containing `&` rendered as `Herbert &amp;amp; Garry` in `<title>` and TOC entries, because the extractors stripped tags but forgot to decode entities. On Linux (Docker, CI, servers), body text fell through to DejaVu Sans because neither Helvetica nor Arial is installed by default, and nothing in the font stack caught that. This release fixes all three and extends the fix beyond the obvious symptom each time.
+
+### The numbers that matter
+
+All three bugs were caught and expanded in review before any code was written. The plan went through `/plan-eng-review` (Claude), then `/codex` (outside voice), then implementation. Source: `.github/docker/Dockerfile.ci` (Linux fonts), `make-pdf/test/render.test.ts` (17 new tests), `git log main..HEAD` (this branch).
+
+| Surface | Before (v1.4.0.0) | After (v1.4.1.0) |
+|---------|-------------------|-----------------|
+| Page footer | "6 of 8" stacked twice | "6 of 8" once |
+| `# Herbert & Garry` in `<title>` | `Herbert &amp;amp; Garry` | `Herbert &amp; Garry` |
+| TOC entry with `&` | Double-escaped | Single-escaped |
+| `&#169;` (copyright) in H1 | Broken | Decodes to `©` |
+| `--no-page-numbers` CLI flag | Silently did nothing | Actually suppresses page numbers |
+| `--footer-template` | Layered CSS page numbers on top | Custom footer wins cleanly |
+| Linux PDF body font | DejaVu Sans (wrong) | Liberation Sans (metric-compatible Helvetica clone) |
+
+| Review layer | Findings | Outcome |
+|--------------|----------|---------|
+| `/plan-eng-review` (Claude) | 1 architectural gap | expanded Bug 1 scope to include CSS-side conditional |
+| `/codex` (outside voice) | 11 findings | 11 incorporated (data flow, TOC site, decoder collision, footer semantic, test contract, scope boundaries, font dependency) |
+| Cross-model agreement rate | ~30% | Codex found 7 issues Claude's eng review missed by staying too high-altitude |
+
+The agreement rate is the tell. One reviewer was not enough on this diff. Codex caught that my original "one-line fix" for Bug 1 would have left the `--no-page-numbers` CLI flag silently dead, because `RenderOptions` didn't carry `pageNumbers` and the orchestrator's `render()` call didn't pass it. Without the second opinion, the CLI flag ships broken again.
+
+### What this means for anyone generating PDFs
+
+Page numbers are now controlled by one flag from CLI to CSS, with the custom-footer semantic restored. Titles, cover pages, and TOC entries render HTML entities correctly, including numeric entities like `&#169;`. Linux environments no longer need to know about fonts-liberation — the Dockerfile installs it explicitly and a build-time `fc-match` check fails the image if the font disappears. Run `bun run dev make-pdf <file.md> --cover --toc` on Mac, and now also inside Docker, and the output looks the same.
+
+### Itemized changes
+
+#### Fixed
+
+- **Page numbers no longer render twice on every page.** Chromium's native footer used to layer on top of our `@page @bottom-center` CSS. Now CSS is the single source of truth; Chromium native numbering is off unconditionally.
+- **`--no-page-numbers` works end-to-end.** The CLI flag now reaches the CSS layer via `RenderOptions.pageNumbers`. Previously it died at the orchestrator and the CSS kept rendering numbers regardless.
+- **`--footer-template` cleanly replaces the stock footer.** Passing a custom footer now also suppresses the CSS page numbers, preserving the original "custom footer wins" semantic that existed before Bug 1 collided with it.
+- **HTML entities in titles, cover pages, and TOC entries render correctly.** A markdown heading like `# Herbert & Garry` renders as `Herbert &amp; Garry` in `<title>` (single-escaped) instead of `Herbert &amp;amp; Garry` (double-escaped). Covers both extractor call sites: `extractFirstHeading` (title + cover) and `extractHeadings` (TOC).
+- **Numeric HTML entities decode too.** `&#169;` in an H1 now renders as `©` in the PDF title. Decimal and hex numeric entities both supported.
+- **Linux PDFs render in Liberation Sans instead of DejaVu Sans.** Font stacks in all four print-CSS slots (body, running header, page number, CONFIDENTIAL label) now include `"Liberation Sans"` between Helvetica and Arial. Metric-compatible, SIL OFL 1.1, installs via `fonts-liberation`.
+
+#### Changed
+
+- `.github/docker/Dockerfile.ci` installs `fonts-liberation` + `fontconfig` explicitly with retries, runs `fc-cache -f`, and verifies `fc-match "Liberation Sans"` in the final build step. Previously relied on Playwright's `install-deps` pulling it in transitively, which could silently regress on upgrade.
+- `SKILL.md.tmpl` documents the Linux font dependency for users who install outside CI/Docker.
+
+#### For contributors
+
+- New helper `decodeTextEntities` in `render.ts` (distinct from existing `decodeTypographicEntities`, which intentionally preserves `&amp;` in pipeline HTML where `&amp;amp;` can be legitimate). Use the new one when extracting plain text destined for `<title>`, cover, or TOC.
+- `PrintCssOptions.pageNumbers` wraps the `@bottom-center` rule in a conditional matching the existing `showConfidential` pattern. Thread `pageNumbers` through `RenderOptions` and forward from `orchestrator.ts` into both `render()` call sites (generate + preview).
+- 17 new tests in `make-pdf/test/render.test.ts`: `printCss` pageNumbers isolation (3), `render()` data flow with footerTemplate (4), parameterized entity contracts across `&`, `<`, `>`, `©`, `—` (5), `<title>` exact single-escape assertion, TOC single-escape, numeric entity decode, smartypants-interacts contract, Liberation Sans body + @page box coverage (2).
+- Known test gaps (small, future PR): hex numeric entity path, amp-last ordering with double-encoded input, SKILL.md Linux note content assertion. Orchestrator → `browseClient.pdf({pageNumbers: false})` and orchestrator → `render()` forwarding are covered transitively via the CSS end-to-end tests, not asserted directly.
+
 ## [1.4.0.0] - 2026-04-20
 
 ## **Turn any markdown file into a PDF that looks finished.**
