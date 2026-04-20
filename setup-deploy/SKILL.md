@@ -856,7 +856,14 @@ Ask the user to confirm the production URL. Some Fly apps use custom domains.
 If `render.yaml` detected:
 
 1. Extract service name and type from render.yaml
-2. Check for Render API key: `echo $RENDER_API_KEY | head -c 4` (don't expose the full key)
+2. Check for Render API key:
+```bash
+if [ -n "${RENDER_API_KEY:-}" ]; then
+  echo "RENDER_API_KEY: set"
+else
+  echo "RENDER_API_KEY: not set"
+fi
+```
 3. Infer URL: `https://{service-name}.onrender.com`
 4. Render deploys automatically on push to the connected branch — no deploy workflow needed
 5. Set health check: the inferred URL
