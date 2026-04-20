@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"git merge upstream/main --no-edit\",\"description\":\"Merge upstream main into fork\"}",
-  "error": "Exit code 1\nAuto-merging README.md\nCONFLICT (content): Merge conflict in README.md\nAuto-merging SKILL.md\nAuto-merging autoplan/SKILL.md\nAuto-merging benchmark/SKILL.md\nAuto-merging browse/SKILL.md\nAuto-merging canary/SKILL.md\nAuto-merging checkpoint/SKILL.md\nAuto-merging codex/SKILL.md\nAuto-merging connect-chrome/SKILL.md\nAuto-merging cso/SKILL.md\nAuto-merging design-consultation/SKILL.md\nAuto-merging design-html/SKILL.md\nAuto-merging design-review/SKILL.md\nAuto-merging design-shotgun/SKILL.md\nA...",
-  "timestamp": "2026-04-04T07:32:05.229Z",
-  "retry_count": 1
-}
