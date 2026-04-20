@@ -963,6 +963,8 @@ This is my **co-presence mode**.
 
 The sidebar chat is a Claude instance that controls the browser. It auto-routes to the right model: Sonnet for navigation and actions (click, goto, fill, screenshot), Opus for reading and analysis (summarize, find bugs, describe). One-click cookie import from the sidebar footer. The browser stays alive as long as the window is open... no idle timeout in headed mode. The menu bar says "GStack Browser" instead of "Chrome for Testing."
 
+The sidebar agent ships a layered prompt injection defense: a local 22MB ML classifier scans every page and tool output, a Haiku transcript check votes on the full conversation, a canary token catches session-exfil attempts, and a verdict combiner requires two classifiers to agree before blocking. A shield icon in the header shows status (green/amber/red). Details in [ARCHITECTURE.md](../ARCHITECTURE.md#prompt-injection-defense-sidebar-agent).
+
 ```
 You:   /open-gstack-browser
 

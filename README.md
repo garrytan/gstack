@@ -232,6 +232,19 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/setup-deploy` | **Deploy Configurator** — one-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 | `/gstack-upgrade` | **Self-Updater** — upgrade gstack to latest. Detects global vs vendored install, syncs both, shows what changed. |
 
+### New binaries (v0.19)
+
+Beyond the slash-command skills, gstack ships standalone CLIs for workflows that don't belong inside a session:
+
+| Command | What it does |
+|---------|-------------|
+| `gstack-model-benchmark` | **Cross-model benchmark** — run the same prompt through Claude, GPT (via Codex CLI), and Gemini; compare latency, tokens, cost, and (optionally) LLM-judge quality score. Auth detected per provider, unavailable providers skip cleanly. Output as table, JSON, or markdown. `--dry-run` validates flags + auth without spending API calls. |
+| `gstack-taste-update` | **Design taste learning** — writes approvals and rejections from `/design-shotgun` into a persistent per-project taste profile. Decays 5%/week. Feeds back into future variant generation so the system learns what you actually pick. |
+
+### Continuous checkpoint mode (opt-in, local by default)
+
+Set `gstack-config set checkpoint_mode continuous` and skills auto-commit your work as you go with a `WIP:` prefix plus a structured `[gstack-context]` body (decisions, remaining work, failed approaches). Survives crashes and context switches. `/context-restore` reads those commits to reconstruct session state. `/ship` filter-squashes WIP commits before the PR (preserving non-WIP commits) so bisect stays clean. Push is opt-in via `checkpoint_push=true` — default is local-only so you don't trigger CI on every WIP commit.
+
 **[Deep dives with examples and philosophy for every skill →](docs/skills.md)**
 
 ### Karpathy's four failure modes? Already covered.
@@ -261,6 +274,8 @@ gstack works well with one sprint. It gets interesting with ten running at once.
 **Sidebar agent — your AI browser assistant.** Type natural language in the Chrome side panel and a child Claude instance executes it. "Navigate to the settings page and screenshot it." "Fill out this form with test data." "Go through every item in this list and extract the prices." The sidebar auto-routes to the right model: Sonnet for fast actions (click, navigate, screenshot) and Opus for reading and analysis. Each task gets up to 5 minutes. The sidebar agent runs in an isolated session, so it won't interfere with your main Claude Code window. One-click cookie import right from the sidebar footer.
 
 **Personal automation.** The sidebar agent isn't just for dev workflows. Example: "Browse my kid's school parent portal and add all the other parents' names, phone numbers, and photos to my Google Contacts." Two ways to get authenticated: (1) log in once in the headed browser, your session persists, or (2) click the "cookies" button in the sidebar footer to import cookies from your real Chrome. Once authenticated, Claude navigates the directory, extracts the data, and creates the contacts.
+
+**Prompt injection defense.** Hostile web pages try to hijack your sidebar agent. gstack ships a layered defense: a 22MB ML classifier bundled with the browser scans every page and tool output locally, a Claude Haiku transcript check votes on the full conversation shape, a random canary token in the system prompt catches session exfil attempts across text, tool args, URLs, and file writes, and a verdict combiner requires two classifiers to agree before blocking (prevents single-model false positives on Stack Overflow-style instruction pages). A shield icon in the sidebar header shows status (green/amber/red). Opt in to a 721MB DeBERTa-v3 ensemble via `GSTACK_SECURITY_ENSEMBLE=deberta` for 2-of-3 agreement. Emergency kill switch: `GSTACK_SECURITY_OFF=1`. See [ARCHITECTURE.md](ARCHITECTURE.md#prompt-injection-defense-sidebar-agent) for the full stack.
 
 **Browser handoff when the AI gets stuck.** Hit a CAPTCHA, auth wall, or MFA prompt? `$B handoff` opens a visible Chrome at the exact same page with all your cookies and tabs intact. Solve the problem, tell Claude you're done, `$B resume` picks up right where it left off. The agent even suggests it automatically after 3 consecutive failures.
 

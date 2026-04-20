@@ -375,11 +375,38 @@ async function ensureServer(): Promise<ServerState> {
   }
 }
 
+/**
+ * Extract `--tab-id <N>` from args and return { tabId, args } with the flag stripped.
+ * Used by make-pdf's tab-scoped flow: every browse command (newtab, load-html, js,
+ * pdf, closetab) can take `--tab-id <N>` to target a specific tab. Without this,
+ * parallel `$P generate` calls would race on the active tab.
+ */
+export function extractTabId(args: string[]): { tabId: number | undefined; args: string[] } {
+  const stripped: string[] = [];
+  let tabId: number | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--tab-id') {
+      const next = args[++i];
+      if (next === undefined) continue;
+      const parsed = parseInt(next, 10);
+      if (!isNaN(parsed)) tabId = parsed;
+    } else {
+      stripped.push(args[i]);
+    }
+  }
+  return { tabId, args: stripped };
+}
+
 // ─── Command Dispatch ──────────────────────────────────────────
 async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
-  // BROWSE_TAB env var pins commands to a specific tab (set by sidebar-agent per-tab)
-  const browseTab = process.env.BROWSE_TAB;
-  const body = JSON.stringify({ command, args, ...(browseTab ? { tabId: parseInt(browseTab, 10) } : {}) });
+  // Precedence: CLI --tab-id flag > BROWSE_TAB env var.
+  // make-pdf always passes --tab-id; human users typically rely on BROWSE_TAB
+  // (set by sidebar-agent per-tab) or the active tab.
+  const extracted = extractTabId(args);
+  args = extracted.args;
+  const envTab = process.env.BROWSE_TAB;
+  const tabId = extracted.tabId ?? (envTab ? parseInt(envTab, 10) : undefined);
+  const body = JSON.stringify({ command, args, ...(tabId !== undefined && !isNaN(tabId) ? { tabId } : {}) });
 
   try {
     const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {

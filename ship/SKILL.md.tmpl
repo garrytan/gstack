@@ -580,6 +580,73 @@ Save this summary — it goes into the PR body in Step 19.
 
 ## Step 15: Commit (bisectable chunks)
 
+### Step 15.0: WIP Commit Squash (continuous checkpoint mode only)
+
+If `CHECKPOINT_MODE` is `"continuous"`, the branch likely contains `WIP:` commits
+from auto-checkpointing. These must be squashed INTO the corresponding logical
+commits before the bisectable-grouping logic in Step 15.1 runs. Non-WIP commits
+on the branch (earlier landed work) must be preserved.
+
+**Detection:**
+```bash
+WIP_COUNT=$(git log <base>..HEAD --oneline --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
+echo "WIP_COMMITS: $WIP_COUNT"
+```
+
+If `WIP_COUNT` is 0: skip this sub-step entirely.
+
+If `WIP_COUNT` > 0, collect the WIP context first so it survives the squash:
+
+```bash
+# Export [gstack-context] blocks from all WIP commits on this branch.
+# This file becomes input to the CHANGELOG entry and may inform PR body context.
+mkdir -p "$(git rev-parse --show-toplevel)/.gstack"
+git log <base>..HEAD --grep="^WIP:" --format="%H%n%B%n---END---" > \
+  "$(git rev-parse --show-toplevel)/.gstack/wip-context-before-squash.md" 2>/dev/null || true
+```
+
+**Non-destructive squash strategy:**
+
+`git reset --soft <merge-base>` WOULD uncommit everything including non-WIP commits.
+DO NOT DO THAT. Instead, use `git rebase` scoped to filter WIP commits only.
+
+Option 1 (preferred, if there are non-WIP commits mixed in):
+```bash
+# Interactive rebase with automated WIP squashing.
+# Mark every WIP commit as 'fixup' (drop its message, fold changes into prior commit).
+git rebase -i $(git merge-base HEAD origin/<base>) \
+  --exec 'true' \
+  -X ours 2>/dev/null || {
+    echo "Rebase conflict. Aborting: git rebase --abort"
+    git rebase --abort
+    echo "STATUS: BLOCKED — manual WIP squash required"
+    exit 1
+  }
+```
+
+Option 2 (simpler, if the branch is ALL WIP commits so far — no landed work):
+```bash
+# Branch contains only WIP commits. Reset-soft is safe here because there's
+# nothing non-WIP to preserve. Verify first.
+NON_WIP=$(git log <base>..HEAD --oneline --invert-grep --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$NON_WIP" -eq 0 ]; then
+  git reset --soft $(git merge-base HEAD origin/<base>)
+  echo "WIP-only branch, reset-soft to merge base. Step 15.1 will create clean commits."
+fi
+```
+
+Decide at runtime which option applies. If unsure, prefer stopping and asking the
+user via AskUserQuestion rather than destroying non-WIP commits.
+
+**Anti-footgun rules:**
+- NEVER blind `git reset --soft` if there are non-WIP commits. Codex flagged this
+  as destructive — it would uncommit real landed work and turn the push step into
+  a non-fast-forward push for anyone who already pushed.
+- Only proceed to Step 15.1 after WIP commits are successfully squashed/absorbed
+  or the branch has been verified to contain only WIP work.
+
+### Step 15.1: Bisectable Commits
+
 **Goal:** Create small, logical commits that work well with `git bisect` and help LLMs understand what changed.
 
 1. Analyze the diff and group changes into logical commits. Each commit should represent **one coherent change** — not one file, but one logical unit.

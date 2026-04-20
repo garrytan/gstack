@@ -175,13 +175,32 @@ export async function handleWriteCommand(
 
     case 'load-html': {
       if (inFrame) throw new Error('Cannot use load-html inside a frame. Run \'frame main\' first.');
-      const filePath = args[0];
-      if (!filePath) throw new Error('Usage: browse load-html <file> [--wait-until load|domcontentloaded|networkidle]');
 
-      // Parse --wait-until flag
+      // --from-file <path.json>: read inline HTML from a JSON payload. Used by
+      // make-pdf to dodge Windows argv size limits on large rendered HTML.
+      // The JSON shape is { html: string, waitUntil?: "load"|"domcontentloaded"|"networkidle" }.
+      // The safe-dirs + magic-byte + size-cap checks below still apply to the
+      // INLINE HTML content, not to the payload file path itself.
+      let fromFilePayload: { html: string; waitUntil?: SetContentWaitUntil } | null = null;
+      let filePath: string | undefined;
       let waitUntil: SetContentWaitUntil = 'domcontentloaded';
-      for (let i = 1; i < args.length; i++) {
-        if (args[i] === '--wait-until') {
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--from-file') {
+          const payloadPath = args[++i];
+          if (!payloadPath) throw new Error('load-html: --from-file requires a path');
+          const raw = fs.readFileSync(payloadPath, 'utf8');
+          let json: any;
+          try { json = JSON.parse(raw); }
+          catch (e: any) { throw new Error(`load-html: --from-file JSON parse failed: ${e.message}`); }
+          if (typeof json.html !== 'string') {
+            throw new Error('load-html: --from-file JSON must have a "html" string field');
+          }
+          if (json.waitUntil && json.waitUntil !== 'load'
+              && json.waitUntil !== 'domcontentloaded' && json.waitUntil !== 'networkidle') {
+            throw new Error(`load-html: --from-file waitUntil '${json.waitUntil}' invalid`);
+          }
+          fromFilePayload = { html: json.html, waitUntil: json.waitUntil };
+        } else if (args[i] === '--wait-until') {
           const val = args[++i];
           if (val !== 'load' && val !== 'domcontentloaded' && val !== 'networkidle') {
             throw new Error(`Invalid --wait-until '${val}'. Must be one of: load, domcontentloaded, networkidle.`);
@@ -189,8 +208,30 @@ export async function handleWriteCommand(
           waitUntil = val;
         } else if (args[i].startsWith('--')) {
           throw new Error(`Unknown flag: ${args[i]}`);
+        } else if (!filePath) {
+          filePath = args[i];
         }
       }
+
+      // Inline HTML path: validate size + magic byte, then setContent directly.
+      if (fromFilePayload) {
+        const MAX_BYTES = parseInt(process.env.GSTACK_BROWSE_MAX_HTML_BYTES || '', 10) || (50 * 1024 * 1024);
+        if (Buffer.byteLength(fromFilePayload.html, 'utf8') > MAX_BYTES) {
+          throw new Error(
+            `load-html: --from-file html too large (> ${MAX_BYTES} bytes). ` +
+            'Raise with GSTACK_BROWSE_MAX_HTML_BYTES=<N>.'
+          );
+        }
+        const peek = fromFilePayload.html.trimStart();
+        if (!/^<[a-zA-Z!?]/.test(peek)) {
+          throw new Error('load-html: --from-file html does not start with a valid markup opener');
+        }
+        const finalWaitUntil = fromFilePayload.waitUntil ?? waitUntil;
+        await session.setTabContent(fromFilePayload.html, { waitUntil: finalWaitUntil });
+        return `Loaded HTML: (inline from --from-file, ${fromFilePayload.html.length} chars)`;
+      }
+
+      if (!filePath) throw new Error('Usage: browse load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]');
 
       // Extension allowlist
       const ALLOWED_EXT = ['.html', '.htm', '.xhtml', '.svg'];

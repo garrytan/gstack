@@ -26,10 +26,11 @@ RUN sed -i \
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
     > /etc/apt/apt.conf.d/80-retries
 
-# System deps (retry apt-get update — even Hetzner can blip occasionally)
+# System deps (retry apt-get update + install as a unit — even Hetzner can blip).
+# Includes xz-utils so the Node.js .tar.xz download below can decompress.
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
-        git curl unzip ca-certificates jq bc gpg && break || \
+        git curl unzip xz-utils ca-certificates jq bc gpg && break || \
       (echo "apt retry $i/3 after failure"; sleep 10); \
     done \
     && rm -rf /var/lib/apt/lists/*
@@ -45,13 +46,20 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://cli.github.
        done \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 22 LTS (needed for claude CLI)
-RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && for i in 1 2 3; do \
-         apt-get install -y --no-install-recommends nodejs && break || \
-         (echo "nodejs install retry $i/3"; sleep 10); \
-       done \
-    && rm -rf /var/lib/apt/lists/*
+# Node.js 22 LTS (needed for claude CLI).
+# Install from the official nodejs.org tarball instead of NodeSource's apt setup.
+# NodeSource's setup_22.x script runs its own `apt-get update` + `apt-get install gnupg`,
+# both of which depend on archive.ubuntu.com / security.ubuntu.com being reachable.
+# Ubicloud CI runners frequently can't reach those mirrors (connection timeouts),
+# and "gnupg" was renamed to "gpg" on Ubuntu 24.04 anyway, so NodeSource's script
+# fails before it can add its own repo. Direct tarball download is network-simpler
+# (one host: nodejs.org) and doesn't touch apt at all.
+ENV NODE_VERSION=22.20.0
+RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
+    && tar -xJ -C /usr/local --strip-components=1 --no-same-owner -f /tmp/node.tar.xz \
+    && rm -f /tmp/node.tar.xz \
+    && node --version \
+    && npm --version
 
 # Bun (install to /usr/local so non-root users can access it)
 ENV BUN_INSTALL="/usr/local"
@@ -63,6 +71,18 @@ RUN npm i -g @anthropic-ai/claude-code
 
 # Playwright system deps (Chromium) — needed for browse E2E tests
 RUN npx playwright install-deps chromium
+
+# Linux has neither Helvetica nor Arial. make-pdf's print CSS stacks fall back
+# to Liberation Sans (metric-compatible Arial clone, SIL OFL 1.1) so PDFs don't
+# render in DejaVu Sans. playwright install-deps happens to pull this in today,
+# but the dep is implicit and could change — install explicitly so upgrades
+# can't silently regress rendering.
+RUN for i in 1 2 3; do \
+      apt-get update && apt-get install -y --no-install-recommends fonts-liberation fontconfig && break || \
+      (echo "fonts-liberation install retry $i/3"; sleep 10); \
+    done \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/*
 
 # Pre-install dependencies (cached layer — only rebuilds when package.json changes)
 COPY package.json /workspace/
@@ -76,7 +96,9 @@ RUN npx playwright install chromium \
 
 # Verify everything works
 RUN bun --version && node --version && claude --version && jq --version && gh --version \
-    && npx playwright --version
+    && npx playwright --version \
+    && fc-match "Liberation Sans" | grep -qi "Liberation" \
+        || (echo "ERROR: fonts-liberation not installed — make-pdf PDFs will render in DejaVu Sans" && exit 1)
 
 # At runtime: checkout overwrites /workspace, but node_modules persists
 # if we move it out of the way and symlink back

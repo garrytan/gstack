@@ -37,6 +37,187 @@ function tokenizePipeSegment(segment: string): string[] {
   return tokens;
 }
 
+// ─── PDF flag parsing (make-pdf contract) ─────────────────────────────
+//
+// The $B pdf command grew from a 2-line wrapper (format: 'A4') into a real
+// PDF engine frontend. make-pdf/dist/pdf shells out to `browse pdf` with
+// this flag set, so the contract here has to be stable.
+//
+// Mutex rules enforced:
+//   --format vs --width/--height
+//   --margins vs any --margin-*
+//   --page-numbers vs --footer-template (page-numbers writes the footer itself)
+//
+// Units for dimensions: "1in" | "72pt" | "25mm" | "2.54cm". Bare numbers
+// are interpreted as pixels (Playwright's default), which is almost never
+// what callers want — we warn but don't reject.
+//
+// Large payloads: header/footer HTML and custom CSS can exceed Windows'
+// 8191-char CreateProcess cap via argv. Callers pass `--from-file <path>`
+// to a JSON file holding the full options. make-pdf always uses this path.
+interface ParsedPdfArgs {
+  output: string;
+  format?: string;
+  width?: string;
+  height?: string;
+  marginTop?: string;
+  marginRight?: string;
+  marginBottom?: string;
+  marginLeft?: string;
+  headerTemplate?: string;
+  footerTemplate?: string;
+  pageNumbers?: boolean;
+  tagged?: boolean;
+  outline?: boolean;
+  printBackground?: boolean;
+  preferCSSPageSize?: boolean;
+  toc?: boolean;
+}
+
+function parsePdfArgs(args: string[]): ParsedPdfArgs {
+  // --from-file short-circuits argv parsing entirely
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--from-file') {
+      const payloadPath = args[++i];
+      if (!payloadPath) throw new Error('pdf: --from-file requires a path');
+      return parsePdfFromFile(payloadPath);
+    }
+  }
+
+  const result: ParsedPdfArgs = {
+    output: `${TEMP_DIR}/browse-page.pdf`,
+  };
+
+  let margins: string | undefined;
+  const positional: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--format') { result.format = requireValue(args, ++i, 'format'); }
+    else if (a === '--page-size') { result.format = requireValue(args, ++i, 'page-size'); }
+    else if (a === '--width') { result.width = requireValue(args, ++i, 'width'); }
+    else if (a === '--height') { result.height = requireValue(args, ++i, 'height'); }
+    else if (a === '--margins') { margins = requireValue(args, ++i, 'margins'); }
+    else if (a === '--margin-top') { result.marginTop = requireValue(args, ++i, 'margin-top'); }
+    else if (a === '--margin-right') { result.marginRight = requireValue(args, ++i, 'margin-right'); }
+    else if (a === '--margin-bottom') { result.marginBottom = requireValue(args, ++i, 'margin-bottom'); }
+    else if (a === '--margin-left') { result.marginLeft = requireValue(args, ++i, 'margin-left'); }
+    else if (a === '--header-template') { result.headerTemplate = requireValue(args, ++i, 'header-template'); }
+    else if (a === '--footer-template') { result.footerTemplate = requireValue(args, ++i, 'footer-template'); }
+    else if (a === '--page-numbers') { result.pageNumbers = true; }
+    else if (a === '--tagged') { result.tagged = true; }
+    else if (a === '--outline') { result.outline = true; }
+    else if (a === '--print-background') { result.printBackground = true; }
+    else if (a === '--prefer-css-page-size') { result.preferCSSPageSize = true; }
+    else if (a === '--toc') { result.toc = true; }
+    else if (a.startsWith('--')) { throw new Error(`Unknown pdf flag: ${a}`); }
+    else { positional.push(a); }
+  }
+
+  if (positional.length > 0) result.output = positional[0];
+
+  if (margins !== undefined) {
+    if (result.marginTop || result.marginRight || result.marginBottom || result.marginLeft) {
+      throw new Error('pdf: --margins is mutex with --margin-top/--margin-right/--margin-bottom/--margin-left');
+    }
+    result.marginTop = result.marginRight = result.marginBottom = result.marginLeft = margins;
+  }
+
+  if (result.format && (result.width || result.height)) {
+    throw new Error('pdf: --format is mutex with --width/--height');
+  }
+  if (result.pageNumbers && result.footerTemplate) {
+    throw new Error('pdf: --page-numbers is mutex with --footer-template (page-numbers writes the footer itself)');
+  }
+
+  return result;
+}
+
+function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
+  const raw = fs.readFileSync(payloadPath, 'utf8');
+  const json = JSON.parse(raw);
+  const out: ParsedPdfArgs = {
+    output: json.output || `${TEMP_DIR}/browse-page.pdf`,
+    format: json.format,
+    width: json.width,
+    height: json.height,
+    marginTop: json.marginTop,
+    marginRight: json.marginRight,
+    marginBottom: json.marginBottom,
+    marginLeft: json.marginLeft,
+    headerTemplate: json.headerTemplate,
+    footerTemplate: json.footerTemplate,
+    pageNumbers: json.pageNumbers === true,
+    tagged: json.tagged === true,
+    outline: json.outline === true,
+    printBackground: json.printBackground === true,
+    preferCSSPageSize: json.preferCSSPageSize === true,
+    toc: json.toc === true,
+  };
+  return out;
+}
+
+function requireValue(args: string[], i: number, flag: string): string {
+  const v = args[i];
+  if (v === undefined || v.startsWith('--')) {
+    throw new Error(`pdf: --${flag} requires a value`);
+  }
+  return v;
+}
+
+function buildPdfOptions(parsed: ParsedPdfArgs): Record<string, unknown> {
+  const opts: Record<string, unknown> = {};
+
+  // Page size
+  if (parsed.format) {
+    opts.format = parsed.format.charAt(0).toUpperCase() + parsed.format.slice(1).toLowerCase();
+  } else if (parsed.width && parsed.height) {
+    opts.width = parsed.width;
+    opts.height = parsed.height;
+  } else {
+    opts.format = 'Letter';
+  }
+
+  // Margins
+  const margin: Record<string, string> = {};
+  if (parsed.marginTop) margin.top = parsed.marginTop;
+  if (parsed.marginRight) margin.right = parsed.marginRight;
+  if (parsed.marginBottom) margin.bottom = parsed.marginBottom;
+  if (parsed.marginLeft) margin.left = parsed.marginLeft;
+  if (Object.keys(margin).length > 0) opts.margin = margin;
+
+  // Header/footer
+  const displayHeaderFooter =
+    !!parsed.headerTemplate || !!parsed.footerTemplate || parsed.pageNumbers === true;
+  if (displayHeaderFooter) {
+    opts.displayHeaderFooter = true;
+    // Provide minimum empty templates when only one is set, otherwise Chromium
+    // emits its default ugly URL/date in the other slot.
+    if (parsed.headerTemplate !== undefined) opts.headerTemplate = parsed.headerTemplate;
+    else if (parsed.pageNumbers || parsed.footerTemplate) opts.headerTemplate = '<div></div>';
+
+    if (parsed.pageNumbers) {
+      opts.footerTemplate = [
+        '<div style="font-size:9pt; font-family:Helvetica,Arial,sans-serif; color:#666; ',
+        'width:100%; text-align:center;">',
+        '<span class="pageNumber"></span> of <span class="totalPages"></span>',
+        '</div>',
+      ].join('');
+    } else if (parsed.footerTemplate !== undefined) {
+      opts.footerTemplate = parsed.footerTemplate;
+    } else {
+      opts.footerTemplate = '<div></div>';
+    }
+  }
+
+  if (parsed.tagged === true) opts.tagged = true;
+  if (parsed.outline === true) opts.outline = true;
+  if (parsed.printBackground === true) opts.printBackground = true;
+  if (parsed.preferCSSPageSize === true) opts.preferCSSPageSize = true;
+
+  return opts;
+}
+
 /** Options passed from handleCommandInternal for chain routing */
 export interface MetaCommandOpts {
   chainDepth?: number;
@@ -72,8 +253,18 @@ export async function handleMetaCommand(
     }
 
     case 'newtab': {
-      const url = args[0];
+      // --json returns structured output (machine-parseable). Other flag-like
+      // tokens are treated as the url. make-pdf always passes --json.
+      let url: string | undefined;
+      let jsonMode = false;
+      for (const a of args) {
+        if (a === '--json') { jsonMode = true; }
+        else if (!url) { url = a; }
+      }
       const id = await bm.newTab(url);
+      if (jsonMode) {
+        return JSON.stringify({ tabId: id, url: url ?? null });
+      }
       return `Opened tab ${id}${url ? ` → ${url}` : ''}`;
     }
 
@@ -213,10 +404,32 @@ export async function handleMetaCommand(
 
     case 'pdf': {
       const page = bm.getPage();
-      const pdfPath = args[0] || `${TEMP_DIR}/browse-page.pdf`;
-      validateOutputPath(pdfPath);
-      await page.pdf({ path: pdfPath, format: 'A4' });
-      return `PDF saved: ${pdfPath}`;
+      const parsed = parsePdfArgs(args);
+      validateOutputPath(parsed.output);
+
+      // If --toc: wait up to 3s for Paged.js to signal by setting
+      // window.__pagedjsAfterFired = true. If the polyfill isn't injected
+      // (make-pdf v1 ships without Paged.js; TOC renders without page
+      // numbers), we fall through silently — callers that require strict
+      // TOC pagination should pass --require-paged-js too.
+      if (parsed.toc) {
+        const deadline = Date.now() + 3000;
+        let ready = false;
+        while (Date.now() < deadline) {
+          try {
+            ready = await page.evaluate('!!window.__pagedjsAfterFired');
+          } catch { /* tab may still be hydrating */ }
+          if (ready) break;
+          await new Promise(r => setTimeout(r, 150));
+        }
+        // Intentionally non-fatal. Paged.js is optional in v1.
+      }
+
+      const opts = buildPdfOptions(parsed);
+      opts.path = parsed.output;
+      await page.pdf(opts);
+
+      return `PDF saved: ${parsed.output}`;
     }
 
     case 'responsive': {

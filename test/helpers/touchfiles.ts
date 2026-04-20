@@ -69,12 +69,15 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'review-army-consensus':        ['review/**', 'scripts/resolvers/review-army.ts'],
 
   // Office Hours
-  'office-hours-spec-review':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
+  'office-hours-spec-review':     ['office-hours/**', 'scripts/gen-skill-docs.ts'],
+  'office-hours-forcing-energy':  ['office-hours/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
+  'office-hours-builder-wildness': ['office-hours/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
 
   // Plan reviews
-  'plan-ceo-review':           ['plan-ceo-review/**'],
-  'plan-ceo-review-selective': ['plan-ceo-review/**'],
-  'plan-ceo-review-benefits':  ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-ceo-review':                  ['plan-ceo-review/**'],
+  'plan-ceo-review-selective':        ['plan-ceo-review/**'],
+  'plan-ceo-review-benefits':         ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-ceo-review-expansion-energy': ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
@@ -110,10 +113,24 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Learnings
   'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
 
-  // Session Intelligence (timeline, context recovery, checkpoint)
-  'timeline-event-flow':         ['bin/gstack-timeline-log', 'bin/gstack-timeline-read'],
-  'context-recovery-artifacts':  ['scripts/resolvers/preamble.ts', 'bin/gstack-timeline-log', 'bin/gstack-slug', 'learn/**'],
-  'checkpoint-save-resume':      ['checkpoint/**', 'bin/gstack-slug'],
+  // Session Intelligence (timeline, context recovery, /context-save + /context-restore)
+  'timeline-event-flow':            ['bin/gstack-timeline-log', 'bin/gstack-timeline-read'],
+  'context-recovery-artifacts':     ['scripts/resolvers/preamble.ts', 'bin/gstack-timeline-log', 'bin/gstack-slug', 'learn/**'],
+  'context-save-writes-file':       ['context-save/**', 'bin/gstack-slug'],
+  'context-restore-loads-latest':   ['context-restore/**', 'bin/gstack-slug'],
+
+  // Context skills E2E (live-fire, Skill-tool routing path) — see
+  // test/skill-e2e-context-skills.test.ts. These are periodic-tier because
+  // each one spawns claude -p and costs ~$0.20-$0.40. Collectively they
+  // verify the thing the /checkpoint → /context-save rename was for.
+  'context-save-routing':                  ['context-save/**', 'scripts/resolvers/preamble.ts'],
+  'context-save-then-restore-roundtrip':   ['context-save/**', 'context-restore/**', 'bin/gstack-slug'],
+  'context-restore-fragment-match':        ['context-restore/**'],
+  'context-restore-empty-state':           ['context-restore/**'],
+  'context-restore-list-delegates':        ['context-restore/**'],
+  'context-restore-legacy-compat':         ['context-restore/**'],
+  'context-save-list-current-branch':      ['context-save/**'],
+  'context-save-list-all-branches':        ['context-save/**'],
 
   // Document-release
   'document-release': ['document-release/**'],
@@ -175,6 +192,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'autoplan-core':  ['autoplan/**', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**'],
   'autoplan-dual-voice': ['autoplan/**', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review.ts', 'scripts/resolvers/design.ts'],
 
+  // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
+  'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts'],
+
   // Skill routing — journey-stage tests (depend on ALL skill descriptions)
   'journey-ideation':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-plan-eng':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -233,11 +253,14 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Office Hours
   'office-hours-spec-review': 'gate',
+  'office-hours-forcing-energy': 'gate',       // V1.1 mode-posture regression gate (Sonnet generator)
+  'office-hours-builder-wildness': 'gate',     // V1.1 mode-posture regression gate (Sonnet generator)
 
   // Plan reviews — gate for cheap functional, periodic for Opus quality
   'plan-ceo-review': 'periodic',
   'plan-ceo-review-selective': 'periodic',
   'plan-ceo-review-benefits': 'gate',
+  'plan-ceo-review-expansion-energy': 'gate',  // V1.1 mode-posture regression gate (Opus generator, Sonnet judge)
   'plan-eng-review': 'periodic',
   'plan-eng-review-artifact': 'periodic',
   'plan-eng-coverage-audit': 'gate',
@@ -253,9 +276,20 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'codex-offered-eng-review': 'gate',
 
   // Session Intelligence — gate for data flow, periodic for agent integration
-  'timeline-event-flow': 'gate',            // Binary data flow (no LLM needed)
-  'context-recovery-artifacts': 'gate',     // Preamble reads seeded artifacts
-  'checkpoint-save-resume': 'gate',         // Checkpoint round-trip
+  'timeline-event-flow': 'gate',                   // Binary data flow (no LLM needed)
+  'context-recovery-artifacts': 'gate',            // Preamble reads seeded artifacts
+  'context-save-writes-file': 'gate',              // /context-save writes a file
+  'context-restore-loads-latest': 'gate',          // Cross-branch newest-by-filename restore
+
+  // Context skills live-fire — periodic (each test spawns claude -p, ~$0.20-$0.40)
+  'context-save-routing': 'periodic',              // Proves /context-save routes via Skill tool
+  'context-save-then-restore-roundtrip': 'periodic', // Full cycle in one session
+  'context-restore-fragment-match': 'periodic',    // /context-restore <fragment>
+  'context-restore-empty-state': 'periodic',       // Graceful zero-saves message
+  'context-restore-list-delegates': 'periodic',    // /context-restore list redirect
+  'context-restore-legacy-compat': 'periodic',     // Pre-rename files still load
+  'context-save-list-current-branch': 'periodic',  // Default branch filter
+  'context-save-list-all-branches': 'periodic',    // --all flag
 
   // Ship — gate (end-to-end ship path)
   'ship-base-branch': 'gate',
@@ -323,6 +357,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Autoplan — periodic (not yet implemented)
   'autoplan-core': 'periodic',
   'autoplan-dual-voice': 'periodic',
+
+  // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
+  'benchmark-providers-live': 'periodic',
 
   // Skill routing — periodic (LLM routing is non-deterministic)
   'journey-ideation': 'periodic',

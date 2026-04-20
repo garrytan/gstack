@@ -462,8 +462,11 @@ describe('per-tab agent concurrency', () => {
   test('sidebar-agent sends tabId with all events', () => {
     // sendEvent should accept tabId parameter
     expect(agentSrc).toContain('async function sendEvent(event: Record<string, any>, tabId?: number)');
-    // askClaude should extract tabId from queue entry
-    expect(agentSrc).toContain('const { prompt, args, stateFile, cwd, tabId }');
+    // askClaude destructures tabId from queue entry (regex tolerates
+    // additional fields like `canary` and `pageUrl` from security module).
+    expect(agentSrc).toMatch(
+      /const \{[^}]*\bprompt\b[^}]*\bargs\b[^}]*\bstateFile\b[^}]*\bcwd\b[^}]*\btabId\b[^}]*\}/
+    );
   });
 
   test('sidebar-agent allows concurrent agents across tabs', () => {
@@ -498,8 +501,12 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
   });
 
   test('CLI reads BROWSE_TAB and sends tabId in command body', () => {
+    // BROWSE_TAB env var is still honored (sidebar-agent path). After the
+    // make-pdf refactor, the CLI layer now also accepts --tab-id <N>, with
+    // the CLI flag taking precedence over the env var. Both resolve to the
+    // same `tabId` body field.
     expect(cliSrc).toContain('process.env.BROWSE_TAB');
-    expect(cliSrc).toContain('tabId: parseInt(browseTab');
+    expect(cliSrc).toContain('parseInt(envTab, 10)');
   });
 
   test('handleCommandInternal accepts tabId from request body', () => {
@@ -545,8 +552,11 @@ describe('BROWSE_TAB tab pinning (cross-tab isolation)', () => {
     expect(handleFn).toContain('tabId !== null');
   });
 
-  test('CLI only sends tabId when BROWSE_TAB is set', () => {
-    // Should conditionally include tabId in the body
-    expect(cliSrc).toContain('browseTab ? { tabId:');
+  test('CLI only sends tabId when it is a valid number', () => {
+    // Body should conditionally include tabId. Historically that was keyed off
+    // the BROWSE_TAB env var. After the make-pdf refactor, the CLI also honors
+    // a --tab-id <N> flag on the CLI itself, so the check is "tabId defined
+    // AND not NaN" rather than literally inspecting the env var.
+    expect(cliSrc).toContain('tabId !== undefined && !isNaN(tabId)');
   });
 });

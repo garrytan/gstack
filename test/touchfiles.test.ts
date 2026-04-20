@@ -80,10 +80,11 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-review');
     expect(result.selected).toContain('plan-ceo-review-selective');
     expect(result.selected).toContain('plan-ceo-review-benefits');
+    expect(result.selected).toContain('plan-ceo-review-expansion-energy');
     expect(result.selected).toContain('autoplan-core');
     expect(result.selected).toContain('codex-offered-ceo-review');
-    expect(result.selected.length).toBe(5);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 5);
+    expect(result.selected.length).toBe(6);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 6);
   });
 
   test('global touchfile triggers ALL tests', () => {

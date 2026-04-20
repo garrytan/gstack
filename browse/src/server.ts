@@ -25,6 +25,7 @@ import {
   runContentFilters, type ContentFilterResult,
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
+import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
   initRegistry, validateToken as validateScopedToken, checkScope, checkDomain,
@@ -525,6 +526,32 @@ function processAgentEvent(event: any): void {
     return;
   }
 
+  if (event.type === 'security_event') {
+    // Relay the security event as a chat entry so sidepanel.js's addChatEntry
+    // router (showSecurityBanner) sees it on the next /sidebar-chat poll.
+    // Preserve all the diagnostic fields the banner renders (verdict, reason,
+    // layer, confidence, domain, channel, tool).
+    addChatEntry({
+      ts,
+      role: 'agent',
+      type: 'security_event',
+      verdict: event.verdict,
+      reason: event.reason,
+      layer: event.layer,
+      confidence: event.confidence,
+      domain: event.domain,
+      channel: event.channel,
+      tool: event.tool,
+      signals: event.signals,
+      // Reviewable flow fields — sidepanel renders [Allow] / [Block] buttons
+      // and the suspected text excerpt when reviewable=true.
+      reviewable: event.reviewable,
+      suspected_text: event.suspected_text,
+      tabId: event.tabId,
+    } as any);
+    return;
+  }
+
   // agent_start and agent_done are handled by the caller in the endpoint handler
 }
 
@@ -551,6 +578,12 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
   const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escapedMessage = escapeXml(userMessage);
 
+  // Fresh canary per message. The sidebar-agent checks every outbound channel
+  // (stream text, tool_use arguments, URLs, file writes) for this token.
+  // If Claude echoes it anywhere, that's evidence a prompt injection overrode
+  // the system prompt — session is killed, user sees the banner.
+  const canary = generateCanary();
+
   const systemPrompt = [
     '<system>',
     `Browser co-pilot. Binary: ${B}`,
@@ -576,7 +609,11 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     '</system>',
   ].join('\n');
 
-  const prompt = `${systemPrompt}\n\n<user-message>\n${escapedMessage}\n</user-message>`;
+  // Append the canary instruction. injectCanary() tells Claude never to
+  // output the token on any channel.
+  const systemPromptWithCanary = injectCanary(systemPrompt, canary);
+
+  const prompt = `${systemPromptWithCanary}\n\n<user-message>\n${escapedMessage}\n</user-message>`;
   // Never resume — each message is a fresh context. Resuming carries stale
   // page URLs and old navigation state that makes the agent fight the user.
 
@@ -607,6 +644,7 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     sessionId: sidebarSession?.claudeSessionId || null,
     pageUrl: pageUrl,
     tabId: agentTabId,
+    canary, // sidebar-agent scans all outbound channels for this token
   });
   try {
     fs.mkdirSync(gstackDir, { recursive: true, mode: 0o700 });
@@ -1435,6 +1473,11 @@ async function start() {
             queueLength: messageQueue.length,
           },
           session: sidebarSession ? { id: sidebarSession.id, name: sidebarSession.name } : null,
+          // Security module status — drives the shield icon in the sidepanel.
+          // Returns {status: 'protected'|'degraded'|'inactive', layers: {...}}.
+          // Source of truth is ~/.gstack/security/session-state.json, written
+          // by sidebar-agent as the classifier warms up.
+          security: getSecurityStatus(),
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -1856,7 +1899,11 @@ async function start() {
         const activeTab = browserManager?.getActiveTabId?.() ?? 0;
         // Return per-tab agent status so the sidebar shows the right state per tab
         const tabAgentStatus = tabId !== null ? getTabAgentStatus(tabId) : agentStatus;
-        return new Response(JSON.stringify({ entries, total: chatNextId, agentStatus: tabAgentStatus, activeTabId: activeTab }), {
+        // Piggyback security state on the existing 300ms poll. Cheap:
+        // getSecurityStatus reads ~/.gstack/security/session-state.json.
+        // Sidepanel uses this to flip the shield icon when classifier
+        // warmup completes after initial connect.
+        return new Response(JSON.stringify({ entries, total: chatNextId, agentStatus: tabAgentStatus, activeTabId: activeTab, security: getSecurityStatus() }), {
           status: 200,
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': 'http://127.0.0.1' },
         });
@@ -1924,6 +1971,28 @@ async function start() {
       }
 
       // Kill hung agent
+      // User's decision on a reviewable BLOCK (from the security banner).
+      // Writes ~/.gstack/security/decisions/tab-<id>.json that sidebar-agent
+      // polls. Accepts {tabId: number, decision: 'allow'|'block'} JSON body.
+      if (url.pathname === '/security-decision' && req.method === 'POST') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+        const body = await req.json().catch(() => ({}));
+        const tabId = Number(body.tabId);
+        const decision = body.decision;
+        if (!Number.isFinite(tabId) || (decision !== 'allow' && decision !== 'block')) {
+          return new Response(JSON.stringify({ error: 'Invalid request' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+        writeDecision({
+          tabId,
+          decision,
+          ts: new Date().toISOString(),
+          reason: typeof body.reason === 'string' ? body.reason.slice(0, 200) : undefined,
+        });
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
       if (url.pathname === '/sidebar-agent/kill' && req.method === 'POST') {
         if (!validateAuth(req)) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });

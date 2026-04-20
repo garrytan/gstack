@@ -629,6 +629,11 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('Intrapreneurship');
   });
 
+  // YC founder discovery engine — stripped in gstack-adfree fork
+  // (was: YC apply CTA, "What I noticed", golden age, Garry Tan plea,
+  //  Founder Signal Synthesis, three-tier rubric, anti-slop examples,
+  //  "One more thing" transition)
+
   // Operating principles per mode
   test('contains startup operating principles', () => {
     expect(content).toContain('Specificity is the only currency');
@@ -1067,7 +1072,9 @@ describe('Step 3.4 test coverage audit', () => {
   test('ship/SKILL.md contains Step 7', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Step 7: Test Coverage Audit');
-    expect(content).toContain('CODE PATH COVERAGE');
+    // The coverage diagram collapses code-path and user-flow counts onto one
+    // summary line. Verify that summary is present (labels are stable).
+    expect(content).toContain('Code paths:');
   });
 
   test('Step 3.4 includes quality scoring rubric', () => {
@@ -1117,9 +1124,11 @@ describe('Step 3.4 test coverage audit', () => {
     expect(content).toContain('Empty/zero/boundary states');
   });
 
-  test('Step 3.4 diagram includes USER FLOW COVERAGE section', () => {
+  test('Step 3.4 diagram includes user-flow coverage summary', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('USER FLOW COVERAGE');
+    // The diagram was compressed from separate CODE PATH COVERAGE / USER FLOW
+    // COVERAGE section headers into a single summary line. Assert on the
+    // labels that still appear on that summary line.
     expect(content).toContain('Code paths:');
     expect(content).toContain('User flows:');
   });
@@ -1129,8 +1138,9 @@ describe('Step 3.4 test coverage audit', () => {
 
 describe('ship step numbering', () => {
   // Allowed sub-steps that are resolver-generated and intentionally nested:
-  // 8.1 (Plan Verification), 8.2 (Scope Drift), 9.1 (Review Army), 9.2 (Findings Merge), 9.3 (Cross-review dedup)
-  const ALLOWED_SUBSTEPS = new Set(['8.1', '8.2', '9.1', '9.2', '9.3']);
+  // 8.1 (Plan Verification), 8.2 (Scope Drift), 9.1 (Review Army), 9.2 (Findings Merge),
+  // 9.3 (Cross-review dedup), 15.0 (WIP squash — continuous checkpoint), 15.1 (Bisectable commits).
+  const ALLOWED_SUBSTEPS = new Set(['8.1', '8.2', '9.1', '9.2', '9.3', '15.0', '15.1']);
 
   test('ship/SKILL.md.tmpl contains no unexpected fractional step numbers', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');

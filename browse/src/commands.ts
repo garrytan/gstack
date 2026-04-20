@@ -52,6 +52,11 @@ export const PAGE_CONTENT_COMMANDS = new Set([
   'console', 'dialog',
   'media', 'data',
   'ux-audit',
+  // snapshot emits aria tree with attacker-controlled aria-label strings.
+  // The sidebar's system prompt pushes agents to run `$B snapshot` as the
+  // primary read path, so unwrapped snapshot output is the biggest ingress
+  // for indirect prompt injection. Envelope it like every other read.
+  'snapshot',
 ]);
 
 /** Wrap output from untrusted-content commands with trust boundary markers */
@@ -66,7 +71,7 @@ export function wrapUntrustedContent(result: string, url: string): string {
 export const COMMAND_DESCRIPTIONS: Record<string, { category: string; description: string; usage?: string }> = {
   // Navigation
   'goto':    { category: 'Navigation', description: 'Navigate to URL (http://, https://, or file:// scoped to cwd/TEMP_DIR)', usage: 'goto <url>' },
-  'load-html': { category: 'Navigation', description: 'Load a local HTML file via setContent (no HTTP server needed). For self-contained HTML (inline CSS/JS, data URIs). For HTML on disk, goto file://... is often cleaner.', usage: 'load-html <file> [--wait-until load|domcontentloaded|networkidle]' },
+  'load-html': { category: 'Navigation', description: 'Load HTML via setContent. Accepts a file path under safe-dirs (validated), OR --from-file <payload.json> with {"html":"...","waitUntil":"..."} for large inline HTML (Windows argv safe).', usage: 'load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]' },
   'back':    { category: 'Navigation', description: 'History back' },
   'forward': { category: 'Navigation', description: 'History forward' },
   'reload':  { category: 'Navigation', description: 'Reload page' },
@@ -115,13 +120,13 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP', usage: 'archive [path]' },
   // Visual
   'screenshot': { category: 'Visual', description: 'Save screenshot. --selector targets a specific element (explicit flag form). Positional selectors starting with ./#/@/[ still work.', usage: 'screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]' },
-  'pdf':     { category: 'Visual', description: 'Save as PDF', usage: 'pdf [path]' },
+  'pdf':     { category: 'Visual', description: 'Save the current page as PDF. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab.', usage: 'pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]' },
   'responsive': { category: 'Visual', description: 'Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc.', usage: 'responsive [prefix]' },
   'diff':    { category: 'Visual', description: 'Text diff between pages', usage: 'diff <url1> <url2>' },
   // Tabs
   'tabs':    { category: 'Tabs', description: 'List open tabs' },
   'tab':     { category: 'Tabs', description: 'Switch to tab', usage: 'tab <id>' },
-  'newtab':  { category: 'Tabs', description: 'Open new tab', usage: 'newtab [url]' },
+  'newtab':  { category: 'Tabs', description: 'Open new tab. With --json, returns {"tabId":N,"url":...} for programmatic use (make-pdf).', usage: 'newtab [url] [--json]' },
   'closetab':{ category: 'Tabs', description: 'Close tab', usage: 'closetab [id]' },
   // Server
   'status':  { category: 'Server', description: 'Health check' },

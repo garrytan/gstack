@@ -43,45 +43,24 @@ const HOST_ARG_VAL: HostArg = (() => {
 // For single-host mode, HOST is the host. For --host all, it's set per iteration below.
 let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
 
+// ─── Model Overlay Selection ────────────────────────────────
+// --model is explicit. We do NOT auto-detect from host (host ≠ model).
+// Default is 'claude'. Missing overlay file → empty string (graceful).
+import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
+const MODEL_ARG = process.argv.find(a => a.startsWith('--model'));
+const MODEL_ARG_VAL: Model = (() => {
+  if (!MODEL_ARG) return 'claude';
+  const val = MODEL_ARG.includes('=') ? MODEL_ARG.split('=')[1] : process.argv[process.argv.indexOf(MODEL_ARG) + 1];
+  const resolved = resolveModel(val);
+  if (!resolved) {
+    throw new Error(`Unknown model: ${val}. Use ${ALL_MODEL_NAMES.join(', ')}, or a family variant (e.g., claude-opus-4-7, gpt-5.4-mini, o3).`);
+  }
+  return resolved;
+})();
+
 // HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
-
-// ─── Shared Design Constants ────────────────────────────────
-
-/** gstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
-const AI_SLOP_BLACKLIST = [
-  'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
-  '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',
-  'Icons in colored circles as section decoration (SaaS starter template look)',
-  'Centered everything (`text-align: center` on all headings, descriptions, cards)',
-  'Uniform bubbly border-radius on every element (same large radius on everything)',
-  'Decorative blobs, floating circles, wavy SVG dividers (if a section feels empty, it needs better content, not decoration)',
-  'Emoji as design elements (rockets in headings, emoji as bullet points)',
-  'Colored left-border on cards (`border-left: 3px solid <accent>`)',
-  'Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")',
-  'Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)',
-];
-
-/** OpenAI hard rejection criteria (from "Designing Delightful Frontends with GPT-5.4", Mar 2026) */
-const OPENAI_HARD_REJECTIONS = [
-  'Generic SaaS card grid as first impression',
-  'Beautiful image with weak brand',
-  'Strong headline with no clear action',
-  'Busy imagery behind text',
-  'Sections repeating same mood statement',
-  'Carousel with no narrative purpose',
-  'App UI made of stacked cards instead of layout',
-];
-
-/** OpenAI litmus checks — 7 yes/no tests for cross-model consensus scoring */
-const OPENAI_LITMUS_CHECKS = [
-  'Brand/product unmistakable in first screen?',
-  'One strong visual anchor present?',
-  'Page understandable by scanning headlines only?',
-  'Each section has one job?',
-  'Are cards actually necessary?',
-  'Does motion improve hierarchy or atmosphere?',
-  'Would design feel premium with all decorative shadows removed?',
-];
+// Design constants (AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS)
+// live in ./resolvers/constants and are consumed by resolvers directly.
 
 // ─── External Host Helpers ───────────────────────────────────
 
@@ -446,7 +425,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
   const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
 
-  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier };
+  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier, model: MODEL_ARG_VAL };
 
   // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
   // Config-driven: suppressedResolvers return empty string for this host
@@ -555,10 +534,16 @@ for (const currentHost of hostsToRun) {
       const tokens = Math.round(content.length / 4); // ~4 chars per token
       tokenBudget.push({ skill: relOutput, lines, tokens });
 
-      // Token ceiling check: warn if any generated SKILL.md exceeds ~25K tokens (100KB)
-      const TOKEN_CEILING_BYTES = 100_000;
+      // Token ceiling check: warn if any generated SKILL.md exceeds ~40K tokens (160KB).
+      // The ceiling is a "watch for feature bloat" guardrail, not a hard gate. Modern
+      // flagship models have 200K-1M context windows, so 40K (4-20% of window) is fine.
+      // Prompt caching further reduces the marginal cost of larger skills. This ceiling
+      // exists to catch a runaway preamble or resolver that's grown by 10K+ tokens in
+      // a release, not to force compression on carefully-tuned big skills (ship,
+      // plan-ceo-review, office-hours all legitimately pack 25-35K tokens of behavior).
+      const TOKEN_CEILING_BYTES = 160_000;
       if (content.length > TOKEN_CEILING_BYTES) {
-        console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~25K tokens)`);
+        console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~40K tokens)`);
       }
     }
 

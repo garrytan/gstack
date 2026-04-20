@@ -1,6 +1,13 @@
 // ─── Shared Design Constants ────────────────────────────────
 
-/** gstack's 10 AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES */
+/**
+ * gstack's AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES.
+ *
+ * Overused fonts worth calling out in templates (not a pattern to blacklist, but a
+ * convergence risk): Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat,
+ * Poppins, and increasingly Space Grotesk. Every AI design tool picks one of these.
+ * Design prompts should bias toward less-common display faces.
+ */
 export const AI_SLOP_BLACKLIST = [
   'Purple/violet/indigo gradient backgrounds or blue-to-purple color schemes',
   '**The 3-column feature grid:** icon-in-colored-circle + bold title + 2-line description, repeated 3x symmetrically. THE most recognizable AI layout.',
@@ -12,6 +19,7 @@ export const AI_SLOP_BLACKLIST = [
   'Colored left-border on cards (`border-left: 3px solid <accent>`)',
   'Generic hero copy ("Welcome to [X]", "Unlock the power of...", "Your all-in-one solution for...")',
   'Cookie-cutter section rhythm (hero → 3 features → testimonials → pricing → CTA, every section same height)',
+  'system-ui or `-apple-system` as the PRIMARY display/body font — the "I gave up on typography" signal. Pick a real typeface.',
 ];
 
 /** OpenAI hard rejection criteria (from "Designing Delightful Frontends with GPT-5.4", Mar 2026) */

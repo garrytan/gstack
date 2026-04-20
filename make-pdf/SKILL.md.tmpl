@@ -1,0 +1,163 @@
+---
+name: make-pdf
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Turn any markdown file into a publication-quality PDF. Proper 1in margins,
+  intelligent page breaks, page numbers, cover pages, running headers, curly
+  quotes and em dashes, clickable TOC, diagonal DRAFT watermark. Not a draft
+  artifact — a finished artifact. Use when asked to "make a PDF", "export to
+  PDF", "turn this markdown into a PDF", or "generate a document". (gstack)
+voice-triggers:
+  - "make this a pdf"
+  - "make it a pdf"
+  - "export to pdf"
+  - "turn this into a pdf"
+  - "turn this markdown into a pdf"
+  - "generate a pdf"
+  - "make a pdf from"
+  - "pdf this markdown"
+triggers:
+  - markdown to pdf
+  - generate pdf
+  - make pdf
+  - export pdf
+allowed-tools:
+  - Bash
+  - Read
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# make-pdf: publication-quality PDFs from markdown
+
+Turn `.md` files into PDFs that look like Faber & Faber essays: 1in margins,
+left-aligned body, Helvetica throughout, curly quotes and em dashes, optional
+cover page and clickable TOC, diagonal DRAFT watermark when you need it.
+Copy-paste from the PDF produces clean words, never "S a i l i n g".
+
+On Linux, install `fonts-liberation` for correct rendering — Helvetica and Arial
+aren't present by default, and Liberation Sans is the standard metric-compatible
+fallback. CI and Docker builds install it automatically via Dockerfile.ci.
+
+{{MAKE_PDF_SETUP}}
+
+## Core patterns
+
+### 80% case — memo/letter
+
+One command, no flags. Gets a clean PDF with running header + page numbers
++ CONFIDENTIAL footer by default.
+
+```bash
+$P generate letter.md                 # writes /tmp/letter.pdf
+$P generate letter.md letter.pdf      # explicit output path
+```
+
+### Publication mode — cover + TOC + chapter breaks
+
+```bash
+$P generate --cover --toc --author "Garry Tan" --title "On Horizons" \
+  essay.md essay.pdf
+```
+
+Each top-level H1 in the markdown starts a new page. Disable with
+`--no-chapter-breaks` for memos that happen to have multiple H1s.
+
+### Draft-stage watermark
+
+```bash
+$P generate --watermark DRAFT memo.md draft.pdf
+```
+
+Diagonal 10% opacity DRAFT across every page. When the draft is final, drop
+the flag and regenerate.
+
+### Fast iteration via preview
+
+```bash
+$P preview essay.md
+```
+
+Renders HTML with the same print CSS and opens it in your browser. Refresh
+as you edit the markdown. Skip the PDF round trip until you're ready.
+
+### Brand-free (no CONFIDENTIAL footer)
+
+```bash
+$P generate --no-confidential memo.md memo.pdf
+```
+
+## Common flags
+
+```
+Page layout:
+  --margins <dim>            1in (default) | 72pt | 2.54cm | 25mm
+  --page-size letter|a4|legal
+
+Structure:
+  --cover                    Cover page (title, author, date, hairline rule)
+  --toc                      Clickable TOC with page numbers
+  --no-chapter-breaks        Don't start a new page at every H1
+
+Branding:
+  --watermark <text>         Diagonal watermark ("DRAFT", "CONFIDENTIAL")
+  --header-template <html>   Custom running header
+  --footer-template <html>   Custom footer (mutex with --page-numbers)
+  --no-confidential          Suppress the CONFIDENTIAL right-footer
+
+Output:
+  --page-numbers             "N of M" footer (default on)
+  --tagged                   Accessible PDF (default on)
+  --outline                  PDF bookmarks from headings (default on)
+  --quiet                    Suppress progress on stderr
+  --verbose                  Per-stage timings
+
+Network:
+  --allow-network            Fetch external images. Off by default
+                             (blocks tracking pixels).
+
+Metadata:
+  --title "..."              Document title (defaults to first H1)
+  --author "..."             Author for cover + PDF metadata
+  --date "..."               Date for cover (defaults to today)
+```
+
+## When Claude should run it
+
+Watch for markdown-to-PDF intent. Any of these patterns → run `$P generate`:
+
+- "Can you make this markdown a PDF"
+- "Export it as a PDF"
+- "Turn this letter into a PDF"
+- "I need a PDF of the essay"
+- "Print this as a PDF for me"
+
+If the user has a `.md` file open and says "make it look nice", propose
+`$P generate --cover --toc` and ask before running.
+
+## Debugging
+
+- Output looks empty / blank → check browse daemon is running: `$B status`.
+- Fragmented text on copy-paste → highlight.js output (Phase 4). Retry with
+  `--no-syntax` once that flag exists. For now, remove fenced code blocks
+  and regenerate.
+- Paged.js timeout → probably no headings in the markdown. Drop `--toc`.
+- External image missing → add `--allow-network` (understand you're giving
+  the markdown file permission to fetch from its image URLs).
+- Generated PDF too tall/wide → `--page-size a4` or `--margins 0.75in`.
+
+## Output contract
+
+```
+stdout: /tmp/letter.pdf          ← just the path, one line
+stderr: Rendering HTML...        ← progress spinner (unless --quiet)
+        Generating PDF...
+        Done in 1.5s. 43 words · 22KB · /tmp/letter.pdf
+
+exit code: 0 success / 1 bad args / 2 render error / 3 Paged.js timeout
+           / 4 browse unavailable
+```
+
+Capture the path: `PDF=$($P generate letter.md)` — then use `$PDF`.

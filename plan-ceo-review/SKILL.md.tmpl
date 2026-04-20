@@ -246,6 +246,18 @@ Rules:
 - If only one approach exists, explain concretely why alternatives were eliminated.
 - Do NOT proceed to mode selection (0F) without user approval of the chosen approach.
 
+### 0D-prelude. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)
+
+Every expansion proposal you generate in SCOPE EXPANSION or SELECTIVE EXPANSION mode follows this framing pattern:
+
+FLAT (avoid): "Add real-time notifications. Users would see workflow results faster — latency drops from ~30s polling to <500ms push. Effort: ~1 hour CC."
+
+EXPANSIVE (aim for): "Imagine the moment a workflow finishes — the user sees the result instantly, no tab-switching, no polling, no 'did it actually work?' anxiety. Real-time feedback turns a tool they check into a tool that talks to them. Concrete shape: WebSocket channel + optimistic UI + desktop notification fallback. Effort: human ~2 days / CC ~1 hour. Makes the product feel 10x more alive."
+
+Both are outcome-framed. Only one makes the user feel the cathedral. Lead with the felt experience, close with concrete effort and impact.
+
+**For SELECTIVE EXPANSION:** neutral recommendation posture ≠ flat prose. Present vivid options, then let the user decide. Do not over-sell — "Makes the product feel 10x more alive" is vivid; "This would 10x your revenue" is over-sell. Evocative, not promotional.
+
 ### 0D. Mode-Specific Analysis
 **For SCOPE EXPANSION** — run all three, then the opt-in ceremony:
 1. 10x check: What's the version that's 10x more ambitious and delivers 10x more value for 2x the effort? Describe it concretely.
