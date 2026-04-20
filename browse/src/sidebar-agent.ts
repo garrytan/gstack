@@ -13,6 +13,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink } from './error-handling';
+import { createUtf8StreamDecoder } from './utf8-stream-decoder';
 
 const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
 const KILL_FILE = path.join(path.dirname(QUEUE), 'sidebar-agent-kill');
@@ -331,9 +332,11 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
     }, 500);
 
     let buffer = '';
+    const stdoutDecoder = createUtf8StreamDecoder();
+    const stderrDecoder = createUtf8StreamDecoder();
 
     proc.stdout.on('data', (data: Buffer) => {
-      buffer += data.toString();
+      buffer += stdoutDecoder.write(data);
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
       for (const line of lines) {
@@ -346,13 +349,19 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
 
     let stderrBuffer = '';
     proc.stderr.on('data', (data: Buffer) => {
-      stderrBuffer += data.toString();
+      stderrBuffer += stderrDecoder.write(data);
     });
 
     proc.on('close', (code) => {
       clearInterval(cancelCheck);
       activeProc = null;
       activeProcs.delete(tid);
+      // Flush any bytes held back by the UTF-8 decoder (e.g. a trailing
+      // incomplete multi-byte sequence at end-of-stream). Normally empty;
+      // if the child exited mid-codepoint StringDecoder emits U+FFFD here
+      // rather than silently dropping the bytes.
+      buffer += stdoutDecoder.end();
+      stderrBuffer += stderrDecoder.end();
       if (buffer.trim()) {
         try { handleStreamEvent(JSON.parse(buffer), tid); } catch (err: any) {
           console.error(`[sidebar-agent] Tab ${tid}: Failed to parse final buffer:`, buffer.slice(0, 100), err.message);
