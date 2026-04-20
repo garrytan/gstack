@@ -5,9 +5,10 @@ import { judgePassed } from './helpers/eval-store';
 import {
   ROOT, runId, evalsEnabled, selectedTests, hasApiKey,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, logCost, recordE2E, dumpOutcomeDiagnostic,
+  copyDirSync, setupBrowseShims, logCost, recordE2E, dumpOutcomeDiagnostic,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -59,17 +60,37 @@ const anySelected = selectedTests === null || allTestNames.some(t => selectedTes
 
   /**
    * Sets up a fresh workdir with the qa-headless skill + a fixture dir copied in.
+   * Initializes a git repo (skill preamble runs `git status`/`git diff`) and
+   * installs browse shims (skill preamble loads them via the gstack bin path).
    * Returns the workdir path and the copied fixture dir.
    */
   function setupWorkdir(label: string, fixtureSubdir: string): { workDir: string; fixturePath: string; reportDir: string } {
     const workDir = fs.mkdtempSync(path.join(workRoot, `${label}-`));
+
+    // Init git so the preamble's `git status` / `git diff` calls don't crash.
+    spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: workDir, stdio: 'pipe', timeout: 5000 });
+    spawnSync('git', ['config', 'user.email', 'qa-headless-test@example.com'], { cwd: workDir, stdio: 'pipe' });
+    spawnSync('git', ['config', 'user.name', 'qa-headless-test'], { cwd: workDir, stdio: 'pipe' });
+
+    // Install browse + remote-slug shims so the preamble + bin lookups work.
+    setupBrowseShims(workDir);
+
     copyDirSync(path.join(ROOT, 'qa-headless'), path.join(workDir, 'qa-headless'));
-    const fixtureSrc = path.join(FIXTURE_ROOT, fixtureSubdir);
-    const fixtureDest = path.join(workDir, 'fixture');
-    copyDirSync(fixtureSrc, fixtureDest);
+    if (fixtureSubdir) {
+      const fixtureSrc = path.join(FIXTURE_ROOT, fixtureSubdir);
+      const fixtureDest = path.join(workDir, 'fixture');
+      copyDirSync(fixtureSrc, fixtureDest);
+      // Stage + commit fixture so `git status` is clean (skill aborts on dirty tree).
+      spawnSync('git', ['add', '-A'], { cwd: workDir, stdio: 'pipe' });
+      spawnSync('git', ['commit', '-q', '-m', 'fixture'], { cwd: workDir, stdio: 'pipe' });
+      const reportDir = path.join(workDir, 'reports');
+      fs.mkdirSync(reportDir, { recursive: true });
+      return { workDir, fixturePath: fixtureDest, reportDir };
+    }
+
     const reportDir = path.join(workDir, 'reports');
     fs.mkdirSync(reportDir, { recursive: true });
-    return { workDir, fixturePath: fixtureDest, reportDir };
+    return { workDir, fixturePath: '', reportDir };
   }
 
   // ─── 1. Shape detection (deterministic, gate-tier) ─────────────────
@@ -370,7 +391,10 @@ Write a report to ${reportPath} explaining:
       prompt: `Read ${workDir}/qa-headless/SKILL.md and run the full workflow against:
   Target: ${fixturePath}/run_call_digest.py --date=2026-04-15 --dry-run
 
-You may invoke the script with: python ${fixturePath}/run_call_digest.py --date=2026-04-15 --dry-run
+The fixture has a requirements.txt. Before invoking the script, set up an isolated venv and install deps:
+  python3 -m venv /tmp/qa-headless-test-venv
+  /tmp/qa-headless-test-venv/bin/pip install -q -r ${fixturePath}/requirements.txt
+  /tmp/qa-headless-test-venv/bin/python ${fixturePath}/run_call_digest.py --date=2026-04-15 --dry-run
 
 Capture the printed summary line. Write a report to ${reportPath} that includes the exact summary line printed by the script in a code block.`,
       workingDirectory: workDir,
