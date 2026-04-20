@@ -188,6 +188,19 @@ export async function handleWriteCommand(
         if (args[i] === '--from-file') {
           const payloadPath = args[++i];
           if (!payloadPath) throw new Error('load-html: --from-file requires a path');
+          // Parity with the sibling `load-html <file>` path below (line 249):
+          // that branch runs every `file://` target through validateReadPath
+          // so the safe-dirs policy can't be side-stepped. Same policy must
+          // apply here — otherwise --from-file becomes a read-anywhere escape
+          // hatch for any caller that can pick the payload path (e.g., an
+          // MCP caller issuing load-html with an attacker-influenced path).
+          try {
+            validateReadPath(path.resolve(payloadPath));
+          } catch {
+            throw new Error(
+              `load-html: --from-file ${payloadPath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the payload into the project tree or /tmp first.`
+            );
+          }
           const raw = fs.readFileSync(payloadPath, 'utf8');
           let json: any;
           try { json = JSON.parse(raw); }
