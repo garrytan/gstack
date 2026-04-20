@@ -2,6 +2,20 @@
 
 Thanks for wanting to make gstack better. Whether you're fixing a typo in a skill prompt or building an entirely new workflow, this guide will get you up and running fast.
 
+## Prerequisites for contributors
+
+Make sure you have the tools installed before cloning gstack:
+
+**All platforms:**
+- [Git](https://git-scm.com/) — version control
+- [Bun](https://bun.sh/) v1.0+ — JavaScript runtime (required)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — Terminal CLI or IDE Extension
+
+**Windows only:**
+- [Node.js](https://nodejs.org/) 18+ LTS — for browse server compatibility
+
+**Setup instructions:** See the [README installation section](README.md#installation) for detailed OS-specific setup for each prerequisite.
+
 ## Quick start
 
 gstack skills are Markdown files that Claude Code discovers from a `skills/` directory. Normally they live at `~/.claude/skills/gstack/` (your global install). But when you're developing gstack itself, you want Claude Code to use the skills *in your working tree* — so edits take effect instantly without copying or deploying anything.

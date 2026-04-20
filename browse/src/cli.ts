@@ -13,10 +13,39 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { getTempDir } from '../../lib/paths';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
+const PLATFORM = process.platform;
+const ARCH = process.arch;
 const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+
+/**
+ * Get all possible binary names for this platform
+ * Example: browse, browse-cli, browse-darwin-arm64, browse-darwin-arm64.exe (on Windows)
+ */
+function getPlatformBinaryNames(baseName: string): string[] {
+  const ext = IS_WINDOWS ? '.exe' : '';
+  const platformSpecific = `${baseName}-${PLATFORM}-${ARCH}${ext}`;
+  return [
+    `${baseName}${ext}`,          // browse.exe on Windows, browse on Unix
+    platformSpecific,              // browse-win32-x64.exe on Windows
+  ];
+}
+
+/**
+ * Find a binary by checking multiple names in the same directory
+ */
+function findBinaryInDir(dir: string, baseName: string): string | null {
+  for (const name of getPlatformBinaryNames(baseName)) {
+    const candidate = path.join(dir, name);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -66,10 +95,17 @@ export function resolveNodeServerScript(
     if (fs.existsSync(distScript)) return distScript;
   }
 
-  // Compiled binary: browse/dist/browse → browse/dist/server-node.mjs
+  // Compiled binary: check both platform-specific and generic names
   if (execPath) {
-    const adjacent = path.resolve(path.dirname(execPath), 'server-node.mjs');
-    if (fs.existsSync(adjacent)) return adjacent;
+    const distDir = path.dirname(execPath);
+    
+    // Try platform-specific name first (server-node-win32-x64.mjs)
+    const platformSpecific = path.join(distDir, `server-node-${PLATFORM}-${ARCH}.mjs`);
+    if (fs.existsSync(platformSpecific)) return platformSpecific;
+    
+    // Fall back to generic name (server-node.mjs)
+    const generic = path.join(distDir, 'server-node.mjs');
+    if (fs.existsSync(generic)) return generic;
   }
 
   return null;

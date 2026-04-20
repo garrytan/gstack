@@ -10,13 +10,13 @@
  *   6. Print a 3-command cheatsheet
  */
 
-import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
 import * as browseClient from "./browseClient";
 import { resolvePdftotext, PdftotextUnavailableError } from "./pdftotext";
 import { generate } from "./orchestrator";
+import { getTempDir, getClaudeSkillsDir } from "../../lib/paths";
 
 export async function runSetup(): Promise<void> {
   process.stderr.write("make-pdf setup — verifying install\n\n");
@@ -42,7 +42,7 @@ export async function runSetup(): Promise<void> {
     process.stderr.write(" FAIL\n");
     process.stderr.write(`\nChromium failed to launch: ${err.message}\n`);
     process.stderr.write("\nTo fix: run gstack setup from the gstack repo:\n");
-    process.stderr.write("  cd ~/.claude/skills/gstack && ./setup\n");
+    process.stderr.write(`  cd "${path.join(getClaudeSkillsDir(), 'gstack')}" && ./setup\n`);
     process.exit(4);
   } finally {
     if (chromiumTab !== null) {
@@ -53,7 +53,7 @@ export async function runSetup(): Promise<void> {
   // 3. pdftotext (optional — CI gate only)
   process.stderr.write("  [3/5] Checking pdftotext (optional)...");
   try {
-    const info = resolvePdftotext();
+    const info = await resolvePdftotext();
     process.stderr.write(` OK (${info.flavor}, ${info.version.split(" ").slice(-1)[0] || "version unknown"})\n`);
   } catch (err) {
     process.stderr.write(" SKIP\n");
@@ -77,8 +77,9 @@ export async function runSetup(): Promise<void> {
     "The second paragraph contains curly quotes (\"hello\"), an em dash -- like this, and an ellipsis... all of which should render correctly.",
     "",
   ].join("\n");
-  const fixturePath = path.join(os.tmpdir(), `make-pdf-smoke-${process.pid}.md`);
-  const outPath = path.join(os.tmpdir(), `make-pdf-smoke-${process.pid}.pdf`);
+  const tempDir = getTempDir();
+  const fixturePath = path.join(tempDir, `make-pdf-smoke-${process.pid}.md`);
+  const outPath = path.join(tempDir, `make-pdf-smoke-${process.pid}.pdf`);
   fs.writeFileSync(fixturePath, fixture, "utf8");
 
   try {
