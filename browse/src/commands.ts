@@ -52,6 +52,11 @@ export const PAGE_CONTENT_COMMANDS = new Set([
   'console', 'dialog',
   'media', 'data',
   'ux-audit',
+  // snapshot emits aria tree with attacker-controlled aria-label strings.
+  // The sidebar's system prompt pushes agents to run `$B snapshot` as the
+  // primary read path, so unwrapped snapshot output is the biggest ingress
+  // for indirect prompt injection. Envelope it like every other read.
+  'snapshot',
 ]);
 
 /** Wrap output from untrusted-content commands with trust boundary markers */

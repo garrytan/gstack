@@ -107,6 +107,208 @@ let agentText = '';        // Accumulated text
 // repeat rendering on reconnect or tab switch (server replays from disk)
 const renderedEntryIds = new Set();
 
+// Security banner (variant A from /plan-design-review 2026-04-19).
+// Renders on security_event — canary leaks, ML classifier BLOCK verdicts.
+// Defense-in-depth trust UX — user sees WHICH layer fired at WHAT confidence.
+const SECURITY_LAYER_LABELS = {
+  testsavant_content: 'Content ML',
+  transcript_classifier: 'Transcript ML',
+  aria_regex: 'ARIA pattern',
+  canary: 'Canary leak',
+};
+
+function showSecurityBanner(event) {
+  const banner = document.getElementById('security-banner');
+  if (!banner) return;
+
+  const title = document.getElementById('security-banner-title');
+  const subtitle = document.getElementById('security-banner-subtitle');
+  const layersEl = document.getElementById('security-banner-layers');
+  const expandBtn = document.getElementById('security-banner-expand');
+  const details = document.getElementById('security-banner-details');
+  const chevron = banner.querySelector('.security-banner-chevron');
+  const suspectLabel = document.getElementById('security-banner-suspect-label');
+  const suspectEl = document.getElementById('security-banner-suspect');
+  const actions = document.getElementById('security-banner-actions');
+  const btnAllow = document.getElementById('security-banner-btn-allow');
+  const btnBlock = document.getElementById('security-banner-btn-block');
+
+  // Reviewable path: the agent paused and is waiting for our decision.
+  // Title + subtitle change to framing-as-review, action buttons appear,
+  // suspected-text excerpt shows in the expandable details.
+  const reviewable = !!event.reviewable;
+  const tabId = Number(event.tabId);
+
+  // Title + subtitle
+  if (title) title.textContent = reviewable ? 'Review suspected injection' : 'Session terminated';
+  if (subtitle) {
+    const fromDomain = event.domain ? ` from ${event.domain}` : '';
+    const toolLabel = event.tool ? ` in ${event.tool} output` : '';
+    subtitle.textContent = reviewable
+      ? `possible prompt injection${toolLabel}${fromDomain} — allow to continue, block to end session`
+      : `— prompt injection detected${fromDomain}`;
+  }
+
+  // Suspected text excerpt (reviewable only)
+  if (suspectEl && suspectLabel) {
+    if (reviewable && typeof event.suspected_text === 'string' && event.suspected_text.length > 0) {
+      suspectEl.textContent = event.suspected_text;
+      suspectEl.hidden = false;
+      suspectLabel.hidden = false;
+    } else {
+      suspectEl.textContent = '';
+      suspectEl.hidden = true;
+      suspectLabel.hidden = true;
+    }
+  }
+
+  // Action buttons — wire fresh handlers each render so we capture the
+  // current tabId. Remove previous listeners by cloning the node.
+  if (actions && btnAllow && btnBlock) {
+    actions.hidden = !reviewable;
+    if (reviewable) {
+      const freshAllow = btnAllow.cloneNode(true);
+      const freshBlock = btnBlock.cloneNode(true);
+      btnAllow.parentNode.replaceChild(freshAllow, btnAllow);
+      btnBlock.parentNode.replaceChild(freshBlock, btnBlock);
+      freshAllow.addEventListener('click', () => postSecurityDecision(tabId, 'allow'));
+      freshBlock.addEventListener('click', () => postSecurityDecision(tabId, 'block'));
+    }
+  }
+
+  // Layer signals list (mono scores)
+  if (layersEl) {
+    layersEl.innerHTML = '';
+    const rows = [];
+    // If we got a primary layer + confidence, show that first
+    if (event.layer) {
+      rows.push({ layer: event.layer, confidence: event.confidence ?? 1.0 });
+    }
+    // Any additional signals the agent sent
+    if (Array.isArray(event.signals)) {
+      for (const s of event.signals) {
+        if (s.layer && !rows.some(r => r.layer === s.layer)) {
+          rows.push({ layer: s.layer, confidence: s.confidence ?? 0 });
+        }
+      }
+    }
+    for (const row of rows) {
+      const label = SECURITY_LAYER_LABELS[row.layer] || row.layer;
+      const score = Number(row.confidence).toFixed(2);
+      const div = document.createElement('div');
+      div.className = 'security-banner-layer';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'security-banner-layer-name';
+      nameSpan.textContent = label;
+      const scoreSpan = document.createElement('span');
+      scoreSpan.className = 'security-banner-layer-score';
+      scoreSpan.textContent = score;
+      div.appendChild(nameSpan);
+      div.appendChild(scoreSpan);
+      layersEl.appendChild(div);
+    }
+  }
+
+  // Reset expand state on each render. For reviewable banners, auto-expand
+  // so the user sees the suspected text without an extra click — they need
+  // that context to decide.
+  if (expandBtn && details) {
+    expandBtn.setAttribute('aria-expanded', reviewable ? 'true' : 'false');
+    details.hidden = !reviewable;
+    if (chevron) chevron.style.transform = reviewable ? 'rotate(180deg)' : 'rotate(0deg)';
+  }
+
+  banner.style.display = 'block';
+}
+
+function hideSecurityBanner() {
+  const banner = document.getElementById('security-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+/**
+ * Send the user's decision on a reviewable BLOCK event to the server.
+ * Server writes a per-tab decision file that sidebar-agent polls.
+ */
+async function postSecurityDecision(tabId, decision) {
+  if (!serverUrl || !Number.isFinite(tabId)) {
+    hideSecurityBanner();
+    return;
+  }
+  try {
+    await fetch(`${serverUrl}/security-decision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
+      },
+      body: JSON.stringify({ tabId, decision, reason: 'user' }),
+    });
+  } catch (err) {
+    console.error('[sidepanel] postSecurityDecision failed', err);
+  }
+  // Hide the banner optimistically. If the user chose "allow", the session
+  // continues. If "block", sidebar-agent will kill and emit agent_error,
+  // which shows up in chat regardless.
+  hideSecurityBanner();
+}
+
+// Shield icon state update — consumes /health.security.status.
+// status ∈ { 'protected', 'degraded', 'inactive' }.
+// 'protected' = all layers ok. 'degraded' = at least one ML layer off or failed
+//   (sidebar still defended by canary + architectural controls).
+// 'inactive' = security module crashed — only architectural controls active.
+const SHIELD_LABELS = {
+  protected: { label: 'SEC', aria: 'Security status: protected' },
+  degraded:  { label: 'SEC', aria: 'Security status: degraded (some layers offline)' },
+  inactive:  { label: 'SEC', aria: 'Security status: inactive (architectural controls only)' },
+};
+function updateSecurityShield(securityState) {
+  const shield = document.getElementById('security-shield');
+  const labelEl = document.getElementById('security-shield-label');
+  if (!shield || !securityState) return;
+  const status = securityState.status || 'inactive';
+  const info = SHIELD_LABELS[status] || SHIELD_LABELS.inactive;
+  shield.setAttribute('data-status', status);
+  shield.setAttribute('aria-label', info.aria);
+  shield.style.display = 'inline-flex';
+  if (labelEl) labelEl.textContent = info.label;
+  // Hover tooltip gives layer-level detail for debugging.
+  if (securityState.layers) {
+    const parts = Object.entries(securityState.layers).map(([k, v]) => `${k}:${v}`);
+    shield.setAttribute('title', `Security — ${status}\n${parts.join('\n')}`);
+  } else {
+    shield.setAttribute('title', `Security — ${status}`);
+  }
+}
+
+// Wire up banner interactivity once on load
+document.addEventListener('DOMContentLoaded', () => {
+  const closeBtn = document.getElementById('security-banner-close');
+  const expandBtn = document.getElementById('security-banner-expand');
+  const banner = document.getElementById('security-banner');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', hideSecurityBanner);
+  }
+  if (expandBtn) {
+    expandBtn.addEventListener('click', () => {
+      const details = document.getElementById('security-banner-details');
+      const chevron = banner && banner.querySelector('.security-banner-chevron');
+      if (!details) return;
+      const open = !details.hidden;
+      details.hidden = open;
+      expandBtn.setAttribute('aria-expanded', String(!open));
+      if (chevron) chevron.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+    });
+  }
+  // Escape dismisses the banner (a11y)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && banner && banner.style.display !== 'none') {
+      hideSecurityBanner();
+    }
+  });
+});
+
 function addChatEntry(entry) {
   // Dedup by entry ID — prevent repeat rendering on reconnect/replay
   if (entry.id !== undefined) {
@@ -225,6 +427,11 @@ function handleAgentEvent(entry) {
     }
     agentContainer = null;
     agentTextEl = null;
+    return;
+  }
+
+  if (entry.type === 'security_event') {
+    showSecurityBanner(entry);
     return;
   }
 
@@ -426,6 +633,12 @@ async function pollChat() {
       // Show welcome only if no chat history
       if (data.total === 0 && welcome) welcome.style.display = '';
     }
+
+    // Shield icon state rides the chat poll (every 300ms in fast mode,
+    // slower when idle). When the ML classifier finishes warming after
+    // initial connect — typically 30s on first run — the shield flips
+    // from 'off' to 'protected' without the user needing to reload.
+    if (data.security) updateSecurityShield(data.security);
 
     if (data.entries && data.entries.length > 0) {
       // Hide welcome on first real entry
@@ -812,7 +1025,13 @@ function addEntry(entry) {
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
-  return div.innerHTML;
+  // DOM text-node serialization escapes &, <, > but NOT " or '. Call sites
+  // that interpolate escapeHtml output inside an attribute value (title="...",
+  // data-x="...") need those escaped too or an attacker-controlled value can
+  // break out of the attribute. Add both manually.
+  return div.innerHTML
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ─── SSE Connection ─────────────────────────────────────────────
@@ -1561,6 +1780,8 @@ async function tryConnect() {
           `token: yes (from /health)\nStarting SSE + chat polling...`
         );
         updateConnection(`http://127.0.0.1:${port}`, data.token);
+        // Shield state arrives on /health alongside the auth token.
+        if (data.security) updateSecurityShield(data.security);
         return;
       }
       setLoadingStatus(

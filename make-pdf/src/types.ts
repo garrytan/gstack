@@ -63,6 +63,7 @@ export interface PreviewOptions {
   watermark?: string;
   noChapterBreaks?: boolean;
   confidential?: boolean;
+  pageNumbers?: boolean;
   allowNetwork?: boolean;
   title?: string;
   author?: string;

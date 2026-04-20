@@ -13,6 +13,18 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink } from './error-handling';
+import {
+  checkCanaryInStructure, logAttempt, hashPayload, extractDomain,
+  combineVerdict, writeSessionState, readSessionState, THRESHOLDS,
+  readDecision, clearDecision, excerptForReview,
+  type LayerSignal,
+} from './security';
+import {
+  loadTestsavant, scanPageContent, checkTranscript,
+  shouldRunTranscriptCheck, getClassifierStatus,
+  loadDeberta, scanPageContentDeberta,
+  type ToolCallInput,
+} from './security-classifier';
 
 const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
 const KILL_FILE = path.join(path.dirname(QUEUE), 'sidebar-agent-kill');
@@ -36,6 +48,7 @@ interface QueueEntry {
   pageUrl?: string | null;
   sessionId?: string | null;
   ts?: string;
+  canary?: string; // session-scoped token; leak = prompt injection evidence
 }
 
 function isValidQueueEntry(e: unknown): e is QueueEntry {
@@ -55,6 +68,7 @@ function isValidQueueEntry(e: unknown): e is QueueEntry {
   if (obj.message !== undefined && obj.message !== null && typeof obj.message !== 'string') return false;
   if (obj.pageUrl !== undefined && obj.pageUrl !== null && typeof obj.pageUrl !== 'string') return false;
   if (obj.sessionId !== undefined && obj.sessionId !== null && typeof obj.sessionId !== 'string') return false;
+  if (obj.canary !== undefined && typeof obj.canary !== 'string') return false;
   return true;
 }
 
@@ -228,7 +242,121 @@ function summarizeToolInput(tool: string, input: any): string {
   return describeToolCall(tool, input);
 }
 
-async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
+/**
+ * Scan a Claude stream event for the session canary. Returns the channel where
+ * it leaked, or null if clean. Covers every outbound channel: text blocks,
+ * text deltas, tool_use arguments (including nested URL/path/command strings),
+ * and result payloads.
+ */
+function detectCanaryLeak(event: any, canary: string, buf?: DeltaBuffer): string | null {
+  if (!canary) return null;
+
+  if (event.type === 'assistant' && event.message?.content) {
+    for (const block of event.message.content) {
+      if (block.type === 'text' && typeof block.text === 'string' && block.text.includes(canary)) {
+        return 'assistant_text';
+      }
+      if (block.type === 'tool_use' && checkCanaryInStructure(block.input, canary)) {
+        return `tool_use:${block.name}`;
+      }
+    }
+  }
+  if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+    if (checkCanaryInStructure(event.content_block.input, canary)) {
+      return `tool_use:${event.content_block.name}`;
+    }
+  }
+  if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+    if (typeof event.delta.text === 'string') {
+      // Rolling buffer: an attacker can ask Claude to emit the canary split
+      // across two deltas (e.g., "CANARY-" then "ABCDEF"). A per-delta
+      // substring check misses this. Concatenate the previous tail with
+      // this chunk and search, then trim the tail to last canary.length-1
+      // chars for the next event.
+      const combined = buf ? buf.text_delta + event.delta.text : event.delta.text;
+      if (combined.includes(canary)) return 'text_delta';
+      if (buf) buf.text_delta = combined.slice(-(canary.length - 1));
+    }
+  }
+  if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
+    if (typeof event.delta.partial_json === 'string') {
+      const combined = buf ? buf.input_json_delta + event.delta.partial_json : event.delta.partial_json;
+      if (combined.includes(canary)) return 'tool_input_delta';
+      if (buf) buf.input_json_delta = combined.slice(-(canary.length - 1));
+    }
+  }
+  if (event.type === 'content_block_stop' && buf) {
+    // Block boundary — reset the rolling buffer so a canary straddling
+    // two independent tool_use blocks isn't inferred.
+    buf.text_delta = '';
+    buf.input_json_delta = '';
+  }
+  if (event.type === 'result' && typeof event.result === 'string' && event.result.includes(canary)) {
+    return 'result';
+  }
+  return null;
+}
+
+/** Rolling-window tails for delta canary detection. See detectCanaryLeak. */
+interface DeltaBuffer {
+  text_delta: string;
+  input_json_delta: string;
+}
+
+interface CanaryContext {
+  canary: string;
+  pageUrl: string;
+  onLeak: (channel: string) => void;
+  deltaBuf: DeltaBuffer;
+}
+
+interface ToolResultScanContext {
+  scan: (toolName: string, text: string) => Promise<void>;
+}
+
+/**
+ * Per-tab map of tool_use_id → tool name. Lets the tool_result handler
+ * know what tool produced the content (Read, Grep, Glob, Bash $B ...) so
+ * we can tag attack logs with the ingress source.
+ */
+const toolUseRegistry = new Map<string, { toolName: string; toolInput: unknown }>();
+
+/**
+ * Extract plain-text content from a tool_result block. The Claude stream
+ * encodes it as either a string or an array of content blocks (text, image).
+ * We care about text — images can't carry prompt injection at this layer.
+ */
+function extractToolResultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block && typeof block === 'object') {
+      const b = block as Record<string, unknown>;
+      if (b.type === 'text' && typeof b.text === 'string') parts.push(b.text);
+    }
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Tools whose outputs should be ML-scanned. Bash/$B outputs already get
+ * scanned via the page-content flow. Read/Glob/Grep outputs have been
+ * uncovered — Codex review flagged this gap. Adding coverage here closes it.
+ */
+const SCANNED_TOOLS = new Set(['Read', 'Grep', 'Glob', 'Bash', 'WebFetch']);
+
+async function handleStreamEvent(event: any, tabId?: number, canaryCtx?: CanaryContext, toolResultScanCtx?: ToolResultScanContext): Promise<void> {
+  // Canary check runs BEFORE any outbound send — we never want to relay
+  // a leaked token to the sidepanel UI.
+  if (canaryCtx) {
+    const channel = detectCanaryLeak(event, canaryCtx.canary, canaryCtx.deltaBuf);
+    if (channel) {
+      canaryCtx.onLeak(channel);
+      return; // drop the event — never relay content that leaked the canary
+    }
+  }
+
   if (event.type === 'system' && event.session_id) {
     // Relay claude session ID for --resume support
     await sendEvent({ type: 'system', claudeSessionId: event.session_id }, tabId);
@@ -237,6 +365,9 @@ async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
   if (event.type === 'assistant' && event.message?.content) {
     for (const block of event.message.content) {
       if (block.type === 'tool_use') {
+        // Register the tool_use so we can correlate tool_results back to
+        // the originating tool when they arrive in the next user-role message.
+        if (block.id) toolUseRegistry.set(block.id, { toolName: block.name, toolInput: block.input });
         await sendEvent({ type: 'tool_use', tool: block.name, input: summarizeToolInput(block.name, block.input) }, tabId);
       } else if (block.type === 'text' && block.text) {
         await sendEvent({ type: 'text', text: block.text }, tabId);
@@ -244,7 +375,33 @@ async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
     }
   }
 
+  // Tool results come back in user-role messages. Content can be a string
+  // or an array of typed content blocks.
+  if (event.type === 'user' && event.message?.content) {
+    for (const block of event.message.content) {
+      if (block && typeof block === 'object' && block.type === 'tool_result') {
+        const meta = block.tool_use_id ? toolUseRegistry.get(block.tool_use_id) : null;
+        const toolName = meta?.toolName ?? 'Unknown';
+        const text = extractToolResultText(block.content);
+        // Scan this tool output with the ML classifier if the tool is in
+        // the SCANNED_TOOLS set and the content is non-trivial.
+        if (SCANNED_TOOLS.has(toolName) && text.length >= 32 && toolResultScanCtx) {
+          // Fire-and-forget — never block the stream handler. If BLOCK
+          // fires, onToolResultBlock handles kill + emit.
+          toolResultScanCtx.scan(toolName, text).catch(() => {});
+        }
+        if (block.tool_use_id) toolUseRegistry.delete(block.tool_use_id);
+      }
+    }
+  }
+
   if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+    if (event.content_block.id) {
+      toolUseRegistry.set(event.content_block.id, {
+        toolName: event.content_block.name,
+        toolInput: event.content_block.input,
+      });
+    }
     await sendEvent({ type: 'tool_use', tool: event.content_block.name, input: summarizeToolInput(event.content_block.name, event.content_block.input) }, tabId);
   }
 
@@ -267,14 +424,135 @@ async function handleStreamEvent(event: any, tabId?: number): Promise<void> {
   }
 }
 
+/**
+ * Fire the prompt-injection-detected event to the server. This terminates
+ * the session from the sidepanel's perspective and renders the canary leak
+ * banner. Also logs locally (salted hash + domain only) and fires telemetry
+ * if configured.
+ */
+async function onCanaryLeaked(params: {
+  tabId: number;
+  channel: string;
+  canary: string;
+  pageUrl: string;
+}): Promise<void> {
+  const { tabId, channel, canary, pageUrl } = params;
+  const domain = extractDomain(pageUrl);
+  console.warn(`[sidebar-agent] CANARY LEAK detected on ${channel} for tab ${tabId} (domain=${domain || 'unknown'})`);
+
+  // Local log — salted hash + domain only, never the payload
+  logAttempt({
+    ts: new Date().toISOString(),
+    urlDomain: domain,
+    payloadHash: hashPayload(canary), // hash the canary, not the payload (which might be leaked content)
+    confidence: 1.0,
+    layer: 'canary',
+    verdict: 'block',
+  });
+
+  // Broadcast to sidepanel so it can render the approved banner
+  await sendEvent({
+    type: 'security_event',
+    verdict: 'block',
+    reason: 'canary_leaked',
+    layer: 'canary',
+    channel,
+    domain,
+  }, tabId);
+
+  // Also emit agent_error so the sidepanel's existing error surface
+  // reflects that the session terminated. Keeps old clients working.
+  await sendEvent({
+    type: 'agent_error',
+    error: `Session terminated — prompt injection detected${domain ? ` from ${domain}` : ''}`,
+  }, tabId);
+}
+
+/**
+ * Pre-spawn ML scan of the user message. If the classifier fires at BLOCK,
+ * we log the attempt, emit a security_event to the sidepanel, and DO NOT
+ * spawn claude. Returns true if the scan blocked the session.
+ *
+ * Fail-open: any classifier error or degraded state returns false (safe) so
+ * the sidebar keeps working. The architectural controls (XML framing +
+ * command allowlist, live in server.ts:554-577) still defend.
+ */
+async function preSpawnSecurityCheck(entry: QueueEntry): Promise<boolean> {
+  const { message, canary, pageUrl, tabId } = entry;
+  if (!message || message.length === 0) return false;
+  const tid = tabId ?? 0;
+
+  // L4: scan the user message for direct injection patterns (TestSavantAI)
+  // L4c: also scan with DeBERTa-v3 when ensemble is enabled (opt-in)
+  const [contentSignal, debertaSignal] = await Promise.all([
+    scanPageContent(message),
+    scanPageContentDeberta(message),
+  ]);
+  const signals: LayerSignal[] = [contentSignal, debertaSignal];
+
+  // L4b: only bother with Haiku if another layer already lit up at >= LOG_ONLY.
+  // Saves ~70% of Haiku calls per plan §E1 "gating optimization".
+  if (shouldRunTranscriptCheck(signals)) {
+    const transcriptSignal = await checkTranscript({
+      user_message: message,
+      tool_calls: [], // no tool calls yet at session start
+    });
+    signals.push(transcriptSignal);
+  }
+
+  const result = combineVerdict(signals);
+  if (result.verdict !== 'block') return false;
+
+  // BLOCK verdict. Log + emit + refuse to spawn.
+  const domain = extractDomain(pageUrl ?? '');
+  const leaderSignal = signals.reduce((a, b) => (a.confidence > b.confidence ? a : b));
+
+  logAttempt({
+    ts: new Date().toISOString(),
+    urlDomain: domain,
+    payloadHash: hashPayload(message),
+    confidence: result.confidence,
+    layer: leaderSignal.layer,
+    verdict: 'block',
+  });
+
+  console.warn(`[sidebar-agent] Pre-spawn BLOCK (${result.reason}) for tab ${tid}, confidence=${result.confidence.toFixed(3)}`);
+
+  await sendEvent({
+    type: 'security_event',
+    verdict: 'block',
+    reason: result.reason ?? 'ml_classifier',
+    layer: leaderSignal.layer,
+    confidence: result.confidence,
+    domain,
+  }, tid);
+  await sendEvent({
+    type: 'agent_error',
+    error: `Session blocked — prompt injection detected${domain ? ` from ${domain}` : ' in your message'}`,
+  }, tid);
+
+  return true;
+}
+
 async function askClaude(queueEntry: QueueEntry): Promise<void> {
-  const { prompt, args, stateFile, cwd, tabId } = queueEntry;
+  const { prompt, args, stateFile, cwd, tabId, canary, pageUrl } = queueEntry;
   const tid = tabId ?? 0;
 
   processingTabs.add(tid);
   await sendEvent({ type: 'agent_start' }, tid);
 
+  // Pre-spawn ML scan: if the user message trips the ensemble, refuse to
+  // spawn claude. Fail-open on classifier errors.
+  if (await preSpawnSecurityCheck(queueEntry)) {
+    processingTabs.delete(tid);
+    return;
+  }
+
   return new Promise((resolve) => {
+    // Canary context is set after proc is spawned (needs proc reference for kill).
+    let canaryCtx: CanaryContext | undefined;
+    let canaryTriggered = false;
+
     // Use args from queue entry (server sets --model, --allowedTools, prompt framing).
     // Fall back to defaults only if queue entry has no args (backward compat).
     // Write doesn't expand attack surface beyond what Bash already provides.
@@ -317,6 +595,150 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
 
     proc.stdin.end();
 
+    // Now that proc exists, set up the canary-leak handler. It fires at most
+    // once; on fire we kill the subprocess, emit security_event + agent_error,
+    // and let the normal close handler resolve the promise.
+    if (canary) {
+      canaryCtx = {
+        canary,
+        pageUrl: pageUrl ?? '',
+        deltaBuf: { text_delta: '', input_json_delta: '' },
+        onLeak: (channel: string) => {
+          if (canaryTriggered) return;
+          canaryTriggered = true;
+          onCanaryLeaked({ tabId: tid, channel, canary, pageUrl: pageUrl ?? '' });
+          try { proc.kill('SIGTERM'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; }
+          setTimeout(() => {
+            try { proc.kill('SIGKILL'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; }
+          }, 2000);
+        },
+      };
+    }
+
+    // Tool-result ML scan context. Addresses the Codex review gap: Read,
+    // Grep, Glob, and WebFetch outputs enter Claude's context without
+    // passing through the Bash $B pipeline that content-security.ts
+    // already wraps. Scan them here.
+    let toolResultBlockFired = false;
+    const toolResultScanCtx: ToolResultScanContext = {
+      scan: async (toolName: string, text: string) => {
+        if (toolResultBlockFired) return;
+        // Parallel L4 + L4c ensemble scan (DeBERTa no-op when disabled).
+        // We run L4/L4c AND Haiku in parallel on tool outputs regardless of
+        // L4's score, because BrowseSafe-Bench shows L4 (TestSavantAI) has
+        // low recall on browser-agent-specific attacks (~15% at v1). Gating
+        // Haiku on L4 meant our best signal almost never ran. The cost is
+        // ~$0.002 + ~300ms per tool output, bounded by the Haiku timeout
+        // and offset by Haiku actually seeing the real attack context.
+        //
+        // Haiku only runs when the Claude CLI is available (checkHaikuAvailable
+        // caches the probe). In environments without it, the call returns a
+        // degraded signal and the verdict falls back to L4 alone.
+        const [contentSignal, debertaSignal, transcriptSignal] = await Promise.all([
+          scanPageContent(text),
+          scanPageContentDeberta(text),
+          checkTranscript({
+            user_message: queueEntry.message ?? '',
+            tool_calls: [{ tool_name: toolName, tool_input: {} }],
+            tool_output: text,
+          }),
+        ]);
+        const signals: LayerSignal[] = [contentSignal, debertaSignal, transcriptSignal];
+        const result = combineVerdict(signals, { toolOutput: true });
+        if (result.verdict !== 'block') return;
+        toolResultBlockFired = true;
+        const domain = extractDomain(pageUrl ?? '');
+        const payloadHash = hashPayload(text.slice(0, 4096));
+
+        // Log pending — if the user overrides, we'll update via a separate
+        // log line. The attempts.jsonl is append-only so both entries survive.
+        logAttempt({
+          ts: new Date().toISOString(),
+          urlDomain: domain,
+          payloadHash,
+          confidence: result.confidence,
+          layer: 'testsavant_content',
+          verdict: 'block',
+        });
+        console.warn(`[sidebar-agent] Tool-result BLOCK on ${toolName} for tab ${tid} (confidence=${result.confidence.toFixed(3)}) — awaiting user decision`);
+
+        // Surface a REVIEWABLE block event. Sidepanel renders the suspected
+        // text + layer scores + [Allow and continue] / [Block session] buttons.
+        // The user has 60s to decide; default is BLOCK (safe fallback).
+        const layerScores = signals
+          .filter((s) => s.confidence > 0)
+          .map((s) => ({ layer: s.layer, confidence: s.confidence }));
+        await sendEvent({
+          type: 'security_event',
+          verdict: 'block',
+          reason: 'tool_result_ml',
+          layer: 'testsavant_content',
+          confidence: result.confidence,
+          domain,
+          tool: toolName,
+          reviewable: true,
+          suspected_text: excerptForReview(text),
+          signals: layerScores,
+        }, tid);
+
+        // Poll for the user's decision. Default to BLOCK on timeout.
+        const REVIEW_TIMEOUT_MS = 60_000;
+        const POLL_MS = 500;
+        clearDecision(tid); // clear any stale decision from a prior session
+        const deadline = Date.now() + REVIEW_TIMEOUT_MS;
+        let decision: 'allow' | 'block' = 'block';
+        let decisionReason = 'timeout';
+        while (Date.now() < deadline) {
+          const rec = readDecision(tid);
+          if (rec?.decision === 'allow' || rec?.decision === 'block') {
+            decision = rec.decision;
+            decisionReason = rec.reason ?? 'user';
+            break;
+          }
+          await new Promise((r) => setTimeout(r, POLL_MS));
+        }
+        clearDecision(tid);
+
+        if (decision === 'allow') {
+          // User overrode. Log the override so the audit trail captures it.
+          // toolResultBlockFired stays true so we don't re-prompt within the
+          // same message — one override per BLOCK event.
+          logAttempt({
+            ts: new Date().toISOString(),
+            urlDomain: domain,
+            payloadHash,
+            confidence: result.confidence,
+            layer: 'testsavant_content',
+            verdict: 'user_overrode',
+          });
+          await sendEvent({
+            type: 'security_event',
+            verdict: 'user_overrode',
+            reason: 'tool_result_ml',
+            layer: 'testsavant_content',
+            confidence: result.confidence,
+            domain,
+            tool: toolName,
+          }, tid);
+          console.warn(`[sidebar-agent] Tab ${tid}: user overrode BLOCK — session continues`);
+          // Let the block stay consumed; reset the flag so subsequent tool
+          // results get scanned fresh.
+          toolResultBlockFired = false;
+          return;
+        }
+
+        // User chose BLOCK (or timed out). Kill the session as before.
+        await sendEvent({
+          type: 'agent_error',
+          error: `Session terminated — prompt injection detected in ${toolName} output${decisionReason === 'timeout' ? ' (review timeout)' : ''}`,
+        }, tid);
+        try { proc.kill('SIGTERM'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; }
+        setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch (err: any) { if (err?.code !== 'ESRCH') throw err; }
+        }, 2000);
+      },
+    };
+
     // Poll for per-tab cancel signal from server's killAgent()
     const cancelCheck = setInterval(() => {
       try {
@@ -338,7 +760,7 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
       buffer = lines.pop() || '';
       for (const line of lines) {
         if (!line.trim()) continue;
-        try { handleStreamEvent(JSON.parse(line), tid); } catch (err: any) {
+        try { handleStreamEvent(JSON.parse(line), tid, canaryCtx, toolResultScanCtx); } catch (err: any) {
           console.error(`[sidebar-agent] Tab ${tid}: Failed to parse stream line:`, line.slice(0, 100), err.message);
         }
       }
@@ -354,7 +776,7 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
       activeProc = null;
       activeProcs.delete(tid);
       if (buffer.trim()) {
-        try { handleStreamEvent(JSON.parse(buffer), tid); } catch (err: any) {
+        try { handleStreamEvent(JSON.parse(buffer), tid, canaryCtx, toolResultScanCtx); } catch (err: any) {
           console.error(`[sidebar-agent] Tab ${tid}: Failed to parse final buffer:`, buffer.slice(0, 100), err.message);
         }
       }
@@ -489,6 +911,34 @@ async function main() {
   console.log(`[sidebar-agent] Started. Watching ${QUEUE} from line ${lastLine}`);
   console.log(`[sidebar-agent] Server: ${SERVER_URL}`);
   console.log(`[sidebar-agent] Browse binary: ${B}`);
+
+  // If GSTACK_SECURITY_ENSEMBLE=deberta is set, also warm the DeBERTa-v3
+  // ensemble classifier. Fire-and-forget alongside TestSavantAI — they
+  // warm in parallel. No-op when the env var is unset.
+  loadDeberta((msg) => console.log(`[security-classifier] ${msg}`))
+    .catch((err) => console.warn('[sidebar-agent] DeBERTa warmup failed:', err?.message));
+
+  // Warm up the ML classifier in the background. First call triggers a 112MB
+  // download (~30s on average broadband). Non-blocking — the sidebar stays
+  // functional on cold start; classifier just reports 'off' until warmed.
+  //
+  // On warmup completion (success or failure), write the classifier status to
+  // ~/.gstack/security/session-state.json so server.ts's /health endpoint can
+  // report it to the sidepanel for shield icon rendering.
+  loadTestsavant((msg) => console.log(`[security-classifier] ${msg}`))
+    .then(() => {
+      const s = getClassifierStatus();
+      console.log(`[sidebar-agent] Classifier warmup complete: ${JSON.stringify(s)}`);
+      const existing = readSessionState();
+      writeSessionState({
+        sessionId: existing?.sessionId ?? String(process.pid),
+        canary: existing?.canary ?? '',
+        warnedDomains: existing?.warnedDomains ?? [],
+        classifierStatus: s,
+        lastUpdated: new Date().toISOString(),
+      });
+    })
+    .catch((err) => console.warn('[sidebar-agent] Classifier warmup failed (degraded mode):', err?.message));
 
   setInterval(poll, POLL_MS);
   setInterval(pollKillFile, POLL_MS);

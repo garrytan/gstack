@@ -94,6 +94,8 @@ export async function generate(opts: GenerateOptions): Promise<string> {
     confidential: opts.confidential,
     pageSize: opts.pageSize,
     margins: opts.margins,
+    pageNumbers: opts.pageNumbers,
+    footerTemplate: opts.footerTemplate,
   });
   progress.end("Rendering HTML", `${rendered.meta.wordCount} words`);
 
@@ -136,7 +138,10 @@ export async function generate(opts: GenerateOptions): Promise<string> {
       marginLeft: opts.marginLeft ?? opts.margins ?? "1in",
       headerTemplate: opts.headerTemplate,
       footerTemplate: opts.footerTemplate,
-      pageNumbers: opts.pageNumbers !== false && !opts.footerTemplate,
+      // CSS is the single source of truth for page numbers (see print-css.ts
+      // @bottom-center). Chromium's native numbering always off to avoid double
+      // footers. The CSS layer honors pageNumbers + footerTemplate via render().
+      pageNumbers: false,
       tagged: opts.tagged !== false,
       outline: opts.outline !== false,
       printBackground: !!opts.watermark,
@@ -183,6 +188,7 @@ export async function preview(opts: PreviewOptions): Promise<string> {
     watermark: opts.watermark,
     noChapterBreaks: opts.noChapterBreaks,
     confidential: opts.confidential,
+    pageNumbers: opts.pageNumbers,
   });
   progress.end("Rendering HTML", `${rendered.meta.wordCount} words`);
 
