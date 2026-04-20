@@ -342,3 +342,129 @@ describe('Server auth security', () => {
     expect(routeSrc).toContain('SameSite=Strict');
   });
 });
+
+// ─── Tunnel security policy tests ──────────────────────────────────────────
+//
+// These tests verify the fix for: when BROWSE_TUNNEL=1 is set, the server is
+// reachable from the public internet despite binding to 127.0.0.1.  Any endpoint
+// that relied on "localhost = trusted" was exposed as a remote attack surface.
+//
+// Root cause: three bootstrapping paths (Origin forgery on /health, /cookie-picker
+// HTML embedding the token, headed-mode /health check) were designed for the local
+// trust context and silently became internet-exposed under the tunnel.
+//
+// Fix architecture: single enforceTunnelPolicy() function runs before every route
+// handler and rejects unauthenticated requests in tunnel mode.  A minimal allowlist
+// names the only endpoints that legitimately need pre-auth access (/connect, which
+// is the remote pairing ceremony).  Per-endpoint hardening (cookie-picker 403,
+// inspector auth gate) provides defense-in-depth.
+//
+// Tests 13a–13h verify the fix is in place and document which attack scenario each
+// test guards against.
+
+describe('Tunnel security policy', () => {
+  // Test 13a: allowlist contains exactly /connect — not /token, not /health,
+  // not /cookie-picker.  /token has its own isRootRequest() internal guard and
+  // must NOT appear here (whitelist entries must justify internet exposure).
+  test('TUNNEL_UNAUTHENTICATED_ALLOWLIST contains /connect and nothing else sensitive', () => {
+    const allowlistBlock = sliceBetween(
+      SERVER_SRC,
+      'TUNNEL_UNAUTHENTICATED_ALLOWLIST = new Set([',
+      ']);',
+    );
+    expect(allowlistBlock).toContain("'/connect'");
+    // /token is root-only via isRootRequest() — it must NOT be in the allowlist
+    expect(allowlistBlock).not.toContain("'/token'");
+    // Health and cookie-picker must never be open to unauthenticated tunnel callers
+    expect(allowlistBlock).not.toContain("'/health'");
+    expect(allowlistBlock).not.toContain("'/cookie-picker'");
+  });
+
+  // Test 13b: enforceTunnelPolicy is invoked before any route handler.
+  // If it moves below a route, that route becomes unguarded in tunnel mode.
+  test('enforceTunnelPolicy fires before the first route handler', () => {
+    const gateIdx = SERVER_SRC.indexOf('const tunnelBlock = enforceTunnelPolicy(req, url)');
+    const firstRouteIdx = SERVER_SRC.indexOf("url.pathname === '/health'");
+    expect(gateIdx).toBeGreaterThan(0);
+    expect(firstRouteIdx).toBeGreaterThan(0);
+    expect(gateIdx).toBeLessThan(firstRouteIdx);
+  });
+
+  // Test 13c: enforceTunnelPolicy returns 401 (not 403 or 200) with a
+  // machine-readable JSON body so agents can detect tunnel auth failure.
+  test('enforceTunnelPolicy responds 401 with pairing hint', () => {
+    const policyFn = sliceBetween(SERVER_SRC, 'function enforceTunnelPolicy', 'function wrapError');
+    expect(policyFn).toContain('status: 401');
+    expect(policyFn).toContain('Tunnel mode: authentication required');
+    expect(policyFn).toContain('gstack browse --pair');
+  });
+
+  // Test 13d: Attack scenario — F-1/F-3: Origin forgery or headed-mode flag used
+  // to extract AUTH_TOKEN from /health over the public tunnel.
+  // Fix: token delivery is gated behind !tunnelActive.
+  test('/health delivers AUTH_TOKEN only when the tunnel is NOT active', () => {
+    const healthBlock = sliceBetween(
+      SERVER_SRC,
+      "url.pathname === '/health'",
+      "url.pathname === '/connect'",
+    );
+    // The !tunnelActive guard must appear in the health block
+    expect(healthBlock).toContain('!tunnelActive');
+    // token: AUTH_TOKEN must appear AFTER the !tunnelActive condition
+    const tunnelGuardIdx = healthBlock.indexOf('!tunnelActive');
+    const tokenIdx = healthBlock.indexOf('token: AUTH_TOKEN');
+    expect(tunnelGuardIdx).toBeGreaterThan(-1);
+    expect(tokenIdx).toBeGreaterThan(-1);
+    expect(tokenIdx).toBeGreaterThan(tunnelGuardIdx);
+  });
+
+  // Test 13e: Attack scenario — F-1 continued: when tunnel is active and a Chrome
+  // extension Origin is forged, the server must return a hint instead of the token.
+  test('/health returns extensionUnavailable hint in tunnel mode', () => {
+    const healthBlock = sliceBetween(
+      SERVER_SRC,
+      "url.pathname === '/health'",
+      "url.pathname === '/connect'",
+    );
+    expect(healthBlock).toContain('extensionUnavailable: true');
+    // The hint must direct remote callers to the correct pairing flow
+    expect(healthBlock).toContain('/connect');
+  });
+
+  // Test 13f: Attack scenario — F-2: GET /cookie-picker had no auth check and
+  // embedded AUTH_TOKEN in the served HTML, readable by any caller with the
+  // ngrok URL.  In tunnel mode the endpoint must be fully blocked.
+  test('/cookie-picker returns 403 in tunnel mode', () => {
+    const cookieBlock = sliceBetween(
+      SERVER_SRC,
+      "url.pathname.startsWith('/cookie-picker')",
+      'handleCookiePickerRoute',
+    );
+    expect(cookieBlock).toContain('tunnelActive');
+    expect(cookieBlock).toContain('status: 403');
+    expect(cookieBlock).toContain('Cookie picker is not available in tunnel mode');
+  });
+
+  // Test 13g: /inspector endpoints had no auth gate (localhost-only assumption).
+  // The auth block must appear before /inspector/pick in source order.
+  test('/inspector auth gate appears before /inspector/pick handler', () => {
+    const authGateIdx = SERVER_SRC.indexOf("Inspector endpoints — auth required on all sub-paths");
+    const pickHandlerIdx = SERVER_SRC.indexOf("POST /inspector/pick");
+    expect(authGateIdx).toBeGreaterThan(0);
+    expect(pickHandlerIdx).toBeGreaterThan(0);
+    expect(authGateIdx).toBeLessThan(pickHandlerIdx);
+  });
+
+  // Test 13h: /inspector auth gate checks BOTH validateAuth (root token) and
+  // getTokenInfo (scoped token) so inspector is accessible to legitimate agents.
+  test('/inspector auth gate accepts both root and scoped tokens', () => {
+    const inspectorBlock = sliceBetween(
+      SERVER_SRC,
+      "Inspector endpoints — auth required on all sub-paths",
+      "POST /inspector/pick",
+    );
+    expect(inspectorBlock).toContain('validateAuth(req)');
+    expect(inspectorBlock).toContain('getTokenInfo(req)');
+    expect(inspectorBlock).toContain('Unauthorized');
+  });
+});

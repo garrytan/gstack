@@ -89,7 +89,15 @@ The HTTP server binds to `localhost`, not `0.0.0.0`. It's not reachable from the
 
 Every server session generates a random UUID token, written to the state file with mode 0o600 (owner-only read). Every HTTP request must include `Authorization: Bearer <token>`. If the token doesn't match, the server returns 401.
 
-This prevents other processes on the same machine from talking to your browse server. The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt — they're localhost-only and don't execute commands.
+This prevents other processes on the same machine from talking to your browse server. In local mode, the cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt — they're localhost-only and don't execute commands. In tunnel mode these exemptions are removed; see **Tunnel mode auth** below.
+
+### Tunnel mode auth
+
+When `BROWSE_TUNNEL=1` is set, the server is internet-reachable via ngrok. `enforceTunnelPolicy()` runs before every route handler: in tunnel mode, all endpoints require a valid bearer token except CORS preflights and `TUNNEL_UNAUTHENTICATED_ALLOWLIST` (currently: `/connect` only).
+
+`/connect` is the remote pairing endpoint — it must be reachable before a client has a token, is rate-limited, and returns no root secrets. Everything else (`/health`, `/cookie-picker`, all command routes) requires auth. The allowlist is a closed set with a documented reason per entry.
+
+Why `/health` and `/cookie-picker` lose their local exemptions in tunnel mode: the session carries Keychain-derived cookie decryption keys. Any unauthenticated surface on the internet is a path to those keys.
 
 ### Cookie security
 
