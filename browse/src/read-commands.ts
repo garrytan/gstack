@@ -5,12 +5,21 @@
  * console, network, cookies, storage, perf
  */
 
+import type { TabSession } from './tab-session';
 import type { BrowserManager } from './browser-manager';
 import { consoleBuffer, networkBuffer, dialogBuffer } from './buffers';
 import type { Page, Frame } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TEMP_DIR, isPathWithin } from './platform';
+import { TEMP_DIR } from './platform';
+import { inspectElement, formatInspectorResult, getModificationHistory } from './cdp-inspector';
+import { validateReadPath } from './path-security';
+// Re-export for backward compatibility (tests import from read-commands)
+export { validateReadPath } from './path-security';
+
+// Redaction patterns for sensitive cookie/storage values — exported for test coverage
+export const SENSITIVE_COOKIE_NAME = /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf|sid)($|[_.-])|api.?key/i;
+export const SENSITIVE_COOKIE_VALUE = /^(eyJ|sk-|sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|sk-ant-|ghp_|gho_|github_pat_|xox[bpsa]-|AKIA[A-Z0-9]{16}|AIza|SG\.|Bearer\s|sbp_)/;
 
 /** Detect await keyword, ignoring comments. Accepted risk: await in string literals triggers wrapping (harmless). */
 function hasAwait(code: string): boolean {
@@ -36,29 +45,12 @@ function wrapForEvaluate(code: string): string {
     : `(async()=>(${trimmed}))()`;
 }
 
-// Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
-
-export function validateReadPath(filePath: string): void {
-  if (path.isAbsolute(filePath)) {
-    const resolved = path.resolve(filePath);
-    const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
-    if (!isSafe) {
-      throw new Error(`Absolute path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-    }
-  }
-  const normalized = path.normalize(filePath);
-  if (normalized.includes('..')) {
-    throw new Error('Path traversal sequences (..) are not allowed');
-  }
-}
-
 /**
  * Extract clean text from a page (strips script/style/noscript/svg).
  * Exported for DRY reuse in meta-commands (diff).
  */
 export async function getCleanText(page: Page | Frame): Promise<string> {
-  return await page.evaluate(() => {
+  return page.evaluate(() => {
     const body = document.body;
     if (!body) return '';
     const clone = body.cloneNode(true) as HTMLElement;
@@ -71,28 +63,61 @@ export async function getCleanText(page: Page | Frame): Promise<string> {
   });
 }
 
+/**
+ * When cookies have been imported for specific domains, block JS execution
+ * on pages whose origin doesn't match any imported cookie domain.
+ * Prevents cross-origin cookie exfiltration via `js document.cookie` or
+ * similar when the agent navigates to an untrusted page.
+ */
+function assertJsOriginAllowed(bm: BrowserManager, pageUrl: string): void {
+  if (!bm.hasCookieImports()) return;
+
+  let hostname: string;
+  try {
+    hostname = new URL(pageUrl).hostname;
+  } catch {
+    return; // about:blank, data: URIs — allow (no cookies at risk)
+  }
+
+  const importedDomains = bm.getCookieImportedDomains();
+  const allowed = [...importedDomains].some(domain => {
+    // Exact match or subdomain match (e.g., ".github.com" matches "api.github.com")
+    const normalized = domain.startsWith('.') ? domain : '.' + domain;
+    return hostname === domain.replace(/^\./, '') || hostname.endsWith(normalized);
+  });
+
+  if (!allowed) {
+    throw new Error(
+      `JS execution blocked: current page (${hostname}) does not match any cookie-imported domain. ` +
+      `Imported cookies for: ${[...importedDomains].join(', ')}. ` +
+      `This prevents cross-origin cookie exfiltration. Navigate to an imported domain or run without imported cookies.`
+    );
+  }
+}
+
 export async function handleReadCommand(
   command: string,
   args: string[],
-  bm: BrowserManager
+  session: TabSession,
+  bm?: BrowserManager,
 ): Promise<string> {
-  const page = bm.getPage();
+  const page = session.getPage();
   // Frame-aware target for content extraction
-  const target = bm.getActiveFrameOrPage();
+  const target = session.getActiveFrameOrPage();
 
   switch (command) {
     case 'text': {
-      return await getCleanText(target);
+      return getCleanText(target);
     }
 
     case 'html': {
       const selector = args[0];
       if (selector) {
-        const resolved = await bm.resolveRef(selector);
+        const resolved = await session.resolveRef(selector);
         if ('locator' in resolved) {
-          return await resolved.locator.innerHTML({ timeout: 5000 });
+          return resolved.locator.innerHTML({ timeout: 5000 });
         }
-        return await target.locator(resolved.selector).innerHTML({ timeout: 5000 });
+        return target.locator(resolved.selector).innerHTML({ timeout: 5000 });
       }
       // page.content() is page-only; use evaluate for frame compat
       const doctype = await target.evaluate(() => {
@@ -125,7 +150,10 @@ export async function handleReadCommand(
               id: input.id || undefined,
               placeholder: input.placeholder || undefined,
               required: input.required || undefined,
-              value: input.type === 'password' ? '[redacted]' : (input.value || undefined),
+              value: input.type === 'password'
+                || (input.name && /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf|sid)($|[_.-])|api.?key/i.test(input.name))
+                || (input.id && /(^|[_.-])(token|secret|key|password|credential|auth|jwt|session|csrf|sid)($|[_.-])|api.?key/i.test(input.id))
+                ? '[redacted]' : (input.value || undefined),
               options: el.tagName === 'SELECT'
                 ? [...(el as HTMLSelectElement).options].map(o => ({ value: o.value, text: o.text }))
                 : undefined,
@@ -151,6 +179,7 @@ export async function handleReadCommand(
     case 'js': {
       const expr = args[0];
       if (!expr) throw new Error('Usage: browse js <expression>');
+      if (bm) assertJsOriginAllowed(bm, page.url());
       const wrapped = wrapForEvaluate(expr);
       const result = await target.evaluate(wrapped);
       return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
@@ -159,6 +188,7 @@ export async function handleReadCommand(
     case 'eval': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse eval <js-file>');
+      if (bm) assertJsOriginAllowed(bm, page.url());
       validateReadPath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');
@@ -170,7 +200,7 @@ export async function handleReadCommand(
     case 'css': {
       const [selector, property] = args;
       if (!selector || !property) throw new Error('Usage: browse css <selector> <property>');
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         const value = await resolved.locator.evaluate(
           (el, prop) => getComputedStyle(el).getPropertyValue(prop),
@@ -192,7 +222,7 @@ export async function handleReadCommand(
     case 'attrs': {
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse attrs <selector>');
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
         const attrs = await resolved.locator.evaluate((el) => {
           const result: Record<string, string> = {};
@@ -234,6 +264,50 @@ export async function handleReadCommand(
         networkBuffer.clear();
         return 'Network buffer cleared.';
       }
+
+      // Network capture extensions
+      if (args[0] === '--capture') {
+        const {
+          startCapture, stopCapture, getCaptureListener, isCaptureActive,
+        } = await import('./network-capture');
+
+        if (args[1] === 'stop') {
+          // Detach listener from current page
+          const page = bm.getPage();
+          const listener = getCaptureListener();
+          if (listener) page.removeListener('response', listener);
+          const result = stopCapture();
+          return `Network capture stopped. ${result.count} responses captured (${result.sizeKB}KB).`;
+        }
+
+        // Start capture
+        if (isCaptureActive()) return 'Capture already active. Use --capture stop first.';
+        const filterIdx = args.indexOf('--filter');
+        const filterPattern = filterIdx >= 0 ? args[filterIdx + 1] : undefined;
+        const info = startCapture(filterPattern);
+        // Attach listener to current page
+        const page = bm.getPage();
+        const listener = getCaptureListener();
+        if (listener) page.on('response', listener);
+        return `Network capture started${info.filter ? ` (filter: ${info.filter})` : ''}. Use --capture stop to stop.`;
+      }
+
+      if (args[0] === '--export') {
+        const { exportCapture } = await import('./network-capture');
+        const { validateOutputPath: vop } = await import('./path-security');
+        const exportPath = args[1];
+        if (!exportPath) throw new Error('Usage: network --export <path>');
+        vop(exportPath);
+        const count = exportCapture(exportPath);
+        return `Exported ${count} captured responses to ${exportPath}`;
+      }
+
+      if (args[0] === '--bodies') {
+        const { getCaptureBuffer } = await import('./network-capture');
+        return getCaptureBuffer().summary();
+      }
+
+      // Default: show request metadata
       if (networkBuffer.length === 0) return '(no network requests)';
       return networkBuffer.toArray().map(e =>
         `${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
@@ -256,7 +330,7 @@ export async function handleReadCommand(
       const selector = args[1];
       if (!property || !selector) throw new Error('Usage: browse is <property> <selector>\nProperties: visible, hidden, enabled, disabled, checked, editable, focused');
 
-      const resolved = await bm.resolveRef(selector);
+      const resolved = await session.resolveRef(selector);
       let locator;
       if ('locator' in resolved) {
         locator = resolved.locator;
@@ -284,7 +358,14 @@ export async function handleReadCommand(
 
     case 'cookies': {
       const cookies = await page.context().cookies();
-      return JSON.stringify(cookies, null, 2);
+      // Redact cookie values that look like secrets (consistent with storage redaction)
+      const redacted = cookies.map(c => {
+        if (SENSITIVE_COOKIE_NAME.test(c.name) || SENSITIVE_COOKIE_VALUE.test(c.value)) {
+          return { ...c, value: `[REDACTED — ${c.value.length} chars]` };
+        }
+        return c;
+      });
+      return JSON.stringify(redacted, null, 2);
     }
 
     case 'storage': {
@@ -335,6 +416,124 @@ export async function handleReadCommand(
       return Object.entries(timings)
         .map(([k, v]) => `${k.padEnd(12)} ${v}ms`)
         .join('\n');
+    }
+
+    case 'inspect': {
+      // Parse flags
+      let includeUA = false;
+      let showHistory = false;
+      let selector: string | undefined;
+
+      for (const arg of args) {
+        if (arg === '--all') {
+          includeUA = true;
+        } else if (arg === '--history') {
+          showHistory = true;
+        } else if (!selector) {
+          selector = arg;
+        }
+      }
+
+      // --history mode: return modification history
+      if (showHistory) {
+        const history = getModificationHistory();
+        if (history.length === 0) return '(no style modifications)';
+        return history.map((m, i) =>
+          `[${i}] ${m.selector} { ${m.property}: ${m.oldValue} → ${m.newValue} } (${m.source}, ${m.method})`
+        ).join('\n');
+      }
+
+      // If no selector given, check for stored inspector data
+      if (!selector) {
+        // Access stored inspector data from the server's in-memory state
+        // The server stores this when the extension picks an element via POST /inspector/pick
+        const stored = (bm as any)._inspectorData;
+        const storedTs = (bm as any)._inspectorTimestamp;
+        if (stored) {
+          const stale = storedTs && (Date.now() - storedTs > 60000);
+          let output = formatInspectorResult(stored, { includeUA });
+          if (stale) output = '⚠ Data may be stale (>60s old)\n\n' + output;
+          return output;
+        }
+        throw new Error('Usage: browse inspect [selector] [--all] [--history]\nOr pick an element in the Chrome sidebar first.');
+      }
+
+      // Direct inspection by selector
+      const result = await inspectElement(page, selector, { includeUA });
+      // Store for later retrieval
+      (bm as any)._inspectorData = result;
+      (bm as any)._inspectorTimestamp = Date.now();
+      return formatInspectorResult(result, { includeUA });
+    }
+
+    case 'media': {
+      const { extractMedia } = await import('./media-extract');
+      const target = bm.getActiveFrameOrPage();
+      const filter = args.includes('--images') ? 'images' as const
+        : args.includes('--videos') ? 'videos' as const
+        : args.includes('--audio') ? 'audio' as const
+        : undefined;
+      const selectorArg = args.find(a => !a.startsWith('--'));
+      const result = await extractMedia(target, { selector: selectorArg, filter });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'data': {
+      const target = bm.getActiveFrameOrPage();
+      const wantJsonLd = args.includes('--jsonld') || args.length === 0;
+      const wantOg = args.includes('--og') || args.length === 0;
+      const wantTwitter = args.includes('--twitter') || args.length === 0;
+      const wantMeta = args.includes('--meta') || args.length === 0;
+
+      const result = await target.evaluate(({ wantJsonLd, wantOg, wantTwitter, wantMeta }) => {
+        const data: Record<string, any> = {};
+
+        if (wantJsonLd) {
+          const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+          const jsonLd: any[] = [];
+          scripts.forEach(s => {
+            try { jsonLd.push(JSON.parse(s.textContent || '')); } catch {}
+          });
+          data.jsonLd = jsonLd;
+        }
+
+        if (wantOg) {
+          const og: Record<string, string> = {};
+          document.querySelectorAll('meta[property^="og:"]').forEach(m => {
+            const prop = m.getAttribute('property')?.replace('og:', '') || '';
+            og[prop] = m.getAttribute('content') || '';
+          });
+          data.openGraph = og;
+        }
+
+        if (wantTwitter) {
+          const tw: Record<string, string> = {};
+          document.querySelectorAll('meta[name^="twitter:"]').forEach(m => {
+            const name = m.getAttribute('name')?.replace('twitter:', '') || '';
+            tw[name] = m.getAttribute('content') || '';
+          });
+          data.twitterCards = tw;
+        }
+
+        if (wantMeta) {
+          const meta: Record<string, string> = {};
+          const canonical = document.querySelector('link[rel="canonical"]');
+          if (canonical) meta.canonical = canonical.getAttribute('href') || '';
+          const desc = document.querySelector('meta[name="description"]');
+          if (desc) meta.description = desc.getAttribute('content') || '';
+          const keywords = document.querySelector('meta[name="keywords"]');
+          if (keywords) meta.keywords = keywords.getAttribute('content') || '';
+          const author = document.querySelector('meta[name="author"]');
+          if (author) meta.author = author.getAttribute('content') || '';
+          const title = document.querySelector('title');
+          if (title) meta.title = title.textContent || '';
+          data.meta = meta;
+        }
+
+        return data;
+      }, { wantJsonLd, wantOg, wantTwitter, wantMeta });
+
+      return JSON.stringify(result, null, 2);
     }
 
     default:

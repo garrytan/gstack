@@ -122,4 +122,75 @@ describe('gstack-config', () => {
     expect(exitCode).toBe(1);
     expect(stdout).toContain('Usage');
   });
+
+  // ─── security: input validation ─────────────────────────
+  test('set rejects key with regex metacharacters', () => {
+    const { exitCode, stderr } = run(['set', '.*', 'value']);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('alphanumeric');
+  });
+
+  test('set preserves value with sed special chars', () => {
+    run(['set', 'test_special', 'a/b&c\\d']);
+    const { stdout } = run(['get', 'test_special']);
+    expect(stdout).toBe('a/b&c\\d');
+  });
+
+  // ─── annotated header ──────────────────────────────────────
+  test('first set writes annotated header with docs', () => {
+    run(['set', 'telemetry', 'off']);
+    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
+    expect(content).toContain('# gstack configuration');
+    expect(content).toContain('edit freely');
+    expect(content).toContain('proactive:');
+    expect(content).toContain('telemetry:');
+    expect(content).toContain('auto_upgrade:');
+    expect(content).toContain('skill_prefix:');
+    expect(content).toContain('routing_declined:');
+    expect(content).toContain('codex_reviews:');
+    expect(content).toContain('skip_eng_review:');
+  });
+
+  test('header written only once, not duplicated on second set', () => {
+    run(['set', 'foo', 'bar']);
+    run(['set', 'baz', 'qux']);
+    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
+    const headerCount = (content.match(/# gstack configuration/g) || []).length;
+    expect(headerCount).toBe(1);
+  });
+
+  test('header does not break get on commented-out keys', () => {
+    run(['set', 'telemetry', 'community']);
+    // Header contains "# telemetry: anonymous" as a comment example.
+    // get should return the real value, not the comment.
+    const { stdout } = run(['get', 'telemetry']);
+    expect(stdout).toBe('community');
+  });
+
+  test('existing config file is not overwritten with header', () => {
+    writeFileSync(join(stateDir, 'config.yaml'), 'existing: value\n');
+    run(['set', 'new_key', 'new_value']);
+    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
+    expect(content).toContain('existing: value');
+    expect(content).not.toContain('# gstack configuration');
+  });
+
+  // ─── routing_declined ──────────────────────────────────────
+  test('routing_declined defaults to empty (not set)', () => {
+    const { stdout } = run(['get', 'routing_declined']);
+    expect(stdout).toBe('');
+  });
+
+  test('routing_declined can be set and read', () => {
+    run(['set', 'routing_declined', 'true']);
+    const { stdout } = run(['get', 'routing_declined']);
+    expect(stdout).toBe('true');
+  });
+
+  test('routing_declined can be reset to false', () => {
+    run(['set', 'routing_declined', 'true']);
+    run(['set', 'routing_declined', 'false']);
+    const { stdout } = run(['get', 'routing_declined']);
+    expect(stdout).toBe('false');
+  });
 });

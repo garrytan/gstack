@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# gstack-team-init — generate repo-level bootstrap files for team mode
+#
+# Usage:
+#   gstack-team-init optional   # gentle CLAUDE.md suggestion, one-time offer
+#   gstack-team-init required   # CLAUDE.md enforcement + PreToolUse hook
+#
+# Run from the root of your team's repo (not from the gstack directory).
+
+set -euo pipefail
+
+MODE="${1:-}"
+
+if [ "$MODE" != "optional" ] && [ "$MODE" != "required" ]; then
+  echo "Usage: gstack-team-init {optional|required}" >&2
+  echo "" >&2
+  echo "  optional  — suggest gstack install once per developer (gentle)" >&2
+  echo "  required  — enforce gstack install, block work without it" >&2
+  exit 1
+fi
+
+# Must be in a git repo
+if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "Error: not in a git repository. Run from your project root." >&2
+  exit 1
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
+GENERATED=()
+
+# ── Migrate vendored copy if present ──────────────────────────
+
+if [ -d "$REPO_ROOT/.claude/skills/gstack" ] && [ ! -L "$REPO_ROOT/.claude/skills/gstack" ]; then
+  if [ -f "$REPO_ROOT/.claude/skills/gstack/VERSION" ] || [ -d "$REPO_ROOT/.claude/skills/gstack/.git" ]; then
+    echo "  Found vendored gstack copy at $REPO_ROOT/.claude/skills/gstack"
+    echo "  Team mode uses the global install — removing vendored copy..."
+    ( cd "$REPO_ROOT" && git rm -r --cached .claude/skills/gstack/ 2>/dev/null ) || true
+    if [ -f "$REPO_ROOT/.gitignore" ]; then
+      if ! grep -qF '.claude/skills/gstack/' "$REPO_ROOT/.gitignore" 2>/dev/null; then
+        echo '.claude/skills/gstack/' >> "$REPO_ROOT/.gitignore"
+      fi
+    else
+      echo '.claude/skills/gstack/' > "$REPO_ROOT/.gitignore"
+    fi
+    rm -rf "$REPO_ROOT/.claude/skills/gstack"
+    GENERATED+=(".gitignore")
+    echo "  Removed vendored copy and added .claude/skills/gstack/ to .gitignore"
+  fi
+fi
+
+# ── CLAUDE.md snippet ──────────────────────────────────────────
+
+if [ "$MODE" = "optional" ]; then
+  SNIPPET='## gstack (recommended)
+
+This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted workflows.
+Install it for the best experience:
+
+```bash
+git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack && ./setup --team
+```
+
+Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
+Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.'
+else
+  SNIPPET='## gstack (REQUIRED — global install)
+
+**Before doing ANY work, verify gstack is installed:**
+
+```bash
+test -d ~/.claude/skills/gstack/bin && echo "GSTACK_OK" || echo "GSTACK_MISSING"
+```
+
+If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
+
+> gstack is required for all AI-assisted work in this repo.
+> Install it:
+> ```bash
+> git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+> cd ~/.claude/skills/gstack && ./setup --team
+> ```
+> Then restart your AI coding tool.
+
+Do not skip skills, ignore gstack errors, or work around missing gstack.
+
+Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
+and /browse are available. Use /browse for all web browsing.
+Use ~/.claude/skills/gstack/... for gstack file paths (the global path).'
+fi
+
+# Check if CLAUDE.md already has a gstack section
+if [ -f "$CLAUDE_MD" ] && grep -q "## gstack" "$CLAUDE_MD" 2>/dev/null; then
+  echo "CLAUDE.md already has a gstack section. Skipping CLAUDE.md update."
+  echo "  To replace it, remove the existing ## gstack section and re-run."
+else
+  if [ -f "$CLAUDE_MD" ]; then
+    echo "" >> "$CLAUDE_MD"
+  fi
+  echo "$SNIPPET" >> "$CLAUDE_MD"
+  GENERATED+=("CLAUDE.md")
+  echo "  + CLAUDE.md — added gstack $MODE section"
+fi
+
+# ── Required mode: enforcement hook ────────────────────────────
+
+if [ "$MODE" = "required" ]; then
+  HOOKS_DIR="$REPO_ROOT/.claude/hooks"
+  SETTINGS="$REPO_ROOT/.claude/settings.json"
+
+  # Create enforcement hook script
+  mkdir -p "$HOOKS_DIR"
+  cat > "$HOOKS_DIR/check-gstack.sh" << 'HOOK_EOF'
+#!/bin/bash
+# Block skill usage when gstack is not installed globally.
+
+if [ ! -d "$HOME/.claude/skills/gstack/bin" ]; then
+  cat >&2 <<'MSG'
+BLOCKED: gstack is not installed globally.
+
+gstack is required for AI-assisted work in this repo.
+
+Install it:
+  git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+  cd ~/.claude/skills/gstack && ./setup --team
+
+Then restart your AI coding tool.
+MSG
+  echo '{"permissionDecision":"deny","message":"gstack is required but not installed. See stderr for install instructions."}'
+  exit 0
+fi
+
+echo '{}'
+HOOK_EOF
+  chmod +x "$HOOKS_DIR/check-gstack.sh"
+  GENERATED+=(".claude/hooks/check-gstack.sh")
+  echo "  + .claude/hooks/check-gstack.sh — enforcement hook"
+
+  # Add hook to project-level settings.json
+  if command -v bun >/dev/null 2>&1; then
+    GSTACK_SETTINGS_PATH="$SETTINGS" bun -e "
+      const fs = require('fs');
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
+
+      if (!settings.hooks) settings.hooks = {};
+      if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
+
+      // Dedup
+      const exists = settings.hooks.PreToolUse.some(entry =>
+        entry.matcher === 'Skill' &&
+        entry.hooks && entry.hooks.some(h => h.command && h.command.includes('check-gstack'))
+      );
+
+      if (!exists) {
+        settings.hooks.PreToolUse.push({
+          matcher: 'Skill',
+          hooks: [{
+            type: 'command',
+            command: '\"\$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh\"'
+          }]
+        });
+      }
+
+      const tmp = settingsPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+      fs.renameSync(tmp, settingsPath);
+    " 2>/dev/null
+    GENERATED+=(".claude/settings.json")
+    echo "  + .claude/settings.json — PreToolUse hook registered"
+  else
+    echo "  ! bun not found — manually add the PreToolUse hook to .claude/settings.json"
+  fi
+fi
+
+# ── Summary ────────────────────────────────────────────────────
+
+echo ""
+echo "Team mode ($MODE) initialized."
+echo ""
+if [ ${#GENERATED[@]} -gt 0 ]; then
+  echo "Commit the generated files:"
+  echo "  git add ${GENERATED[*]}"
+  echo "  git commit -m \"chore: require gstack for AI-assisted work\""
+fi
+echo ""
+echo "Each developer then runs:"
+echo "  git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack"
+echo "  cd ~/.claude/skills/gstack && ./setup --team"

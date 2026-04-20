@@ -50,6 +50,8 @@ fi
 echo "Launching Chrome with CDP on port $PORT..."
 "$CHROME" \
   --remote-debugging-port="$PORT" \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-allow-origins="http://127.0.0.1:$PORT" \
   --user-data-dir="$CDP_DATA_DIR" \
   --restore-last-session &
 disown

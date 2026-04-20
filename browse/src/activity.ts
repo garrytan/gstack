@@ -31,6 +31,7 @@ export interface ActivityEntry {
   result?: string;
   tabs?: number;
   mode?: string;
+  clientId?: string;
 }
 
 // ─── Buffer & Subscribers ───────────────────────────────────────

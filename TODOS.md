@@ -1,5 +1,233 @@
 # TODOS
 
+## Context skills
+
+### `/context-save --lane` + `/context-restore --lane` for parallel workstreams
+
+**What:** Let users save and restore per-workstream (lane) context independently. On save: `/context-save --lane A "backend refactor"` writes a lane-tagged file. Or `/context-save lanes` reads the "Parallelization Strategy" section of the most recent plan file and auto-generates one saved context per lane. On restore: `/context-restore --lane A` loads just that lane's context. Useful when a plan has 3 independent workstreams and the user wants to pick one up in each of 3 Conductor windows.
+
+**Why:** Plans produced by `/plan-eng-review` already emit a lane table (Lane A: touches `models/` and `controllers/` sequentially; Lane B: touches `api/` independently; etc.). Right now there's no way to transfer that structure into resumable saved state. Users manually re-describe the scope in each window. Lane-tagged save/restore would be the bridge between "here's the plan" and "three people (or three AIs) are now working in parallel on it."
+
+**Pros:** Turns `/plan-eng-review`'s parallelization output into actionable resume state. Reduces context-loss across Conductor workspace handoffs for multi-workstream plans.
+
+**Cons:** Net-new functionality (not a port from the old `/checkpoint` skill). The "spawn new Conductor windows" part needs research into whether Conductor has a spawn CLI. Also requires lane-tagging discipline in the save step (manual or extracted).
+
+**Context:** Source of the lane data model is `plan-eng-review/SKILL.md.tmpl:240-249` (the "Parallelization Strategy" output with Lane A/B/C dependency tables and conflict flags). Deferred from the v0.18.5.0 rename PR so the rename could land as a tight, low-risk fix. Saved files currently live at `~/.gstack/projects/$SLUG/checkpoints/YYYYMMDD-HHMMSS-<title>.md` with YAML frontmatter (branch, timestamp, etc.). The lane feature would add a `lane:` field to frontmatter and a `--lane` filter to both skills.
+
+**Effort:** M (human: ~1-2 days / CC: ~45-60 min)
+**Priority:** P3 (nice-to-have, not blocking anyone yet)
+**Depends on:** `/context-save` + `/context-restore` rename stable in production (v1.0.1.0+). Research: does Conductor expose a spawn-workspace CLI?
+
+## P0: PACING_UPDATES_V0 — Louise's fatigue root cause (V1.1)
+
+**What:** Implement the pacing overhaul extracted from PLAN_TUNING_V1. Full design in `docs/designs/PACING_UPDATES_V0.md`. Requires: session-state model, `phase` field in question-log schema, registry extension for dynamic findings, pacing as skill-template control flow (not preamble prose), `bin/gstack-flip-decision` command, migration-prompt budget rule, first-run preamble audit, ranking threshold calibration from real V0 data, one-way-door uncapped rule, concrete verification values.
+
+**Why:** Louise de Sadeleer's "yes yes yes" during `/autoplan` was pacing + agency, not (only) jargon density. V1 addresses jargon (ELI10 writing). V1.1 addresses the interruption-volume half. Without this, V1 only gets halfway to the HOLY SHIT outcome.
+
+**Pros:** End-to-end answer to Louise's feedback. Ships real calibration data from V1 usage. Completes the V0 → V2 pacing arc started in PLAN_TUNING_V0.
+
+**Cons:** Substantial scope (10 items in `docs/designs/PACING_UPDATES_V0.md`). Needs its own CEO + Codex + DX + Eng review cycle. Calibration depends on real V0 question-log distribution.
+
+**Context:** PLAN_TUNING_V1 attempted to bundle pacing. Three eng-review passes + two Codex passes surfaced 10 structural gaps unfixable via plan-text editing. Extracted to V1.1 as a dedicated plan.
+
+**Depends on / blocked by:** V1 shipping (provides Louise's baseline transcript for calibration).
+
+## Plan Tune (v2 deferrals from v0.19.0.0 rollback)
+
+All six items are gated on v1 dogfood results and the acceptance criteria in
+`docs/designs/PLAN_TUNING_V0.md`. They were explicitly deferred after Codex's
+outside-voice review drove a scope rollback from the CEO EXPANSION plan. v1
+ships the observational substrate only; v2 adds behavior adaptation.
+
+### E1 — Substrate wiring (5 skills consume profile)
+
+**What:** Add `{{PROFILE_ADAPTATION:<skill>}}` placeholder to ship, review,
+office-hours, plan-ceo-review, plan-eng-review SKILL.md.tmpl files. Implement
+`scripts/resolvers/profile-consumer.ts` with a per-skill adaptation registry
+(`scripts/profile-adaptations/{skill}.ts`). Each consumer reads
+`~/.gstack/developer-profile.json` on preamble and adapts skill-specific
+defaults (verbosity, mode selection, severity thresholds, pushback intensity).
+
+**Why:** v1 observational profile writes a file nobody reads. The substrate
+claim only becomes real when skills actually consume it. Without this, /plan-tune
+is a fancy config page.
+
+**Pros:** gstack feels personal. Every skill adapts to the user's steering
+style instead of defaulting to middle-of-the-road.
+
+**Cons:** Risk of psychographic drift if profile is noisy. Requires calibrated
+profile (v1 acceptance criteria: 90+ days stable across 3+ skills).
+
+**Context:** See `docs/designs/PLAN_TUNING_V0.md` §Deferred to v2. v1 ships the
+signal map + inferred computation; it's displayed in /plan-tune but no skill
+reads it yet.
+
+**Effort:** L (human: ~1 week / CC: ~4h)
+**Priority:** P0
+**Depends on:** 2+ weeks of v1 dogfood, profile diversity check passing.
+
+### E3 — `/plan-tune narrative` + `/plan-tune vibe`
+
+**What:** Event-anchored narrative ("You accepted 7 scope expansions, overrode
+test_failure_triage 4 times, called every PR 'boil the lake'") + one-word vibe
+archetype (Cathedral Builder, Ship-It Pragmatist, Deep Craft, etc).
+scripts/archetypes.ts is ALREADY SHIPPED in v1 (8 archetypes + Polymath
+fallback). v2 work is the narrative generator + /plan-tune skill wiring.
+
+**Why:** Makes profile tangible and shareable. Screenshot-able.
+
+**Pros:** Killer delight feature. Social surface for gstack. Concrete, specific
+output anchored in real events (not generic AI slop).
+
+**Cons:** Requires stable inferred profile — without calibration it produces
+generic paragraphs. Gen-tests need to validate no-slop.
+
+**Context:** Archetypes already defined. Just need the /plan-tune narrative
+subcommand + slop-check test.
+
+**Effort:** S+ (human: ~1 day / CC: ~1h)
+**Priority:** P0
+**Depends on:** Calibrated profile (>= 20 events, 3+ skills, 7+ days span).
+
+### E4 — Blind-spot coach
+
+**What:** Preamble injection that surfaces the OPPOSITE of the user's profile
+once per session per tier >= 2 skill. Boil-the-ocean user gets challenged on
+scope ("what's the 80% version?"); small-scope user gets challenged on ambition.
+`scripts/resolvers/blind-spot-coach.ts`. Marker file for session dedup. Opt-out
+via `gstack-config set blind_spot_coach false`.
+
+**Why:** Makes gstack a coach (challenges you) instead of a mirror (reflects
+you). The killer differentiation vs. a settings menu.
+
+**Pros:** The feature that makes gstack feel like Garry. Surfaces assumptions
+the user hasn't challenged.
+
+**Cons:** Logically conflicts with E1 (which adapts TO profile) and E6 (which
+flags mismatch). Requires interaction-budget design: global session budget +
+escalation rules + explicit exclusion from mismatch detection. Risk of feeling
+like a nag if fires wrong.
+
+**Context:** v2 must redesign to resolve the E1/E4/E6 composition issue Codex
+caught. Dogfood required to calibrate frequency.
+
+**Effort:** M (human: ~3 days / CC: ~2h design + ~1h impl)
+**Priority:** P0
+**Depends on:** E1 shipped + interaction-budget design spec.
+
+### E5 — LANDED celebration HTML page
+
+**What:** When a PR authored by the user is newly merged to the base branch,
+open an animated HTML celebration page in the browser. Confetti + typewriter
+headline + stats counter. Shows: what we built (PR stats + CHANGELOG entry),
+road traveled (scope decisions from CEO plan), road not traveled (deferred
+items), where we're going (next TODOs), who you are as a builder (vibe +
+narrative + profile delta for this ship). Self-contained HTML (CSS animations
+only, no JS deps).
+
+**CRITICAL REVISION from v0 plan:** Passive detection must NOT live in the
+preamble (Codex #9). When promoted, moves to explicit `/plan-tune show-landed`
+OR post-ship hook — not passive detection in the hot path.
+
+**Why:** Biggest personality moment in gstack. The "one-word thing that makes
+you remember why you built this."
+
+**Pros:** Screenshot-worthy. Shareable. The kind of dopamine hit that turns
+power users into evangelists.
+
+**Cons:** Product theater if the substrate isn't solid. Needs /design-shotgun
+→ /design-html for the visual direction. Requires E2 unified profile for
+narrative/vibe data.
+
+**Context:** /land-and-deploy trust/adoption is low, so passive detection is
+the right trigger shape. Dedup marker per PR in `~/.gstack/.landed-celebrated-*`.
+E2E tests for squash/merge-commit/rebase/co-author/fresh-clone/dedup variants.
+
+**Effort:** M+ (human: ~1 week / CC: ~3h total)
+**Priority:** P0
+**Depends on:** E3 narrative/vibe shipped. /design-shotgun run on real PR data
+to pick a visual direction, then /design-html to finalize.
+
+### E6 — Auto-adjustment based on declared ↔ inferred mismatch
+
+**What:** Currently `/plan-tune` shows the gap between declared and inferred
+(v1 observational). v2 auto-suggests declaration updates when the gap exceeds
+a threshold ("Your profile says hands-off but you've overridden 40% of
+recommendations — you're actually taste-driven. Update declared autonomy from
+0.8 to 0.5?"). Requires explicit user confirmation before any mutation (Codex
+trust-boundary #15 already baked into v1).
+
+**Why:** Profile drifts silently without correction. Self-correcting profile
+stays honest.
+
+**Pros:** Profile becomes more accurate over time. User sees the gap and
+decides.
+
+**Cons:** Requires stable inferred profile (diversity check). False positives
+nag the user.
+
+**Context:** v1 has `--check-mismatch` that flags > 0.3 gaps but doesn't
+suggest fixes. v2 adds the suggestion UX + per-dimension threshold tuning from
+real data.
+
+**Effort:** S (human: ~1 day / CC: ~45min)
+**Priority:** P0
+**Depends on:** Calibrated profile + real mismatch data from v1 dogfood.
+
+### E7 — Psychographic auto-decide
+
+**What:** When inferred profile is calibrated AND a question is two-way AND
+the user's dimensions strongly favor one option, auto-choose without asking
+(visible annotation: "Auto-decided via profile. Change with /plan-tune."). v1
+only auto-decides via EXPLICIT per-question preferences; v2 adds profile-driven
+auto-decide.
+
+**Why:** The whole point of the psychographic. Silent, correct defaults based
+on who the user IS, not just what they've said.
+
+**Pros:** Friction-free skill invocation for calibrated power users. Over time,
+gstack feels like it's reading your mind.
+
+**Cons:** Highest-risk deferral. Wrong auto-decides are costly. Requires very
+high confidence in the signal map AND calibration gate.
+
+**Context:** v1 diversity gate is `sample_size >= 20 AND skills_covered >= 3
+AND question_ids_covered >= 8 AND days_span >= 7`. v2 must prove this gate
+actually catches noisy profiles before shipping.
+
+**Effort:** M (human: ~3 days / CC: ~2h)
+**Priority:** P0
+**Depends on:** E1 (skills consuming profile) + real observed data showing
+calibration gate is trustworthy.
+
+## Browse
+
+### Scope sidebar-agent kill to session PID, not `pkill -f sidebar-agent\.ts`
+
+**What:** `shutdown()` in `browse/src/server.ts:1193` uses `pkill -f sidebar-agent\.ts` to kill the sidebar-agent daemon, which matches every sidebar-agent on the machine, not just the one this server spawned. Replace with PID tracking: store the sidebar-agent PID when `cli.ts` spawns it (via state file or env), then `process.kill(pid, 'SIGTERM')` in `shutdown()`.
+
+**Why:** A user running two Conductor worktrees (or any multi-session setup), each with its own `$B connect`, closes one browser window ... and the other worktree's sidebar-agent gets killed too. The blast radius was there before, but the v0.18.1.0 disconnect-cleanup fix makes it more reachable: every user-close now runs the full `shutdown()` path, whereas before user-close bypassed it.
+
+**Context:** Surfaced by /ship's adversarial review on v0.18.1.0. Pre-existing code, not introduced by the fix. Fix requires propagating the sidebar-agent PID from `cli.ts` spawn site (~line 885) into the server's state file so `shutdown()` can target just this session's agent. Related: `browse/src/cli.ts` spawns with `Bun.spawn(...).unref()` and already captures `agentProc.pid`.
+
+**Effort:** S (human: ~2h / CC: ~15min)
+**Priority:** P2
+**Depends on:** None
+
+## Sidebar Security
+
+### ML Prompt Injection Classifier
+
+**What:** Add DeBERTa-v3-base-prompt-injection-v2 via @huggingface/transformers v4 (WASM backend) as an ML defense layer for the Chrome sidebar. Reusable `browse/src/security.ts` module with `checkInjection()` API. Includes canary tokens, attack logging, shield icon, special telemetry (AskUserQuestion on detection even when telemetry off), and BrowseSafe-bench red team test harness (3,680 adversarial cases from Perplexity).
+
+**Why:** PR 1 fixes the architecture (command allowlist, XML framing, Opus default). But attackers can still trick Claude into navigating to phishing sites or exfiltrating visible page data via allowed browse commands. The ML classifier catches prompt injection patterns that architectural controls can't see. 94.8% accuracy, 99.6% recall, ~50-100ms inference via WASM. Defense-in-depth.
+
+**Context:** Full design doc with industry research, open source tool landscape, Codex review findings, and ambitious Bun-native vision (5ms inference via FFI + Apple Accelerate): [`docs/designs/ML_PROMPT_INJECTION_KILLER.md`](docs/designs/ML_PROMPT_INJECTION_KILLER.md). CEO plan with scope decisions: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-28-sidebar-prompt-injection-defense.md`.
+
+**Effort:** L (human: ~2 weeks / CC: ~3-4 hours)
+**Priority:** P0
+**Depends on:** Sidebar security fix PR (command allowlist + XML framing + arg fix) landing first
+
 ## Builder Ethos
 
 ### First-time Search Before Building intro
@@ -185,16 +413,22 @@ Sidebar agent writes structured messages to `.context/sidebar-inbox/`. Workspace
 **Priority:** P3
 **Depends on:** Headed mode (shipped)
 
-### Sidebar agent needs Write tool + better error visibility
+### Sidebar agent needs Write tool + better error visibility — SHIPPED
 
 **What:** Two issues with the sidebar agent (`sidebar-agent.ts`): (1) `--allowedTools` is hardcoded to `Bash,Read,Glob,Grep`, missing `Write`. Claude can't create files (like CSVs) when asked. (2) When Claude errors or returns empty, the sidebar UI shows nothing, just a green dot. No error message, no "I tried but failed", nothing.
 
-**Why:** Users ask "write this to a CSV" and the sidebar silently can't. Then they think it's broken. The UI needs to surface errors visibly, and Claude needs the tools to actually do what's asked.
+**Completed:** v0.15.4.0 (2026-04-04). Write tool added to allowedTools. 40+ empty catch blocks replaced with `[gstack sidebar]`, `[gstack bg]`, `[browse]`, `[sidebar-agent]` prefixed console logging across all 4 files (sidepanel.js, background.js, server.ts, sidebar-agent.ts). Error placeholder text now shows in red. Auth token stale-refresh bug fixed.
 
-**Context:** `sidebar-agent.ts:163` hardcodes `--allowedTools`. The event relay (`handleStreamEvent`) handles `agent_done` and `agent_error` but the extension's sidepanel.js may not be rendering error states. The sidebar should show "Error: ..." or "Claude finished but produced no output" instead of staying on the green dot forever.
+### Sidebar direct API calls (eliminate claude -p startup tax)
 
-**Effort:** S (human: ~2h / CC: ~10min)
-**Priority:** P1
+**What:** Each sidebar message spawns a fresh `claude -p` process (~2-3s cold start overhead). For "click @e24" that's absurd. Direct Anthropic API calls would be sub-second.
+
+**Why:** The `claude -p` startup cost is: process spawn (~100ms) + CLI init (~500ms-1s) + API connection (~200ms) + first token. Model routing (Sonnet for actions) helps but doesn't fix the CLI overhead.
+
+**Context:** `server.ts:spawnClaude()` builds args and writes to queue file. `sidebar-agent.ts:askClaude()` spawns `claude -p`. Replace with direct `fetch('https://api.anthropic.com/...')` with tool use. Requires `ANTHROPIC_API_KEY` accessible to the browse server.
+
+**Effort:** M (human: ~1 week / CC: ~30min)
+**Priority:** P2
 **Depends on:** None
 
 ### Chrome Web Store publishing
@@ -220,6 +454,30 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 **Completed (Linux):** v0.11.11.0 (2026-03-23)
 
 ## Ship
+
+### /ship Step 12 test harness should exec the actual template bash, not a reimplementation
+
+**What:** `test/ship-version-sync.test.ts` currently reimplements the bash from `ship/SKILL.md.tmpl` Step 12 inside template literals. When the template changes, both sides must be updated — exactly the drift-risk pattern the Step 12 fix is meant to prevent, applied to our own testing strategy. Replace with a helper that extracts the fenced bash blocks from the template at test time and runs them verbatim (similar to the `skill-parser.ts` pattern).
+
+**Why:** Surfaced by the Claude adversarial subagent during the v1.0.1.0 ship. Today the tests would stay green while the template regresses, because the error-message strings already differ between test and template. It's a silent-drift bug waiting to happen.
+
+**Context:** The fixed test file is at `test/ship-version-sync.test.ts` (branched off garrytan/ship-version-sync). Existing precedent for extracting-from-skill-md is at `test/helpers/skill-parser.ts`. Pattern: read the template, slice from `## Step 12` to the next `---`, grep fenced bash, feed to `/bin/bash` with substituted fixtures.
+
+**Effort:** S (human: ~2h / CC: ~30min)
+**Priority:** P2
+**Depends on:** None.
+
+### /ship Step 12 BASE_VERSION silent fallback to 0.0.0.0 when git show fails
+
+**What:** `BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null || echo "0.0.0.0")` silently defaults to `0.0.0.0` in any failure mode — detached HEAD, no origin, offline, base branch renamed. In such states, a real drift could be misclassified or silently repaired with the wrong value. Distinguish "origin/<base> unreachable" from "origin/<base>:VERSION absent" and fail loudly on the former.
+
+**Why:** Flagged as CRITICAL (confidence 8/10) by the Claude adversarial subagent during the v1.0.1.0 ship. Low practical risk because `/ship` Step 3 already fetches origin before Step 12 runs — any reachability failure would abort Step 3 long before this code runs. Still, defense in depth: if someone invokes Step 12 bash outside the full /ship pipeline (e.g., via a standalone helper), the fallback masks a real problem.
+
+**Context:** Fix: wrap with `git rev-parse --verify origin/<base>` probe; if that fails, error out rather than defaulting. Touches `ship/SKILL.md.tmpl` Step 12 idempotency block (around line 409). Tests need a case where `git show` fails.
+
+**Effort:** S (human: ~1h / CC: ~15min)
+**Priority:** P3
+**Depends on:** None.
 
 ### GitLab support for /land-and-deploy
 
@@ -362,7 +620,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ### Auto-upgrade weak tests (★) to strong tests (★★★)
 
-**What:** When Step 3.4 coverage audit identifies existing ★-rated tests (smoke/trivial assertions), generate improved versions testing edge cases and error paths.
+**What:** When Step 7 coverage audit identifies existing ★-rated tests (smoke/trivial assertions), generate improved versions testing edge cases and error paths.
 
 **Why:** Many codebases have tests that technically exist but don't catch real bugs — `expect(component).toBeDefined()` isn't testing behavior. Upgrading these closes the gap between "has tests" and "has good tests."
 
@@ -631,6 +889,176 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Effort:** M (all 6 combined)
 **Priority:** P3
 **Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
+
+## Context Intelligence
+
+### Context recovery preamble
+
+**What:** Add ~10 lines of prose to the preamble telling the agent to re-read gstack artifacts (CEO plans, design reviews, eng reviews, checkpoints) after compaction or context degradation.
+
+**Why:** gstack skills produce valuable artifacts stored at `~/.gstack/projects/$SLUG/`. When Claude's auto-compaction fires, it preserves a generic summary but doesn't know these artifacts exist. The plans and reviews that shaped the current work silently vanish from context, even though they're still on disk. This is the thing nobody else in the Claude Code ecosystem is solving, because nobody else has gstack's artifact architecture.
+
+**Context:** Inspired by Anthropic's `claude-progress.txt` pattern for long-running agents. Also informed by claude-mem's "progressive disclosure" approach. See `docs/designs/SESSION_INTELLIGENCE.md` for the broader vision. CEO plan: `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-03-31-session-intelligence-layer.md`.
+
+**Effort:** S (human: ~30 min / CC: ~5 min)
+**Priority:** P1
+**Depends on:** None
+**Key files:** `scripts/resolvers/preamble.ts`
+
+### Session timeline
+
+**What:** Append one-line JSONL entry to `~/.gstack/projects/$SLUG/timeline.jsonl` after every skill run (timestamp, skill, branch, outcome). `/retro` renders the timeline.
+
+**Why:** Makes AI-assisted work history visible. `/retro` can show "this week: 3 /review, 2 /ship, 1 /investigate." Provides the observability layer for the session intelligence architecture.
+
+**Effort:** S (human: ~1h / CC: ~5 min)
+**Priority:** P1
+**Depends on:** None
+**Key files:** `scripts/resolvers/preamble.ts`, `retro/SKILL.md.tmpl`
+
+### Cross-session context injection
+
+**What:** When a new gstack session starts on a branch with recent checkpoints or plans, the preamble prints a one-line summary: "Last session: implemented JWT auth, 3/5 tasks done." Agent knows where you left off before reading any files.
+
+**Why:** Claude starts every session fresh. This one-liner orients the agent immediately. Similar to claude-mem's SessionStart hook pattern but simpler and integrated.
+
+**Effort:** S (human: ~2h / CC: ~10 min)
+**Priority:** P2
+**Depends on:** Context recovery preamble
+
+### /checkpoint skill
+
+**What:** Manual skill to snapshot current working state: what's being done and why, files being edited, decisions made (and rationale), what's done vs. remaining, critical types/signatures. Saved to `~/.gstack/projects/$SLUG/checkpoints/<timestamp>.md`.
+
+**Why:** Useful before stepping away from a long session, before known-complex operations that might trigger compaction, for handing off context to a different agent/workspace, or coming back to a project after days away.
+
+**Effort:** M (human: ~1 week / CC: ~30 min)
+**Priority:** P2
+**Depends on:** Context recovery preamble
+**Key files:** New `checkpoint/SKILL.md.tmpl`, `scripts/gen-skill-docs.ts`
+
+### Session Intelligence Layer design doc
+
+**What:** Write `docs/designs/SESSION_INTELLIGENCE.md` describing the architectural vision: gstack as the persistent brain that survives Claude's ephemeral context. Every skill writes to `~/.gstack/projects/$SLUG/`, preamble re-reads, `/retro` rolls up.
+
+**Why:** Connects context recovery, health, checkpoint, and timeline features into a coherent architecture. Nobody else in the ecosystem is building this.
+
+**Effort:** S (human: ~2h / CC: ~15 min)
+**Priority:** P1
+**Depends on:** None
+
+## Health
+
+### /health — Project Health Dashboard
+
+**What:** Skill that runs type-check, lint, test suite, and dead code scan, then reports a composite 0-10 health score with breakdown by category. Tracks over time in `~/.gstack/health/<project-slug>/` for trend detection. Optionally integrates CodeScene MCP for deeper complexity/cohesion/coupling analysis.
+
+**Why:** No quick way to get "state of the codebase" before starting work. CodeScene peer-reviewed research shows AI-generated code increases static analysis warnings by 30%, code complexity by 41%, and change failure rates by 30%. Users need guardrails. Like `/qa` but for code quality rather than browser behavior.
+
+**Context:** Reads CLAUDE.md for project-specific commands (platform-agnostic principle). Runs checks in parallel. `/retro` can pull from health history for trend sparklines.
+
+**Effort:** M (human: ~1 week / CC: ~30 min)
+**Priority:** P1
+**Depends on:** None
+**Key files:** New `health/SKILL.md.tmpl`, `scripts/gen-skill-docs.ts`
+
+### /health as /ship gate
+
+**What:** If health score exists and drops below a configurable threshold, `/ship` warns before creating the PR: "Health dropped from 8/10 to 5/10 this branch — 3 new lint warnings, 1 test failure. Ship anyway?"
+
+**Why:** Quality gate that prevents shipping degraded code. Configurable threshold so it's not blocking for teams that don't use `/health`.
+
+**Effort:** S (human: ~1h / CC: ~5 min)
+**Priority:** P2
+**Depends on:** /health skill
+
+## Swarm
+
+### Swarm primitive — reusable multi-agent dispatch
+
+**What:** Extract Review Army's dispatch pattern into a reusable resolver (`scripts/resolvers/swarm.ts`). Wire into `/ship` for parallel pre-ship checks (type-check + lint + test in parallel sub-agents). Make available to `/qa`, `/investigate`, `/health`.
+
+**Why:** Review Army proved parallel sub-agents work brilliantly (5 agents = 835K tokens of working memory vs. 167K for one). The pattern is locked inside `review-army.ts`. Other skills need it too. Claude Code Agent Teams (official, Feb 2026) validates the team-lead-delegates-to-specialists pattern. Gartner: multi-agent inquiries surged 1,445% in one year.
+
+**Context:** Start with the specific `/ship` use case. Extract shared parts only after 2+ consumers reveal what config parameters are actually needed. Avoid premature abstraction. Can leverage existing WorktreeManager for isolation.
+
+**Effort:** L (human: ~2 weeks / CC: ~2 hours)
+**Priority:** P2
+**Depends on:** None
+**Key files:** `scripts/resolvers/review-army.ts`, new `scripts/resolvers/swarm.ts`, `ship/SKILL.md.tmpl`, `lib/worktree.ts`
+
+## Refactoring
+
+### /refactor-prep — Pre-Refactor Token Hygiene
+
+**What:** Skill that detects project language/framework, runs appropriate dead code detection (knip/ts-prune for TS/JS, vulture/autoflake for Python, staticcheck/deadcode for Go, cargo udeps for Rust), strips dead imports/exports/props/console.logs, and commits cleanup separately.
+
+**Why:** Dirty codebases accelerate context compaction. Dead imports, unused exports, and orphaned code eat tokens that contribute nothing but everything to triggering compaction mid-refactor. Cleaning first buys back 20%+ of context budget. Reports lines removed and estimated token savings.
+
+**Effort:** M (human: ~1 week / CC: ~30 min)
+**Priority:** P2
+**Depends on:** None
+**Key files:** New `refactor-prep/SKILL.md.tmpl`, `scripts/gen-skill-docs.ts`
+
+## Factory Droid
+
+### Browse MCP server for Factory Droid
+
+**What:** Expose gstack's browse binary and key workflows as an MCP server that Factory Droid connects to natively. Factory users would run /mcp, add the gstack server, and get browse, QA, and review capabilities as Factory tools.
+
+**Why:** Factory already supports 40+ MCP servers in its registry. Getting gstack's browse binary listed there is a distribution play. Nobody else has a real compiled browser binary as an MCP tool. This is the thing that makes gstack uniquely valuable on Factory Droid.
+
+**Context:** Option A (--host factory compatibility shim) ships first in v0.13.4.0. Option B is the follow-up that provides deeper integration. The browse binary is already a stateless CLI, so wrapping it as an MCP server is straightforward (stdin/stdout JSON-RPC). Each browse command becomes an MCP tool.
+
+**Effort:** L (human: ~1 week / CC: ~5 hours)
+**Priority:** P1
+**Depends on:** --host factory (Option A, shipping in v0.13.4.0)
+
+### .agent/skills/ dual output for cross-agent compatibility
+
+**What:** Factory also reads from `<repo>/.agent/skills/` as a cross-agent compatibility path. Could output there in addition to `.factory/skills/` for broader reach across other agents that use the `.agent` convention.
+
+**Why:** Multiple AI agents beyond Factory may adopt the `.agent/skills/` convention. Outputting there too would give free compatibility.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** --host factory
+
+### Custom Droid definitions alongside skills
+
+**What:** Factory has "custom droids" (subagents with tool restrictions, model selection, autonomy levels). Could ship `gstack-qa.md` droid configs alongside skills that restrict tools to read-only + execute for safety.
+
+**Why:** Deeper Factory integration. Droid configs give Factory users tighter control over what gstack skills can do.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** --host factory
+
+## GStack Browser
+
+### Anti-bot stealth: Playwright CDP patches (rebrowser-style)
+
+**What:** Write a postinstall script that patches Playwright's CDP layer to suppress `Runtime.enable` and use `addBinding` for context ID discovery, same approach as rebrowser-patches. Eliminates the `navigator.webdriver`, `cdc_` markers, and other CDP artifacts that sites like Google use to detect automation.
+
+**Why:** Our current stealth patches (UA override, navigator.webdriver=false, fake plugins) work on most sites but Google still triggers captchas. The real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
+
+**Context:** Full analysis of rebrowser-patches source: patches 6 files in `playwright-core/lib/server/` (crConnection.js, crDevTools.js, crPage.js, crServiceWorker.js, frames.js, page.js). Key technique: suppress `Runtime.enable` (the main CDP detection vector), use `Runtime.addBinding` + `CustomEvent` trick to discover execution context IDs without it. Our extension communicates via Chrome extension APIs, not CDP Runtime, so it should be unaffected. Write E2E tests that verify: (1) extension still loads and connects, (2) Google.com loads without captcha, (3) sidebar chat still works.
+
+**Effort:** L (human: ~2 weeks / CC: ~3 hours)
+**Priority:** P1
+**Depends on:** None
+
+### Chromium fork (long-term alternative to CDP patches)
+
+**What:** Maintain a Chromium fork where anti-bot stealth, GStack Browser branding, and native sidebar support live in the source code, not as runtime monkey-patches.
+
+**Why:** The CDP patches are brittle. They break on every Playwright upgrade and target compiled JS with fragile string matching. A proper fork means: (1) stealth is permanent, not patched, (2) branding is native (no plist hacking at launch), (3) native sidebar replaces the extension (Phase 4 of V0 roadmap), (4) custom protocols (gstack://) for internal pages. Companies like Brave, Arc, and Vivaldi maintain Chromium forks with small teams. With CC, the rebase-on-upstream maintenance could be largely automated.
+
+**Context:** Trigger criteria from V0 design doc: fork when extension side panel becomes the bottleneck, when anti-bot patches need to live deeper than CDP, or when native UI integration (sidebar, status bar) can't be done via extension. The Chromium build takes ~4 hours on a 32-core machine and produces ~50GB of build artifacts. CI would need dedicated build infra. See `docs/designs/GSTACK_BROWSER_V0.md` Phase 5 for full analysis.
+
+**Effort:** XL (human: ~1 quarter / CC: ~2-3 weeks of focused work)
+**Priority:** P2
+**Depends on:** CDP patches proving the value of anti-bot stealth first
 
 ## Completed
 

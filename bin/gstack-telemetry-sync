@@ -122,6 +122,11 @@ case "$HTTP_CODE" in
     # Advance by SENT count (not inserted count) because we can't map inserted back to
     # source lines. If inserted==0, something is systemically wrong — don't advance.
     INSERTED="$(grep -o '"inserted":[0-9]*' "$RESP_FILE" 2>/dev/null | grep -o '[0-9]*' || echo "0")"
+    # Check for upsert errors (installation tracking failures) — log but don't block cursor advance
+    UPSERT_ERRORS="$(grep -o '"upsertErrors"' "$RESP_FILE" 2>/dev/null || true)"
+    if [ -n "$UPSERT_ERRORS" ]; then
+      echo "[gstack-telemetry-sync] Warning: installation upsert errors in response" >&2
+    fi
     if [ "${INSERTED:-0}" -gt 0 ] 2>/dev/null; then
       NEW_CURSOR=$(( CURSOR + COUNT ))
       echo "$NEW_CURSOR" > "$CURSOR_FILE" 2>/dev/null || true

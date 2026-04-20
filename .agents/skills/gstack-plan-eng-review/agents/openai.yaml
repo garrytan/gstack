@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-plan-eng-review"
-  short_description: "Eng manager-mode plan review. Lock in the execution plan — architecture, data flow, diagrams, edge cases, test..."
-  default_prompt: "Use gstack-plan-eng-review for this task."
-policy:
-  allow_implicit_invocation: true

@@ -25,6 +25,14 @@ export interface OutcomeJudgeResult {
   reasoning: string;
 }
 
+export interface PostureScore {
+  axis_a: number;       // 1-5 — mode-specific primary rubric axis
+  axis_b: number;       // 1-5 — mode-specific secondary rubric axis
+  reasoning: string;
+}
+
+export type PostureMode = 'expansion' | 'forcing' | 'builder';
+
 /**
  * Call claude-sonnet-4-6 with a prompt, extract JSON response.
  * Retries once on 429 rate limit errors.
@@ -127,4 +135,58 @@ Rules:
 - detection_rate = length of detected array
 - evidence_quality (1-5): Do detected bugs have screenshots, repro steps, or specific element references?
   5 = excellent evidence for every bug, 1 = no evidence at all`);
+}
+
+/**
+ * Score mode-specific prose posture on two mode-dependent axes (1-5 each).
+ *
+ * Used by mode-posture regression tests to detect whether V1's Writing Style
+ * rules have flattened the distinctive energy of expansion / forcing / builder
+ * modes. See docs/designs/PLAN_TUNING_V1.md and the V1.1 mode-posture fix.
+ *
+ * The generator model is whatever the skill runs with (often Opus for
+ * plan-ceo-review). The judge is always Sonnet via callJudge() for cost.
+ */
+export async function judgePosture(mode: PostureMode, text: string): Promise<PostureScore> {
+  const rubrics: Record<PostureMode, { axis_a: string; axis_b: string; context: string }> = {
+    expansion: {
+      context: 'This text is expansion proposals emitted by /plan-ceo-review in SCOPE EXPANSION or SELECTIVE EXPANSION mode. The skill is supposed to lead with felt-experience vision, then close with concrete effort and impact.',
+      axis_a: 'surface_framing (1-5): Does each proposal lead with felt-experience framing ("imagine", "when the user sees", "the moment X happens", or equivalent) BEFORE closing with concrete metrics? Penalize pure feature bullets ("Add X. Improves Y by Z%").',
+      axis_b: 'decision_preservation (1-5): Does each proposal contain the elements a scope-expansion decision needs — what to build (concrete shape), effort (ideally both human and CC scales), risk or integration note? Penalize pure prose with no actionable content.',
+    },
+    forcing: {
+      context: 'This text is the Q3 Desperate Specificity question emitted by /office-hours startup mode. The skill is supposed to force the founder to name a specific person and consequence, stacking multiple pressures.',
+      axis_a: 'stacking_preserved (1-5): Does the question include at least 3 distinct sub-pressures (e.g., title? promoted? fired? up at night? OR career? day? weekend?) rather than a single neutral ask? Penalize "Who is your target user?" style collapses.',
+      axis_b: 'domain_matched_consequence (1-5): Does the named consequence match the domain context in the input (B2B → career impact, consumer → daily pain, hobby/open-source → weekend project)? Penalize one-size-fits-all B2B career framing for non-B2B ideas.',
+    },
+    builder: {
+      context: 'This text is builder-mode response from /office-hours. The skill is supposed to riff creatively — "what if you also..." adjacent unlocks, cross-domain combinations, the "whoa" moment — not emit a structured product roadmap.',
+      axis_a: 'unexpected_combinations (1-5): Does the output include at least 2 cross-domain or surprising adjacent unlocks ("what if you also...", "pipe it into X", etc.)? Penalize structured feature lists with no creative leaps.',
+      axis_b: 'excitement_over_optimization (1-5): Does the output read as a creative riff (enthusiastic, opinionated, evocative) or as a PRD / product roadmap (structured, metric-driven, conservative)? Penalize PRD-voice language like "improve retention", "enable virality", "consider adding".',
+    },
+  };
+
+  const r = rubrics[mode];
+  return callJudge<PostureScore>(`You are evaluating prose quality for a mode-specific posture regression test.
+
+Context: ${r.context}
+
+Rate the following output on two dimensions (1-5 scale each):
+
+- **axis_a** — ${r.axis_a}
+- **axis_b** — ${r.axis_b}
+
+Scoring guide:
+- 5: Excellent — strong, unambiguous match for the posture
+- 4: Good — matches posture with minor weakness
+- 3: Adequate — partial match, noticeable flatness or structure
+- 2: Poor — posture mostly flattened / collapsed
+- 1: Fail — posture entirely missing, reads as the opposite mode
+
+Respond with ONLY valid JSON in this exact format:
+{"axis_a": N, "axis_b": N, "reasoning": "brief explanation naming specific phrases that drove the score"}
+
+Here is the output to evaluate:
+
+${text}`);
 }

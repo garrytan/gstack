@@ -7,8 +7,9 @@ description: |
   analyze, hypothesize, implement. Iron Law: no fixes without root cause.
   Use when asked to "debug this", "fix this bug", "why is this broken",
   "investigate this error", or "root cause analysis".
-  Proactively suggest when the user reports errors, unexpected behavior, or
-  is troubleshooting why something stopped working.
+  Proactively invoke this skill (do NOT debug directly) when the user reports
+  errors, 500 errors, stack traces, unexpected behavior, "it was working
+  yesterday", or is troubleshooting why something stopped working. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -18,6 +19,12 @@ allowed-tools:
   - Glob
   - AskUserQuestion
   - WebSearch
+triggers:
+  - debug this
+  - fix this bug
+  - why is this broken
+  - root cause analysis
+  - investigate this error
 hooks:
   PreToolUse:
     - matcher: "Edit"
@@ -44,6 +51,8 @@ Fixing symptoms creates whack-a-mole debugging. Every fix that doesn't address r
 
 ---
 
+{{GBRAIN_CONTEXT_LOAD}}
+
 ## Phase 1: Root Cause Investigation
 
 Gather context before forming any hypothesis.
@@ -59,6 +68,10 @@ Gather context before forming any hypothesis.
    Was this working before? What changed? A regression means the root cause is in the diff.
 
 4. **Reproduce:** Can you trigger the bug deterministically? If not, gather more evidence before proceeding.
+
+5. **Check investigation history:** Search prior learnings for investigations on the same files. Recurring bugs in the same area are an architectural smell. If prior investigations exist, note patterns and check if the root cause was structural.
+
+{{LEARNINGS_SEARCH}}
 
 Output: **"Root cause hypothesis: ..."** — a specific, testable claim about what is wrong and why.
 
@@ -182,6 +195,16 @@ Related:         [TODOS.md items, prior bugs in same area, architectural notes]
 Status:          DONE | DONE_WITH_CONCERNS | BLOCKED
 ════════════════════════════════════════
 ```
+
+Log the investigation as a learning for future sessions. Use `type: "investigation"` and include the affected files so future investigations on the same area can find this:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"investigate","type":"investigation","key":"ROOT_CAUSE_KEY","insight":"ROOT_CAUSE_SUMMARY","confidence":9,"source":"observed","files":["affected/file1.ts","affected/file2.ts"]}'
+```
+
+{{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ---
 

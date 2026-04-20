@@ -8,7 +8,14 @@ description: |
   scanning, plus OWASP Top 10, STRIDE threat modeling, and active verification.
   Two modes: daily (zero-noise, 8/10 confidence gate) and comprehensive (monthly deep
   scan, 2/10 bar). Trend tracking across audit runs.
-  Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review".
+  Use when: "security audit", "threat model", "pentest review", "OWASP", "CSO review". (gstack)
+voice-triggers:
+  - "see-so"
+  - "see so"
+  - "security review"
+  - "security check"
+  - "vulnerability scan"
+  - "run security"
 allowed-tools:
   - Bash
   - Read
@@ -18,9 +25,15 @@ allowed-tools:
   - Agent
   - WebSearch
   - AskUserQuestion
+triggers:
+  - security audit
+  - check for vulnerabilities
+  - owasp review
 ---
 
 {{PREAMBLE}}
+
+{{GBRAIN_CONTEXT_LOAD}}
 
 # /cso — Chief Security Officer Audit (v2)
 
@@ -101,6 +114,8 @@ grep -q "laravel" composer.json 2>/dev/null && echo "FRAMEWORK: Laravel"
 - Express the mental model as a brief architecture summary before proceeding
 
 This is NOT a checklist — it's a reasoning phase. The output is understanding, not findings.
+
+{{LEARNINGS_SEARCH}}
 
 ### Phase 1: Attack Surface Census
 
@@ -487,6 +502,8 @@ SECURITY FINDINGS
 4   HIGH   9/10   UNVERIFIED  Integrations     Webhook w/o signature verify     P6      api/webhooks.ts:24
 ```
 
+{{CONFIDENCE_CALIBRATION}}
+
 For each finding:
 ```
 ## Finding N: [Title] — [File:Line]
@@ -595,6 +612,10 @@ Write findings to `.gstack/security-reports/{date}-{HHMMSS}.json` using this sch
 ```
 
 If `.gstack/` is not in `.gitignore`, note it in findings — security reports should stay local.
+
+{{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ## Important Rules
 

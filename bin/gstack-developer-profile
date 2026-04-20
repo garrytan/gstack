@@ -1,0 +1,446 @@
+#!/usr/bin/env bash
+# gstack-developer-profile — unified developer profile access and derivation.
+#
+# Supersedes bin/gstack-builder-profile. The old binary remains as a legacy
+# shim that delegates to `gstack-developer-profile --read`.
+#
+# Subcommands:
+#   --read              (default)  emit KEY: VALUE pairs in builder-profile format
+#                                  for /office-hours compatibility.
+#   --derive            recompute inferred dimensions from question events;
+#                       write updated ~/.gstack/developer-profile.json.
+#   --profile           emit the full profile as JSON (all fields).
+#   --gap               emit declared-vs-inferred gap as JSON.
+#   --trace <dim>       show events that contributed to a dimension.
+#   --narrative         (v2 stub) output a coach bio paragraph.
+#   --vibe              (v2 stub) output the one-word archetype.
+#   --check-mismatch    detect meaningful gaps between declared and observed.
+#   --migrate           migrate builder-profile.jsonl → developer-profile.json.
+#                       Idempotent; archives the source file on success.
+#
+# Profile file: ~/.gstack/developer-profile.json (unified schema — see
+# docs/designs/PLAN_TUNING_V0.md). Event file: ~/.gstack/projects/{SLUG}/
+# question-events.jsonl.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+PROFILE_FILE="$GSTACK_HOME/developer-profile.json"
+LEGACY_FILE="$GSTACK_HOME/builder-profile.jsonl"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+SLUG="${SLUG:-unknown}"
+
+CMD="${1:---read}"
+shift || true
+
+# -----------------------------------------------------------------------
+# Migration: builder-profile.jsonl → developer-profile.json
+# -----------------------------------------------------------------------
+do_migrate() {
+  if [ ! -f "$LEGACY_FILE" ]; then
+    echo "MIGRATE: no legacy file to migrate"
+    return 0
+  fi
+
+  if [ -f "$PROFILE_FILE" ]; then
+    # Already migrated — no-op (idempotent).
+    echo "MIGRATE: already migrated (developer-profile.json exists)"
+    return 0
+  fi
+
+  # Run migration in a temp file, then atomic rename.
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  trap 'rm -f "$TMPOUT"' EXIT
+
+  cat "$LEGACY_FILE" | bun -e "
+    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
+    const sessions = [];
+    const signalsAcc = {};
+    const resources = new Set();
+    const topics = new Set();
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        sessions.push(e);
+        for (const s of (e.signals || [])) {
+          signalsAcc[s] = (signalsAcc[s] || 0) + 1;
+        }
+        for (const r of (e.resources_shown || [])) resources.add(r);
+        for (const t of (e.topics || [])) topics.add(t);
+      } catch {}
+    }
+    const profile = {
+      identity: {},
+      declared: {},
+      inferred: {
+        values: {
+          scope_appetite: 0.5,
+          risk_tolerance: 0.5,
+          detail_preference: 0.5,
+          autonomy: 0.5,
+          architecture_care: 0.5,
+        },
+        sample_size: 0,
+        diversity: { skills_covered: 0, question_ids_covered: 0, days_span: 0 },
+      },
+      gap: {},
+      overrides: {},
+      sessions,
+      signals_accumulated: signalsAcc,
+      resources_shown: Array.from(resources),
+      topics: Array.from(topics),
+      migrated_at: new Date().toISOString(),
+      schema_version: 1,
+    };
+    console.log(JSON.stringify(profile, null, 2));
+  " > "$TMPOUT"
+
+  # Atomic rename.
+  mv "$TMPOUT" "$PROFILE_FILE"
+  trap - EXIT
+
+  # Archive the legacy file.
+  local TS
+  TS="$(date +%Y-%m-%d-%H%M%S)"
+  mv "$LEGACY_FILE" "$LEGACY_FILE.migrated-$TS"
+
+  local COUNT
+  COUNT=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('$PROFILE_FILE','utf-8')).sessions.length)" 2>/dev/null || echo "?")
+  echo "MIGRATE: ok — migrated $COUNT sessions from builder-profile.jsonl"
+}
+
+# -----------------------------------------------------------------------
+# Load-or-migrate helper: ensure developer-profile.json exists.
+# Auto-migrates from builder-profile.jsonl if present.
+# Returns path to profile file via stdout. Creates a minimal stub if nothing exists.
+# -----------------------------------------------------------------------
+ensure_profile() {
+  if [ -f "$PROFILE_FILE" ]; then
+    return 0
+  fi
+  if [ -f "$LEGACY_FILE" ]; then
+    do_migrate >/dev/null
+    return 0
+  fi
+  # Nothing yet — create a stub.
+  mkdir -p "$GSTACK_HOME"
+  cat > "$PROFILE_FILE" <<EOF
+{
+  "identity": {},
+  "declared": {},
+  "inferred": {
+    "values": {
+      "scope_appetite": 0.5,
+      "risk_tolerance": 0.5,
+      "detail_preference": 0.5,
+      "autonomy": 0.5,
+      "architecture_care": 0.5
+    },
+    "sample_size": 0,
+    "diversity": { "skills_covered": 0, "question_ids_covered": 0, "days_span": 0 }
+  },
+  "gap": {},
+  "overrides": {},
+  "sessions": [],
+  "signals_accumulated": {},
+  "schema_version": 1
+}
+EOF
+}
+
+# -----------------------------------------------------------------------
+# Read: emit legacy KEY: VALUE output for /office-hours compat.
+# -----------------------------------------------------------------------
+do_read() {
+  ensure_profile
+  cat "$PROFILE_FILE" | bun -e "
+    const p = JSON.parse(await Bun.stdin.text());
+    const sessions = p.sessions || [];
+    const count = sessions.length;
+    let tier = 'introduction';
+    if (count >= 8) tier = 'inner_circle';
+    else if (count >= 4) tier = 'regular';
+    else if (count >= 1) tier = 'welcome_back';
+
+    const last = sessions[count - 1] || {};
+    const prev = sessions[count - 2] || {};
+    const crossProject = prev.project_slug && last.project_slug
+      ? prev.project_slug !== last.project_slug
+      : false;
+
+    const designs = sessions.map(e => e.design_doc || '').filter(Boolean);
+    const designTitles = sessions
+      .map(e => (e.design_doc ? (e.project_slug || 'unknown') : ''))
+      .filter(Boolean);
+
+    const signalCounts = p.signals_accumulated || {};
+    let totalSignals = 0;
+    for (const v of Object.values(signalCounts)) totalSignals += v;
+    const signalStr = Object.entries(signalCounts).map(([k,v]) => k + ':' + v).join(',');
+
+    const builderSessions = sessions.filter(e => e.mode !== 'startup').length;
+    const nudgeEligible = builderSessions >= 3 && totalSignals >= 5;
+
+    const resources = p.resources_shown || [];
+    const topics = p.topics || [];
+
+    console.log('SESSION_COUNT: ' + count);
+    console.log('TIER: ' + tier);
+    console.log('LAST_PROJECT: ' + (last.project_slug || ''));
+    console.log('LAST_ASSIGNMENT: ' + (last.assignment || ''));
+    console.log('LAST_DESIGN_TITLE: ' + (last.design_doc || ''));
+    console.log('DESIGN_COUNT: ' + designs.length);
+    console.log('DESIGN_TITLES: ' + JSON.stringify(designTitles));
+    console.log('ACCUMULATED_SIGNALS: ' + signalStr);
+    console.log('TOTAL_SIGNAL_COUNT: ' + totalSignals);
+    console.log('CROSS_PROJECT: ' + crossProject);
+    console.log('NUDGE_ELIGIBLE: ' + nudgeEligible);
+    console.log('RESOURCES_SHOWN: ' + resources.join(','));
+    console.log('RESOURCES_SHOWN_COUNT: ' + resources.length);
+    console.log('TOPICS: ' + topics.join(','));
+  "
+}
+
+# -----------------------------------------------------------------------
+# Profile: emit the full JSON
+# -----------------------------------------------------------------------
+do_profile() {
+  ensure_profile
+  cat "$PROFILE_FILE"
+}
+
+# -----------------------------------------------------------------------
+# Gap: declared vs inferred diff
+# -----------------------------------------------------------------------
+do_gap() {
+  ensure_profile
+  cat "$PROFILE_FILE" | bun -e "
+    const p = JSON.parse(await Bun.stdin.text());
+    const declared = p.declared || {};
+    const inferred = (p.inferred && p.inferred.values) || {};
+    const dims = ['scope_appetite','risk_tolerance','detail_preference','autonomy','architecture_care'];
+    const gap = {};
+    for (const d of dims) {
+      if (declared[d] !== undefined && inferred[d] !== undefined) {
+        gap[d] = +(Math.abs(declared[d] - inferred[d])).toFixed(3);
+      }
+    }
+    console.log(JSON.stringify({ declared, inferred, gap }, null, 2));
+  "
+}
+
+# -----------------------------------------------------------------------
+# Derive: recompute inferred dimensions from question-events.jsonl
+# -----------------------------------------------------------------------
+do_derive() {
+  ensure_profile
+  local EVENTS="$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+  local REGISTRY="$ROOT_DIR/scripts/question-registry.ts"
+  local SIGNALS="$ROOT_DIR/scripts/psychographic-signals.ts"
+  if [ ! -f "$REGISTRY" ] || [ ! -f "$SIGNALS" ]; then
+    echo "DERIVE: registry or signals file missing, cannot derive" >&2
+    exit 1
+  fi
+
+  cd "$ROOT_DIR"
+  PROFILE_FILE_PATH="$PROFILE_FILE" EVENTS_PATH="$EVENTS" bun -e "
+    import('./scripts/question-registry.ts').then(async (regmod) => {
+      const sigmod = await import('./scripts/psychographic-signals.ts');
+      const fs = require('fs');
+      const { QUESTIONS } = regmod;
+      const { SIGNAL_MAP, applySignal, newDimensionTotals, normalizeToDimensionValue } = sigmod;
+
+      const profilePath = process.env.PROFILE_FILE_PATH;
+      const eventsPath = process.env.EVENTS_PATH;
+      const profile = JSON.parse(fs.readFileSync(profilePath, 'utf-8'));
+
+      let lines = [];
+      if (fs.existsSync(eventsPath)) {
+        lines = fs.readFileSync(eventsPath, 'utf-8').trim().split('\n').filter(Boolean);
+      }
+
+      const totals = newDimensionTotals();
+      const skills = new Set();
+      const qids = new Set();
+      const days = new Set();
+      let count = 0;
+      for (const line of lines) {
+        let e;
+        try { e = JSON.parse(line); } catch { continue; }
+        if (!e.question_id || !e.user_choice) continue;
+        count++;
+        skills.add(e.skill);
+        qids.add(e.question_id);
+        if (e.ts) days.add(String(e.ts).slice(0,10));
+        const def = QUESTIONS[e.question_id];
+        if (def && def.signal_key) {
+          applySignal(totals, def.signal_key, e.user_choice);
+        }
+      }
+
+      const values = {};
+      for (const [dim, total] of Object.entries(totals)) {
+        values[dim] = +normalizeToDimensionValue(total).toFixed(3);
+      }
+
+      profile.inferred = {
+        values,
+        sample_size: count,
+        diversity: {
+          skills_covered: skills.size,
+          question_ids_covered: qids.size,
+          days_span: days.size,
+        },
+      };
+
+      // Recompute gap.
+      const gap = {};
+      for (const d of Object.keys(values)) {
+        if (profile.declared && profile.declared[d] !== undefined) {
+          gap[d] = +(Math.abs(profile.declared[d] - values[d])).toFixed(3);
+        }
+      }
+      profile.gap = gap;
+      profile.derived_at = new Date().toISOString();
+
+      const tmp = profilePath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
+      fs.renameSync(tmp, profilePath);
+      console.log('DERIVE: ok — ' + count + ' events, ' + skills.size + ' skills, ' + qids.size + ' questions');
+    }).catch(err => { console.error('DERIVE:', err.message); process.exit(1); });
+  "
+}
+
+# -----------------------------------------------------------------------
+# Trace: show events contributing to a dimension
+# -----------------------------------------------------------------------
+do_trace() {
+  local DIM="${1:-}"
+  if [ -z "$DIM" ]; then
+    echo "TRACE: missing dimension argument" >&2
+    exit 1
+  fi
+  local EVENTS="$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+  if [ ! -f "$EVENTS" ]; then
+    echo "TRACE: no events for this project"
+    return 0
+  fi
+  cd "$ROOT_DIR"
+  EVENTS_PATH="$EVENTS" TRACE_DIM="$DIM" bun -e "
+    import('./scripts/question-registry.ts').then(async (regmod) => {
+      const sigmod = await import('./scripts/psychographic-signals.ts');
+      const fs = require('fs');
+      const { QUESTIONS } = regmod;
+      const { SIGNAL_MAP } = sigmod;
+      const target = process.env.TRACE_DIM;
+      const lines = fs.readFileSync(process.env.EVENTS_PATH, 'utf-8').trim().split('\n').filter(Boolean);
+      const rows = [];
+      for (const line of lines) {
+        let e;
+        try { e = JSON.parse(line); } catch { continue; }
+        const def = QUESTIONS[e.question_id];
+        if (!def || !def.signal_key) continue;
+        const deltas = SIGNAL_MAP[def.signal_key]?.[e.user_choice] || [];
+        for (const d of deltas) {
+          if (d.dim === target) {
+            rows.push({ ts: e.ts, question_id: e.question_id, choice: e.user_choice, delta: d.delta });
+          }
+        }
+      }
+      if (rows.length === 0) {
+        console.log('TRACE: no events contribute to ' + target);
+      } else {
+        console.log('TRACE: ' + rows.length + ' events for ' + target);
+        for (const r of rows) {
+          console.log('  ' + (r.ts || '').slice(0,19) + '  ' + r.question_id + '  → ' + r.choice + '  (' + (r.delta > 0 ? '+' : '') + r.delta + ')');
+        }
+      }
+    });
+  "
+}
+
+# -----------------------------------------------------------------------
+# Check mismatch: flag when declared ≠ inferred by > threshold
+# -----------------------------------------------------------------------
+do_check_mismatch() {
+  ensure_profile
+  cat "$PROFILE_FILE" | bun -e "
+    const p = JSON.parse(await Bun.stdin.text());
+    const declared = p.declared || {};
+    const inferred = (p.inferred && p.inferred.values) || {};
+    const sampleSize = (p.inferred && p.inferred.sample_size) || 0;
+    const diversity = (p.inferred && p.inferred.diversity) || {};
+
+    // Require enough data before reporting mismatch.
+    if (sampleSize < 10) {
+      console.log('MISMATCH: not enough data (' + sampleSize + ' events; need 10+)');
+      process.exit(0);
+    }
+
+    const THRESHOLD = 0.3;
+    const flagged = [];
+    for (const d of Object.keys(declared)) {
+      if (inferred[d] === undefined) continue;
+      const gap = Math.abs(declared[d] - inferred[d]);
+      if (gap > THRESHOLD) {
+        flagged.push({ dim: d, declared: declared[d], inferred: inferred[d], gap: +gap.toFixed(3) });
+      }
+    }
+
+    if (flagged.length === 0) {
+      console.log('MISMATCH: none');
+    } else {
+      console.log('MISMATCH: ' + flagged.length + ' dimension(s) disagree (gap > ' + THRESHOLD + ')');
+      for (const f of flagged) {
+        console.log('  ' + f.dim + ': declared ' + f.declared + ' vs inferred ' + f.inferred + ' (gap ' + f.gap + ')');
+      }
+    }
+  "
+}
+
+# -----------------------------------------------------------------------
+# Narrative + Vibe (v2 stubs)
+# -----------------------------------------------------------------------
+do_narrative() {
+  echo "NARRATIVE: (v2 — not yet implemented; use /plan-tune profile for now)"
+}
+
+do_vibe() {
+  ensure_profile
+  cd "$ROOT_DIR"
+  cat "$PROFILE_FILE" | PROFILE_DATA="$(cat "$PROFILE_FILE")" bun -e "
+    import('./scripts/archetypes.ts').then(async (mod) => {
+      const p = JSON.parse(process.env.PROFILE_DATA);
+      const dims = (p.inferred && p.inferred.values) || {
+        scope_appetite: 0.5, risk_tolerance: 0.5, detail_preference: 0.5,
+        autonomy: 0.5, architecture_care: 0.5,
+      };
+      const arch = mod.matchArchetype(dims);
+      console.log(arch.name);
+      console.log(arch.description);
+    });
+  "
+}
+
+# -----------------------------------------------------------------------
+# Dispatch
+# -----------------------------------------------------------------------
+case "$CMD" in
+  --read) do_read ;;
+  --profile) do_profile ;;
+  --gap) do_gap ;;
+  --derive) do_derive ;;
+  --trace) do_trace "$@" ;;
+  --narrative) do_narrative ;;
+  --vibe) do_vibe ;;
+  --check-mismatch) do_check_mismatch ;;
+  --migrate) do_migrate ;;
+  --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
+  *)
+    echo "gstack-developer-profile: unknown subcommand '$CMD'" >&2
+    echo "run --help for usage" >&2
+    exit 1
+    ;;
+esac

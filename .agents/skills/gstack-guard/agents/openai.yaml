@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-guard"
-  short_description: "Full safety mode: destructive command warnings + directory-scoped edits. Combines /careful (warns before rm -rf,..."
-  default_prompt: "Use gstack-guard for this task."
-policy:
-  allow_implicit_invocation: true

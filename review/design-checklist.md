@@ -58,6 +58,8 @@ Design Review: N issues (X auto-fixable, Y need input, Z possible)
 - [file:line] Possible issue — verify with /design-review
 ```
 
+Optional: `test_stub` — skeleton test code for this finding using the project's test framework.
+
 If no issues found: `Design Review: No issues found.`
 
 If no frontend files changed: skip silently, no output.

@@ -231,6 +231,9 @@ describe('WorktreeManager', () => {
     spawnSync('git', ['worktree', 'remove', '--force', oldPath], { cwd: repo, stdio: 'pipe' });
     // Recreate the directory to simulate orphaned state
     fs.mkdirSync(oldPath, { recursive: true });
+    // Backdate mtime to simulate a stale worktree (> 1 hour old)
+    const staleTime = new Date(Date.now() - 7200_000);
+    fs.utimesSync(oldRunDir, staleTime, staleTime);
 
     // New manager should prune the old run's directory
     const newMgr = new WorktreeManager(repo);

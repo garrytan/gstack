@@ -1,0 +1,80 @@
+name: make-pdf copy-paste gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'make-pdf/**'
+      - 'browse/src/meta-commands.ts'
+      - 'browse/src/write-commands.ts'
+      - 'browse/src/commands.ts'
+      - 'browse/src/cli.ts'
+      - 'scripts/resolvers/make-pdf.ts'
+      - 'package.json'
+      - '.github/workflows/make-pdf-gate.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: make-pdf-gate-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # Windows is tolerant-mode — Xpdf / Poppler-Windows extraction
+        # differs enough from the Linux/macOS baseline that the strict
+        # exact-diff gate is unreliable. Enable once the normalized
+        # comparator proves tolerant enough (Codex round 2 #18).
+        #
+        # include:
+        #   - os: windows-latest
+        #     tolerant: true
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install poppler (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install poppler
+
+      - name: Install poppler-utils (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install chromium
+
+      - name: Build binaries
+        run: bun run build
+
+      - name: ad-hoc codesign (Apple Silicon)
+        if: matrix.os == 'macos-latest'
+        run: |
+          for bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf; do
+            codesign --remove-signature "$bin" 2>/dev/null || true
+            codesign -s - -f "$bin" || true
+          done
+
+      - name: Log toolchain versions
+        run: |
+          echo "OS: ${{ matrix.os }}"
+          bun --version
+          which pdftotext && pdftotext -v 2>&1 | head -1 || true
+
+      - name: Run make-pdf unit tests
+        run: bun test make-pdf/test/*.test.ts
+
+      - name: Run combined-features copy-paste gate (P0)
+        env:
+          BROWSE_BIN: ${{ github.workspace }}/browse/dist/browse
+        run: bun test make-pdf/test/e2e/combined-gate.test.ts

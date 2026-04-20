@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-cso"
-  short_description: "Chief Security Officer mode. Infrastructure-first security audit: secrets archaeology, dependency supply chain,..."
-  default_prompt: "Use gstack-cso for this task."
-policy:
-  allow_implicit_invocation: true

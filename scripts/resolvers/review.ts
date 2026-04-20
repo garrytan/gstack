@@ -13,8 +13,9 @@
  * Codex CLI prompts are written to temp files to prevent shell injection.
  */
 import type { TemplateContext } from './types';
+import { generateInvokeSkill } from './composition';
 
-const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, or .claude/skills/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.\\n\\n';
+const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\\n\\n';
 
 export function generateReviewDashboard(_ctx: TemplateContext): string {
   return `## Review Readiness Dashboard
@@ -53,7 +54,7 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Auto-scales by diff size. Small diffs (<50 lines) skip adversarial. Medium diffs (50–199) get cross-model adversarial. Large diffs (200+) get all 4 passes: Claude structured, Codex structured, Claude adversarial subagent, Codex adversarial. No configuration needed.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
@@ -93,6 +94,10 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
 - **plan-design-review**: \\\`status\\\`, \\\`initial_score\\\`, \\\`overall_score\\\`, \\\`unresolved\\\`, \\\`decisions_made\\\`, \\\`commit\\\`
   → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
+- **plan-devex-review**: \\\`status\\\`, \\\`initial_score\\\`, \\\`overall_score\\\`, \\\`product_type\\\`, \\\`tthw_current\\\`, \\\`tthw_target\\\`, \\\`mode\\\`, \\\`persona\\\`, \\\`competitive_tier\\\`, \\\`unresolved\\\`, \\\`commit\\\`
+  → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
+- **devex-review**: \\\`status\\\`, \\\`overall_score\\\`, \\\`product_type\\\`, \\\`tthw_measured\\\`, \\\`dimensions_tested\\\`, \\\`dimensions_inferred\\\`, \\\`boomerang\\\`, \\\`commit\\\`
+  → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
 - **codex-review**: \\\`status\\\`, \\\`gate\\\`, \\\`findings\\\`, \\\`findings_fixed\\\`
   → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
 
@@ -111,6 +116,7 @@ Produce this markdown table:
 | Codex Review | \\\`/codex review\\\` | Independent 2nd opinion | {runs} | {status} | {findings} |
 | Eng Review | \\\`/plan-eng-review\\\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \\\`/plan-design-review\\\` | UI/UX gaps | {runs} | {status} | {findings} |
+| DX Review | \\\`/plan-devex-review\\\` | Developer experience gaps | {runs} | {status} | {findings} |
 \\\`\\\`\\\`
 
 Below the table, add these lines (omit any that are empty/not applicable):
@@ -208,6 +214,9 @@ export function generateBenefitsFrom(ctx: TemplateContext): string {
   const skillList = ctx.benefitsFrom.map(s => `\`/${s}\``).join(' or ');
   const first = ctx.benefitsFrom[0];
 
+  // Reuse the INVOKE_SKILL resolver for the actual loading instructions
+  const invokeBlock = generateInvokeSkill(ctx, [first]);
+
   return `## Prerequisite Skill Offer
 
 When the design doc check above prints "No design doc found," offer the prerequisite
@@ -232,20 +241,7 @@ If they choose A:
 Say: "Running /${first} inline. Once the design doc is ready, I'll pick up
 the review right where we left off."
 
-Read the ${first} skill file from disk using the Read tool:
-\`~/.claude/skills/gstack/${first}/SKILL.md\`
-
-Follow it inline, **skipping these sections** (already handled by the parent skill):
-- Preamble (run first)
-- AskUserQuestion Format
-- Completeness Principle — Boil the Lake
-- Search Before Building
-- Contributor Mode
-- Completion Status Protocol
-- Telemetry (run last)
-
-If the Read fails (file not found), say:
-"Could not load /${first} — proceeding with standard review."
+${invokeBlock}
 
 After /${first} completes, re-run the design doc check:
 \`\`\`bash
@@ -310,7 +306,7 @@ Then add the context block and mode-appropriate instructions:
 \`\`\`bash
 TMPERR_OH=$(mktemp /tmp/codex-oh-err-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_OH"
+codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_OH"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -368,16 +364,60 @@ SECOND OPINION (Claude subagent):
 If A: revise the premise and note the revision. If B: proceed (and note that the user defended this premise with reasoning — this is a founder signal if they articulate WHY they disagree, not just dismiss).`;
 }
 
+// ─── Scope Drift Detection (shared between /review and /ship) ────────
+
+export function generateScopeDrift(ctx: TemplateContext): string {
+  const isShip = ctx.skillName === 'ship';
+  const stepNum = isShip ? '8.2' : '1.5';
+
+  return `## Step ${stepNum}: Scope Drift Detection
+
+Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
+
+1. Read \`TODOS.md\` (if it exists). Read PR description (\`gh pr view --json body --jq .body 2>/dev/null || true\`).
+   Read commit messages (\`git log origin/<base>..HEAD --oneline\`).
+   **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
+2. Identify the **stated intent** — what was this branch supposed to accomplish?
+3. Run \`git diff origin/<base>...HEAD --stat\` and compare the files changed against the stated intent.
+
+4. Evaluate with skepticism (incorporating plan completion results if available from an earlier step or adjacent section):
+
+   **SCOPE CREEP detection:**
+   - Files changed that are unrelated to the stated intent
+   - New features or refactors not mentioned in the plan
+   - "While I was in there..." changes that expand blast radius
+
+   **MISSING REQUIREMENTS detection:**
+   - Requirements from TODOS.md/PR description not addressed in the diff
+   - Test coverage gaps for stated requirements
+   - Partial implementations (started but not finished)
+
+5. Output (before the main review begins):
+   \\\`\\\`\\\`
+   Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
+   Intent: <1-line summary of what was requested>
+   Delivered: <1-line summary of what the diff actually does>
+   [If drift: list each out-of-scope change]
+   [If missing: list each unaddressed requirement]
+   \\\`\\\`\\\`
+
+6. This is **INFORMATIONAL** — does not block the review. Proceed to the next step.
+
+---`;
+}
+
+// ─── Adversarial Review (always-on) ──────────────────────────────────
+
 export function generateAdversarialStep(ctx: TemplateContext): string {
   // Codex host: strip entirely — Codex should never invoke itself
   if (ctx.host === 'codex') return '';
 
   const isShip = ctx.skillName === 'ship';
-  const stepNum = isShip ? '3.8' : '5.7';
+  const stepNum = isShip ? '11' : '5.7';
 
-  return `## Step ${stepNum}: Adversarial review (auto-scaled)
+  return `## Step ${stepNum}: Adversarial review (always-on)
 
-Adversarial review thoroughness scales automatically based on diff size. No configuration needed.
+Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size and tool availability:**
 
@@ -386,35 +426,39 @@ DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion'
 DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-# Respect old opt-out
+# Legacy opt-out — only gates Codex passes, Claude always runs
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
 echo "OLD_CFG: \${OLD_CFG:-not_set}"
 \`\`\`
 
-If \`OLD_CFG\` is \`disabled\`: skip this step silently. Continue to the next step.
+If \`OLD_CFG\` is \`disabled\`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
 
-**User override:** If the user explicitly requested a specific tier (e.g., "run all passes", "paranoid review", "full adversarial", "do all 4 passes", "thorough review"), honor that request regardless of diff size. Jump to the matching tier section.
-
-**Auto-select tier based on diff size:**
-- **Small (< 50 lines changed):** Skip adversarial review entirely. Print: "Small diff ($DIFF_TOTAL lines) — adversarial review skipped." Continue to the next step.
-- **Medium (50–199 lines changed):** Run Codex adversarial challenge (or Claude adversarial subagent if Codex unavailable). Jump to the "Medium tier" section.
-- **Large (200+ lines changed):** Run all remaining passes — Codex structured review + Claude adversarial subagent + Codex adversarial. Jump to the "Large tier" section.
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size.
 
 ---
 
-### Medium tier (50–199 lines)
+### Claude adversarial subagent (always runs)
 
-Claude's structured review already ran. Now add a **cross-model adversarial challenge**.
+Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
-**If Codex is available:** run the Codex adversarial challenge. **If Codex is NOT available:** fall back to the Claude adversarial subagent instead.
+Subagent prompt:
+"Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
 
-**Codex adversarial:**
+Present findings under an \`ADVERSARIAL REVIEW (Claude subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing."
+
+---
+
+### Codex adversarial challenge (always runs when available)
+
+If Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
 
 \`\`\`bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_ADV"
+codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -429,39 +473,21 @@ Present the full output verbatim. This is informational — it never blocks ship
 - **Timeout:** "Codex timed out after 5 minutes."
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
 
-On any Codex error, fall back to the Claude adversarial subagent automatically.
+**Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing.
 
-**Claude adversarial subagent** (fallback when Codex unavailable or errored):
-
-Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
-
-Subagent prompt:
-"Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
-
-Present findings under an \`ADVERSARIAL REVIEW (Claude subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
-
-If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing without adversarial review."
-
-**Persist the review result:**
-\`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"medium","commit":"'"$(git rev-parse --short HEAD)"'"}'
-\`\`\`
-Substitute STATUS: "clean" if no findings, "issues_found" if findings exist. SOURCE: "codex" if Codex ran, "claude" if subagent ran. If both failed, do NOT persist.
-
-**Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing (if Codex was used).
+If Codex is NOT available: "Codex CLI not found — running Claude adversarial only. Install Codex for cross-model coverage: \`npm install -g @openai/codex\`"
 
 ---
 
-### Large tier (200+ lines)
+### Codex structured review (large diffs only, 200+ lines)
 
-Claude's structured review already ran. Now run **all three remaining passes** for maximum coverage:
+If \`DIFF_TOTAL >= 200\` AND Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
 
-**1. Codex structured review (if available):**
 \`\`\`bash
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "${CODEX_BOUNDARY}Review the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR"
+codex review "${CODEX_BOUNDARY}Review the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
@@ -475,36 +501,36 @@ A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 \`\`\`
 
-If A: address the findings${isShip ? '. After fixing, re-run tests (Step 3) since code has changed' : ''}. Re-run \`codex review\` to verify.
+If A: address the findings${isShip ? '. After fixing, re-run tests (Step 5) since code has changed' : ''}. Re-run \`codex review\` to verify.
 
-Read stderr for errors (same error handling as medium tier).
+Read stderr for errors (same error handling as Codex adversarial above).
 
 After stderr: \`rm -f "$TMPERR"\`
 
-**2. Claude adversarial subagent:** Dispatch a subagent with the adversarial prompt (same prompt as medium tier). This always runs regardless of Codex availability.
-
-**3. Codex adversarial challenge (if available):** Run \`codex exec\` with the adversarial prompt (same as medium tier).
-
-If Codex is not available for steps 1 and 3, note to the user: "Codex CLI not found — large-diff review ran Claude structured + Claude adversarial (2 of 4 passes). Install Codex for full 4-pass coverage: \`npm install -g @openai/codex\`"
-
-**Persist the review result AFTER all passes complete** (not after each sub-step):
-\`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"large","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
-\`\`\`
-Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+If \`DIFF_TOTAL < 200\`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
 
 ---
 
-### Cross-model synthesis (medium and large tiers)
+### Persist the review result
+
+After all passes complete, persist:
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+\`\`\`
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+
+---
+
+### Cross-model synthesis
 
 After all passes complete, synthesize findings across all sources:
 
 \`\`\`
-ADVERSARIAL REVIEW SYNTHESIS (auto: TIER, N lines):
+ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ════════════════════════════════════════════════════════════
   High confidence (found by multiple sources): [findings agreed on by >1 pass]
   Unique to Claude structured review: [from earlier step]
-  Unique to Claude adversarial: [from subagent, if ran]
+  Unique to Claude adversarial: [from subagent]
   Unique to Codex: [from codex adversarial or code review, if ran]
   Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
 ════════════════════════════════════════════════════════════
@@ -573,7 +599,7 @@ THE PLAN:
 \`\`\`bash
 TMPERR_PV=$(mktemp /tmp/codex-planreview-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached 2>"$TMPERR_PV"
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_PV"
 \`\`\`
 
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
@@ -614,17 +640,32 @@ disagrees with the review findings from earlier sections. Flag these as:
 
 \`\`\`
 CROSS-MODEL TENSION:
-  [Topic]: Review said X. Outside voice says Y. [Your assessment of who's right.]
+  [Topic]: Review said X. Outside voice says Y. [Present both perspectives neutrally.
+  State what context you might be missing that would change the answer.]
 \`\`\`
 
-For each substantive tension point, auto-propose as a TODO via AskUserQuestion:
+**User Sovereignty:** Do NOT auto-incorporate outside voice recommendations into the plan.
+Present each tension point to the user. The user decides. Cross-model agreement is a
+strong signal — present it as such — but it is NOT permission to act. You may state
+which argument you find more compelling, but you MUST NOT apply the change without
+explicit user approval.
+
+For each substantive tension point, use AskUserQuestion:
 
 > "Cross-model disagreement on [topic]. The review found [X] but the outside voice
-> argues [Y]. Worth investigating further?"
+> argues [Y]. [One sentence on what context you might be missing.]"
+>
+> RECOMMENDATION: Choose [A or B] because [one-line reason explaining which argument
+> is more compelling and why]. Completeness: A=X/10, B=Y/10.
 
 Options:
-- A) Add to TODOS.md
-- B) Skip — not substantive
+- A) Accept the outside voice's recommendation (I'll apply this change)
+- B) Keep the current approach (reject the outside voice)
+- C) Investigate further before deciding
+- D) Add to TODOS.md for later
+
+Wait for the user's response. Do NOT default to accepting because you agree with the
+outside voice. If the user chooses B, the current approach stands — do not re-argue.
 
 If no tension points exist, note: "No cross-model tension — both reviewers agree."
 
@@ -654,8 +695,11 @@ function generatePlanFileDiscovery(): string {
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-')
 REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
-# Search common plan file locations
-for PLAN_DIR in "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
+# Compute project slug for ~/.gstack/projects/ lookup
+_PLAN_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\\([^/]*/[^/]*\\)\\.git$|\\1|;s|.*[:/]\\([^/]*/[^/]*\\)$|\\1|' | tr '/' '-' | tr -cd 'a-zA-Z0-9._-') || true
+_PLAN_SLUG="\${_PLAN_SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+# Search common plan file locations (project designs first, then personal/local)
+for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
   [ -d "$PLAN_DIR" ] || continue
   PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | head -1)
   [ -z "$PLAN" ] && PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$REPO" 2>/dev/null | head -1)
@@ -778,16 +822,71 @@ After producing the completion checklist:
 
 **Include in PR body (Step 8):** Add a \`## Plan Completion\` section with the checklist summary.`);
   } else {
-    // review mode
+    // review mode — enhanced Delivery Integrity (Release 2: Review Army)
     sections.push(`
+### Fallback Intent Sources (when no plan file found)
+
+When no plan file is detected, use these secondary intent sources:
+
+1. **Commit messages:** Run \`git log origin/<base>..HEAD --oneline\`. Use judgment to extract real intent:
+   - Commits with actionable verbs ("add", "implement", "fix", "create", "remove", "update") are intent signals
+   - Skip noise: "WIP", "tmp", "squash", "merge", "chore", "typo", "fixup"
+   - Extract the intent behind the commit, not the literal message
+2. **TODOS.md:** If it exists, check for items related to this branch or recent dates
+3. **PR description:** Run \`gh pr view --json body -q .body 2>/dev/null\` for intent context
+
+**With fallback sources:** Apply the same Cross-Reference classification (DONE/PARTIAL/NOT DONE/CHANGED) using best-effort matching. Note that fallback-sourced items are lower confidence than plan-file items.
+
+### Investigation Depth
+
+For each PARTIAL or NOT DONE item, investigate WHY:
+
+1. Check \`git log origin/<base>..HEAD --oneline\` for commits that suggest the work was started, attempted, or reverted
+2. Read the relevant code to understand what was built instead
+3. Determine the likely reason from this list:
+   - **Scope cut** — evidence of intentional removal (revert commit, removed TODO)
+   - **Context exhaustion** — work started but stopped mid-way (partial implementation, no follow-up commits)
+   - **Misunderstood requirement** — something was built but it doesn't match what the plan described
+   - **Blocked by dependency** — plan item depends on something that isn't available
+   - **Genuinely forgotten** — no evidence of any attempt
+
+Output for each discrepancy:
+\`\`\`
+DISCREPANCY: {PARTIAL|NOT_DONE} | {plan item} | {what was actually delivered}
+INVESTIGATION: {likely reason with evidence from git log / code}
+IMPACT: {HIGH|MEDIUM|LOW} — {what breaks or degrades if this stays undelivered}
+\`\`\`
+
+### Learnings Logging (plan-file discrepancies only)
+
+**Only for discrepancies sourced from plan files** (not commit messages or TODOS.md), log a learning so future sessions know this pattern occurred:
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-learnings-log '{
+  "type": "pitfall",
+  "key": "plan-delivery-gap-KEBAB_SUMMARY",
+  "insight": "Planned X but delivered Y because Z",
+  "confidence": 8,
+  "source": "observed",
+  "files": ["PLAN_FILE_PATH"]
+}'
+\`\`\`
+
+Replace KEBAB_SUMMARY with a kebab-case summary of the gap, and fill in the actual values.
+
+**Do NOT log learnings from commit-message-derived or TODOS.md-derived discrepancies.** These are informational in the review output but too noisy for durable memory.
+
 ### Integration with Scope Drift Detection
 
 The plan completion results augment the existing Scope Drift Detection. If a plan file is found:
 
 - **NOT DONE items** become additional evidence for **MISSING REQUIREMENTS** in the scope drift report.
 - **Items in the diff that don't match any plan item** become evidence for **SCOPE CREEP** detection.
+- **HIGH-impact discrepancies** trigger AskUserQuestion:
+  - Show the investigation findings
+  - Options: A) Stop and implement missing items, B) Ship anyway + create P1 TODOs, C) Intentionally dropped
 
-This is **INFORMATIONAL** — does not block the review (consistent with existing scope drift behavior).
+This is **INFORMATIONAL** unless HIGH-impact discrepancies are found (then it gates via AskUserQuestion).
 
 Update the scope drift output to include plan file context:
 
@@ -797,11 +896,11 @@ Intent: <from plan file — 1-line summary>
 Plan: <plan file path>
 Delivered: <1-line summary of what the diff actually does>
 Plan items: N DONE, M PARTIAL, K NOT DONE
-[If NOT DONE: list each missing item]
+[If NOT DONE: list each missing item with investigation]
 [If scope creep: list each out-of-scope change not in the plan]
 \`\`\`
 
-**No plan file found:** Fall back to existing scope drift behavior (check TODOS.md and PR description only).`);
+**No plan file found:** Use commit messages and TODOS.md as fallback sources (see above). If no intent sources at all, skip with: "No intent sources detected — skipping completion audit."`);
   }
 
   return sections.join('\n');
@@ -818,16 +917,16 @@ export function generatePlanCompletionAuditReview(_ctx: TemplateContext): string
 // ─── Plan Verification Execution ──────────────────────────────────────
 
 export function generatePlanVerificationExec(_ctx: TemplateContext): string {
-  return `## Step 3.47: Plan Verification
+  return `## Step 8.1: Plan Verification
 
 Automatically verify the plan's testing/verification steps using the \`/qa-only\` skill.
 
 ### 1. Check for verification section
 
-Using the plan file already discovered in Step 3.45, look for a verification section. Match any of these headings: \`## Verification\`, \`## Test plan\`, \`## Testing\`, \`## How to test\`, \`## Manual testing\`, or any section with verification-flavored items (URLs to visit, things to check visually, interactions to test).
+Using the plan file already discovered in Step 8, look for a verification section. Match any of these headings: \`## Verification\`, \`## Test plan\`, \`## Testing\`, \`## How to test\`, \`## Manual testing\`, or any section with verification-flavored items (URLs to visit, things to check visually, interactions to test).
 
 **If no verification section found:** Skip with "No verification steps found in plan — skipping auto-verification."
-**If no plan file was found in Step 3.45:** Skip (already handled).
+**If no plan file was found in Step 8:** Skip (already handled).
 
 ### 2. Check for running dev server
 
@@ -872,7 +971,51 @@ Follow the /qa-only workflow with these modifications:
 
 ### 5. Include in PR body
 
-Add a \`## Verification Results\` section to the PR body (Step 8):
+Add a \`## Verification Results\` section to the PR body (Step 19):
 - If verification ran: summary of results (N PASS, M FAIL, K SKIPPED)
 - If skipped: reason for skipping (no plan, no server, no verification section)`;
+}
+
+// ─── Cross-Review Finding Dedup ──────────────────────────────────────
+
+export function generateCrossReviewDedup(ctx: TemplateContext): string {
+  const isShip = ctx.skillName === 'ship';
+  const stepNum = isShip ? '9.3' : '5.0';
+  const findingsRef = isShip
+    ? 'the checklist pass (Step 9) and specialist review (Step 9.1-9.2)'
+    : 'Step 4 critical pass and Step 4.5-4.6 specialists';
+
+  return `### Step ${stepNum}: Cross-review finding dedup
+
+Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-read
+\`\`\`
+
+Parse the output: only lines BEFORE \`---CONFIG---\` are JSONL entries (the output also contains \`---CONFIG---\` and \`---HEAD---\` footer sections that are not JSONL — ignore those).
+
+For each JSONL entry that has a \`findings\` array:
+1. Collect all fingerprints where \`action: "skipped"\`
+2. Note the \`commit\` field from that entry
+
+If skipped fingerprints exist, get the list of files changed since that review:
+
+\`\`\`bash
+git diff --name-only <prior-review-commit> HEAD
+\`\`\`
+
+For each current finding (from both ${findingsRef}), check:
+- Does its fingerprint match a previously skipped finding?
+- Is the finding's file path NOT in the changed-files set?
+
+If both conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+
+Print: "Suppressed N findings from prior reviews (previously skipped by user)"
+
+**Only suppress \`skipped\` findings — never \`fixed\` or \`auto-fixed\`** (those might regress and should be re-checked).
+
+If no prior reviews exist or none have a \`findings\` array, skip this step silently.
+
+Output a summary header: \`Pre-Landing Review: N issues (X critical, Y informational)\``;
 }

@@ -286,18 +286,21 @@ describeIfSelected('Base branch detection', ['review-base-branch', 'ship-base-br
     run('git', ['add', 'app.rb'], dir);
     run('git', ['commit', '-m', 'feat: add hello method'], dir);
 
-    // Copy review skill files
-    fs.copyFileSync(path.join(ROOT, 'review', 'SKILL.md'), path.join(dir, 'review-SKILL.md'));
-    fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(dir, 'review-checklist.md'));
-    fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(dir, 'review-greptile-triage.md'));
+    // Extract only Step 0 (base branch detection) + minimal review instructions
+    // Full SKILL.md is ~1500 lines — copying it causes the agent to spend all turns reading
+    const full = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const step0Start = full.indexOf('## Step 0: Detect platform and base branch');
+    const step1Start = full.indexOf('## Step 1: Check branch');
+    const step1End = full.indexOf('---', step1Start + 10);
+    const extracted = full.slice(step0Start, step1End > step1Start ? step1End : step1Start + 500);
+    fs.writeFileSync(path.join(dir, 'review-SKILL.md'), extracted);
 
     const result = await runSkillTest({
       prompt: `You are in a git repo on a feature branch with changes.
-Read review-SKILL.md for the review workflow instructions.
-Also read review-checklist.md and apply it.
+Read review-SKILL.md for the base branch detection instructions.
 
 IMPORTANT: Follow Step 0 to detect the base branch. Since there is no remote, gh commands will fail — fall back to main.
-Then run the review against the detected base branch.
+Then run git diff against the detected base branch and write a brief review.
 Write your findings to ${dir}/review-output.md`,
       workingDirectory: dir,
       maxTurns: 15,

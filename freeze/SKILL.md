@@ -6,7 +6,11 @@ description: |
   Write outside the allowed path. Use when debugging to prevent accidentally
   "fixing" unrelated code, or when you want to scope changes to one module.
   Use when asked to "freeze", "restrict edits", "only edit this folder",
-  or "lock down edits".
+  or "lock down edits". (gstack)
+triggers:
+  - freeze edits to directory
+  - lock editing scope
+  - restrict file changes
 allowed-tools:
   - Bash
   - Read

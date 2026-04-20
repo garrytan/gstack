@@ -43,9 +43,15 @@ Deno.serve(async (req) => {
       return new Response(`Batch too large (max ${MAX_BATCH_SIZE})`, { status: 400 });
     }
 
+    // Use the anon key, not the service role key.
+    // The service role key bypasses Row Level Security (RLS) and grants full
+    // unrestricted database access — wildly over-privileged for a public
+    // telemetry endpoint that only needs INSERT on two tables.
+    // The anon key + properly configured RLS INSERT policies is correct.
+    // See: https://supabase.com/docs/guides/database/postgres/row-level-security
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
     );
 
     // Validate and transform events

@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-benchmark"
-  short_description: "Performance regression detection using the browse daemon. Establishes baselines for page load times, Core Web..."
-  default_prompt: "Use gstack-benchmark for this task."
-policy:
-  allow_implicit_invocation: true

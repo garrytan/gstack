@@ -103,7 +103,16 @@ function renderRefPanel(refs) {
   for (const ref of refs.slice(0, 30)) { // Show max 30 in panel
     const row = document.createElement('div');
     row.className = 'gstack-ref-panel-row';
-    row.innerHTML = `<span class="gstack-ref-panel-id">${ref.ref}</span> <span class="gstack-ref-panel-role">${ref.role}</span> <span class="gstack-ref-panel-name">"${ref.name}"</span>`;
+    const idSpan = document.createElement('span');
+    idSpan.className = 'gstack-ref-panel-id';
+    idSpan.textContent = ref.ref;
+    const roleSpan = document.createElement('span');
+    roleSpan.className = 'gstack-ref-panel-role';
+    roleSpan.textContent = ref.role;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'gstack-ref-panel-name';
+    nameSpan.textContent = '"' + ref.name + '"';
+    row.append(idSpan, document.createTextNode(' '), roleSpan, document.createTextNode(' '), nameSpan);
     list.appendChild(row);
   }
   if (refs.length > 30) {
@@ -116,8 +125,227 @@ function renderRefPanel(refs) {
   container.appendChild(panel);
 }
 
+// ─── Basic Inspector Picker (CSP fallback) ──────────────────
+// When inspector.js can't be injected (CSP, chrome:// pages), content.js
+// provides a basic element picker using getComputedStyle + CSSOM.
+
+let basicPickerActive = false;
+let basicPickerOverlay = null;
+let basicPickerLastEl = null;
+let basicPickerSavedOutline = '';
+
+const BASIC_KEY_PROPERTIES = [
+  'display', 'position', 'top', 'right', 'bottom', 'left',
+  'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+  'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+  'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'color', 'background-color', 'background-image',
+  'font-family', 'font-size', 'font-weight', 'line-height',
+  'text-align', 'text-decoration',
+  'overflow', 'overflow-x', 'overflow-y',
+  'opacity', 'z-index',
+  'flex-direction', 'justify-content', 'align-items', 'flex-wrap', 'gap',
+  'grid-template-columns', 'grid-template-rows',
+  'box-shadow', 'border-radius', 'transform',
+];
+
+function captureBasicData(el) {
+  const computed = getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+
+  const computedStyles = {};
+  for (const prop of BASIC_KEY_PROPERTIES) {
+    computedStyles[prop] = computed.getPropertyValue(prop);
+  }
+
+  const boxModel = {
+    content: { width: rect.width, height: rect.height },
+    padding: {
+      top: parseFloat(computed.paddingTop) || 0,
+      right: parseFloat(computed.paddingRight) || 0,
+      bottom: parseFloat(computed.paddingBottom) || 0,
+      left: parseFloat(computed.paddingLeft) || 0,
+    },
+    border: {
+      top: parseFloat(computed.borderTopWidth) || 0,
+      right: parseFloat(computed.borderRightWidth) || 0,
+      bottom: parseFloat(computed.borderBottomWidth) || 0,
+      left: parseFloat(computed.borderLeftWidth) || 0,
+    },
+    margin: {
+      top: parseFloat(computed.marginTop) || 0,
+      right: parseFloat(computed.marginRight) || 0,
+      bottom: parseFloat(computed.marginBottom) || 0,
+      left: parseFloat(computed.marginLeft) || 0,
+    },
+  };
+
+  // Matched CSS rules via CSSOM (same-origin only)
+  const matchedRules = [];
+  try {
+    for (const sheet of document.styleSheets) {
+      try {
+        const rules = sheet.cssRules || sheet.rules;
+        if (!rules) continue;
+        for (const rule of rules) {
+          if (rule.type !== CSSRule.STYLE_RULE) continue;
+          try {
+            if (el.matches(rule.selectorText)) {
+              const properties = [];
+              for (let i = 0; i < rule.style.length; i++) {
+                const prop = rule.style[i];
+                properties.push({
+                  name: prop,
+                  value: rule.style.getPropertyValue(prop),
+                  priority: rule.style.getPropertyPriority(prop),
+                });
+              }
+              matchedRules.push({
+                selector: rule.selectorText,
+                properties,
+                source: sheet.href || 'inline',
+              });
+            }
+          } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
+        }
+      } catch (e) { if (!(e instanceof DOMException)) throw e; }
+    }
+  } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
+
+  return { computedStyles, boxModel, matchedRules };
+}
+
+function basicBuildSelector(el) {
+  if (el.id) {
+    const sel = '#' + CSS.escape(el.id);
+    try { if (document.querySelectorAll(sel).length === 1) return sel; } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
+  }
+  const parts = [];
+  let current = el;
+  while (current && current !== document.body && current !== document.documentElement) {
+    let part = current.tagName.toLowerCase();
+    if (current.id) {
+      parts.unshift('#' + CSS.escape(current.id));
+      break;
+    }
+    if (current.className && typeof current.className === 'string') {
+      const classes = current.className.trim().split(/\s+/).filter(c => c.length > 0);
+      if (classes.length > 0) part += '.' + classes.map(c => CSS.escape(c)).join('.');
+    }
+    const parent = current.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children).filter(s => s.tagName === current.tagName);
+      if (siblings.length > 1) {
+        part += `:nth-child(${Array.from(parent.children).indexOf(current) + 1})`;
+      }
+    }
+    parts.unshift(part);
+    current = current.parentElement;
+  }
+  return parts.join(' > ');
+}
+
+function basicPickerHighlight(el) {
+  // Restore previous element
+  if (basicPickerLastEl && basicPickerLastEl !== el) {
+    basicPickerLastEl.style.outline = basicPickerSavedOutline;
+  }
+  if (el) {
+    basicPickerSavedOutline = el.style.outline;
+    el.style.outline = '2px solid rgba(59, 130, 246, 0.6)';
+    basicPickerLastEl = el;
+  }
+}
+
+function basicPickerCleanup() {
+  if (basicPickerLastEl) {
+    basicPickerLastEl.style.outline = basicPickerSavedOutline;
+    basicPickerLastEl = null;
+    basicPickerSavedOutline = '';
+  }
+  basicPickerActive = false;
+  document.removeEventListener('mousemove', onBasicMouseMove, true);
+  document.removeEventListener('click', onBasicClick, true);
+  document.removeEventListener('keydown', onBasicKeydown, true);
+}
+
+function onBasicMouseMove(e) {
+  if (!basicPickerActive) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  if (el && el !== basicPickerLastEl) {
+    basicPickerHighlight(el);
+  }
+}
+
+function onBasicClick(e) {
+  if (!basicPickerActive) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const el = e.target;
+
+  const basicData = captureBasicData(el);
+  const selector = basicBuildSelector(el);
+  const tagName = el.tagName.toLowerCase();
+  const id = el.id || null;
+  const classes = el.className && typeof el.className === 'string'
+    ? el.className.trim().split(/\s+/).filter(c => c.length > 0)
+    : [];
+
+  basicPickerCleanup();
+
+  chrome.runtime.sendMessage({
+    type: 'inspectResult',
+    data: {
+      selector,
+      tagName,
+      id,
+      classes,
+      basicData,
+      mode: 'basic',
+      boxModel: basicData.boxModel,
+      computedStyles: basicData.computedStyles,
+      matchedRules: basicData.matchedRules,
+    },
+  });
+}
+
+function onBasicKeydown(e) {
+  if (e.key === 'Escape') {
+    basicPickerCleanup();
+    chrome.runtime.sendMessage({ type: 'pickerCancelled' });
+  }
+}
+
+function startBasicPicker() {
+  basicPickerActive = true;
+  document.addEventListener('mousemove', onBasicMouseMove, true);
+  document.addEventListener('click', onBasicClick, true);
+  document.addEventListener('keydown', onBasicKeydown, true);
+}
+
+// Do NOT dispatch gstack-extension-ready here — the extension being loaded
+// does not mean the sidebar is open. The welcome page arrow hint should only
+// hide when the sidebar is actually open. We dispatch it when we receive
+// a 'sidebarOpened' message from background.js.
+
 // Listen for messages from background worker
 chrome.runtime.onMessage.addListener((msg) => {
+  // Sidebar actually opened — now hide the welcome page arrow hint
+  if (msg.type === 'sidebarOpened') {
+    document.dispatchEvent(new CustomEvent('gstack-extension-ready'));
+    return;
+  }
+  if (msg.type === 'startBasicPicker') {
+    startBasicPicker();
+    return;
+  }
+  if (msg.type === 'stopBasicPicker') {
+    basicPickerCleanup();
+    return;
+  }
   if (msg.type === 'refs' && msg.data) {
     const refs = msg.data.refs || [];
     const mode = msg.data.mode;

@@ -325,62 +325,6 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
     try { fs.rmSync(nonGitDir, { recursive: true, force: true }); } catch {}
   }, 60_000);
 
-  testIfSelected('contributor-mode', async () => {
-    const contribDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-contrib-'));
-    const logsDir = path.join(contribDir, 'contributor-logs');
-    fs.mkdirSync(logsDir, { recursive: true });
-
-    // Extract contributor mode instructions from generated SKILL.md
-    const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const contribStart = skillMd.indexOf('## Contributor Mode');
-    const contribEnd = skillMd.indexOf('\n## ', contribStart + 1);
-    const contribBlock = skillMd.slice(contribStart, contribEnd > 0 ? contribEnd : undefined);
-
-    const result = await runSkillTest({
-      prompt: `You are in contributor mode (_CONTRIB=true).
-
-${contribBlock}
-
-OVERRIDE: Write contributor logs to ${logsDir}/ instead of ~/.gstack/contributor-logs/
-
-Now try this browse command (it will fail — there is no binary at this path):
-/nonexistent/path/browse goto https://example.com
-
-This is a gstack issue (the browse binary is missing/misconfigured).
-File a contributor report about this issue. Then tell me what you filed.`,
-      workingDirectory: contribDir,
-      maxTurns: 8,
-      timeout: 60_000,
-      testName: 'contributor-mode',
-      runId,
-    });
-
-    logCost('contributor mode', result);
-    // Override passed: this test intentionally triggers a browse error (nonexistent binary)
-    // so browseErrors will be non-empty — that's expected, not a failure
-    recordE2E('contributor mode report', 'Skill E2E tests', result, {
-      passed: result.exitReason === 'success',
-    });
-
-    // Verify a contributor log was created with expected format
-    const logFiles = fs.readdirSync(logsDir).filter(f => f.endsWith('.md'));
-    expect(logFiles.length).toBeGreaterThan(0);
-
-    // Verify new reflection-based format
-    const logContent = fs.readFileSync(path.join(logsDir, logFiles[0]), 'utf-8');
-    expect(logContent).toContain('Hey gstack team');
-    expect(logContent).toContain('What I was trying to do');
-    expect(logContent).toContain('What happened instead');
-    expect(logContent).toMatch(/rating/i);
-    // Verify report has repro steps (agent may use "Steps to reproduce", "Repro Steps", etc.)
-    expect(logContent).toMatch(/repro|steps to reproduce|how to reproduce/i);
-    // Verify report has date/version footer (agent may format differently)
-    expect(logContent).toMatch(/date.*2026|2026.*date/i);
-
-    // Clean up
-    try { fs.rmSync(contribDir, { recursive: true, force: true }); } catch {}
-  }, 90_000);
-
   testIfSelected('session-awareness', async () => {
     const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-session-'));
 
@@ -3311,6 +3255,102 @@ Write your summary to ${benefitsDir}/benefits-summary.md`,
       expect(summary).toMatch(/design doc|no design/i);
     }
   }, 180_000);
+});
+
+// --- Ship idempotency (#649) ---
+describeIfSelected('Ship idempotency', ['ship-idempotency'], () => {
+  let idempDir: string;
+  const gitRun = (args: string[], cwd: string) =>
+    spawnSync('git', args, { cwd, stdio: 'pipe', timeout: 5000 });
+
+  beforeAll(() => {
+    idempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-ship-idemp-'));
+
+    // Create git repo with initial commit on main
+    gitRun(['init', '-b', 'main'], idempDir);
+    gitRun(['config', 'user.email', 'test@test.com'], idempDir);
+    gitRun(['config', 'user.name', 'Test'], idempDir);
+
+    fs.writeFileSync(path.join(idempDir, 'app.ts'), 'console.log("v1");\n');
+    fs.writeFileSync(path.join(idempDir, 'VERSION'), '0.1.0.0\n');
+    fs.writeFileSync(path.join(idempDir, 'CHANGELOG.md'), '# Changelog\n');
+    gitRun(['add', '.'], idempDir);
+    gitRun(['commit', '-m', 'initial'], idempDir);
+
+    // Create feature branch with changes
+    gitRun(['checkout', '-b', 'feat/my-feature'], idempDir);
+    fs.writeFileSync(path.join(idempDir, 'app.ts'), 'console.log("v2");\n');
+    gitRun(['add', 'app.ts'], idempDir);
+    gitRun(['commit', '-m', 'feat: update to v2'], idempDir);
+
+    // Simulate prior /ship run: bump VERSION and write CHANGELOG entry
+    fs.writeFileSync(path.join(idempDir, 'VERSION'), '0.2.0.0\n');
+    fs.writeFileSync(path.join(idempDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [0.2.0.0] — 2026-03-30\n\n- Updated app to v2\n');
+    gitRun(['add', 'VERSION', 'CHANGELOG.md'], idempDir);
+    gitRun(['commit', '-m', 'chore: bump version to 0.2.0.0'], idempDir);
+
+    // Extract just the idempotency-relevant sections from ship/SKILL.md
+    const full = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const step4Start = full.indexOf('## Step 4: Version bump');
+    const step4End = full.indexOf('\n---\n', step4Start);
+    const step7Start = full.indexOf('## Step 7: Push');
+    const step8End = full.indexOf('## Step 8.5');
+    const extracted = [
+      full.slice(step4Start, step4End > step4Start ? step4End : step4Start + 500),
+      full.slice(step7Start, step8End > step7Start ? step8End : step7Start + 500),
+    ].join('\n\n---\n\n');
+    fs.writeFileSync(path.join(idempDir, 'ship-steps.md'), extracted);
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(idempDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testIfSelected('ship-idempotency', async () => {
+    const result = await runSkillTest({
+      prompt: `You are in a git repo on branch feat/my-feature. A prior /ship run already:
+- Bumped VERSION from 0.1.0.0 to 0.2.0.0
+- Wrote a CHANGELOG entry for 0.2.0.0
+- But the push/PR step failed
+
+Read ship-steps.md for the idempotency check instructions from the ship workflow.
+
+Run ONLY the idempotency checks described in Steps 4 and 7. Do NOT actually push or create PRs (there is no remote).
+
+After running the checks, write a report to ${idempDir}/idemp-result.md containing:
+- Whether VERSION was detected as ALREADY_BUMPED or not
+- Whether the push was detected as ALREADY_PUSHED or PUSH_NEEDED
+- The current VERSION value (should still be 0.2.0.0)
+
+Do NOT modify VERSION or CHANGELOG. Only run the detection checks and report.`,
+      workingDirectory: idempDir,
+      maxTurns: 10,
+      timeout: 60_000,
+      testName: 'ship-idempotency',
+      runId,
+    });
+
+    logCost('/ship idempotency', result);
+    recordE2E('/ship idempotency guard', 'Ship idempotency', result);
+    expect(result.exitReason).toBe('success');
+
+    // Verify VERSION was NOT modified
+    const version = fs.readFileSync(path.join(idempDir, 'VERSION'), 'utf-8').trim();
+    expect(version).toBe('0.2.0.0');
+
+    // Verify CHANGELOG was NOT duplicated
+    const changelog = fs.readFileSync(path.join(idempDir, 'CHANGELOG.md'), 'utf-8');
+    const versionEntries = (changelog.match(/## \[0\.2\.0\.0\]/g) || []).length;
+    expect(versionEntries).toBe(1);
+
+    // Check the result report if it was written
+    const reportPath = path.join(idempDir, 'idemp-result.md');
+    if (fs.existsSync(reportPath)) {
+      const report = fs.readFileSync(reportPath, 'utf-8');
+      expect(report.toLowerCase()).toContain('already_bumped');
+    }
+  }, 120_000);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

@@ -16,6 +16,9 @@ if [ -z "$FILES" ]; then
   echo "SCOPE_TESTS=false"
   echo "SCOPE_DOCS=false"
   echo "SCOPE_CONFIG=false"
+  echo "SCOPE_MIGRATIONS=false"
+  echo "SCOPE_API=false"
+  echo "SCOPE_AUTH=false"
   exit 0
 fi
 
@@ -25,6 +28,9 @@ PROMPTS=false
 TESTS=false
 DOCS=false
 CONFIG=false
+MIGRATIONS=false
+API=false
+AUTH=false
 
 while IFS= read -r f; do
   case "$f" in
@@ -57,6 +63,16 @@ while IFS= read -r f; do
     .github/*) CONFIG=true ;;
     requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) CONFIG=true ;;
 
+    # Migrations: database migration files
+    db/migrate/*|*/migrations/*|alembic/*|prisma/migrations/*) MIGRATIONS=true ;;
+
+    # API: routes, controllers, endpoints, GraphQL/OpenAPI schemas
+    *controller*|*route*|*endpoint*|*/api/*) API=true ;;
+    *.graphql|*.gql|openapi.*|swagger.*) API=true ;;
+
+    # Auth: authentication, authorization, sessions, permissions
+    *auth*|*session*|*jwt*|*oauth*|*permission*|*role*) AUTH=true ;;
+
     # Backend: everything else that's code (excluding views/components already matched)
     *.rb|*.py|*.go|*.rs|*.java|*.php|*.ex|*.exs) BACKEND=true ;;
     *.ts|*.js) BACKEND=true ;;  # Non-component TS/JS is backend
@@ -69,3 +85,6 @@ echo "SCOPE_PROMPTS=$PROMPTS"
 echo "SCOPE_TESTS=$TESTS"
 echo "SCOPE_DOCS=$DOCS"
 echo "SCOPE_CONFIG=$CONFIG"
+echo "SCOPE_MIGRATIONS=$MIGRATIONS"
+echo "SCOPE_API=$API"
+echo "SCOPE_AUTH=$AUTH"

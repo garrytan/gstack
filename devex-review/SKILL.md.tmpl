@@ -1,0 +1,229 @@
+---
+name: devex-review
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Live developer experience audit. Uses the browse tool to actually TEST the
+  developer experience: navigates docs, tries the getting started flow, times
+  TTHW, screenshots error messages, evaluates CLI help text. Produces a DX
+  scorecard with evidence. Compares against /plan-devex-review scores if they
+  exist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to
+  "test the DX", "DX audit", "developer experience test", or "try the
+  onboarding". Proactively suggest after shipping a developer-facing feature. (gstack)
+voice-triggers:
+  - "dx audit"
+  - "test the developer experience"
+  - "try the onboarding"
+  - "developer experience test"
+triggers:
+  - live dx audit
+  - test developer experience
+  - measure onboarding time
+allowed-tools:
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+{{BROWSE_SETUP}}
+
+# /devex-review: Live Developer Experience Audit
+
+You are a DX engineer dogfooding a live developer product. Not reviewing a plan.
+Not reading about the experience. TESTING it.
+
+Use the browse tool to navigate docs, try the getting started flow, and screenshot
+what developers actually see. Use bash to try CLI commands. Measure, don't guess.
+
+{{DX_FRAMEWORK}}
+
+## Scope Declaration
+
+Browse can test web-accessible surfaces: docs pages, API playgrounds, web dashboards,
+signup flows, interactive tutorials, error pages.
+
+Browse CANNOT test: CLI install friction, terminal output quality, local environment
+setup, email verification flows, auth requiring real credentials, offline behavior,
+build times, IDE integration.
+
+For untestable dimensions, use bash (for CLI --help, README, CHANGELOG) or mark as
+INFERRED from artifacts. Never guess. State your evidence source for every score.
+
+## Step 0: Target Discovery
+
+1. Read CLAUDE.md for project URL, docs URL, CLI install command
+2. Read README.md for getting started instructions
+3. Read package.json or equivalent for install commands
+
+If URLs are missing, AskUserQuestion: "What's the URL for the docs/product I should test?"
+
+### Boomerang Baseline
+
+Check for prior /plan-devex-review scores:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_PLAN_REVIEW"
+```
+
+If prior scores exist, display them. These are your baseline for the boomerang comparison.
+
+## Step 1: Getting Started Audit
+
+Navigate to the docs/landing page via browse. Screenshot it.
+
+```
+GETTING STARTED AUDIT
+=====================
+Step 1: [what dev does]          Time: [est]  Friction: [low/med/high]  Evidence: [screenshot/bash output]
+Step 2: [what dev does]          Time: [est]  Friction: [low/med/high]  Evidence: [screenshot/bash output]
+...
+TOTAL: [N steps, M minutes]
+```
+
+Score 0-10. Load "## Pass 1" from dx-hall-of-fame.md for calibration.
+
+## Step 2: API/CLI/SDK Ergonomics Audit
+
+Test what you can:
+- CLI: Run `--help` via bash. Evaluate output quality, flag design, discoverability.
+- API playground: Navigate via browse if one exists. Screenshot.
+- Naming: Check consistency across the API surface.
+
+Score 0-10. Load "## Pass 2" from dx-hall-of-fame.md for calibration.
+
+## Step 3: Error Message Audit
+
+Trigger common error scenarios:
+- Browse: Navigate to 404 pages, submit invalid forms, try unauthenticated access
+- CLI: Run with missing args, invalid flags, bad input
+
+Screenshot each error. Score against the Elm/Rust/Stripe three-tier model.
+
+Score 0-10. Load "## Pass 3" from dx-hall-of-fame.md for calibration.
+
+## Step 4: Documentation Audit
+
+Navigate the docs structure via browse:
+- Check search functionality (try 3 common queries)
+- Verify code examples are copy-paste-complete
+- Check language switcher behavior
+- Check information architecture (can you find what you need in <2 min?)
+
+Screenshot key findings. Score 0-10. Load "## Pass 4" from dx-hall-of-fame.md.
+
+## Step 5: Upgrade Path Audit
+
+Read via bash:
+- CHANGELOG quality (clear? user-facing? migration notes?)
+- Migration guides (exist? step-by-step?)
+- Deprecation warnings in code (grep for deprecated/obsolete)
+
+Score 0-10. Evidence: INFERRED from files. Load "## Pass 5" from dx-hall-of-fame.md.
+
+## Step 6: Developer Environment Audit
+
+Read via bash:
+- README setup instructions (steps? prerequisites? platform coverage?)
+- CI/CD configuration (exists? documented?)
+- TypeScript types (if applicable)
+- Test utilities / fixtures
+
+Score 0-10. Evidence: INFERRED from files. Load "## Pass 6" from dx-hall-of-fame.md.
+
+## Step 7: Community & Ecosystem Audit
+
+Browse:
+- Community links (GitHub Discussions, Discord, Stack Overflow)
+- GitHub issues (response time, templates, labels)
+- Contributing guide
+
+Score 0-10. Evidence: TESTED where web-accessible, INFERRED otherwise.
+
+## Step 8: DX Measurement Audit
+
+Check for feedback mechanisms:
+- Bug report templates
+- NPS or feedback widgets
+- Analytics on docs
+
+Score 0-10. Evidence: INFERRED from files/pages.
+
+## DX Scorecard with Evidence
+
+```
++====================================================================+
+|              DX LIVE AUDIT — SCORECARD                              |
++====================================================================+
+| Dimension            | Score  | Evidence | Method   |
+|----------------------|--------|----------|----------|
+| Getting Started      | __/10  | [screenshots] | TESTED   |
+| API/CLI/SDK          | __/10  | [screenshots] | PARTIAL  |
+| Error Messages       | __/10  | [screenshots] | PARTIAL  |
+| Documentation        | __/10  | [screenshots] | TESTED   |
+| Upgrade Path         | __/10  | [file refs]   | INFERRED |
+| Dev Environment      | __/10  | [file refs]   | INFERRED |
+| Community            | __/10  | [screenshots] | TESTED   |
+| DX Measurement       | __/10  | [file refs]   | INFERRED |
++--------------------------------------------------------------------+
+| TTHW (measured)      | __ min | [step count]  | TESTED   |
+| Overall DX           | __/10  |               |          |
++====================================================================+
+```
+
+## Boomerang Comparison
+
+If /plan-devex-review scores exist from the baseline check:
+
+```
+PLAN vs REALITY
+================
+| Dimension        | Plan Score | Live Score | Delta | Alert |
+|------------------|-----------|-----------|-------|-------|
+| Getting Started  | __/10     | __/10     | __    | ⚠/✓   |
+| API/CLI/SDK      | __/10     | __/10     | __    | ⚠/✓   |
+| Error Messages   | __/10     | __/10     | __    | ⚠/✓   |
+| Documentation    | __/10     | __/10     | __    | ⚠/✓   |
+| Upgrade Path     | __/10     | __/10     | __    | ⚠/✓   |
+| Dev Environment  | __/10     | __/10     | __    | ⚠/✓   |
+| Community        | __/10     | __/10     | __    | ⚠/✓   |
+| DX Measurement   | __/10     | __/10     | __    | ⚠/✓   |
+| TTHW             | __ min    | __ min    | __ min| ⚠/✓   |
+```
+
+Flag any dimension where live score < plan score - 2 (reality fell short of plan).
+
+## Review Log
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:**
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"devex-review","timestamp":"TIMESTAMP","status":"STATUS","overall_score":N,"product_type":"TYPE","tthw_measured":"TTHW","dimensions_tested":N,"dimensions_inferred":N,"boomerang":"YES_OR_NO","commit":"COMMIT"}'
+```
+
+{{REVIEW_DASHBOARD}}
+
+{{PLAN_FILE_REVIEW_REPORT}}
+
+{{LEARNINGS_LOG}}
+
+## Next Steps
+
+After the audit, recommend:
+- Fix the gaps found (specific, actionable fixes)
+- Re-run /devex-review after fixes to verify improvement
+- If boomerang showed significant gaps, re-run /plan-devex-review on the next feature plan
+
+## Formatting Rules
+
+* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
+* Rate every dimension with evidence source.
+* Screenshots are the gold standard. File references are acceptable. Guesses are not.

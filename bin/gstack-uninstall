@@ -10,6 +10,7 @@
 #   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
 #   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
+#   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
@@ -63,6 +64,7 @@ if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
+  [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
@@ -169,6 +171,16 @@ if [ -d "$CODEX_SKILLS" ]; then
   done
 fi
 
+# ─── Remove Factory Droid skills ────────────────────────────
+FACTORY_SKILLS="$HOME/.factory/skills"
+if [ -d "$FACTORY_SKILLS" ]; then
+  for _ITEM in "$FACTORY_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("factory/$(basename "$_ITEM")")
+  done
+fi
+
 # ─── Remove Kiro skills ─────────────────────────────────────
 KIRO_SKILLS="$HOME/.kiro/skills"
 if [ -d "$KIRO_SKILLS" ]; then
@@ -191,6 +203,18 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.agents/skills" ]; then
   rmdir "$_GIT_ROOT/.agents" 2>/dev/null || true
 fi
 
+# ─── Remove per-project .factory/ sidecar ────────────────────
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.factory/skills" ]; then
+  for _ITEM in "$_GIT_ROOT/.factory/skills"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("factory/$(basename "$_ITEM")")
+  done
+
+  rmdir "$_GIT_ROOT/.factory/skills" 2>/dev/null || true
+  rmdir "$_GIT_ROOT/.factory" 2>/dev/null || true
+fi
+
 # ─── Remove per-project state ───────────────────────────────
 if [ -n "$_GIT_ROOT" ]; then
   if [ -d "$_GIT_ROOT/.gstack" ]; then
@@ -201,6 +225,13 @@ if [ -n "$_GIT_ROOT" ]; then
     rm -rf "$_GIT_ROOT/.gstack-worktrees"
     REMOVED+=("$_GIT_ROOT/.gstack-worktrees/")
   fi
+fi
+
+# ─── Remove SessionStart hook from Claude Code settings ─────
+SETTINGS_HOOK="$(dirname "$0")/gstack-settings-hook"
+SESSION_UPDATE="$(dirname "$0")/gstack-session-update"
+if [ -x "$SETTINGS_HOOK" ]; then
+  "$SETTINGS_HOOK" remove "$SESSION_UPDATE" 2>/dev/null && REMOVED+=("SessionStart hook") || true
 fi
 
 # ─── Remove global state ────────────────────────────────────

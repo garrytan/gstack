@@ -2,9 +2,10 @@
 # gstack-config — read/write ~/.gstack/config.yaml
 #
 # Usage:
-#   gstack-config get <key>          — read a config value
+#   gstack-config get <key>          — read a config value (falls back to DEFAULTS)
 #   gstack-config set <key> <value>  — write a config value
-#   gstack-config list               — show all config
+#   gstack-config list               — show all config (values + defaults)
+#   gstack-config defaults           — show just the defaults table
 #
 # Env overrides (for testing):
 #   GSTACK_STATE_DIR  — override ~/.gstack state directory
@@ -13,28 +14,155 @@ set -euo pipefail
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 CONFIG_FILE="$STATE_DIR/config.yaml"
 
+# Annotated header for new config files. Written once on first `set`.
+# Default semantics: DEFAULTS table below is the canonical source. Header text
+# is documentation that must stay in sync with DEFAULTS.
+CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on next skill run.
+# Docs: https://github.com/garrytan/gstack
+#
+# ─── Behavior ────────────────────────────────────────────────────────
+# proactive: true           # Auto-invoke skills when your request matches one.
+#                           # Set to false to only run skills you type explicitly.
+#
+# routing_declined: false   # Set to true to skip the CLAUDE.md routing injection
+#                           # prompt. Set back to false to be asked again.
+#
+# ─── Telemetry ───────────────────────────────────────────────────────
+# telemetry: off            # off | anonymous | community
+#                           #   off       — no data sent, no local analytics (default)
+#                           #   anonymous — counter only, no device ID
+#                           #   community — usage data + stable device ID
+#
+# ─── Updates ─────────────────────────────────────────────────────────
+# auto_upgrade: false       # true = silently upgrade on session start
+# update_check: true        # false = suppress version check notifications
+#
+# ─── Skill naming ────────────────────────────────────────────────────
+# skill_prefix: false       # true = namespace skills as /gstack-qa, /gstack-ship
+#                           # false = short names /qa, /ship
+#
+# ─── Checkpoint ──────────────────────────────────────────────────────
+# checkpoint_mode: explicit # explicit | continuous
+#                           #   explicit   — commit only when you run /ship or /checkpoint
+#                           #   continuous — auto-commit after each significant change
+#                           #                with WIP: prefix + [gstack-context] body
+#
+# checkpoint_push: false    # true = push WIP commits to remote as you go
+#                           # false = keep WIP commits local only (default)
+#                           # Pushing can trigger CI/deploy hooks — opt in carefully.
+#
+# ─── Writing style (V1) ──────────────────────────────────────────────
+# explain_level: default    # default = jargon-glossed, outcome-framed prose
+#                           #           (V1 default — more accessible for everyone)
+#                           # terse   = V0 prose style, no glosses, no outcome-framing layer
+#                           #           (for power users who know the terms)
+#                           # Unknown values default to "default" with a warning.
+#                           # See docs/designs/PLAN_TUNING_V1.md for rationale.
+#
+# ─── Advanced ────────────────────────────────────────────────────────
+# codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
+# gstack_contributor: false # true = file field reports when gstack misbehaves
+# skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
+#
+'
+
+# DEFAULTS table — canonical default values for known keys.
+# `get <key>` returns DEFAULTS[key] when the key is absent from the config file
+# AND the env override is not set. Keep in sync with the CONFIG_HEADER comments.
+lookup_default() {
+  case "$1" in
+    proactive) echo "true" ;;
+    routing_declined) echo "false" ;;
+    telemetry) echo "off" ;;
+    auto_upgrade) echo "false" ;;
+    update_check) echo "true" ;;
+    skill_prefix) echo "false" ;;
+    checkpoint_mode) echo "explicit" ;;
+    checkpoint_push) echo "false" ;;
+    codex_reviews) echo "enabled" ;;
+    gstack_contributor) echo "false" ;;
+    skip_eng_review) echo "false" ;;
+    cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
+    *) echo "" ;;
+  esac
+}
+
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true
+    # Validate key (alphanumeric + underscore only)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
+      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+      exit 1
+    fi
+    VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    if [ -z "$VALUE" ]; then
+      VALUE=$(lookup_default "$KEY")
+    fi
+    printf '%s' "$VALUE"
     ;;
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
+    # Validate key (alphanumeric + underscore only)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
+      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+      exit 1
+    fi
+    # V1: whitelist values for keys with closed value domains. Unknown values warn + default.
+    if [ "$KEY" = "explain_level" ] && [ "$VALUE" != "default" ] && [ "$VALUE" != "terse" ]; then
+      echo "Warning: explain_level '$VALUE' not recognized. Valid values: default, terse. Using default." >&2
+      VALUE="default"
+    fi
     mkdir -p "$STATE_DIR"
+    # Write annotated header on first creation
+    if [ ! -f "$CONFIG_FILE" ]; then
+      printf '%s' "$CONFIG_HEADER" > "$CONFIG_FILE"
+    fi
+    # Escape sed special chars in value and drop embedded newlines
+    ESC_VALUE="$(printf '%s' "$VALUE" | head -1 | sed 's/[&/\]/\\&/g')"
     if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
       # Portable in-place edit (BSD sed uses -i '', GNU sed uses -i without arg)
       _tmpfile="$(mktemp "${CONFIG_FILE}.XXXXXX")"
-      sed "s/^${KEY}:.*/${KEY}: ${VALUE}/" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
+      sed "/^${KEY}:/s/.*/${KEY}: ${ESC_VALUE}/" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
     else
       echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
     fi
+    # Auto-relink skills when prefix setting changes (skip during setup to avoid recursive call)
+    if [ "$KEY" = "skill_prefix" ] && [ -z "${GSTACK_SETUP_RUNNING:-}" ]; then
+      GSTACK_RELINK="$(dirname "$0")/gstack-relink"
+      [ -x "$GSTACK_RELINK" ] && "$GSTACK_RELINK" || true
+    fi
     ;;
   list)
-    cat "$CONFIG_FILE" 2>/dev/null || true
+    if [ -f "$CONFIG_FILE" ]; then
+      cat "$CONFIG_FILE"
+    fi
+    echo ""
+    echo "# ─── Active values (including defaults for unset keys) ───"
+    for KEY in proactive routing_declined telemetry auto_upgrade update_check \
+               skill_prefix checkpoint_mode checkpoint_push codex_reviews \
+               gstack_contributor skip_eng_review; do
+      VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+      SOURCE="default"
+      if [ -n "$VALUE" ]; then
+        SOURCE="set"
+      else
+        VALUE=$(lookup_default "$KEY")
+      fi
+      printf '  %-24s %s (%s)\n' "$KEY:" "$VALUE" "$SOURCE"
+    done
+    ;;
+  defaults)
+    echo "# gstack-config defaults"
+    for KEY in proactive routing_declined telemetry auto_upgrade update_check \
+               skill_prefix checkpoint_mode checkpoint_push codex_reviews \
+               gstack_contributor skip_eng_review; do
+      printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
+    done
     ;;
   *)
-    echo "Usage: gstack-config {get|set|list} [key] [value]"
+    echo "Usage: gstack-config {get|set|list|defaults} [key] [value]"
     exit 1
     ;;
 esac

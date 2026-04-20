@@ -158,6 +158,8 @@ OUTCOME="$(json_safe "$OUTCOME")"
 SESSION_ID="$(json_safe "$SESSION_ID")"
 SOURCE="$(json_safe "$SOURCE")"
 EVENT_TYPE="$(json_safe "$EVENT_TYPE")"
+REPO_SLUG="$(json_safe "$REPO_SLUG")"
+BRANCH="$(json_safe "$BRANCH")"
 
 # Escape null fields — sanitize ERROR_CLASS and FAILED_STEP via json_safe()
 ERR_FIELD="null"

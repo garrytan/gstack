@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - Dropdown/Autocomplete</title>
+  <style>
+    .search-container { position: relative; width: 300px; }
+    .search-input { width: 100%; padding: 8px; }
+    .dropdown-portal {
+      position: fixed;
+      top: 60px;
+      left: 20px;
+      z-index: 9999;
+      background: white;
+      border: 1px solid #ccc;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      width: 300px;
+    }
+    .dropdown-item {
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    .dropdown-item:hover { background: #f0f0f0; }
+    .dropdown-item-no-cursor {
+      padding: 8px 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Dropdown Test</h1>
+
+  <div class="search-container">
+    <input type="text" class="search-input" placeholder="Search for someone..." id="search" aria-label="Search">
+  </div>
+
+  <!-- Simulates a React portal / floating-ui popover -->
+  <div class="dropdown-portal" id="dropdown-portal" data-floating-ui-portal>
+    <!-- Items with cursor:pointer but NO ARIA roles (common pattern) -->
+    <div class="dropdown-item" onclick="selectItem('alice')">Alice Johnson - Acme Corp</div>
+    <div class="dropdown-item" onclick="selectItem('bob')">Bob Smith - Beta Inc</div>
+    <div class="dropdown-item" onclick="selectItem('carol')">Carol Davis - Gamma LLC</div>
+
+    <!-- Items WITH role="option" (well-built component) -->
+    <div class="dropdown-item" role="option" onclick="selectItem('dave')">Dave Wilson - Delta Co</div>
+
+    <!-- Item with no cursor, no onclick, just text (should NOT be captured) -->
+    <div class="dropdown-item-no-cursor" id="static-text">No results? Try a different search.</div>
+  </div>
+
+  <!-- Standard interactive elements (should appear in ARIA tree normally) -->
+  <button id="submit-btn">Submit</button>
+  <a href="/test">Normal Link</a>
+
+  <script>
+    function selectItem(name) {
+      document.getElementById('search').value = name;
+      document.getElementById('dropdown-portal').style.display = 'none';
+    }
+  </script>
+</body>
+</html>

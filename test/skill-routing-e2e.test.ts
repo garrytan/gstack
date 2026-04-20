@@ -60,10 +60,9 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 // --- Helper functions ---
 
 /** Copy all SKILL.md files for auto-discovery.
- *  Install to BOTH project-level (.claude/skills/) AND user-level (~/.claude/skills/)
- *  because Claude Code discovers skills from both locations. In CI containers,
- *  $HOME may differ from the working directory, so we need both paths to ensure
- *  the Skill tool appears in Claude's available tools list. */
+ *  Installs to project-level (.claude/skills/) only. Writing to the user's
+ *  ~/.claude/skills/ is unsafe: it may contain symlinks from the real gstack
+ *  install that point to different worktrees or dangling targets. */
 function installSkills(tmpDir: string) {
   const skillDirs = [
     '', // root gstack SKILL.md
@@ -73,31 +72,42 @@ function installSkills(tmpDir: string) {
     'gstack-upgrade', 'humanizer',
   ];
 
-  // Install to both project-level and user-level skill directories
-  const homeDir = process.env.HOME || os.homedir();
-  const installTargets = [
-    path.join(tmpDir, '.claude', 'skills'),        // project-level
-    path.join(homeDir, '.claude', 'skills'),        // user-level (~/.claude/skills/)
-  ];
+  const targetBase = path.join(tmpDir, '.claude', 'skills');
 
   for (const skill of skillDirs) {
     const srcPath = path.join(ROOT, skill, 'SKILL.md');
     if (!fs.existsSync(srcPath)) continue;
 
     const skillName = skill || 'gstack';
-
-    for (const targetBase of installTargets) {
-      const destDir = path.join(targetBase, skillName);
-      fs.mkdirSync(destDir, { recursive: true });
-      fs.copyFileSync(srcPath, path.join(destDir, 'SKILL.md'));
-    }
+    const destDir = path.join(targetBase, skillName);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(srcPath, path.join(destDir, 'SKILL.md'));
   }
 
-  // Copy CLAUDE.md so Claude has project context for skill routing.
-  const claudeMdSrc = path.join(ROOT, 'CLAUDE.md');
-  if (fs.existsSync(claudeMdSrc)) {
-    fs.copyFileSync(claudeMdSrc, path.join(tmpDir, 'CLAUDE.md'));
-  }
+  // Write a CLAUDE.md with explicit routing instructions.
+  // The skill descriptions in system-reminder aren't strong enough to override
+  // Claude's default behavior of answering directly. A CLAUDE.md instruction
+  // puts routing rules in project context which Claude weighs more heavily.
+  fs.writeFileSync(path.join(tmpDir, 'CLAUDE.md'), `# Project Instructions
+
+## Skill routing
+
+When the user's request matches an available skill, ALWAYS invoke it using the Skill
+tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
+The skill has specialized workflows that produce better results than ad-hoc answers.
+
+Key routing rules:
+- Product ideas, "is this worth building", brainstorming → invoke office-hours
+- Bugs, errors, "why is this broken", 500 errors → invoke investigate
+- Ship, deploy, push, create PR → invoke ship
+- QA, test the site, find bugs → invoke qa
+- Code review, check my diff → invoke review
+- Update docs after shipping → invoke document-release
+- Weekly retro → invoke retro
+- Design system, brand → invoke design-consultation
+- Visual audit, design polish → invoke design-review
+- Architecture review → invoke plan-eng-review
+`);
 }
 
 /** Init a git repo with config */

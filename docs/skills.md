@@ -12,14 +12,21 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
+| [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
+| [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
+| [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
+| [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
+| [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
 | [`/cso`](#cso) | **Chief Security Officer** | OWASP Top 10 + STRIDE threat modeling security audit. Scans for injection, auth, crypto, and access control issues. |
 | [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
+| [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
+| [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
@@ -29,6 +36,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/freeze`](#safety--guardrails) | **Edit Lock** | Restrict all file edits to a single directory. Blocks Edit and Write outside the boundary. Accident prevention for debugging. |
 | [`/guard`](#safety--guardrails) | **Full Safety** | Combines /careful + /freeze in one command. Maximum safety for prod work. |
 | [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
+| [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch GStack Browser with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. Watch every action live. |
+| [`/setup-deploy`](#setup-deploy) | **Deploy Configurator** | One-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
 
 ---
@@ -399,6 +408,110 @@ Nine commits, each touching one concern. The AI Slop score went from D to A beca
 
 ---
 
+## `/design-shotgun`
+
+This is my **design exploration mode**.
+
+You know the feeling. You have a feature, a page, a landing screen... and you're not sure what it should look like. You could describe it to Claude and get one answer. But one answer means one perspective, and design is a taste game. You need to see options.
+
+`/design-shotgun` generates 3 visual design variants using the GPT Image API, opens a comparison board in your browser, and waits for your feedback. You pick a direction, request changes, or ask for entirely new variants. The board supports remix, regenerate, and approval actions.
+
+### The loop
+
+1. You describe what you want (or point at an existing page)
+2. The skill reads your `DESIGN.md` for brand constraints (if it exists)
+3. It generates 3 distinct design variants as PNGs
+4. A comparison board opens in your browser with all 3 side-by-side
+5. You click "Approve" on the one you like, or give feedback for another round
+6. The approved variant saves to `~/.gstack/projects/$SLUG/designs/` with an `approved.json`
+
+That `approved.json` is one way to feed `/design-html`. The design pipeline chains: shotgun picks the direction, design-html renders it as working code. But `/design-html` also works with CEO plans, design reviews, or just a description.
+
+### Taste memory
+
+The skill remembers your preferences across sessions. If you consistently prefer minimal designs over busy ones, it biases future generations. This isn't a setting you configure... it emerges from your approvals.
+
+### Example
+
+```
+You:   /design-shotgun — hero section for a developer tools landing page
+
+Claude: [Generates 3 variants]
+        Variant A: Bold typography, dark background, code snippet hero
+        Variant B: Split layout, product screenshot left, copy right
+        Variant C: Minimal, centered headline, gradient accent
+
+        [Opens comparison board at localhost:PORT]
+
+You:    [Clicks "Approve" on Variant A in the browser]
+
+Claude: Approved Variant A. Saved to ~/.gstack/projects/myapp/designs/
+        Next: run /design-html to generate production HTML from this mockup.
+```
+
+---
+
+## `/design-html`
+
+This is my **design-to-code mode**.
+
+Every AI code generation tool produces static CSS. Hardcoded heights. Text that overflows on resize. Breakpoints that snap instead of flowing. The output looks right at exactly one viewport size and breaks at every other.
+
+`/design-html` fixes this. It generates HTML using [Pretext](https://github.com/chenglou/pretext) by Cheng Lou (ex-React core, Midjourney frontend). Pretext is a 15KB library that computes text layout without DOM measurement. Text reflows. Heights adjust to content. Cards size themselves. Chat bubbles shrinkwrap. All sub-millisecond, all dynamic.
+
+It works with multiple input sources: an approved mockup from `/design-shotgun`, a CEO plan from `/plan-ceo-review`, design review context from `/plan-design-review`, a PNG you provide, or just a description of what you want. It detects what context exists and asks how you want to proceed.
+
+### Smart API routing
+
+Not every page needs the full Pretext engine. The skill reads the design and picks the right tools:
+
+- **Simple layouts** (landing, marketing): `prepare()` + `layout()` for resize-aware heights
+- **Card grids** (dashboard, listing): `prepare()` + `layout()` for self-sizing cards
+- **Chat UIs**: `walkLineRanges()` for tight-fit bubbles with zero wasted pixels
+- **Editorial layouts**: `layoutNextLine()` for text flowing around obstacles
+- **Complex editorial**: Full engine with `layoutWithLines()` for manual line rendering
+
+### The refinement loop
+
+1. Reads the approved mockup from `approved.json`
+2. Uses GPT-4o vision to extract implementation spec (colors, typography, layout)
+3. Generates self-contained HTML with Pretext inlined (15KB, zero network dependency)
+4. Spins up a live-reload server so you see changes instantly
+5. Screenshots at 3 viewports (mobile, tablet, desktop) to verify layout
+6. AskUserQuestion: what needs to change?
+7. Surgical edits via the Edit tool (not full regeneration)
+8. Repeat until you say "done"
+
+### Framework detection
+
+If your project uses React, Svelte, or Vue (detected from `package.json`), the skill offers to generate a framework component instead of vanilla HTML. Framework output uses `npm install @chenglou/pretext` instead of inline vendoring.
+
+### Example
+
+```
+You:   /design-html
+
+Claude: Found approved mockup: variant-A.png (hero section)
+        Design type: simple layout → using prepare() + layout()
+
+        [Generates HTML with Pretext, opens live-reload server]
+        [Screenshots at 375px, 768px, 1440px — all verified]
+
+        The HTML is live at localhost:3456. Resize your browser.
+        Text reflows dynamically. What needs to change?
+
+You:    Make the headline bigger and add more spacing below the CTA
+
+Claude: [Edits font-size and margin, browser auto-reloads]
+        Updated. Two changes applied.
+
+You:    Done
+
+Claude: Saved to ~/.gstack/projects/myapp/designs/hero-20260330/finalized.html
+```
+
+---
+
 ## `/review`
 
 This is my **paranoid staff engineer mode**.
@@ -522,6 +635,82 @@ Every `/ship` run builds a code path map from your diff, searches for correspond
 `/ship` checks the [Review Readiness Dashboard](#review-readiness-dashboard) before creating the PR. If the Eng Review is missing, it asks — but won't block you. Decisions are saved per-branch so you're never re-asked.
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
+
+---
+
+## `/land-and-deploy`
+
+This is my **deploy pipeline mode**.
+
+`/ship` creates the PR. `/land-and-deploy` finishes the job: merge, deploy, verify.
+
+It merges the PR, waits for CI, waits for the deploy to finish, then runs canary checks against production. One command from "approved" to "verified in production." If the deploy breaks, it tells you what failed and whether to rollback.
+
+First run on a new project triggers a dry-run walk-through so you can verify the pipeline before it does anything irreversible. After that, it trusts the config and runs straight through.
+
+### Setup
+
+Run `/setup-deploy` first. It detects your platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL and health check endpoints, and writes the config to CLAUDE.md. One-time, 60 seconds.
+
+### Example
+
+```
+You:   /land-and-deploy
+
+Claude: Merging PR #42...
+        CI: 3/3 checks passed
+        Deploy: Fly.io — deploying v2.1.0...
+        Health check: https://myapp.fly.dev/health → 200 OK
+        Canary: 5 pages checked, 0 console errors, p95 < 800ms
+
+        Production verified. v2.1.0 is live.
+```
+
+---
+
+## `/canary`
+
+This is my **post-deploy monitoring mode**.
+
+After deploy, `/canary` watches the live site for trouble. It loops through your key pages using the browse daemon, checking for console errors, performance regressions, page failures, and visual anomalies. Takes periodic screenshots and compares against pre-deploy baselines.
+
+Use it right after `/land-and-deploy`, or schedule it to run periodically after a risky deploy.
+
+```
+You:   /canary https://myapp.com
+
+Claude: Monitoring 8 pages every 2 minutes...
+
+        Cycle 1: ✓ All pages healthy. p95: 340ms. 0 console errors.
+        Cycle 2: ✓ All pages healthy. p95: 380ms. 0 console errors.
+        Cycle 3: ⚠ /dashboard — new console error: "TypeError: Cannot read
+                   property 'map' of undefined" at dashboard.js:142
+                 Screenshot saved.
+
+        Alert: 1 new console error after 3 monitoring cycles.
+```
+
+---
+
+## `/benchmark`
+
+This is my **performance engineer mode**.
+
+`/benchmark` establishes performance baselines for your pages: load time, Core Web Vitals (LCP, CLS, INP), resource counts, and total transfer size. Run it before and after a PR to catch regressions.
+
+It uses the browse daemon for real Chromium measurements, not synthetic estimates. Multiple runs averaged. Results persist so you can track trends across PRs.
+
+```
+You:   /benchmark https://myapp.com
+
+Claude: Benchmarking 5 pages (3 runs each)...
+
+        /           load: 1.2s  LCP: 0.9s  CLS: 0.01  resources: 24 (890KB)
+        /dashboard  load: 2.1s  LCP: 1.8s  CLS: 0.03  resources: 31 (1.4MB)
+        /settings   load: 0.8s  LCP: 0.6s  CLS: 0.00  resources: 18 (420KB)
+
+        Baseline saved. Run again after changes to compare.
+```
 
 ---
 
@@ -707,6 +896,100 @@ Or skip the UI entirely:
 You:   /setup-browser-cookies github.com
 
 Claude: Imported 12 cookies for github.com from Comet.
+```
+
+---
+
+## `/autoplan`
+
+This is my **review autopilot mode**.
+
+Running `/plan-ceo-review`, then `/plan-design-review`, then `/plan-eng-review` individually means answering 15-30 intermediate questions. Each question is valuable, but sometimes you want the gauntlet to run without stopping for every decision.
+
+`/autoplan` reads all three review skills from disk and runs them sequentially: CEO → Design → Eng. It makes decisions automatically using six encoded principles (prefer completeness, match existing patterns, choose reversible options, prefer the option the user chose for similar past decisions, defer ambiguous items, and escalate security). Taste decisions (close approaches, borderline scope expansions, cross-model disagreements) get saved and presented at a final approval gate.
+
+One command, fully reviewed plan out.
+
+```
+You:   /autoplan
+
+Claude: Running CEO review... [4 scope decisions auto-resolved]
+        Running design review... [3 design dimensions auto-scored]
+        Running eng review... [2 architecture decisions auto-resolved]
+
+        TASTE DECISIONS (need your input):
+        1. Scope: Codex suggested adding search — borderline expansion. Add?
+        2. Design: Two approaches scored within 1 point. Which feels right?
+
+        [Shows both options with context]
+
+You:    1) Yes, add search. 2) Option A.
+
+Claude: Plan complete. 9 decisions auto-resolved, 2 taste decisions approved.
+```
+
+---
+
+## `/learn`
+
+This is my **institutional memory mode**.
+
+gstack learns from every session. Patterns, pitfalls, preferences, architectural decisions... they accumulate in `~/.gstack/projects/$SLUG/learnings.jsonl`. Each learning has a confidence score, source attribution, and the files it references.
+
+`/learn` lets you see what gstack has absorbed, search for specific patterns, prune stale entries (when referenced files no longer exist), and export learnings for team sharing. The real magic is in other skills... they automatically search learnings before making recommendations, and display "Prior learning applied" when a past insight is relevant.
+
+```
+You:   /learn
+
+Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
+
+        Top patterns:
+        - [9/10] API responses always wrapped in { data, error } envelope
+        - [8/10] Tests use factory helpers in test/support/factories.ts
+        - [8/10] All DB queries go through repository pattern, never direct
+
+        3 potentially stale (referenced files deleted):
+        - "auth middleware uses JWT" — auth/middleware.ts was deleted
+        [Prune these? Y/N]
+```
+
+---
+
+## `/open-gstack-browser`
+
+This is my **co-presence mode**.
+
+`/browse` runs headless by default. You don't see what the agent sees. `/open-gstack-browser` changes that. It launches GStack Browser (rebranded Chromium with anti-bot stealth) controlled by Playwright, with the sidebar extension auto-loaded. You watch every action in real time.
+
+The sidebar chat is a Claude instance that controls the browser. It auto-routes to the right model: Sonnet for navigation and actions (click, goto, fill, screenshot), Opus for reading and analysis (summarize, find bugs, describe). One-click cookie import from the sidebar footer. The browser stays alive as long as the window is open... no idle timeout in headed mode. The menu bar says "GStack Browser" instead of "Chrome for Testing."
+
+```
+You:   /open-gstack-browser
+
+Claude: Launched GStack Browser with sidebar extension.
+        Anti-bot stealth active. All $B commands run in headed mode.
+        Type in the sidebar to direct the browser agent.
+        Sidebar model routing: sonnet for actions, opus for analysis.
+```
+
+---
+
+## `/setup-deploy`
+
+One-time deploy configuration. Run this before your first `/land-and-deploy`.
+
+It auto-detects your deploy platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL, health check endpoints, and deploy status commands. Writes everything to CLAUDE.md so all future deploys are automatic.
+
+```
+You:   /setup-deploy
+
+Claude: Detected: Fly.io (fly.toml found)
+        Production URL: https://myapp.fly.dev
+        Health check: /health → expects 200
+        Deploy command: fly deploy
+        Status command: fly status
+
+        Written to CLAUDE.md. Run /land-and-deploy when ready.
 ```
 
 ---

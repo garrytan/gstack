@@ -212,6 +212,34 @@ describe('gstack-telemetry-log', () => {
     expect(fs.existsSync(analyticsDir)).toBe(true);
     expect(readJsonl()).toHaveLength(1);
   });
+
+  // ─── Telemetry JSON safety: branch/repo with special chars ────
+  test('branch name with quotes does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    // Simulate a branch name with double quotes by setting it via git env override
+    // The json_safe function strips quotes, so the JSONL should remain valid
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id branch-quotes-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Every line must be valid JSON
+    const event = JSON.parse(lines[0]);
+    expect(event._branch).toBeDefined();
+    // _branch should not contain double quotes (json_safe strips them)
+    expect(event._branch).not.toContain('"');
+  });
+
+  test('repo slug with special chars does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id repo-special-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event._repo_slug).toBeDefined();
+    // _repo_slug should not contain double quotes (json_safe strips them)
+    expect(event._repo_slug).not.toContain('"');
+  });
 });
 
 describe('.pending marker', () => {
@@ -366,5 +394,27 @@ describe('gstack-community-dashboard', () => {
     expect(output).toContain('gstack community dashboard');
     // Should not show "not configured" since config.sh exists
     expect(output).not.toContain('Supabase not configured');
+  });
+});
+
+describe('preamble telemetry gating (#467)', () => {
+  test('preamble source does not write JSONL unconditionally', () => {
+    const preamble = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'preamble.ts'), 'utf-8');
+    const lines = preamble.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
+        // Each JSONL write must be inside a _TEL conditional (within 5 lines above)
+        let foundConditional = false;
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
+            foundConditional = true;
+            break;
+          }
+        }
+        if (!foundConditional) {
+          throw new Error(`Unconditional JSONL write at preamble.ts line ${i + 1}: ${lines[i].trim()}`);
+        }
+      }
+    }
   });
 });

@@ -7,7 +7,7 @@ description: |
   diff, updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
   polishes CHANGELOG voice, cleans up TODOS, and optionally bumps VERSION. Use when
   asked to "update the docs", "sync documentation", or "post-ship docs".
-  Proactively suggest after a PR is merged or code is shipped.
+  Proactively suggest after a PR is merged or code is shipped. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -16,6 +16,10 @@ allowed-tools:
   - Grep
   - Glob
   - AskUserQuestion
+triggers:
+  - update docs after ship
+  - document what changed
+  - post-ship docs
 ---
 
 {{PREAMBLE}}
@@ -108,7 +112,7 @@ Read each documentation file and cross-reference it against the diff. Use these 
 - Walk through the setup instructions as if you are a brand new contributor.
 - Are the listed commands accurate? Would each step succeed?
 - Do test tier descriptions match the current test infrastructure?
-- Are workflow descriptions (dev setup, contributor mode, etc.) current?
+- Are workflow descriptions (dev setup, operational learnings, etc.) current?
 - Flag anything that would fail or confuse a first-time contributor.
 
 **CLAUDE.md / project instructions:**

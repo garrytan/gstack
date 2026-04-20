@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack"
-  short_description: "Fast headless browser for QA testing and site dogfooding. Navigate pages, interact with elements, verify state, diff..."
-  default_prompt: "Use gstack for this task."
-policy:
-  allow_implicit_invocation: true

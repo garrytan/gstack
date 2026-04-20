@@ -18,12 +18,12 @@
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
+import { TabSession, type RefEntry } from './tab-session';
 
-export interface RefEntry {
-  locator: Locator;
-  role: string;
-  name: string;
-}
+export type { RefEntry };
+
+// Re-export TabSession for consumers
+export { TabSession };
 
 export interface BrowserState {
   cookies: Cookie[];
@@ -31,6 +31,18 @@ export interface BrowserState {
     url: string;
     isActive: boolean;
     storage: { localStorage: Record<string, string>; sessionStorage: Record<string, string> } | null;
+    /**
+     * HTML content loaded via load-html (setContent), replayed after context recreation.
+     * In-memory only — never persisted to disk (HTML may contain secrets or customer data).
+     */
+    loadedHtml?: string;
+    loadedHtmlWaitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
+    /**
+     * Tab owner clientId for multi-agent isolation. Survives context recreation so
+     * scoped agents don't get locked out of their own tabs after viewport --scale.
+     * In-memory only.
+     */
+    owner?: string;
   }>;
 }
 
@@ -38,24 +50,33 @@ export class BrowserManager {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private pages: Map<number, Page> = new Map();
+  private tabSessions: Map<number, TabSession> = new Map();
   private activeTabId: number = 0;
   private nextTabId: number = 1;
   private extraHeaders: Record<string, string> = {};
   private customUserAgent: string | null = null;
 
+  // ─── Viewport + deviceScaleFactor (context options) ──────────
+  // Tracked at the manager level so recreateContext() preserves them.
+  // deviceScaleFactor is a *context* option, not a page-level setter — changes
+  // require recreateContext(). Viewport width/height can change on-page, but we
+  // track the latest so context recreation restores it instead of hardcoding 1280x720.
+  private deviceScaleFactor: number = 1;
+  private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
+
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
 
-  // ─── Ref Map (snapshot → @e1, @e2, @c1, @c2, ...) ────────
-  private refMap: Map<string, RefEntry> = new Map();
+  // ─── Tab Ownership (multi-agent isolation) ──────────────
+  // Maps tabId → clientId. Unowned tabs (not in this map) are root-only for writes.
+  private tabOwnership: Map<number, string> = new Map();
 
-  // ─── Snapshot Diffing ─────────────────────────────────────
-  // NOT cleared on navigation — it's a text baseline for diffing
-  private lastSnapshot: string | null = null;
-
-  // ─── Dialog Handling ──────────────────────────────────────
+  // ─── Dialog Handling (global, not per-tab) ──────────────────
   private dialogAutoAccept: boolean = true;
   private dialogPromptText: string | null = null;
+
+  // ─── Cookie Origin Tracking ────────────────────────────────
+  private cookieImportedDomains: Set<string> = new Set();
 
   // ─── Handoff State ─────────────────────────────────────────
   private isHeaded: boolean = false;
@@ -70,6 +91,12 @@ export class BrowserManager {
   // ─── Headed State ────────────────────────────────────────
   private connectionMode: 'launched' | 'headed' = 'launched';
   private intentionalDisconnect = false;
+
+  // Called when the headed browser disconnects without intentional teardown
+  // (user closed the window). Wired up by server.ts to run full cleanup
+  // (sidebar-agent, state file, profile locks) before exiting with code 2.
+  // Returns void or a Promise; rejections are caught and fall back to exit(2).
+  public onDisconnect: (() => void | Promise<void>) | null = null;
 
   getConnectionMode(): 'launched' | 'headed' { return this.connectionMode; }
 
@@ -107,6 +134,8 @@ export class BrowserManager {
     const fs = require('fs');
     const path = require('path');
     const candidates = [
+      // Explicit override via env var (used by GStack Browser.app bundle)
+      process.env.BROWSE_EXTENSIONS_DIR || '',
       // Relative to this source file (dev mode: browse/src/ -> ../../extension)
       path.resolve(__dirname, '..', '..', 'extension'),
       // Global gstack install
@@ -127,7 +156,9 @@ export class BrowserManager {
         if (fs.existsSync(path.join(candidate, 'manifest.json'))) {
           return candidate;
         }
-      } catch {}
+      } catch (err: any) {
+        if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
+      }
     }
     return null;
   }
@@ -136,11 +167,11 @@ export class BrowserManager {
    * Get the ref map for external consumers (e.g., /refs endpoint).
    */
   getRefMap(): Array<{ ref: string; role: string; name: string }> {
-    const refs: Array<{ ref: string; role: string; name: string }> = [];
-    for (const [ref, entry] of this.refMap) {
-      refs.push({ ref, role: entry.role, name: entry.name });
+    try {
+      return this.getActiveSession().getRefEntries();
+    } catch {
+      return [];
     }
-    return refs;
   }
 
   async launch() {
@@ -186,7 +217,8 @@ export class BrowserManager {
     });
 
     const contextOptions: BrowserContextOptions = {
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+      deviceScaleFactor: this.deviceScaleFactor,
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
@@ -211,18 +243,38 @@ export class BrowserManager {
    * The browser launches headed with a visible window — the user sees
    * every action Claude takes in real time.
    */
-  async launchHeaded(): Promise<void> {
+  async launchHeaded(authToken?: string): Promise<void> {
     // Clear old state before repopulating
     this.pages.clear();
-    this.refMap.clear();
+    this.tabSessions.clear();
     this.nextTabId = 1;
 
     // Find the gstack extension directory for auto-loading
     const extensionPath = this.findExtensionPath();
-    const launchArgs = ['--hide-crash-restore-bubble'];
+    const launchArgs = [
+      '--hide-crash-restore-bubble',
+      // Anti-bot-detection: remove the navigator.webdriver flag that Playwright sets.
+      // Sites like Google and NYTimes check this to block automation browsers.
+      '--disable-blink-features=AutomationControlled',
+    ];
     if (extensionPath) {
       launchArgs.push(`--disable-extensions-except=${extensionPath}`);
       launchArgs.push(`--load-extension=${extensionPath}`);
+      // Write auth token for extension bootstrap.
+      // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
+      // in .app bundles and breaks codesigning).
+      if (authToken) {
+        const fs = require('fs');
+        const path = require('path');
+        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
+        fs.mkdirSync(gstackDir, { recursive: true });
+        const authFile = path.join(gstackDir, '.auth.json');
+        try {
+          fs.writeFileSync(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }), { mode: 0o600 });
+        } catch (err: any) {
+          console.warn(`[browse] Could not write .auth.json: ${err.message}`);
+        }
+      }
     }
 
     // Launch headed Chromium via Playwright's persistent context.
@@ -234,10 +286,79 @@ export class BrowserManager {
     const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
     fs.mkdirSync(userDataDir, { recursive: true });
 
+    // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
+    // Used by GStack Browser.app to point at the bundled Chromium.
+    const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+
+    // Rebrand Chromium → GStack Browser in macOS menu bar / Dock / Cmd+Tab.
+    // Patch the Chromium .app's Info.plist so macOS shows our name.
+    // This works for both dev mode (system Playwright cache) and .app bundle.
+    const chromePath = executablePath || chromium.executablePath();
+    try {
+      // Walk up from binary to the .app's Info.plist
+      // e.g. .../Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
+      //   → .../Google Chrome for Testing.app/Contents/Info.plist
+      const chromeContentsDir = path.resolve(path.dirname(chromePath), '..');
+      const chromePlist = path.join(chromeContentsDir, 'Info.plist');
+      if (fs.existsSync(chromePlist)) {
+        const plistContent = fs.readFileSync(chromePlist, 'utf-8');
+        if (plistContent.includes('Google Chrome for Testing')) {
+          const patched = plistContent
+            .replace(/Google Chrome for Testing/g, 'GStack Browser');
+          fs.writeFileSync(chromePlist, patched);
+        }
+        // Replace Chromium's Dock icon with ours (Chromium's process owns the Dock icon)
+        const iconCandidates = [
+          path.join(__dirname, '..', '..', 'scripts', 'app', 'icon.icns'),       // repo dev mode
+          path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'scripts', 'app', 'icon.icns'), // global install
+        ];
+        const iconSrc = iconCandidates.find(p => fs.existsSync(p));
+        if (iconSrc) {
+          const chromeResources = path.join(chromeContentsDir, 'Resources');
+          // Read original icon name from plist
+          const iconMatch = plistContent.match(/<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/);
+          let origIcon = iconMatch ? iconMatch[1] : 'app';
+          if (!origIcon.endsWith('.icns')) origIcon += '.icns';
+          const destIcon = path.join(chromeResources, origIcon);
+          try {
+            fs.copyFileSync(iconSrc, destIcon);
+          } catch (err: any) {
+            if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
+          }
+        }
+      }
+    } catch (err: any) {
+      // Non-fatal: app name stays as Chrome for Testing (ENOENT/EACCES expected)
+      if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
+    }
+
+    // Build custom user agent: keep Chrome version for site compatibility,
+    // but replace "Chrome for Testing" branding with "GStackBrowser"
+    let customUA: string | undefined;
+    if (!this.customUserAgent) {
+      // Detect Chrome version from the Chromium binary
+      const chromePath = executablePath || chromium.executablePath();
+      try {
+        const versionProc = Bun.spawnSync([chromePath, '--version'], {
+          stdout: 'pipe', stderr: 'pipe', timeout: 5000,
+        });
+        const versionOutput = versionProc.stdout.toString().trim();
+        // Output like: "Google Chrome for Testing 145.0.6422.0" or "Chromium 145.0.6422.0"
+        const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+\.\d+)/);
+        const chromeVersion = versionMatch ? versionMatch[1] : '131.0.0.0';
+        customUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36 GStackBrowser`;
+      } catch {
+        // Fallback: generic modern Chrome UA
+        customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 GStackBrowser';
+      }
+    }
+
     this.context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
+      userAgent: this.customUserAgent || customUA,
+      ...(executablePath ? { executablePath } : {}),
       // Playwright adds flags that block extension loading
       ignoreDefaultArgs: [
         '--disable-extensions',
@@ -247,6 +368,63 @@ export class BrowserManager {
     this.browser = this.context.browser();
     this.connectionMode = 'headed';
     this.intentionalDisconnect = false;
+
+    // ─── Anti-bot-detection stealth patches ───────────────────────
+    // Playwright's Chromium is detected by sites like Google/NYTimes via:
+    //   1. navigator.webdriver = true (handled by --disable-blink-features above)
+    //   2. Missing plugins array (real Chrome has PDF viewer, etc.)
+    //   3. Missing languages
+    //   4. CDP runtime detection (window.cdc_* variables)
+    //   5. Permissions API returning 'denied' for notifications
+    await this.context.addInitScript(() => {
+      // Fake plugins array (real Chrome has at least PDF Viewer)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => {
+          const plugins = [
+            { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+            { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+          ];
+          (plugins as any).namedItem = (name: string) => plugins.find(p => p.name === name) || null;
+          (plugins as any).refresh = () => {};
+          return plugins;
+        },
+      });
+
+      // Fake languages (Playwright sometimes sends empty)
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+      });
+
+      // Remove CDP runtime artifacts that automation detectors look for
+      // cdc_ prefixed vars are injected by ChromeDriver/CDP
+      const cleanup = () => {
+        for (const key of Object.keys(window)) {
+          if (key.startsWith('cdc_') || key.startsWith('__webdriver')) {
+            try {
+              delete (window as any)[key];
+            } catch (e: any) {
+              if (!(e instanceof TypeError)) throw e;
+            }
+          }
+        }
+      };
+      cleanup();
+      // Re-clean after a tick in case they're injected late
+      setTimeout(cleanup, 0);
+
+      // Override Permissions API to return 'prompt' for notifications
+      // (automation browsers return 'denied' which is a fingerprint)
+      const originalQuery = window.navigator.permissions?.query;
+      if (originalQuery) {
+        (window.navigator.permissions as any).query = (params: any) => {
+          if (params.name === 'notifications') {
+            return Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus);
+          }
+          return originalQuery.call(window.navigator.permissions, params);
+        };
+      }
+    });
 
     // Inject visual indicator — subtle top-edge amber gradient
     // Extension's content script handles the floating pill
@@ -287,27 +465,61 @@ export class BrowserManager {
     };
     await this.context.addInitScript(indicatorScript);
 
+    // Track user-created tabs automatically (Cmd+T, link opens in new tab, etc.)
+    this.context.on('page', (page) => {
+      const id = this.nextTabId++;
+      this.pages.set(id, page);
+      this.tabSessions.set(id, new TabSession(page));
+      this.activeTabId = id;
+      this.wirePageEvents(page);
+      // Inject indicator on the new tab
+      page.evaluate(indicatorScript).catch(() => {});
+      console.log(`[browse] New tab detected (id=${id}, total=${this.pages.size})`);
+    });
+
     // Persistent context opens a default page — adopt it instead of creating a new one
     const existingPages = this.context.pages();
     if (existingPages.length > 0) {
       const page = existingPages[0];
       const id = this.nextTabId++;
       this.pages.set(id, page);
+      this.tabSessions.set(id, new TabSession(page));
       this.activeTabId = id;
       this.wirePageEvents(page);
       // Inject indicator on restored page (addInitScript only fires on new navigations)
-      try { await page.evaluate(indicatorScript); } catch {}
+      try {
+        await page.evaluate(indicatorScript);
+      } catch {}
     } else {
       await this.newTab();
     }
 
-    // Browser disconnect handler — exit code 2 distinguishes from crashes (1)
+    // Browser disconnect handler — exit code 2 distinguishes from crashes (1).
+    // Calls onDisconnect() to trigger full shutdown (kill sidebar-agent, save
+    // session, clean profile locks + state file) before exit. Falls back to
+    // direct process.exit(2) if no callback is wired up, or if the callback
+    // throws/rejects — never leave the process running with a dead browser.
     if (this.browser) {
       this.browser.on('disconnected', () => {
         if (this.intentionalDisconnect) return;
         console.error('[browse] Real browser disconnected (user closed or crashed).');
         console.error('[browse] Run `$B connect` to reconnect.');
-        process.exit(2);
+        if (!this.onDisconnect) {
+          process.exit(2);
+          return;
+        }
+        try {
+          const result = this.onDisconnect();
+          if (result && typeof (result as Promise<void>).catch === 'function') {
+            (result as Promise<void>).catch((err) => {
+              console.error('[browse] onDisconnect rejected:', err);
+              process.exit(2);
+            });
+          }
+        } catch (err) {
+          console.error('[browse] onDisconnect threw:', err);
+          process.exit(2);
+        }
       });
     }
 
@@ -356,24 +568,33 @@ export class BrowserManager {
   }
 
   // ─── Tab Management ────────────────────────────────────────
-  async newTab(url?: string): Promise<number> {
+  async newTab(url?: string, clientId?: string): Promise<number> {
     if (!this.context) throw new Error('Browser not launched');
 
-    // Validate URL before allocating page to avoid zombie tabs on rejection
+    // Validate URL before allocating page to avoid zombie tabs on rejection.
+    // Use the normalized return value for navigation — it handles file://./x and
+    // file://<segment> cwd-relative forms that the standard URL parser doesn't.
+    let normalizedUrl: string | undefined;
     if (url) {
-      await validateNavigationUrl(url);
+      normalizedUrl = await validateNavigationUrl(url);
     }
 
     const page = await this.context.newPage();
     const id = this.nextTabId++;
     this.pages.set(id, page);
+    this.tabSessions.set(id, new TabSession(page));
     this.activeTabId = id;
+
+    // Record tab ownership for multi-agent isolation
+    if (clientId) {
+      this.tabOwnership.set(id, clientId);
+    }
 
     // Wire up console/network/dialog capture
     this.wirePageEvents(page);
 
-    if (url) {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    if (normalizedUrl) {
+      await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     }
 
     return id;
@@ -386,6 +607,8 @@ export class BrowserManager {
 
     await page.close();
     this.pages.delete(tabId);
+    this.tabSessions.delete(tabId);
+    this.tabOwnership.delete(tabId);
 
     // Switch to another tab if we closed the active one
     if (tabId === this.activeTabId) {
@@ -399,14 +622,95 @@ export class BrowserManager {
     }
   }
 
-  switchTab(id: number): void {
-    if (!this.pages.has(id)) throw new Error(`Tab ${id} not found`);
+  switchTab(id: number, opts?: { bringToFront?: boolean }): void {
+    if (!this.tabSessions.has(id)) throw new Error(`Tab ${id} not found`);
     this.activeTabId = id;
-    this.activeFrame = null; // Frame context is per-tab
+    // Only bring to front when explicitly requested (user-initiated tab switch).
+    // Internal tab pinning (BROWSE_TAB) should NOT steal focus.
+    if (opts?.bringToFront !== false) {
+      const page = this.pages.get(id);
+      if (page) page.bringToFront().catch(() => {});
+    }
+  }
+
+  /**
+   * Sync activeTabId to match the tab whose URL matches the Chrome extension's
+   * active tab. Called on every /sidebar-tabs poll so manual tab switches in
+   * the browser are detected within ~2s.
+   */
+  syncActiveTabByUrl(activeUrl: string): void {
+    if (!activeUrl || this.pages.size <= 1) return;
+    // Try exact match first, then fuzzy match (origin+pathname, ignoring query/fragment)
+    let fuzzyId: number | null = null;
+    let activeOriginPath = '';
+    try {
+      const u = new URL(activeUrl);
+      activeOriginPath = u.origin + u.pathname;
+    } catch (err: any) {
+      if (!(err instanceof TypeError)) throw err;
+    }
+
+    for (const [id, page] of this.pages) {
+      try {
+        const pageUrl = page.url();
+        // Exact match — best case
+        if (pageUrl === activeUrl && id !== this.activeTabId) {
+          this.activeTabId = id;
+          return;
+        }
+        // Fuzzy match — origin+pathname (handles query param / fragment differences)
+        if (activeOriginPath && fuzzyId === null && id !== this.activeTabId) {
+          try {
+            const pu = new URL(pageUrl);
+            if (pu.origin + pu.pathname === activeOriginPath) {
+              fuzzyId = id;
+            }
+          } catch (err: any) {
+            if (!(err instanceof TypeError)) throw err;
+          }
+        }
+      } catch {}
+    }
+    // Fall back to fuzzy match
+    if (fuzzyId !== null) {
+      this.activeTabId = fuzzyId;
+    }
+  }
+
+  getActiveTabId(): number {
+    return this.activeTabId;
   }
 
   getTabCount(): number {
     return this.pages.size;
+  }
+
+  // ─── Tab Ownership (multi-agent isolation) ──────────────
+
+  /** Get the owner of a tab, or null if unowned (root-only for writes). */
+  getTabOwner(tabId: number): string | null {
+    return this.tabOwnership.get(tabId) || null;
+  }
+
+  /**
+   * Check if a client can access a tab.
+   * If ownOnly or isWrite is true, requires ownership.
+   * Otherwise (reads), allow by default.
+   */
+  checkTabAccess(tabId: number, clientId: string, options: { isWrite?: boolean; ownOnly?: boolean } = {}): boolean {
+    if (clientId === 'root') return true;
+    const owner = this.tabOwnership.get(tabId);
+    if (options.ownOnly || options.isWrite) {
+      if (!owner) return false;
+      return owner === clientId;
+    }
+    return true;
+  }
+
+  /** Transfer tab ownership to a different client. */
+  transferTab(tabId: number, toClientId: string): void {
+    if (!this.pages.has(tabId)) throw new Error(`Tab ${tabId} not found`);
+    this.tabOwnership.set(tabId, toClientId);
   }
 
   async getTabListWithTitles(): Promise<Array<{ id: number; url: string; title: string; active: boolean }>> {
@@ -422,11 +726,24 @@ export class BrowserManager {
     return tabs;
   }
 
-  // ─── Page Access ───────────────────────────────────────────
+  // ─── Session Access ────────────────────────────────────────
+  /** Get the TabSession for the active tab. */
+  getActiveSession(): TabSession {
+    const session = this.tabSessions.get(this.activeTabId);
+    if (!session) throw new Error('No active page. Use "browse goto <url>" first.');
+    return session;
+  }
+
+  /** Get a TabSession by tab ID. Used by /batch for parallel tab execution. */
+  getSession(tabId: number): TabSession {
+    const session = this.tabSessions.get(tabId);
+    if (!session) throw new Error(`Tab ${tabId} not found`);
+    return session;
+  }
+
+  // ─── Page Access (delegates to active session) ─────────────
   getPage(): Page {
-    const page = this.pages.get(this.activeTabId);
-    if (!page) throw new Error('No active page. Use "browse goto <url>" first.');
-    return page;
+    return this.getActiveSession().page;
   }
 
   getCurrentUrl(): string {
@@ -437,60 +754,34 @@ export class BrowserManager {
     }
   }
 
-  // ─── Ref Map ──────────────────────────────────────────────
+  // ─── Ref Map (delegates to active session) ──────────────────
   setRefMap(refs: Map<string, RefEntry>) {
-    this.refMap = refs;
+    this.getActiveSession().setRefMap(refs);
   }
 
   clearRefs() {
-    this.refMap.clear();
+    this.getActiveSession().clearRefs();
   }
 
-  /**
-   * Resolve a selector that may be a @ref (e.g., "@e3", "@c1") or a CSS selector.
-   * Returns { locator } for refs or { selector } for CSS selectors.
-   */
   async resolveRef(selector: string): Promise<{ locator: Locator } | { selector: string }> {
-    if (selector.startsWith('@e') || selector.startsWith('@c')) {
-      const ref = selector.slice(1); // "e3" or "c1"
-      const entry = this.refMap.get(ref);
-      if (!entry) {
-        throw new Error(
-          `Ref ${selector} not found. Run 'snapshot' to get fresh refs.`
-        );
-      }
-      const count = await entry.locator.count();
-      if (count === 0) {
-        throw new Error(
-          `Ref ${selector} (${entry.role} "${entry.name}") is stale — element no longer exists. ` +
-          `Run 'snapshot' for fresh refs.`
-        );
-      }
-      return { locator: entry.locator };
-    }
-    return { selector };
+    return this.getActiveSession().resolveRef(selector);
   }
 
-  /** Get the ARIA role for a ref selector, or null for CSS selectors / unknown refs. */
   getRefRole(selector: string): string | null {
-    if (selector.startsWith('@e') || selector.startsWith('@c')) {
-      const entry = this.refMap.get(selector.slice(1));
-      return entry?.role ?? null;
-    }
-    return null;
+    return this.getActiveSession().getRefRole(selector);
   }
 
   getRefCount(): number {
-    return this.refMap.size;
+    return this.getActiveSession().getRefCount();
   }
 
-  // ─── Snapshot Diffing ─────────────────────────────────────
+  // ─── Snapshot Diffing (delegates to active session) ─────────
   setLastSnapshot(text: string | null) {
-    this.lastSnapshot = text;
+    this.getActiveSession().setLastSnapshot(text);
   }
 
   getLastSnapshot(): string | null {
-    return this.lastSnapshot;
+    return this.getActiveSession().getLastSnapshot();
   }
 
   // ─── Dialog Control ───────────────────────────────────────
@@ -510,8 +801,22 @@ export class BrowserManager {
     return this.dialogPromptText;
   }
 
+  // ─── Cookie Origin Tracking ────────────────────────────────
+  trackCookieImportDomains(domains: string[]): void {
+    for (const d of domains) this.cookieImportedDomains.add(d);
+  }
+
+  getCookieImportedDomains(): ReadonlySet<string> {
+    return this.cookieImportedDomains;
+  }
+
+  hasCookieImports(): boolean {
+    return this.cookieImportedDomains.size > 0;
+  }
+
   // ─── Viewport ──────────────────────────────────────────────
   async setViewport(width: number, height: number) {
+    this.currentViewport = { width, height };
     await this.getPage().setViewportSize({ width, height });
   }
 
@@ -542,30 +847,20 @@ export class BrowserManager {
       await page.close().catch(() => {});
     }
     this.pages.clear();
-    this.clearRefs();
+    this.tabSessions.clear();
   }
 
-  // ─── Frame context ─────────────────────────────────
-  private activeFrame: import('playwright').Frame | null = null;
-
+  // ─── Frame context (delegates to active session) ────────────
   setFrame(frame: import('playwright').Frame | null): void {
-    this.activeFrame = frame;
+    this.getActiveSession().setFrame(frame);
   }
 
   getFrame(): import('playwright').Frame | null {
-    return this.activeFrame;
+    return this.getActiveSession().getFrame();
   }
 
-  /**
-   * Returns the active frame if set, otherwise the current page.
-   * Use this for operations that work on both Page and Frame (locator, evaluate, etc.).
-   */
   getActiveFrameOrPage(): import('playwright').Page | import('playwright').Frame {
-    // Auto-recover from detached frames (iframe removed/navigated)
-    if (this.activeFrame?.isDetached()) {
-      this.activeFrame = null;
-    }
-    return this.activeFrame ?? this.getPage();
+    return this.getActiveSession().getActiveFrameOrPage();
   }
 
   // ─── State Save/Restore (shared by recreateContext + handoff) ─
@@ -588,10 +883,21 @@ export class BrowserManager {
           sessionStorage: { ...sessionStorage },
         }));
       } catch {}
+
+      // Capture load-html content so a later context recreation (viewport --scale)
+      // can replay it via setTabContent. Never persisted to disk.
+      const session = this.tabSessions.get(id);
+      const loaded = session?.getLoadedHtml();
+      // Preserve tab ownership through recreation so scoped agents aren't locked out.
+      const owner = this.tabOwnership.get(id);
+
       pages.push({
         url: url === 'about:blank' ? '' : url,
         isActive: id === this.activeTabId,
         storage,
+        loadedHtml: loaded?.html,
+        loadedHtmlWaitUntil: loaded?.waitUntil,
+        owner,
       });
     }
 
@@ -611,16 +917,49 @@ export class BrowserManager {
       await this.context.addCookies(state.cookies);
     }
 
+    // Clear stale ownership — the old tab IDs are gone. We'll re-add per-tab
+    // owners below as each saved tab gets a fresh ID. Without this reset, old
+    // tabId → clientId entries would linger and match new tabs with the same
+    // sequential IDs, silently granting ownership to the wrong clients.
+    this.tabOwnership.clear();
+
     // Re-create pages
     let activeId: number | null = null;
     for (const saved of state.pages) {
       const page = await this.context.newPage();
       const id = this.nextTabId++;
       this.pages.set(id, page);
+      const newSession = new TabSession(page);
+      this.tabSessions.set(id, newSession);
       this.wirePageEvents(page);
 
-      if (saved.url) {
-        await page.goto(saved.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      // Restore tab ownership for the new ID — preserves scoped-agent isolation
+      // across context recreation (viewport --scale, user-agent change, handoff).
+      if (saved.owner) {
+        this.tabOwnership.set(id, saved.owner);
+      }
+
+      if (saved.loadedHtml) {
+        // Replay load-html content via setTabContent — this rehydrates
+        // TabSession.loadedHtml so the next saveState sees it. page.setContent()
+        // alone would restore the DOM but lose the replay metadata.
+        try {
+          await newSession.setTabContent(saved.loadedHtml, { waitUntil: saved.loadedHtmlWaitUntil });
+        } catch (err: any) {
+          console.warn(`[browse] Failed to replay loadedHtml for tab ${id}: ${err.message}`);
+        }
+      } else if (saved.url) {
+        // Validate the saved URL before navigating — the state file is user-writable and
+        // a tampered URL could navigate to cloud metadata endpoints. Use the normalized
+        // return value so file:// forms get consistent treatment with live goto.
+        let normalizedUrl: string;
+        try {
+          normalizedUrl = await validateNavigationUrl(saved.url);
+        } catch (err: any) {
+          console.warn(`[browse] Skipping invalid URL in state file: ${saved.url} — ${err.message}`);
+          continue;
+        }
+        await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
       }
 
       if (saved.storage) {
@@ -676,11 +1015,13 @@ export class BrowserManager {
         await page.close().catch(() => {});
       }
       this.pages.clear();
+      this.tabSessions.clear();
       await this.context.close().catch(() => {});
 
       // 3. Create new context with updated settings
       const contextOptions: BrowserContextOptions = {
-        viewport: { width: 1280, height: 720 },
+        viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+        deviceScaleFactor: this.deviceScaleFactor,
       };
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
@@ -699,10 +1040,12 @@ export class BrowserManager {
       // Fallback: create a clean context + blank tab
       try {
         this.pages.clear();
+        this.tabSessions.clear();
         if (this.context) await this.context.close().catch(() => {});
 
         const contextOptions: BrowserContextOptions = {
-          viewport: { width: 1280, height: 720 },
+          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+          deviceScaleFactor: this.deviceScaleFactor,
         };
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
@@ -715,6 +1058,63 @@ export class BrowserManager {
       }
       return `Context recreation failed: ${err instanceof Error ? err.message : String(err)}. Browser reset to blank tab.`;
     }
+  }
+
+  /**
+   * Change deviceScaleFactor + viewport size atomically.
+   *
+   * deviceScaleFactor is a context-level option, so Playwright requires a full context
+   * recreation. This method validates the input, stores the new values, calls
+   * recreateContext(), and rolls back the fields on failure so a bad call doesn't
+   * leave the manager in an inconsistent state.
+   *
+   * Returns null on success, or an error string if the new context couldn't be built
+   * (state may have been lost, per recreateContext's fallback behavior).
+   */
+  async setDeviceScaleFactor(scale: number, width: number, height: number): Promise<string | null> {
+    if (!Number.isFinite(scale)) {
+      throw new Error(`viewport --scale: value must be a finite number, got ${scale}`);
+    }
+    if (scale < 1 || scale > 3) {
+      throw new Error(`viewport --scale: value must be between 1 and 3 (gstack policy cap), got ${scale}`);
+    }
+    if (this.connectionMode === 'headed') {
+      throw new Error('viewport --scale is not supported in headed mode — scale is controlled by the real browser window.');
+    }
+
+    const prevScale = this.deviceScaleFactor;
+    const prevViewport = { ...this.currentViewport };
+    this.deviceScaleFactor = scale;
+    this.currentViewport = { width, height };
+
+    const err = await this.recreateContext();
+    if (err !== null) {
+      // recreateContext's fallback path built a blank context using the NEW scale +
+      // viewport (the fields we just set). Rolling the fields back without a second
+      // recreate would leave the live context at new-scale while state says old-scale.
+      // Roll back fields FIRST, then force a second recreate against the old values
+      // so live state matches tracked state.
+      this.deviceScaleFactor = prevScale;
+      this.currentViewport = prevViewport;
+      const rollbackErr = await this.recreateContext();
+      if (rollbackErr !== null) {
+        // Second recreate also failed — we're in a clean blank slate via fallback, but
+        // with old scale. Return the original error so the caller sees the primary failure.
+        return `${err} (rollback also encountered: ${rollbackErr})`;
+      }
+      return err;
+    }
+    return null;
+  }
+
+  /** Read current deviceScaleFactor (for tests + debug). */
+  getDeviceScaleFactor(): number {
+    return this.deviceScaleFactor;
+  }
+
+  /** Read current tracked viewport (for tests + `viewport --scale` size fallback). */
+  getCurrentViewport(): { width: number; height: number } {
+    return { ...this.currentViewport };
   }
 
   // ─── Handoff: Headless → Headed ─────────────────────────────
@@ -751,6 +1151,8 @@ export class BrowserManager {
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
+        // Auth token is served via /health endpoint now (no file write needed).
+        // Extension reads token from /health on connect.
         console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
       } else {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
@@ -782,6 +1184,7 @@ export class BrowserManager {
       this.context = newContext;
       this.browser = newContext.browser();
       this.pages.clear();
+      this.tabSessions.clear();
       this.connectionMode = 'headed';
 
       if (Object.keys(this.extraHeaders).length > 0) {
@@ -824,9 +1227,13 @@ export class BrowserManager {
    * The meta-command handler calls handleSnapshot() after this.
    */
   resume(): void {
-    this.clearRefs();
+    // Clear refs and frame on the active session
+    try {
+      const session = this.getActiveSession();
+      session.clearRefs();
+      session.setFrame(null);
+    } catch {}
     this.resetFailures();
-    this.activeFrame = null;
   }
 
   getIsHeaded(): boolean {
@@ -851,12 +1258,34 @@ export class BrowserManager {
 
   // ─── Console/Network/Dialog/Ref Wiring ────────────────────
   private wirePageEvents(page: Page) {
+    // Track tab close — remove from pages and sessions maps, switch to another tab
+    page.on('close', () => {
+      for (const [id, p] of this.pages) {
+        if (p === page) {
+          this.pages.delete(id);
+          this.tabSessions.delete(id);
+          console.log(`[browse] Tab closed (id=${id}, remaining=${this.pages.size})`);
+          // If the closed tab was active, switch to another
+          if (this.activeTabId === id) {
+            const remaining = [...this.pages.keys()];
+            this.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : 0;
+          }
+          break;
+        }
+      }
+    });
+
     // Clear ref map on navigation — refs point to stale elements after page change
     // (lastSnapshot is NOT cleared — it's a text baseline for diffing)
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) {
-        this.clearRefs();
-        this.activeFrame = null; // Navigation invalidates frame context
+        // Find the TabSession for this page and clear its per-tab state
+        for (const session of this.tabSessions.values()) {
+          if (session.page === page) {
+            session.onMainFrameNavigated();
+            break;
+          }
+        }
       }
     });
 
@@ -879,7 +1308,7 @@ export class BrowserManager {
           await dialog.dismiss();
         }
       } catch {
-        // Dialog may have been dismissed by navigation — ignore
+        // Dialog may have been dismissed by navigation
       }
     });
 

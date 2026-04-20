@@ -1,6 +1,0 @@
-interface:
-  display_name: "gstack-setup-deploy"
-  short_description: "Configure deployment settings for /land-and-deploy. Detects your deploy platform (Fly.io, Render, Vercel, Netlify,..."
-  default_prompt: "Use gstack-setup-deploy for this task."
-policy:
-  allow_implicit_invocation: true
