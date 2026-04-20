@@ -31,6 +31,10 @@ const codex: HostConfig = {
     { from: '.claude/skills', to: '.agents/skills' },
   ],
 
+  toolRewrites: {
+    'AskUserQuestion': 'request_user_input',
+  },
+
   suppressedResolvers: [
     'DESIGN_OUTSIDE_VOICES',  // design.ts:485 — Codex can't invoke itself
     'ADVERSARIAL_STEP',       // review.ts:408 — Codex can't invoke itself
