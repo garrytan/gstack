@@ -10,9 +10,11 @@
  * Binary resolution order (Codex round 2 #4):
  *   1. $BROWSE_BIN env override
  *   2. sibling dir: dirname(argv[0])/../browse/dist/browse
- *   3. ~/.claude/skills/gstack/browse/dist/browse
- *   4. PATH lookup: `browse`
- *   5. error with setup hint
+ *   3. ~/.agents/skills/gstack/browse/dist/browse
+ *   4. ~/.codex/skills/gstack/browse/dist/browse
+ *   5. ~/.claude/skills/gstack/browse/dist/browse
+ *   6. PATH lookup: `browse`
+ *   7. error with setup hint
  */
 
 import { execFileSync } from "node:child_process";
@@ -74,10 +76,17 @@ export function resolveBrowseBin(): string {
     if (isExecutable(candidate)) return candidate;
   }
 
-  // Global install
+  // Global installs. Prefer the active Codex/agents install before older
+  // Claude installs that may still exist on disk.
   const home = os.homedir();
-  const globalPath = path.join(home, ".claude/skills/gstack/browse/dist/browse");
-  if (isExecutable(globalPath)) return globalPath;
+  const globalCandidates = [
+    path.join(home, ".agents/skills/gstack/browse/dist/browse"),
+    path.join(home, ".codex/skills/gstack/browse/dist/browse"),
+    path.join(home, ".claude/skills/gstack/browse/dist/browse"),
+  ];
+  for (const candidate of globalCandidates) {
+    if (isExecutable(candidate)) return candidate;
+  }
 
   // PATH lookup
   try {
@@ -97,7 +106,7 @@ export function resolveBrowseBin(): string {
       "Tried:",
       `  - $BROWSE_BIN (${envOverride || "unset"})`,
       `  - sibling: ${siblingCandidates.join(", ")}`,
-      `  - global: ${globalPath}`,
+      `  - global: ${globalCandidates.join(", ")}`,
       "  - PATH: `browse`",
       "",
       "To fix: run gstack setup from the gstack repo:",
@@ -111,6 +120,8 @@ export function resolveBrowseBin(): string {
 
 function isExecutable(p: string): boolean {
   try {
+    const stat = fs.statSync(p);
+    if (!stat.isFile()) return false;
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch {
