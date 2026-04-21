@@ -15,9 +15,13 @@
  *
  * Resolution order for the pdftotext binary:
  *   1. $PDFTOTEXT_BIN env override
- *   2. `which pdftotext` on PATH
- *   3. standard Homebrew paths on macOS
+ *   2. PATH lookup (`which` on POSIX, `where` on Windows)
+ *   3. standard Homebrew / distro paths on macOS/Linux
  *   4. throws a friendly "install poppler" error
+ *
+ * On Windows, every probe also tries `.exe` / `.cmd` / `.bat` suffixes,
+ * so users can set `PDFTOTEXT_BIN=C:\tools\poppler\bin\pdftotext` and have
+ * it resolve to `pdftotext.exe` without the extension in the env var.
  *
  * The wrapper is *optional at runtime*: production renders don't need it.
  * Only the CI gate and unit tests invoke pdftotext.
@@ -46,26 +50,38 @@ export interface PdftotextInfo {
  */
 export function resolvePdftotext(): PdftotextInfo {
   const envOverride = process.env.PDFTOTEXT_BIN;
-  if (envOverride && isExecutable(envOverride)) {
-    return describeBinary(envOverride);
+  if (envOverride) {
+    const resolved = findExecutable(envOverride);
+    if (resolved) return describeBinary(resolved);
   }
 
-  // Try PATH
+  // PATH lookup — `where` on Windows (native, always in System32),
+  // `which` on POSIX. Git Bash provides `which` too, but cmd.exe and
+  // PowerShell don't.
+  const pathLookupCmd = process.platform === "win32" ? "where" : "which";
   try {
-    const which = execFileSync("which", ["pdftotext"], { encoding: "utf8" }).trim();
-    if (which && isExecutable(which)) return describeBinary(which);
+    const out = execFileSync(pathLookupCmd, ["pdftotext"], { encoding: "utf8" }).trim();
+    const firstHit = out.split(/\r?\n/)[0]?.trim();
+    if (firstHit) {
+      const resolved = findExecutable(firstHit);
+      if (resolved) return describeBinary(resolved);
+    }
   } catch {
     // fall through
   }
 
-  // Common macOS Homebrew locations
-  const macCandidates = [
-    "/opt/homebrew/bin/pdftotext",     // Apple Silicon
-    "/usr/local/bin/pdftotext",        // Intel Mac or Linuxbrew
+  // Common POSIX install locations (Homebrew, distro packages).
+  // Windows users rely on PATH + env override; Poppler distributions
+  // on Windows land in too many places to guess (Scoop, Chocolatey,
+  // oschwartz10612/poppler-windows standalone, portable zips).
+  const posixCandidates = [
+    "/opt/homebrew/bin/pdftotext",     // Apple Silicon Homebrew
+    "/usr/local/bin/pdftotext",        // Intel Mac / Linuxbrew
     "/usr/bin/pdftotext",              // distro package
   ];
-  for (const candidate of macCandidates) {
-    if (isExecutable(candidate)) return describeBinary(candidate);
+  for (const candidate of posixCandidates) {
+    const resolved = findExecutable(candidate);
+    if (resolved) return describeBinary(resolved);
   }
 
   throw new PdftotextUnavailableError([
@@ -75,13 +91,32 @@ export function resolvePdftotext(): PdftotextInfo {
     "(Runtime rendering does NOT need it. This only affects tests.)",
     "",
     "To install:",
-    "  macOS:  brew install poppler",
-    "  Ubuntu: sudo apt-get install poppler-utils",
-    "  Fedora: sudo dnf install poppler-utils",
+    "  macOS:    brew install poppler",
+    "  Ubuntu:   sudo apt-get install poppler-utils",
+    "  Fedora:   sudo dnf install poppler-utils",
+    "  Windows:  scoop install poppler  (or download from",
+    "            https://github.com/oschwartz10612/poppler-windows)",
     "",
     "Or set PDFTOTEXT_BIN to an explicit path:",
     "  export PDFTOTEXT_BIN=/path/to/pdftotext",
   ].join("\n"));
+}
+
+/**
+ * Resolve a base path to an executable, probing platform-specific extensions.
+ * See browseClient.findExecutable for the full rationale — this is a local
+ * duplicate to keep module independence (matches the existing `isExecutable`
+ * duplication pattern in this file and browseClient.ts).
+ */
+function findExecutable(base: string): string | null {
+  if (isExecutable(base)) return base;
+  if (process.platform === "win32") {
+    for (const ext of [".exe", ".cmd", ".bat"]) {
+      const withExt = base + ext;
+      if (isExecutable(withExt)) return withExt;
+    }
+  }
+  return null;
 }
 
 function isExecutable(p: string): boolean {
