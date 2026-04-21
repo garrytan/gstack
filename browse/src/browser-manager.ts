@@ -1341,14 +1341,14 @@ export class BrowserManager {
       }
     });
 
-    // Capture response sizes via response finished
+    // Capture response sizes via content-length header (#711)
+    // Avoids buffering entire response body (videos, images, downloads)
     page.on('requestfinished', async (req) => {
       try {
         const res = await req.response();
         if (res) {
           const url = req.url();
-          const body = await res.body().catch(() => null);
-          const size = body ? body.length : 0;
+          const size = parseInt(res.headers()['content-length'] || '0', 10);
           for (let i = networkBuffer.length - 1; i >= 0; i--) {
             const entry = networkBuffer.get(i);
             if (entry && entry.url === url && !entry.size) {
