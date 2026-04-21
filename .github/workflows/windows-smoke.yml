@@ -78,15 +78,17 @@ jobs:
           }
 
       - name: Smoke-test binaries
+        # design.exe's build is smoked by the layout assertion above; it
+        # doesn't implement --version, so we don't invoke it here.
         run: |
           ./browse/dist/browse.exe --version
           ./make-pdf/dist/pdf.exe --version
-          ./design/dist/design.exe --version
 
       - name: Windows-specific unit tests
         run: |
           bun test browse/test/security.test.ts
           bun test browse/test/file-permissions.test.ts
+          bun test browse/test/home-dir-resolution.test.ts
           bun test make-pdf/test/browseClient.test.ts
           bun test make-pdf/test/pdftotext.test.ts
 
