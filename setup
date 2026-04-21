@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+COPILOT_SKILLS="$HOME/.copilot/skills"
+COPILOT_GSTACK="$COPILOT_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -43,7 +45,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, copilot-cli, copilot, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -56,7 +58,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|copilot-cli|copilot|codex|kiro|factory|opencode|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -91,7 +93,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, copilot-cli, copilot, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -155,18 +157,22 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_COPILOT_CLI=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v copilot >/dev/null 2>&1 && INSTALL_COPILOT_CLI=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_COPILOT_CLI" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
+elif [ "$HOST" = "copilot-cli" ] || [ "$HOST" = "copilot" ]; then
+  INSTALL_COPILOT_CLI=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
@@ -284,6 +290,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .copilot/ Copilot CLI skill docs
+if [ "$INSTALL_COPILOT_CLI" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .copilot/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host copilot-cli
   )
 fi
 
@@ -729,6 +745,92 @@ link_opencode_skill_dirs() {
   fi
 }
 
+create_copilot_runtime_root() {
+  local gstack_dir="$1"
+  local copilot_gstack="$2"
+  local copilot_dir="$gstack_dir/.copilot/skills"
+
+  if [ -L "$copilot_gstack" ]; then
+    rm -f "$copilot_gstack"
+  elif [ -d "$copilot_gstack" ] && [ "$copilot_gstack" != "$gstack_dir" ]; then
+    rm -rf "$copilot_gstack"
+  fi
+
+  mkdir -p "$copilot_gstack" "$copilot_gstack/browse" "$copilot_gstack/design" "$copilot_gstack/gstack-upgrade" "$copilot_gstack/review" "$copilot_gstack/qa" "$copilot_gstack/plan-devex-review"
+
+  if [ -f "$copilot_dir/gstack/SKILL.md" ]; then
+    ln -snf "$copilot_dir/gstack/SKILL.md" "$copilot_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$copilot_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$copilot_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$copilot_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    ln -snf "$gstack_dir/design/dist" "$copilot_gstack/design/dist"
+  fi
+  if [ -f "$copilot_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$copilot_dir/gstack-upgrade/SKILL.md" "$copilot_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$copilot_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    ln -snf "$gstack_dir/review/specialists" "$copilot_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    ln -snf "$gstack_dir/qa/templates" "$copilot_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    ln -snf "$gstack_dir/qa/references" "$copilot_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
+    ln -snf "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$copilot_gstack/plan-devex-review/dx-hall-of-fame.md"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$copilot_gstack/ETHOS.md"
+  fi
+}
+
+link_copilot_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local copilot_dir="$gstack_dir/.copilot/skills"
+  local linked=()
+
+  if [ ! -d "$copilot_dir" ]; then
+    echo "  Generating .copilot/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host copilot-cli )
+  fi
+
+  if [ ! -d "$copilot_dir" ]; then
+    echo "  warning: .copilot/skills/ generation failed — run 'bun run gen:skill-docs --host copilot-cli' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$copilot_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -899,6 +1001,15 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+if [ "$INSTALL_COPILOT_CLI" -eq 1 ]; then
+  mkdir -p "$COPILOT_SKILLS"
+  create_copilot_runtime_root "$SOURCE_GSTACK_DIR" "$COPILOT_GSTACK"
+  link_copilot_skill_dirs "$SOURCE_GSTACK_DIR" "$COPILOT_SKILLS"
+  echo "gstack ready (copilot-cli)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  copilot skills: $COPILOT_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
