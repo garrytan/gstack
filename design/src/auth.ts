@@ -8,9 +8,10 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 
-const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "openai.json");
+const CONFIG_PATH = path.join(os.homedir(), ".gstack", "openai.json");
 
 export function resolveApiKey(): string | null {
   // 1. Check ~/.gstack/openai.json

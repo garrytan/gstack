@@ -10,6 +10,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
@@ -471,7 +472,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
 /** Check if ngrok is installed and authenticated (native config or gstack env). */
 function isNgrokAvailable(): boolean {
   // Check gstack's own ngrok env
-  const ngrokEnvPath = path.join(process.env.HOME || '/tmp', '.gstack', 'ngrok.env');
+  const ngrokEnvPath = path.join(os.homedir(), '.gstack', 'ngrok.env');
   if (fs.existsSync(ngrokEnvPath)) return true;
 
   // Check NGROK_AUTHTOKEN env var
@@ -479,9 +480,9 @@ function isNgrokAvailable(): boolean {
 
   // Check ngrok's native config (macOS + Linux)
   const ngrokConfigs = [
-    path.join(process.env.HOME || '/tmp', 'Library', 'Application Support', 'ngrok', 'ngrok.yml'),
-    path.join(process.env.HOME || '/tmp', '.config', 'ngrok', 'ngrok.yml'),
-    path.join(process.env.HOME || '/tmp', '.ngrok2', 'ngrok.yml'),
+    path.join(os.homedir(), 'Library', 'Application Support', 'ngrok', 'ngrok.yml'),
+    path.join(os.homedir(), '.config', 'ngrok', 'ngrok.yml'),
+    path.join(os.homedir(), '.ngrok2', 'ngrok.yml'),
   ];
   for (const conf of ngrokConfigs) {
     try {
@@ -720,7 +721,7 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
         // Fallback to convention-based path
       }
 
-      const configDir = path.join(process.env.HOME || '/tmp', globalRoot);
+      const configDir = path.join(os.homedir(), globalRoot);
       fs.mkdirSync(configDir, { recursive: true });
       const configFile = path.join(configDir, 'browse-remote.json');
       const configData = {
@@ -828,7 +829,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // Kill orphaned Chromium processes that may still hold the profile lock.
     // The server PID is the Bun process; Chromium is a child that can outlive it
     // if the server is killed abruptly (SIGKILL, crash, manual rm of state file).
-    const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+    const profileDir = path.join(os.homedir(), '.gstack', 'chromium-profile');
     try {
       const singletonLock = path.join(profileDir, 'SingletonLock');
       const lockTarget = fs.readlinkSync(singletonLock); // e.g. "hostname-12345"
@@ -893,7 +894,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           throw new Error(`sidebar-agent.ts not found at ${agentScript}`);
         }
         // Clear old agent queue
-        const agentQueue = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
+        const agentQueue = path.join(os.homedir(), '.gstack', 'sidebar-agent-queue.jsonl');
         try {
           fs.mkdirSync(path.dirname(agentQueue), { recursive: true, mode: 0o700 });
           fs.writeFileSync(agentQueue, '', { mode: 0o600 });
@@ -978,7 +979,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       }
     }
     // Clean profile locks and state file
-    const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+    const profileDir = path.join(os.homedir(), '.gstack', 'chromium-profile');
     for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
       safeUnlinkQuiet(path.join(profileDir, lockFile));
     }
