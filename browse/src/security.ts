@@ -24,6 +24,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { writeSecureFile, appendSecureFile, mkdirSecure } from './file-permissions';
 
 // ─── Thresholds + verdict types ──────────────────────────────
 
@@ -261,11 +262,11 @@ function getDeviceSalt(): string {
     // fall through to generate
   }
   try {
-    fs.mkdirSync(SECURITY_DIR, { recursive: true, mode: 0o700 });
+    mkdirSecure(SECURITY_DIR);
   } catch {}
   cachedSalt = randomBytes(16).toString('hex');
   try {
-    fs.writeFileSync(SALT_FILE, cachedSalt, { mode: 0o600 });
+    writeSecureFile(SALT_FILE, cachedSalt);
   } catch {
     // Can't persist (read-only fs, disk full). Keep the in-memory salt
     // for this process so cross-log correlation still works within a
@@ -373,10 +374,10 @@ export function logAttempt(record: AttemptRecord): boolean {
   // the event reported (it goes to a different directory anyway).
   reportAttemptTelemetry(record);
   try {
-    fs.mkdirSync(SECURITY_DIR, { recursive: true, mode: 0o700 });
+    mkdirSecure(SECURITY_DIR);
     rotateIfNeeded();
     const line = JSON.stringify(record) + '\n';
-    fs.appendFileSync(ATTEMPTS_LOG, line, { mode: 0o600 });
+    appendSecureFile(ATTEMPTS_LOG, line);
     return true;
   } catch (err) {
     // Non-fatal. Log to stderr for debugging but don't block.
@@ -406,9 +407,9 @@ export interface SessionState {
  */
 export function writeSessionState(state: SessionState): void {
   try {
-    fs.mkdirSync(SECURITY_DIR, { recursive: true, mode: 0o700 });
+    mkdirSecure(SECURITY_DIR);
     const tmp = `${STATE_FILE}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
+    writeSecureFile(tmp, JSON.stringify(state, null, 2));
     fs.renameSync(tmp, STATE_FILE);
   } catch (err) {
     console.error('[security] writeSessionState failed:', (err as Error).message);
@@ -449,10 +450,10 @@ export interface DecisionRecord {
 
 export function writeDecision(record: DecisionRecord): void {
   try {
-    fs.mkdirSync(DECISIONS_DIR, { recursive: true, mode: 0o700 });
+    mkdirSecure(DECISIONS_DIR);
     const file = decisionFileForTab(record.tabId);
     const tmp = `${file}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(record), { mode: 0o600 });
+    writeSecureFile(tmp, JSON.stringify(record));
     fs.renameSync(tmp, file);
   } catch (err) {
     console.error('[security] writeDecision failed:', (err as Error).message);

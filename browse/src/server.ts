@@ -13,6 +13,7 @@
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
+import { writeSecureFile, appendSecureFile, mkdirSecure } from './file-permissions';
 import { BrowserManager } from './browser-manager';
 import { handleReadCommand } from './read-commands';
 import { handleWriteCommand } from './write-commands';
@@ -450,10 +451,10 @@ function createSession(): SidebarSession {
     lastActiveAt: new Date().toISOString(),
   };
   const sessionDir = path.join(SESSIONS_DIR, id);
-  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(sessionDir, 'session.json'), JSON.stringify(session, null, 2), { mode: 0o600 });
-  fs.writeFileSync(path.join(sessionDir, 'chat.jsonl'), '', { mode: 0o600 });
-  fs.writeFileSync(path.join(SESSIONS_DIR, 'active.json'), JSON.stringify({ id }), { mode: 0o600 });
+  mkdirSecure(sessionDir);
+  writeSecureFile(path.join(sessionDir, 'session.json'), JSON.stringify(session, null, 2));
+  writeSecureFile(path.join(sessionDir, 'chat.jsonl'), '');
+  writeSecureFile(path.join(SESSIONS_DIR, 'active.json'), JSON.stringify({ id }));
   chatBuffer = [];
   chatNextId = 0;
   return session;
@@ -463,7 +464,7 @@ function saveSession(): void {
   if (!sidebarSession) return;
   sidebarSession.lastActiveAt = new Date().toISOString();
   const sessionFile = path.join(SESSIONS_DIR, sidebarSession.id, 'session.json');
-  try { fs.writeFileSync(sessionFile, JSON.stringify(sidebarSession, null, 2), { mode: 0o600 }); } catch (err: any) {
+  try { writeSecureFile(sessionFile, JSON.stringify(sidebarSession, null, 2)); } catch (err: any) {
     console.error('[browse] Failed to save session:', err.message);
   }
 }
@@ -647,11 +648,8 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
     canary, // sidebar-agent scans all outbound channels for this token
   });
   try {
-    fs.mkdirSync(gstackDir, { recursive: true, mode: 0o700 });
-    fs.appendFileSync(agentQueue, entry + '\n');
-    try { fs.chmodSync(agentQueue, 0o600); } catch (err: any) {
-      if (err?.code !== 'ENOENT') throw err;
-    }
+    mkdirSecure(gstackDir);
+    appendSecureFile(agentQueue, entry + '\n');
   } catch (err: any) {
     addChatEntry({ ts: new Date().toISOString(), role: 'agent', type: 'agent_error', error: `Failed to queue: ${err.message}` });
     agentStatus = 'idle';
@@ -711,7 +709,7 @@ function startAgentHealthCheck(): void {
 
 // Initialize session on startup
 function initSidebarSession(): void {
-  fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
+  mkdirSecure(SESSIONS_DIR);
   sidebarSession = loadSession();
   if (!sidebarSession) {
     sidebarSession = createSession();
@@ -1723,7 +1721,7 @@ async function start() {
           const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
           stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
           const tmpState = config.stateFile + '.tmp';
-          fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+          writeSecureFile(tmpState, JSON.stringify(stateContent, null, 2));
           fs.renameSync(tmpState, config.stateFile);
 
           return new Response(JSON.stringify({ url: tunnelUrl }), {
@@ -1963,7 +1961,7 @@ async function start() {
         chatNextId = 0;
         if (sidebarSession) {
           const chatFile = path.join(SESSIONS_DIR, sidebarSession.id, 'chat.jsonl');
-          try { fs.writeFileSync(chatFile, '', { mode: 0o600 }); } catch (err: any) {
+          try { writeSecureFile(chatFile, ''); } catch (err: any) {
             if (err?.code !== 'ENOENT') console.error('[browse] Failed to clear chat file:', err.message);
           }
         }
@@ -2451,7 +2449,7 @@ async function start() {
     mode: browserManager.getConnectionMode(),
   };
   const tmpFile = config.stateFile + '.tmp';
-  fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
+  writeSecureFile(tmpFile, JSON.stringify(state, null, 2));
   fs.renameSync(tmpFile, config.stateFile);
 
   browserManager.serverPort = port;
@@ -2533,7 +2531,7 @@ async function start() {
         const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
         stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
         const tmpState = config.stateFile + '.tmp';
-        fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+        writeSecureFile(tmpState, JSON.stringify(stateContent, null, 2));
         fs.renameSync(tmpState, config.stateFile);
       }
     } catch (err: any) {
@@ -2548,8 +2546,8 @@ start().catch((err) => {
   // stderr because the server is launched with detached: true, stdio: 'ignore'.
   try {
     const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`, { mode: 0o600 });
+    mkdirSecure(config.stateDir);
+    writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
   } catch {
     // stateDir may not exist — nothing more we can do
   }

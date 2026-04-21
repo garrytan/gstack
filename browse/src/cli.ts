@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 
 const config = resolveConfig();
@@ -729,7 +730,7 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
         scopes: pairData.scopes,
         expires_at: pairData.expires_at,
       };
-      fs.writeFileSync(configFile, JSON.stringify(configData, null, 2), { mode: 0o600 });
+      writeSecureFile(configFile, JSON.stringify(configData, null, 2));
       console.log(`Connected. ${localHost} can now use the browser.`);
       console.log(`Config written to: ${configFile}`);
     } catch (err: any) {
@@ -895,8 +896,8 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         // Clear old agent queue
         const agentQueue = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
         try {
-          fs.mkdirSync(path.dirname(agentQueue), { recursive: true, mode: 0o700 });
-          fs.writeFileSync(agentQueue, '', { mode: 0o600 });
+          mkdirSecure(path.dirname(agentQueue));
+          writeSecureFile(agentQueue, '');
         } catch (err: any) {
           if (err?.code !== 'EACCES') throw err;
         }
