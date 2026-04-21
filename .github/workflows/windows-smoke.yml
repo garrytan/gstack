@@ -1,0 +1,94 @@
+# Windows Smoke CI — Phase 1 of the phased rollout in docs/designs/WINDOWS_CI.md
+#
+# Answers one question per run: "does the code path through a Windows-critical
+# module actually run on Windows." That's deliberately a lower bar than "does
+# every test pass" — it catches the class of bugs where Linux/macOS CI runs
+# green but a Windows user immediately hits ENOENT / "browse binary not found"
+# / silent mislocations of ~/.gstack/ state.
+#
+# Coverage catch list (see RFC for full reasoning):
+#   - Build fails to produce .exe on Windows              (catches #1013 / #1024)
+#   - Binary-resolution probes wrong filename             (catches #1118 / #1094)
+#   - Shebang bash script spawn fails                     (catches #1119)
+#   - Sensitive files written without ACL restriction     (catches #1121)
+#   - { mode: 0o600 } silently ignored on Windows         (catches Pre-#1121 state)
+#
+# Miss: #1120-style home-directory fallback — no direct unit test. RFC
+# proposes adding one as a follow-on.
+name: windows-smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'browse/**'
+      - 'make-pdf/**'
+      - 'design/**'
+      - 'scripts/**'
+      - 'bin/**'
+      - 'package.json'
+      - 'bun.lockb'
+      - '.github/workflows/windows-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'browse/**'
+      - 'make-pdf/**'
+      - 'design/**'
+      - 'scripts/**'
+      - 'bin/**'
+      - 'package.json'
+      - 'bun.lockb'
+  workflow_dispatch:
+
+concurrency:
+  group: windows-smoke-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build binaries
+        run: bun run build
+
+      - name: Assert Windows binary layout
+        shell: pwsh
+        run: |
+          $missing = @()
+          foreach ($p in @(
+            'browse/dist/browse.exe',
+            'browse/dist/find-browse.exe',
+            'browse/dist/server-node.mjs',
+            'make-pdf/dist/pdf.exe',
+            'design/dist/design.exe'
+          )) { if (-not (Test-Path $p)) { $missing += $p } }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing build artifacts: $($missing -join ', ')"
+            exit 1
+          }
+
+      - name: Smoke-test binaries
+        run: |
+          ./browse/dist/browse.exe --version
+          ./make-pdf/dist/pdf.exe --version
+          ./design/dist/design.exe --version
+
+      - name: Windows-specific unit tests
+        run: |
+          bun test browse/test/security.test.ts
+          bun test browse/test/file-permissions.test.ts
+          bun test make-pdf/test/browseClient.test.ts
+          bun test make-pdf/test/pdftotext.test.ts
+
+      - name: make-pdf render smoke
+        run: bun test make-pdf/test/render.test.ts
