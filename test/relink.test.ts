@@ -140,6 +140,7 @@ describe('gstack-relink (#578)', () => {
       const target = fs.readlinkSync(skillMdPath);
       expect(target).toContain(skill);
       expect(target).toEndWith('/SKILL.md');
+      expect(path.isAbsolute(target)).toBe(false);
     }
   });
 
@@ -160,6 +161,7 @@ describe('gstack-relink (#578)', () => {
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
       expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(true);
+      expect(path.isAbsolute(fs.readlinkSync(skillMdPath))).toBe(false);
     }
   });
 

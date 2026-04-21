@@ -13,6 +13,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
 
+rel_link_target() {
+  python3 - <<'PY' "$1" "$2"
+import os
+import sys
+print(os.path.relpath(sys.argv[2], sys.argv[1]))
+PY
+}
+
 # Detect install dir
 INSTALL_DIR="${GSTACK_INSTALL_DIR:-}"
 if [ -z "$INSTALL_DIR" ]; then
@@ -74,9 +82,11 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   target="$SKILLS_DIR/$link_name"
   # Upgrade old directory symlinks to real directories
   [ -L "$target" ] && rm -f "$target"
-  # Create real directory with symlinked SKILL.md (absolute path)
+  # Create real directory with symlinked SKILL.md using a relative target so
+  # relink is portable and does not dirty the repo with host-specific paths.
   mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  skill_md_target="$(rel_link_target "$target" "$INSTALL_DIR/$skill/SKILL.md")"
+  ln -snf "$skill_md_target" "$target/SKILL.md"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 
