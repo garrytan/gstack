@@ -938,6 +938,20 @@ files_modified:
 The `files_modified` list comes from `git status --short` (both staged and unstaged
 modified files). Use relative paths from the repo root.
 
+After writing the file, run the following bash to fire the optional memory-brain
+extension hook. If `~/.gstack/hooks/on-checkpoint-written` exists and is
+executable, it is invoked with the checkpoint file path on stdin. Backgrounded
+so a slow hook never slows the skill. Exit code ignored so a broken hook never
+breaks the skill. See `docs/adapters/README.md`.
+
+```bash
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+HOOK="$GSTACK_HOME/hooks/on-checkpoint-written"
+if [ -x "$HOOK" ]; then
+  (printf '%s\n' "$FILE" | "$HOOK" >/dev/null 2>&1) &
+fi
+```
+
 After writing, confirm to the user:
 
 ```
