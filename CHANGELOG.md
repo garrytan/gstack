@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.5.1.1] - 2026-04-21
+
+## **Live merge conflict markers were sitting in `/context-save` for two days. Gone now.**
+
+The v1.0.1.0 rename from `/checkpoint` to `/context-save` + `/context-restore` (#1064, 2026-04-19) landed with unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers still in `context-save/SKILL.md.tmpl`. Git paused the merge, the human committed without resolving, nobody noticed because the markers render as prose text in the agent's prompt rather than breaking anything at runtime. Anyone running `/context-save` since then was feeding Claude a prompt with live Git conflict syntax in the middle of it. This fix deletes the markers and the stale duplicated "Resume flow" block, which already lives correctly in `context-restore/SKILL.md.tmpl` as "Restore flow". First PR from a new community contributor.
+
+### The numbers that matter
+
+Source: `git diff main..HEAD` on this branch, `git show 12260262` for the original rename commit.
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Merge conflict marker lines in `context-save/SKILL.md.tmpl` | 3 | 0 |
+| Dead duplicate content lines (the old "Resume flow" block) | 97 | 0 |
+| Total lines removed (template + generated output) | — | 200 |
+| Days the broken prompt lived in main | 2 | 0 |
+| Net lines of behavior changed | — | 0 |
+
+Pure cleanup. No CLI flag, no new test, no runtime behavior change. Agents running `/context-save` get a prompt that no longer contains Git conflict syntax. That is the entire change.
+
+### What this means for gstack users
+
+If you used `/context-save` between 2026-04-19 and 2026-04-21, the skill still worked (markers rendered as text, Claude ignored them), but the prompt you were feeding the agent was uglier than it should have been. After `/gstack-upgrade`, the prompt is clean. Nothing else changes. If you want the flipside — loading a saved context in a fresh session — that lives in `/context-restore`, which was never affected by this conflict.
+
+### Itemized changes
+
+#### Fixed
+
+- **Removed unresolved Git merge-conflict markers** from `context-save/SKILL.md.tmpl` (lines 201-300 in the pre-fix file). The three marker lines (`<<<<<<< HEAD:checkpoint/SKILL.md.tmpl`, `=======`, `>>>>>>> origin/main:context-save/SKILL.md.tmpl`) are gone.
+- **Deleted the stale duplicate "Resume flow" block** that the conflict was straddling. The same behavior is correctly implemented as "Restore flow" in `context-restore/SKILL.md.tmpl:59` — no functionality is lost.
+- **Regenerated** `context-save/SKILL.md` for the claude host via `bun run gen:skill-docs` so the published skill matches the template.
+
+#### For contributors
+
+- This was caught while exploring a separate `/office-hours` pointer-file proposal, which was dropped after realizing the real bug was already sitting in main. If you're reading this to understand gstack first-PR surface area, the repo will happily surface live bugs to anyone who reads the templates carefully. Keep looking.
+
 ## [1.5.1.0] - 2026-04-20
 
 ## **Three visible bugs in v1.4.0.0 /make-pdf, all fixed.**
