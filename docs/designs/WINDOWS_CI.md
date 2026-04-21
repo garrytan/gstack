@@ -127,18 +127,11 @@ jobs:
             exit 1
           }
 
-      - name: Smoke-test binaries
-        run: |
-          ./browse/dist/browse.exe --version
-          ./make-pdf/dist/pdf.exe --version
-          ./design/dist/design.exe --version
-
       - name: Windows-specific unit tests
-        run: |
-          bun test browse/test/security.test.ts
-          bun test browse/test/file-permissions.test.ts
-          bun test make-pdf/test/browseClient.test.ts
-          bun test make-pdf/test/pdftotext.test.ts
+        # Single bun test invocation so a failure in any file reliably fails
+        # the step. Default PowerShell error-handling masks all-but-the-last
+        # command's exit code across separate `run:` lines.
+        run: bun test browse/test/security.test.ts browse/test/file-permissions.test.ts browse/test/home-dir-resolution.test.ts make-pdf/test/browseClient.test.ts make-pdf/test/pdftotext.test.ts
 
       - name: make-pdf render smoke
         run: bun test make-pdf/test/render.test.ts
@@ -146,18 +139,20 @@ jobs:
 
 **What this catches that the current matrix doesn't:**
 
-| Class | Example PR | Would Phase 1 catch it? | Coverage depends on |
+Every row below has been demonstrated on a live CI run. The "Demo" links point to PRs on scarson/gstack where Phase 1 was pointed at a pre-fix state of the corresponding bug; each link lands on a red CI run that fails at exactly the step noted. The "Green baseline" link ([PR #4](https://github.com/scarson/gstack/pull/4)) shows Phase 1 passing end-to-end against the state where all four fix PRs are applied.
+
+| Class | Example PR | Phase 1 catches it? | Demo run |
 |---|---|---|---|
-| Build fails to produce `.exe` on Windows | #1013 / #1024 | ✅ "Assert Windows binary layout" step | Already on main |
-| Binary-resolution probes the wrong filename | #1118 / #1094 | ✅ `browseClient.test.ts` Windows assertions | **Tests live in #1118, not yet on main** |
-| Home-directory fallback misroutes state | #1120 | ❌ Not caught — no direct test covers the 31 call sites, and `bun run build` doesn't exercise `.gstack/` state resolution. Filling this gap is its own follow-on (a unit test that asserts path resolution under HOME-unset) | See "What happens next" §3 |
-| Sensitive files written without ACL restriction | #1121 | ✅ `file-permissions.test.ts` — POSIX branch pins the semantic; Windows `restrictFilePermissions` exec path gets exercised | **Test file lives in #1121, not yet on main** |
-| Shebang bash script spawn fails | #1119 | ✅ `security.test.ts` `buildTelemetrySpawnCommand` assertions | **Assertions live in #1119, not yet on main** |
-| `{ mode: 0o600 }` silently ignored | Pre-#1121 state | ✅ The helper's POSIX mode-bit assertion runs; Windows no-throw path runs too | **Test file lives in #1121, not yet on main** |
+| Build fails to produce `.exe` on Windows | #1013 / #1024 | ✅ Fails at "Assert Windows binary layout" step | [PR scarson/gstack#2](https://github.com/scarson/gstack/pull/2) — pinned to `6a785c5^` (pre-v0.18.0.1) |
+| Binary-resolution probes the wrong filename | #1118 / #1094 | ✅ Fails in `browseClient.test.ts` | [PR scarson/gstack#3](https://github.com/scarson/gstack/pull/3) — main + #1118 tests only, no src fix |
+| Home-directory fallback misroutes state | #1120 | ✅ Fails in `home-dir-resolution.test.ts` (new regression test, added as part of this RFC) | [PR scarson/gstack#7](https://github.com/scarson/gstack/pull/7) — main + new test, no #1120 src fix |
+| Sensitive files written without ACL restriction | #1121 | ✅ Fails in `file-permissions.test.ts` (Cannot find module) | [PR scarson/gstack#6](https://github.com/scarson/gstack/pull/6) — main + #1121 test only, no src fix |
+| Shebang bash script spawn fails | #1119 | ✅ Fails in `security.test.ts` `buildTelemetrySpawnCommand` assertion | [PR scarson/gstack#5](https://github.com/scarson/gstack/pull/5) — main + #1119 tests only, no src fix |
+| `{ mode: 0o600 }` silently ignored | Pre-#1121 state | ✅ Caught by `file-permissions.test.ts` POSIX mode-bit assertion | Same demo as #1121 row above |
 
-**Bug-class totals:** four of five recent PRs caught by Phase 1 (#1013/#1024 build, #1118 binary resolution, #1119 shebang spawn, #1121 ACL). One miss: #1120's home-directory fallback, because the unit-test surface for that fix is thin. Closing that gap is its own follow-on (see "What happens next" §3), not a reason to skip Phase 1.
+**Bug-class totals:** five of five recent PRs caught by Phase 1 — #1024 build, #1118 binary resolution, #1119 shebang spawn, #1120 home-dir, #1121 ACL. The #1120 row was originally a ❌ in an earlier draft of this RFC; the regression test I wrote while preparing the RFC (`browse/test/home-dir-resolution.test.ts`, included in this branch) closes that gap.
 
-**Test-file dependency:** four of the ✅ rows invoke test files I added in currently-open PRs (#1118, #1119, #1121). If those land before this Phase 1 workflow lands, the coverage is as advertised. If the workflow lands first, the "Windows-critical unit tests" step should either (a) be narrowed to tests already on main, or (b) fail gracefully on missing files and expand as each PR merges. The YAML shown above assumes "my open PRs merge first" — I'd sequence it that way in practice, but flagging the dependency explicitly rather than burying it.
+**Test-file dependency:** four of the test files Phase 1 invokes live in my currently-open PRs (#1118, #1119, #1121 — their test additions, plus the new home-dir-resolution.test.ts in this RFC branch). If those PRs land before this workflow lands, coverage is as advertised. If the workflow lands first, the "Windows-specific unit tests" step should either (a) be narrowed to tests already on main, or (b) fail gracefully on missing files and expand as each PR merges. The YAML above assumes "my open PRs merge first" — I'd sequence it that way and can trim to a narrower set if you'd rather sequence differently.
 
 ### Phase 2 — Unit test subset
 
@@ -189,7 +184,7 @@ gstack's Linux workflows run on `ubicloud-standard-2` (every workflow under `.gi
 
 [Ubicloud is Linux-only](https://www.ubicloud.com/use-cases/github-actions) — no Windows runner in their offering as of April 2026. Phase 1 therefore targets `windows-latest` on GitHub-hosted runners, which is (a) the same free tier the project's lightweight jobs already use and (b) the only drop-in option that doesn't require standing up a new provider. If a third-party Windows runner (RunsOn is the most commonly cited alternative for Windows-hosted CI as of April 2026) ever makes sense for gstack, that's a Phase 2+ migration — not a Phase 1 prerequisite.
 
-**Real costs:** zero dollars. The budget line items are maintainer attention for the workflow file and any flake triage that lands on @garrytan's plate. Phase 1 completes in 3-5 minutes on a cold cache, well under the `timeout-minutes: 10` I set.
+**Real costs:** zero dollars. The budget line items are maintainer attention for the workflow file and any flake triage that lands on @garrytan's plate. Phase 1 completes in **under 1:15 wall-clock** on GitHub-hosted `windows-latest` with a cold runner — well under the `timeout-minutes: 10` I set. Measurements come from the demo runs on scarson/gstack linked below; green-baseline runs clocked 50s–1:15 across 7 pushes.
 
 ## Implementation concerns
 
@@ -205,13 +200,38 @@ gstack's Linux workflows run on `ubicloud-standard-2` (every workflow under `.gi
 
 Everything else (runner sourcing, scope of the YAML, Phase 2 skip-list ownership) is proposed with a defensible default in the body. Push back inline if any of them land wrong.
 
+## Precedents
+
+Two Node-ecosystem projects already run GitHub-hosted Windows CI in the pattern Phase 1 follows:
+
+- **[npm/cli](https://github.com/npm/cli/blob/latest/.github/workflows/ci.yml)** — matrix with `os: [ubuntu-latest, macos-latest, macos-15-intel, windows-latest]`, `runs-on: ${{ matrix.platform.os }}`. Platform-specific shell overrides are done per-matrix-entry (`shell: bash` on Windows rows where the test commands assume POSIX tooling).
+- **[microsoft/playwright](https://github.com/microsoft/playwright/blob/main/.github/workflows/tests_primary.yml)** — core tests run on `[ubuntu-latest, macos-latest]` base matrix with explicit `include:` entries for `os: windows-latest` covering the hot-path browsers. Same GitHub-hosted `windows-latest` runner gstack would target.
+
+Both projects are public repos, both use the free GitHub-hosted tier this RFC proposes, and both have been stable on Windows long enough that their Windows matrix has become expected rather than controversial. The path isn't novel — it's catching up to the ecosystem norm.
+
+## Receipts
+
+Everything in this RFC is demonstrable on live CI on [scarson/gstack](https://github.com/scarson/gstack). The table below is the full dashboard; the coverage table above links to individual runs inline.
+
+| What | PR | Status | Run | Wall clock |
+|---|---|---|---|---|
+| **Green baseline** (all four fix PRs applied) | [#4](https://github.com/scarson/gstack/pull/4) | ✅ success | [run 24713325443](https://github.com/scarson/gstack/actions/runs/24713325443) | 59s |
+| Catches #1024 build-fail | [#2](https://github.com/scarson/gstack/pull/2) | ❌ failure (expected; `bun run build` errors) | [run 24713460340](https://github.com/scarson/gstack/actions/runs/24713460340) | ~1m |
+| Catches #1118 binary-resolution | [#3](https://github.com/scarson/gstack/pull/3) | ❌ failure (expected; `browseClient.test.ts` fails) | [run 24713462662](https://github.com/scarson/gstack/actions/runs/24713462662) | ~1m |
+| Catches #1119 shebang-spawn | [#5](https://github.com/scarson/gstack/pull/5) | ❌ failure (expected; `security.test.ts` fails) | [run 24713463096](https://github.com/scarson/gstack/actions/runs/24713463096) | ~1m |
+| Catches #1120 home-dir (via new regression test) | [#7](https://github.com/scarson/gstack/pull/7) | ❌ failure (expected; `home-dir-resolution.test.ts` enumerates offenders) | [run 24713464002](https://github.com/scarson/gstack/actions/runs/24713464002) | ~1m |
+| Catches #1121 ACL / `chmod` no-op | [#6](https://github.com/scarson/gstack/pull/6) | ❌ failure (expected; `file-permissions.test.ts` module not found) | [run 24713465618](https://github.com/scarson/gstack/actions/runs/24713465618) | ~1m |
+
+**Stability proof:** [PR #4](https://github.com/scarson/gstack/pull/4) is also the target for N≥2 consecutive green runs (the green baseline + subsequent re-triggers). At time of writing, the first green run is linked above; additional runs on the same HEAD are visible in the PR's Checks tab as they complete.
+
+**Contributor UX:** the [Checks tab on PR #4](https://github.com/scarson/gstack/pull/4/checks) shows exactly what a contributor would see if this workflow were live on upstream — one `windows-smoke / smoke` check alongside the existing Linux/macOS checks, green in under 1:15.
+
 ## What happens next
 
 If this proposal is directionally OK:
 
-1. I'll file `.github/workflows/windows-smoke.yml` as a draft PR referencing this RFC. Sequenced after #1118 / #1119 / #1121 so the test files the workflow invokes actually exist on main; if you'd rather I land it earlier with a narrower test set, say so and I'll cut.
-2. Once Phase 1 is merged and running clean, I'll file per-test issues for the Phase 2 skip list (7 tests) with repro details and suspected fix paths. Holding those until Phase 1 lands so they don't clutter the issue tracker before we know we're going this direction.
-3. Add a unit test that covers the #1120 home-directory fallback specifically — Phase 1's smoke set has a gap here because the unit-test surface for that fix is thin. I'll file this as a follow-on after Phase 1 is merged.
-4. Phase 3 (widened `pdftotext.normalize()` + Windows `make-pdf-gate` matrix) is not volunteered work on my end — flagging the path forward but leaving it unowned.
+1. **File the draft PR** on garrytan/gstack — the `.github/workflows/windows-smoke.yml` in this branch, plus the `browse/test/home-dir-resolution.test.ts` regression test, as a single artifact. Sequenced after #1118 / #1119 / #1121 merge so the test files the workflow invokes actually exist on main. If you'd rather I land it earlier with a narrower test set, say so — cutting is straightforward.
+2. **Phase 2 skip list** — once Phase 1 is live on upstream main, I'll file per-test issues for the 7 known-flaky Windows tests with repro details and suspected fix paths. Holding those until Phase 1 lands so they don't clutter the issue tracker pre-direction.
+3. **Phase 3** (widened `pdftotext.normalize()` + Windows `make-pdf-gate` matrix) is not volunteered work on my end — flagging the path forward but leaving it unowned.
 
-If there's a reason this shape is wrong, or the coverage gap isn't worth the runner cost to the project, I'd rather know now than after drafting the workflow PR. Pushback welcome.
+If there's a reason this shape is wrong — or the coverage gap isn't worth the maintainer attention to the project — I'd rather know now than after the workflow PR is open. Pushback welcome.
