@@ -7,10 +7,11 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 const API_KEY = process.env.OPENAI_API_KEY
-  || JSON.parse(fs.readFileSync(path.join(process.env.HOME!, ".gstack/openai.json"), "utf-8")).api_key;
+  || JSON.parse(fs.readFileSync(path.join(os.homedir(), ".gstack/openai.json"), "utf-8")).api_key;
 
 if (!API_KEY) {
   console.error("No API key found. Set OPENAI_API_KEY or save to ~/.gstack/openai.json");

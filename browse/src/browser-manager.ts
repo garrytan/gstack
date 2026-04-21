@@ -15,6 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
+import * as os from 'os';
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
@@ -139,7 +140,7 @@ export class BrowserManager {
       // Relative to this source file (dev mode: browse/src/ -> ../../extension)
       path.resolve(__dirname, '..', '..', 'extension'),
       // Global gstack install
-      path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'extension'),
+      path.join(os.homedir(), '.claude', 'skills', 'gstack', 'extension'),
       // Git repo root (detected via BROWSE_STATE_FILE location)
       (() => {
         const stateFile = process.env.BROWSE_STATE_FILE || '';
@@ -266,7 +267,7 @@ export class BrowserManager {
       if (authToken) {
         const fs = require('fs');
         const path = require('path');
-        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
+        const gstackDir = path.join(os.homedir(), '.gstack');
         fs.mkdirSync(gstackDir, { recursive: true });
         const authFile = path.join(gstackDir, '.auth.json');
         try {
@@ -283,7 +284,7 @@ export class BrowserManager {
     // so we use Playwright's bundled Chromium which reliably loads extensions.
     const fs = require('fs');
     const path = require('path');
-    const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+    const userDataDir = path.join(os.homedir(), '.gstack', 'chromium-profile');
     fs.mkdirSync(userDataDir, { recursive: true });
 
     // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
@@ -310,7 +311,7 @@ export class BrowserManager {
         // Replace Chromium's Dock icon with ours (Chromium's process owns the Dock icon)
         const iconCandidates = [
           path.join(__dirname, '..', '..', 'scripts', 'app', 'icon.icns'),       // repo dev mode
-          path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'scripts', 'app', 'icon.icns'), // global install
+          path.join(os.homedir(), '.claude', 'skills', 'gstack', 'scripts', 'app', 'icon.icns'), // global install
         ];
         const iconSrc = iconCandidates.find(p => fs.existsSync(p));
         if (iconSrc) {
@@ -1158,7 +1159,7 @@ export class BrowserManager {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      const userDataDir = path.join(os.homedir(), '.gstack', 'chromium-profile');
       fs.mkdirSync(userDataDir, { recursive: true });
 
       newContext = await chromium.launchPersistentContext(userDataDir, {

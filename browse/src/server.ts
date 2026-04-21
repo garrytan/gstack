@@ -13,6 +13,7 @@
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
+import * as os from 'os';
 import { BrowserManager } from './browser-manager';
 import { handleReadCommand } from './read-commands';
 import { handleWriteCommand } from './write-commands';
@@ -185,7 +186,7 @@ interface SidebarSession {
   lastActiveAt: string;
 }
 
-const SESSIONS_DIR = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-sessions');
+const SESSIONS_DIR = path.join(os.homedir(), '.gstack', 'sidebar-sessions');
 const AGENT_TIMEOUT_MS = 300_000; // 5 minutes — multi-page tasks need time
 const MAX_QUEUE = 5;
 
@@ -234,7 +235,7 @@ function findBrowseBin(): string {
   const candidates = [
     path.resolve(__dirname, '..', 'dist', 'browse'),
     path.resolve(__dirname, '..', '..', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
-    path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+    path.join(os.homedir(), '.claude', 'skills', 'gstack', 'browse', 'dist', 'browse'),
   ];
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return c; } catch (err: any) {
@@ -247,7 +248,7 @@ function findBrowseBin(): string {
 const BROWSE_BIN = findBrowseBin();
 
 function findClaudeBin(): string | null {
-  const home = process.env.HOME || '';
+  const home = os.homedir();
   const candidates = [
     // Conductor app bundled binary (not a symlink — works reliably)
     path.join(home, 'Library', 'Application Support', 'com.conductor.app', 'bin', 'claude'),
@@ -381,7 +382,7 @@ function createWorktree(sessionId: string): string | null {
     if (gitCheck.exitCode !== 0) return null;
     const repoRoot = gitCheck.stdout.toString().trim();
 
-    const worktreeDir = path.join(process.env.HOME || '/tmp', '.gstack', 'worktrees', sessionId.slice(0, 8));
+    const worktreeDir = path.join(os.homedir(), '.gstack', 'worktrees', sessionId.slice(0, 8));
 
     // Clean up if dir exists from prior crash
     if (fs.existsSync(worktreeDir)) {
@@ -632,7 +633,7 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
   // fails with ENOENT on everything, including /bin/bash). Instead,
   // write the command to a queue file that the sidebar-agent process
   // (running as non-compiled bun) picks up and spawns claude.
-  const agentQueue = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
+  const agentQueue = process.env.SIDEBAR_QUEUE_PATH || path.join(os.homedir(), '.gstack', 'sidebar-agent-queue.jsonl');
   const gstackDir = path.dirname(agentQueue);
   const entry = JSON.stringify({
     ts: new Date().toISOString(),
@@ -676,7 +677,7 @@ function killAgent(targetTabId?: number | null): void {
   // Using per-tab files prevents race conditions where one agent's cancel
   // signal is consumed by a different tab's agent in concurrent mode.
   // When targetTabId is provided, only that tab's agent is cancelled.
-  const cancelDir = path.join(process.env.HOME || '/tmp', '.gstack');
+  const cancelDir = path.join(os.homedir(), '.gstack');
   const tabId = targetTabId ?? agentTabId ?? 0;
   const cancelFile = path.join(cancelDir, `sidebar-agent-cancel-${tabId}`);
   try {
@@ -1304,7 +1305,7 @@ async function shutdown(exitCode: number = 0) {
   await browserManager.close();
 
   // Clean up Chromium profile locks (prevent SingletonLock on next launch)
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  const profileDir = path.join(os.homedir(), '.gstack', 'chromium-profile');
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     safeUnlinkQuiet(path.join(profileDir, lockFile));
   }
@@ -1367,7 +1368,7 @@ function emergencyCleanup() {
     console.error('[browse] Emergency: failed to save session:', err.message);
   }
   // Clean Chromium profile locks
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  const profileDir = path.join(os.homedir(), '.gstack', 'chromium-profile');
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
     safeUnlinkQuiet(path.join(profileDir, lockFile));
   }
@@ -1423,7 +1424,7 @@ async function start() {
         const welcomePath = (() => {
           // Check project-local designs first, then global
           const slug = process.env.GSTACK_SLUG || 'unknown';
-          const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
+          const homeDir = os.homedir();
           const projectWelcome = `${homeDir}/.gstack/projects/${slug}/designs/welcome-page-20260331/finalized.html`;
           if (fs.existsSync(projectWelcome)) return projectWelcome;
           // Fallback: built-in welcome page from gstack install
@@ -1681,7 +1682,7 @@ async function start() {
           // Read ngrok authtoken: env var > ~/.gstack/ngrok.env > ngrok native config
           let authtoken = process.env.NGROK_AUTHTOKEN;
           if (!authtoken) {
-            const ngrokEnvPath = path.join(process.env.HOME || '', '.gstack', 'ngrok.env');
+            const ngrokEnvPath = path.join(os.homedir(), '.gstack', 'ngrok.env');
             if (fs.existsSync(ngrokEnvPath)) {
               const envContent = fs.readFileSync(ngrokEnvPath, 'utf-8');
               const match = envContent.match(/^NGROK_AUTHTOKEN=(.+)$/m);
@@ -1691,9 +1692,9 @@ async function start() {
           if (!authtoken) {
             // Check ngrok's native config files
             const ngrokConfigs = [
-              path.join(process.env.HOME || '', 'Library', 'Application Support', 'ngrok', 'ngrok.yml'),
-              path.join(process.env.HOME || '', '.config', 'ngrok', 'ngrok.yml'),
-              path.join(process.env.HOME || '', '.ngrok2', 'ngrok.yml'),
+              path.join(os.homedir(), 'Library', 'Application Support', 'ngrok', 'ngrok.yml'),
+              path.join(os.homedir(), '.config', 'ngrok', 'ngrok.yml'),
+              path.join(os.homedir(), '.ngrok2', 'ngrok.yml'),
             ];
             for (const conf of ngrokConfigs) {
               try {
@@ -2505,7 +2506,7 @@ async function start() {
       // Read ngrok authtoken from env or config file
       let authtoken = process.env.NGROK_AUTHTOKEN;
       if (!authtoken) {
-        const ngrokEnvPath = path.join(process.env.HOME || '', '.gstack', 'ngrok.env');
+        const ngrokEnvPath = path.join(os.homedir(), '.gstack', 'ngrok.env');
         if (fs.existsSync(ngrokEnvPath)) {
           const envContent = fs.readFileSync(ngrokEnvPath, 'utf-8');
           const match = envContent.match(/^NGROK_AUTHTOKEN=(.+)$/m);
