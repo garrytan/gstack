@@ -36,6 +36,12 @@ ERROR_MESSAGE=""
 FAILED_STEP=""
 EVENT_TYPE="skill_run"
 SOURCE=""
+# Security-event fields (populated only when --event-type attack_attempt)
+SEC_URL_DOMAIN=""
+SEC_PAYLOAD_HASH=""
+SEC_CONFIDENCE=""
+SEC_LAYER=""
+SEC_VERDICT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,6 +55,12 @@ while [ $# -gt 0 ]; do
     --failed-step)   FAILED_STEP="$2"; shift 2 ;;
     --event-type)    EVENT_TYPE="$2"; shift 2 ;;
     --source)        SOURCE="$2"; shift 2 ;;
+    # Security event fields — emitted by browse/src/security.ts logAttempt()
+    --url-domain)    SEC_URL_DOMAIN="$2"; shift 2 ;;
+    --payload-hash)  SEC_PAYLOAD_HASH="$2"; shift 2 ;;
+    --confidence)    SEC_CONFIDENCE="$2"; shift 2 ;;
+    --layer)         SEC_LAYER="$2"; shift 2 ;;
+    --verdict)       SEC_VERDICT="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -188,11 +200,37 @@ INSTALL_FIELD="null"
 BROWSE_BOOL="false"
 [ "$USED_BROWSE" = "true" ] && BROWSE_BOOL="true"
 
-printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"error_message":%s,"failed_step":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"source":"%s","_repo_slug":"%s","_branch":"%s"}\n' \
+# Sanitize security fields — they're salted hashes and controlled enum values,
+# but apply json_safe() defensively. Domain is limited to 253 chars (RFC 1035).
+SEC_URL_DOMAIN="$(json_safe "$SEC_URL_DOMAIN")"
+SEC_PAYLOAD_HASH="$(json_safe "$SEC_PAYLOAD_HASH")"
+SEC_LAYER="$(json_safe "$SEC_LAYER")"
+SEC_VERDICT="$(json_safe "$SEC_VERDICT")"
+
+# Confidence is numeric 0-1. Default null if unset or malformed.
+SEC_CONF_FIELD="null"
+if [ -n "$SEC_CONFIDENCE" ]; then
+  # awk validates + clamps to [0,1]. Falls back to null on parse failure.
+  _sc="$(awk -v v="$SEC_CONFIDENCE" 'BEGIN { if (v+0 >= 0 && v+0 <= 1) printf "%.4f", v+0; else print "" }' 2>/dev/null || echo "")"
+  [ -n "$_sc" ] && SEC_CONF_FIELD="$_sc"
+fi
+
+SEC_DOMAIN_FIELD="null"
+[ -n "$SEC_URL_DOMAIN" ] && SEC_DOMAIN_FIELD="\"$SEC_URL_DOMAIN\""
+SEC_HASH_FIELD="null"
+[ -n "$SEC_PAYLOAD_HASH" ] && SEC_HASH_FIELD="\"$SEC_PAYLOAD_HASH\""
+SEC_LAYER_FIELD="null"
+[ -n "$SEC_LAYER" ] && SEC_LAYER_FIELD="\"$SEC_LAYER\""
+SEC_VERDICT_FIELD="null"
+[ -n "$SEC_VERDICT" ] && SEC_VERDICT_FIELD="\"$SEC_VERDICT\""
+
+printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"error_message":%s,"failed_step":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"source":"%s","security_url_domain":%s,"security_payload_hash":%s,"security_confidence":%s,"security_layer":%s,"security_verdict":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
   "$TS" "$EVENT_TYPE" "$SKILL" "$SESSION_ID" "$GSTACK_VERSION" "$OS" "$ARCH" \
   "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$ERR_MSG_FIELD" "$STEP_FIELD" \
   "$BROWSE_BOOL" "${SESSIONS:-1}" \
-  "$INSTALL_FIELD" "$SOURCE" "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
+  "$INSTALL_FIELD" "$SOURCE" \
+  "$SEC_DOMAIN_FIELD" "$SEC_HASH_FIELD" "$SEC_CONF_FIELD" "$SEC_LAYER_FIELD" "$SEC_VERDICT_FIELD" \
+  "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
 
 # ─── Trigger sync if tier is not off ─────────────────────────
 SYNC_CMD="$GSTACK_DIR/bin/gstack-telemetry-sync"

@@ -5,11 +5,9 @@ version: 1.0.0
 description: |
   Turn any markdown file into a publication-quality PDF. Proper 1in margins,
   intelligent page breaks, page numbers, cover pages, running headers, curly
-  quotes and em dashes, clickable TOC, diagonal DRAFT watermark. Output you'd
-  send to a VC partner, a book agent, a judge, or Rick Rubin's team. Not a
-  draft artifact — a finished artifact. Use when asked to "make a PDF",
-  "export to PDF", "turn this markdown into a PDF", or "generate a document".
-  (gstack)
+  quotes and em dashes, clickable TOC, diagonal DRAFT watermark. Not a draft
+  artifact — a finished artifact. Use when asked to "make a PDF", "export to
+  PDF", "turn this markdown into a PDF", or "generate a document". (gstack)
   Voice triggers (speech-to-text aliases): "make this a pdf", "make it a pdf", "export to pdf", "turn this into a pdf", "turn this markdown into a pdf", "generate a pdf", "make a pdf from", "pdf this markdown".
 triggers:
   - markdown to pdf
@@ -469,6 +467,10 @@ Turn `.md` files into PDFs that look like Faber & Faber essays: 1in margins,
 left-aligned body, Helvetica throughout, curly quotes and em dashes, optional
 cover page and clickable TOC, diagonal DRAFT watermark when you need it.
 Copy-paste from the PDF produces clean words, never "S a i l i n g".
+
+On Linux, install `fonts-liberation` for correct rendering — Helvetica and Arial
+aren't present by default, and Liberation Sans is the standard metric-compatible
+fallback. CI and Docker builds install it automatically via Dockerfile.ci.
 
 ## MAKE-PDF SETUP (run this check BEFORE any make-pdf command)
 

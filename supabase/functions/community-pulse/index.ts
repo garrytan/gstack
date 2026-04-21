@@ -102,12 +102,77 @@ Deno.serve(async () => {
       .slice(0, 5)
       .map(([version, count]) => ({ version, count }));
 
+    // Security events — aggregate attack_attempt events from the last 7 days.
+    // Fields emitted by gstack-telemetry-log --event-type attack_attempt:
+    //   security_url_domain, security_payload_hash, security_confidence,
+    //   security_layer, security_verdict.
+    const { data: attackRows } = await supabase
+      .from("telemetry_events")
+      .select("security_url_domain, security_layer, security_verdict, installation_id")
+      .eq("event_type", "attack_attempt")
+      .gte("event_timestamp", weekAgo)
+      .limit(5000);
+
+    // k-anonymity threshold. A domain (or layer) must be reported by at least
+    // K_ANON distinct installations to appear in the aggregate. Without this,
+    // a single user's attack log leaks their targeted domains to every other
+    // gstack user who polls /community-pulse. With it, the dashboard shows
+    // only community-wide patterns.
+    const K_ANON = 5;
+
+    const attacksTotal = attackRows?.length ?? 0;
+    const domainCounts: Record<string, number> = {};
+    const domainInstallations: Record<string, Set<string>> = {};
+    const layerCounts: Record<string, number> = {};
+    const layerInstallations: Record<string, Set<string>> = {};
+    const verdictCounts: Record<string, number> = {};
+    for (const row of attackRows ?? []) {
+      const iid = row.installation_id ?? "";
+      if (row.security_url_domain) {
+        domainCounts[row.security_url_domain] = (domainCounts[row.security_url_domain] ?? 0) + 1;
+        if (iid) {
+          (domainInstallations[row.security_url_domain] ??= new Set()).add(iid);
+        }
+      }
+      if (row.security_layer) {
+        layerCounts[row.security_layer] = (layerCounts[row.security_layer] ?? 0) + 1;
+        if (iid) {
+          (layerInstallations[row.security_layer] ??= new Set()).add(iid);
+        }
+      }
+      if (row.security_verdict) {
+        // Verdict distribution is low-cardinality (block/warn/log_only) and
+        // aggregates population-wide with no re-identification risk, so no
+        // k-anon filter.
+        verdictCounts[row.security_verdict] = (verdictCounts[row.security_verdict] ?? 0) + 1;
+      }
+    }
+    const topAttackDomains = Object.entries(domainCounts)
+      .filter(([domain]) => (domainInstallations[domain]?.size ?? 0) >= K_ANON)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([domain, count]) => ({ domain, count }));
+    const topAttackLayers = Object.entries(layerCounts)
+      .filter(([layer]) => (layerInstallations[layer]?.size ?? 0) >= K_ANON)
+      .sort(([, a], [, b]) => b - a)
+      .map(([layer, count]) => ({ layer, count }));
+    const attackVerdictDistribution = Object.entries(verdictCounts)
+      .sort(([, a], [, b]) => b - a)
+      .map(([verdict, count]) => ({ verdict, count }));
+
     const result = {
       weekly_active: current,
       change_pct: changePct,
       top_skills: topSkills,
       crashes: crashes ?? [],
       versions: topVersions,
+      // Security aggregate for the /security-dashboard view
+      security: {
+        attacks_last_7_days: attacksTotal,
+        top_attack_domains: topAttackDomains,
+        top_attack_layers: topAttackLayers,
+        verdict_distribution: attackVerdictDistribution,
+      },
     };
 
     // Upsert cache
@@ -128,7 +193,19 @@ Deno.serve(async () => {
     });
   } catch {
     return new Response(
-      JSON.stringify({ weekly_active: 0, change_pct: 0, top_skills: [], crashes: [], versions: [] }),
+      JSON.stringify({
+        weekly_active: 0,
+        change_pct: 0,
+        top_skills: [],
+        crashes: [],
+        versions: [],
+        security: {
+          attacks_last_7_days: 0,
+          top_attack_domains: [],
+          top_attack_layers: [],
+          verdict_distribution: [],
+        },
+      }),
       {
         status: 200,
         headers: { "Content-Type": "application/json" },

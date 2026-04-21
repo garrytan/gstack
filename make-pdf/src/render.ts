@@ -34,6 +34,11 @@ export interface RenderOptions {
   // Page layout
   pageSize?: "letter" | "a4" | "legal" | "tabloid";
   margins?: string;
+
+  // Footer behavior. pageNumbers defaults to true. When footerTemplate is set,
+  // CSS page numbers are suppressed so the custom Chromium footer wins cleanly.
+  pageNumbers?: boolean;
+  footerTemplate?: string;
 }
 
 export interface RenderResult {
@@ -74,6 +79,10 @@ export function render(opts: RenderOptions): RenderResult {
   const derivedDate = opts.date ?? formatToday();
 
   // 5. Build CSS
+  // CSS is the single source of truth for page numbers (Chromium native
+  // numbering is always off in orchestrator). If the caller supplied a custom
+  // footerTemplate, suppress CSS page numbers too so their footer wins.
+  const showPageNumbers = opts.pageNumbers !== false && !opts.footerTemplate;
   const cssOptions: PrintCssOptions = {
     cover: opts.cover,
     toc: opts.toc,
@@ -83,6 +92,7 @@ export function render(opts: RenderOptions): RenderResult {
     runningHeader: derivedTitle,
     pageSize: opts.pageSize,
     margins: opts.margins,
+    pageNumbers: showPageNumbers,
   };
   const css = printCss(cssOptions);
 
@@ -278,7 +288,7 @@ function extractHeadings(html: string): Array<{ level: number; text: string }> {
   let match;
   while ((match = re.exec(html)) !== null) {
     const level = parseInt(match[1].slice(1), 10);
-    const text = stripTags(match[2]).trim();
+    const text = decodeTextEntities(stripTags(match[2]).trim());
     if (text) headings.push({ level, text });
   }
   return headings;
@@ -314,7 +324,32 @@ function wrapChaptersByH1(html: string): string {
 
 function extractFirstHeading(html: string): string | null {
   const m = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
-  return m ? stripTags(m[1]).trim() : null;
+  return m ? decodeTextEntities(stripTags(m[1]).trim()) : null;
+}
+
+/**
+ * Decode HTML entities in plain text extracted from rendered HTML. Distinct
+ * from decodeTypographicEntities (which runs on in-pipeline HTML and preserves
+ * &amp; because &amp;amp; can be legitimate there). This runs on text destined
+ * for <title>, cover, and TOC entries where &amp; MUST become & or escapeHtml
+ * produces &amp;amp;.
+ *
+ * Amp-last ordering: input "&amp;#169;" decodes to "&#169;" in the named pass,
+ * then the numeric pass decodes "&#169;" to "©". Decoding &amp; first would
+ * produce "&#169;" and the numeric pass would consume it — different end state
+ * but risks double-decode on inputs like "&amp;lt;".
+ */
+function decodeTextEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, "&");
 }
 
 function stripTags(html: string): string {

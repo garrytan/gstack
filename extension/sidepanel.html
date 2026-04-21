@@ -5,12 +5,54 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
+  <!-- Security shield — reflects ~/.gstack/security/session-state.json status.
+       Hidden until the sidebar knows its state (avoids flicker on first load).
+       Consumes /health.security — see browse/src/security.ts getStatus(). -->
+  <div class="security-shield" id="security-shield" role="status" aria-label="Security status: unknown" style="display:none" title="Security">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    <span class="security-shield-label" id="security-shield-label">SEC</span>
+  </div>
+
   <!-- Connection status banner -->
   <div class="conn-banner" id="conn-banner" style="display:none">
     <span class="conn-banner-text" id="conn-banner-text">Reconnecting...</span>
     <div class="conn-banner-actions" id="conn-banner-actions" style="display:none">
       <button class="conn-btn" id="conn-reconnect">Reconnect</button>
       <button class="conn-btn conn-copy" id="conn-copy" title="Copy command">/open-gstack-browser</button>
+    </div>
+  </div>
+
+  <!-- Security event banner — fires on prompt injection detection.
+       Variant A from /plan-design-review 2026-04-19: centered alert-heavy,
+       big red error icon, mono layer scores in expandable details. -->
+  <div class="security-banner" id="security-banner" role="alert" aria-live="assertive" style="display:none">
+    <button class="security-banner-close" id="security-banner-close" aria-label="Dismiss">&times;</button>
+    <div class="security-banner-icon" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+    </div>
+    <div class="security-banner-title" id="security-banner-title">Session terminated</div>
+    <div class="security-banner-subtitle" id="security-banner-subtitle">prompt injection detected</div>
+    <button class="security-banner-expand" id="security-banner-expand" aria-expanded="false" aria-controls="security-banner-details">
+      <span>What happened</span>
+      <svg class="security-banner-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </button>
+    <div class="security-banner-details" id="security-banner-details" hidden>
+      <div class="security-banner-section-label">SECURITY LAYERS</div>
+      <div class="security-banner-layers" id="security-banner-layers"></div>
+      <div class="security-banner-section-label" id="security-banner-suspect-label" hidden>SUSPECTED TEXT</div>
+      <pre class="security-banner-suspect" id="security-banner-suspect" hidden></pre>
+    </div>
+    <div class="security-banner-actions" id="security-banner-actions" hidden>
+      <button type="button" class="security-banner-btn security-banner-btn-block" id="security-banner-btn-block">Block session</button>
+      <button type="button" class="security-banner-btn security-banner-btn-allow" id="security-banner-btn-allow">Allow and continue</button>
     </div>
   </div>
 

@@ -5,8 +5,11 @@
  * Mirror those CSS rules here. The HTML references were approved via
  * /plan-design-review with explicit design decisions locked in the plan:
  *
- *   - Helvetica only (system font, no bundled webfonts — dodges the
- *     per-glyph Tj bug that breaks copy-paste extraction).
+ *   - Helvetica first, with Liberation Sans as a metric-compatible Linux
+ *     fallback (Helvetica and Arial aren't installed on most Linux distros;
+ *     Liberation Sans ships via the fonts-liberation package and Playwright's
+ *     install-deps). No bundled webfonts — dodges the per-glyph Tj bug that
+ *     breaks copy-paste extraction.
  *   - All paragraphs flush-left. No first-line indent, no justify, no
  *     p+p indent. text-align: left everywhere. 12pt margin-bottom.
  *   - Cover page has the same 1in margins as every other page. No flexbox
@@ -15,8 +18,8 @@
  *   - `@page :first` suppresses running header/footer but does NOT override
  *     the 1in margin.
  *   - No <link>, no external CSS/fonts — everything inlined.
- *   - CJK fallback: Helvetica, Arial, Hiragino Kaku Gothic ProN, Noto Sans
- *     CJK JP, Microsoft YaHei, sans-serif.
+ *   - CJK fallback: Helvetica, Liberation Sans, Arial, Hiragino Kaku Gothic
+ *     ProN, Noto Sans CJK JP, Microsoft YaHei, sans-serif.
  */
 
 export interface PrintCssOptions {
@@ -37,6 +40,11 @@ export interface PrintCssOptions {
 
   // Margins (default 1in)
   margins?: string;
+
+  // Whether to render "N of M" page numbers in the @page @bottom-center rule.
+  // Default true. Set false to suppress CSS numbering (used when the caller
+  // supplies a custom Chromium footerTemplate, or when --no-page-numbers).
+  pageNumbers?: boolean;
 }
 
 /**
@@ -69,17 +77,20 @@ export function printCss(opts: PrintCssOptions = {}): string {
 function pageRules(size: string, margin: string, opts: PrintCssOptions): string {
   const runningHeader = escapeCssString(opts.runningHeader ?? "");
   const showConfidential = opts.confidential !== false;
+  const showPageNumbers = opts.pageNumbers !== false;
 
   return [
     `@page {`,
     `  size: ${size};`,
     `  margin: ${margin};`,
     runningHeader
-      ? `  @top-center { content: "${runningHeader}"; font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #666; }`
+      ? `  @top-center { content: "${runningHeader}"; font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 9pt; color: #666; }`
       : ``,
-    `  @bottom-center { content: counter(page) " of " counter(pages); font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #666; }`,
+    showPageNumbers
+      ? `  @bottom-center { content: counter(page) " of " counter(pages); font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 9pt; color: #666; }`
+      : ``,
     showConfidential
-      ? `  @bottom-right { content: "CONFIDENTIAL"; font-family: Helvetica, Arial, sans-serif; font-size: 8pt; color: #aaa; letter-spacing: 0.05em; }`
+      ? `  @bottom-right { content: "CONFIDENTIAL"; font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 8pt; color: #aaa; letter-spacing: 0.05em; }`
       : ``,
     `}`,
     ``,
@@ -96,7 +107,7 @@ function rootTypography(): string {
   return [
     `html { lang: en; }`,
     `body {`,
-    `  font-family: Helvetica, Arial, "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif;`,
+    `  font-family: Helvetica, "Liberation Sans", Arial, "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif;`,
     `  font-size: 11pt;`,
     `  line-height: 1.5;`,
     `  color: #111;`,

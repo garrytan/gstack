@@ -462,8 +462,11 @@ describe('per-tab agent concurrency', () => {
   test('sidebar-agent sends tabId with all events', () => {
     // sendEvent should accept tabId parameter
     expect(agentSrc).toContain('async function sendEvent(event: Record<string, any>, tabId?: number)');
-    // askClaude should extract tabId from queue entry
-    expect(agentSrc).toContain('const { prompt, args, stateFile, cwd, tabId }');
+    // askClaude destructures tabId from queue entry (regex tolerates
+    // additional fields like `canary` and `pageUrl` from security module).
+    expect(agentSrc).toMatch(
+      /const \{[^}]*\bprompt\b[^}]*\bargs\b[^}]*\bstateFile\b[^}]*\bcwd\b[^}]*\btabId\b[^}]*\}/
+    );
   });
 
   test('sidebar-agent allows concurrent agents across tabs', () => {

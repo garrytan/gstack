@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# gstack-security-dashboard — community prompt-injection attack stats
+#
+# Reads the `security` section of the community-pulse edge function response
+# (supabase/functions/community-pulse/index.ts). Shows aggregated attack
+# data across all gstack users on telemetry=community.
+#
+# Call signature:
+#   gstack-security-dashboard           # human-readable dashboard
+#   gstack-security-dashboard --json    # machine-readable (CI / scripts)
+#
+# Env overrides (for testing):
+#   GSTACK_DIR                    — override auto-detected gstack root
+#   GSTACK_SUPABASE_URL           — override Supabase project URL
+#   GSTACK_SUPABASE_ANON_KEY     — override Supabase anon key
+set -uo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# Source Supabase config
+if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+
+JSON_MODE=0
+[ "${1:-}" = "--json" ] && JSON_MODE=1
+
+if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
+  if [ "$JSON_MODE" = "1" ]; then
+    echo '{"error":"supabase_not_configured"}'
+    exit 0
+  fi
+  echo "gstack security dashboard"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Supabase not configured. Local log at ~/.gstack/security/attempts.jsonl"
+  echo "still captures every attempt — tail it with:"
+  echo "  cat ~/.gstack/security/attempts.jsonl | tail -20"
+  exit 0
+fi
+
+DATA="$(curl -sf --max-time 15 \
+  "${SUPABASE_URL}/functions/v1/community-pulse" \
+  -H "apikey: ${ANON_KEY}" \
+  2>/dev/null || echo "{}")"
+
+# Extract the security section. Prefer jq for brace-balanced parsing of
+# nested arrays/objects (top_attack_domains etc.). Fall back to regex if
+# jq isn't installed — the regex is lossy but the dashboard degrades
+# gracefully to "0 attacks" rather than misreporting numbers.
+if command -v jq >/dev/null 2>&1; then
+  SEC_SECTION="$(echo "$DATA" | jq -rc '.security // empty | "\"security\":\(.)"' 2>/dev/null || echo "")"
+else
+  SEC_SECTION="$(echo "$DATA" | grep -o '"security":{[^}]*}' 2>/dev/null || echo "")"
+fi
+
+if [ "$JSON_MODE" = "1" ]; then
+  # Machine-readable — echo the whole security section (or empty object)
+  if [ -n "$SEC_SECTION" ]; then
+    echo "{${SEC_SECTION}}"
+  else
+    echo '{"security":{"attacks_last_7_days":0,"top_attack_domains":[],"top_attack_layers":[],"verdict_distribution":[]}}'
+  fi
+  exit 0
+fi
+
+# Human-readable dashboard
+echo "gstack security dashboard"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+TOTAL="$(echo "$DATA" | grep -o '"attacks_last_7_days":[0-9]*' | grep -o '[0-9]*' | head -1 || echo "0")"
+echo "Attacks detected last 7 days: ${TOTAL}"
+if [ "$TOTAL" = "0" ]; then
+  echo "  (No attack attempts reported by the community yet. Good news.)"
+fi
+echo ""
+
+# Top attacked domains — parse objects inside top_attack_domains array
+DOMAINS="$(echo "$DATA" | sed -n 's/.*"top_attack_domains":\(\[[^]]*\]\).*/\1/p' | head -1)"
+if [ -n "$DOMAINS" ] && [ "$DOMAINS" != "[]" ]; then
+  echo "Top attacked domains"
+  echo "────────────────────"
+  echo "$DOMAINS" | grep -o '{[^}]*}' | head -10 | while read -r OBJ; do
+    DOMAIN="$(echo "$OBJ" | grep -o '"domain":"[^"]*"' | awk -F'"' '{print $4}')"
+    COUNT="$(echo "$OBJ" | grep -o '"count":[0-9]*' | grep -o '[0-9]*')"
+    [ -n "$DOMAIN" ] && [ -n "$COUNT" ] && printf "  %-40s %s attempts\n" "$DOMAIN" "$COUNT"
+  done
+  echo ""
+fi
+
+# Which layer catches attacks
+LAYERS="$(echo "$DATA" | sed -n 's/.*"top_attack_layers":\(\[[^]]*\]\).*/\1/p' | head -1)"
+if [ -n "$LAYERS" ] && [ "$LAYERS" != "[]" ]; then
+  echo "Top detection layers"
+  echo "────────────────────"
+  echo "$LAYERS" | grep -o '{[^}]*}' | while read -r OBJ; do
+    LAYER="$(echo "$OBJ" | grep -o '"layer":"[^"]*"' | awk -F'"' '{print $4}')"
+    COUNT="$(echo "$OBJ" | grep -o '"count":[0-9]*' | grep -o '[0-9]*')"
+    [ -n "$LAYER" ] && [ -n "$COUNT" ] && printf "  %-28s %s\n" "$LAYER" "$COUNT"
+  done
+  echo ""
+fi
+
+# Verdict distribution
+VERDICTS="$(echo "$DATA" | sed -n 's/.*"verdict_distribution":\(\[[^]]*\]\).*/\1/p' | head -1)"
+if [ -n "$VERDICTS" ] && [ "$VERDICTS" != "[]" ]; then
+  echo "Verdict distribution"
+  echo "────────────────────"
+  echo "$VERDICTS" | grep -o '{[^}]*}' | while read -r OBJ; do
+    VERDICT="$(echo "$OBJ" | grep -o '"verdict":"[^"]*"' | awk -F'"' '{print $4}')"
+    COUNT="$(echo "$OBJ" | grep -o '"count":[0-9]*' | grep -o '[0-9]*')"
+    [ -n "$VERDICT" ] && [ -n "$COUNT" ] && printf "  %-14s %s\n" "$VERDICT" "$COUNT"
+  done
+  echo ""
+fi
+
+echo "Your local log: ~/.gstack/security/attempts.jsonl"
+echo "Your telemetry mode: $(${GSTACK_DIR}/bin/gstack-config get telemetry 2>/dev/null || echo unknown)"

@@ -311,4 +311,139 @@ describe("printCss", () => {
     // Confirm no p-indent slipped in
     expect(css).not.toMatch(/p\s*\+\s*p\s*\{[^}]*text-indent/);
   });
+
+  test("emits @bottom-center page-number rule by default", () => {
+    const css = printCss();
+    expect(css).toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+
+  test("suppresses @bottom-center page-number rule when pageNumbers=false", () => {
+    const css = printCss({ pageNumbers: false });
+    expect(css).not.toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+
+  test("still emits @bottom-center when pageNumbers=true (explicit)", () => {
+    const css = printCss({ pageNumbers: true });
+    expect(css).toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+
+  test("font stacks include Liberation Sans adjacent to Helvetica", () => {
+    const css = printCss({ confidential: true });
+    // Body stack
+    expect(css).toMatch(/font-family:\s*Helvetica,\s*"Liberation Sans",\s*Arial/);
+    // At least one @page margin box (running header / page number / CONFIDENTIAL)
+    // should also have the updated stack.
+    const marginBoxStacks = css.match(/@(top|bottom)-(center|right)\s*\{[^}]*Liberation Sans/g) ?? [];
+    expect(marginBoxStacks.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("all four original Helvetica stacks now include Liberation Sans", () => {
+    const css = printCss({ runningHeader: "Running Title", confidential: true });
+    // Count: body (1) + running header (1) + page numbers (1) + confidential (1) = 4
+    const occurrences = (css.match(/"Liberation Sans"/g) ?? []).length;
+    expect(occurrences).toBeGreaterThanOrEqual(4);
+  });
+});
+
+// ─── render() — pageNumbers / footerTemplate data flow ───────────────
+
+describe("render() — pageNumbers data flow", () => {
+  test("CSS footer renders by default", () => {
+    const result = render({ markdown: `# Doc\n\nBody.` });
+    expect(result.printCss).toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+
+  test("--no-page-numbers reaches the CSS layer", () => {
+    const result = render({ markdown: `# Doc\n\nBody.`, pageNumbers: false });
+    expect(result.printCss).not.toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+
+  test("footerTemplate suppresses CSS page numbers (custom footer wins)", () => {
+    const result = render({
+      markdown: `# Doc\n\nBody.`,
+      footerTemplate: `<div class="foo">custom</div>`,
+    });
+    expect(result.printCss).not.toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+
+  test("pageNumbers=true + no footerTemplate keeps CSS footer", () => {
+    const result = render({ markdown: `# Doc`, pageNumbers: true });
+    expect(result.printCss).toMatch(/@bottom-center\s*\{\s*content:\s*counter\(page\)/);
+  });
+});
+
+// ─── render() — HTML entity handling in titles, cover, TOC ───────────
+
+describe("render() — no double HTML entity escaping", () => {
+  type Case = { char: string; inTitle: string; expectedTitleMeta: string };
+
+  // Only characters that should flow through unchanged. `"` and `'` are
+  // omitted from this set because smartypants converts them to curly quotes
+  // before heading extraction — asserted separately below.
+  const cases: Case[] = [
+    { char: "&", inTitle: "A & B", expectedTitleMeta: "A & B" },
+    { char: "<", inTitle: "A < B", expectedTitleMeta: "A < B" },
+    { char: ">", inTitle: "A > B", expectedTitleMeta: "A > B" },
+    { char: "©", inTitle: "A © B", expectedTitleMeta: "A © B" },
+    { char: "—", inTitle: "A — B", expectedTitleMeta: "A — B" },
+  ];
+
+  for (const { char, inTitle, expectedTitleMeta } of cases) {
+    test(`"${char}" in H1 has no double-escape in <title> or cover`, () => {
+      const result = render({
+        markdown: `# ${inTitle}\n\nBody.`,
+        cover: true,
+        author: "A",
+      });
+      // Meta: decoded plain text.
+      expect(result.meta.title).toBe(expectedTitleMeta);
+      // HTML: <title>...</title> never contains double-escape patterns.
+      expect(result.html).not.toMatch(/<title>[^<]*&amp;amp;/);
+      expect(result.html).not.toMatch(/<title>[^<]*&amp;lt;/);
+      expect(result.html).not.toMatch(/<title>[^<]*&amp;gt;/);
+      expect(result.html).not.toMatch(/<title>[^<]*&amp;#\d+;/);
+      expect(result.html).not.toMatch(/<title>[^<]*&amp;#x[0-9a-fA-F]+;/);
+      // Cover block also single-escape.
+      expect(result.html).not.toMatch(/class="cover-title"[^>]*>[^<]*&amp;amp;/);
+    });
+  }
+
+  test('ampersand in <title> renders as exactly one "&amp;"', () => {
+    const result = render({ markdown: `# Faber & Faber\n\nBody.` });
+    expect(result.html).toContain("<title>Faber &amp; Faber</title>");
+    expect(result.html).not.toContain("&amp;amp;");
+  });
+
+  test("TOC entries have no double-escape when a heading contains '&'", () => {
+    const result = render({
+      markdown: `# Doc\n\n## Faber & Faber\n\nBody.\n\n## Other\n\nMore.`,
+      toc: true,
+    });
+    // TOC renders the heading text through escapeHtml; must be single-escaped.
+    expect(result.html).toContain("Faber &amp; Faber");
+    expect(result.html).not.toContain("&amp;amp;");
+  });
+
+  test('numeric entity in H1 (e.g. "&#169;") decodes cleanly to <title>', () => {
+    // Marked passes through numeric entities verbatim in the HTML output,
+    // so the decoder must handle them.
+    const result = render({ markdown: `# A &#169; B\n\nBody.` });
+    expect(result.meta.title).toBe("A © B");
+    expect(result.html).toContain("<title>A © B</title>");
+  });
+
+  test("smartypants converts raw quotes in title BEFORE extraction (contract)", () => {
+    // We do NOT assert raw `"` survives — smartypants is expected to convert it.
+    // The contract is: no double-escape of the encoded form.
+    const result = render({ markdown: `# Say "hi"\n\nBody.` });
+    expect(result.html).not.toContain("&amp;quot;");
+    expect(result.html).not.toContain("&amp;#39;");
+    // And <title> contains exactly one level of escaping.
+    const titleMatch = result.html.match(/<title>([^<]*)<\/title>/);
+    expect(titleMatch).toBeTruthy();
+    if (titleMatch) {
+      // Never contains a double-encoded entity.
+      expect(titleMatch[1]).not.toMatch(/&amp;(amp|lt|gt|quot|#\d+);/);
+    }
+  });
 });

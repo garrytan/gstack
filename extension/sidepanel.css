@@ -47,6 +47,39 @@
   --radius-full: 9999px;
 }
 
+/* ─── Security Shield ───────────────────────────────────────────── */
+/* 3 states — green=protected, amber=degraded, red=inactive.
+   Custom SVG outline + "SEC" label in JetBrains Mono to match the
+   industrial/CLI aesthetic (design review Pass 7 decision). */
+
+.security-shield {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.02);
+  transition: color 200ms ease-out, background 200ms ease-out;
+  cursor: default;
+}
+.security-shield[data-status="protected"] {
+  color: var(--success, #22C55E);
+}
+.security-shield[data-status="degraded"] {
+  color: var(--amber-400, #FBBF24);
+}
+.security-shield[data-status="inactive"] {
+  color: var(--error, #EF4444);
+}
+
 /* ─── Connection Banner ─────────────────────────────────────────── */
 
 .conn-banner {
@@ -85,6 +118,203 @@
 
 .conn-banner-text {
   flex: 1;
+}
+
+/* ─── Security Banner ─────────────────────────────────────────────
+   Variant A approved in /plan-design-review 2026-04-19. Centered
+   alert-heavy. Fires on security_event — canary leaks + ML BLOCK
+   verdicts. Trust UX: layer names + confidence scores in mono so
+   the user can see exactly WHY the session was terminated.
+*/
+
+.security-banner {
+  position: relative;
+  /* Sit above the absolutely-positioned security-shield (z-index: 10) so
+     the banner's close button and controls receive clicks. Without this
+     the shield at top-right overlaps the banner's close X region and
+     intercepts pointer events. */
+  z-index: 20;
+  padding: 20px 16px;
+  text-align: center;
+  background: rgba(20, 20, 20, 0.98);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+  animation: securityBannerEnter 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes securityBannerEnter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.security-banner-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  color: var(--zinc-500, #71717A);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-md, 8px);
+  padding: 0;
+}
+.security-banner-close:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--zinc-300, #D4D4D8);
+}
+.security-banner-close:focus-visible {
+  outline: 2px solid var(--amber-500);
+  outline-offset: 2px;
+}
+
+.security-banner-icon {
+  color: var(--error);
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.security-banner-title {
+  font-family: var(--font-display, 'Satoshi', sans-serif);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--error);
+  margin-bottom: 2px;
+}
+
+.security-banner-subtitle {
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 13px;
+  color: var(--zinc-400, #A1A1AA);
+  margin-bottom: 12px;
+}
+
+.security-banner-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md, 8px);
+  padding: 6px 12px;
+  color: var(--zinc-300, #D4D4D8);
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  font-size: 12px;
+  cursor: pointer;
+}
+.security-banner-expand:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.security-banner-expand:focus-visible {
+  outline: 2px solid var(--amber-500);
+  outline-offset: 2px;
+}
+.security-banner-chevron {
+  transition: transform 200ms ease-out;
+}
+
+.security-banner-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: left;
+}
+
+.security-banner-section-label {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--zinc-500, #71717A);
+  margin-bottom: 6px;
+}
+
+.security-banner-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.security-banner-layer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+}
+
+.security-banner-layer-name {
+  color: var(--zinc-300, #D4D4D8);
+}
+
+.security-banner-layer-score {
+  color: var(--amber-400);
+  font-variant-numeric: tabular-nums;
+}
+
+.security-banner-suspect {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: var(--zinc-900, #18181B);
+  border: 1px solid var(--zinc-700, #3F3F46);
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--zinc-300, #D4D4D8);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.security-banner-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.security-banner-btn {
+  flex: 1;
+  padding: 8px 14px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.security-banner-btn-block {
+  background: var(--red-600, #DC2626);
+  color: white;
+  border-color: var(--red-700, #B91C1C);
+}
+
+.security-banner-btn-block:hover {
+  background: var(--red-700, #B91C1C);
+}
+
+.security-banner-btn-allow {
+  background: transparent;
+  color: var(--zinc-200, #E4E4E7);
+  border-color: var(--zinc-600, #52525B);
+}
+
+.security-banner-btn-allow:hover {
+  background: var(--zinc-800, #27272A);
+  border-color: var(--zinc-500, #71717A);
+}
+
+.security-banner-btn:focus-visible {
+  outline: 2px solid var(--amber-400);
+  outline-offset: 2px;
 }
 
 .conn-btn {
