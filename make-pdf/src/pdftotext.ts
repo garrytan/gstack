@@ -84,11 +84,15 @@ export function resolvePdftotext(): PdftotextInfo {
     if (resolved) return describeBinary(resolved);
   }
 
+  const setCmd = process.platform === "win32"
+    ? '  setx PDFTOTEXT_BIN "C:\\path\\to\\pdftotext.exe"'
+    : "  export PDFTOTEXT_BIN=/path/to/pdftotext";
   throw new PdftotextUnavailableError([
     "pdftotext not found.",
     "",
     "make-pdf needs pdftotext to run the copy-paste CI gate.",
     "(Runtime rendering does NOT need it. This only affects tests.)",
+    `Platform: ${process.platform}`,
     "",
     "To install:",
     "  macOS:    brew install poppler",
@@ -98,7 +102,7 @@ export function resolvePdftotext(): PdftotextInfo {
     "            https://github.com/oschwartz10612/poppler-windows)",
     "",
     "Or set PDFTOTEXT_BIN to an explicit path:",
-    "  export PDFTOTEXT_BIN=/path/to/pdftotext",
+    setCmd,
   ].join("\n"));
 }
 

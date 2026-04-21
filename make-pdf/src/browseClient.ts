@@ -100,6 +100,9 @@ export function resolveBrowseBin(): string {
     // non-zero exit; fall through to error
   }
 
+  const setCmd = process.platform === "win32"
+    ? '  setx BROWSE_BIN "C:\\path\\to\\browse.exe"'
+    : "  export BROWSE_BIN=/path/to/browse";
   throw new BrowseClientError(
     /* exitCode */ 127,
     "resolve",
@@ -107,6 +110,7 @@ export function resolveBrowseBin(): string {
       "browse binary not found.",
       "",
       "make-pdf needs browse (the gstack Chromium daemon) to render PDFs.",
+      `Platform: ${process.platform}`,
       "Tried:",
       `  - $BROWSE_BIN (${envOverride || "unset"})`,
       `  - sibling: ${siblingCandidates.join(", ")}`,
@@ -117,7 +121,7 @@ export function resolveBrowseBin(): string {
       "  cd ~/.claude/skills/gstack && ./setup",
       "",
       "Or set BROWSE_BIN explicitly:",
-      "  export BROWSE_BIN=/path/to/browse",
+      setCmd,
     ].join("\n"),
   );
 }
