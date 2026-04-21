@@ -79,12 +79,10 @@ jobs:
 
 
       - name: Windows-specific unit tests
-        run: |
-          bun test browse/test/security.test.ts
-          bun test browse/test/file-permissions.test.ts
-          bun test browse/test/home-dir-resolution.test.ts
-          bun test make-pdf/test/browseClient.test.ts
-          bun test make-pdf/test/pdftotext.test.ts
+        # Single bun test invocation with all files so a failure in any
+        # file correctly fails the step. Separate invocations + default
+        # PowerShell error-handling would mask all-but-the-last failure.
+        run: bun test browse/test/security.test.ts browse/test/file-permissions.test.ts browse/test/home-dir-resolution.test.ts make-pdf/test/browseClient.test.ts make-pdf/test/pdftotext.test.ts
 
       - name: make-pdf render smoke
         run: bun test make-pdf/test/render.test.ts
