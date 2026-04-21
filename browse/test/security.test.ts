@@ -20,6 +20,7 @@ import {
   readSessionState,
   getStatus,
   extractDomain,
+  buildTelemetrySpawnCommand,
   type LayerSignal,
 } from '../src/security';
 
@@ -318,5 +319,34 @@ describe('extractDomain', () => {
   test('returns empty string on invalid URL rather than throwing', () => {
     expect(extractDomain('not a url')).toBe('');
     expect(extractDomain('')).toBe('');
+  });
+});
+
+// ─── Telemetry spawn command (Windows bash wrapper) ──────────
+
+describe('buildTelemetrySpawnCommand', () => {
+  const bin = '/home/user/.claude/skills/gstack/bin/gstack-telemetry-log';
+  const args = ['--event-type', 'attack_attempt', '--confidence', '0.95'];
+
+  test('on POSIX, returns the binary path and args unchanged', () => {
+    if (process.platform === 'win32') return;
+    const out = buildTelemetrySpawnCommand(bin, args);
+    expect(out.cmd).toBe(bin);
+    expect(out.cmdArgs).toEqual(args);
+  });
+
+  test('on win32, wraps the call in bash with the script as first arg', () => {
+    if (process.platform !== 'win32') return;
+    const out = buildTelemetrySpawnCommand(bin, args);
+    expect(out.cmd).toBe('bash');
+    // Script path must come first so bash treats it as the file to execute,
+    // followed by the original telemetry flags as bash's positional args.
+    expect(out.cmdArgs).toEqual([bin, ...args]);
+  });
+
+  test('does not mutate the caller-supplied args array', () => {
+    const originalArgs = [...args];
+    buildTelemetrySpawnCommand(bin, args);
+    expect(args).toEqual(originalArgs);
   });
 });
