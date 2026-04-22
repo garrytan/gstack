@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+WINDSURF_SKILLS="$HOME/.codeium/windsurf/skills"
+WINDSURF_GSTACK="$WINDSURF_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -43,7 +45,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, slate, windsurf, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -56,7 +58,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|slate|windsurf|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -91,7 +93,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, cursor, slate, windsurf, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -155,14 +157,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_WINDSURF=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v windsurf >/dev/null 2>&1 && INSTALL_WINDSURF=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_WINDSURF" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -175,6 +179,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "windsurf" ]; then
+  INSTALL_WINDSURF=1
 fi
 
 migrate_direct_codex_install() {
@@ -318,6 +324,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .windsurf/ Windsurf skill docs
+if [ "$INSTALL_WINDSURF" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .windsurf/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host windsurf
   )
 fi
 
@@ -699,6 +715,54 @@ create_opencode_runtime_root() {
   fi
 }
 
+create_windsurf_runtime_root() {
+  local gstack_dir="$1"
+  local windsurf_gstack="$2"
+  local windsurf_dir="$gstack_dir/.windsurf/skills"
+  local codeium_windsurf_dir="$gstack_dir/.codeium/windsurf/skills"
+
+  if [ -L "$windsurf_gstack" ]; then
+    rm -f "$windsurf_gstack"
+  elif [ -d "$windsurf_gstack" ] && [ "$windsurf_gstack" != "$gstack_dir" ]; then
+    rm -rf "$windsurf_gstack"
+  fi
+
+  mkdir -p "$windsurf_gstack" "$windsurf_gstack/browse" "$windsurf_gstack/gstack-upgrade" "$windsurf_gstack/review" "$windsurf_gstack/qa"
+
+  if [ -f "$codeium_windsurf_dir/gstack/SKILL.md" ]; then
+    ln -snf "$codeium_windsurf_dir/gstack/SKILL.md" "$windsurf_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$windsurf_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$windsurf_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$windsurf_gstack/browse/bin"
+  fi
+  if [ -f "$codeium_windsurf_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$codeium_windsurf_dir/gstack-upgrade/SKILL.md" "$windsurf_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$windsurf_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    ln -snf "$gstack_dir/review/specialists" "$windsurf_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    ln -snf "$gstack_dir/qa/templates" "$windsurf_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    ln -snf "$gstack_dir/qa/references" "$windsurf_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$windsurf_gstack/ETHOS.md"
+  fi
+}
+
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -748,6 +812,38 @@ link_opencode_skill_dirs() {
   fi
 
   for skill_dir in "$opencode_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+link_windsurf_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local windsurf_dir="$gstack_dir/.windsurf/skills"
+  local linked=()
+
+  if [ ! -d "$windsurf_dir" ]; then
+    echo "  Generating .windsurf/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host windsurf )
+  fi
+
+  if [ ! -d "$windsurf_dir" ]; then
+    echo "  warning: .windsurf/skills/ generation failed — run 'bun run gen:skill-docs --host windsurf' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$windsurf_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
@@ -933,6 +1029,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Windsurf
+if [ "$INSTALL_WINDSURF" -eq 1 ]; then
+  mkdir -p "$WINDSURF_SKILLS"
+  create_windsurf_runtime_root "$SOURCE_GSTACK_DIR" "$WINDSURF_GSTACK"
+  link_windsurf_skill_dirs "$SOURCE_GSTACK_DIR" "$WINDSURF_SKILLS"
+  echo "gstack ready (windsurf)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  windsurf skills: $WINDSURF_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
