@@ -48,7 +48,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 Open Claude Code and paste this. Claude does the rest.
 
-> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
+> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-domain-review, /plan-api-review, /plan-modernization-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
 
 ### Step 2: Team mode — auto-update for shared repos (recommended)
 
@@ -180,6 +180,9 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 |-------|----------------|--------------|
 | `/office-hours` | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
 | `/plan-ceo-review` | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
+| `/plan-domain-review` | **Domain Architect** | Interactive domain-model pass for workflow-heavy plans. Clarifies glossary, bounded contexts, ownership seams, state transitions, and domain events without defaulting to CQRS. |
+| `/plan-api-review` | **API Designer** | Interactive contract pass for endpoints, services, webhooks, and event payloads. Locks in interface style, versioning, compatibility, error model, idempotency, and rate-limit expectations. |
+| `/plan-modernization-review` | **Modernization Lead** | Interactive migration pass for modularization, service extraction, and strangler-style rollouts. Clarifies current state, target state, phases, rollback points, and migration hazards. |
 | `/plan-eng-review` | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | `/plan-design-review` | **Senior Designer** | Rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. AI Slop detection. Interactive — one AskUserQuestion per design choice. |
 | `/plan-devex-review` | **Developer Experience Lead** | Interactive DX review: explores developer personas, benchmarks against competitors' TTHW, designs your magical moment, traces friction points step by step. Three modes: DX EXPANSION, DX POLISH, DX TRIAGE. 20-45 forcing questions. |
@@ -211,8 +214,14 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 |-----------------|--------------------------|----------------------------|
 | **End users** (UI, web app, mobile) | `/plan-design-review` | `/design-review` |
 | **Developers** (API, CLI, SDK, docs) | `/plan-devex-review` | `/devex-review` |
+| **Workflow-heavy business logic** | `/plan-domain-review` | — |
+| **Public or cross-service interfaces** | `/plan-api-review` | — |
+| **Migrations and decomposition** | `/plan-modernization-review` | — |
 | **Architecture** (data flow, perf, tests) | `/plan-eng-review` | `/review` |
 | **All of the above** | `/autoplan` (runs CEO → design → eng → DX, auto-detects which apply) | — |
+
+The three targeted architecture reviews are manual in v1. A good default sequence is:
+`/office-hours` → `/plan-ceo-review` → one or more of `/plan-domain-review`, `/plan-api-review`, `/plan-modernization-review` → `/plan-eng-review`.
 
 ### Power tools
 
@@ -391,10 +400,12 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 ## gstack
 Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
 Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
+ /plan-domain-review, /plan-api-review, /plan-modernization-review, /plan-devex-review,
 /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
 /canary, /benchmark, /browse, /open-gstack-browser, /qa, /qa-only, /design-review,
-/setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex,
-/cso, /autoplan, /pair-agent, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
+/devex-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release,
+/codex, /cso, /autoplan, /pair-agent, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade,
+/learn.
 ```
 
 ## License

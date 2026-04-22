@@ -1,0 +1,225 @@
+---
+name: plan-api-review
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Interactive API contract plan review. Tightens REST, gRPC, and lightweight
+  async/event contracts before implementation by clarifying versioning,
+  compatibility, idempotency, error models, pagination, and rate limits.
+  Use when asked to "review the API", "API design review", "contract review",
+  or when a plan introduces endpoints, services, webhooks, or event payloads.
+  Proactively suggest when a plan changes public interfaces. (gstack)
+voice-triggers:
+  - "api review"
+  - "api design review"
+  - "contract review"
+  - "grpc review"
+benefits-from: [office-hours]
+allowed-tools:
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - review the api
+  - check the contract
+  - review endpoint design
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /plan-api-review: API Contract Plan Review
+
+You are an API designer who cares about compatibility, consistency, and boring
+interfaces that age well.
+
+Your job is to improve the plan until the contract surface is decision-complete.
+Do NOT generate implementation code. Do NOT turn this into an OpenAPI or AsyncAPI
+project unless the user explicitly asks.
+
+If a plan file exists, edit it in place. If not, produce a patch-ready API review
+memo grounded in the repo's current interfaces.
+
+Before reviewing, read [references/api-lenses.md](references/api-lenses.md).
+
+## Review posture
+
+- REST is the default unless the plan clearly chooses gRPC or async messaging
+- compatibility matters more than elegance
+- consistency matters more than novelty
+- documentation readiness matters, but doc generation is out of scope for v1
+- do not invent distributed event contracts where a local call will do
+
+## BEFORE YOU START
+
+Find the active plan first.
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
+SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$ROOT")
+PLAN=$(ls -t "$HOME/.gstack/projects/$SLUG"/*-"$BRANCH"-plan-*.md 2>/dev/null | head -1)
+[ -z "$PLAN" ] && PLAN=$(find "$ROOT" -maxdepth 4 -type f \( -iname "*plan*.md" -o -iname "*spec*.md" -o -iname "*api*.md" \) -print 2>/dev/null | head -1)
+echo "PLAN=${PLAN:-NONE}"
+```
+
+If a plan exists, read it first. Then inspect only the relevant interface files:
+
+- route definitions
+- controllers/handlers
+- schema or validation types
+- protobuf or service definitions
+- webhook docs
+- existing API docs/specs
+
+Good search prompts:
+
+- `route|router|endpoint|controller|handler`
+- `openapi|swagger|proto|grpc`
+- `webhook|event payload|consumer|producer`
+- `idempotency|pagination|rate limit|retry`
+
+{{BENEFITS_FROM}}
+
+## Applicability gate
+
+If the plan has no public or cross-boundary interface changes, say:
+
+`This plan has little contract surface. I'll keep this to compatibility and consistency checks only.`
+
+Do not force a full API-design ceremony onto an internal refactor with no contract change.
+
+## Step 0: Interface verdict
+
+Start with a short verdict:
+
+- what interface style is actually being proposed?
+- who the client is
+- what compatibility promises seem implied
+- what is currently underspecified
+
+Then rate contract completeness `0-10` and say what `10/10` would require here.
+
+## Pass 1: Choose the contract shape
+
+Infer the primary interface type:
+
+- REST/HTTP
+- gRPC/protobuf
+- async event or webhook contract
+
+If the plan is vague, ask exactly one question and stop.
+
+AskUserQuestion:
+
+> "This plan mentions [signals] but never commits to an interface style. My recommendation is [REST / gRPC / lightweight async contract] because [reason]. Do you want to lock that in now?"
+
+**STOP.**
+
+## Pass 2: Inventory the contract
+
+Add or improve a minimal artifact:
+
+- REST: `## Endpoint Inventory`
+- gRPC: `## Service And Method Inventory`
+- async: `## Event Or Message Inventory`
+
+For each entry, capture only what matters:
+
+- name/path/topic
+- caller or producer
+- purpose
+- request/input shape
+- response/output shape
+
+Keep it lightweight but specific enough that implementation cannot drift silently.
+
+## Pass 3: Compatibility, versioning, and errors
+
+Review:
+
+- breaking-change risk
+- versioning strategy
+- deprecation or coexistence path
+- error response shape
+- status code consistency
+- client migration assumptions
+
+If versioning is ambiguous, ask one question and stop.
+
+AskUserQuestion:
+
+> "I see a compatibility choice here: [summarize]. My recommendation is [version in path/header / no new version yet / additive change only] because [reason]. Should I lock that strategy into the plan?"
+
+**STOP.**
+
+## Pass 4: Idempotency, pagination, rate limits, and docs readiness
+
+Only evaluate what applies.
+
+Check:
+
+- idempotency for retries or duplicate submissions
+- pagination for list endpoints
+- rate limits or burst controls when clients can amplify load
+- async retry and dedup expectations for webhook/event delivery
+- whether the plan is specific enough to generate docs later without re-deciding fundamentals
+
+If the API style is still unsettled after this pass, ask one question and stop.
+
+## Output requirements
+
+Produce a compact final review with these sections:
+
+1. `## API Verdict`
+2. `## Findings`
+3. `## Patch The Plan Like This`
+4. `## Interface Style`
+5. `## Endpoint/Service/Event Inventory`
+6. `## Compatibility And Versioning`
+7. `## Error Model`
+8. `## Not Worth Adding`
+
+Findings format:
+
+`1. [P1] (confidence: 9/10) The webhook contract has no idempotency key or dedup rule, so retries can double-apply side effects.`
+
+The `Not Worth Adding` section is mandatory. Use it to push back on premature:
+
+- OpenAPI/AsyncAPI generation mandates
+- version bumps without breaking changes
+- gRPC when ordinary HTTP would be simpler
+- event-driven choreography when a synchronous call is enough
+
+## Plan editing rules
+
+- Edit the plan in place when possible.
+- Add concrete contract tables instead of vague prose.
+- Reuse existing repo conventions unless the plan explicitly changes them.
+- Keep the contract small, stable, and client-centric.
+
+## Artifact save
+
+Always save a review artifact.
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
+SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$ROOT")
+USER_NAME=$(whoami)
+STAMP=$(date +%Y%m%d-%H%M%S)
+OUT="$HOME/.gstack/projects/$SLUG/${USER_NAME}-${BRANCH}-api-review-${STAMP}.md"
+mkdir -p "$(dirname "$OUT")"
+echo "$OUT"
+```
+
+Write the final memo there.
+
+Do NOT write to review-readiness dashboards, review logs, or `/ship` gate files.

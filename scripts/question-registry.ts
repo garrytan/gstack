@@ -377,6 +377,99 @@ export const QUESTIONS = {
   },
 
   // -----------------------------------------------------------------------
+  // /plan-domain-review — domain model & ownership
+  // -----------------------------------------------------------------------
+  'plan-domain-review-boundary-split': {
+    id: 'plan-domain-review-boundary-split',
+    skill: 'plan-domain-review',
+    category: 'routing',
+    door_type: 'two-way',
+    options: ['split-now', 'keep-coupled'],
+    signal_key: 'architecture-care',
+    description: "Potential bounded-context split detected — separate the boundary now or intentionally keep it coupled in v1?",
+  },
+  'plan-domain-review-event-state-clarify': {
+    id: 'plan-domain-review-event-state-clarify',
+    skill: 'plan-domain-review',
+    category: 'approval',
+    door_type: 'two-way',
+    options: ['clarify-now', 'defer'],
+    signal_key: 'architecture-care',
+    description: "State model or domain event ambiguity found — clarify it now or defer the detail?",
+  },
+  'plan-domain-review-cqrs-accept': {
+    id: 'plan-domain-review-cqrs-accept',
+    skill: 'plan-domain-review',
+    category: 'approval',
+    door_type: 'two-way',
+    options: ['accept', 'reject'],
+    signal_key: 'architecture-care',
+    description: "CQRS recommendation surfaced — accept the recommendation or reject it?",
+  },
+
+  // -----------------------------------------------------------------------
+  // /plan-api-review — contract & compatibility
+  // -----------------------------------------------------------------------
+  'plan-api-review-compat-choice': {
+    id: 'plan-api-review-compat-choice',
+    skill: 'plan-api-review',
+    category: 'approval',
+    door_type: 'two-way',
+    options: ['keep-compatible', 'allow-break'],
+    signal_key: 'architecture-care',
+    description: "Compatibility tradeoff identified — preserve backwards compatibility or allow a breaking change?",
+  },
+  'plan-api-review-versioning-strategy': {
+    id: 'plan-api-review-versioning-strategy',
+    skill: 'plan-api-review',
+    category: 'routing',
+    door_type: 'two-way',
+    options: ['version-now', 'stay-additive'],
+    signal_key: 'scope-appetite',
+    description: "Versioning decision needed — introduce a new version now or stay additive within the current contract?",
+  },
+  'plan-api-review-style-choice': {
+    id: 'plan-api-review-style-choice',
+    skill: 'plan-api-review',
+    category: 'routing',
+    door_type: 'two-way',
+    options: ['rest', 'grpc', 'async'],
+    signal_key: 'architecture-care',
+    description: "Primary API style choice — REST, gRPC, or async messaging?",
+  },
+
+  // -----------------------------------------------------------------------
+  // /plan-modernization-review — sequencing & migration
+  // -----------------------------------------------------------------------
+  'plan-modernization-review-big-bang': {
+    id: 'plan-modernization-review-big-bang',
+    skill: 'plan-modernization-review',
+    category: 'routing',
+    door_type: 'two-way',
+    options: ['incremental', 'big-bang'],
+    signal_key: 'scope-appetite',
+    description: "Migration posture decision — proceed incrementally or attempt a big-bang cutover?",
+  },
+  'plan-modernization-review-boundary-choice': {
+    id: 'plan-modernization-review-boundary-choice',
+    skill: 'plan-modernization-review',
+    category: 'routing',
+    door_type: 'two-way',
+    options: ['choose-a', 'choose-b'],
+    signal_key: 'architecture-care',
+    description: "Extraction boundary choice — which modernization seam should the plan lock in first?",
+  },
+  'plan-modernization-review-phase-accept': {
+    id: 'plan-modernization-review-phase-accept',
+    skill: 'plan-modernization-review',
+    category: 'approval',
+    door_type: 'two-way',
+    options: ['accept', 'revise'],
+    signal_key: 'architecture-care',
+    description: "Migration phase plan proposed — accept the sequencing or revise it?",
+  },
+
+  // -----------------------------------------------------------------------
   // /plan-devex-review — developer experience plan audit
   // -----------------------------------------------------------------------
   'plan-devex-review-persona': {

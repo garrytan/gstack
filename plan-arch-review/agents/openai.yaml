@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plan Arch Review"
+  short_description: "Advisory architecture pass after gstack eng review"
+  default_prompt: "Use $plan-arch-review to run an advisory architecture review on the current plan and repo context."
+
+policy:
+  allow_implicit_invocation: false

@@ -6,6 +6,9 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 |-------|----------------|--------------|
 | [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
+| [`/plan-domain-review`](#plan-domain-review) | **Domain Architect** | Interactive domain-model review. Clarifies glossary, bounded contexts, ownership seams, state transitions, and domain events for workflow-heavy plans. |
+| [`/plan-api-review`](#plan-api-review) | **API Designer** | Interactive API contract review. Locks in interface style, compatibility, versioning, error models, idempotency, pagination, and rate limits. |
+| [`/plan-modernization-review`](#plan-modernization-review) | **Modernization Lead** | Interactive migration review. Clarifies current state, target state, rollout phases, rollback points, and migration hazards. |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
@@ -229,6 +232,87 @@ Eng Review is the only required gate (disable with `gstack-config set skip_eng_r
 ### Plan-to-QA flow
 
 When `/plan-eng-review` finishes the test review section, it writes a test plan artifact to `~/.gstack/projects/`. When you later run `/qa`, it picks up that test plan automatically — your engineering review feeds directly into QA testing with no manual copy-paste.
+
+---
+
+## `/plan-domain-review`
+
+This is the **domain architect pass**.
+
+Some plans fail because the code is hard. Other plans fail because the concepts are muddy. The same word means two different things. Nobody knows which module owns a decision. State changes are implied instead of named. A "simple feature" is actually a workflow spanning three business concepts with no source of truth.
+
+`/plan-domain-review` exists for that second kind of failure.
+
+It reads the plan first, then inspects just enough repo context to answer the important domain questions:
+
+* what are the core business terms?
+* where are the bounded contexts?
+* who owns which decision?
+* what are the meaningful state transitions?
+* which events actually matter?
+
+It is interactive like the other plan-stage reviews. One real modeling choice at a time. If a term is overloaded, it fixes the glossary. If a workflow is fuzzy, it adds a state machine or event flow. If ownership is split across modules, it pushes for a real source-of-truth decision.
+
+Crucially, it does **not** turn every CRUD feature into a DDD seminar. It includes a mandatory "Not worth modeling yet" section, and it is skeptical of CQRS or event sourcing unless the complexity truly warrants it.
+
+Use it before `/plan-eng-review` when the risk is not "can we code this?" but "do we actually agree on what this thing is?"
+
+---
+
+## `/plan-api-review`
+
+This is the **API designer pass**.
+
+Lots of plans mention "add an endpoint" or "expose a webhook" as if that is one decision. It is not. The contract is the product surface. If the contract is vague, implementation drifts, docs drift, and clients pay for the ambiguity.
+
+`/plan-api-review` promotes API design into its own planning skill. It handles:
+
+* REST by default
+* gRPC when the plan really chooses it
+* lightweight async contract review for webhooks or event payloads
+* compatibility and versioning
+* error response shape
+* idempotency, pagination, and rate limits where relevant
+
+The output is intentionally compact. Not a full OpenAPI project. Not AsyncAPI bureaucracy. Just enough structure that the plan becomes decision-complete:
+
+* endpoint/service/event inventory
+* versioning strategy
+* compatibility notes
+* error model
+* idempotency and delivery assumptions
+
+If the interface style itself is undecided, it stops and asks. If the style is obvious, it sharpens the plan and keeps moving.
+
+Use it after `/plan-ceo-review` for any feature that introduces or changes a public or cross-service interface.
+
+---
+
+## `/plan-modernization-review`
+
+This is the **modernization lead pass**.
+
+Migration plans often sound reasonable right up until the first cutover. The danger is not the target architecture. The danger is the transition state nobody modeled: mixed old/new behavior, deploy order traps, duplicate writes, no rollback path, and a "refactor" that is secretly a rewrite.
+
+`/plan-modernization-review` is built for that.
+
+It forces the plan to make three states explicit:
+
+* current state
+* transition state
+* target state
+
+Then it works through the migration sequence:
+
+* what boundary moves first?
+* what remains in the old path temporarily?
+* how does traffic or data shift by phase?
+* what triggers rollback?
+* what legacy debt is intentionally deferred?
+
+Its bias is clear: modularize before splitting services when possible, strangler over big bang, rollback path over architectural purity.
+
+Use it when the plan changes architecture shape over time — service extraction, modularization, monolith decomposition, or any staged migration where the transition state is the real risk.
 
 ---
 

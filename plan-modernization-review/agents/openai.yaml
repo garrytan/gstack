@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plan Modernization Review"
+  short_description: "Interactive migration and modernization review for plans"
+  default_prompt: "Use $plan-modernization-review to review the current plan's migration sequencing, boundaries, rollback points, and modernization hazards."
+
+policy:
+  allow_implicit_invocation: false

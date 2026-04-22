@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plan API Review"
+  short_description: "Interactive API contract review before implementation"
+  default_prompt: "Use $plan-api-review to tighten the current plan's API contracts, compatibility, versioning, error model, and idempotency decisions."
+
+policy:
+  allow_implicit_invocation: false

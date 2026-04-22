@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plan Domain Review"
+  short_description: "Interactive domain-model review for workflow-heavy plans"
+  default_prompt: "Use $plan-domain-review to clarify glossary, bounded contexts, ownership seams, and state transitions in the current plan."
+
+policy:
+  allow_implicit_invocation: false
