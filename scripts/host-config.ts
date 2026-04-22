@@ -37,7 +37,7 @@ export interface HostConfig {
   // --- Frontmatter Transformation ---
   frontmatter: {
     /** 'allowlist': ONLY keepFields survive. 'denylist': strip listed fields. */
-    mode: 'allowlist' | 'denylist';
+    mode: "allowlist" | "denylist";
     /** Fields to preserve (allowlist mode only). */
     keepFields?: string[];
     /** Fields to remove (denylist mode only). */
@@ -45,13 +45,16 @@ export interface HostConfig {
     /** Max chars for description field. null = no limit. */
     descriptionLimit?: number | null;
     /** What to do when description exceeds limit. Default: 'error'. */
-    descriptionLimitBehavior?: 'error' | 'truncate' | 'warn';
+    descriptionLimitBehavior?: "error" | "truncate" | "warn";
     /** Additional frontmatter fields to inject (host-wide). */
     extraFields?: Record<string, unknown>;
     /** Rename fields from template (e.g., { 'voice-triggers': 'triggers' }). */
     renameFields?: Record<string, string>;
     /** Conditionally add fields based on template frontmatter values. */
-    conditionalFields?: Array<{ if: Record<string, unknown>; add: Record<string, unknown> }>;
+    conditionalFields?: Array<{
+      if: Record<string, unknown>;
+      add: Record<string, unknown>;
+    }>;
   };
 
   // --- Generation ---
@@ -64,6 +67,15 @@ export interface HostConfig {
     skipSkills?: string[];
     /** Skill directories to include (allowlist). Union logic: include minus skip. */
     includeSkills?: string[];
+    /**
+     * Sibling subdirectories to copy alongside the generated SKILL.md. Allowlist —
+     * empty/absent = no propagation. Each entry is a directory name (e.g., 'references')
+     * that is copied recursively from the source skill dir into the host output dir if
+     * it exists. Claude doesn't need this: setup symlinks SKILL.md, and relative paths
+     * resolve against the source dir. External hosts write a real SKILL.md and need the
+     * sibling files copied for reference-loading paths to resolve.
+     */
+    propagateSubdirs?: string[];
   };
 
   // --- Content Rewrites ---
@@ -94,14 +106,14 @@ export interface HostConfig {
     /** Whether gstack-config skill_prefix applies (Claude only). */
     prefixable: boolean;
     /** How skills are linked into the host dir. */
-    linkingStrategy: 'real-dir-symlink' | 'symlink-generated';
+    linkingStrategy: "real-dir-symlink" | "symlink-generated";
   };
 
   // --- Host-Specific Behavioral Config ---
   /** Git co-author trailer string. */
   coAuthorTrailer?: string;
   /** Learnings implementation: 'full' = cross-project, 'basic' = simple. */
-  learningsMode?: 'full' | 'basic';
+  learningsMode?: "full" | "basic";
   /** Anti-prompt-injection boundary instruction for cross-model invocations. */
   boundaryInstruction?: string;
 
@@ -121,13 +133,17 @@ export function validateHostConfig(config: HostConfig): string[] {
   const errors: string[] = [];
 
   if (!NAME_REGEX.test(config.name)) {
-    errors.push(`name '${config.name}' must be lowercase alphanumeric with hyphens`);
+    errors.push(
+      `name '${config.name}' must be lowercase alphanumeric with hyphens`,
+    );
   }
   if (!config.displayName) {
-    errors.push('displayName is required');
+    errors.push("displayName is required");
   }
   if (!CLI_REGEX.test(config.cliCommand)) {
-    errors.push(`cliCommand '${config.cliCommand}' contains invalid characters`);
+    errors.push(
+      `cliCommand '${config.cliCommand}' contains invalid characters`,
+    );
   }
   if (config.cliAliases) {
     for (const alias of config.cliAliases) {
@@ -137,19 +153,31 @@ export function validateHostConfig(config: HostConfig): string[] {
     }
   }
   if (!PATH_REGEX.test(config.globalRoot)) {
-    errors.push(`globalRoot '${config.globalRoot}' contains invalid characters`);
+    errors.push(
+      `globalRoot '${config.globalRoot}' contains invalid characters`,
+    );
   }
   if (!PATH_REGEX.test(config.localSkillRoot)) {
-    errors.push(`localSkillRoot '${config.localSkillRoot}' contains invalid characters`);
+    errors.push(
+      `localSkillRoot '${config.localSkillRoot}' contains invalid characters`,
+    );
   }
   if (!PATH_REGEX.test(config.hostSubdir)) {
-    errors.push(`hostSubdir '${config.hostSubdir}' contains invalid characters`);
+    errors.push(
+      `hostSubdir '${config.hostSubdir}' contains invalid characters`,
+    );
   }
-  if (!['allowlist', 'denylist'].includes(config.frontmatter.mode)) {
+  if (!["allowlist", "denylist"].includes(config.frontmatter.mode)) {
     errors.push(`frontmatter.mode must be 'allowlist' or 'denylist'`);
   }
-  if (!['real-dir-symlink', 'symlink-generated'].includes(config.install.linkingStrategy)) {
-    errors.push(`install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`);
+  if (
+    !["real-dir-symlink", "symlink-generated"].includes(
+      config.install.linkingStrategy,
+    )
+  ) {
+    errors.push(
+      `install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`,
+    );
   }
 
   return errors;
@@ -161,7 +189,7 @@ export function validateAllConfigs(configs: HostConfig[]): string[] {
   // Per-config validation
   for (const config of configs) {
     const configErrors = validateHostConfig(config);
-    errors.push(...configErrors.map(e => `[${config.name}] ${e}`));
+    errors.push(...configErrors.map((e) => `[${config.name}] ${e}`));
   }
 
   // Cross-config uniqueness checks
@@ -171,17 +199,23 @@ export function validateAllConfigs(configs: HostConfig[]): string[] {
 
   for (const config of configs) {
     if (names.has(config.name)) {
-      errors.push(`Duplicate name '${config.name}' (also used by ${names.get(config.name)})`);
+      errors.push(
+        `Duplicate name '${config.name}' (also used by ${names.get(config.name)})`,
+      );
     }
     names.set(config.name, config.name);
 
     if (hostSubdirs.has(config.hostSubdir)) {
-      errors.push(`Duplicate hostSubdir '${config.hostSubdir}' (${config.name} and ${hostSubdirs.get(config.hostSubdir)})`);
+      errors.push(
+        `Duplicate hostSubdir '${config.hostSubdir}' (${config.name} and ${hostSubdirs.get(config.hostSubdir)})`,
+      );
     }
     hostSubdirs.set(config.hostSubdir, config.name);
 
     if (globalRoots.has(config.globalRoot)) {
-      errors.push(`Duplicate globalRoot '${config.globalRoot}' (${config.name} and ${globalRoots.get(config.globalRoot)})`);
+      errors.push(
+        `Duplicate globalRoot '${config.globalRoot}' (${config.name} and ${globalRoots.get(config.globalRoot)})`,
+      );
     }
     globalRoots.set(config.globalRoot, config.name);
   }
