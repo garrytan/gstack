@@ -1,0 +1,342 @@
+---
+name: a11y
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Accessibility audit with real browser testing. Checks WCAG 2.1 AA compliance:
+  keyboard navigation, screen reader labels, color contrast, focus management,
+  form structure, and semantic HTML. Reports issues by severity, optionally fixes
+  them, and re-verifies. Use when asked for "accessibility", "a11y", "WCAG",
+  "screen reader", "keyboard navigation", or "make it accessible".
+  Proactively invoke when reviewing UI code, after design changes, or before
+  a launch if accessibility has not been verified. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - WebSearch
+---
+
+{{PREAMBLE}}
+
+{{BROWSE_SETUP}}
+
+# /a11y — Accessibility Audit
+
+WCAG 2.1 AA compliance check using real browser testing plus static source analysis. Finds issues that matter: the ones that break the experience for keyboard-only users, screen reader users, and users with low vision.
+
+## Arguments
+
+- `/a11y` — audit the current project (auto-discover URLs from CLAUDE.md or ask)
+- `/a11y <url>` — audit a specific URL
+- `/a11y <url> --fix` — audit and fix issues automatically where safe
+- `/a11y --code` — static source analysis only (no browser needed)
+
+---
+
+## Phase 1: Setup
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || echo "SLUG=unknown")"
+mkdir -p .gstack/a11y-reports
+```
+
+**Determine target:**
+- If a URL was provided, use it.
+- If `--code` flag: skip to Phase 4 (static analysis only).
+- Otherwise: look for a URL in CLAUDE.md (`## URL`, `## Local URL`, `local_url:`).
+- If still not found: use AskUserQuestion to ask for the URL.
+
+**Determine mode:**
+- `--fix` passed → after each issue, ask if the user wants to fix it
+- Default → report only (like `/qa-only`)
+
+{{LEARNINGS_SEARCH}}
+
+---
+
+## Phase 2: Browser Accessibility Checks
+
+Open the page and run the following checks in order.
+
+### 2.1 — Tab Order & Keyboard Navigation
+
+```bash
+$B goto <url>
+$B snapshot
+```
+
+Assess from the snapshot:
+- Is there a visible skip-to-content link as the first focusable element?
+- Does every interactive element (links, buttons, inputs, selects) appear in the tab order?
+- Are there any keyboard traps (tabbing into a modal or widget with no way out)?
+- Is focus visible on all interactive elements? (Look for `outline: none` or `:focus { outline: 0 }` overrides)
+
+Test keyboard navigation by checking:
+```bash
+$B eval "
+  const focusable = document.querySelectorAll(
+    'a[href], button, input, textarea, select, [tabindex]:not([tabindex=\"-1\"])'
+  );
+  const issues = [];
+  focusable.forEach((el, i) => {
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      issues.push({i, tag: el.tagName, text: el.textContent?.slice(0,30), issue: 'zero-size interactive element'});
+    }
+  });
+  JSON.stringify(issues.slice(0, 20))
+"
+```
+
+### 2.2 — Images & Non-Text Content
+
+```bash
+$B eval "
+  const imgs = Array.from(document.querySelectorAll('img'));
+  const issues = imgs.map(img => ({
+    src: img.src?.split('/').pop()?.slice(0,40),
+    alt: img.getAttribute('alt'),
+    role: img.getAttribute('role'),
+    issue: img.getAttribute('alt') === null ? 'MISSING_ALT' :
+           img.getAttribute('alt') === '' && img.getAttribute('role') !== 'presentation' ? 'EMPTY_ALT_WITHOUT_PRESENTATION' : null
+  })).filter(x => x.issue);
+  JSON.stringify(issues.slice(0, 20))
+"
+```
+
+Flag: SVG icons used without `aria-hidden` or `aria-label`, canvas/video elements without text alternatives.
+
+### 2.3 — Form Labels & Error Handling
+
+```bash
+$B eval "
+  const inputs = Array.from(document.querySelectorAll('input, textarea, select'));
+  const issues = inputs.map(inp => {
+    const id = inp.id;
+    const label = id ? document.querySelector('label[for=\"' + id + '\"]') : null;
+    const ariaLabel = inp.getAttribute('aria-label');
+    const ariaLabelledby = inp.getAttribute('aria-labelledby');
+    if (!label && !ariaLabel && !ariaLabelledby && inp.type !== 'hidden' && inp.type !== 'submit') {
+      return { type: inp.type, name: inp.name, id: inp.id, issue: 'NO_LABEL' };
+    }
+    return null;
+  }).filter(Boolean);
+  JSON.stringify(issues.slice(0, 20))
+"
+```
+
+Also check: required fields marked with only color (no `*` or aria-required), error messages not linked to their input via `aria-describedby`.
+
+### 2.4 — Headings & Landmark Structure
+
+```bash
+$B eval "
+  const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+    .map(h => ({ level: parseInt(h.tagName[1]), text: h.textContent?.slice(0,60).trim() }));
+  const landmarks = Array.from(document.querySelectorAll('main, nav, header, footer, aside, [role]'))
+    .map(el => ({ tag: el.tagName, role: el.getAttribute('role'), label: el.getAttribute('aria-label') }));
+  JSON.stringify({ headings, landmarks })
+"
+```
+
+Flag: multiple `<h1>` on a page, heading levels that skip (h1 → h3), no `<main>` landmark, navigation without `aria-label` when multiple `<nav>` elements exist.
+
+### 2.5 — Color Contrast (Quick Check)
+
+```bash
+$B eval "
+  // Sample the most common text/background combinations
+  const samples = Array.from(document.querySelectorAll('p, h1, h2, h3, a, button, label'))
+    .slice(0, 20)
+    .map(el => {
+      const style = window.getComputedStyle(el);
+      return {
+        tag: el.tagName,
+        text: el.textContent?.slice(0,30).trim(),
+        color: style.color,
+        background: style.backgroundColor,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight
+      };
+    });
+  JSON.stringify(samples)
+"
+```
+
+For each sampled element, check if the computed contrast ratio meets WCAG AA:
+- Normal text (< 18pt or < 14pt bold): **4.5:1 minimum**
+- Large text (≥ 18pt or ≥ 14pt bold): **3:1 minimum**
+- UI components and graphics: **3:1 minimum**
+
+Note: browser-computed colors may be opaque even if the source uses rgba. Report as "requires verification" if background is transparent or complex.
+
+### 2.6 — ARIA Usage
+
+```bash
+$B eval "
+  const ariaIssues = [];
+  // Buttons without accessible names
+  document.querySelectorAll('button').forEach(btn => {
+    if (!btn.textContent?.trim() && !btn.getAttribute('aria-label') && !btn.getAttribute('aria-labelledby')) {
+      ariaIssues.push({ el: btn.outerHTML.slice(0,100), issue: 'BUTTON_NO_ACCESSIBLE_NAME' });
+    }
+  });
+  // Links without accessible names
+  document.querySelectorAll('a').forEach(a => {
+    if (!a.textContent?.trim() && !a.getAttribute('aria-label') && !a.getAttribute('aria-labelledby')) {
+      ariaIssues.push({ el: a.outerHTML.slice(0,100), issue: 'LINK_NO_ACCESSIBLE_NAME' });
+    }
+  });
+  // Invalid ARIA roles
+  const validRoles = ['button','link','heading','list','listitem','navigation','main','region','dialog','alert','status','checkbox','radio','textbox','combobox','menuitem','tab','tabpanel','tablist','tooltip','img','presentation','none'];
+  document.querySelectorAll('[role]').forEach(el => {
+    const role = el.getAttribute('role');
+    if (!validRoles.includes(role)) {
+      ariaIssues.push({ role, el: el.outerHTML.slice(0,80), issue: 'INVALID_ARIA_ROLE' });
+    }
+  });
+  JSON.stringify(ariaIssues.slice(0, 20))
+"
+```
+
+---
+
+## Phase 3: Screenshots & Visual Verification
+
+```bash
+$B snapshot --format json
+```
+
+Screenshot the page for visual evidence. Note any obvious contrast issues, missing focus indicators, or icon-only buttons.
+
+For pages with modals, dropdowns, or complex widgets — navigate to trigger them if possible:
+```bash
+$B click "Open dialog"
+$B snapshot
+```
+
+Check that modals trap focus correctly and have close mechanisms accessible via keyboard.
+
+---
+
+## Phase 4: Static Source Analysis
+
+Scan source files for common accessibility anti-patterns that may not be visible at runtime.
+
+```bash
+# Missing alt on img tags
+grep -rn "<img" --include="*.html" --include="*.tsx" --include="*.jsx" --include="*.vue" --include="*.svelte" . 2>/dev/null | grep -v "alt=" | grep -v "role=\"presentation\"" | head -20
+
+# onClick without keyboard equivalent
+grep -rn "onClick\|on_click\|@click" --include="*.tsx" --include="*.jsx" --include="*.vue" --include="*.svelte" . 2>/dev/null | grep -v "onKeyDown\|onKeyUp\|onKeyPress\|@keydown\|@keyup" | grep -v "button\|a \|<Button\|<a " | head -20
+
+# tabIndex > 0 (breaks natural tab order)
+grep -rn "tabIndex=[^-]\|tabindex=[^-\"]" --include="*.html" --include="*.tsx" --include="*.jsx" --include="*.vue" . 2>/dev/null | grep -v "tabIndex={0}\|tabindex=\"0\"" | head -10
+
+# autofocus (can disorient screen reader users)
+grep -rn "autoFocus\|autofocus" --include="*.tsx" --include="*.jsx" --include="*.html" . 2>/dev/null | grep -v "//\|<!--" | head -10
+```
+
+---
+
+## Phase 5: Build the Report
+
+Categorize every finding by severity:
+
+| Severity | Definition |
+|----------|-----------|
+| **CRITICAL** | Blocks a user entirely — keyboard trap, missing form label, no skip nav, inaccessible modal |
+| **HIGH** | Significantly degrades experience — missing alt text on meaningful images, poor contrast, missing landmark |
+| **MEDIUM** | Reduces quality — heading hierarchy skip, icon button without label, empty link text |
+| **LOW** | Minor deviation — redundant ARIA role, minor contrast issue on decorative text |
+| **PASS** | Checked and compliant |
+
+Output the report:
+
+```
+ACCESSIBILITY AUDIT — <url or "static analysis">
+════════════════════════════════════════════════
+
+WCAG 2.1 AA Compliance: <PASS / PARTIAL / FAIL>
+
+FINDINGS
+────────
+CRITICAL (N)
+  • [2.1.2] <description> — <element or location>
+  ...
+
+HIGH (N)
+  • [1.1.1] <description> — <element or location>
+  ...
+
+MEDIUM (N)
+  • [1.3.1] <description> — <element or location>
+  ...
+
+LOW (N)
+  • [description] — <element or location>
+  ...
+
+CHECKS PASSED
+  ✓ Skip navigation present
+  ✓ All form inputs labeled
+  ✓ Images have alt text
+  ...
+
+WCAG CRITERIA COVERAGE
+  1.1 Text Alternatives    [audited]
+  1.3 Adaptable            [audited]
+  1.4 Distinguishable      [partial — static contrast check only]
+  2.1 Keyboard             [audited]
+  2.4 Navigable            [audited]
+  4.1 Compatible           [audited]
+```
+
+The WCAG criterion code in brackets (e.g., [1.1.1]) helps developers look up the official guidance.
+
+---
+
+## Phase 6: Fix or Report
+
+**If `--fix` mode:**
+
+For each CRITICAL and HIGH finding, use AskUserQuestion:
+- **Context:** Found [severity] issue: [description] at [location]
+- **RECOMMENDATION:** Choose A — this is a straightforward fix that won't change visual appearance
+- A) Fix it — apply the minimal accessibility fix
+- B) Skip — note as known issue in the report
+- C) Details — explain what a compliant implementation looks like
+
+When the user chooses A, apply the minimal fix:
+- Missing `alt=""` on decorative img → add `alt="" role="presentation"`
+- Missing `alt` on meaningful img → add descriptive `alt` (ask for the description)
+- Icon button without label → add `aria-label="<action>"` matching the icon's intent
+- Missing skip nav → add `<a href="#main-content" class="sr-only focus:not-sr-only">Skip to content</a>` before first nav
+- Unlabeled input → add `aria-label` or `<label for="...">` matching the placeholder text
+- `tabIndex > 0` → change to `tabIndex={0}` and explain why positive tab indices break tab order
+
+After fixes, re-run Phase 2 checks on the affected elements to verify.
+
+**If report-only mode (default):**
+
+Print the full report and suggest next steps. If CRITICAL issues exist, note: "These block keyboard-only users and screen reader users. Recommend fixing before launch."
+
+---
+
+{{LEARNINGS_LOG}}
+
+## Important Rules
+
+- **WCAG 2.1 AA is the bar.** Not AAA (too strict for most products), not A (too loose). AA is the legal and industry standard.
+- **Browser testing beats static analysis.** Runtime state (ARIA live regions, dynamic focus, computed styles) is invisible to grep. Always do Phase 2 when a URL is available.
+- **Report what you can verify.** Don't flag issues you can't confirm. Mark complex scenarios (dynamic content, custom widgets) as "requires manual testing."
+- **Don't over-flag decorative content.** `alt=""` on decorative images is correct and compliant. `role="presentation"` on spacers is correct. Don't report these as issues.
+- **Contrast is nuanced.** Computed contrast from JavaScript may differ from the rendered result (GPU blending, overlays). Report borderline cases as "requires verification," not failures.
+- **Fix minimally.** Don't rewrite components. Add the smallest attribute that makes it compliant. Preserve existing behavior.
+- **Screen readers are diverse.** NVDA, JAWS, VoiceOver, TalkBack all behave differently. Report findings as WCAG criteria violations, not as "doesn't work in [specific reader]."
