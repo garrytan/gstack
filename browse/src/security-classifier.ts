@@ -102,6 +102,11 @@ export interface ClassifierStatus {
   deberta?: 'ok' | 'degraded' | 'off'; // only present when ensemble enabled
 }
 
+export function isClassifierInactive(cs: ClassifierStatus): boolean {
+  return cs.testsavant === 'off' && cs.transcript === 'off'
+    && (!cs.deberta || cs.deberta === 'off');
+}
+
 export function getClassifierStatus(): ClassifierStatus {
   const testsavant =
     testsavantState === 'loaded' ? 'ok' :

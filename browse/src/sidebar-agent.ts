@@ -21,7 +21,7 @@ import {
 } from './security';
 import {
   loadTestsavant, scanPageContent, checkTranscript,
-  shouldRunTranscriptCheck, getClassifierStatus,
+  shouldRunTranscriptCheck, getClassifierStatus, isClassifierInactive,
   loadDeberta, scanPageContentDeberta,
   type ToolCallInput,
 } from './security-classifier';
@@ -469,18 +469,42 @@ async function onCanaryLeaked(params: {
 }
 
 /**
- * Pre-spawn ML scan of the user message. If the classifier fires at BLOCK,
- * we log the attempt, emit a security_event to the sidepanel, and DO NOT
- * spawn claude. Returns true if the scan blocked the session.
+ * Pre-spawn security gate. Blocks session spawn when:
+ * 1. All ML classifiers are inactive (fail-closed unless GSTACK_SECURITY_ALLOW_INACTIVE=1)
+ * 2. ML ensemble fires at BLOCK verdict on the user message
  *
- * Fail-open: any classifier error or degraded state returns false (safe) so
- * the sidebar keeps working. The architectural controls (XML framing +
- * command allowlist, live in server.ts:554-577) still defend.
+ * Individual classifier degradation (one down, one up) still passes through —
+ * only total absence of ML protection triggers the gate.
  */
 async function preSpawnSecurityCheck(entry: QueueEntry): Promise<boolean> {
   const { message, canary, pageUrl, tabId } = entry;
   if (!message || message.length === 0) return false;
   const tid = tabId ?? 0;
+
+  // Fail-closed gate: if ALL ML classifiers are inactive, refuse to spawn
+  // unless the operator explicitly opts in. Without this check, a failed
+  // model download or GSTACK_SECURITY_OFF=1 silently removes all ML
+  // protection while the agent keeps running.
+  if (process.env.GSTACK_SECURITY_OFF !== '1') {
+    const cs = getClassifierStatus();
+    if (isClassifierInactive(cs) && process.env.GSTACK_SECURITY_ALLOW_INACTIVE !== '1') {
+      const domain = extractDomain(pageUrl ?? '');
+      console.warn(`[sidebar-agent] BLOCKED — all ML classifiers inactive for tab ${tid}. Set GSTACK_SECURITY_ALLOW_INACTIVE=1 to override.`);
+      await sendEvent({
+        type: 'security_event',
+        verdict: 'block',
+        reason: 'classifiers_inactive',
+        layer: 'fail_closed_gate',
+        confidence: 1,
+        domain,
+      }, tid);
+      await sendEvent({
+        type: 'agent_error',
+        error: 'Session blocked — security classifiers failed to load. Restart gstack or set GSTACK_SECURITY_ALLOW_INACTIVE=1.',
+      }, tid);
+      return true;
+    }
+  }
 
   // L4: scan the user message for direct injection patterns (TestSavantAI)
   // L4c: also scan with DeBERTa-v3 when ensemble is enabled (opt-in)
@@ -541,8 +565,7 @@ async function askClaude(queueEntry: QueueEntry): Promise<void> {
   processingTabs.add(tid);
   await sendEvent({ type: 'agent_start' }, tid);
 
-  // Pre-spawn ML scan: if the user message trips the ensemble, refuse to
-  // spawn claude. Fail-open on classifier errors.
+  // Pre-spawn ML scan: blocks on injection detection OR classifier-inactive.
   if (await preSpawnSecurityCheck(queueEntry)) {
     processingTabs.delete(tid);
     return;
