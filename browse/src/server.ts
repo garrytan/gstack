@@ -1571,7 +1571,16 @@ async function start() {
     // GET /connect — alive probe.  Unauth on both surfaces.  Used by /pair
     // and /tunnel/start to detect dead ngrok tunnels via the tunnel URL,
     // since /health is not tunnel-reachable under the dual-listener design.
+    //
+    // Shares the same rate limit as POST /connect — otherwise a tunnel
+    // caller can probe unlimited GETs and lock out nothing, which makes
+    // the endpoint a free daemon-enumeration surface.
     if (url.pathname === '/connect' && req.method === 'GET') {
+      if (!checkConnectRateLimit()) {
+        return new Response(JSON.stringify({ error: 'Rate limited' }), {
+          status: 429, headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return new Response(JSON.stringify({ alive: true }), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       });
@@ -1595,9 +1604,13 @@ async function start() {
           const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
           const projectWelcome = `${homeDir}/.gstack/projects/${slug}/designs/welcome-page-20260331/finalized.html`;
           if (fs.existsSync(projectWelcome)) return projectWelcome;
-          // Fallback: built-in welcome page from gstack install
-          const skillRoot = process.env.GSTACK_SKILL_ROOT || `${homeDir}/.claude/skills/gstack`;
-          const builtinWelcome = `${skillRoot}/browse/src/welcome.html`;
+          // Fallback: built-in welcome page from gstack install.  Reject
+          // SKILL_ROOT values containing '..' for the same defense-in-depth
+          // reason as the GSTACK_SLUG regex above.  Not exploitable today
+          // (env set at install time), but the gate is one check.
+          const rawSkillRoot = process.env.GSTACK_SKILL_ROOT || `${homeDir}/.claude/skills/gstack`;
+          if (rawSkillRoot.includes('..')) return null;
+          const builtinWelcome = `${rawSkillRoot}/browse/src/welcome.html`;
           if (fs.existsSync(builtinWelcome)) return builtinWelcome;
           return null;
         })();
@@ -1907,7 +1920,13 @@ async function start() {
             status: 200, headers: { 'Content-Type': 'application/json' },
           });
         } catch (err: any) {
+          // Clean up BOTH ngrok and the Bun listener on failure.  If
+          // ngrok.forward() succeeded but tunnelListener.url() or the
+          // state-file write threw, we'd otherwise leak an active ngrok
+          // session on the user's account.
+          try { if (tunnelListener) await tunnelListener.close(); } catch {}
           try { boundTunnel.stop(true); } catch {}
+          tunnelListener = null;
           return new Response(JSON.stringify({
             error: `Failed to open ngrok tunnel: ${err.message}`,
           }), { status: 500, headers: { 'Content-Type': 'application/json' } });
@@ -2769,7 +2788,12 @@ async function start() {
         fs.renameSync(tmpState, config.stateFile);
       } catch (err: any) {
         console.error(`[browse] Failed to start tunnel: ${err.message}`);
+        // Same cleanup as /tunnel/start's error path: tear down BOTH
+        // ngrok and the Bun listener so we don't leak an ngrok session
+        // if the error happened after ngrok.forward() resolved.
+        try { if (tunnelListener) await tunnelListener.close(); } catch {}
         try { if (boundTunnel) boundTunnel.stop(true); } catch {}
+        tunnelListener = null;
       }
     }
   }

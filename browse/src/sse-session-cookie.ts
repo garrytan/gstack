@@ -30,6 +30,7 @@ interface Session {
 }
 
 const TTL_MS = 30 * 60 * 1000; // 30 minutes
+const MAX_SESSIONS = 10_000; // Upper bound on registry size
 const sessions = new Map<string, Session>();
 
 export const SSE_COOKIE_NAME = 'gstack_sse';
@@ -47,14 +48,20 @@ export function mintSseSessionToken(): { token: string; expiresAt: number } {
 
 /**
  * Validate a token. Returns true only if the token exists AND is not expired.
- * Expired tokens are lazily removed.
+ * Expired tokens are lazily removed, and we opportunistically prune a few
+ * additional expired entries on every validate so the registry can't grow
+ * unboundedly under sustained mint + reconnect pressure.
  */
 export function validateSseSessionToken(token: string | null | undefined): boolean {
   if (!token) return false;
   const s = sessions.get(token);
-  if (!s) return false;
+  if (!s) {
+    pruneExpired(Date.now());
+    return false;
+  }
   if (Date.now() > s.expiresAt) {
     sessions.delete(token);
+    pruneExpired(Date.now());
     return false;
   }
   return true;
@@ -95,12 +102,20 @@ export function buildSseClearCookie(): string {
 }
 
 function pruneExpired(now: number): void {
-  // Opportunistic cleanup: at most 10 per mint call so we don't stall
-  // on a massive registry. O(1) amortized.
+  // Opportunistic cleanup: check up to 20 entries per call so we don't
+  // stall on a massive registry. O(1) amortized.  Runs on every mint
+  // AND on every validate so a steady reconnect flow can't outpace it.
   let checked = 0;
   for (const [token, session] of sessions) {
-    if (checked++ >= 10) break;
+    if (checked++ >= 20) break;
     if (session.expiresAt <= now) sessions.delete(token);
+  }
+  // Hard cap as a backstop — if something still gets past opportunistic
+  // cleanup (e.g., all unexpired but registry enormous), drop the oldest.
+  while (sessions.size > MAX_SESSIONS) {
+    const first = sessions.keys().next().value;
+    if (!first) break;
+    sessions.delete(first);
   }
 }
 
