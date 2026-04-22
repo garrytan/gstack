@@ -131,7 +131,7 @@ fi
 # ─── Remove global Claude skills ────────────────────────────
 CLAUDE_SKILLS="$HOME/.claude/skills"
 if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
-  # Remove per-skill symlinks that point into gstack/
+  # Remove legacy per-skill symlinks that point into gstack/
   for _LINK in "$CLAUDE_SKILLS"/*; do
     [ -L "$_LINK" ] || continue
     _NAME="$(basename "$_LINK")"
@@ -141,6 +141,22 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
       gstack/*|*/gstack/*) rm -f "$_LINK"; REMOVED+=("claude/$_NAME") ;;
     esac
   done
+
+  # Remove per-skill directories whose nested SKILL.md symlinks into gstack/.
+  # setup creates real directories here (not top-level symlinks), with each
+  # SKILL.md linked to gstack/<skill>/SKILL.md. The legacy loop above never
+  # matches these, so they would otherwise be left behind once gstack/ is
+  # removed. See #1132.
+  while IFS= read -r _DIR; do
+    _NAME="$(basename "$_DIR")"
+    [ "$_NAME" = "gstack" ] && continue
+    [ "$_NAME" = "node_modules" ] && continue
+    [ -L "$_DIR/SKILL.md" ] || continue
+    _TARGET="$(readlink "$_DIR/SKILL.md" 2>/dev/null || true)"
+    case "$_TARGET" in
+      gstack/*|*/gstack/*) rm -rf "$_DIR"; REMOVED+=("claude/$_NAME") ;;
+    esac
+  done < <(find "$CLAUDE_SKILLS" -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
 
   rm -rf "$CLAUDE_SKILLS/gstack"
   REMOVED+=("~/.claude/skills/gstack")
