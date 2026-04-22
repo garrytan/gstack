@@ -2143,6 +2143,19 @@ describe('load-html', () => {
     }
   });
 
+  test('load-html rejects .svg files', async () => {
+    const svgPath = path.join(tmpDir, `load-html-test-${Date.now()}.svg`);
+    fs.writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg"><text>hi</text></svg>');
+    try {
+      await handleWriteCommand('load-html', [svgPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not appear to be HTML/);
+    } finally {
+      try { fs.unlinkSync(svgPath); } catch {}
+    }
+  });
+
   test('load-html rejects file outside safe dirs', async () => {
     try {
       await handleWriteCommand('load-html', ['/etc/passwd.html'], bm);
