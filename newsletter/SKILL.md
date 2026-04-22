@@ -24,6 +24,8 @@ allowed-tools:
   - TaskCreate
   - TaskUpdate
   - TaskList
+  - Skill
+  - mcp__atlassian__getJiraIssue
 ---
 
 # /newsletter — The Athletic Newsletter Creation Workflow
@@ -261,10 +263,10 @@ Use AskUserQuestion:
 Check the next available index value:
 
 ```bash
-grep -c "index:" web/src/features/welcome/utils/newsletters-metadata.ts
+grep -o "index: [0-9]*" web/src/features/welcome/utils/newsletters-metadata.ts | grep -oE "[0-9]+" | sort -n | tail -1
 ```
 
-Use that count + 1 as the index.
+Use that max + 1 as the index.
 
 Confirm that assets are uploaded:
 
@@ -282,6 +284,26 @@ Confirm that assets are uploaded:
 ### Step 2g: Optional PHP Features
 
 > **Skip if MODE = `web-only`**
+
+Use AskUserQuestion:
+
+> Is this a **popup newsletter**? Popup newsletters do not appear in email settings
+> and don't show a legal-links section on their sign-up page.
+> (Most newsletters are standard — answer "no" if unsure.)
+>
+> - A) No — standard newsletter (`show_legal_links: true`, `email_settings.page_enabled: true`)
+> - B) Yes — popup newsletter (`show_legal_links: false`, `email_settings.page_enabled: false`)
+
+Store the result as `IS_POPUP` (`true` / `false`). These values are needed for the
+Step 5.8 StaticNewsletterRepository template.
+
+Also record the current date in ISO 8601 format for the `created_at` / `updated_at` fields:
+
+```bash
+date -u +"%Y-%m-%dT%H:%M:%SZ"
+```
+
+Store the result as `{iso_date}`.
 
 Use AskUserQuestion:
 
@@ -361,6 +383,7 @@ Create a task list using TaskCreate to track progress. Mark each task `in_progre
 **Verification and ship (always):**
 
 - 7. Run TypeScript checks and PHP unit tests
+- 8. Run /review in each repo
 - 9. Create PRs via /ta-ship and print DynamoDB upsert mutation
 
 ---
@@ -641,7 +664,7 @@ Add the new entry:
 
 ```php
 [
-  'newsletter_id'        => '{slug}-popup-newsletter',  // omit "-popup" if not a popup
+  'newsletter_id'        => '{newsletter_id}',  // must match mock.ts exactly; for popup newsletters, include the "-popup" suffix in the newsletter_id you set in Step 2b (e.g., "peak-popup-newsletter")
   'dynamo_key'           => '{dynamo_key}',
   'sport_type'           => '{sport_type}',
   'meta_key'             => '{meta_key}',
@@ -754,6 +777,10 @@ grep -rl "newsletter" the-athletic/tests/ --include="*.php"
 grep -rl "newsletter" web/src --include="*.test.tsx" --include="*.test.ts"
 ```
 
+For each file found, open it and verify the new newsletter's slug (or `{NEWSLETTER_CONSTANT}_NEWSLETTER` constant)
+is present. If missing, add it following the same pattern as the entries immediately before or after where it
+would appear alphabetically.
+
 ---
 
 ## Step 7: Verification
@@ -818,6 +845,20 @@ If MODE=full, confirm: "Both repos are complete. Newsletter is ready to ship."
 
 ---
 
+## Step 8.5: Review
+
+Run `/review` in each repo before shipping:
+
+```bash
+git -C web diff origin/develop --stat
+git -C the-athletic diff origin/develop --stat
+```
+
+Invoke the `/review` skill from each repo's directory context. If either review surfaces
+critical issues, fix them before continuing to Step 9.
+
+---
+
 ## Step 9: Ship PRs and DynamoDB
 
 ### 9.1 Create PRs via /ta-ship
@@ -865,7 +906,8 @@ mutation UpsertNewsletter($newsletter_data: NewsletterInput!) {
 }
 ```
 
-**Variables** (populate all `{placeholders}` with this newsletter's config values):
+**Variables** (populate all `{placeholders}` with this newsletter's config values;
+`{leagueIds_json}` = `["{league_id}"]` if a league was mapped, or `[]` if not):
 
 ```json
 {
@@ -877,7 +919,7 @@ mutation UpsertNewsletter($newsletter_data: NewsletterInput!) {
     "slug": "{slug}",
     "show_on_onboarding": {show_on_onboarding},
     "frequency": "{frequency}",
-    "leagueIds": {leagueIds},
+    "leagueIds": {leagueIds_json},
     "teamsIds": [],
     "created_at": "{created_at}",
     "updated_at": "{updated_at}",
