@@ -237,6 +237,19 @@ export function loadTestsavant(onProgress?: (msg: string) => void): Promise<void
  * already have plain text (page snapshot innerText, tool output strings)
  * get no-op behavior; callers with HTML get the markup stripped.
  */
+export const WINDOW_SIZE = 4000;
+export const WINDOW_OVERLAP = 1000;
+
+export function windowedSlices(text: string): string[] {
+  if (text.length <= WINDOW_SIZE) return [text];
+  const slices: string[] = [];
+  const step = WINDOW_SIZE - WINDOW_OVERLAP;
+  for (let offset = 0; offset < text.length; offset += step) {
+    slices.push(text.slice(offset, offset + WINDOW_SIZE));
+  }
+  return slices;
+}
+
 function htmlToPlainText(input: string): string {
   // Fast path: if no angle brackets, it's already plain text.
   if (!input.includes('<')) return input;
@@ -260,24 +273,24 @@ export async function scanPageContent(text: string): Promise<LayerSignal> {
     return { layer: 'testsavant_content', confidence: 0, meta: { degraded: true } };
   }
   try {
-    // Normalize to plain text first — the classifier is trained on natural
-    // language, not HTML markup. A page with an injection buried in tag
-    // soup won't fire until we strip the noise.
     const plain = htmlToPlainText(text);
-    // Character-level cap to avoid pathological memory use. The pipeline
-    // applies tokenizer truncation at 512 tokens (the BERT-small context
-    // limit — enforced via the model_max_length override in loadTestsavant)
-    // so the 4000-char cap is just a cheap upper bound. Real-world
-    // injection signals land in the first few hundred tokens anyway.
-    const input = plain.slice(0, 4000);
-    const raw = await testsavantClassifier(input);
-    const top = Array.isArray(raw) ? raw[0] : raw;
-    const label = top?.label ?? 'SAFE';
-    const score = Number(top?.score ?? 0);
-    if (label === 'INJECTION') {
-      return { layer: 'testsavant_content', confidence: score, meta: { label } };
+    const slices = windowedSlices(plain);
+    let maxScore = 0;
+    let maxLabel = 'SAFE';
+    for (const input of slices) {
+      const raw = await testsavantClassifier(input);
+      const top = Array.isArray(raw) ? raw[0] : raw;
+      const label = top?.label ?? 'SAFE';
+      const score = Number(top?.score ?? 0);
+      if (label === 'INJECTION' && score > maxScore) {
+        maxScore = score;
+        maxLabel = label;
+      }
     }
-    return { layer: 'testsavant_content', confidence: 0, meta: { label, safeScore: score } };
+    if (maxLabel === 'INJECTION') {
+      return { layer: 'testsavant_content', confidence: maxScore, meta: { label: maxLabel, windows: slices.length } };
+    }
+    return { layer: 'testsavant_content', confidence: 0, meta: { label: maxLabel, windows: slices.length } };
   } catch (err: any) {
     testsavantState = 'failed';
     testsavantLoadError = err?.message ?? String(err);
@@ -353,15 +366,23 @@ export async function scanPageContentDeberta(text: string): Promise<LayerSignal>
   }
   try {
     const plain = htmlToPlainText(text);
-    const input = plain.slice(0, 4000);
-    const raw = await debertaClassifier(input);
-    const top = Array.isArray(raw) ? raw[0] : raw;
-    const label = top?.label ?? 'SAFE';
-    const score = Number(top?.score ?? 0);
-    if (label === 'INJECTION') {
-      return { layer: 'deberta_content', confidence: score, meta: { label } };
+    const slices = windowedSlices(plain);
+    let maxScore = 0;
+    let maxLabel = 'SAFE';
+    for (const input of slices) {
+      const raw = await debertaClassifier(input);
+      const top = Array.isArray(raw) ? raw[0] : raw;
+      const label = top?.label ?? 'SAFE';
+      const score = Number(top?.score ?? 0);
+      if (label === 'INJECTION' && score > maxScore) {
+        maxScore = score;
+        maxLabel = label;
+      }
     }
-    return { layer: 'deberta_content', confidence: 0, meta: { label, safeScore: score } };
+    if (maxLabel === 'INJECTION') {
+      return { layer: 'deberta_content', confidence: maxScore, meta: { label: maxLabel, windows: slices.length } };
+    }
+    return { layer: 'deberta_content', confidence: 0, meta: { label: maxLabel, windows: slices.length } };
   } catch (err: any) {
     debertaState = 'failed';
     debertaLoadError = err?.message ?? String(err);
@@ -437,7 +458,7 @@ export async function checkTranscript(params: {
 
   const { user_message, tool_calls, tool_output } = params;
   const windowed = tool_calls.slice(-3);
-  const truncatedOutput = tool_output ? tool_output.slice(0, 4000) : undefined;
+  const truncatedOutput = tool_output ? tool_output.slice(0, 8000) : undefined;
   const inputs: Record<string, unknown> = { user_message, tool_calls: windowed };
   if (truncatedOutput !== undefined) inputs.tool_output = truncatedOutput;
 
