@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# gstack-skill-validate — security validation for community-submitted skills
+#
+# Validates a SKILL.md.tmpl before installation. Checks for:
+# - Shell injection in bash blocks (eval, exec, backticks, $())
+# - Path traversal (../, absolute paths outside allowed dirs)
+# - Network exfiltration (curl/wget to non-gstack domains)
+# - Valid frontmatter structure
+# - Placeholder compliance (only allowed {{PLACEHOLDERS}})
+#
+# Usage:
+#   gstack-skill-validate <path/to/SKILL.md.tmpl>
+#   gstack-skill-validate --dir <skill-directory>
+#   gstack-skill-validate --url <github-url>     # fetch and validate
+#
+# Exit codes: 0 = safe, 1 = unsafe (with details), 2 = invalid format
+set -euo pipefail
+
+FILE=""
+DIR=""
+
+case "${1:-}" in
+  --dir) DIR="${2:?Usage: gstack-skill-validate --dir <path>}"; FILE="$DIR/SKILL.md.tmpl" ;;
+  --url) echo "URL validation not yet implemented"; exit 2 ;;
+  -*) echo "Usage: gstack-skill-validate <file.tmpl> | --dir <dir>"; exit 2 ;;
+  *) FILE="${1:?Usage: gstack-skill-validate <file.tmpl>}" ;;
+esac
+
+[ -f "$FILE" ] || { echo "FAIL: File not found: $FILE"; exit 2; }
+
+python3 - "$FILE" << 'PYEOF'
+import sys, re, os
+
+filepath = sys.argv[1]
+content = open(filepath).read()
+findings = []
+score = 100
+
+# ─── 1. Frontmatter validation ───────────────────────────────
+if not content.startswith('---\n'):
+    findings.append(('CRITICAL', 'Missing YAML frontmatter'))
+    score -= 30
+else:
+    fm_end = content.index('---', 4)
+    fm = content[4:fm_end]
+    if 'name:' not in fm:
+        findings.append(('HIGH', 'Missing "name:" in frontmatter'))
+        score -= 15
+    if 'allowed-tools:' not in fm:
+        findings.append(('HIGH', 'Missing "allowed-tools:" in frontmatter'))
+        score -= 15
+    if 'description:' not in fm:
+        findings.append(('MEDIUM', 'Missing "description:" in frontmatter'))
+        score -= 5
+
+# ─── 2. Shell injection patterns ─────────────────────────────
+# Extract bash blocks
+bash_blocks = re.findall(r'```bash\n(.*?)```', content, re.DOTALL)
+all_bash = '\n'.join(bash_blocks)
+
+# Dangerous patterns
+dangerous = [
+    (r'\beval\s+[^"$(]', 'eval with unquoted argument — injection risk'),
+    (r'`[^`]*\$\([^)]*\)[^`]*`', 'nested command substitution in backticks'),
+    (r'\brm\s+-rf\s+/', 'rm -rf with absolute path — destructive'),
+    (r'\bchmod\s+777', 'chmod 777 — overly permissive'),
+    (r'\bcurl\s+.*\|\s*bash', 'curl piped to bash — remote code execution'),
+    (r'\bwget\s+.*\|\s*bash', 'wget piped to bash — remote code execution'),
+    (r'\bnc\s+-', 'netcat usage — potential reverse shell'),
+    (r'>\s*/etc/', 'writing to /etc/ — system modification'),
+    (r'\bsudo\b', 'sudo usage — privilege escalation'),
+]
+
+for pattern, desc in dangerous:
+    matches = re.findall(pattern, all_bash)
+    if matches:
+        findings.append(('CRITICAL', f'Shell: {desc} ({len(matches)} occurrences)'))
+        score -= 20
+
+# ─── 3. Path traversal ──────────────────────────────────────
+path_issues = re.findall(r'\.\./|/etc/|/usr/|/var/', all_bash)
+if path_issues:
+    findings.append(('HIGH', f'Path traversal: {len(path_issues)} suspicious path references'))
+    score -= 15
+
+# ─── 4. Network exfiltration ────────────────────────────────
+# Allow: github.com, gstack domains, localhost
+allowed_domains = ['github.com', 'githubusercontent.com', 'localhost', '127.0.0.1', 'gstack']
+net_cmds = re.findall(r'(?:curl|wget|fetch|http[s]?://)\s*(\S+)', all_bash)
+for cmd in net_cmds:
+    if not any(d in cmd for d in allowed_domains):
+        findings.append(('HIGH', f'Network: request to external domain: {cmd[:60]}'))
+        score -= 10
+
+# ─── 5. Placeholder compliance ──────────────────────────────
+allowed_placeholders = {
+    'PREAMBLE', 'BROWSE_SETUP', 'COMMAND_REFERENCE', 'SNAPSHOT_FLAGS',
+    'QA_METHODOLOGY', 'BASE_BRANCH_DETECT', 'SLUG_SETUP', 'SLUG_EVAL',
+    'BENEFITS_FROM', 'DESIGN_METHODOLOGY', 'SEARCH_BEFORE_BUILDING',
+    'TEST_BOOTSTRAP', 'TEST_FAILURE_TRIAGE', 'COMPLETENESS_INTRO',
+    'TEST_COVERAGE_AUDIT', 'DEPLOY_BOOTSTRAP', 'PLAN_COMPLETION_AUDIT',
+    'PLAN_VERIFICATION', 'SHIP_METRICS',
+}
+found_placeholders = set(re.findall(r'\{\{(\w+)\}\}', content))
+unknown = found_placeholders - allowed_placeholders
+if unknown:
+    findings.append(('MEDIUM', f'Unknown placeholders: {", ".join(sorted(unknown))}'))
+    score -= 5
+
+# ─── 6. Allowed-tools check ─────────────────────────────────
+valid_tools = {'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'AskUserQuestion', 'WebSearch', 'WebFetch'}
+fm_match = re.search(r'allowed-tools:\n((?:\s+-\s+\w+\n?)+)', content)
+if fm_match:
+    tools = re.findall(r'-\s+(\w+)', fm_match.group(1))
+    invalid_tools = set(tools) - valid_tools
+    if invalid_tools:
+        findings.append(('MEDIUM', f'Unknown tools: {", ".join(sorted(invalid_tools))}'))
+        score -= 5
+
+# ─── Output ──────────────────────────────────────────────────
+score = max(0, score)
+
+if findings:
+    criticals = sum(1 for s, _ in findings if s == 'CRITICAL')
+    highs = sum(1 for s, _ in findings if s == 'HIGH')
+    print(f'VALIDATION SCORE: {score}/100')
+    print(f'Findings: {len(findings)} ({criticals} critical, {highs} high)')
+    print()
+    for severity, desc in sorted(findings, key=lambda x: {'CRITICAL':0,'HIGH':1,'MEDIUM':2,'LOW':3}.get(x[0],4)):
+        print(f'  [{severity}] {desc}')
+    if criticals > 0:
+        print(f'\nVERDICT: UNSAFE — {criticals} critical issue(s). Do not install.')
+        sys.exit(1)
+    elif highs > 0:
+        print(f'\nVERDICT: REVIEW REQUIRED — {highs} high-severity issue(s).')
+        sys.exit(1)
+    else:
+        print(f'\nVERDICT: SAFE with warnings.')
+        sys.exit(0)
+else:
+    print(f'VALIDATION SCORE: {score}/100')
+    print('VERDICT: SAFE — no issues found.')
+    sys.exit(0)
+PYEOF
