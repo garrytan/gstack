@@ -201,6 +201,25 @@ const ENVELOPE_BEGIN = '═══ BEGIN UNTRUSTED WEB CONTENT ═══';
 const ENVELOPE_END = '═══ END UNTRUSTED WEB CONTENT ═══';
 
 /**
+ * Defuse envelope sentinels that appear inside attacker-controlled page
+ * content. Any raw BEGIN/END marker inside `content` gets a zero-width
+ * space spliced through CONTENT so the marker still renders visibly but
+ * no longer matches the envelope grep the LLM anchors on.
+ *
+ * Both the wrap path (full-page content) and the split path (scoped
+ * snapshots) must funnel untrusted text through this helper before
+ * emitting the outer envelope, otherwise a page whose accessibility
+ * tree contains the literal sentinel can close the envelope early and
+ * forge a fake "trusted" section in the LLM's view.
+ */
+export function escapeEnvelopeSentinels(content: string): string {
+  const zwsp = '\u200B';
+  return content
+    .replace(/═══ BEGIN UNTRUSTED WEB CONTENT ═══/g, `═══ BEGIN UNTRUSTED WEB C${zwsp}ONTENT ═══`)
+    .replace(/═══ END UNTRUSTED WEB CONTENT ═══/g, `═══ END UNTRUSTED WEB C${zwsp}ONTENT ═══`);
+}
+
+/**
  * Wrap page content in a trust boundary envelope for scoped tokens.
  * Escapes envelope markers in content to prevent boundary escape attacks.
  */
@@ -209,11 +228,7 @@ export function wrapUntrustedPageContent(
   command: string,
   filterWarnings?: string[],
 ): string {
-  // Escape envelope markers in content (zero-width space injection)
-  const zwsp = '\u200B';
-  const safeContent = content
-    .replace(/═══ BEGIN UNTRUSTED WEB CONTENT ═══/g, `═══ BEGIN UNTRUSTED WEB C${zwsp}ONTENT ═══`)
-    .replace(/═══ END UNTRUSTED WEB CONTENT ═══/g, `═══ END UNTRUSTED WEB C${zwsp}ONTENT ═══`);
+  const safeContent = escapeEnvelopeSentinels(content);
 
   const parts: string[] = [];
 

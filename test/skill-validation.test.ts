@@ -1576,22 +1576,62 @@ describe('Test failure triage in ship skill', () => {
 });
 
 describe('no compiled binaries in git', () => {
+  // Tracked files enumerated once and reused by both assertions. git ls-files -z
+  // + split is ~ms; the previous xargs-per-file shell loops blew past 5s on CI.
+  const trackedFiles: string[] = require('child_process')
+    .execSync('git ls-files -z', { cwd: ROOT, encoding: 'utf-8' })
+    .split('\0')
+    .filter(Boolean);
+
   test('git tracks no Mach-O or ELF binaries', () => {
-    const result = require('child_process').execSync(
-      'git ls-files -z | xargs -0 file --mime-type 2>/dev/null | grep -E "application/(x-mach-binary|x-executable|x-pie-executable|x-sharedlib)" || true',
-      { cwd: ROOT, encoding: 'utf-8' }
-    ).trim();
-    const files = result ? result.split('\n').map((l: string) => l.split(':')[0].trim()) : [];
-    expect(files).toEqual([]);
+    // Only mode 100755 (executable) files can be binaries we care about. Pre-filter
+    // via git ls-files -s to avoid running `file` on every text file.
+    const lsOut: string = require('child_process').execSync('git ls-files -s', {
+      cwd: ROOT,
+      encoding: 'utf-8',
+    });
+    const executableFiles = lsOut
+      .split('\n')
+      .filter(Boolean)
+      .map((line: string) => {
+        const parts = line.split(/\s+/);
+        return { mode: parts[0], file: line.split('\t')[1] };
+      })
+      .filter((e: { mode: string; file: string }) => e.mode === '100755')
+      .map((e: { mode: string; file: string }) => e.file);
+
+    if (executableFiles.length === 0) return;
+
+    // Batch-invoke `file --mime-type` across all executable files at once.
+    const result: string = require('child_process')
+      .execSync(`file --mime-type -- ${executableFiles.map((f: string) => `'${f.replace(/'/g, "'\\''")}'`).join(' ')}`, {
+        cwd: ROOT,
+        encoding: 'utf-8',
+      })
+      .trim();
+
+    const binaries = result
+      .split('\n')
+      .filter((l: string) =>
+        /application\/(x-mach-binary|x-executable|x-pie-executable|x-sharedlib)/.test(l)
+      )
+      .map((l: string) => l.split(':')[0].trim());
+
+    expect(binaries).toEqual([]);
   });
 
   test('git tracks no files larger than 2MB', () => {
-    const result = require('child_process').execSync(
-      'git ls-files -z | xargs -0 -I{} sh -c \'size=$(wc -c < "{}" 2>/dev/null | tr -d " "); [ "$size" -gt 2097152 ] 2>/dev/null && echo "{}:${size}"\' || true',
-      { cwd: ROOT, encoding: 'utf-8' }
-    ).trim();
-    const files = result ? result.split('\n').filter(Boolean) : [];
-    expect(files).toEqual([]);
+    // Pure fs.statSync — no shell spawn per file.
+    const MAX_BYTES = 2 * 1024 * 1024;
+    const oversized = trackedFiles.filter((f: string) => {
+      const full = path.join(ROOT, f);
+      try {
+        return fs.statSync(full).size > MAX_BYTES;
+      } catch {
+        return false;
+      }
+    });
+    expect(oversized).toEqual([]);
   });
 });
 

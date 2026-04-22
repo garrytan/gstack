@@ -131,8 +131,12 @@ describe('sidebar-command → queue', () => {
     const lines = content.split('\n').filter(Boolean);
     expect(lines.length).toBeGreaterThan(0);
     const entry = JSON.parse(lines[lines.length - 1]);
+    // Active tab URL is carried on the queue entry metadata (entry.pageUrl),
+    // NOT inlined into the prompt.  The system prompt deliberately tells
+    // Claude to run `browse url` instead of trusting any URL in the prompt
+    // body — that's the prompt-injection-via-URL defense.  See spawnClaude
+    // in browse/src/server.ts.
     expect(entry.pageUrl).toBe('https://example.com/test-page');
-    expect(entry.prompt).toContain('https://example.com/test-page');
 
     await api('/sidebar-agent/kill', { method: 'POST' });
   });
@@ -185,12 +189,16 @@ describe('sidebar-agent/event → chat buffer', () => {
   test('agent events appear in /sidebar-chat', async () => {
     await resetState();
 
-    // Post mock agent events using Claude's streaming format
+    // Post pre-processed agent event.  The server's processAgentEvent
+    // handles the simplified types that sidebar-agent.ts emits (text,
+    // text_delta, tool_use, result, agent_error, security_event), NOT
+    // the raw Claude streaming format — pre-processing lives in
+    // sidebar-agent.ts, not in the server.
     await api('/sidebar-agent/event', {
       method: 'POST',
       body: JSON.stringify({
-        type: 'assistant',
-        message: { content: [{ type: 'text', text: 'Hello from mock agent' }] },
+        type: 'text',
+        text: 'Hello from mock agent',
       }),
     });
 

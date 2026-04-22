@@ -212,6 +212,19 @@ failure modes. The sidebar spans 5 files across 2 codebases (extension + server)
 with non-obvious ordering dependencies. The doc exists to prevent the kind of
 silent failures that come from not understanding the cross-component flow.
 
+**Transport-layer security** (v1.6.0.0+). When `pair-agent` starts an ngrok tunnel,
+the daemon binds two HTTP listeners: a local listener (127.0.0.1, full command
+surface, never forwarded) and a tunnel listener (locked allowlist: `/connect`,
+`/command` with a scoped token + 17-command browser-driving allowlist,
+`/sidebar-chat`). ngrok forwards only the tunnel port. Root tokens over the tunnel
+return 403. SSE endpoints use a 30-minute HttpOnly `gstack_sse` cookie minted via
+`POST /sse-session` (never valid against `/command`). Tunnel-surface rejections go
+to `~/.gstack/security/attempts.jsonl` via `tunnel-denial-log.ts`. Before editing
+`server.ts`, `sse-session-cookie.ts`, or `tunnel-denial-log.ts`, read
+[ARCHITECTURE.md](ARCHITECTURE.md#dual-listener-tunnel-architecture-v1600) —
+the module boundary (no imports from `token-registry.ts` into `sse-session-cookie.ts`)
+is load-bearing for scope isolation.
+
 **Sidebar security stack** (layered defense against prompt injection):
 
 | Layer | Module | Lives in |

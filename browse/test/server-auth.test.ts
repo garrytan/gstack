@@ -72,13 +72,16 @@ describe('Server auth security', () => {
     expect(historyBlock).not.toContain("'*'");
   });
 
-  // Test 6: /activity/stream requires auth (inline Bearer or ?token= check)
+  // Test 6: /activity/stream requires auth via Bearer OR view-only session cookie
+  // (N1: ?token= query param was dropped in v1.6.0.0 — URLs leak to logs/referer)
   test('/activity/stream requires authentication with inline token check', () => {
     const streamBlock = sliceBetween(SERVER_SRC, "url.pathname === '/activity/stream'", "url.pathname === '/activity/history'");
     expect(streamBlock).toContain('validateAuth');
-    expect(streamBlock).toContain('AUTH_TOKEN');
+    expect(streamBlock).toContain('validateSseSessionToken');
     // Should not have wildcard CORS for the SSE stream
     expect(streamBlock).not.toContain("Access-Control-Allow-Origin': '*'");
+    // ?token= query param must NOT be accepted anymore
+    expect(streamBlock).not.toContain("searchParams.get('token')");
   });
 
   // Test 7: /command accepts scoped tokens (not just root)
@@ -184,9 +187,9 @@ describe('Server auth security', () => {
     expect(pairBlock).toContain('verifiedTunnelUrl');
     expect(pairBlock).toContain('Tunnel probe failed');
     expect(pairBlock).toContain('marking tunnel as dead');
-    // Must reset tunnel state on failure
-    expect(pairBlock).toContain('tunnelActive = false');
-    expect(pairBlock).toContain('tunnelUrl = null');
+    // Must tear down tunnel state on failure (via closeTunnel helper — clears
+    // tunnelActive, tunnelUrl, tunnelListener, and the tunnel Bun.serve listener)
+    expect(pairBlock).toContain('closeTunnel()');
   });
 
   // Test 11b: /pair returns null tunnel_url when tunnel is dead
@@ -203,7 +206,8 @@ describe('Server auth security', () => {
     const tunnelBlock = sliceBetween(SERVER_SRC, "url.pathname === '/tunnel/start'", "url.pathname === '/refs'");
     // Must probe before returning cached URL
     expect(tunnelBlock).toContain('Cached tunnel is dead');
-    expect(tunnelBlock).toContain('tunnelActive = false');
+    // Must tear down tunnel state on stale detection (via closeTunnel helper)
+    expect(tunnelBlock).toContain('closeTunnel()');
     // Must fall through to restart when dead
     expect(tunnelBlock).toContain('restarting');
   });

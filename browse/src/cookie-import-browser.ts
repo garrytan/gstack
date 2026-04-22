@@ -831,14 +831,27 @@ export async function importCookiesViaCdp(
   // Launch Chrome headless with remote debugging on the real profile.
   //
   // Security posture of the debug port:
-  //   - Chrome binds --remote-debugging-port to 127.0.0.1 by default. We rely
-  //     on that — the port is NOT exposed to the network. Any local process
-  //     running as the same user could connect and read cookies, but if an
-  //     attacker already has local-user access they can read the cookie DB
-  //     directly. Threat model: no worse than baseline.
+  //   - Chrome binds --remote-debugging-port to 127.0.0.1 by default. The
+  //     port is NOT exposed to the network. Baseline threat: a local
+  //     process running as the same user can connect.
   //   - Port is randomized in [9222, 9321] to avoid collisions with other
-  //     Chrome-based tools the user may have open. Not cryptographic.
+  //     Chrome-based tools. Not cryptographic — security relies on
+  //     same-user-access baseline, not port secrecy.
   //   - Chrome is always killed in the finally block below (even on crash).
+  //
+  // KNOWN NON-GOAL (tracked as a separate hardening task for the next
+  // security wave):
+  //   On Windows 10.15+ with App-Bound Encryption (v20) enabled, a
+  //   same-user process that opens the cookie DB directly cannot decrypt
+  //   v20 values — the DPAPI context is bound to the browser process.
+  //   The CDP port bypasses that: `Network.getAllCookies` runs inside the
+  //   browser, so any same-user process that connects to the debug port
+  //   before we kill Chrome could exfiltrate decrypted v20 cookies.
+  //   Fix direction: switch to `--remote-debugging-pipe` so the CDP
+  //   transport is a parent/child stdio pipe, not TCP. Requires
+  //   restructuring the extractCookiesViaCdp WebSocket client; deferred
+  //   to a follow-up because the transport swap is non-trivial and the
+  //   baseline threat is still "attacker already has same-user access."
   //
   // Debugging note: if this path starts failing after a Chrome update,
   // check the Chrome version logged below — Chrome's ABE key format (v20)
