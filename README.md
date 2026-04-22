@@ -312,6 +312,8 @@ This handles skills, symlinks, global state (`~/.gstack/`), project-local state,
 
 If you don't have the repo cloned (e.g. you installed via a Claude Code paste and later deleted the clone):
 
+Mirrors `gstack-uninstall --keep-state` (preserves `~/.gstack/` data):
+
 ```bash
 # 1. Stop browse daemons
 pkill -f "gstack.*browse" 2>/dev/null || true
@@ -324,21 +326,26 @@ done
 # 3. Remove gstack
 rm -rf ~/.claude/skills/gstack
 
-# 4. Remove global state
-rm -rf ~/.gstack
-
-# 5. Remove integrations (skip any you never installed)
+# 4. Remove integrations (skip any you never installed)
 rm -rf ~/.codex/skills/gstack* 2>/dev/null
 rm -rf ~/.factory/skills/gstack* 2>/dev/null
 rm -rf ~/.kiro/skills/gstack* 2>/dev/null
 rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
 
-# 6. Remove temp files
+# 5. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null
 
-# 7. Per-project cleanup (run from each project root)
+# 6. Per-project cleanup (run from each project root)
 rm -rf .gstack .gstack-worktrees .claude/skills/gstack 2>/dev/null
 rm -rf .agents/skills/gstack* .factory/skills/gstack* 2>/dev/null
+```
+
+#### Also purge gstack data (optional)
+
+`~/.gstack/` holds config, analytics, sessions, project history, and the installation-id. Run this only if you want a clean slate (equivalent to `gstack-uninstall` without `--keep-state`):
+
+```bash
+rm -rf ~/.gstack
 ```
 
 ### Clean up CLAUDE.md
