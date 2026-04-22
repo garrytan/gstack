@@ -677,7 +677,7 @@ export async function handleWriteCommand(
       const domainIdx = args.indexOf('--domain');
       const profileIdx = args.indexOf('--profile');
       const hasAll = args.includes('--all');
-      const clearStorage = args.includes('--clear-storage');
+      const keepStorage = args.includes('--keep-storage');
       const profile = (profileIdx !== -1 && profileIdx + 1 < args.length) ? args[profileIdx + 1] : 'Default';
 
       if (domainIdx !== -1 && domainIdx + 1 < args.length) {
@@ -690,11 +690,11 @@ export async function handleWriteCommand(
           throw new Error(`--domain "${domain}" does not match current page domain "${pageHostname}". Navigate to the target site first.`);
         }
 
-        if (clearStorage) {
+        if (!keepStorage) {
           await page.evaluate(() => {
             localStorage.clear();
             sessionStorage.clear();
-          });
+          }).catch(() => {});
         }
 
         const browser = browserArg || 'comet';
@@ -709,7 +709,7 @@ export async function handleWriteCommand(
         }
         const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
-        if (clearStorage) msg.push('(storage cleared)');
+        if (!keepStorage) msg.push('(storage cleared)');
         return msg.join(' ');
       }
 
@@ -724,11 +724,11 @@ export async function handleWriteCommand(
           return `No cookies found in ${browser} (profile: ${profile})`;
         }
 
-        if (clearStorage) {
+        if (!keepStorage) {
             await page.evaluate(() => {
               localStorage.clear();
               sessionStorage.clear();
-            });
+            }).catch(() => {});
         }
 
         const result = await importCookies(browser, allDomainNames, profile);
@@ -739,7 +739,7 @@ export async function handleWriteCommand(
         const msg = [`Imported ${result.count} cookies across ${Object.keys(result.domainCounts).length} domains from ${browser}`];
         msg.push('(used --all: all browser cookies imported, consider --domain for tighter scoping)');
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
-        if (clearStorage) msg.push('(storage cleared)');
+        if (!keepStorage) msg.push('(storage cleared)');
         return msg.join(' ');
       }
 
@@ -752,7 +752,7 @@ export async function handleWriteCommand(
         throw new Error(`No Chromium browsers found. Supported: ${listSupportedBrowserNames().join(', ')}`);
       }
 
-      const code = generatePickerCode();
+      const code = generatePickerCode(!keepStorage);
       const pickerUrl = `http://127.0.0.1:${port}/cookie-picker?code=${code}`;
       try {
         Bun.spawn(['open', pickerUrl], { stdout: 'ignore', stderr: 'ignore' });
