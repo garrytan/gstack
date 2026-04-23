@@ -6,7 +6,7 @@ ask the user about telemetry. Use AskUserQuestion:
 
 > Help gstack get better! Community mode shares usage data (which skills you use, how long
 > they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
-> No code, file paths, or repo names are ever sent.
+> No code, file paths, or repo names are ever transmitted. Your repo name and branch are stored locally in `~/.gstack/analytics/` for session tracking but never leave your machine.
 > Change anytime with \`gstack-config set telemetry off\`.
 
 Options:
