@@ -336,7 +336,7 @@ const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit di
  * Process external host output: routing, frontmatter, path rewrites, metadata.
  * Shared between Codex and Factory (and future external hosts).
  */
-function processExternalHost(
+async function processExternalHost(
   content: string,
   tmplContent: string,
   host: Host,
@@ -344,7 +344,7 @@ function processExternalHost(
   extractedDescription: string,
   ctx: TemplateContext,
   frontmatterName?: string,
-): { content: string; outputPath: string; outputDir: string; symlinkLoop: boolean } {
+): Promise<{ content: string; outputPath: string; outputDir: string; symlinkLoop: boolean }> {
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
@@ -389,6 +389,19 @@ function processExternalHost(
     }
   }
 
+  // Host adapter transformation (semantic rewrites that string-replace can't cover)
+  if (hostConfig.adapter) {
+    try {
+      const adapterPath = path.resolve(ROOT, hostConfig.adapter);
+      const adapterModule = await import(adapterPath);
+      if (typeof adapterModule.transform === 'function') {
+        result = adapterModule.transform(result, hostConfig);
+      }
+    } catch (err) {
+      console.warn(`Warning: failed to load adapter for host '${host}': ${err}`);
+    }
+  }
+
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
   if (hostConfig.generation.generateMetadata && !symlinkLoop) {
     const agentsDir = path.join(outputDir, 'agents');
@@ -400,7 +413,7 @@ function processExternalHost(
   return { content: result, outputPath, outputDir, symlinkLoop };
 }
 
-function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; symlinkLoop?: boolean } {
+async function processTemplate(tmplPath: string, host: Host = 'claude'): Promise<{ outputPath: string; content: string; symlinkLoop?: boolean }> {
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
@@ -462,7 +475,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
   } else {
-    const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
+    const result = await processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;
     outputPath = result.outputPath;
     symlinkLoop = result.symlinkLoop;
@@ -511,7 +524,7 @@ for (const currentHost of hostsToRun) {
         if (currentHostConfig.generation.skipSkills.includes(dir)) continue;
       }
 
-      const { outputPath, content, symlinkLoop } = processTemplate(tmplPath, currentHost);
+      const { outputPath, content, symlinkLoop } = await processTemplate(tmplPath, currentHost);
       const relOutput = path.relative(ROOT, outputPath);
 
       if (symlinkLoop) {

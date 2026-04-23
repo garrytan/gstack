@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+HERMES_SKILLS="$HOME/.hermes/skills"
+HERMES_GSTACK="$HERMES_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -70,15 +72,8 @@ case "$HOST" in
     echo ""
     exit 0 ;;
   hermes)
-    echo ""
-    echo "Hermes integration uses the same model as OpenClaw — Hermes spawns"
-    echo "Claude Code sessions, and gstack provides methodology artifacts."
-    echo ""
-    echo "To integrate gstack with Hermes:"
-    echo "  1. Tell your Hermes agent: 'install gstack for hermes'"
-    echo "  2. Or generate artifacts: bun run gen:skill-docs --host hermes"
-    echo ""
-    exit 0 ;;
+    INSTALL_HERMES=1
+    ;;
   gbrain)
     echo ""
     echo "GBrain is a mod for gstack — it makes coding skills brain-aware."
@@ -155,6 +150,7 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_HERMES=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
@@ -175,6 +171,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "hermes" ]; then
+  INSTALL_HERMES=1
 fi
 
 migrate_direct_codex_install() {
@@ -763,6 +761,77 @@ link_opencode_skill_dirs() {
   fi
 }
 
+create_hermes_runtime_root() {
+  local gstack_dir="$1"
+  local hermes_gstack="$2"
+
+  if [ -L "$hermes_gstack" ]; then
+    rm -f "$hermes_gstack"
+  elif [ -d "$hermes_gstack" ] && [ "$hermes_gstack" != "$gstack_dir" ]; then
+    rm -rf "$hermes_gstack"
+  fi
+
+  mkdir -p "$hermes_gstack" "$hermes_gstack/browse" "$hermes_gstack/gstack-upgrade" "$hermes_gstack/review"
+
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$hermes_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$hermes_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$hermes_gstack/browse/bin"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$hermes_gstack/review/$f"
+    fi
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$hermes_gstack/ETHOS.md"
+  fi
+  # Orchestrator integration docs for Hermes
+  for doc in "$gstack_dir/hermes"/*.md; do
+    if [ -f "$doc" ]; then
+      cp "$doc" "$hermes_gstack/$(basename "$doc")"
+    fi
+  done
+}
+
+copy_hermes_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local hermes_dir="$gstack_dir/.hermes/skills"
+  local copied=()
+
+  if [ ! -d "$hermes_dir" ]; then
+    echo "  Generating .hermes/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host hermes )
+  fi
+
+  if [ ! -d "$hermes_dir" ]; then
+    echo "  warning: .hermes/skills/ generation failed — run 'bun run gen:skill-docs --host hermes' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$hermes_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      # Remove old symlink or directory before copying fresh
+      if [ -L "$target" ] || [ -d "$target" ]; then
+        rm -rf "$target"
+      fi
+      cp -R "$skill_dir" "$target"
+      copied+=("$skill_name")
+    fi
+  done
+  if [ ${#copied[@]} -gt 0 ]; then
+    echo "  copied skills: ${copied[*]}"
+  fi
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -933,6 +1002,20 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Hermes
+if [ "$INSTALL_HERMES" -eq 1 ]; then
+  mkdir -p "$HERMES_SKILLS"
+  create_hermes_runtime_root "$SOURCE_GSTACK_DIR" "$HERMES_GSTACK"
+  copy_hermes_skill_dirs "$SOURCE_GSTACK_DIR" "$HERMES_SKILLS"
+  # Record the source path so gstack-upgrade can find it later
+  mkdir -p "$HOME/.gstack"
+  echo "$SOURCE_GSTACK_DIR" > "$HOME/.gstack/hermes-source"
+  echo "gstack ready (hermes)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  hermes skills: $HERMES_SKILLS"
+  echo "  hermes runtime: $HERMES_GSTACK"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

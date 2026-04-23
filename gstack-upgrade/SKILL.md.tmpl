@@ -89,6 +89,17 @@ if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
 elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.gstack/repos/gstack"
+elif [ -f "$HOME/.gstack/hermes-source" ]; then
+  INSTALL_TYPE="hermes"
+  INSTALL_DIR=$(cat "$HOME/.gstack/hermes-source" 2>/dev/null)
+  [ -d "$INSTALL_DIR/.git" ] || INSTALL_DIR=""
+  if [ -z "$INSTALL_DIR" ]; then
+    # Source repo gone — clone fresh
+    mkdir -p "$HOME/.gstack/repos"
+    git clone --depth 1 https://github.com/donovan-yohan/gstack-adfree.git "$HOME/.gstack/repos/gstack"
+    INSTALL_DIR="$HOME/.gstack/repos/gstack"
+    echo "$INSTALL_DIR" > "$HOME/.gstack/hermes-source"
+  fi
 elif [ -d ".claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".claude/skills/gstack"
@@ -121,6 +132,16 @@ OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 ### Step 4: Upgrade
 
 Use the install type and directory detected in Step 2:
+
+**For hermes installs:**
+```bash
+cd "$INSTALL_DIR"
+STASH_OUTPUT=$(git stash 2>&1)
+git fetch origin
+git reset --hard origin/main
+./setup --host hermes
+```
+If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the source directory to restore them."
 
 **For git installs** (global-git, local-git):
 ```bash

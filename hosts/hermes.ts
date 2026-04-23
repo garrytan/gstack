@@ -68,6 +68,7 @@ const hermes: HostConfig = {
 
   coAuthorTrailer: 'Co-Authored-By: Hermes Agent <agent@nousresearch.com>',
   learningsMode: 'basic',
+  adapter: 'scripts/host-adapters/hermes-adapter.ts',
 };
 
 export default hermes;
