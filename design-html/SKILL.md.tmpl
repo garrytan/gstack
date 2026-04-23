@@ -260,6 +260,9 @@ For framework output, save to:
 - CSS custom properties for design tokens from DESIGN.md / Step 1 extraction
 - Google Fonts via `<link>` tags + `document.fonts.ready` gate before first `prepare()`
 - Semantic HTML5 (`<header>`, `<nav>`, `<main>`, `<section>`, `<footer>`)
+- `<title>` from the H1 or hero heading (50-60 chars)
+- `<meta name="description">` — one-sentence page summary (150-160 chars)
+- Open Graph (`og:title`, `og:description`, `og:type`) + `twitter:card` for social previews
 - Responsive behavior via Pretext relayout (not just media queries)
 - Breakpoint-specific adjustments at 375px, 768px, 1024px, 1440px
 - ARIA attributes, heading hierarchy, focus-visible states
