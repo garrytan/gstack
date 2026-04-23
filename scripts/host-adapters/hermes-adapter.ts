@@ -63,5 +63,16 @@ export function transform(content: string, _config: HostConfig): string {
   result = result.replaceAll('$B wait', 'wait briefly then use browser_snapshot');
   result = result.replaceAll('$B ', 'use browser tools to ');
 
+  // 5. Rewrite Claude/Hermes-specific paths to Hermes profile-aware paths
+  // Hermes uses per-profile skill directories under ~/.hermes/profiles/<name>/skills.
+  // $HERMES_HOME is set by the Hermes runtime and makes skills portable across profiles.
+  // These rules catch both pre-generic-rewrite (~/.claude/...) and post-generic-rewrite
+  // (~/.hermes/...) forms since the adapter runs after generic path rewrites.
+  result = result.replaceAll('~/.claude/skills/gstack', '$HERMES_HOME/skills/gstack');
+  result = result.replaceAll('$HOME/.claude/skills/gstack', '$HERMES_HOME/skills/gstack');
+  result = result.replaceAll('.claude/skills/gstack', '.hermes/skills/gstack');
+  result = result.replaceAll('~/.hermes/skills/gstack', '$HERMES_HOME/skills/gstack');
+  result = result.replaceAll('$HOME/.hermes/skills/gstack', '$HERMES_HOME/skills/gstack');
+
   return result;
 }

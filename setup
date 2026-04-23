@@ -24,7 +24,49 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
-HERMES_SKILLS="$HOME/.hermes/skills"
+# ─── Resolve Hermes skills directory ──────────────────────────
+# Hermes supports per-profile skill directories. Detect the active profile
+# via HERMES_HOME, or fall back to ~/.hermes/profiles/*, or finally
+# the legacy ~/.hermes/skills/ path.
+resolve_hermes_skills_dir() {
+  # 1. If HERMES_HOME is set, use that profile's skills dir
+  if [ -n "${HERMES_HOME:-}" ]; then
+    echo "$HERMES_HOME/skills"
+    return
+  fi
+
+  # 2. Look for profiles under ~/.hermes/profiles/
+  local profiles_dir="$HOME/.hermes/profiles"
+  if [ -d "$profiles_dir" ]; then
+    local first_profile=""
+    local has_ebi=0
+    for d in "$profiles_dir"/*; do
+      if [ -d "$d" ]; then
+        local pname
+        pname="$(basename "$d")"
+        if [ -z "$first_profile" ]; then
+          first_profile="$pname"
+        fi
+        if [ "$pname" = "ebi" ]; then
+          has_ebi=1
+        fi
+      fi
+    done
+
+    if [ "$has_ebi" -eq 1 ]; then
+      echo "$profiles_dir/ebi/skills"
+      return
+    elif [ -n "$first_profile" ]; then
+      echo "$profiles_dir/$first_profile/skills"
+      return
+    fi
+  fi
+
+  # 3. Legacy fallback
+  echo "$HOME/.hermes/skills"
+}
+
+HERMES_SKILLS="$(resolve_hermes_skills_dir)"
 HERMES_GSTACK="$HERMES_SKILLS/gstack"
 
 IS_WINDOWS=0
@@ -824,6 +866,17 @@ copy_hermes_skill_dirs() {
         rm -rf "$target"
       fi
       cp -R "$skill_dir" "$target"
+      # Rewrite Claude-specific paths to Hermes profile-aware paths.
+      # $HERMES_HOME is set by the Hermes runtime; using it in skills
+      # makes them portable across profiles.
+      if [ -f "$target/SKILL.md" ]; then
+        sed -i.bak \
+          -e 's|~/.claude/skills/gstack|$HERMES_HOME/skills/gstack|g' \
+          -e 's|$HOME/.claude/skills/gstack|$HERMES_HOME/skills/gstack|g' \
+          -e 's|\.claude/skills/gstack|\.hermes/skills/gstack|g' \
+          "$target/SKILL.md"
+        rm -f "$target/SKILL.md.bak"
+      fi
       copied+=("$skill_name")
     fi
   done
