@@ -45,6 +45,28 @@ describe('gstack-uninstall', () => {
       fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack'), { recursive: true });
       fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
 
+      // Create source skills that the AI export should mirror
+      for (const skillName of ['office-hours', 'plan-ceo-review', 'review']) {
+        fs.mkdirSync(path.join(mockGitRoot, skillName), { recursive: true });
+        fs.writeFileSync(path.join(mockGitRoot, skillName, 'SKILL.md'), 'test');
+      }
+
+      // Create copy-exported AI skills
+      fs.mkdirSync(path.join(mockHome, '.ai', 'skills', 'gstack'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.ai', 'skills', 'gstack', 'SKILL.md'), 'test');
+      fs.writeFileSync(path.join(mockHome, '.ai', 'skills', 'gstack', '.gstack-source'), mockGitRoot);
+      fs.writeFileSync(
+        path.join(mockHome, '.ai', 'skills', 'gstack', '.gstack-export-manifest'),
+        ['office-hours', 'plan-ceo-review', 'review'].join('\n'),
+      );
+      for (const skillName of ['office-hours', 'plan-ceo-review', 'review']) {
+        fs.mkdirSync(path.join(mockHome, '.ai', 'skills', skillName), { recursive: true });
+        fs.writeFileSync(path.join(mockHome, '.ai', 'skills', skillName, 'SKILL.md'), 'test');
+      }
+
+      fs.mkdirSync(path.join(mockHome, '.ai', 'skills', 'other-tool'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.ai', 'skills', 'other-tool', 'SKILL.md'), 'keep-me');
+
       // Create per-skill symlinks (both old unprefixed and new prefixed)
       fs.symlinkSync('gstack/review', path.join(mockHome, '.claude', 'skills', 'review'));
       fs.symlinkSync('gstack/ship', path.join(mockHome, '.claude', 'skills', 'gstack-ship'));
@@ -83,6 +105,13 @@ describe('gstack-uninstall', () => {
 
       // Global skill dir should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+
+      // AI export should be removed
+      expect(fs.existsSync(path.join(mockHome, '.ai', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.ai', 'skills', 'office-hours'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.ai', 'skills', 'plan-ceo-review'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.ai', 'skills', 'review'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.ai', 'skills', 'other-tool'))).toBe(true);
 
       // Per-skill symlinks pointing into gstack/ should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);

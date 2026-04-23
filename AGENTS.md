@@ -45,5 +45,6 @@ bun run skill:check      # health dashboard for all skills
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
 - Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
+- Publish the `~/.ai/skills` export with `./bin/gstack-sync ai` from the repo checkout; keep Codex installs on `./setup --host codex`. Do not symlink the repo checkout into `~/.ai/skills` when you need a reproducible, copy-based install.
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.

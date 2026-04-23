@@ -10,6 +10,7 @@
 #   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
 #   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
+#   ~/.ai/skills/gstack*          — copy-exported AI skill install + exported skills
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
@@ -63,6 +64,7 @@ if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
+  [ -d "$HOME/.ai/skills" ] && echo "  ~/.ai/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
@@ -88,6 +90,12 @@ if [ "$FORCE" -eq 0 ]; then
 fi
 
 REMOVED=()
+
+manifest_entries() {
+  local manifest_path="$1"
+  [ -f "$manifest_path" ] || return 0
+  sed '/^[[:space:]]*$/d' "$manifest_path" | sort -u
+}
 
 # ─── Stop running browse daemons ─────────────────────────────
 # Browse servers write PID to {project}/.gstack/browse.json.
@@ -167,6 +175,45 @@ if [ -d "$CODEX_SKILLS" ]; then
     rm -rf "$_ITEM"
     REMOVED+=("codex/$(basename "$_ITEM")")
   done
+fi
+
+# ─── Remove AI skills export ─────────────────────────────────
+AI_SKILLS="$HOME/.ai/skills"
+if [ -d "$AI_SKILLS" ]; then
+  AI_GSTACK="$AI_SKILLS/gstack"
+  AI_SOURCE="$(cat "$AI_GSTACK/.gstack-source" 2>/dev/null || true)"
+  AI_MANIFEST="$AI_GSTACK/.gstack-export-manifest"
+
+  if [ -f "$AI_MANIFEST" ]; then
+    while IFS= read -r _NAME; do
+      [ -n "$_NAME" ] || continue
+      if [ -e "$AI_SKILLS/$_NAME" ] || [ -L "$AI_SKILLS/$_NAME" ]; then
+        rm -rf "$AI_SKILLS/$_NAME"
+        REMOVED+=("ai/$_NAME")
+      fi
+    done < <(manifest_entries "$AI_MANIFEST")
+  elif [ -n "$AI_SOURCE" ] && [ -d "$AI_SOURCE" ]; then
+    for _ITEM in "$AI_SOURCE"/*; do
+      [ -d "$_ITEM" ] || continue
+      [ -f "$_ITEM/SKILL.md" ] || continue
+      _NAME="$(basename "$_ITEM")"
+      if [ -e "$AI_SKILLS/$_NAME" ] || [ -L "$AI_SKILLS/$_NAME" ]; then
+        rm -rf "$AI_SKILLS/$_NAME"
+        REMOVED+=("ai/$_NAME")
+      fi
+    done
+  else
+    for _ITEM in "$AI_SKILLS"/gstack*; do
+      [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+      rm -rf "$_ITEM"
+      REMOVED+=("ai/$(basename "$_ITEM")")
+    done
+  fi
+
+  if [ -e "$AI_GSTACK" ] || [ -L "$AI_GSTACK" ]; then
+    rm -rf "$AI_GSTACK"
+    REMOVED+=("~/.ai/skills/gstack")
+  fi
 fi
 
 # ─── Remove Kiro skills ─────────────────────────────────────

@@ -61,7 +61,17 @@ Real files get committed to your repo (not a submodule), so `git clone` just wor
 
 ### Codex, Gemini CLI, or Cursor
 
-gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically.
+gstack works on any agent that supports the [SKILL.md standard](https://github.com/anthropics/claude-code). Skills live in `.agents/skills/` and are discovered automatically. For Codex installs, use `./setup --host codex` from the repo checkout or from `.agents/skills/gstack`; that creates `~/.codex/skills/gstack` and the linked `gstack-*` skills there.
+
+### NixOS or other copy-based setups
+
+If you want a writable export in `~/.ai/skills`, sync from your repo checkout instead of symlinking into it:
+
+```bash
+cd ~/gstack && ./bin/gstack-sync ai
+```
+
+That publishes the full gstack skill set into `~/.ai/skills` as copies — the top-level skills like `office-hours`, `plan-ceo-review`, `plan-design-review`, `review`, and the generated `gstack-*` skills — which keeps NixOS happy. When you upgrade gstack, rerun the same sync command from the updated checkout. This `~/.ai` export is separate from the Codex install path; do not symlink the repo checkout into `~/.ai/skills` if you want predictable updates.
 
 Install to one repo:
 

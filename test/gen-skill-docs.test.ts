@@ -1796,6 +1796,13 @@ describe('setup script validation', () => {
     // but the welcome section should exist near the prefix logic
     expect(setupContent).toContain('Run /gstack-upgrade anytime');
   });
+
+  test('gstack-upgrade mentions ~/.ai export sync', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'gstack-upgrade', 'SKILL.md.tmpl'), 'utf-8');
+    expect(content).toContain('$HOME/.ai/skills/gstack');
+    expect(content).toContain('.gstack-source');
+    expect(content).toContain('bin/gstack-sync ai');
+  });
 });
 
 describe('discover-skills hidden directory filtering', () => {

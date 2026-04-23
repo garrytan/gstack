@@ -15,6 +15,8 @@ import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
+const IS_COMPILED_BINARY = import.meta.dir.includes('$bunfs');
+const DEBUG_STARTUP = process.env.BROWSE_DEBUG_STARTUP === '1';
 const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
 
 export function resolveServerScript(
@@ -74,7 +76,18 @@ export function resolveNodeServerScript(
   return null;
 }
 
-const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
+const NODE_SERVER_SCRIPT = resolveNodeServerScript();
+const SHOULD_USE_NODE_SERVER = Boolean(NODE_SERVER_SCRIPT) && !process.env.BROWSE_SERVER_SCRIPT && (IS_WINDOWS || IS_COMPILED_BINARY);
+
+if (DEBUG_STARTUP) {
+  console.error('[browse] startup debug', JSON.stringify({
+    importMetaDir: import.meta.dir,
+    execPath: process.execPath,
+    nodeServerScript: NODE_SERVER_SCRIPT,
+    shouldUseNodeServer: SHOULD_USE_NODE_SERVER,
+    browseServerScriptEnv: process.env.BROWSE_SERVER_SCRIPT || null,
+  }));
+}
 
 // On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
 if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
@@ -227,17 +240,25 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
 
   let proc: any = null;
 
-  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
+  if (SHOULD_USE_NODE_SERVER && NODE_SERVER_SCRIPT) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows
     // process independence. Credit: PR #191 by @fqueiro.
-    const launcherCode =
-      `const{spawn}=require('child_process');` +
-      `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
-      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
-      `{BROWSE_STATE_FILE:${JSON.stringify(config.stateFile)}})}).unref()`;
-    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    if (IS_WINDOWS) {
+      const launcherCode =
+        `const{spawn}=require('child_process');` +
+        `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
+        `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+        `{BROWSE_STATE_FILE:${JSON.stringify(config.stateFile)}})}).unref()`;
+      Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    } else {
+      proc = Bun.spawn(['node', NODE_SERVER_SCRIPT], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, ...extraEnv },
+      });
+      proc.unref();
+    }
   } else {
     // macOS/Linux: Bun.spawn + unref works correctly
     proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {

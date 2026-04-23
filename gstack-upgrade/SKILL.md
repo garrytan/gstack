@@ -82,6 +82,10 @@ if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
 elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.gstack/repos/gstack"
+elif [ -f "$HOME/.ai/skills/gstack/.gstack-source" ]; then
+  INSTALL_TYPE="ai-export"
+  INSTALL_DIR="$HOME/.ai/skills/gstack"
+  SOURCE_DIR="$(cat "$INSTALL_DIR/.gstack-source" 2>/dev/null || true)"
 elif [ -d ".claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".claude/skills/gstack"
@@ -162,6 +166,23 @@ cd "$LOCAL_GSTACK" && ./setup
 rm -rf "$LOCAL_GSTACK.bak"
 ```
 Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
+
+### Step 4.6: Refresh the `~/.ai/skills` export
+
+If you also maintain a copy-exported install at `~/.ai/skills/gstack`, refresh it after the source checkout is upgraded:
+
+```bash
+AI_GSTACK="$HOME/.ai/skills/gstack"
+SOURCE_GSTACK="$(cat "$AI_GSTACK/.gstack-source" 2>/dev/null || true)"
+if [ -n "$SOURCE_GSTACK" ] && [ -d "$SOURCE_GSTACK/.git" ]; then
+  cd "$SOURCE_GSTACK"
+  ./bin/gstack-sync ai
+fi
+```
+
+Tell user: "Also refreshed `~/.ai/skills/gstack` from the updated checkout."
+
+If the marker file is missing or points at a deleted checkout, tell the user to run `bin/gstack-sync ai` from the real repo checkout so the export can be rebuilt.
 
 If `./setup` fails, restore from backup and warn the user:
 ```bash

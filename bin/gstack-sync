@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# gstack-sync — export the repo checkout into a writable skills directory
+#
+# Usage:
+#   gstack-sync ai             — export the current repo into ~/.ai/skills
+#   gstack-sync ai --check      — verify the export matches without writing
+#   gstack-sync ai --dry-run    — show what would change without writing
+#
+# Env overrides (for tests or custom layouts):
+#   GSTACK_SOURCE_DIR     — source repo root (defaults to this checkout)
+#   GSTACK_AI_SKILLS_DIR  — target skills root (defaults to ~/.ai/skills)
+set -euo pipefail
+
+if [ -z "${HOME:-}" ]; then
+  echo "ERROR: \$HOME is not set" >&2
+  exit 1
+fi
+
+GSTACK_SOURCE_DIR="${GSTACK_SOURCE_DIR:-$(cd "$(dirname "$0")/.." && pwd -P)}"
+TARGET_NAME="ai"
+TARGET_SKILLS_DIR="${GSTACK_AI_SKILLS_DIR:-$HOME/.ai/skills}"
+CHECK=0
+DRY_RUN=0
+
+usage() {
+  cat <<'EOF'
+gstack-sync — export a gstack checkout into a writable skills directory
+
+Usage:
+  gstack-sync ai [--check] [--dry-run]
+
+Options:
+  --check     Verify the export matches the target tree, exit non-zero on drift
+  --dry-run   Show the planned export and drift summary, do not write
+  -h, --help  Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    ai)
+      TARGET_NAME="ai"
+      shift
+      ;;
+    --check)
+      CHECK=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$TARGET_NAME" != "ai" ]; then
+  echo "Unsupported sync target: $TARGET_NAME" >&2
+  exit 1
+fi
+
+if [ ! -d "$GSTACK_SOURCE_DIR" ]; then
+  echo "ERROR: source repo not found at $GSTACK_SOURCE_DIR" >&2
+  exit 1
+fi
+
+ensure_generated_skills() {
+  if [ -d "$GSTACK_SOURCE_DIR/.agents/skills" ]; then
+    return 0
+  fi
+
+  echo "Generating .agents/skills docs..."
+  ( cd "$GSTACK_SOURCE_DIR" && bun run gen:skill-docs --host codex )
+
+  if [ ! -d "$GSTACK_SOURCE_DIR/.agents/skills" ]; then
+    echo "ERROR: generated Codex skills not found at $GSTACK_SOURCE_DIR/.agents/skills" >&2
+    echo "Run: cd \"$GSTACK_SOURCE_DIR\" && bun run gen:skill-docs --host codex" >&2
+    exit 1
+  fi
+}
+
+list_source_skills() {
+  find "$GSTACK_SOURCE_DIR" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null |
+    while IFS= read -r path; do
+      [ -f "$path/SKILL.md" ] || continue
+      basename "$path"
+    done | sort
+}
+
+manifest_entries() {
+  local manifest_path="$1"
+  [ -f "$manifest_path" ] || return 0
+  sed '/^[[:space:]]*$/d' "$manifest_path" | sort -u
+}
+
+rewrite_skill_files() {
+  local root="$1"
+  local file tmp
+  while IFS= read -r -d '' file; do
+    tmp="${file}.tmp"
+    sed -e 's|\$HOME/.claude/skills/gstack|$HOME/.ai/skills/gstack|g' \
+        -e 's|\$HOME/.codex/skills/gstack|$HOME/.ai/skills/gstack|g' \
+        -e 's|~/.claude/skills/gstack|~/.ai/skills/gstack|g' \
+        -e 's|~/.codex/skills/gstack|~/.ai/skills/gstack|g' \
+        -e 's|\.claude/skills/gstack|.ai/skills/gstack|g' \
+        -e 's|\.codex/skills/gstack|.ai/skills/gstack|g' \
+        "$file" > "$tmp"
+    mv "$tmp" "$file"
+  done < <(find "$root" -type f -name SKILL.md -print0)
+}
+
+top_level_entries() {
+  local root="$1"
+  find "$root" -mindepth 1 -maxdepth 1 \( -type d -o -type f -o -type l \) -print 2>/dev/null |
+    while IFS= read -r path; do
+      basename "$path"
+    done | sort
+}
+
+build_stage() {
+  local stage_dir="$1"
+  local stage_root="$stage_dir/gstack"
+  local stage_manifest="$stage_root/.gstack-export-manifest"
+  local skill_name
+
+  mkdir -p "$stage_root"
+
+  for item in SKILL.md ETHOS.md VERSION CHANGELOG.md README.md CONTRIBUTING.md AGENTS.md CLAUDE.md bin browse qa review agents; do
+    if [ -e "$GSTACK_SOURCE_DIR/$item" ]; then
+      cp -R "$GSTACK_SOURCE_DIR/$item" "$stage_root/"
+    fi
+  done
+
+  printf '%s\n' "$GSTACK_SOURCE_DIR" > "$stage_root/.gstack-source"
+  list_source_skills > "$stage_manifest"
+
+  while IFS= read -r skill_name; do
+    [ -n "$skill_name" ] || continue
+    cp -R "$GSTACK_SOURCE_DIR/$skill_name" "$stage_dir/$skill_name"
+  done < "$stage_manifest"
+
+  rewrite_skill_files "$stage_dir"
+}
+
+remove_managed_entries() {
+  local root="$1"
+  local manifest_path="${2:-}"
+  local entry
+
+  if [ -f "$root/gstack/.gstack-export-manifest" ]; then
+    manifest_path="$root/gstack/.gstack-export-manifest"
+  fi
+
+  if [ -n "$manifest_path" ] && [ -f "$manifest_path" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      rm -rf "$root/$entry"
+    done < <(manifest_entries "$manifest_path")
+  else
+    while IFS= read -r entry; do
+      case "$entry" in
+        gstack|gstack-*) rm -rf "$root/$entry" ;;
+      esac
+    done < <(top_level_entries "$root")
+  fi
+
+  if [ -e "$root/gstack" ] || [ -L "$root/gstack" ]; then
+    rm -rf "$root/gstack"
+  fi
+}
+
+compare_stage_to_target() {
+  local stage_dir="$1"
+  local target_dir="$2"
+  local status=0
+  local entry stage_manifest target_manifest
+
+  stage_manifest="$stage_dir/gstack/.gstack-export-manifest"
+  target_manifest="$target_dir/gstack/.gstack-export-manifest"
+
+  if [ ! -d "$target_dir/gstack" ]; then
+    echo "MISSING: gstack" >&2
+    return 1
+  fi
+
+  if ! diff -qr "$stage_dir/gstack" "$target_dir/gstack" >/dev/null 2>&1; then
+    echo "DIFFERS: gstack" >&2
+    status=1
+  fi
+
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    if [ ! -e "$target_dir/$entry" ]; then
+      echo "MISSING: $entry" >&2
+      status=1
+      continue
+    fi
+    if ! diff -qr "$stage_dir/$entry" "$target_dir/$entry" >/dev/null 2>&1; then
+      echo "DIFFERS: $entry" >&2
+      status=1
+    fi
+  done < <(manifest_entries "$stage_manifest")
+
+  if [ -f "$target_manifest" ]; then
+    if ! diff -qr "$stage_manifest" "$target_manifest" >/dev/null 2>&1; then
+      echo "DIFFERS: .gstack-export-manifest" >&2
+      status=1
+    fi
+  elif [ -e "$target_manifest" ]; then
+    echo "DIFFERS: .gstack-export-manifest" >&2
+    status=1
+  fi
+
+  return "$status"
+}
+
+STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gstack-sync-XXXXXX")"
+trap 'rm -rf "$STAGE_DIR"' EXIT
+
+ensure_generated_skills
+build_stage "$STAGE_DIR"
+
+if [ "$CHECK" -eq 1 ]; then
+  if compare_stage_to_target "$STAGE_DIR" "$TARGET_SKILLS_DIR"; then
+    echo "gstack ai export is current"
+    exit 0
+  fi
+  echo "gstack ai export is stale" >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  if compare_stage_to_target "$STAGE_DIR" "$TARGET_SKILLS_DIR"; then
+    echo "FRESH: $TARGET_SKILLS_DIR"
+  else
+    echo "STALE: $TARGET_SKILLS_DIR"
+    top_level_entries "$STAGE_DIR" | sed 's/^/  expected: /'
+  fi
+  exit 0
+fi
+
+mkdir -p "$TARGET_SKILLS_DIR"
+remove_managed_entries "$TARGET_SKILLS_DIR" "$STAGE_DIR/gstack/.gstack-export-manifest"
+cp -R "$STAGE_DIR"/. "$TARGET_SKILLS_DIR"/
+
+echo "synced gstack to $TARGET_SKILLS_DIR"
