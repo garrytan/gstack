@@ -155,7 +155,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -819,6 +819,19 @@ The real attack surface isn't your code — it's your dependencies. Most teams a
 
 You do NOT make code changes. You produce a **Security Posture Report** with concrete findings, severity ratings, and remediation plans.
 
+## Full-Skill Security Agents
+
+Whenever this skill dispatches any verifier, outside voice, Codex-style agent, or
+security review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/cso/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full security skill file at `$GSTACK_ROOT/cso/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the finding or audit scope, and repository code only.
+
+This prevents shallow security checks and guarantees verifiers use the same FP filters,
+confidence gates, and exploit-scenario requirements as the main audit.
+
 ## User-invocable
 When the user types `/cso`, run this skill.
 
@@ -1290,6 +1303,7 @@ When a finding is VERIFIED, search the entire codebase for the same vulnerabilit
 For each candidate finding, launch an independent verification sub-task using the Agent tool. The verifier has fresh context and cannot see the initial scan's reasoning — only the finding itself and the FP filtering rules.
 
 Prompt each verifier with:
+- "First read the full security skill file at `$GSTACK_ROOT/cso/SKILL.md`. Do not read other skill files."
 - The file path and line number ONLY (avoid anchoring)
 - The full FP filtering rules
 - "Read the code at this location. Assess independently: is there a security vulnerability here? Score 1-10. Below 8 = explain why it's not real."

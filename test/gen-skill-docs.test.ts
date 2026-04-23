@@ -1385,7 +1385,8 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('plan-design-review contains outside voices section', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Design Outside Voices');
-    expect(content).toContain('CODEX_AVAILABLE');
+    expect(content).toContain('Codex-style design voice');
+    expect(content).toContain('First read the full plan-design-review skill file');
     expect(content).toContain('LITMUS SCORECARD');
   });
 
@@ -1404,10 +1405,9 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('branches correctly per skillName — different prompts', () => {
     const planContent = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     const consultContent = fs.readFileSync(path.join(ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
-    // plan-design-review uses analytical prompt (high reasoning)
-    expect(planContent).toContain('model_reasoning_effort="high"');
-    // design-consultation uses creative prompt (medium reasoning)
-    expect(consultContent).toContain('model_reasoning_effort="medium"');
+    // plan-design-review loads its full analytical skill; design-consultation loads its full creative skill
+    expect(planContent).toContain('$GSTACK_ROOT/plan-design-review/SKILL.md');
+    expect(consultContent).toContain('$GSTACK_ROOT/design-consultation/SKILL.md');
   });
 });
 
@@ -1478,7 +1478,8 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
   const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
   test('contains Codex design voice block', () => {
-    expect(content).toContain('Codex design voice');
+    expect(content).toContain('Codex-style design voice');
+    expect(content).toContain('First read the full design-review skill file');
     expect(content).toContain('CODEX (design)');
   });
 
@@ -1684,6 +1685,31 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('$GSTACK_BIN/gstack-config');
     expect(content).toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
     expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
+  });
+
+  test('Codex host defaults every generated skill to the GPT/Codex runtime patches', () => {
+    for (const skill of CODEX_SKILLS) {
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Model-Specific Behavioral Patch (gpt-5.4)');
+      expect(content).toContain('Host Runtime Patch (OpenAI Codex CLI)');
+      expect(content).toContain('Codex tool mapping');
+      if (content.includes('MODEL_OVERLAY:')) {
+        expect(content).toContain('MODEL_OVERLAY: gpt-5.4');
+      }
+      expect(content).not.toContain('MODEL_OVERLAY: claude');
+      expect(content).not.toContain('Model-Specific Behavioral Patch (claude)');
+    }
+  });
+
+  test('Codex host rewrites Claude-only subagent/tool vocabulary', () => {
+    for (const skill of CODEX_SKILLS) {
+      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      expect(content).not.toContain('subagent_type: "general-purpose"');
+      expect(content).not.toContain("Claude Code's Agent tool");
+      expect(content).not.toContain('using the Agent tool');
+      expect(content).not.toContain('via the Agent tool');
+      expect(content).not.toContain('Use the Agent tool');
+    }
   });
 
   // ─── Path rewriting regression tests ─────────────────────────

@@ -43,6 +43,19 @@ But your posture depends on what the user needs:
 Critical rule: In ALL modes, the user is 100% in control. Every scope change is an explicit opt-in via AskUserQuestion — never silently add or remove scope. Once the user selects a mode, COMMIT to it. Do not silently drift toward a different mode. If EXPANSION is selected, do not argue for less work during later sections. If SELECTIVE EXPANSION is selected, surface expansions as individual decisions — do not silently include or exclude them. If REDUCTION is selected, do not sneak scope back in. Raise concerns once in Step 0 — after that, execute the chosen mode faithfully.
 Do NOT make any code changes. Do NOT start implementation. Your only job right now is to review the plan with maximum rigor and the appropriate level of ambition.
 
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/plan-ceo-review/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-ceo-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the plan, and repository code only.
+
+This prevents shallow reviewer prompts and guarantees the reviewer uses the full
+CEO/founder review methodology.
+
 ## Prime Directives
 1. Zero silent failures. Every failure mode must be visible — to the system, to the team, to the user. If a failure can happen silently, that is a critical defect in the plan.
 2. Every error has a name. Don't say "handle errors." Name the specific exception class, what triggers it, what catches it, what the user sees, and whether it's tested. Catch-all error handling (e.g., catch Exception, rescue StandardError, except Exception) is a code smell — call it out.

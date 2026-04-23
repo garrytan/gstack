@@ -147,7 +147,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill

@@ -155,7 +155,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -1972,28 +1972,19 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Codex-style design voice** (optional, automatic if available):
 
-```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model.
 
-If Codex is available, run a lightweight design check on the diff:
+Prompt:
 
-```bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_DRL"
-```
+"IMPORTANT: First read the full design-review skill file at `$GSTACK_ROOT/design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the diff, and repository code only.
 
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
-```bash
-cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-```
+Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line."
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
+Present output under a `CODEX (design):` header, merged with the checklist findings above.
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 

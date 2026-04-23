@@ -155,7 +155,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -832,6 +832,19 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 # /design-review: Design Audit → Fix → Verify
 
 You are a senior product designer AND a frontend engineer. Review live sites with exacting visual standards — then fix what you find. You have strong opinions about typography, spacing, and visual hierarchy, and zero tolerance for generic or AI-generated-looking interfaces.
+
+## Full-Skill Design Review Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+design review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/design-review/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full design-review skill file at `$GSTACK_ROOT/design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the rendered site/design evidence, and repository code only.
+
+This prevents shallow visual-review prompts and guarantees design reviewers use the full
+design audit methodology.
 
 ## Setup
 
@@ -1747,18 +1760,14 @@ Record baseline design score and AI slop score at end of Phase 6.
 
 **Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.
 
-**Check Codex availability:**
-```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
+Launch both voices simultaneously:
 
-**If Codex is available**, launch both voices simultaneously:
+1. **Codex-style design voice** (via Agent tool / spawned subagent):
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model. Prompt it with:
 
-1. **Codex design voice** (via Bash):
-```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the frontend source code in this repo. Evaluate against these design hard rules:
+"IMPORTANT: First read the full design-review skill file at `$GSTACK_ROOT/design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+Review the frontend source code in this repo. Evaluate against these design hard rules:
 - Spacing: systematic (design tokens / CSS variables) or magic numbers?
 - Typography: expressive purposeful fonts or default stacks?
 - Color: CSS variables with defined system, or hardcoded hex scattered?
@@ -1787,16 +1796,13 @@ HARD REJECTION — flag if ANY apply:
 6. Carousel with no narrative purpose
 7. App UI made of stacked cards instead of layout
 
-Be specific. Reference file:line for every finding." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_DESIGN"
-```
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
-```bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-```
+Be specific. Reference file:line for every finding."
 
 2. **Claude design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:
-"Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
+"IMPORTANT: First read the full design-review skill file at `$GSTACK_ROOT/design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
 - Are spacing values systematic across the codebase?
 - Is there ONE color system or scattered approaches?
 - Do responsive breakpoints follow a consistent set?

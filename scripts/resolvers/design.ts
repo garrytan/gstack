@@ -7,28 +7,19 @@ export function generateDesignReviewLite(ctx: TemplateContext): string {
   // Codex block only for Claude host
   const codexBlock = ctx.host === 'codex' ? '' : `
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Codex-style design voice** (optional, automatic if available):
 
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model.
 
-If Codex is available, run a lightweight design check on the diff:
+Prompt:
 
-\`\`\`bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_DRL"
-\`\`\`
+"IMPORTANT: First read the full design-review skill file at \`$GSTACK_ROOT/design-review/SKILL.md\`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the diff, and repository code only.
 
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-\`\`\`
+Review the git diff on this branch. Run 7 litmus checks (YES/NO each): ${litmusList} Flag any hard rejections: ${rejectionList} 5 most important design findings only. Reference file:line."
 
 **Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
 
-Present Codex output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
+Present output under a \`CODEX (design):\` header, merged with the checklist findings above.`;
 
   return `## Design Review (conditional, diff-scoped)
 
@@ -523,16 +514,17 @@ If Codex is available, use AskUserQuestion:
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, \`model_reasoning_effort="medium"\`):
-\`\`\`bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < /dev/null 2>"$TMPERR_SKETCH"
-\`\`\`
-Use a 5-minute timeout (\`timeout: 300000\`). After completion: \`cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"\`
+1. **Codex-style design voice** (via Agent tool / spawned subagent):
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model. Prompt it with:
+
+"IMPORTANT: First read the full office-hours skill file at \`$GSTACK_ROOT/office-hours/SKILL.md\`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the product approach, and repository context only.
+
+For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated."
 
 2. **Claude subagent** (via Agent tool):
-"For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
+"IMPORTANT: First read the full office-hours skill file at \`$GSTACK_ROOT/office-hours/SKILL.md\`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the product approach, and repository context only.
+
+For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
 Present Codex output under \`CODEX SAYS (design sketch):\` and subagent output under \`CLAUDE SUBAGENT (design direction):\`.
 Error handling: all non-blocking. On failure, skip and continue.`;
@@ -681,32 +673,23 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
 Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-model]\` tags.`;
 
-  const escapedCodexPrompt = codexPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$');
-
   return `## Design Outside Voices (parallel)
 ${optInSection}
 
-**Check Codex availability:**
-\`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-\`\`\`
+Launch both voices simultaneously:
 
-**If Codex is available**, launch both voices simultaneously:
+1. **Codex-style design voice** (via Agent tool / spawned subagent):
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model. Prompt it with:
 
-1. **Codex design voice** (via Bash):
-\`\`\`bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${escapedCodexPrompt}" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="${reasoningEffort}"' --enable web_search_cached < /dev/null 2>"$TMPERR_DESIGN"
-\`\`\`
-Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-\`\`\`
+"IMPORTANT: First read the full ${isPlanDesignReview ? 'plan-design-review' : isDesignReview ? 'design-review' : 'design-consultation'} skill file at \`$GSTACK_ROOT/${isPlanDesignReview ? 'plan-design-review' : isDesignReview ? 'design-review' : 'design-consultation'}/SKILL.md\`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+${codexPrompt}"
 
 2. **Claude design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:
-"${subagentPrompt}"
+"IMPORTANT: First read the full ${isPlanDesignReview ? 'plan-design-review' : isDesignReview ? 'design-review' : 'design-consultation'} skill file at \`$GSTACK_ROOT/${isPlanDesignReview ? 'plan-design-review' : isDesignReview ? 'design-review' : 'design-consultation'}/SKILL.md\`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+${subagentPrompt}"
 
 **Error handling (all non-blocking):**
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
@@ -1139,4 +1122,3 @@ Flat design can strip away useful visual information that signals interactivity.
 Prioritize ruthlessly: things needed in a hurry go close at hand, everything
 else a few taps away with an obvious path to get there.`;
 }
-

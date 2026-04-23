@@ -17,6 +17,8 @@ import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
 import { HOST_PATHS } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
+import { generateHostOverlay } from './resolvers/host-overlay';
+import { generateModelOverlay } from './resolvers/model-overlay';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
 import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
@@ -44,12 +46,13 @@ const HOST_ARG_VAL: HostArg = (() => {
 let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
 
 // ─── Model Overlay Selection ────────────────────────────────
-// --model is explicit. We do NOT auto-detect from host (host ≠ model).
-// Default is 'claude'. Missing overlay file → empty string (graceful).
+// --model is explicit. If omitted, each host can declare a default model overlay.
+// Host defaults tune generated skills for their runtime without conflating host
+// with model: users can still override with --model.
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
 const MODEL_ARG = process.argv.find(a => a.startsWith('--model'));
-const MODEL_ARG_VAL: Model = (() => {
-  if (!MODEL_ARG) return 'claude';
+const EXPLICIT_MODEL_ARG_VAL: Model | undefined = (() => {
+  if (!MODEL_ARG) return undefined;
   const val = MODEL_ARG.includes('=') ? MODEL_ARG.split('=')[1] : process.argv[process.argv.indexOf(MODEL_ARG) + 1];
   const resolved = resolveModel(val);
   if (!resolved) {
@@ -192,6 +195,13 @@ function generateOpenAIYaml(displayName: string, shortDescription: string): stri
 policy:
   allow_implicit_invocation: true
 `;
+}
+
+function insertAfterFrontmatter(content: string, block: string): string {
+  const fmEnd = content.indexOf('\n---', 4);
+  if (fmEnd === -1) return `${block}\n\n${content}`;
+  const insertAt = content.indexOf('\n', fmEnd + 1) + 1;
+  return content.slice(0, insertAt) + '\n' + block + '\n\n' + content.slice(insertAt);
 }
 
 /**
@@ -389,6 +399,17 @@ function processExternalHost(
     }
   }
 
+  // Skills without {{PREAMBLE}} (small hook/control skills) would otherwise miss
+  // host/model adaptation. For hosts that declare a host overlay, inject the
+  // overlays once here so every generated skill for that host carries runtime
+  // guidance without duplicating preamble-using skills.
+  if (hostConfig.hostOverlay && !result.includes('Host Runtime Patch')) {
+    const overlays = [generateModelOverlay(ctx), generateHostOverlay(ctx)]
+      .filter(s => s && s.trim().length > 0)
+      .join('\n\n');
+    if (overlays) result = insertAfterFrontmatter(result, overlays);
+  }
+
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
   if (hostConfig.generation.generateMetadata && !symlinkLoop) {
     const agentsDir = path.join(outputDir, 'agents');
@@ -425,7 +446,9 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
   const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
 
-  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier, model: MODEL_ARG_VAL };
+  const hostConfig = getHostConfig(host);
+  const model = EXPLICIT_MODEL_ARG_VAL ?? hostConfig.defaultModel ?? 'claude';
+  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier, model };
 
   // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
   // Config-driven: suppressedResolvers return empty string for this host

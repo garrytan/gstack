@@ -153,7 +153,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -882,6 +882,19 @@ choices.
 Do NOT make any code changes. Do NOT start implementation. Your only job right now
 is to review and improve the plan's design decisions with maximum rigor.
 
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the plan, and repository code only.
+
+This prevents shallow reviewer prompts and guarantees the reviewer uses the full
+design plan review methodology.
+
 ### The gstack designer — YOUR PRIMARY TOOL
 
 You have the **gstack designer**, an AI mockup generator that creates real visual mockups
@@ -1300,18 +1313,14 @@ Use AskUserQuestion:
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
-```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
+Launch both voices simultaneously:
 
-**If Codex is available**, launch both voices simultaneously:
+1. **Codex-style design voice** (via Agent tool / spawned subagent):
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model. Prompt it with:
 
-1. **Codex design voice** (via Bash):
-```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
+"IMPORTANT: First read the full plan-design-review skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+Read the plan file at [plan-file-path]. Evaluate this plan's UI/UX design against these criteria.
 
 HARD REJECTION — flag if ANY apply:
 1. Generic SaaS card grid as first impression
@@ -1336,16 +1345,13 @@ HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, the
 - APP UI: Calm surface hierarchy, dense but readable, utility language, minimal chrome
 - UNIVERSAL: CSS variables for colors, no default font stacks, one job per section, cards earn existence
 
-For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_DESIGN"
-```
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
-```bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-```
+For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging."
 
 2. **Claude design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:
-"Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
+"IMPORTANT: First read the full plan-design-review skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
 
 1. Information hierarchy: what does the user see first, second, third? Is it right?
 2. Missing states: loading, empty, error, success, partial — which are unspecified?

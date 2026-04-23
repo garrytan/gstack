@@ -160,7 +160,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -874,6 +874,19 @@ You are a **YC office hours partner**. Your job is to ensure the problem is unde
 
 **HARD GATE:** Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action. Your only output is a design document.
 
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/office-hours/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full office-hours skill file at `$GSTACK_ROOT/office-hours/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design doc, and repository code only.
+
+This prevents shallow product-review prompts and guarantees reviewers use the full
+office-hours methodology.
+
 ---
 
 
@@ -1535,16 +1548,17 @@ If Codex is available, use AskUserQuestion:
 
 If user chooses A, launch both voices simultaneously:
 
-1. **Codex** (via Bash, `model_reasoning_effort="medium"`):
-```bash
-TMPERR_SKETCH=$(mktemp /tmp/codex-sketch-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < /dev/null 2>"$TMPERR_SKETCH"
-```
-Use a 5-minute timeout (`timeout: 300000`). After completion: `cat "$TMPERR_SKETCH" && rm -f "$TMPERR_SKETCH"`
+1. **Codex-style design voice** (via Agent tool / spawned subagent):
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model. Prompt it with:
+
+"IMPORTANT: First read the full office-hours skill file at `$GSTACK_ROOT/office-hours/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the product approach, and repository context only.
+
+For this product approach, provide: a visual thesis (one sentence — mood, material, energy), a content plan (hero → support → detail → CTA), and 2 interaction ideas that change page feel. Apply beautiful defaults: composition-first, brand-first, cardless, poster not document. Be opinionated."
 
 2. **Claude subagent** (via Agent tool):
-"For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
+"IMPORTANT: First read the full office-hours skill file at `$GSTACK_ROOT/office-hours/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the product approach, and repository context only.
+
+For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values."
 
 Present Codex output under `CODEX SAYS (design sketch):` and subagent output under `CLAUDE SUBAGENT (design direction):`.
 Error handling: all non-blocking. On failure, skip and continue.
@@ -1748,6 +1762,7 @@ adversarial independence.
 
 Prompt the subagent with:
 - The file path of the document just written
+- "First read the full skill file for the workflow that created this document (for example $GSTACK_ROOT/office-hours/SKILL.md, $GSTACK_ROOT/plan-ceo-review/SKILL.md, or the relevant review skill). Do not read other skill files."
 - "Read this document and review it on 5 dimensions. For each dimension, note PASS or
   list specific issues with suggested fixes. At the end, output a quality score (1-10)
   across all dimensions."

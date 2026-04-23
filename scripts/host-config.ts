@@ -14,6 +14,9 @@
  *                                              platform-detect, uninstall
  */
 
+import type { Model } from './models';
+import { validateModel } from './models';
+
 export interface HostConfig {
   /** Unique host identifier (e.g., 'opencode'). Must match filename in hosts/. */
   name: string;
@@ -100,6 +103,10 @@ export interface HostConfig {
   // --- Host-Specific Behavioral Config ---
   /** Git co-author trailer string. */
   coAuthorTrailer?: string;
+  /** Default model overlay family for generated skills on this host. */
+  defaultModel?: Model;
+  /** Optional markdown overlay injected into every generated skill for this host. */
+  hostOverlay?: string;
   /** Learnings implementation: 'full' = cross-project, 'basic' = simple. */
   learningsMode?: 'full' | 'basic';
   /** Anti-prompt-injection boundary instruction for cross-model invocations. */
@@ -150,6 +157,13 @@ export function validateHostConfig(config: HostConfig): string[] {
   }
   if (!['real-dir-symlink', 'symlink-generated'].includes(config.install.linkingStrategy)) {
     errors.push(`install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`);
+  }
+  if (config.defaultModel) {
+    const modelError = validateModel(config.defaultModel);
+    if (modelError) errors.push(`defaultModel ${modelError}`);
+  }
+  if (config.hostOverlay && !PATH_REGEX.test(config.hostOverlay)) {
+    errors.push(`hostOverlay '${config.hostOverlay}' contains invalid characters`);
   }
 
   return errors;

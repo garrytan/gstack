@@ -3,12 +3,13 @@
  *
  * Model families supported by model overlays in model-overlays/{family}.md.
  * Host configs can reference these as `defaultModel` strings (validated at
- * generation time), but the model axis is independent of the host axis.
+ * generation time), but users can always override with --model. The model axis
+ * is independent of the host axis.
  *
  * IMPORTANT: host ≠ model. Claude Code can run any Claude model (Opus, Sonnet,
  * Haiku, future). Codex CLI runs GPT/o-series models. Cursor and OpenCode can
- * front multiple providers. We do NOT auto-detect the model from the host —
- * users pass --model explicitly. Default is 'claude'.
+ * front multiple providers. The generator uses a host default only when --model
+ * is omitted; explicit --model always wins.
  */
 
 export const ALL_MODEL_NAMES = [

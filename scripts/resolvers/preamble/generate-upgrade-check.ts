@@ -1,6 +1,7 @@
 import type { TemplateContext } from '../types';
 
 export function generateUpgradeCheck(ctx: TemplateContext): string {
+  const defaultModel = ctx.model ?? 'none';
   return `If \`PROACTIVE\` is \`"false"\`, do not proactively suggest gstack skills AND do not
 auto-invoke skills based on conversation context. Only run skills the user explicitly
 types (e.g., /qa, /ship). If you would have auto-invoked a skill, instead briefly say:
@@ -39,10 +40,9 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. \`MODEL_OVERLAY: {model}\`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with \`--model\` when regenerating skills (e.g., \`bun run gen:skill-docs
-   --model gpt-5.4\`). Default is claude."
+   --model gpt-5.4\`). Default for this generated skill is ${defaultModel}."
    Always: \`touch ${ctx.paths.skillRoot}/.feature-prompted-model-overlay\`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
 workflow.`;
 }
-

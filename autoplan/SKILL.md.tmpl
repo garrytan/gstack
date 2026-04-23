@@ -147,15 +147,23 @@ State what you examined and why nothing was flagged (1-2 sentences minimum).
 
 ---
 
-## Filesystem Boundary — Codex Prompts
+## Filesystem Boundary — Full-Skill Review Agents
 
-All prompts sent to Codex (via `codex exec` or `codex review`) MUST be prefixed with
-this boundary instruction:
+All prompts sent to review agents MUST use full-skill context. Each review voice
+MUST first read the exact phase skill file named in its prompt, then apply that
+skill's methodology independently to the plan.
 
-> IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Stay focused on the repository code only.
+Boundary instruction:
 
-This prevents Codex from discovering gstack skill files on disk and following their
-instructions instead of reviewing the plan.
+> IMPORTANT: First read the full review skill file explicitly named in this prompt. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on the named skill, the plan, and repository code only.
+
+Required phase skill files:
+- CEO voices: `$GSTACK_ROOT/plan-ceo-review/SKILL.md`
+- Design voices: `$GSTACK_ROOT/plan-design-review/SKILL.md`
+- Eng voices: `$GSTACK_ROOT/plan-eng-review/SKILL.md`
+
+This prevents tiny one-paragraph reviewer prompts. Review voices should use the full
+gstack review playbook for their phase, then produce an independent critique.
 
 ---
 
@@ -282,35 +290,32 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Scope expansion: in blast radius + <1d CC → approve (P2). Outside → defer to TODOS.md (P3).
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
 - All 10 review sections: run fully, auto-decide each issue, log every decision.
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run them sequentially in foreground. First the Claude subagent (Agent tool,
-  foreground — do NOT use run_in_background), then Codex (Bash). Both must
+- Dual voices: always run BOTH Claude subagent AND Codex-style subagent if available (P6).
+  Run them sequentially in foreground using spawned agents only. First the
+  Claude subagent, then the Codex-style subagent. Do NOT shell out to local
+  `codex exec` or `claude` for these review voices. Both must
   complete before building the consensus table.
 
-  **Codex CEO voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  **Codex CEO voice** (via Agent tool / spawned subagent):
+  Spawn a second independent reviewer subagent. If model selection is available,
+  prefer a Codex / coding-specialized model. Prompt it with:
 
-  You are a CEO/founder advisor reviewing a development plan.
-  Challenge the strategic foundations: Are the premises valid or assumed? Is this the
-  right problem to solve, or is there a reframing that would be 10x more impactful?
-  What alternatives were dismissed too quickly? What competitive or market risks are
-  unaddressed? What scope decisions will look foolish in 6 months? Be adversarial.
-  No compliments. Just the strategic blind spots.
-  File: <plan_path>" -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
-  fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-ceo-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. You are a CEO/founder advisor reviewing a
+  development plan. Apply the plan-ceo-review methodology at full depth. Challenge
+  the strategic foundations: Are the premises valid or assumed? Is this the right
+  problem to solve, or is there a reframing that would be 10x more impactful?
+  What alternatives were dismissed too quickly? What competitive or market risks
+  are unaddressed? What scope decisions will look foolish in 6 months?
+  Be adversarial. No compliments. Just the strategic blind spots."
 
   **Claude CEO subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent CEO/strategist
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-ceo-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. You are an independent CEO/strategist
+  reviewing this plan. You have NOT seen any prior review. Apply the
+  plan-ceo-review methodology at full depth. Evaluate:
   1. Is this the right problem to solve? Could a reframing yield 10x impact?
   2. Are the premises stated or just assumed? Which ones could be wrong?
   3. What's the 6-month regret scenario — what will look foolish?
@@ -318,7 +323,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   5. What's the competitive risk — could someone else solve this first/better?
   For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
-  **Error handling:** Both calls block in foreground. Codex auth/timeout/empty → proceed with
+  **Error handling:** Both calls block in foreground. Codex-style subagent timeout/empty → proceed with
   Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
   "Outside voices unavailable — continuing with primary review."
 
@@ -341,7 +346,7 @@ Step 0 (0A-0F) — run each sub-step and produce:
 - 0F: Mode selection confirmation
 
 Step 0.5 (Dual Voices): Run Claude subagent (foreground Agent tool) first, then
-Codex (Bash). Present Codex output under CODEX SAYS (CEO — strategy challenge)
+Codex-style subagent. Present Codex output under CODEX SAYS (CEO — strategy challenge)
 header. Present subagent output under CLAUDE SUBAGENT (CEO — strategic independence)
 header. Produce CEO consensus table:
 
@@ -402,15 +407,16 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 - Structural issues (missing states, broken hierarchy): auto-fix (P5)
 - Aesthetic/taste issues: mark TASTE DECISION
 - Design system alignment: auto-fix if DESIGN.md exists and fix is obvious
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH Claude subagent AND Codex-style subagent if available (P6).
 
-  **Codex design voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  **Codex design voice** (via Agent tool / spawned subagent):
+  Spawn a second independent reviewer subagent. If model selection is available,
+  prefer a Codex / coding-specialized model. Prompt it with:
 
-  Read the plan file at <plan_path>. Evaluate this plan's
-  UI/UX design decisions.
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. Evaluate this plan's UI/UX design decisions.
+  Apply the plan-design-review methodology at full depth.
 
   Also consider these findings from the CEO review phase:
   <insert CEO dual voice findings summary — key concerns, disagreements>
@@ -421,19 +427,14 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   accessibility requirements (keyboard nav, contrast, touch targets) specified or
   aspirational? Does the plan describe specific UI decisions or generic patterns?
   What design decisions will haunt the implementer if left ambiguous?
-  Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
-  fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  Be opinionated. No hedging."
 
   **Claude design subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent senior product designer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. You are an independent senior product designer
+  reviewing this plan. You have NOT seen any prior review. Apply the
+  plan-design-review methodology at full depth. Evaluate:
   1. Information hierarchy: what does the user see first, second, third? Is it right?
   2. Missing states: loading, empty, error, success, partial — which are unspecified?
   3. User journey: what's the emotional arc? Where does it break?
@@ -451,7 +452,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 1. Step 0 (Design Scope): Rate completeness 0-10. Check DESIGN.md. Map existing patterns.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present under
+2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex-style subagent. Present under
    CODEX SAYS (design — UX challenge) and CLAUDE SUBAGENT (design — independent review)
    headers. Produce design litmus scorecard (consensus table). Use the litmus scorecard
    format from plan-design-review. Include CEO phase findings in Codex prompt ONLY
@@ -483,33 +484,28 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 
 **Override rules:**
 - Scope challenge: never reduce (P2)
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH Claude subagent AND Codex-style subagent if available (P6).
 
-  **Codex eng voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  **Codex eng voice** (via Agent tool / spawned subagent):
+  Spawn a second independent reviewer subagent. If model selection is available,
+  prefer a Codex / coding-specialized model. Prompt it with:
 
-  Review this plan for architectural issues, missing edge cases,
-  and hidden complexity. Be adversarial.
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-eng-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. Review this plan for architectural issues,
+  missing edge cases, and hidden complexity. Apply the plan-eng-review methodology
+  at full depth. Be adversarial.
 
   Also consider these findings from prior review phases:
   CEO: <insert CEO consensus table summary — key concerns, DISAGREEs>
-  Design: <insert Design consensus table summary, or 'skipped, no UI scope'>
-
-  File: <plan_path>" -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
-  fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  Design: <insert Design consensus table summary, or 'skipped, no UI scope'>"
 
   **Claude eng subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent senior engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-eng-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. You are an independent senior engineer
+  reviewing this plan. You have NOT seen any prior review. Apply the
+  plan-eng-review methodology at full depth. Evaluate:
   1. Architecture: Is the component structure sound? Coupling concerns?
   2. Edge cases: What breaks under 10x load? What's the nil/empty/error path?
   3. Tests: What's missing from the test plan? What would break at 2am Friday?
@@ -530,7 +526,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
 1. Step 0 (Scope Challenge): Read actual code referenced by the plan. Map each
    sub-problem to existing code. Run the complexity check. Produce concrete findings.
 
-2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex. Present
+2. Step 0.5 (Dual Voices): Run Claude subagent (foreground) first, then Codex-style subagent. Present
    Codex output under CODEX SAYS (eng — architecture challenge) header. Present subagent
    output under CLAUDE SUBAGENT (eng — independent review) header. Produce eng consensus
    table:
@@ -604,14 +600,16 @@ Log: "Phase 3.5 skipped — no developer-facing scope detected."
 - Error message quality: always require problem + cause + fix (P1, completeness)
 - API/CLI naming: consistency wins over cleverness (P5)
 - DX taste decisions (e.g., opinionated defaults vs flexibility): mark TASTE DECISION
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
+- Dual voices: always run BOTH Claude subagent AND Codex-style subagent if available (P6).
 
-  **Codex DX voice** (via Bash):
-  ```bash
-  _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  **Codex DX voice** (via Agent tool / spawned subagent):
+  Spawn a second independent reviewer subagent. If model selection is available,
+  prefer a Codex / coding-specialized model. Prompt it with:
+
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-devex-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
 
   Read the plan file at <plan_path>. Evaluate this plan's developer experience.
+  Apply the plan-devex-review methodology at full depth.
 
   Also consider these findings from prior review phases:
   CEO: <insert CEO consensus summary>
@@ -623,19 +621,14 @@ Log: "Phase 3.5 skipped — no developer-facing scope detected."
   3. API/CLI design: are names guessable? Are defaults sensible? Is it consistent?
   4. Docs: can a dev find what they need in under 2 minutes? Are examples copy-paste-complete?
   5. Upgrade path: can devs upgrade without fear? Migration guides? Deprecation warnings?
-  Be adversarial. Think like a developer who is evaluating this against 3 competitors." -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
-  _CODEX_EXIT=$?
-  if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
-    echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
-  fi
-  ```
-  Timeout: 10 minutes (shell-wrapper) + 12 minutes (Bash outer gate). On hang, auto-degrades this phase's Codex voice.
+  Be adversarial. Think like a developer who is evaluating this against 3 competitors."
 
   **Claude DX subagent** (via Agent tool):
-  "Read the plan file at <plan_path>. You are an independent DX engineer
-  reviewing this plan. You have NOT seen any prior review. Evaluate:
+  "IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-devex-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories (paths containing skills/gstack). Stay focused on this named skill, the plan, and repository code only.
+
+  Read the plan file at <plan_path>. You are an independent DX engineer
+  reviewing this plan. You have NOT seen any prior review. Apply the
+  plan-devex-review methodology at full depth. Evaluate:
   1. Getting started: how many steps from zero to hello world? What's the TTHW?
   2. API/CLI ergonomics: naming consistency, sensible defaults, progressive disclosure?
   3. Error handling: does every error path specify problem + cause + fix + docs link?

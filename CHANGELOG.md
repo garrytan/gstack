@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.6.2.0] - 2026-04-23
+
+## **Codex-host skills now actually behave like Codex skills.**
+
+The Codex output path already existed under `.agents/skills/`, but the generated skill
+body was still carrying Claude defaults in important places. Codex users could get
+`MODEL_OVERLAY: claude`, Claude-specific Agent-tool vocabulary, and review-agent prompts
+that only worked because a human adapted them on the fly.
+
+This release makes the Codex host explicit instead of implied.
+
+### Fixed
+
+- Codex-host generation now defaults to the `gpt-5.4` model overlay unless `--model`
+  is explicitly passed.
+- Every generated Codex skill now carries a Codex runtime patch, including small
+  no-preamble control skills like `/freeze`, `/careful`, `/guard`, `/unfreeze`, and
+  `/gstack-upgrade`.
+- Codex generated skills rewrite Claude-only tool wording into Codex-native guidance:
+  shell execution, local file reads, `apply_patch`/native edits, and Codex subagents.
+- Codex generated subagent instructions rewrite `subagent_type: "general-purpose"` to
+  `agent_type: "default"` and remove "Claude subagent" wording where it leaked into
+  Codex-host output.
+- Codex-host skills now tell spawned subagents to load the full named `SKILL.md` when
+  executing or reviewing a gstack skill, instead of relying on a short prompt excerpt.
+- The model-overlay feature prompt now reports the actual generated default for that
+  host instead of always saying "Default is claude."
+
+### Verified
+
+- `bun run gen:skill-docs --host all`
+- `bun run skill:check`
+- `bun test test/gen-skill-docs.test.ts`
+- `bun test test/host-config.test.ts test/gen-skill-docs.test.ts`
+- `bun test`
+
 ## [1.6.1.0] - 2026-04-22
 
 ## **Opus 4.7 migration, reviewed. Overlay actually split per model. Routing verified, fanout is still on the list.**

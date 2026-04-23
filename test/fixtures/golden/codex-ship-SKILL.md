@@ -96,7 +96,7 @@ if [ -d ".agents/skills/gstack" ] && [ ! -L ".agents/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
-echo "MODEL_OVERLAY: claude"
+echo "MODEL_OVERLAY: gpt-5.4"
 # Checkpoint mode (explicit = no auto-commit, continuous = WIP commits as you go)
 _CHECKPOINT_MODE=$($GSTACK_BIN/gstack-config get checkpoint_mode 2>/dev/null || echo "explicit")
 _CHECKPOINT_PUSH=$($GSTACK_BIN/gstack-config get checkpoint_push 2>/dev/null || echo "false")
@@ -144,7 +144,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is gpt-5.4."
    Always: `touch $GSTACK_ROOT/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -344,23 +344,73 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
-## Model-Specific Behavioral Patch (claude)
+## Model-Specific Behavioral Patch (gpt-5.4)
 
-The following nudges are tuned for the claude model family. They are
+The following nudges are tuned for the gpt-5.4 model family. They are
 **subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
 safety, and /ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.
 
-**Todo-list discipline.** When working through a multi-step plan, mark each task
-complete individually as you finish it. Do not batch-complete at the end. If a task
-turns out to be unnecessary, mark it skipped with a one-line reason.
+**Completion bias.** Do not end your turn with a partial solution when the full
+solution is reachable. If you encounter an error, debug it. If a test fails, fix it.
+If something is ambiguous, make your best judgment and proceed — don't stop and ask
+unless you're genuinely blocked.
 
-**Think before heavy actions.** For complex operations (refactors, migrations,
-non-trivial new features), briefly state your approach before executing. This lets
-the user course-correct cheaply instead of mid-flight.
+**Prefer doing over listing.** When you'd be tempted to write "you could also try X,
+Y, or Z," try the best option yourself. Pick, execute, report results.
 
-**Dedicated tools over Bash.** Prefer Read, Edit, Write, Glob, Grep over shell
-equivalents (cat, sed, find, grep). The dedicated tools are cheaper and clearer.
+**No preamble.** Skip "Great question!", "Let me help with that", and restating the
+user's request. Start with the work.
+
+**Reminder: subordination applies.** When a skill workflow says STOP, stop. When the
+skill asks via AskUserQuestion, that is the wait-for-user gate, not an ambiguity.
+Completion bias does not override safety gates.
+
+**Anti-verbosity protocol (additional).** Your default output mode is too verbose for
+tools that value terse output. Constrain:
+
+- Status updates: one line, not a paragraph.
+- Code explanations: only when the user asked for one, or when the code is genuinely
+  surprising.
+- Do not narrate what you are about to do. Just do it.
+- Do not repeat the user's request back to them.
+- When showing code changes, show the changed lines with minimal surrounding context.
+- Markdown headings are not decoration. Use them only when structural.
+
+**Cap answers at the shortest form that contains the answer.** If the answer is a
+one-line command, reply with a one-line command.
+
+## Host Runtime Patch (OpenAI Codex CLI)
+
+The following instructions adapt this generated skill to the OpenAI Codex CLI
+runtime. They are host-specific compatibility rules. If older template wording
+mentions another agent host or another tool name, follow this section's mapping.
+
+**Codex tool mapping.** Treat legacy Claude-tool wording as host-neutral workflow
+instructions. Run shell commands through Codex's command executor, read files with
+the fastest available local tools (`rg`, `sed`, `git show`, direct file reads), and
+make manual edits with `apply_patch` or the host's native edit tool. Do not ask the
+user to run a command when you can run it yourself.
+
+**Subagents are Codex subagents.** When a skill says "Codex subagent tool", "subagent", or
+"outside voice", spawn a Codex subagent when the host exposes one. Use the closest
+available general/default agent type unless the skill explicitly needs a specialist.
+Tell subagents they are not alone in the codebase, keep write scopes disjoint, and
+never revert other agents' or the user's changes.
+
+**Full-skill loading.** If a subagent is executing or reviewing a named gstack skill,
+its prompt must instruct it to read that skill's full `SKILL.md` first, then follow
+the workflow. Do not pass only a summarized excerpt when the skill file is available.
+
+**No self-invocation loop.** Inside Codex-host skills, do not shell out to local
+`codex exec` or `codex review` for second opinions. Use spawned Codex subagents,
+inline review, or the skill's fallback path. Codex CLI auth/version preflight blocks
+are for non-Codex hosts and should be treated as already satisfied.
+
+**Current-turn completion.** Prefer finishing the workflow end to end: inspect,
+edit, test, commit/push/PR when the skill asks for shipping, then report concrete
+evidence. Stop only at explicit safety gates or when the needed credential/input is
+actually unavailable.
 
 ## Voice
 
@@ -942,8 +992,8 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
-- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
+- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both independent adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to independent subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
@@ -1363,7 +1413,7 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 ## Step 7: Test Coverage Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
+**Dispatch this step as a subagent** using a Codex subagent with `agent_type: "default"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
 
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
@@ -1621,7 +1671,7 @@ Repo: {owner/repo}
 
 ## Step 8: Plan Completion Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
+**Dispatch this step as a subagent** using a Codex subagent with `agent_type: "default"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
 
 **Subagent prompt:** Pass these instructions to the subagent:
 
@@ -2008,7 +2058,7 @@ Save the review output — it goes into the PR body in Step 19.
 
 ## Step 10: Address Greptile review comments (if PR exists)
 
-**Dispatch the fetch + classification as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent pulls every Greptile comment, runs the escalation detection algorithm, and classifies each comment. Parent receives a structured list and handles user interaction + file edits.
+**Dispatch the fetch + classification as a subagent** using a Codex subagent with `agent_type: "default"`. The subagent pulls every Greptile comment, runs the escalation detection algorithm, and classifies each comment. Parent receives a structured list and handles user interaction + file edits.
 
 **Subagent prompt:**
 
@@ -2453,7 +2503,7 @@ git push -u origin <branch-name>
 
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
-**Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
+**Dispatch /document-release as a subagent** using a Codex subagent with `agent_type: "default"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
 
 **Sequencing:** This step runs AFTER Step 17 (Push) and BEFORE Step 19 (Create PR). The PR is created once from final HEAD with the `## Documentation` section baked into the initial body. No create-then-re-edit dance.
 

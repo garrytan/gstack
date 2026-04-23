@@ -155,7 +155,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -832,6 +832,19 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 # Plan Review Mode
 
 Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
+
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/plan-eng-review/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-eng-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the plan, and repository code only.
+
+This prevents shallow reviewer prompts and guarantees the reviewer uses the full
+engineering review methodology.
 
 ## Priority hierarchy
 If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.

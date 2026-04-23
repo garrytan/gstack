@@ -155,7 +155,7 @@ prompts from sub-sessions.
    Inform only (no prompt): "Model overlays are active. `MODEL_OVERLAY: {model}`
    shown in the preamble output tells you which behavioral patch is applied.
    Override with `--model` when regenerating skills (e.g., `bun run gen:skill-docs
-   --model gpt-5.4`). Default is claude."
+   --model gpt-5.4`). Default for this generated skill is claude."
    Always: `touch ~/.claude/skills/gstack/.feature-prompted-model-overlay`
 
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
@@ -833,6 +833,19 @@ You are a senior product designer with strong opinions about typography, color, 
 
 **Your posture:** Design consultant, not form wizard. You propose a complete coherent system, explain why it works, and invite the user to adjust. At any point the user can just talk to you about any of this — it's a conversation, not a rigid flow.
 
+## Full-Skill Design Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+design subagent, the prompt MUST instruct that agent to first read the full skill file
+at `$GSTACK_ROOT/design-consultation/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full design-consultation skill file at `$GSTACK_ROOT/design-consultation/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the product context, and repository code only.
+
+This prevents shallow design-system prompts and guarantees design agents use the full
+consultation methodology.
+
 ---
 
 ## Phase 0: Pre-checks
@@ -1127,18 +1140,14 @@ Use AskUserQuestion:
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
-```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
+Launch both voices simultaneously:
 
-**If Codex is available**, launch both voices simultaneously:
+1. **Codex-style design voice** (via Agent tool / spawned subagent):
+Spawn an independent reviewer subagent. If model selection is available, prefer a Codex / coding-specialized model. Prompt it with:
 
-1. **Codex design voice** (via Bash):
-```bash
-TMPERR_DESIGN=$(mktemp /tmp/codex-design-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Given this product context, propose a complete design direction:
+"IMPORTANT: First read the full design-consultation skill file at `$GSTACK_ROOT/design-consultation/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+Given this product context, propose a complete design direction:
 - Visual thesis: one sentence describing mood, material, and energy
 - Typography: specific font names (not defaults — no Inter/Roboto/Arial/system) + hex colors
 - Color system: CSS variables for background, surface, primary text, muted text, accent
@@ -1146,16 +1155,13 @@ codex exec "Given this product context, propose a complete design direction:
 - Differentiation: 2 deliberate departures from category norms
 - Anti-slop: no purple gradients, no 3-column icon grids, no centered everything, no decorative blobs
 
-Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached < /dev/null 2>"$TMPERR_DESIGN"
-```
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
-```bash
-cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
-```
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it."
 
 2. **Claude design subagent** (via Agent tool):
 Dispatch a subagent with this prompt:
-"Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
+"IMPORTANT: First read the full design-consultation skill file at `$GSTACK_ROOT/design-consultation/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design task, and repository code only.
+
+Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
 - Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
 - 2 deliberate departures from category norms
 - What emotional reaction should the user have in the first 3 seconds?
