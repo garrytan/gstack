@@ -23,6 +23,66 @@ This document covers the command reference and internals of gstack's headless br
 
 All selector arguments accept CSS selectors, `@e` refs after `snapshot`, or `@c` refs after `snapshot -C`. 50+ commands total plus cookie import.
 
+## Stealth mode (optional)
+
+For sites with aggressive bot detection (Cloudflare Turnstile, DataDome, X's GraphQL endpoints, etc.), gstack supports an optional **patchright** backend that eliminates the CDP `Runtime.Enable` leak — the single biggest automation signal that every major bot-detection vendor fingerprints on. See the [Patchright project](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) for details.
+
+### Install
+
+```bash
+bun add -O patchright              # optional dep
+bunx patchright install chrome     # downloads patched Chrome binary (~300 MB, one-time)
+```
+
+### Use
+
+Set the env var before any `browse` command:
+
+```bash
+GSTACK_STEALTH=patchright browse goto https://example.com
+```
+
+Or export it globally:
+
+```bash
+export GSTACK_STEALTH=patchright
+```
+
+If `GSTACK_STEALTH=patchright` is set but the `patchright` package isn't installed, gstack logs a warning and falls back to vanilla Playwright.
+
+### What it fixes (measured)
+
+Independent fingerprint probe comparing vanilla Playwright (gstack default) vs patchright on the same machine, same test JS, same page:
+
+| Marker | Playwright default | Patchright |
+|---|---|---|
+| `navigator.webdriver` | **`true`** ❌ | `false` ✅ |
+| UA string | **`HeadlessChrome/145.*`** ❌ | `Chrome/146.*` ✅ |
+| `navigator.plugins.length` | **`0`** ❌ | `5` ✅ |
+| `navigator.mimeTypes.length` | **`0`** ❌ | `2` ✅ |
+| WebGL renderer | **`null`** (disabled in headless) ❌ | real GPU string ✅ |
+| Screen dimensions | **`1280×720`** (fixed) ❌ | real display ✅ |
+| Stealth score | **4/7** | **6/7** |
+
+The "HeadlessChrome" UA alone is enough to get blocked by any Cloudflare-protected site. Patchright fixes this with zero code changes — just swap the module.
+
+### Caveats
+
+1. **Headless mode limits stealth.** For maximum bypass rate, patchright should run with `headless: false` and `channel: 'chrome'`. This PR adds the backend swap but does NOT change gstack's default launch options (to keep existing behavior). If you're still hitting detection with patchright enabled, you'll need headed mode — the recommended path is Xvfb on Linux servers (`xvfb-run ...`) or explicit headed launches on macOS/Windows.
+2. **`page.on('console', ...)` is disabled by design** — patchright strips it as part of the Runtime.Enable patch. Most workflows don't rely on this.
+3. **One-time Chrome download** — `bunx patchright install chrome` pulls a patched Chrome binary (~300 MB) into `~/Library/Caches/ms-playwright/` (macOS). One-time cost.
+4. **Does not affect the `/connect` headed path's extension loading** — gstack's existing JS-shim stealth patches (`addInitScript` for plugins/languages/cdc) still apply there. Patchright's CDP-level patches are additive, not a replacement, in the headed path.
+
+### Why not default-on?
+
+Patchright is Apache-2.0, actively maintained, and tracks Playwright releases lockstep. But:
+
+- ~300 MB download cost for users who don't need stealth
+- Drop-in but not 100% behavior-compatible (console events disabled)
+- Most gstack users don't hit sites that fingerprint browser automation
+
+Keeping it opt-in means the default gstack experience stays fast and small. Turn it on when you need it.
+
 ## How it works
 
 gstack's browser is a compiled CLI binary that talks to a persistent local Chromium daemon over HTTP. The CLI is a thin client — it reads a state file, sends a command, and prints the response to stdout. The server does the real work via [Playwright](https://playwright.dev/).

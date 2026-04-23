@@ -15,9 +15,39 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { chromium as playwrightChromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
+
+// ─── Stealth Backend Selection ────────────────────────────────────────
+// When GSTACK_STEALTH=patchright is set AND the `patchright` package is
+// installed, gstack uses it instead of vanilla Playwright's Chromium.
+// Patchright is a drop-in Playwright replacement that eliminates the CDP
+// `Runtime.Enable` leak — the single biggest automation signal that
+// Cloudflare, DataDome, Imperva, and X fingerprint on. See BROWSER.md
+// "Stealth mode" section for details, install steps, and measured delta.
+//
+// Falls back to vanilla Playwright with a warning if patchright is not
+// installed. Safe by default: existing users see no change.
+let _cachedChromium: typeof playwrightChromium | null = null;
+async function getChromium(): Promise<typeof playwrightChromium> {
+  if (_cachedChromium) return _cachedChromium;
+  if (process.env.GSTACK_STEALTH === 'patchright') {
+    try {
+      const pr = await import('patchright');
+      console.error('[browse] stealth mode: patchright enabled');
+      _cachedChromium = pr.chromium as unknown as typeof playwrightChromium;
+      return _cachedChromium;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[browse] GSTACK_STEALTH=patchright set but patchright not installed: ${msg}`);
+      console.error('[browse] Install: bun add -O patchright && bunx patchright install chrome');
+      console.error('[browse] Falling back to vanilla Playwright Chromium.');
+    }
+  }
+  _cachedChromium = playwrightChromium;
+  return _cachedChromium;
+}
 import { TabSession, type RefEntry } from './tab-session';
 
 export type { RefEntry };
@@ -200,7 +230,8 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
-    this.browser = await chromium.launch({
+    const chromiumDriver = await getChromium();
+    this.browser = await chromiumDriver.launch({
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
@@ -353,7 +384,8 @@ export class BrowserManager {
       }
     }
 
-    this.context = await chromium.launchPersistentContext(userDataDir, {
+    const chromiumDriverHeaded = await getChromium();
+    this.context = await chromiumDriverHeaded.launchPersistentContext(userDataDir, {
       headless: false,
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
@@ -1161,7 +1193,8 @@ export class BrowserManager {
       const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
       fs.mkdirSync(userDataDir, { recursive: true });
 
-      newContext = await chromium.launchPersistentContext(userDataDir, {
+      const chromiumDriverHandoff = await getChromium();
+      newContext = await chromiumDriverHandoff.launchPersistentContext(userDataDir, {
         headless: false,
         args: launchArgs,
         viewport: null,
