@@ -28,6 +28,26 @@ describe('token-registry', () => {
       expect(info!.scopes).toEqual(['read', 'write', 'admin', 'meta', 'control']);
       expect(info!.rateLimit).toBe(0);
     });
+
+    // Regression: isRootToken used to do 'token === rootToken' which short-circuits
+    // on the first differing byte. crypto.timingSafeEqual requires equal-length
+    // inputs, so these cases exercise the wrapper's length short-circuit and the
+    // same-length branch that actually calls timingSafeEqual.
+    it('returns false for a token that differs only in length (same prefix)', () => {
+      expect(isRootToken('root-token-for-tests-extra')).toBe(false);
+      expect(isRootToken('root-token-for-test')).toBe(false);
+    });
+
+    it('returns false for a same-length token that differs only in the last byte', () => {
+      const expected = 'root-token-for-tests';
+      const wrong = expected.slice(0, -1) + (expected.endsWith('x') ? 'y' : 'x');
+      expect(wrong.length).toBe(expected.length);
+      expect(isRootToken(wrong)).toBe(false);
+    });
+
+    it('returns false for the empty string even when root is set', () => {
+      expect(isRootToken('')).toBe(false);
+    });
   });
 
   describe('createToken', () => {

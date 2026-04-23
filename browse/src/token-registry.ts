@@ -155,7 +155,16 @@ export function getRootToken(): string {
 }
 
 export function isRootToken(token: string): boolean {
-  return token === rootToken;
+  // Constant-time compare so a tunnel-reachable caller who can provoke an
+  // isRootToken() call (e.g., via the 403 "root over tunnel" rejection path)
+  // can't measure byte-by-byte string-compare timing to recover the token.
+  // Length check is fine to short-circuit — it only reveals the token length
+  // (which is already public: 36 chars of crypto.randomUUID()).
+  if (!rootToken) return false;
+  if (token.length !== rootToken.length) return false;
+  const a = Buffer.from(token);
+  const b = Buffer.from(rootToken);
+  return crypto.timingSafeEqual(a, b);
 }
 
 function generateToken(prefix: string): string {
