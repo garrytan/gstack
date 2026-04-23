@@ -157,6 +157,7 @@ adversarial independence.
 
 Prompt the subagent with:
 - The file path of the document just written
+- "First read the full skill file for the workflow that created this document (for example $GSTACK_ROOT/office-hours/SKILL.md, $GSTACK_ROOT/plan-ceo-review/SKILL.md, or the relevant review skill). Do not read other skill files."
 - "Read this document and review it on 5 dimensions. For each dimension, note PASS or
   list specific issues with suggested fixes. At the end, output a quality score (1-10)
   across all dimensions."

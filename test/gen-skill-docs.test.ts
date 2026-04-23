@@ -1385,7 +1385,8 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('plan-design-review contains outside voices section', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Design Outside Voices');
-    expect(content).toContain('CODEX_AVAILABLE');
+    expect(content).toContain('Codex-style design voice');
+    expect(content).toContain('First read the full plan-design-review skill file');
     expect(content).toContain('LITMUS SCORECARD');
   });
 
@@ -1404,10 +1405,9 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   test('branches correctly per skillName — different prompts', () => {
     const planContent = fs.readFileSync(path.join(ROOT, 'plan-design-review', 'SKILL.md'), 'utf-8');
     const consultContent = fs.readFileSync(path.join(ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
-    // plan-design-review uses analytical prompt (high reasoning)
-    expect(planContent).toContain('model_reasoning_effort="high"');
-    // design-consultation uses creative prompt (medium reasoning)
-    expect(consultContent).toContain('model_reasoning_effort="medium"');
+    // plan-design-review loads its full analytical skill; design-consultation loads its full creative skill
+    expect(planContent).toContain('$GSTACK_ROOT/plan-design-review/SKILL.md');
+    expect(consultContent).toContain('$GSTACK_ROOT/design-consultation/SKILL.md');
   });
 });
 
@@ -1478,7 +1478,8 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
   const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
 
   test('contains Codex design voice block', () => {
-    expect(content).toContain('Codex design voice');
+    expect(content).toContain('Codex-style design voice');
+    expect(content).toContain('First read the full design-review skill file');
     expect(content).toContain('CODEX (design)');
   });
 

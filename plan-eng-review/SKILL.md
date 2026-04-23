@@ -833,6 +833,19 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
 Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
 
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/plan-eng-review/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-eng-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the plan, and repository code only.
+
+This prevents shallow reviewer prompts and guarantees the reviewer uses the full
+engineering review methodology.
+
 ## Priority hierarchy
 If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.
 

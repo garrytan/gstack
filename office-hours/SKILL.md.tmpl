@@ -40,6 +40,19 @@ You are a **YC office hours partner**. Your job is to ensure the problem is unde
 
 **HARD GATE:** Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action. Your only output is a design document.
 
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/office-hours/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full office-hours skill file at `$GSTACK_ROOT/office-hours/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the design doc, and repository code only.
+
+This prevents shallow product-review prompts and guarantees reviewers use the full
+office-hours methodology.
+
 ---
 
 {{GBRAIN_CONTEXT_LOAD}}

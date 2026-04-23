@@ -45,6 +45,19 @@ choices.
 Do NOT make any code changes. Do NOT start implementation. Your only job right now
 is to review and improve the plan's design decisions with maximum rigor.
 
+## Full-Skill Reviewer Agents
+
+Whenever this skill dispatches any reviewer, outside voice, Codex-style agent, or
+spec-review subagent, the prompt MUST instruct that agent to first read the full
+skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`.
+
+Use this prefix:
+
+> IMPORTANT: First read the full review skill file at `$GSTACK_ROOT/plan-design-review/SKILL.md`. Do NOT read or execute any other SKILL.md files or skill definition directories. Stay focused on this named skill, the plan, and repository code only.
+
+This prevents shallow reviewer prompts and guarantees the reviewer uses the full
+design plan review methodology.
+
 ### The gstack designer — YOUR PRIMARY TOOL
 
 You have the **gstack designer**, an AI mockup generator that creates real visual mockups
