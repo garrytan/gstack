@@ -18,6 +18,22 @@
 **Priority:** P3 (nice-to-have, not blocking anyone yet)
 **Depends on:** `/context-save` + `/context-restore` rename stable in production (v1.0.1.0+). Research: does Conductor expose a spawn-workspace CLI?
 
+## P0: Verify Opus 4.7 fanout nudge inside Claude Code harness (next rev)
+
+**What:** Re-run the fanout A/B from `test/skill-e2e-opus-47.test.ts` against Opus 4.7 **inside Claude Code's interactive harness**, not via `claude -p`. The current eval calls `claude -p` as a subprocess, which does not load SKILL.md content as system context and uses different tool wiring than the live Claude Code session. Build a small harness (Claude Code extension hook, direct API call with the same system prompt Claude Code uses, or a scripted MCP invocation) that reproduces the real tool_use context, then run the same 3-file-read A/B with and without the `model-overlays/opus-4-7.md` overlay. Record parallel-tool-call count in the first assistant turn for each arm.
+
+**Why:** v1.6.1.0 shipped a rewritten "Fan out explicitly" nudge with a concrete tool_use example (`[Read(a), Read(b), Read(c)]`). Under `claude -p` on `claude-opus-4-7`, both overlay-ON and overlay-OFF arms emitted zero parallel tool calls in the first turn. The routing A/B worked fine in the same harness (3/3 positives routed correctly), so the gap is specific to fanout, and likely specific to how `claude -p` constructs system prompts and tool schemas. Without measurement inside the real harness, we do not know whether the nudge ever lands for a real user. The PR went to production with the fanout claim asserted but unverified; this TODO closes that loop.
+
+**Pros:** Produces the "actually shipped fanout" measurement the ship-quality review flagged as missing. If the nudge works in Claude Code harness, we can gate it with a `periodic` eval and stop worrying. If it does not, we know to rewrite or drop the nudge rather than carry dead prompt weight. Either answer is better than the current "unverified."
+
+**Cons:** Requires instrumenting Claude Code's harness (or a faithful replica) rather than the easier `claude -p` path. A faithful replica needs the same system prompt, the same tool definitions, and the same stop-sequence handling. Estimated one afternoon to wire, plus $3-5 per eval run.
+
+**Context:** See `~/.gstack/projects/garrytan-gstack/evals/1.6.0.0-feat-opus-4.7-migration-e2e-opus-47-*.json` for the raw transcripts showing 0 parallel calls in first turn across both arms. The overlay is at `model-overlays/opus-4-7.md` with an explicit wrong/right tool_use example. The eval file at `test/skill-e2e-opus-47.test.ts` has the full setup including per-skill SKILL.md install, CLAUDE.md routing block, and overlay inlining.
+
+**Effort:** M (human: ~1 day / CC: ~45 min for the harness wiring, plus the eval run cost)
+**Priority:** P0 (ship-quality commitment from v1.6.1.0 — do not let it drift)
+**Depends on / blocked by:** Access to Claude Code's system prompt + tool schema (or a reproducible way to mirror them). May require a small MCP server or a direct Messages API call that mirrors Claude Code's session setup.
+
 ## P0: PACING_UPDATES_V0 — Louise's fatigue root cause (V1.1)
 
 **What:** Implement the pacing overhaul extracted from PLAN_TUNING_V1. Full design in `docs/designs/PACING_UPDATES_V0.md`. Requires: session-state model, `phase` field in question-log schema, registry extension for dynamic findings, pacing as skill-template control flow (not preamble prose), `bin/gstack-flip-decision` command, migration-prompt budget rule, first-run preamble audit, ranking threshold calibration from real V0 data, one-way-door uncapped rule, concrete verification values.

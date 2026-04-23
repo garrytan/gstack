@@ -263,23 +263,44 @@ If A: Append this section to the end of CLAUDE.md:
 
 ## Skill routing
 
-When the user's request matches an available skill, ALWAYS invoke it using the Skill
-tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
-The skill has specialized workflows that produce better results than ad-hoc answers.
+When the user's request matches an available skill, invoke it via the Skill tool. The
+skill has multi-step workflows, checklists, and quality gates that produce better
+results than an ad-hoc answer. When in doubt, invoke the skill. A false positive is
+cheaper than a false negative.
 
 Key routing rules:
-- Product ideas, "is this worth building", brainstorming → invoke office-hours
-- Bugs, errors, "why is this broken", 500 errors → invoke investigate
-- Ship, deploy, push, create PR → invoke ship
-- QA, test the site, find bugs → invoke qa
-- Code review, check my diff → invoke review
-- Update docs after shipping → invoke document-release
-- Weekly retro → invoke retro
-- Design system, brand → invoke design-consultation
-- Visual audit, design polish → invoke design-review
-- Architecture review → invoke plan-eng-review
-- Save progress, checkpoint, resume → invoke checkpoint
-- Code quality, health check → invoke health
+- Product ideas, "is this worth building", brainstorming → invoke /office-hours
+- Strategy, scope, "think bigger", "what should we build" → invoke /plan-ceo-review
+- Architecture, "does this design make sense" → invoke /plan-eng-review
+- Design system, brand, "how should this look" → invoke /design-consultation
+- Design review of a plan → invoke /plan-design-review
+- Developer experience of a plan → invoke /plan-devex-review
+- "Review everything", full review pipeline → invoke /autoplan
+- Bugs, errors, "why is this broken", "wtf", "this doesn't work" → invoke /investigate
+- Test the site, find bugs, "does this work" → invoke /qa (or /qa-only for report only)
+- Code review, check the diff, "look at my changes" → invoke /review
+- Visual polish, design audit, "this looks off" → invoke /design-review
+- Developer experience audit, try onboarding → invoke /devex-review
+- Ship, deploy, create a PR, "send it" → invoke /ship
+- Merge + deploy + verify → invoke /land-and-deploy
+- Configure deployment → invoke /setup-deploy
+- Post-deploy monitoring → invoke /canary
+- Update docs after shipping → invoke /document-release
+- Weekly retro, "how'd we do" → invoke /retro
+- Second opinion, codex review → invoke /codex
+- Safety mode, careful mode, lock it down → invoke /careful or /guard
+- Restrict edits to a directory → invoke /freeze or /unfreeze
+- Upgrade gstack → invoke /gstack-upgrade
+- Save progress, "save my work" → invoke /context-save
+- Resume, restore, "where was I" → invoke /context-restore
+- Security audit, OWASP, "is this secure" → invoke /cso
+- Make a PDF, document, publication → invoke /make-pdf
+- Launch real browser for QA → invoke /open-gstack-browser
+- Import cookies for authenticated testing → invoke /setup-browser-cookies
+- Performance regression, page speed, benchmarks → invoke /benchmark
+- Review what gstack has learned → invoke /learn
+- Tune question sensitivity → invoke /plan-tune
+- Code quality dashboard → invoke /health
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -470,27 +491,45 @@ Use the Skill tool to invoke it. The skill has specialized workflows, checklists
 quality gates that produce better results than answering inline.
 
 **Routing rules — when you see these patterns, INVOKE the skill via the Skill tool:**
-- User describes a new idea, asks "is this worth building", wants to brainstorm → invoke `/office-hours`
-- User asks about strategy, scope, ambition, "think bigger" → invoke `/plan-ceo-review`
-- User asks to review architecture, lock in the plan → invoke `/plan-eng-review`
-- User asks about design system, brand, visual identity → invoke `/design-consultation`
+- User describes a new idea, asks "is this worth building", brainstorms, pitches a concept → invoke `/office-hours`
+- User asks about strategy, scope, ambition, "think bigger", "what should we build" → invoke `/plan-ceo-review`
+- User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/plan-eng-review`
+- User asks about design system, brand, visual identity, "how should this look" → invoke `/design-consultation`
 - User asks to review design of a plan → invoke `/plan-design-review`
-- User wants all reviews done automatically → invoke `/autoplan`
-- User reports a bug, error, broken behavior, asks "why is this broken" → invoke `/investigate`
-- User asks to test the site, find bugs, QA → invoke `/qa`
-- User asks to review code, check the diff, pre-landing review → invoke `/review`
-- User asks about visual polish, design audit of a live site → invoke `/design-review`
-- User asks to ship, deploy, push, create a PR → invoke `/ship`
+- User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
+- User wants all reviews done automatically, "review everything" → invoke `/autoplan`
+- User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`
+- User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
+- User asks to just report bugs without fixing → invoke `/qa-only`
+- User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
+- User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
+- User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
+- User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
+- User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
+- User asks to configure deployment for the project → invoke `/setup-deploy`
+- User asks to monitor prod after shipping, post-deploy checks → invoke `/canary`
 - User asks to update docs after shipping → invoke `/document-release`
-- User asks for a weekly retro, what did we ship → invoke `/retro`
+- User asks for a weekly retro, what did we ship, "how'd we do" → invoke `/retro`
 - User asks for a second opinion, codex review → invoke `/codex`
 - User asks for safety mode, careful mode → invoke `/careful` or `/guard`
 - User asks to restrict edits to a directory → invoke `/freeze` or `/unfreeze`
 - User asks to upgrade gstack → invoke `/gstack-upgrade`
+- User asks to save progress, checkpoint, "save my work" → invoke `/context-save`
+- User asks to resume, restore, "where was I" → invoke `/context-restore`
+- User asks about security, OWASP, vulnerabilities, "is this secure" → invoke `/cso`
+- User asks to make a PDF, document, publication → invoke `/make-pdf`
+- User asks to launch a real browser for QA, "open the browser" → invoke `/open-gstack-browser`
+- User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies`
+- User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
+- User asks what gstack has learned, "show learnings" → invoke `/learn`
+- User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
+- User asks for code quality dashboard, "health check" → invoke `/health`
 
-**Do NOT answer the user's question directly when a matching skill exists.** The skill
-provides a structured, multi-step workflow that is always better than an ad-hoc answer.
-Invoke the skill first. If no skill matches, answer directly as usual.
+**When in doubt, invoke the skill.** A false positive (invoking a skill that wasn't
+needed) is cheaper than a false negative (answering ad-hoc when a structured workflow
+exists). The skill provides multi-step workflows, checklists, and quality gates that
+always produce better results than an ad-hoc answer. If no skill matches, answer
+directly as usual.
 
 If the user opts out of suggestions, run `gstack-config set proactive false`.
 If they opt back in, run `gstack-config set proactive true`.

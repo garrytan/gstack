@@ -473,10 +473,18 @@ export function restoreRegistry(state: TokenRegistryState): void {
   }
 }
 
-// ─── Connect endpoint rate limiter (brute-force protection) ─────
+// ─── Connect endpoint rate limiter (flood protection) ─────
+//
+// Global-only cap. Setup keys are 24 random bytes (unbruteforceable), so
+// rate limiting here is not about preventing key guessing. It caps
+// bandwidth, CPU, and log-flood damage from someone who discovered the
+// ngrok URL. A legitimate pair-agent session hits /connect once, so
+// 300/min is 60x that pattern and never hit accidentally. Per-IP tracking
+// was considered and rejected: adds a bounded Map + LRU for defense
+// already adequate at the global layer.
 
 let connectAttempts: { ts: number }[] = [];
-const CONNECT_RATE_LIMIT = 3; // attempts per minute
+const CONNECT_RATE_LIMIT = 300; // attempts per minute (~5/sec average)
 const CONNECT_WINDOW_MS = 60000;
 
 export function checkConnectRateLimit(): boolean {
@@ -485,4 +493,9 @@ export function checkConnectRateLimit(): boolean {
   if (connectAttempts.length >= CONNECT_RATE_LIMIT) return false;
   connectAttempts.push({ ts: now });
   return true;
+}
+
+// Test-only reset.
+export function __resetConnectRateLimit(): void {
+  connectAttempts = [];
 }

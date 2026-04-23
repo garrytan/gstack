@@ -142,13 +142,21 @@ function runBrowse(args: string[]): string {
 /**
  * Write a payload to a tmp file and return the path. Used for any payload
  * >4KB to avoid Windows argv limits (Codex round 2 #3).
+ *
+ * Path must be under the browse safe-dirs allowlist (/tmp or cwd on
+ * non-Windows; os.tmpdir on Windows).  v1.6.0.0 tightened --from-file
+ * validation to close a CLI/API parity gap (PR #1103), so os.tmpdir()
+ * on macOS (/var/folders/...) now fails validateReadPath.  Use the same
+ * TEMP_DIR convention as browse/src/platform.ts.
  */
+const PAYLOAD_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
+
 function writePayloadFile(payload: Record<string, unknown>): string {
   const hash = crypto.createHash("sha256")
     .update(JSON.stringify(payload))
     .digest("hex")
     .slice(0, 12);
-  const tmpPath = path.join(os.tmpdir(), `make-pdf-browse-${process.pid}-${hash}.json`);
+  const tmpPath = path.join(PAYLOAD_TMP_DIR, `make-pdf-browse-${process.pid}-${hash}.json`);
   fs.writeFileSync(tmpPath, JSON.stringify(payload), "utf8");
   return tmpPath;
 }

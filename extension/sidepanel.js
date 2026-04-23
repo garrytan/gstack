@@ -14,6 +14,7 @@ let lastId = 0;
 let eventSource = null;
 let serverUrl = null;
 let serverToken = null;
+let sseSessionToken = null;
 let chatLineCount = 0;
 let chatPollInterval = null;
 let connState = 'disconnected'; // disconnected | connected | reconnecting | dead
@@ -1036,13 +1037,38 @@ function escapeHtml(str) {
 
 // ─── SSE Connection ─────────────────────────────────────────────
 
-function connectSSE() {
+// Fetch a view-only SSE session token before opening EventSource.
+// EventSource can't send Authorization headers, and putting the root
+// token in the URL (the old ?token= path) leaks it to logs, referer
+// headers, and browser history. POST /sse-session issues an HttpOnly
+// SameSite=Strict cookie for browser pages plus a raw view-only token for
+// chrome-extension:// pages, where SameSite cookies are not reliable.
+async function ensureSseSessionToken() {
+  if (!serverUrl || !serverToken) return false;
+  try {
+    const resp = await fetch(`${serverUrl}/sse-session`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Authorization': `Bearer ${serverToken}` },
+    });
+    if (!resp.ok) return false;
+    const body = await resp.json().catch(() => ({}));
+    sseSessionToken = body && body.token ? body.token : null;
+    return !!sseSessionToken;
+  } catch (err) {
+    console.warn('[gstack sidebar] Failed to mint SSE session token:', err && err.message);
+    return false;
+  }
+}
+
+async function connectSSE() {
   if (!serverUrl) return;
   if (eventSource) { eventSource.close(); eventSource = null; }
 
-  const tokenParam = serverToken ? `&token=${serverToken}` : '';
-  const url = `${serverUrl}/activity/stream?after=${lastId}${tokenParam}`;
-  eventSource = new EventSource(url);
+  await ensureSseSessionToken();
+  const sseParam = sseSessionToken ? `&sse=${encodeURIComponent(sseSessionToken)}` : '';
+  const url = `${serverUrl}/activity/stream?after=${lastId}${sseParam}`;
+  eventSource = new EventSource(url, { withCredentials: true });
 
   eventSource.addEventListener('activity', (e) => {
     try { addEntry(JSON.parse(e.data)); } catch (err) {
@@ -1595,15 +1621,18 @@ document.querySelectorAll('.inspector-section-toggle').forEach(toggle => {
 
 // ─── Inspector SSE ──────────────────────────────────────────────
 
-function connectInspectorSSE() {
+async function connectInspectorSSE() {
   if (!serverUrl || !serverToken) return;
   if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
 
-  const tokenParam = serverToken ? `&token=${serverToken}` : '';
-  const url = `${serverUrl}/inspector/events?_=${Date.now()}${tokenParam}`;
+  // Same view-only SSE token pattern as connectSSE. ?token= is gone (see N1
+  // in the v1.6.0.0 security wave plan).
+  await ensureSseSessionToken();
+  const sseParam = sseSessionToken ? `&sse=${encodeURIComponent(sseSessionToken)}` : '';
+  const url = `${serverUrl}/inspector/events?_=${Date.now()}${sseParam}`;
 
   try {
-    inspectorSSE = new EventSource(url);
+    inspectorSSE = new EventSource(url, { withCredentials: true });
 
     inspectorSSE.addEventListener('inspectResult', (e) => {
       try {
@@ -1637,6 +1666,7 @@ function updateConnection(url, token) {
   const wasConnected = !!serverUrl;
   serverUrl = url;
   serverToken = token || null;
+  sseSessionToken = null;
   if (url) {
     document.getElementById('footer-dot').className = 'dot connected';
     const port = new URL(url).port;

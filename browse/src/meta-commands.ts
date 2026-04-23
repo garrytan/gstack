@@ -8,7 +8,7 @@ import { getCleanText } from './read-commands';
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand } from './commands';
 import { validateNavigationUrl } from './url-validation';
 import { checkScope, type TokenInfo } from './token-registry';
-import { validateOutputPath, escapeRegExp } from './path-security';
+import { validateOutputPath, validateReadPath, SAFE_DIRECTORIES, escapeRegExp } from './path-security';
 // Re-export for backward compatibility (tests import from meta-commands)
 export { validateOutputPath, escapeRegExp } from './path-security';
 import * as Diff from 'diff';
@@ -134,6 +134,17 @@ function parsePdfArgs(args: string[]): ParsedPdfArgs {
 }
 
 function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
+  // Parity with load-html --from-file (browse/src/write-commands.ts) and
+  // the direct load-html <file> path: every caller-supplied file path
+  // must pass validateReadPath so the safe-dirs policy can't be skirted
+  // by routing reads through the --from-file shortcut.
+  try {
+    validateReadPath(path.resolve(payloadPath));
+  } catch {
+    throw new Error(
+      `pdf: --from-file ${payloadPath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the payload into the project tree or /tmp first.`
+    );
+  }
   const raw = fs.readFileSync(payloadPath, 'utf8');
   const json = JSON.parse(raw);
   const out: ParsedPdfArgs = {
