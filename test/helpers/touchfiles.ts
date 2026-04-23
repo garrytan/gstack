@@ -215,6 +215,24 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     ['model-overlays/claude.md', 'model-overlays/opus-4-7.md', 'scripts/models.ts', 'scripts/resolvers/model-overlay.ts'],
   'fanout-arm-overlay-off':
     ['model-overlays/claude.md', 'model-overlays/opus-4-7.md', 'scripts/models.ts', 'scripts/resolvers/model-overlay.ts'],
+
+  // Overlay efficacy harness (SDK) — measures whether overlay nudges change
+  // behavior under @anthropic-ai/claude-agent-sdk (closer to real Claude Code
+  // than `claude -p`). testNames in the file are template literals so the
+  // completeness scanner doesn't require them; these entries exist for
+  // diff-based selection accuracy.
+  'overlay-harness-opus-4-7-fanout-toy': [
+    'model-overlays/**',
+    'test/fixtures/overlay-nudges.ts',
+    'test/helpers/agent-sdk-runner.ts',
+    'scripts/resolvers/model-overlay.ts',
+  ],
+  'overlay-harness-opus-4-7-fanout-realistic': [
+    'model-overlays/**',
+    'test/fixtures/overlay-nudges.ts',
+    'test/helpers/agent-sdk-runner.ts',
+    'scripts/resolvers/model-overlay.ts',
+  ],
 };
 
 /**
@@ -385,6 +403,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Opus 4.7 overlay evals — periodic (non-deterministic LLM behavior + Opus cost)
   'fanout-arm-overlay-on': 'periodic',
   'fanout-arm-overlay-off': 'periodic',
+
+  // Overlay efficacy harness (SDK, paid) — periodic only
+  'overlay-harness-opus-4-7-fanout-toy': 'periodic',
+  'overlay-harness-opus-4-7-fanout-realistic': 'periodic',
 };
 
 /**
