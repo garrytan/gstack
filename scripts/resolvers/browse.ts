@@ -2,6 +2,12 @@ import type { TemplateContext } from './types';
 import { COMMAND_DESCRIPTIONS } from '../../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../../browse/src/snapshot';
 
+function resolveBinaryPath(dirExpr: string, binaryName: string): string {
+  return dirExpr.startsWith('$')
+    ? `${dirExpr}/${binaryName}`
+    : `$HOME${dirExpr.replace(/^~/, '')}/${binaryName}`;
+}
+
 export function generateCommandReference(_ctx: TemplateContext): string {
   // Group commands by category
   const groups = new Map<string, Array<{ command: string; description: string; usage?: string }>>();
@@ -106,7 +112,7 @@ export function generateBrowseSetup(ctx: TemplateContext): string {
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+[ -z "$B" ] && B="${resolveBinaryPath(ctx.paths.browseDir, 'browse')}"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
