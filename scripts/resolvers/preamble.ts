@@ -8,11 +8,7 @@
  * Each skill runs independently via `claude -p` (or the host's equivalent).
  * There is no shared loader. The preamble provides: update checks, session
  * tracking, user preferences, repo mode detection, model overlays, and
- * telemetry.
- *
- * Telemetry data flow:
- *   1. Always: local JSONL append to ~/.gstack/analytics/ (inline, inspectable)
- *   2. If _TEL != "off" AND binary exists: gstack-telemetry-log for remote reporting
+ * learnings.
  */
 
 
