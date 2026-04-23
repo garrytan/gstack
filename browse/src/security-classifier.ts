@@ -142,16 +142,24 @@ async function downloadFile(url: string, dest: string): Promise<void> {
   const writer = fs.createWriteStream(tmp);
   // @ts-ignore — Node stream compat
   const reader = res.body.getReader();
-  let done = false;
-  while (!done) {
-    const chunk = await reader.read();
-    if (chunk.done) { done = true; break; }
-    writer.write(chunk.value);
+  try {
+    let done = false;
+    while (!done) {
+      const chunk = await reader.read();
+      if (chunk.done) { done = true; break; }
+      writer.write(chunk.value);
+    }
+    await new Promise<void>((resolve, reject) => {
+      writer.end((err?: Error | null) => (err ? reject(err) : resolve()));
+    });
+    fs.renameSync(tmp, dest);
+  } catch (err) {
+    // Close the writer and drop the half-written tmp so we don't leak an FD
+    // or ship a truncated model file to the renameSync path on retry.
+    try { writer.destroy(); } catch { /* already destroyed */ }
+    try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ }
+    throw err;
   }
-  await new Promise<void>((resolve, reject) => {
-    writer.end((err?: Error | null) => (err ? reject(err) : resolve()));
-  });
-  fs.renameSync(tmp, dest);
 }
 
 async function ensureTestsavantStaged(onProgress?: (msg: string) => void): Promise<void> {
