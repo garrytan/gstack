@@ -15,6 +15,7 @@ export const ALL_MODEL_NAMES = [
   'claude',
   'opus-4-7',
   'gpt',
+  'gpt-5.5',
   'gpt-5.4',
   'gemini',
   'o-series',
@@ -28,6 +29,7 @@ export type Model = (typeof ALL_MODEL_NAMES)[number];
  * Precedence rules:
  * 1. Exact match against ALL_MODEL_NAMES → return as-is.
  * 2. Family heuristics for common variants:
+ *    - `gpt-5.5-mini`, `gpt-5.5-turbo`, `gpt-5.5-*` → `gpt-5.5`
  *    - `gpt-5.4-mini`, `gpt-5.4-turbo`, `gpt-5.4-*` → `gpt-5.4`
  *    - `gpt-*` (anything else GPT) → `gpt`
  *    - `o3`, `o4`, `o4-mini`, `o1`, `o1-mini`, `o1-pro` → `o-series`
@@ -49,6 +51,7 @@ export function resolveModel(input: string): Model | null {
   }
 
   // Family heuristics
+  if (/^gpt-5\.5(-|$)/.test(s)) return 'gpt-5.5';
   if (/^gpt-5\.4(-|$)/.test(s)) return 'gpt-5.4';
   if (/^gpt(-|$)/.test(s)) return 'gpt';
   if (/^o[0-9]+(-|$)/.test(s)) return 'o-series';
