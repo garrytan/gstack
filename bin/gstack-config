@@ -5,7 +5,8 @@
 #   gstack-config get <key>          — read a config value (falls back to DEFAULTS)
 #   gstack-config set <key> <value>  — write a config value
 #   gstack-config list               — show all config (values + defaults)
-#   gstack-config defaults           — show just the defaults table
+#   gstack-config defaults           — show just defaults table
+#   gstack-config get-model <skill>  — get the routed model for a specific skill
 #
 # Env overrides (for testing):
 #   GSTACK_STATE_DIR  — override ~/.gstack state directory
@@ -63,6 +64,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
+#
+# ─── Model Routing ───────────────────────────────────────────────────
+# model_routing: <mapping> # Route specific skills to specific Claude models
+#                           # Format: model_routing:
+#                           #   office-hours: claude-opus-4.7
+#                           #   plan-devex-review: claude-sonnet-4.6
+#                           # Skills not listed use default model for the host
+#                           # Valid models: claude, claude-opus-4.7, claude-sonnet-4.6, gpt, gpt-5.4, gemini, o-series
 #
 '
 
@@ -153,6 +162,13 @@ case "${1:-}" in
       printf '  %-24s %s (%s)\n' "$KEY:" "$VALUE" "$SOURCE"
     done
     ;;
+  get-model)
+    SKILL_NAME="${2:?Usage: gstack-config get-model <skill-name>}"
+    # Extract model for specific skill from model_routing section
+    # Format: "model_routing:\n#   office-hours: claude-opus-4.7"
+    MODEL=$(grep -A 100 "^model_routing:" "$CONFIG_FILE" 2>/dev/null | grep -E "^  ${SKILL_NAME}:" | awk '{print $2}' || echo "")
+    printf '%s' "$MODEL"
+    ;;
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
@@ -162,7 +178,7 @@ case "${1:-}" in
     done
     ;;
   *)
-    echo "Usage: gstack-config {get|set|list|defaults} [key] [value]"
+    echo "Usage: gstack-config {get|set|list|defaults|get-model} [key] [value]"
     exit 1
     ;;
 esac

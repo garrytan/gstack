@@ -41,9 +41,31 @@ bun run gen:skill-docs   # regenerate SKILL.md files from templates
 bun run skill:check      # health dashboard for all skills
 ```
 
+## Per-Skill Model Routing
+
+Different skills can use different Claude models based on their task requirements. Configure model routing in `~/.gstack/config.yaml`:
+
+```yaml
+model_routing:
+  office-hours: claude-opus-4.7        # High-level brainstorming
+  plan-devex-review: claude-sonnet-4.6  # Technical review
+  plan-eng-review: claude-sonnet-4.6    # Engineering architecture
+  plan-ceo-review: claude-sonnet-4.6    # CEO-level planning
+```
+
+Skills not in the routing table use the default model (configured via `model` in config.yaml).
+
+**CLI tools:**
+- `gstack-config get-model <skill-name>` — Check which model a skill uses
+- `gstack-config set model_routing "<skill>: <model>"` — Change model for a skill
+
+**Valid models:** `claude`, `claude-opus-4.7`, `claude-sonnet-4.6`, `claude-haiku`, `gpt`, `gpt-5.4`, `gemini`, `o-series`
+
+Generated SKILL.md files include a "Model Routing" section that shows the assigned model.
+
 ## Key conventions
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
-- Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
+- Run `bun run gen:skill-docs --host all` to regenerate all host outputs (claude, codex, factory, etc.).
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.

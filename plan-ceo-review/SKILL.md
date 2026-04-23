@@ -830,6 +830,19 @@ If a richer review report already exists, skip — review skills wrote it.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
+
+## Model Routing
+
+This skill is configured to use the **claude-sonnet-4.6** model.
+
+> This routing is defined in `~/.gstack/config.yaml` under the `model_routing` section. To change the model for this skill, edit the config file or run:
+> `gstack-config set model_routing "plan-ceo-review: <model>"`
+>
+> Valid model values: `claude`, `claude-opus-4.7`, `claude-sonnet-4.6`, `claude-haiku`, `gpt`, `gpt-5.4`, `gemini`, `o-series`
+>
+> If you invoke the Agent tool or delegate to an external AI, use the model specified above.
+
+
 ## Step 0: Detect platform and base branch
 
 First, detect the git hosting platform from the remote URL:
