@@ -13,6 +13,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink } from './error-handling';
+import { writeSecureFile, mkdirSecure, restrictFilePermissions } from './file-permissions';
 import {
   checkCanaryInStructure, logAttempt, hashPayload, extractDomain,
   combineVerdict, writeSessionState, readSessionState, THRESHOLDS,
@@ -102,7 +103,7 @@ function writeToInbox(message: string, pageUrl?: string, sessionId?: string): vo
   }
 
   const inboxDir = path.join(gitRoot, '.context', 'sidebar-inbox');
-  fs.mkdirSync(inboxDir, { recursive: true, mode: 0o700 });
+  mkdirSecure(inboxDir);
 
   const now = new Date();
   const timestamp = now.toISOString().replace(/:/g, '-');
@@ -118,7 +119,7 @@ function writeToInbox(message: string, pageUrl?: string, sessionId?: string): vo
     sidebarSessionId: sessionId || 'unknown',
   };
 
-  fs.writeFileSync(tmpFile, JSON.stringify(inboxMessage, null, 2), { mode: 0o600 });
+  writeSecureFile(tmpFile, JSON.stringify(inboxMessage, null, 2));
   fs.renameSync(tmpFile, finalFile);
   console.log(`[sidebar-agent] Wrote inbox message: ${filename}`);
 }
@@ -901,9 +902,9 @@ function pollKillFile(): void {
 
 async function main() {
   const dir = path.dirname(QUEUE);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (!fs.existsSync(QUEUE)) fs.writeFileSync(QUEUE, '', { mode: 0o600 });
-  try { fs.chmodSync(QUEUE, 0o600); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; }
+  mkdirSecure(dir);
+  if (!fs.existsSync(QUEUE)) writeSecureFile(QUEUE, '');
+  else restrictFilePermissions(QUEUE);
 
   lastLine = countLines();
   await refreshToken();

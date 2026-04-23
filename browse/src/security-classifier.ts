@@ -29,6 +29,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { mkdirSecure } from './file-permissions';
 import { THRESHOLDS, type LayerSignal } from './security';
 
 // ─── Model location + packaging ──────────────────────────────
@@ -143,7 +144,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
 }
 
 async function ensureTestsavantStaged(onProgress?: (msg: string) => void): Promise<void> {
-  fs.mkdirSync(path.join(TESTSAVANT_DIR, 'onnx'), { recursive: true, mode: 0o700 });
+  mkdirSecure(path.join(TESTSAVANT_DIR, 'onnx'));
 
   // Small config/tokenizer files
   for (const f of TESTSAVANT_FILES) {
@@ -288,7 +289,7 @@ export async function scanPageContent(text: string): Promise<LayerSignal> {
 // ─── L4c: DeBERTa-v3 ensemble (opt-in) ───────────────────────
 
 async function ensureDebertaStaged(onProgress?: (msg: string) => void): Promise<void> {
-  fs.mkdirSync(path.join(DEBERTA_DIR, 'onnx'), { recursive: true, mode: 0o700 });
+  mkdirSecure(path.join(DEBERTA_DIR, 'onnx'));
   for (const f of DEBERTA_FILES) {
     const dst = path.join(DEBERTA_DIR, f);
     if (fs.existsSync(dst)) continue;
