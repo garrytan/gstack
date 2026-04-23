@@ -1,0 +1,64 @@
+name: PR Title Sync
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+    paths:
+      - 'VERSION'
+
+concurrency:
+  group: pr-title-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Sync PR title to VERSION
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Read VERSION + current title
+        id: inspect
+        run: |
+          set -euo pipefail
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          TITLE=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Only rewrite titles that ALREADY follow the v<X.Y.Z.W> prefix pattern.
+          # Custom titles (no prefix) are left alone — user kept them intentionally.
+          if printf '%s' "$TITLE" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ '; then
+            PREFIX=$(printf '%s' "$TITLE" | awk '{print $1}')
+            REST=$(printf '%s' "$TITLE" | sed 's/^v[0-9][0-9.]* //')
+            {
+              echo "prefix=$PREFIX"
+              echo "rest=$REST"
+              echo "eligible=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rewrite title if version changed
+        if: steps.inspect.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          NEW_V: ${{ steps.inspect.outputs.version }}
+          OLD_PREFIX: ${{ steps.inspect.outputs.prefix }}
+          REST: ${{ steps.inspect.outputs.rest }}
+        run: |
+          if [ "v$NEW_V" = "$OLD_PREFIX" ]; then
+            echo "Title already matches v$NEW_V; no change."
+            exit 0
+          fi
+          NEW_TITLE="v$NEW_V $REST"
+          echo "Rewriting: $OLD_PREFIX ... → v$NEW_V ..."
+          gh pr edit "$PR_NUM" --title "$NEW_TITLE"
