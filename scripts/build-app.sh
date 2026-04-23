@@ -179,7 +179,11 @@ echo "  Creating DMG..."
 rm -f "$DMG_PATH"
 
 # Create a temporary directory for DMG contents
-DMG_TMP=$(mktemp -d)
+DMG_TMP=$(mktemp -d) || { echo "ERROR: mktemp -d failed — refusing to continue so we don't cp into the filesystem root." >&2; exit 1; }
+if [ -z "$DMG_TMP" ] || [ ! -d "$DMG_TMP" ]; then
+  echo "ERROR: mktemp -d returned an invalid path ('$DMG_TMP')." >&2
+  exit 1
+fi
 cp -a "$APP_DIR" "$DMG_TMP/"
 ln -s /Applications "$DMG_TMP/Applications"
 
