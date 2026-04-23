@@ -390,6 +390,10 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **`/browse` fails?** `cd ~/.claude/skills/gstack && bun install && bun run build`
 
+If startup says `Local port bind was blocked by the environment (EPERM)` or `EACCES`, that is usually a sandbox or permission restriction, not real port exhaustion. Re-run with escalated permissions or outside the sandbox.
+
+If you see the older message `No available port after 5 attempts`, your install is stale. Rebuild or upgrade gstack so browse reports the real bind error.
+
 **Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
 
 **Want shorter commands?** `cd ~/.claude/skills/gstack && ./setup --no-prefix` — switches from `/gstack-qa` to `/qa`. Your choice is remembered for future upgrades.

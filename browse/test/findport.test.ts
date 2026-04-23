@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as net from 'net';
 import * as path from 'path';
+import { findPort } from '../src/port';
 
 const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');
 
@@ -28,6 +29,39 @@ function getFreePort(): Promise<number> {
 }
 
 describe('findPort / isPortAvailable', () => {
+  test('findPort surfaces permission-denied errors instead of reporting port exhaustion', async () => {
+    await expect(findPort({
+      maxRetries: 5,
+      minPort: 12000,
+      maxPort: 12001,
+      randomInt: () => 12000,
+      checkPort: async () => ({
+        ok: false,
+        code: 'EPERM',
+        message: 'listen EPERM: operation not permitted 127.0.0.1:12000',
+      }),
+    })).rejects.toThrow(/blocked by the environment/i);
+  });
+
+  test('findPort reports permission-denied on explicit BROWSE_PORT overrides', async () => {
+    await expect(findPort({
+      requestedPort: 43123,
+      checkPort: async () => ({
+        ok: false,
+        code: 'EACCES',
+        message: 'listen EACCES: permission denied 127.0.0.1:43123',
+      }),
+    })).rejects.toThrow(/43123/);
+
+    await expect(findPort({
+      requestedPort: 43123,
+      checkPort: async () => ({
+        ok: false,
+        code: 'EACCES',
+        message: 'listen EACCES: permission denied 127.0.0.1:43123',
+      }),
+    })).rejects.toThrow(/blocked by the environment/i);
+  });
 
   test('isPortAvailable returns true for a free port', async () => {
     // Use the same isPortAvailable logic from server.ts

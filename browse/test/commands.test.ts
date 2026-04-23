@@ -710,6 +710,56 @@ describe('CLI server script resolution', () => {
 // ─── CLI lifecycle ──────────────────────────────────────────────
 
 describe('CLI lifecycle', () => {
+  test('explicit BROWSE_PORT is preserved when CLI auto-starts the server', async () => {
+    const stateFile = `/tmp/browse-test-state-port-${Date.now()}.json`;
+
+    const requestedPort = await new Promise<number>((resolve, reject) => {
+      const srv = require('net').createServer();
+      srv.once('error', reject);
+      srv.listen(0, '127.0.0.1', () => {
+        const port = srv.address().port;
+        srv.close(() => resolve(port));
+      });
+    });
+
+    const cliPath = path.resolve(__dirname, '../src/cli.ts');
+    const cliEnv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) cliEnv[k] = v;
+    }
+    cliEnv.BROWSE_STATE_FILE = stateFile;
+    cliEnv.BROWSE_HEADLESS_SKIP = '1';
+    cliEnv.BROWSE_PORT = String(requestedPort);
+
+    const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      const proc = spawn('bun', ['run', cliPath, 'status'], {
+        timeout: 15000,
+        env: cliEnv,
+      });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => stdout += d.toString());
+      proc.stderr.on('data', (d) => stderr += d.toString());
+      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    });
+
+    let restartedPid: number | null = null;
+    let restartedPort: number | null = null;
+    if (fs.existsSync(stateFile)) {
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+      restartedPid = state.pid ?? null;
+      restartedPort = state.port ?? null;
+      fs.unlinkSync(stateFile);
+    }
+    if (restartedPid) {
+      try { process.kill(restartedPid, 'SIGTERM'); } catch {}
+    }
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain('Starting server');
+    expect(restartedPort).toBe(requestedPort);
+  }, 20000);
+
   test('dead state file triggers a clean restart', async () => {
     const stateFile = `/tmp/browse-test-state-${Date.now()}.json`;
     fs.writeFileSync(stateFile, JSON.stringify({

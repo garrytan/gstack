@@ -38,6 +38,7 @@ import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
 import { initAuditLog, writeAuditEntry } from './audit';
 import { inspectElement, modifyStyle, resetModifications, getModificationHistory, detachSession, type InspectorResult } from './cdp-inspector';
+import { findPort } from './port';
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
@@ -47,7 +48,6 @@ import {
   buildSseSetCookie, SSE_COOKIE_NAME,
 } from './sse-session-cookie';
 import * as fs from 'fs';
-import * as net from 'net';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
@@ -990,43 +990,6 @@ const browserManager = new BrowserManager();
 browserManager.onDisconnect = () => shutdown(2);
 let isShuttingDown = false;
 
-// Test if a port is available by binding and immediately releasing.
-// Uses net.createServer instead of Bun.serve to avoid a race condition
-// in the Node.js polyfill where listen/close are async but the caller
-// expects synchronous bind semantics. See: #486
-function isPortAvailable(port: number, hostname: string = '127.0.0.1'): Promise<boolean> {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.listen(port, hostname, () => {
-      srv.close(() => resolve(true));
-    });
-  });
-}
-
-// Find port: explicit BROWSE_PORT, or random in 10000-60000
-async function findPort(): Promise<number> {
-  // Explicit port override (for debugging)
-  if (BROWSE_PORT) {
-    if (await isPortAvailable(BROWSE_PORT)) {
-      return BROWSE_PORT;
-    }
-    throw new Error(`[browse] Port ${BROWSE_PORT} (from BROWSE_PORT env) is in use`);
-  }
-
-  // Random port with retry
-  const MIN_PORT = 10000;
-  const MAX_PORT = 60000;
-  const MAX_RETRIES = 5;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const port = MIN_PORT + Math.floor(Math.random() * (MAX_PORT - MIN_PORT));
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(`[browse] No available port after ${MAX_RETRIES} attempts in range ${MIN_PORT}-${MAX_PORT}`);
-}
-
 /**
  * Translate Playwright errors into actionable messages for AI agents.
  */
@@ -1534,7 +1497,7 @@ async function start() {
   safeUnlink(NETWORK_LOG_PATH);
   safeUnlink(DIALOG_LOG_PATH);
 
-  const port = await findPort();
+  const port = await findPort({ requestedPort: BROWSE_PORT || undefined });
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
