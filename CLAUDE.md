@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # gstack development
 
 ## Commands
@@ -119,6 +123,10 @@ gstack/
 ├── .github/         # CI workflows + Docker image
 │   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
 │   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
+├── openclaw/        # Native OpenClaw skills (hand-crafted, published to ClawHub)
+│   └── skills/      # gstack-openclaw-office-hours, ceo-review, investigate, retro
+├── gstack-upgrade/  # /gstack-upgrade skill + migration scripts
+│   └── migrations/  # Version migration scripts (vX.Y.Z.sh)
 ├── contrib/         # Contributor-only tools (never installed for users)
 │   └── add-host/    # /gstack-contrib-add-host skill
 ├── setup            # One-time setup: build binary + symlink skills
