@@ -188,6 +188,19 @@ export async function handleWriteCommand(
         if (args[i] === '--from-file') {
           const payloadPath = args[++i];
           if (!payloadPath) throw new Error('load-html: --from-file requires a path');
+          // Parity with the sibling `load-html <file>` path below (line 249):
+          // that branch runs every `file://` target through validateReadPath
+          // so the safe-dirs policy can't be side-stepped. Same policy must
+          // apply here — otherwise --from-file becomes a read-anywhere escape
+          // hatch for any caller that can pick the payload path (e.g., an
+          // MCP caller issuing load-html with an attacker-influenced path).
+          try {
+            validateReadPath(path.resolve(payloadPath));
+          } catch {
+            throw new Error(
+              `load-html: --from-file ${payloadPath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the payload into the project tree or /tmp first.`
+            );
+          }
           const raw = fs.readFileSync(payloadPath, 'utf8');
           let json: any;
           try { json = JSON.parse(raw); }
@@ -1188,7 +1201,16 @@ export async function handleWriteCommand(
         contentType = match[1];
         buffer = Buffer.from(match[2], 'base64');
       } else {
-        // Strategy 1: Direct URL via page.request.fetch()
+        // Strategy 1: Direct URL via page.request.fetch().
+        // Gate the URL through the same validator `goto` uses. Without
+        // this check, download + scrape bypass the navigation
+        // blocklist and a caller with write scope can read
+        // http://169.254.169.254/latest/meta-data/ (AWS IMDSv1), the
+        // GCP/Azure metadata equivalents, or any internal IPv4/IPv6
+        // the server happens to route to. The response body is then
+        // returned to the caller (base64) or written to disk where
+        // GET /file serves it back.
+        await validateNavigationUrl(url);
         const response = await page.request.fetch(url, { timeout: 30000 });
         const status = response.status();
         if (status >= 400) {
@@ -1286,6 +1308,10 @@ export async function handleWriteCommand(
       for (let i = 0; i < toDownload.length; i++) {
         const { url, type } = toDownload[i];
         try {
+          // Same gate as the download command — page.request.fetch
+          // must not reach cloud metadata, ULA ranges, or the rest of
+          // the blocklist. See url-validation.ts for the full list.
+          await validateNavigationUrl(url);
           const response = await page.request.fetch(url, { timeout: 30000 });
           if (response.status() >= 400) throw new Error(`HTTP ${response.status()}`);
           const ct = response.headers()['content-type'] || 'application/octet-stream';

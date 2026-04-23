@@ -1036,13 +1036,34 @@ function escapeHtml(str) {
 
 // ─── SSE Connection ─────────────────────────────────────────────
 
-function connectSSE() {
+// Fetch a view-only SSE session cookie before opening EventSource.
+// EventSource can't send Authorization headers, and putting the root
+// token in the URL (the old ?token= path) leaks it to logs, referer
+// headers, and browser history. POST /sse-session issues an HttpOnly
+// SameSite=Strict cookie scoped to SSE reads only; withCredentials:true
+// on EventSource makes the browser send it back.
+async function ensureSseSessionCookie() {
+  if (!serverUrl || !serverToken) return false;
+  try {
+    const resp = await fetch(`${serverUrl}/sse-session`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Authorization': `Bearer ${serverToken}` },
+    });
+    return resp.ok;
+  } catch (err) {
+    console.warn('[gstack sidebar] Failed to mint SSE session cookie:', err && err.message);
+    return false;
+  }
+}
+
+async function connectSSE() {
   if (!serverUrl) return;
   if (eventSource) { eventSource.close(); eventSource = null; }
 
-  const tokenParam = serverToken ? `&token=${serverToken}` : '';
-  const url = `${serverUrl}/activity/stream?after=${lastId}${tokenParam}`;
-  eventSource = new EventSource(url);
+  await ensureSseSessionCookie();
+  const url = `${serverUrl}/activity/stream?after=${lastId}`;
+  eventSource = new EventSource(url, { withCredentials: true });
 
   eventSource.addEventListener('activity', (e) => {
     try { addEntry(JSON.parse(e.data)); } catch (err) {
@@ -1595,15 +1616,17 @@ document.querySelectorAll('.inspector-section-toggle').forEach(toggle => {
 
 // ─── Inspector SSE ──────────────────────────────────────────────
 
-function connectInspectorSSE() {
+async function connectInspectorSSE() {
   if (!serverUrl || !serverToken) return;
   if (inspectorSSE) { inspectorSSE.close(); inspectorSSE = null; }
 
-  const tokenParam = serverToken ? `&token=${serverToken}` : '';
-  const url = `${serverUrl}/inspector/events?_=${Date.now()}${tokenParam}`;
+  // Same session-cookie pattern as connectSSE. ?token= is gone (see N1
+  // in the v1.6.0.0 security wave plan).
+  await ensureSseSessionCookie();
+  const url = `${serverUrl}/inspector/events?_=${Date.now()}`;
 
   try {
-    inspectorSSE = new EventSource(url);
+    inspectorSSE = new EventSource(url, { withCredentials: true });
 
     inspectorSSE.addEventListener('inspectResult', (e) => {
       try {
