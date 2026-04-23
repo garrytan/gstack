@@ -84,3 +84,12 @@ if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
 fi
 
 echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+
+# Optional memory-brain extension point. If ~/.gstack/hooks/on-learning-written
+# exists and is executable, pipe the validated JSON line to it. Backgrounded
+# so a slow hook never slows the skill. Exit code ignored so a broken hook
+# never breaks the skill. See docs/adapters/README.md.
+HOOK="$GSTACK_HOME/hooks/on-learning-written"
+if [ -x "$HOOK" ]; then
+  (printf '%s\n' "$VALIDATED" | "$HOOK" >/dev/null 2>&1) &
+fi

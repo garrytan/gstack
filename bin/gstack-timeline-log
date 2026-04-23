@@ -32,3 +32,10 @@ if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); 
 fi
 
 echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+
+# Optional memory-brain extension point. Same shape as on-learning-written.
+# See docs/adapters/README.md.
+HOOK="$GSTACK_HOME/hooks/on-timeline-written"
+if [ -x "$HOOK" ]; then
+  (printf '%s\n' "$INPUT" | "$HOOK" >/dev/null 2>&1) &
+fi
