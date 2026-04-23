@@ -35,9 +35,24 @@ const evalCollector = createEvalCollector('e2e-plan-format');
 // Regex predicates applied to captured AskUserQuestion content.
 // RECOMMENDATION regex is lenient on intervening markdown markers (e.g.
 // agent writes `**RECOMMENDATION:** Choose` — the `**` closers are benign).
-const RECOMMENDATION_RE = /RECOMMENDATION:[*\s]*Choose/;
+// Post v1.7.0.0: "Recommendation:" (mixed-case) is the canonical form per
+// the Pros/Cons format; accept both cases for backward compatibility.
+const RECOMMENDATION_RE = /[Rr]ecommendation:[*\s]*Choose/;
 const COMPLETENESS_RE = /Completeness:\s*\d{1,2}\/10/;
 const KIND_NOTE_RE = /options differ in kind/i;
+
+// v1.7.0.0 Pros/Cons format tokens. Tests are additive: existing
+// RECOMMENDATION / Completeness / kind-note assertions still hold; new
+// format tokens are asserted ONLY when the capture is from a v1.7+
+// skill rendering. Presence is optional for backward compatibility during
+// rollout; the periodic-tier cadence+format eval (see skill-e2e-plan-cadence)
+// is the strict gate for the new format.
+const PROS_CONS_HEADER_RE = /Pros\s*\/\s*cons:/i;
+const PRO_BULLET_RE = /^\s*✅\s+\S/m;
+const CON_BULLET_RE = /^\s*❌\s+\S/m;
+const NET_LINE_RE = /^Net:\s+\S/m;
+const D_NUMBER_RE = /^D\d+\s+—/m;
+const STAKES_RE = /Stakes if we pick wrong:/i;
 
 const SAMPLE_PLAN = `# Plan: Add User Dashboard
 

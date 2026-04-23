@@ -566,10 +566,21 @@ describe('v0.4.1 preamble features', () => {
   const skillsWithPreamble = [...tier1Skills, ...tier2PlusSkills];
 
   for (const skill of tier2PlusSkills) {
-    test(`${skill} contains RECOMMENDATION format`, () => {
+    test(`${skill} contains AskUserQuestion Pros/Cons format`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      expect(content).toContain('RECOMMENDATION: Choose');
+      // v1.7.0.0 Pros/Cons format tokens. The preamble resolver
+      // (generate-ask-user-format.ts) injects all of these into every
+      // tier-2+ skill. Drop any of them and the test catches it on the
+      // next `bun test` run.
       expect(content).toContain('AskUserQuestion');
+      expect(content).toContain('Pros / cons:');
+      expect(content).toContain('Recommendation: <choice>');
+      expect(content).toContain('Net:');
+      expect(content).toContain('ELI10');
+      expect(content).toContain('Stakes if we pick wrong:');
+      // Concrete format markers must be documented in the resolver text
+      expect(content).toMatch(/✅/);
+      expect(content).toMatch(/❌/);
     });
   }
 
