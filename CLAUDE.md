@@ -437,9 +437,18 @@ already landed on main. Your entry goes on top because your branch lands next.
 If any answer is no, fix it before continuing.
 
 **After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
-`grep "^## \[" CHANGELOG.md` and verify the full version sequence is contiguous
-with no gaps or duplicates before committing. If a version is missing, the edit
-broke something. Fix it before moving on.
+`grep "^## \[" CHANGELOG.md` to verify no duplicates and a sensible reverse-chronological
+order. Gaps between version numbers are fine. A branch that ships at v1.6.4.0 without
+a prior v1.5.2.0 or v1.5.3.0 entry on main is correct — those were branch-internal
+version numbers that never landed. Do not back-fill gaps with placeholder entries.
+
+**Never orphan branch-internal versions.** If your branch bumped VERSION several times
+during development (v1.5.1.0 → v1.5.2.0 → v1.6.4.0, say) and those earlier entries were
+never released to main, the final ship consolidates ALL of them into a single entry at
+the final version (v1.6.4.0). Collapse them — delete the old entries and move their
+content into the final entry, re-version table columns accordingly. Readers see one
+release, not a branch diary. Gaps are fine (v1.6.3.0 → v1.6.4.0 with no v1.5.x
+in between on main is correct).
 
 CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
 
@@ -451,6 +460,22 @@ CHANGELOG.md is **for users**, not contributors. Write it like product release n
 - Every entry should make someone think "oh nice, I want to try that."
 - No jargon: say "every question now tells you which project and branch you're in" not
   "AskUserQuestion format standardized across skill templates via preamble resolver."
+
+**Only document what shipped between main and this change.** Readers do not care how
+we got here. Keep out of the CHANGELOG, always:
+
+- Branch resyncs, merge commits with main, rebase activity.
+- Plan approvals, review outcomes (CEO / eng / design / outside-voice / codex findings),
+  AskUserQuestion decisions, scope negotiations.
+- "Work queued," "plan approved," "in-progress," "will ship later" — the CHANGELOG
+  documents what DID ship, not what MIGHT ship.
+- Version-bump housekeeping when no user-facing work actually landed.
+
+If the diff between the base branch version and this version has no user-facing change
+(only merges, only CHANGELOG edits, only placeholder work), the honest entry is one
+sentence: "Version bump for branch-ahead discipline. No user-facing changes yet." Stop
+there. Do not pad. Do not explain the plan that will ship eventually. Do not narrate
+the branch's history. When real work lands, the entry will replace this at /ship time.
 
 ### Release-summary format (every `## [X.Y.Z]` entry)
 

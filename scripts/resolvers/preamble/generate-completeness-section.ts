@@ -14,6 +14,6 @@ AI makes completeness near-free. Always recommend the complete option over short
 | Feature | 1 week | 30 min | ~30x |
 | Bug fix | 4 hours | 15 min | ~20x |
 
-Include \`Completeness: X/10\` for each option (10=all edge cases, 7=happy path, 3=shortcut).`;
+When options differ in coverage (e.g. full vs happy-path vs shortcut), include \`Completeness: X/10\` on each option (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind (mode posture, architectural choice, cherry-pick A/B/C where each is a different kind of thing, not a more-or-less-complete version of the same thing), skip the score and write one line explaining why: \`Note: options differ in kind, not coverage — no completeness score.\` Do not fabricate scores.`;
 }
 
