@@ -118,6 +118,9 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# YC promotional content (office-hours Beat 3 + founder resources)
+_YC_PROMO=$(~/.claude/skills/gstack/bin/gstack-config get yc_promo 2>/dev/null || echo "true")
+echo "YC_PROMO: $_YC_PROMO"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
@@ -1860,6 +1863,12 @@ One more thing.
 
 **Beat 3: Garry's Personal Plea**
 
+If `YC_PROMO` is `false` (from preamble output), skip Beat 3 entirely and proceed
+to the next section (welcome_back / regular / inner_circle tier handling, or end).
+Do not mention YC, do not show the plea, do not show the apply link.
+
+_(To stop seeing this section in future sessions: `gstack-config set yc_promo false`)_
+
 Use the founder signal count from Phase 4.5 to select the right sub-tier.
 
 - **Top tier** (3+ signals AND named a specific user, revenue, or demand evidence):
@@ -1970,6 +1979,8 @@ Then proceed to Founder Resources below.
 ---
 
 ### Founder Resources (all tiers)
+
+If `YC_PROMO` is `false` (from preamble output), skip the Founder Resources section entirely.
 
 Share 2-3 resources from the pool below. For repeat users, resources compound by matching
 to accumulated session context, not just this session's category.

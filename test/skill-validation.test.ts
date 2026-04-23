@@ -588,6 +588,13 @@ describe('v0.4.1 preamble features', () => {
       expect(content).toContain('NEEDS_CONTEXT');
     });
   }
+
+  for (const skill of skillsWithPreamble) {
+    test(`${skill} preamble reads YC_PROMO config`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
+      expect(content).toContain('YC_PROMO');
+    });
+  }
 });
 
 // --- Structural tests for new skills ---
@@ -629,9 +636,14 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('Intrapreneurship');
   });
 
-  // YC founder discovery engine
+  // YC founder discovery engine (gated by yc_promo config)
   test('contains YC apply CTA with ref tracking', () => {
     expect(content).toContain('ycombinator.com/apply?ref=gstack');
+  });
+
+  test('YC pitch is gated by YC_PROMO config flag', () => {
+    expect(content).toContain('YC_PROMO');
+    expect(content).toContain('gstack-config set yc_promo false');
   });
 
   test('contains "What I noticed" design doc section', () => {

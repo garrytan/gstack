@@ -59,6 +59,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Unknown values default to "default" with a warning.
 #                           # See docs/designs/PLAN_TUNING_V1.md for rationale.
 #
+# ─── Promotional ─────────────────────────────────────────────────────
+# yc_promo: true            # false = skip YC pitch + founder resources in /office-hours
+#                           # The pitch and resources still exist in the template,
+#                           # but are skipped at runtime when this is false.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
@@ -82,6 +87,7 @@ lookup_default() {
     codex_reviews) echo "enabled" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
+    yc_promo) echo "true" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     *) echo "" ;;
   esac
@@ -141,7 +147,7 @@ case "${1:-}" in
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix checkpoint_mode checkpoint_push codex_reviews \
+               skill_prefix checkpoint_mode checkpoint_push yc_promo codex_reviews \
                gstack_contributor skip_eng_review; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
@@ -156,7 +162,7 @@ case "${1:-}" in
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix checkpoint_mode checkpoint_push codex_reviews \
+               skill_prefix checkpoint_mode checkpoint_push yc_promo codex_reviews \
                gstack_contributor skip_eng_review; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done

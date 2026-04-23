@@ -193,4 +193,27 @@ describe('gstack-config', () => {
     const { stdout } = run(['get', 'routing_declined']);
     expect(stdout).toBe('false');
   });
+
+  // ─── yc_promo ─────────────────────────────────────────────
+  test('yc_promo defaults to true', () => {
+    const { stdout } = run(['get', 'yc_promo']);
+    expect(stdout).toBe('true');
+  });
+
+  test('yc_promo can be set to false and read back', () => {
+    run(['set', 'yc_promo', 'false']);
+    const { stdout } = run(['get', 'yc_promo']);
+    expect(stdout).toBe('false');
+  });
+
+  test('yc_promo appears in list output', () => {
+    const { stdout } = run(['list']);
+    expect(stdout).toContain('yc_promo');
+  });
+
+  test('yc_promo appears in defaults output', () => {
+    const { stdout } = run(['defaults']);
+    expect(stdout).toContain('yc_promo');
+    expect(stdout).toContain('true');
+  });
 });

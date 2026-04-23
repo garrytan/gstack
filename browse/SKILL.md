@@ -108,6 +108,9 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# YC promotional content (office-hours Beat 3 + founder resources)
+_YC_PROMO=$(~/.claude/skills/gstack/bin/gstack-config get yc_promo 2>/dev/null || echo "true")
+echo "YC_PROMO: $_YC_PROMO"
 # Detect spawned session (OpenClaw or other orchestrator)
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
