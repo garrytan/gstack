@@ -437,9 +437,18 @@ already landed on main. Your entry goes on top because your branch lands next.
 If any answer is no, fix it before continuing.
 
 **After any CHANGELOG edit that moves, adds, or removes entries,** immediately run
-`grep "^## \[" CHANGELOG.md` and verify the full version sequence is contiguous
-with no gaps or duplicates before committing. If a version is missing, the edit
-broke something. Fix it before moving on.
+`grep "^## \[" CHANGELOG.md` to verify no duplicates and a sensible reverse-chronological
+order. Gaps between version numbers are fine. A branch that ships at v1.6.4.0 without
+a prior v1.5.2.0 or v1.5.3.0 entry on main is correct — those were branch-internal
+version numbers that never landed. Do not back-fill gaps with placeholder entries.
+
+**Never orphan branch-internal versions.** If your branch bumped VERSION several times
+during development (v1.5.1.0 → v1.5.2.0 → v1.6.4.0, say) and those earlier entries were
+never released to main, the final ship consolidates ALL of them into a single entry at
+the final version (v1.6.4.0). Collapse them — delete the old entries and move their
+content into the final entry, re-version table columns accordingly. Readers see one
+release, not a branch diary. Gaps are fine (v1.6.3.0 → v1.6.4.0 with no v1.5.x
+in between on main is correct).
 
 CHANGELOG.md is **for users**, not contributors. Write it like product release notes:
 
