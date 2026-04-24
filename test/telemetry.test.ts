@@ -242,6 +242,17 @@ describe('gstack-telemetry-log', () => {
   });
 });
 
+describe('gstack-spawned-session-status', () => {
+  test('is silent when no spawned-session env var is set', () => {
+    expect(run(`${BIN}/gstack-spawned-session-status`)).toBe('');
+  });
+
+  test('emits SPAWNED_SESSION when OPENCLAW_SESSION is present', () => {
+    expect(run(`${BIN}/gstack-spawned-session-status`, { OPENCLAW_SESSION: '1' }))
+      .toBe('SPAWNED_SESSION: true');
+  });
+});
+
 describe('.pending marker', () => {
   test('finalizes stale .pending from another session as outcome:unknown', () => {
     setConfig('telemetry', 'anonymous');
@@ -398,23 +409,32 @@ describe('gstack-community-dashboard', () => {
 });
 
 describe('preamble telemetry gating (#467)', () => {
-  test('preamble source does not write JSONL unconditionally', () => {
-    const preamble = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'preamble.ts'), 'utf-8');
-    const lines = preamble.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
-        // Each JSONL write must be inside a _TEL conditional (within 5 lines above)
-        let foundConditional = false;
-        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
-            foundConditional = true;
-            break;
-          }
-        }
-        if (!foundConditional) {
-          throw new Error(`Unconditional JSONL write at preamble.ts line ${i + 1}: ${lines[i].trim()}`);
-        }
-      }
-    }
+  test('preamble source gates local tracking artifacts on telemetry', () => {
+    const preamble = fs.readFileSync(
+      path.join(ROOT, 'scripts', 'resolvers', 'preamble', 'generate-preamble-bash.ts'),
+      'utf-8',
+    );
+    expect(preamble).toMatch(/if \[ "\$_TEL" != "off" \]; then\nmkdir -p ~\/\.gstack\/sessions/);
+    expect(preamble).toMatch(/if \[ "\$_TEL" != "off" \]; then\nmkdir -p ~\/\.gstack\/analytics/);
+    expect(preamble).toMatch(/if \[ "\$_TEL" != "off" \]; then\n\$\{ctx\.paths\.binDir\}\/gstack-timeline-log/);
+  });
+
+  test('completion status gates local timeline and analytics on telemetry', () => {
+    const completion = fs.readFileSync(
+      path.join(ROOT, 'scripts', 'resolvers', 'preamble', 'generate-completion-status.ts'),
+      'utf-8',
+    );
+    expect(completion).toMatch(/if \[ "\$_TEL" != "off" \]; then\nrm -f ~\/\.gstack\/analytics\/\.pending-/);
+    expect(completion).toContain('if [ "$_TEL" != "off" ]; then');
+    expect(completion).toContain('gstack-timeline-log');
+  });
+
+  test('preamble source uses helper binary instead of OPENCLAW_SESSION directly', () => {
+    const preamble = fs.readFileSync(
+      path.join(ROOT, 'scripts', 'resolvers', 'preamble', 'generate-preamble-bash.ts'),
+      'utf-8',
+    );
+    expect(preamble).toContain('gstack-spawned-session-status');
+    expect(preamble).not.toContain('OPENCLAW_SESSION');
   });
 });

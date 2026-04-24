@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# gstack-spawned-session-status — emit SPAWNED_SESSION when running under an orchestrator
+#
+# Keeps orchestrator-specific env var names out of generated SKILL.md preambles.
+set -euo pipefail
+
+if [ -n "${OPENCLAW_SESSION:-}" ]; then
+  echo "SPAWNED_SESSION: true"
+fi

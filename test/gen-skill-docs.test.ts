@@ -2475,6 +2475,15 @@ describe('telemetry', () => {
     expect(content).toContain('PLAN MODE EXCEPTION');
   });
 
+  test('generated SKILL.md gates session tracking and timeline on telemetry', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('if [ "$_TEL" != "off" ]; then');
+    expect(content).toContain('mkdir -p ~/.gstack/sessions');
+    expect(content).toContain('gstack-timeline-log');
+    expect(content).not.toContain('OPENCLAW_SESSION');
+    expect(content).toContain('gstack-spawned-session-status');
+  });
+
   test('generated SKILL.md contains pending marker handling', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('.pending');
