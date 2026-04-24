@@ -2,6 +2,22 @@
 
 ## Testing
 
+### Pre-existing test failures surfaced during v1.12.0.0 ship
+
+**What:** Three test failures on bare main that have been shipping as-is for multiple versions:
+
+1. `gstack-config gbrain keys > GSTACK_HOME overrides real config dir` (`test/brain-sync.test.ts:104`) — the GSTACK_HOME env override leaks into the real `~/.gstack/config.yaml`. Test asserts real config does NOT contain `gbrain_sync_mode: full` but it does. Either the test environment isn't isolated correctly or `bin/gstack-config` is writing to both locations.
+2. `gstack-brain-sync secret scan > blocks bearer-json` (`test/brain-sync.test.ts:303`) — the bearer-token secret scanner expects `status: "blocked"` but sees `"ok"`. The JSON-format bearer-token pattern isn't being caught. Check the regex in the Python scanner inside `bin/gstack-brain-sync` vs the test fixture content.
+3. `Opus 4.7 overlay — pacing directive > keeps Fan out / Effort-match / Literal interpretation nudges` (`test/model-overlay-opus-4-7.test.ts:87`) — v1.10.1.0 (#1166) removed the "Fan out explicitly" nudge from the overlay but the assertion was never updated. Either the nudge should come back (intentional removal reverted) or the test should be updated to match the new expected content.
+
+**Why:** All three have been green-washing through recent `/ship` runs via "pre-existing test failures skipped: <name>." Each one either signals a real isolation bug (#1), a security regression (#2), or a stale assertion (#3).
+
+**Priority:** P0
+
+**Effort:** S-M each. #1 likely a test harness fix. #2 might be a real scanner regression — investigate before shipping more memory-sync changes. #3 is a one-line test update OR a revert of #1166.
+
+---
+
 ### `security-bench-haiku-responses.json` is 27MB, violates the 2MB tracked-file gate
 
 **What:** `browse/test/fixtures/security-bench-haiku-responses.json` landed on main at v1.6.4.0 (PR #1135) at 27MB. The `no compiled binaries in git > git tracks no files larger than 2MB` gate in `test/skill-validation.test.ts:1623` fails on main and on every feature branch that merges main afterward.

@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.12.0.0] - 2026-04-24
+
+## **`/setup-gbrain` — any coding agent goes from zero to "gbrain is running, and I can call it" in under five minutes.**
+
+gstack v1.9.0.0 shipped `gbrain-sync`, which assumed a `gbrain` CLI was already installed. That was fine on Garry's machine (he'd manually cloned `~/git/gbrain`), broken for everyone else. This release closes the onboarding gap: one skill, three paths (local PGLite, existing Supabase URL, or Supabase auto-provision via the Management API), an MCP registration step for Claude Code, a per-remote trust triad (read-write / read-only / deny) so multi-client consultants don't mingle brains, and a reusable secret-sink test harness other skills can import when they start handling secrets.
+
+### What shipped
+
+Six new `bin/` helpers and one new skill template. `bin/gstack-gbrain-repo-policy` stores per-remote ingest tiers at `~/.gstack/gbrain-repo-policy.json` with a `_schema_version: 2` field so future migrations are deterministic (the first one — legacy `allow` → `read-write` — already runs on first read of any pre-D3 file). `bin/gstack-gbrain-detect` emits the full state as JSON so the skill can skip steps that are already done. `bin/gstack-gbrain-install` probes `~/git/gbrain` and `~/gbrain` before cloning fresh (fixes the day-one dup-clone footgun on the author's own machine) and fails hard on PATH shadowing with a three-option remediation menu instead of warn-and-continue. `bin/gstack-gbrain-lib.sh` extracts the `read_secret_to_env` helper used for both PAT collection and pooler-URL paste — one canonical implementation of the stty-echo-off + SIGINT-restore + env-var-only pattern. `bin/gstack-gbrain-supabase-verify` rejects direct-connection URLs (IPv6-only, fails in most environments) with exit code 3 so the caller's retry UX is distinct from a generic format error. `bin/gstack-gbrain-supabase-provision` wraps the Management API — list-orgs, create, poll, pooler-url, list-orphans, delete-project — with full HTTP error coverage (401/403/402/409/429/5xx), exponential backoff, and `--cleanup-orphans` support for the rare case where someone kills setup mid-provision.
+
+The skill template itself threads these together into a single interactive flow. PAT collection shows the full scope disclosure verbatim before the read-s prompt, explains that the token grants access to every project in the user's Supabase account, and emits a revocation reminder at the end. Path 1's pooler-URL paste gets the same hygiene plus a redacted preview (host / port / database visible, password masked). Switching between engines wraps `gbrain migrate` in `timeout 180s` with an actionable message on deadlock. Concurrent-run protection via `mkdir ~/.gstack/.setup-gbrain.lock.d`. Telemetry records scenario, install result, MCP opt-in, trust tier — all enumerated categorical values, never free-form strings that could leak secrets.
+
+`/health` gets a new GBrain dimension (weight 10%, wrapped in `timeout 5s`) alongside type-check / lint / tests / dead-code / shell-linter. The dimension is omitted — not red — when gbrain isn't installed, so running `/health` on a non-gbrain machine doesn't penalize that choice.
+
+`test/helpers/secret-sink-harness.ts` is new infrastructure. Runs a subprocess with a seeded secret, captures stdout / stderr / files-under-HOME / telemetry-JSONL, and asserts the seed never appears in any channel via four match rules (exact + URL-decoded + first-12-char prefix + base64). Seven positive-control tests prove the harness catches leaks in every covered channel; four negative controls run real setup-gbrain bins with seeded secrets and confirm nothing escapes. Any future skill that handles secrets can import `runWithSecretSink` and run the same pattern.
+
+### The numbers that matter
+
+Source: `bun test` against Slices 1–7's five new test files.
+
+| Suite | Tests | Time |
+|---|---|---|
+| `gbrain-repo-policy.test.ts` | 24 | ~1.2s |
+| `gbrain-detect-install.test.ts` | 15 | ~1.0s |
+| `gbrain-lib-verify.test.ts` | 22 | ~0.2s |
+| `gbrain-supabase-provision.test.ts` | 28 | ~13.8s |
+| `secret-sink-harness.test.ts` | 11 | ~7.0s |
+| **Total** | **100** | **~23s** |
+
+Every HTTP error path for the Supabase Management API is covered by a mock-server fixture. Every secret-bearing bin is exercised with a distinctive seed through the leak harness.
+
+### What this means for Claude Code users
+
+Previously: install gbrain manually, hope nothing was shadowing on PATH, paste the pooler URL into an echoing prompt, figure out MCP registration yourself. Now: one command, three paths, PAT-handled-correctly auto-provision, MCP registered for Claude Code automatically, trust tiers for multi-client work, leak-tested end-to-end. Run `/setup-gbrain`.
+
+### Itemized changes
+
+#### Added
+- `/setup-gbrain` skill (`setup-gbrain/SKILL.md.tmpl`) — full onboarding flow with path selection, PAT-scoped disclosure, redacted URL preview, concurrent-run lock, SIGINT recovery with `--resume-provision`, and `--cleanup-orphans` subcommand.
+- `bin/gstack-gbrain-repo-policy` — per-remote trust triad (read-write / read-only / deny), schema-versioned file format, atomic writes, corrupt-file quarantine.
+- `bin/gstack-gbrain-detect` — JSON state reporter for skill branching.
+- `bin/gstack-gbrain-install` — D5 detect-first installer, D19 PATH-shadow fail-hard validator, pinned gbrain commit.
+- `bin/gstack-gbrain-lib.sh` — shared `read_secret_to_env` bash helper.
+- `bin/gstack-gbrain-supabase-verify` — structural URL validator with distinct exit for direct-connection rejects.
+- `bin/gstack-gbrain-supabase-provision` — Management API wrapper (list-orgs / create / wait / pooler-url / list-orphans / delete-project) with full HTTP error coverage and retry+backoff.
+- `test/helpers/secret-sink-harness.ts` — reusable negative-space leak-testing harness.
+
+#### Changed
+- `/health` skill adds a GBrain composite dimension (weight 10%, wrapped in `timeout 5s`). Existing category weights rebalanced to keep the composite score on the 0–10 scale; historical JSONL entries without a `gbrain` field read as `null` for trend comparison.
+
+#### For contributors
+- Pre-Impl Gate 1 verified Supabase Management API shape before any code was written. Corrected two wrong endpoint assumptions (`POST /v1/projects` not `/v1/organizations/{ref}/projects`; `/config/database/pooler` not `/config/database`) and confirmed gbrain's `--non-interactive` + `GBRAIN_DATABASE_URL` env var are real. Documented in the plan file.
+- Review discipline: CEO review + Codex outside voice + Eng review all passed in plan mode before any code landed (3 reviews, 21 D-decisions, 0 unresolved gaps).
+
 ## [1.11.1.0] - 2026-04-23
 
 ## **Plan mode stopped silently rubber-stamping your reviews. The forcing questions actually fire now.**
