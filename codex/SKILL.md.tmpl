@@ -42,7 +42,7 @@ assumptions, catches things you might miss. Present its output faithfully, not s
 ## Step 0: Check codex binary
 
 ```bash
-CODEX_BIN=$(which codex 2>/dev/null || echo "")
+CODEX_BIN=$(command -v codex || echo "")
 [ -z "$CODEX_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CODEX_BIN"
 ```
 
