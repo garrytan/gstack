@@ -1252,14 +1252,14 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 ## Completed
 
-### Overlay efficacy harness + Opus 4.7 fanout nudge removal (v1.6.5.0)
+### Overlay efficacy harness + Opus 4.7 fanout nudge removal (v1.10.1.0)
 - Built `test/skill-e2e-overlay-harness.test.ts`, a parametric periodic-tier eval that drives `@anthropic-ai/claude-agent-sdk` and measures first-turn fanout rate (overlay-ON vs overlay-OFF) across registered fixtures
 - Measured the original "Fan out explicitly" overlay nudge: baseline Opus 4.7 = 70% first-turn fanout on toy prompt, with our nudge = 10%, with Anthropic's own canonical `<use_parallel_tool_calls>` text = 0%
 - Removed the counterproductive nudge from `model-overlays/opus-4-7.md`
 - Shipped 36-test free-tier unit suite for the SDK runner + strict fixture validator
 - Registered `overlay-harness-opus-4-7-fanout-{toy,realistic}` in E2E_TOUCHFILES and E2E_TIERS
 - Total investigation cost: ~$7 across 3 eval runs
-**Completed:** v1.6.5.0
+**Completed:** v1.10.1.0
 
 ### CI eval pipeline (v0.9.9.0)
 - GitHub Actions eval upload on Ubicloud runners ($0.006/run)

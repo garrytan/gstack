@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.6.5.0] - 2026-04-23
+## [1.10.1.0] - 2026-04-23
 
 ## **We tried to make Opus 4.7 faster with a prompt. Measurement said it got slower. Pulled the bullet.**
 
