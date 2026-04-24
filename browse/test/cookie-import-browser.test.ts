@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { PassThrough } from 'node:stream';
-import { CdpPipeTransport } from '../src/cookie-import-browser';
+import { CdpPipeTransport, extractCookiesViaCdpPipe } from '../src/cookie-import-browser';
 
 // ─── Test Constants ─────────────────────────────────────────────
 
@@ -675,5 +675,113 @@ describe('CdpPipeTransport', () => {
     );
 
     t.close();
+  });
+});
+
+// A mock transport that replays scripted responses per-method.
+// The test writes scripts keyed by method name; send() returns the next
+// scripted response for that method.
+class ScriptedTransport {
+  private scripts: Record<string, unknown[]> = {};
+  sent: Array<{ method: string; params?: unknown; sessionId?: string }> = [];
+
+  script(method: string, ...responses: unknown[]) {
+    this.scripts[method] = (this.scripts[method] ?? []).concat(responses);
+  }
+
+  async send(method: string, params?: object, sessionId?: string): Promise<any> {
+    this.sent.push({ method, params, sessionId });
+    const queue = this.scripts[method];
+    if (!queue || queue.length === 0) {
+      throw new Error(`No scripted response for ${method}`);
+    }
+    const next = queue.shift();
+    if (next instanceof Error) throw next;
+    return next;
+  }
+}
+
+describe('extractCookiesViaCdpPipe', () => {
+  test('happy path: attaches to first page target, requests cookies, filters by domain', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', {
+      targetInfos: [
+        { targetId: 'BROWSER1', type: 'browser' },
+        { targetId: 'PAGE1', type: 'page', url: 'about:blank' },
+      ],
+    });
+    transport.script('Target.attachToTarget', { sessionId: 'S1' });
+    transport.script('Network.enable', {});
+    transport.script('Network.getAllCookies', {
+      cookies: [
+        { name: 'sid', value: 'abc', domain: 'example.com', path: '/', expires: 1800000000, size: 4, httpOnly: true, secure: true, session: false, sameSite: 'Lax' },
+        { name: 'other', value: 'xyz', domain: 'other.com', path: '/', expires: -1, size: 3, httpOnly: false, secure: false, session: true, sameSite: 'None' },
+      ],
+    });
+
+    const cookies = await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toEqual({
+      name: 'sid',
+      value: 'abc',
+      domain: 'example.com',
+      path: '/',
+      expires: 1800000000,
+      secure: true,
+      httpOnly: true,
+      sameSite: 'Lax',
+    });
+
+    expect(transport.sent.map(s => s.method)).toEqual([
+      'Target.getTargets',
+      'Target.attachToTarget',
+      'Network.enable',
+      'Network.getAllCookies',
+    ]);
+
+    expect(transport.sent[1].params).toEqual({ targetId: 'PAGE1', flatten: true });
+
+    expect(transport.sent[2].sessionId).toBe('S1');
+    expect(transport.sent[3].sessionId).toBe('S1');
+  });
+
+  test('matches cookies with leading-dot domain normalization', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', { targetInfos: [{ targetId: 'P', type: 'page' }] });
+    transport.script('Target.attachToTarget', { sessionId: 'S1' });
+    transport.script('Network.enable', {});
+    transport.script('Network.getAllCookies', {
+      cookies: [
+        { name: 'a', value: '1', domain: '.example.com', path: '/', expires: -1, size: 1, httpOnly: false, secure: false, session: true, sameSite: 'Lax' },
+      ],
+    });
+
+    const cookies = await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0].domain).toBe('.example.com');
+  });
+
+  test('throws cdp_error if no page target exists', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', {
+      targetInfos: [{ targetId: 'BROWSER1', type: 'browser' }],
+    });
+
+    let caught: any = null;
+    try {
+      await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+    expect(caught!.message.toLowerCase()).toContain('page target');
+  });
+
+  test('empty domains list short-circuits to empty result', async () => {
+    const transport = new ScriptedTransport();
+    const cookies = await extractCookiesViaCdpPipe(transport as any, []);
+    expect(cookies).toEqual([]);
+    expect(transport.sent).toHaveLength(0);
   });
 });

@@ -1151,6 +1151,72 @@ export class CdpPipeTransport {
   }
 }
 
+// Minimal transport surface needed by extractCookiesViaCdpPipe. Lets tests
+// pass a scripted mock without constructing a real CdpPipeTransport.
+export interface CdpCallable {
+  send(method: string, params?: object, sessionId?: string): Promise<any>;
+}
+
+/**
+ * Extract cookies over a CDP-over-pipe transport. The transport must already
+ * be wired to a running Chrome process with --remote-debugging-pipe.
+ *
+ * Flow:
+ *   1. Target.getTargets         — find a page target
+ *   2. Target.attachToTarget     — flatten session, get sessionId
+ *   3. Network.enable            — on the page session
+ *   4. Network.getAllCookies     — returns every cookie the browser has
+ *   5. Filter + map to PlaywrightCookie[]
+ */
+export async function extractCookiesViaCdpPipe(
+  transport: CdpCallable,
+  domains: string[],
+): Promise<PlaywrightCookie[]> {
+  if (domains.length === 0) return [];
+
+  const targets = await transport.send('Target.getTargets');
+  const pageTarget = (targets.targetInfos as Array<{ targetId: string; type: string }>)
+    .find(t => t.type === 'page');
+  if (!pageTarget) {
+    throw new CookieImportError(
+      'No page target found in Chrome for CDP cookie extraction',
+      'cdp_error',
+    );
+  }
+
+  const attached = await transport.send('Target.attachToTarget', {
+    targetId: pageTarget.targetId,
+    flatten: true,
+  });
+  const sessionId = attached.sessionId as string;
+
+  await transport.send('Network.enable', undefined, sessionId);
+  const cookiesResp = await transport.send('Network.getAllCookies', undefined, sessionId);
+
+  // Normalize domain matching: `.example.com` should match `example.com` and vice versa.
+  const domainSet = new Set<string>();
+  for (const d of domains) {
+    domainSet.add(d);
+    domainSet.add(d.startsWith('.') ? d.slice(1) : '.' + d);
+  }
+
+  const result: PlaywrightCookie[] = [];
+  for (const c of cookiesResp.cookies as CdpCookie[]) {
+    if (!domainSet.has(c.domain)) continue;
+    result.push({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path || '/',
+      expires: c.expires === -1 ? -1 : c.expires,
+      secure: c.secure,
+      httpOnly: c.httpOnly,
+      sameSite: cdpSameSite(c.sameSite),
+    });
+  }
+  return result;
+}
+
 /**
  * Check if a browser's cookie DB contains v20 (App-Bound) encrypted cookies.
  * Quick check — reads a small sample, no decryption attempted.
