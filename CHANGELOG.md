@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.12.1.0] - 2026-04-24
+
+## **`/setup-gbrain` day-two fixes: three shell bugs in the onboarding path, one MCP scope mistake.**
+
+v1.12.0.0 shipped /setup-gbrain yesterday. Running it end-to-end for the first time surfaced four real defects that blocked the happy path. This is the day-two patch — tiny diff, all blockers, no new scope.
+
+### Itemized changes
+
+#### Fixed
+- `bin/gstack-gbrain-install`: D19 PATH-shadow check was string-comparing `"gbrain 0.18.2"` (with prefix) against `"0.18.2"`, so every install exited 3 with a false-positive PATH-shadowing error. Parse with `awk '{print $NF}'` to extract just the version number.
+- `bin/gstack-brain-init`: `gh repo create --source $GSTACK_HOME` ran before `git init`, failing with "not a git repository" on every first-run path. The script's later steps wire up the remote explicitly, so `--source` is redundant and can be omitted.
+- `setup-gbrain/SKILL.md.tmpl` Step 9: smoke test used `gbrain put_page --title ... --tags ...`, which doesn't exist. The real command is `gbrain put <slug>` with body piped on stdin.
+- `setup-gbrain/SKILL.md.tmpl` Step 5a: MCP registered with default scope `local` (per-workspace), defeating the whole point of a cross-session knowledge base. Now uses `--scope user` with absolute path to the gbrain binary (so PATH resolution at subprocess spawn isn't a gamble).
+
+#### Changed
+- `test/gstack-brain-init-gh-mock.test.ts`: updated assertion to match the fixed behavior (`expect(createCall).not.toContain('--source')`).
+
 ## [1.12.0.0] - 2026-04-24
 
 ## **`/setup-gbrain` — any coding agent goes from zero to "gbrain is running, and I can call it" in under five minutes.**

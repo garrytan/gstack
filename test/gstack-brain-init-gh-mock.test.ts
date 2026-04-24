@@ -134,8 +134,10 @@ describe('gstack-brain-init uses gh CLI when present + authed', () => {
     expect(createCall).toContain('gstack-brain-testuser');
     expect(createCall).toContain('--private');
     expect(createCall).toContain('--description');
-    expect(createCall).toContain('--source');
-    expect(createCall).toContain(tmpHome);
+    // --source is intentionally omitted: gh requires the source dir to already
+    // be a git repo, but brain-init doesn't `git init $GSTACK_HOME` until later.
+    // Creating bare and wiring up the remote explicitly avoids that ordering bug.
+    expect(createCall).not.toContain('--source');
   });
 
   test('falls back to gh repo view when create reports already-exists', () => {
