@@ -1,0 +1,82 @@
+---
+name: statusline-setup
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Install the Claude Code statusline. Shows current directory, git branch, active model,
+  context window %, 5-hour rate limit usage, and Spotify now playing (macOS).
+  Use when setting up Claude Code for the first time, adding the statusline to a new
+  machine, or when asked to "set up statusline", "install statusline", or
+  "show now playing in Claude". Claude Code only — uses the statusLine settings.json
+  field not available on other hosts. (gstack)
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+triggers:
+  - set up statusline
+  - install statusline
+  - show spotify in claude
+  - configure status bar
+  - set up status bar
+---
+
+{{PREAMBLE}}
+
+# /statusline-setup — Claude Code Status Bar
+
+> **Claude Code only.** This skill uses the `statusLine` field in `~/.claude/settings.json`,
+> which is not available on Codex, Cursor, Kiro, or other hosts. On unsupported hosts,
+> skip this skill and let the user know.
+
+This skill installs a shell-based Claude Code statusline that shows at a glance:
+
+- 📁 Current directory
+- 🌿 Git branch (only when inside a git repo)
+- 🤖 Active model name
+- 📊 Context window usage % (green → yellow → red at 80%)
+- 💰 5-hour rate limit usage %
+- ♫ Spotify now playing (macOS only — silently omitted on Linux/Windows)
+
+---
+
+## Step 1 — Install the script
+
+Read the script at `${CLAUDE_SKILL_DIR}/statusline.sh` and write it verbatim to
+`~/.claude/statusline.sh`.
+
+Then make it executable:
+
+```bash
+chmod +x ~/.claude/statusline.sh
+```
+
+## Step 2 — Wire it into settings.json
+
+Read `~/.claude/settings.json`. If the file does not exist, create it as `{}`.
+
+Add or update the `statusLine` field, preserving all existing fields:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "sh ~/.claude/statusline.sh"
+  }
+}
+```
+
+Use Edit (not Write) if the file already has content, so existing config is preserved.
+
+## Step 3 — Confirm
+
+Tell the user:
+
+- `~/.claude/statusline.sh` was installed
+- The statusline will appear on the next Claude Code interaction (no restart needed)
+- **macOS:** Spotify integration requires granting Terminal Automation permission for
+  Spotify in System Settings → Privacy & Security → Automation. Without it, the ♫
+  section is silently omitted.
+- **Linux / Windows:** The Spotify section is always omitted (`osascript` is macOS-only).
+  All other fields (directory, branch, model, context %, rate limit %) work on all platforms.
