@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# gstack-brain-consumer — manage the consumer (reader) registry.
+#
+# Consumer = a reader that ingests the gstack-brain git repo as a source of
+# session memory. v1 primary consumer is GBrain; later versions can register
+# Codex, OpenClaw, or third-party readers.
+#
+# NOTE ON NAMING: internally this helper uses "consumer" (correct data-model
+# term). User-facing copy and the alias `gstack-brain-reader` use "reader"
+# (matches user mental model: "what's reading my brain?").
+#
+# Usage:
+#   gstack-brain-consumer add <name> --ingest-url <url> --token <token>
+#   gstack-brain-consumer list
+#   gstack-brain-consumer remove <name>
+#   gstack-brain-consumer test <name>
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack
+
+set -euo pipefail
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+CONSUMERS_FILE="$GSTACK_HOME/consumers.json"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+
+ensure_file() {
+  mkdir -p "$GSTACK_HOME"
+  if [ ! -f "$CONSUMERS_FILE" ]; then
+    echo '{"consumers": []}' > "$CONSUMERS_FILE"
+  fi
+}
+
+get_remote_url() {
+  git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null || echo ""
+}
+
+sub_add() {
+  local name="" url="" token=""
+  local positional=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --ingest-url) url="$2"; shift 2 ;;
+      --token) token="$2"; shift 2 ;;
+      --) shift; break ;;
+      -*) echo "Unknown flag: $1" >&2; exit 1 ;;
+      *) positional="$1"; shift ;;
+    esac
+  done
+  name="$positional"
+  if [ -z "$name" ] || [ -z "$url" ]; then
+    echo "Usage: gstack-brain-consumer add <name> --ingest-url <url> [--token <token>]" >&2
+    exit 1
+  fi
+  ensure_file
+  # Upsert in consumers.json, store token in gstack-config under `<name>_token`.
+  python3 - "$CONSUMERS_FILE" "$name" "$url" <<'PYEOF'
+import sys, json
+path, name, url = sys.argv[1:4]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {"consumers": []}
+entry = {"name": name, "ingest_url": url, "status": "unknown", "token_ref": f"{name}_token"}
+cs = data.setdefault("consumers", [])
+for i, c in enumerate(cs):
+    if c.get("name") == name:
+        cs[i] = entry
+        break
+else:
+    cs.append(entry)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print(f"registered consumer: {name}")
+PYEOF
+  if [ -n "$token" ]; then
+    "$CONFIG_BIN" set "${name}_token" "$token"
+    echo "token stored: gstack-config get ${name}_token to retrieve"
+  fi
+  # Attempt registration with remote (HTTP POST).
+  sub_test "$name"
+}
+
+sub_list() {
+  if [ ! -f "$CONSUMERS_FILE" ]; then
+    echo '{"consumers": []}'
+    return 0
+  fi
+  cat "$CONSUMERS_FILE"
+}
+
+sub_remove() {
+  local name="${1:-}"
+  if [ -z "$name" ]; then
+    echo "Usage: gstack-brain-consumer remove <name>" >&2
+    exit 1
+  fi
+  ensure_file
+  python3 - "$CONSUMERS_FILE" "$name" <<'PYEOF'
+import sys, json
+path, name = sys.argv[1:3]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {"consumers": []}
+before = len(data.get("consumers", []))
+data["consumers"] = [c for c in data.get("consumers", []) if c.get("name") != name]
+after = len(data["consumers"])
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print(f"removed: {before - after} entry(ies)")
+PYEOF
+}
+
+sub_test() {
+  local name="${1:-}"
+  if [ -z "$name" ]; then
+    echo "Usage: gstack-brain-consumer test <name>" >&2
+    exit 1
+  fi
+  ensure_file
+  # Look up the consumer by name.
+  local info
+  info=$(python3 - "$CONSUMERS_FILE" "$name" <<'PYEOF'
+import sys, json
+path, name = sys.argv[1:3]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {"consumers": []}
+for c in data.get("consumers", []):
+    if c.get("name") == name:
+        print(c.get("ingest_url", ""))
+        sys.exit(0)
+sys.exit(1)
+PYEOF
+  ) || { echo "No such consumer: $name" >&2; exit 1; }
+
+  local url="$info"
+  local token
+  token=$("$CONFIG_BIN" get "${name}_token" 2>/dev/null || echo "")
+  if [ -z "$url" ] || [ -z "$token" ]; then
+    echo "consumer '$name': url or token missing; cannot test"
+    return 0
+  fi
+  local repo_url
+  repo_url=$(get_remote_url)
+  echo "Testing $name at ${url%/}/ingest-repo ..."
+  local resp
+  resp=$(curl -sS -X POST "${url%/}/ingest-repo" \
+    -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/json" \
+    --data "{\"repo_url\":\"$repo_url\"}" \
+    -w "\n%{http_code}" 2>&1 || echo -e "\ncurl-error")
+  local code
+  code=$(echo "$resp" | tail -1)
+  if [ "$code" = "200" ] || [ "$code" = "201" ] || [ "$code" = "204" ]; then
+    echo "ok (HTTP $code)"
+    # Update status in consumers.json.
+    python3 - "$CONSUMERS_FILE" "$name" "ok" <<'PYEOF'
+import sys, json
+path, name, status = sys.argv[1:4]
+with open(path) as f: data = json.load(f)
+for c in data.get("consumers", []):
+    if c.get("name") == name:
+        c["status"] = status
+with open(path, "w") as f: json.dump(data, f, indent=2); f.write("\n")
+PYEOF
+  else
+    echo "failed (HTTP $code)"
+    python3 - "$CONSUMERS_FILE" "$name" "error" <<'PYEOF'
+import sys, json
+path, name, status = sys.argv[1:4]
+with open(path) as f: data = json.load(f)
+for c in data.get("consumers", []):
+    if c.get("name") == name:
+        c["status"] = status
+with open(path, "w") as f: json.dump(data, f, indent=2); f.write("\n")
+PYEOF
+  fi
+}
+
+case "${1:-}" in
+  add) shift; sub_add "$@" ;;
+  list) sub_list ;;
+  remove) shift; sub_remove "$@" ;;
+  test) shift; sub_test "$@" ;;
+  --help|-h|"") sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "Unknown subcommand: $1" >&2; exit 1 ;;
+esac

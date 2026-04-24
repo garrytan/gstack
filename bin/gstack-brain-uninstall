@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# gstack-brain-uninstall — clean off-ramp for gstack-brain sync.
+#
+# Usage:
+#   gstack-brain-uninstall [--yes] [--delete-remote]
+#
+# Removes the git layer from ~/.gstack/ and clears sync config. Your local
+# gstack memory (learnings, timelines, etc.) is NOT touched — this is an
+# uninstall-sync command, not a delete-data command.
+#
+# Flags:
+#   --yes             Skip the confirmation prompt.
+#   --delete-remote   Also delete the GitHub repo via `gh repo delete`
+#                     (interactive unless --yes is also passed).
+#
+# What it removes (in ~/.gstack/):
+#   .git/                      — the sync repo's git data
+#   .gitignore                 — canonical ignore-all marker
+#   .gitattributes             — merge driver declarations
+#   .brain-allowlist           — sync path list
+#   .brain-privacy-map.json    — sync privacy classifier
+#   .brain-queue.jsonl         — pending queue
+#   .brain-discover-cursor     — discover-new cursor
+#   .brain-last-push           — timestamp marker
+#   .brain-skip.txt            — user-maintained skip list
+#   .brain-sync.lock.d/        — lock dir (if present)
+#   .brain-sync-status.json    — health status
+#   consumers.json             — consumer/reader registry
+#
+# What it clears (via gstack-config):
+#   gbrain_sync_mode            → off
+#   gbrain_sync_mode_prompted   → false (so user re-prompts on re-init)
+#
+# What it does NOT touch:
+#   Project data (projects/*, retros/*, developer-profile.json, etc.)
+#   Consumer tokens in gstack-config (<name>_token keys)
+#   ~/.gstack-brain-remote.txt in your home directory
+#   The actual remote git repo (unless --delete-remote)
+
+set -euo pipefail
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+
+ASSUME_YES=0
+DELETE_REMOTE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes|-y) ASSUME_YES=1; shift ;;
+    --delete-remote) DELETE_REMOTE=1; shift ;;
+    --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "Unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ ! -d "$GSTACK_HOME/.git" ]; then
+  echo "gstack-brain-uninstall: nothing to do (~/.gstack/.git doesn't exist)."
+  exit 0
+fi
+
+REMOTE_URL=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null || echo "")
+
+# ---- confirmation ----
+if [ "$ASSUME_YES" != "1" ]; then
+  cat <<EOF
+This will remove gstack-brain sync from this machine:
+  - Remove ~/.gstack/.git and sync config files
+  - Clear gbrain_sync_mode in gstack-config
+  - Remote: $REMOTE_URL will be $([ "$DELETE_REMOTE" = "1" ] && echo "DELETED" || echo "kept")
+
+Local memory (learnings, plans, etc.) is NOT touched.
+
+EOF
+  printf "Proceed? [y/N] "
+  read -r reply
+  case "$reply" in
+    y|Y|yes|Yes) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+fi
+
+# ---- delete remote if requested ----
+if [ "$DELETE_REMOTE" = "1" ] && [ -n "$REMOTE_URL" ]; then
+  case "$REMOTE_URL" in
+    *github.com*|*@github*)
+      if command -v gh >/dev/null 2>&1; then
+        # Extract owner/repo from URL.
+        REPO_SLUG=$(echo "$REMOTE_URL" | sed -E 's#.*[:/]([^/:]+/[^/]+)(\.git)?$#\1#' | sed 's/\.git$//')
+        if [ -n "$REPO_SLUG" ]; then
+          echo "Deleting GitHub repo: $REPO_SLUG"
+          if [ "$ASSUME_YES" = "1" ]; then
+            gh repo delete "$REPO_SLUG" --yes 2>/dev/null || echo "gh repo delete failed; continuing local uninstall"
+          else
+            gh repo delete "$REPO_SLUG" 2>/dev/null || echo "gh repo delete failed; continuing local uninstall"
+          fi
+        fi
+      else
+        echo "--delete-remote requires the gh CLI. Skipping remote deletion."
+      fi
+      ;;
+    *)
+      echo "--delete-remote only supports github.com remotes. Delete manually if needed: $REMOTE_URL"
+      ;;
+  esac
+fi
+
+# ---- remove sync files ----
+echo "Removing git layer and sync config files..."
+rm -rf "$GSTACK_HOME/.git" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.gitignore" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.gitattributes" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-allowlist" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-privacy-map.json" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-queue.jsonl" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-discover-cursor" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-last-push" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-last-pull" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-skip.txt" 2>/dev/null || true
+rm -f "$GSTACK_HOME/.brain-sync-status.json" 2>/dev/null || true
+rm -rf "$GSTACK_HOME/.brain-sync.lock.d" 2>/dev/null || true
+rm -f "$GSTACK_HOME/consumers.json" 2>/dev/null || true
+
+# ---- clear config keys ----
+"$CONFIG_BIN" set gbrain_sync_mode off >/dev/null 2>&1 || true
+"$CONFIG_BIN" set gbrain_sync_mode_prompted false >/dev/null 2>&1 || true
+
+# ---- leave remote-helper file alone unless user asked to delete remote ----
+if [ "$DELETE_REMOTE" = "1" ]; then
+  rm -f "$REMOTE_FILE" 2>/dev/null || true
+else
+  if [ -f "$REMOTE_FILE" ]; then
+    echo "(keeping $REMOTE_FILE — remove manually if you want to forget the URL)"
+  fi
+fi
+
+cat <<EOF
+
+gstack-brain uninstall complete.
+Sync is off. ~/.gstack/ is a plain directory again.
+Your project data, learnings, and profile are untouched.
+
+To re-enable sync later: gstack-brain-init
+EOF

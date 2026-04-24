@@ -2,7 +2,10 @@
 # gstack-timeline-log — append a timeline event to the project timeline
 # Usage: gstack-timeline-log '{"skill":"review","event":"started","branch":"main"}'
 #
-# Session timeline: local-only, never sent anywhere.
+# Session timeline: local by default. If the user enables `gbrain_sync_mode`
+# with the `full` (not `artifacts-only`) privacy tier — via the first-run
+# stop-gate from `gstack-brain-init` or the preamble — timeline events are
+# published to the user's private GBrain sync repo. See docs/gbrain-sync.md.
 # Required fields: skill, event (started|completed).
 # Optional: branch, outcome, duration_s, session, ts.
 # Validation failure → skip silently (non-blocking).
@@ -32,3 +35,6 @@ if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); 
 fi
 
 echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/timeline.jsonl" 2>/dev/null &

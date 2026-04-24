@@ -1,0 +1,452 @@
+#!/usr/bin/env bash
+# gstack-brain-sync — drain queue, commit allowlisted paths, push to remote.
+#
+# Usage:
+#   gstack-brain-sync --once           drain queue, commit, push (default)
+#   gstack-brain-sync --status         print sync health as JSON
+#   gstack-brain-sync --skip-file <p>  add <p> to ~/.gstack/.brain-skip.txt
+#   gstack-brain-sync --drop-queue --yes   clear queue without committing
+#   gstack-brain-sync --discover-new   scan allowlist dirs, enqueue changed files
+#
+# Invoked by the preamble at skill START and END boundaries. No persistent
+# daemon. Typical run <1s when queue empty; ~200-800ms with network push.
+#
+# Singleton enforcement: flock on ~/.gstack/.brain-sync.lock. Concurrent
+# invocations queue and serialize.
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack (aligns with writers).
+
+set -uo pipefail
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+QUEUE="$GSTACK_HOME/.brain-queue.jsonl"
+ALLOWLIST="$GSTACK_HOME/.brain-allowlist"
+PRIVACY_MAP="$GSTACK_HOME/.brain-privacy-map.json"
+SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
+STATUS_FILE="$GSTACK_HOME/.brain-sync-status.json"
+LAST_PUSH_FILE="$GSTACK_HOME/.brain-last-push"
+LOCK_FILE="$GSTACK_HOME/.brain-sync.lock"
+DISCOVER_CURSOR="$GSTACK_HOME/.brain-discover-cursor"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+
+# Remote-specific hint for auth errors (branch on origin URL).
+remote_auth_hint() {
+  local url
+  url=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null || echo "")
+  case "$url" in
+    *github.com*|*@github.*) echo "run: gh auth status (and gh auth refresh if needed)" ;;
+    *gitlab*) echo "run: glab auth status" ;;
+    *) echo "check 'git remote -v' and your credentials" ;;
+  esac
+}
+
+write_status() {
+  # args: status_code message [extra_json_blob]
+  local code="$1"
+  local msg="$2"
+  local extra="${3:-{\}}"
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+  python3 - "$STATUS_FILE" "$code" "$msg" "$ts" "$extra" <<'PYEOF' 2>/dev/null || true
+import json, sys
+path, code, msg, ts, extra = sys.argv[1:6]
+try:
+    extra_obj = json.loads(extra) if extra else {}
+except Exception:
+    extra_obj = {}
+data = {"status": code, "message": msg, "ts": ts, **extra_obj}
+with open(path, "w") as f:
+    json.dump(data, f)
+    f.write("\n")
+PYEOF
+}
+
+# Read config; return 0 if sync active, 1 otherwise.
+sync_active() {
+  if [ ! -d "$GSTACK_HOME/.git" ]; then
+    return 1
+  fi
+  local mode
+  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+  [ "$mode" = "off" ] && return 1
+  return 0
+}
+
+# Secret regex families — stdin scan. Exits 0 clean, 1 if hit.
+# Echoes the matching pattern family name on hit. Uses python3 -c (not
+# heredoc) so sys.stdin stays available for the diff content.
+secret_scan_stdin() {
+  python3 -c "
+import sys, re
+patterns = [
+    ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
+    ('github-token', re.compile(r'\\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
+    ('openai-key', re.compile(r'\\bsk-[A-Za-z0-9_-]{20,}')),
+    ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
+    ('jwt', re.compile(r'\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b')),
+    ('bearer-token-json',
+     # JSON-embedded auth headers. The optional Bearer/Basic/Token prefix
+     # matters: real auth values include a literal space after the scheme
+     # name, but the value charset below does not include spaces, so
+     # without the optional prefix every Bearer token in a JSON blob slips
+     # past the scanner.
+     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\\s*:\\s*\"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}\"',
+                re.IGNORECASE)),
+]
+text = sys.stdin.read()
+for name, rx in patterns:
+    m = rx.search(text)
+    if m:
+        snippet = m.group(0)
+        if len(snippet) > 30:
+            snippet = snippet[:30] + '...'
+        print(name + ':' + snippet)
+        sys.exit(1)
+sys.exit(0)
+"
+}
+
+# Compute matched allowlisted, privacy-filtered path set from queue.
+# Output: newline-delimited relative paths that should be staged.
+compute_paths_to_stage() {
+  local mode="$1"
+  python3 - "$GSTACK_HOME" "$QUEUE" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" <<'PYEOF'
+import sys, json, os, fnmatch, glob
+
+gstack_home, queue, allowlist_path, privacy_path, skip_path, mode = sys.argv[1:7]
+
+def load_lines(path):
+    try:
+        with open(path) as f:
+            return [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+    except FileNotFoundError:
+        return []
+
+def load_privacy_map(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        # Expected: [{"pattern": "glob", "class": "artifact" | "behavioral"}]
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+allowlist_globs = load_lines(allowlist_path)
+privacy_map = load_privacy_map(privacy_path)
+skip_lines = set(load_lines(skip_path))
+
+# Read queue; collect unique file paths.
+queue_paths = set()
+try:
+    with open(queue) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                p = obj.get("file")
+                if isinstance(p, str):
+                    queue_paths.add(p)
+            except json.JSONDecodeError:
+                continue
+except FileNotFoundError:
+    pass
+
+def path_matches_any(path, globs):
+    for pattern in globs:
+        if fnmatch.fnmatchcase(path, pattern):
+            return True
+    return False
+
+def privacy_class(path, mapping):
+    for entry in mapping:
+        pat = entry.get("pattern")
+        if pat and fnmatch.fnmatchcase(path, pat):
+            return entry.get("class", "artifact")
+    # Default class when no pattern matches: artifact (safe default).
+    return "artifact"
+
+# mode filter: 'off' → nothing; 'artifacts-only' → only artifact class;
+# 'full' → both classes.
+def mode_allows(cls, mode):
+    if mode == "off":
+        return False
+    if mode == "artifacts-only":
+        return cls == "artifact"
+    return True  # full
+
+final = []
+for p in sorted(queue_paths):
+    if p in skip_lines:
+        continue
+    # Must be under GSTACK_HOME root. Reject absolute + reject ../ escape.
+    if p.startswith("/") or ".." in p.split("/"):
+        continue
+    # Must match at least one allowlist glob.
+    if not path_matches_any(p, allowlist_globs):
+        continue
+    # Must survive privacy mode filter.
+    cls = privacy_class(p, privacy_map)
+    if not mode_allows(cls, mode):
+        continue
+    # Must exist on disk — can't stage what isn't there.
+    if not os.path.exists(os.path.join(gstack_home, p)):
+        continue
+    final.append(p)
+
+for p in final:
+    print(p)
+PYEOF
+}
+
+subcmd_once() {
+  if ! sync_active; then
+    # Silent no-op when feature not initialized / disabled.
+    exit 0
+  fi
+
+  # Singleton lock via atomic mkdir. `flock(1)` isn't on macOS by default;
+  # `mkdir` is atomic on every POSIX filesystem. If another --once is already
+  # running, skip (don't wait) — the next skill boundary will catch up.
+  local lock_dir="${LOCK_FILE}.d"
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    # Is the lock stale? Check the pidfile inside. If process is dead, clear it.
+    if [ -f "$lock_dir/pid" ]; then
+      local lock_pid
+      lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || echo "")
+      if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+        # Stale lock — clear and retry once.
+        rm -rf "$lock_dir" 2>/dev/null || true
+        if ! mkdir "$lock_dir" 2>/dev/null; then
+          exit 0
+        fi
+      else
+        # Lock is held by a live process.
+        exit 0
+      fi
+    else
+      # Lock dir without pidfile — treat as held; don't touch.
+      exit 0
+    fi
+  fi
+  echo "$$" > "$lock_dir/pid" 2>/dev/null || true
+
+  local mode
+  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+
+  local paths_file
+  paths_file=$(mktemp /tmp/brain-sync-paths.XXXXXX) || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  # Single trap covers both: lock cleanup AND tempfile cleanup.
+  trap 'rm -f "$paths_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+
+  compute_paths_to_stage "$mode" > "$paths_file"
+  if [ ! -s "$paths_file" ]; then
+    # Nothing to stage. Clear any stale queue entries and exit.
+    : > "$QUEUE"
+    write_status "idle" "no allowlisted changes in queue"
+    exit 0
+  fi
+
+  # Stage with git add -f (forces past .gitignore=*) explicit paths only.
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
+  done < "$paths_file"
+
+  # Secret-scan staged diff.
+  local scan_out
+  scan_out=$(git -C "$GSTACK_HOME" diff --cached 2>/dev/null | secret_scan_stdin || true)
+  if [ -n "$scan_out" ]; then
+    # Hit — unstage, preserve queue, write loud status.
+    git -C "$GSTACK_HOME" reset HEAD -- . >/dev/null 2>&1 || true
+    local hint
+    hint="secret pattern detected ($scan_out). Remediation: review the staged file, then run: gstack-brain-sync --skip-file <path> OR edit the content."
+    write_status "blocked" "$hint"
+    echo "BRAIN_SYNC: blocked: $scan_out" >&2
+    exit 0
+  fi
+
+  # Commit with template message.
+  local n ts
+  n=$(wc -l < "$paths_file" | tr -d ' ')
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local msg="sync: $n file(s) | $ts"
+  git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+    commit -q -m "$msg" 2>/dev/null || {
+      # Nothing to commit (e.g. all files already committed).
+      : > "$QUEUE"
+      write_status "idle" "queue drained but no new changes to commit"
+      exit 0
+    }
+
+  # Push. On reject, fetch + merge (merge driver handles JSONL) + retry once.
+  local push_err
+  push_err=$(git -C "$GSTACK_HOME" push origin HEAD 2>&1 >/dev/null) || {
+    # Check if this is an auth error first — no point retrying.
+    if echo "$push_err" | grep -qiE "auth|permission|403|401|forbidden"; then
+      local hint
+      hint=$(remote_auth_hint)
+      write_status "push_failed" "push failed: auth error. fix: $hint"
+      echo "BRAIN_SYNC: push failed: auth. fix: $hint" >&2
+      # Queue cleared because the commit exists locally; next push will send it.
+      : > "$QUEUE"
+      exit 0
+    fi
+
+    # Try a fetch-and-merge + retry.
+    if git -C "$GSTACK_HOME" fetch origin 2>/dev/null; then
+      local branch
+      branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
+      if git -C "$GSTACK_HOME" merge --no-edit "origin/$branch" >/dev/null 2>&1; then
+        if git -C "$GSTACK_HOME" push origin HEAD 2>/dev/null; then
+          : > "$QUEUE"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+          write_status "ok" "pushed $n file(s) after rebase"
+          exit 0
+        fi
+      fi
+    fi
+    write_status "push_failed" "push failed: $(printf '%s' "$push_err" | head -1)"
+    : > "$QUEUE"
+    exit 0
+  }
+
+  # Success: clear queue, update last-push.
+  : > "$QUEUE"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+  write_status "ok" "pushed $n file(s)"
+  exit 0
+}
+
+subcmd_status() {
+  if [ -f "$STATUS_FILE" ]; then
+    cat "$STATUS_FILE"
+  else
+    echo '{"status":"unknown","message":"no status file yet"}'
+  fi
+  # Supplemental info (not in status file).
+  local queue_depth=0
+  [ -f "$QUEUE" ] && queue_depth=$(wc -l < "$QUEUE" | tr -d ' ')
+  local last_push="never"
+  [ -f "$LAST_PUSH_FILE" ] && last_push=$(cat "$LAST_PUSH_FILE" 2>/dev/null || echo never)
+  local mode
+  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+  printf '{"queue_depth":%s,"last_push":"%s","mode":"%s"}\n' "$queue_depth" "$last_push" "$mode"
+}
+
+subcmd_skip_file() {
+  local path="${1:-}"
+  if [ -z "$path" ]; then
+    echo "Usage: gstack-brain-sync --skip-file <path>" >&2
+    exit 1
+  fi
+  mkdir -p "$GSTACK_HOME"
+  # Avoid duplicate entries.
+  if [ -f "$SKIP_FILE" ] && grep -Fxq "$path" "$SKIP_FILE"; then
+    echo "already in skip list: $path"
+    exit 0
+  fi
+  echo "$path" >> "$SKIP_FILE"
+  echo "added to skip list: $path"
+  echo "(future writers will not enqueue this path; existing queue entries ignored on next --once)"
+}
+
+subcmd_drop_queue() {
+  local force="${1:-}"
+  if [ "$force" != "--yes" ]; then
+    echo "Refusing: --drop-queue discards pending syncs. Pass --yes to confirm." >&2
+    exit 1
+  fi
+  if [ ! -f "$QUEUE" ]; then
+    echo "queue already empty"
+    exit 0
+  fi
+  local n
+  n=$(wc -l < "$QUEUE" | tr -d ' ')
+  : > "$QUEUE"
+  echo "dropped $n queue entries"
+}
+
+subcmd_discover_new() {
+  if ! sync_active; then
+    exit 0
+  fi
+  # Walk allowlist globs; enqueue any file where mtime+size differs from cursor.
+  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" "$SCRIPT_DIR/gstack-brain-enqueue" <<'PYEOF' 2>/dev/null || true
+import sys, os, json, glob, fnmatch, subprocess, hashlib
+
+gstack_home, allowlist_path, cursor_path, enqueue_bin = sys.argv[1:5]
+
+def load_lines(path):
+    try:
+        with open(path) as f:
+            return [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+    except FileNotFoundError:
+        return []
+
+def load_cursor(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def save_cursor(path, data):
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except OSError:
+        pass
+
+allowlist = load_lines(allowlist_path)
+cursor = load_cursor(cursor_path)
+new_cursor = dict(cursor)
+
+# Walk all files under gstack_home, match against allowlist.
+for root, dirs, files in os.walk(gstack_home):
+    # Skip .git and .brain-* state files.
+    if ".git" in root.split(os.sep):
+        continue
+    for name in files:
+        full = os.path.join(root, name)
+        rel = os.path.relpath(full, gstack_home)
+        if rel.startswith(".brain-"):
+            continue
+        matched = any(fnmatch.fnmatchcase(rel, pat) for pat in allowlist)
+        if not matched:
+            continue
+        try:
+            st = os.stat(full)
+            key = f"{int(st.st_mtime)}:{st.st_size}"
+        except OSError:
+            continue
+        prev = cursor.get(rel)
+        if prev != key:
+            # Enqueue via the shim (respects sync mode + skip list).
+            subprocess.run([enqueue_bin, rel], check=False)
+            new_cursor[rel] = key
+
+save_cursor(cursor_path, new_cursor)
+PYEOF
+}
+
+# -------- dispatch --------
+case "${1:-}" in
+  --once|"") subcmd_once ;;
+  --status) subcmd_status ;;
+  --skip-file) shift; subcmd_skip_file "${1:-}" ;;
+  --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;
+  --discover-new) subcmd_discover_new ;;
+  --help|-h)
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    echo "Unknown subcommand: $1" >&2
+    echo "Run: gstack-brain-sync --help" >&2
+    exit 1
+    ;;
+esac

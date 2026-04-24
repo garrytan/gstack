@@ -1,5 +1,56 @@
 # TODOS
 
+## Testing
+
+### Pre-existing test failures surfaced during v1.12.0.0 ship
+
+**What:** Two remaining test failures on bare main that have been shipping as-is for multiple versions. (The bearer-json secret-scan regression flagged here originally was a real leak path and has been fixed in this PR — see Completed section below.)
+
+1. `gstack-config gbrain keys > GSTACK_HOME overrides real config dir` (`test/brain-sync.test.ts:104`) — the GSTACK_HOME env override leaks into the real `~/.gstack/config.yaml`. Test asserts real config does NOT contain `gbrain_sync_mode: full` but it does. Either the test environment isn't isolated correctly or `bin/gstack-config` is writing to both locations.
+2. `Opus 4.7 overlay — pacing directive > keeps Fan out / Effort-match / Literal interpretation nudges` (`test/model-overlay-opus-4-7.test.ts:87`) — v1.10.1.0 (#1166) removed the "Fan out explicitly" nudge from the overlay but the assertion was never updated. Either the nudge should come back (intentional removal reverted) or the test should be updated to match the new expected content.
+
+**Why:** Both have been green-washing through recent `/ship` runs via "pre-existing test failures skipped: <name>." #1 signals a real config isolation bug; #2 is a stale assertion since the overlay intentionally removed that nudge.
+
+**Priority:** P0 (both)
+
+**Effort:** S each. #1 likely a test harness fix in `test/brain-sync.test.ts`'s setup hook. #2 is a one-line test update OR a revert of #1166.
+
+---
+
+### `security-bench-haiku-responses.json` is 27MB, violates the 2MB tracked-file gate
+
+**What:** `browse/test/fixtures/security-bench-haiku-responses.json` landed on main at v1.6.4.0 (PR #1135) at 27MB. The `no compiled binaries in git > git tracks no files larger than 2MB` gate in `test/skill-validation.test.ts:1623` fails on main and on every feature branch that merges main afterward.
+
+**Why:** The fixture is a legitimate CI replay corpus (real Haiku responses from the 500-case BrowseSafe-Bench) used to verify the ensemble classifier deterministically. But 13x over the 2MB limit means it will keep failing the validation test for every future ship.
+
+**Pros:** Removes a pre-existing failure that wastes a triage slot in every /ship run.
+
+**Cons:** Moving to git-lfs adds a dependency. Splitting into chunks risks breaking the bench test. External hosting adds a CI fetch step.
+
+**Context:** Noticed during workspace-aware-ship /ship on 2026-04-23 when the post-merge test suite flagged this single failure. Introduced on main in PR #1135 (`v1.6.4.0: cut Haiku classifier FP from 44% to 23%`), commit d75402bb. Two reasonable paths: (a) split into multiple ≤2MB chunks and load them in the bench test, (b) move to git-lfs.
+
+**Effort:** M (human: ~2-3h / CC: ~20 min)
+**Priority:** P1 (not blocking ship, but every future /ship triages the same failure)
+**Depends on:** nothing
+
+---
+
+## P1: Structural STOP-Ask forcing function across all skills
+
+**What:** Design and implement a structural forcing function that catches when a skill mandates per-issue AskUserQuestion but the model silently substitutes batch-synthesis. Candidate mechanisms: question-count assertion (skill declares expected question count in frontmatter; post-run audit logs if model fired <N), typed question templates (skill hands the model pre-built AskUserQuestion payloads rather than prose instructions), or a canUseTool-based post-run audit that compares declared-gates-fired vs expected.
+
+**Why:** The authoritative "Skill Invocation During Plan Mode" rule (hoisted to preamble position 1) tells the model AskUserQuestion satisfies plan mode's end-of-turn requirement. That fixes plan-mode entry, but NOT the broader class of failures: the model silently substitutes batch-synthesis for STOP-Ask loops whenever the skill's interactive contract collides with any other rule surface (auto mode, tool-count anxiety, cognitive load). Without structural enforcement, every skill with STOP-per-issue contracts remains vulnerable.
+
+**Pros:** Catches a class-of-bug, not an instance. Applies to every skill that declares STOP gates. Builds on `canUseTool` primitive in `test/helpers/agent-sdk-runner.ts`.
+
+**Cons:** Real design work. How does a skill declare expected question count — static value in frontmatter, or dynamic based on number of review sections that surface findings? Is the audit inline (blocking, same-turn) or post-hoc (after skill completion)? Calibration of expected-vs-actual thresholds depends on real V0 question-log data across skills.
+
+**Context:** Relevant files — `scripts/question-registry.ts` (typed question catalog), `scripts/resolvers/question-tuning.ts` (preference classification), `bin/gstack-question-log` (event log), `bin/gstack-question-preference` (read/write preferences), `test/helpers/agent-sdk-runner.ts` (canUseTool harness). Existing question-log already captures fire events; the gap is declaring expected counts and auditing against them.
+
+**Effort:** L (human: ~1-2 weeks / CC+gstack: ~2-3 hours for design doc + first-pass implementation).
+**Priority:** P1 if interactive-skill volume is growing; P2 otherwise.
+**Depends on / blocked by:** design doc — likely its own `docs/designs/STOP_ASK_ENFORCEMENT_V0.md`.
+
 ## Context skills
 
 ### `/context-save --lane` + `/context-restore --lane` for parallel workstreams
@@ -257,7 +308,13 @@ defend the compiled-side ingress.
 
 ### ML Prompt Injection Classifier — v2 Follow-ups
 
-#### Cut Haiku false-positive rate from 44% toward ~15% (P0)
+#### ~~Cut Haiku false-positive rate from 44% toward ~15% (P0)~~ — SHIPPED in v1.5.2.0
+
+Measured result (500-case BrowseSafe-Bench smoke): detection 67.3% → **56.2%**, FP 44.1% → **22.9%**. Gate passes (detection ≥ 55%, FP ≤ 25%). Knobs that landed: label-first ensemble voting (verdict label trumps numeric confidence for transcript layer), hallucination guard (`verdict=block` at conf < 0.40 → warn-vote), new `THRESHOLDS.SOLO_CONTENT_BLOCK = 0.92` for label-less content classifiers, label-first extension to toolOutput path, tighter Haiku prompt + 8 few-shot exemplars, pinned Haiku model, `claude -p` spawn from `os.tmpdir()` so CLAUDE.md can't poison the classifier, timeout bumped 15s → 45s. CI gate: `browse/test/security-bench-ensemble.test.ts` replays fixture, fail-closed on missing fixture + security-layer diff. The original plan's stop-loss revert order didn't move the FP needle (FPs came from single-layer-BLOCK paths, not ensemble); the real levers turned out to be architectural (label-first) plus a new decoupled threshold.
+
+See CHANGELOG.md [1.5.2.0] for the full shipped summary.
+
+#### Original spec (pre-ship, retained for archive)
 
 **What:** v1 ships the Haiku transcript classifier on every tool output (Read/Grep/Bash/Glob/WebFetch). BrowseSafe-Bench smoke measured detection 67.3% + FP 44.1% — a 4.4x detection lift from L4-only, but FP tripled because Haiku is more aggressive than L4 on edge cases (phishing-style benign content, borderline social engineering). The review banner makes FPs recoverable but 44% is too high for a delightful default.
 
@@ -1261,6 +1318,26 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
 ## Completed
+
+### Bearer-token secret-scan regression fixed + E2E coverage added for privacy gate + gh auto-create (v1.12.0.0)
+
+- **Fixed the `bearer-token-json` regression in `bin/gstack-brain-sync`** — the value charset `[A-Za-z0-9_./+=-]{16,}` didn't permit spaces, so auth headers with the standard `Bearer <token>` form (literal space after the scheme name) slipped past the scanner. Added an optional `(Bearer |Basic |Token )?` prefix to the pattern. Validated against 5 positive cases (including the regression fixture) + 3 negative cases (short tokens, non-secret keys, random JSON). The 7-pattern secret scanner now passes all fixtures including bearer-json.
+- **Added `test/gstack-brain-init-gh-mock.test.ts`** — 8 tests exercising the `gh` CLI auto-create path that previously had zero coverage. Stubs `gh` on PATH to record every call, asserts `gh repo create --private --description "..." --source <GSTACK_HOME>` fires with the computed `gstack-brain-<user>` default name. Covers: happy path, fall-through-to-`gh repo view` when create hits already-exists, user-provided-URL-bypasses-gh, gh-not-on-path prompts for URL, gh-not-authed prompts for URL, idempotent `--remote` re-runs, conflicting-remote rejection.
+- **Added `test/skill-e2e-brain-privacy-gate.test.ts`** — periodic-tier E2E (~$0.30-$0.50/run). Stages a fake `gbrain` on PATH + `gbrain_sync_mode_prompted=false` in config, runs a real skill via `runAgentSdkTest`, intercepts tool-use via `canUseTool`, and asserts the preamble fires the 3-option privacy AskUserQuestion with canonical prose ("publish session memory" / "artifact" / "decline"). Second test asserts the gate is silent when `prompted=true` (idempotency-within-session).
+- **Registered `brain-privacy-gate` in `test/helpers/touchfiles.ts`** (periodic tier) with dependency tracking on `scripts/resolvers/preamble/generate-brain-sync-block.ts`, `bin/gstack-brain-sync`, `bin/gstack-brain-init`, `bin/gstack-config`, and the Agent SDK runner. Diff-based selection will re-run the E2E whenever any of those change.
+
+**Completed:** v1.12.0.0 (2026-04-24)
+
+---
+
+### Overlay efficacy harness + Opus 4.7 fanout nudge removal (v1.10.1.0)
+- Built `test/skill-e2e-overlay-harness.test.ts`, a parametric periodic-tier eval that drives `@anthropic-ai/claude-agent-sdk` and measures first-turn fanout rate (overlay-ON vs overlay-OFF) across registered fixtures
+- Measured the original "Fan out explicitly" overlay nudge: baseline Opus 4.7 = 70% first-turn fanout on toy prompt, with our nudge = 10%, with Anthropic's own canonical `<use_parallel_tool_calls>` text = 0%
+- Removed the counterproductive nudge from `model-overlays/opus-4-7.md`
+- Shipped 36-test free-tier unit suite for the SDK runner + strict fixture validator
+- Registered `overlay-harness-opus-4-7-fanout-{toy,realistic}` in E2E_TOUCHFILES and E2E_TIERS
+- Total investigation cost: ~$7 across 3 eval runs
+**Completed:** v1.10.1.0
 
 ### CI eval pipeline (v0.9.9.0)
 - GitHub Actions eval upload on Ubicloud runners ($0.006/run)

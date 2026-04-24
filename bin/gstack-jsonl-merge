@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# gstack-jsonl-merge — git merge driver for append-only JSONL files.
+#
+# Usage (called by git, not by users):
+#   gstack-jsonl-merge <base> <ours> <theirs>
+#
+# Registered in local git config by bin/gstack-brain-init and
+# bin/gstack-brain-restore:
+#   git config merge.jsonl-append.driver \
+#       "$GSTACK_BIN/gstack-jsonl-merge %O %A %B"
+#
+# Behavior:
+#   Concatenate base + ours + theirs, dedup exact-duplicate lines, sort by
+#   ISO "ts" field when present, fall back to SHA-256 of the line for
+#   deterministic order. Write result to <ours> (the %A file per the git
+#   merge-driver contract).
+#
+#   Two machines appending to the same JSONL file between pushes produces
+#   a same-line conflict at the file tail. This driver resolves it cleanly:
+#   both appends survive, ordered by wall-clock timestamp where available,
+#   content hash otherwise.
+#
+# Exit codes:
+#   0 — merge succeeded, result written to <ours>
+#   1 — error; git treats as conflict and stops the merge
+
+set -uo pipefail
+
+if [ "$#" -lt 3 ]; then
+  echo "gstack-jsonl-merge: expected 3 args (base ours theirs), got $#" >&2
+  exit 1
+fi
+
+BASE="$1"
+OURS="$2"
+THEIRS="$3"
+
+TMP=$(mktemp /tmp/gstack-jsonl-merge.XXXXXX) || exit 1
+trap 'rm -f "$TMP" 2>/dev/null || true' EXIT
+
+python3 - "$BASE" "$OURS" "$THEIRS" > "$TMP" <<'PYEOF'
+import sys, json, hashlib
+
+paths = sys.argv[1:4]  # base, ours, theirs
+seen = {}  # line content -> sort_key
+
+for path in paths:
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.rstrip('\n')
+                if not line:
+                    continue
+                if line in seen:
+                    continue
+                # Prefer ISO ts field for sort; fall back to SHA-256.
+                sort_key = None
+                try:
+                    obj = json.loads(line)
+                    ts = obj.get('ts') or obj.get('timestamp')
+                    if isinstance(ts, str):
+                        sort_key = (0, ts)
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass
+                if sort_key is None:
+                    h = hashlib.sha256(line.encode('utf-8')).hexdigest()
+                    sort_key = (1, h)
+                seen[line] = sort_key
+    except FileNotFoundError:
+        # Absent base / absent ours / absent theirs are all valid.
+        continue
+    except OSError:
+        # Permission / IO errors are fatal — caller sees non-zero exit.
+        sys.exit(1)
+
+# Timestamp-ordered entries first (group 0), then hash-ordered (group 1).
+for line, _ in sorted(seen.items(), key=lambda item: item[1]):
+    print(line)
+PYEOF
+
+_PYEXIT=$?
+if [ "$_PYEXIT" != "0" ]; then
+  exit 1
+fi
+
+mv "$TMP" "$OURS" || exit 1
+trap - EXIT
+exit 0

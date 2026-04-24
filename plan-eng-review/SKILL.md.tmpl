@@ -1,6 +1,7 @@
 ---
 name: plan-eng-review
 preamble-tier: 3
+interactive: true
 version: 1.0.0
 description: |
   Eng manager-mode plan review. Lock in the execution plan — architecture,
@@ -185,7 +186,8 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * For each option, specify in one line: effort (human: ~X / CC: ~Y), risk, and maintenance burden. If the complete option is only marginally more effort than the shortcut with CC, recommend the complete option.
 * **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch:** If a section has no issues, say so and move on. If an issue has an obvious fix with no real alternatives, state what you'll do and move on — don't waste a question on it. Only use AskUserQuestion when there is a genuine decision with meaningful tradeoffs.
+* **Coverage vs kind:** for every per-issue AskUserQuestion you raise in this review, decide whether the options differ in coverage or in kind. If coverage (e.g., more tests vs fewer, complete error handling vs happy-path-only, full edge-case coverage vs shortcut), include `Completeness: N/10` on each option. If kind (e.g., architectural choice between two different systems, posture-over-posture, A/B/C where each is a different kind of thing), skip the score and add one line: `Note: options differ in kind, not coverage — no completeness score.` Do NOT fabricate scores on kind-differentiated questions — filler scores are worse than no score.
+* **Escape hatch (tightened):** If a section has zero findings, state "No issues, moving on" and proceed. If it has findings, use AskUserQuestion for each — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan. Only skip AskUserQuestion when the decision is genuinely trivial (e.g., a typo fix) AND there are no meaningful alternatives. When in doubt, ask.
 
 ## Required outputs
 

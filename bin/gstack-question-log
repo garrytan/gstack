@@ -165,3 +165,7 @@ if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
 fi
 
 echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+
+# NOTE: question-log.jsonl is deliberately NOT enqueued for gbrain-sync.
+# Per Codex v2 review, audit/derivation data stays local alongside the
+# question-preferences.json it annotates.

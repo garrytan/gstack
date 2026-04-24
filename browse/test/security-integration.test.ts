@@ -89,8 +89,10 @@ describe('defense-in-depth — layer coexistence', () => {
     // produce a BLOCK-worthy verdict.
 
     const baseSignals: LayerSignal[] = [
-      { layer: 'testsavant_content', confidence: 0.88 },
-      { layer: 'transcript_classifier', confidence: 0.75 },
+      // content at 0.95 clears the SOLO_CONTENT_BLOCK threshold (0.92) so
+      // that the "content alone" case below still hits single_layer_high.
+      { layer: 'testsavant_content', confidence: 0.95 },
+      { layer: 'transcript_classifier', confidence: 0.75, meta: { verdict: 'block' } },
       { layer: 'canary', confidence: 1.0 },
     ];
 
@@ -174,8 +176,8 @@ describe('defense-in-depth — regression guards', () => {
     // still be BLOCK, not crash or produce nonsense. Canary uses >= 1.0
     // which matches; ML layers also register.
     const overflow: LayerSignal[] = [
-      { layer: 'testsavant_content', confidence: 5.5 }, // above BLOCK
-      { layer: 'transcript_classifier', confidence: 3.2 }, // above BLOCK
+      { layer: 'testsavant_content', confidence: 5.5 }, // above BLOCK, block-vote
+      { layer: 'transcript_classifier', confidence: 3.2, meta: { verdict: 'block' } }, // label-first block-vote
     ];
     expect(combineVerdict(overflow).verdict).toBe('block');
   });

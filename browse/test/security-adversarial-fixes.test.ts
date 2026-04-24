@@ -71,7 +71,7 @@ describe('tool-output ensemble rule (single-layer BLOCK)', () => {
     const result = combineVerdict(
       [
         { layer: 'testsavant_content', confidence: 0.80 },
-        { layer: 'transcript_classifier', confidence: 0.75 },
+        { layer: 'transcript_classifier', confidence: 0.75, meta: { verdict: 'block' } },
       ],
       { toolOutput: true },
     );

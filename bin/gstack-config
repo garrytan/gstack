@@ -8,10 +8,11 @@
 #   gstack-config defaults           — show just the defaults table
 #
 # Env overrides (for testing):
-#   GSTACK_STATE_DIR  — override ~/.gstack state directory
+#   GSTACK_HOME       — override ~/.gstack state directory (aligns with writer scripts)
+#   GSTACK_STATE_DIR  — legacy alias for GSTACK_HOME (kept for backwards compat)
 set -euo pipefail
 
-STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+STATE_DIR="${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}"
 CONFIG_FILE="$STATE_DIR/config.yaml"
 
 # Annotated header for new config files. Written once on first `set`.
@@ -59,10 +60,30 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Unknown values default to "default" with a warning.
 #                           # See docs/designs/PLAN_TUNING_V1.md for rationale.
 #
+# ─── GBrain sync (v1.7+) ─────────────────────────────────────────────
+# gbrain_sync_mode: off     # off | artifacts-only | full
+#                           #   off            — no sync (default)
+#                           #   artifacts-only — sync plans/designs/retros/learnings only
+#                           #                    (skip behavioral data: question-log,
+#                           #                    developer-profile, timeline)
+#                           #   full           — sync everything allowlisted
+#                           # Set by the first-run privacy stop-gate. See docs/gbrain-sync.md.
+#
+# gbrain_sync_mode_prompted: false
+#                           # Set to true once the privacy gate has asked the user.
+#                           # Flip back to false to be re-prompted.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
+#
+# ─── Workspace-aware ship ────────────────────────────────────────────
+# workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
+#                           # Conductor worktrees when picking a VERSION slot.
+#                           # Set to "null" to disable sibling scanning entirely.
+#                           # Non-Conductor users can point this at any directory
+#                           # that holds parallel worktrees of the same repo.
 #
 '
 
@@ -82,7 +103,10 @@ lookup_default() {
     codex_reviews) echo "enabled" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
+    workspace_root) echo "$HOME/conductor/workspaces" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
+    gbrain_sync_mode) echo "off" ;;
+    gbrain_sync_mode_prompted) echo "false" ;;
     *) echo "" ;;
   esac
 }
@@ -114,6 +138,10 @@ case "${1:-}" in
       echo "Warning: explain_level '$VALUE' not recognized. Valid values: default, terse. Using default." >&2
       VALUE="default"
     fi
+    if [ "$KEY" = "gbrain_sync_mode" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "artifacts-only" ] && [ "$VALUE" != "full" ]; then
+      echo "Warning: gbrain_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
+      VALUE="off"
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -142,7 +170,8 @@ case "${1:-}" in
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review; do
+               gstack_contributor skip_eng_review workspace_root \
+               gbrain_sync_mode gbrain_sync_mode_prompted; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -157,7 +186,8 @@ case "${1:-}" in
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review; do
+               gstack_contributor skip_eng_review workspace_root \
+               gbrain_sync_mode gbrain_sync_mode_prompted; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

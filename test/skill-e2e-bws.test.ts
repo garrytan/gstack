@@ -286,11 +286,38 @@ Log the operational learning now. Then say what you logged.`,
     // Add a remote so the agent can derive a project name
     run('git', ['remote', 'add', 'origin', 'https://github.com/acme/billing-app.git']);
 
-    // Extract AskUserQuestion format instructions from generated SKILL.md
-    const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    // Extract AskUserQuestion format instructions from a generated SKILL.md.
+    // ROOT/SKILL.md is the browse skill (Tier 1) and does NOT contain the
+    // "## AskUserQuestion Format" section — that block is only emitted for
+    // Tier 2+ skills by scripts/resolvers/preamble.ts. Use office-hours/SKILL.md
+    // (Tier 3) which always has the format guidance baked in. Falls back to
+    // the first SKILL.md that contains the header so a future template move
+    // doesn't break this test again.
+    let skillMdPath = path.join(ROOT, 'office-hours', 'SKILL.md');
+    let skillMd = '';
+    if (fs.existsSync(skillMdPath)) {
+      skillMd = fs.readFileSync(skillMdPath, 'utf-8');
+    }
+    if (!skillMd.includes('## AskUserQuestion Format')) {
+      // Fallback: scan top-level skill dirs for the first match.
+      const skillDirs = fs.readdirSync(ROOT, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => path.join(ROOT, d.name, 'SKILL.md'));
+      for (const candidate of skillDirs) {
+        if (!fs.existsSync(candidate)) continue;
+        const content = fs.readFileSync(candidate, 'utf-8');
+        if (content.includes('## AskUserQuestion Format')) {
+          skillMd = content;
+          skillMdPath = candidate;
+          break;
+        }
+      }
+    }
     const aqStart = skillMd.indexOf('## AskUserQuestion Format');
     const aqEnd = skillMd.indexOf('\n## ', aqStart + 1);
-    const aqBlock = skillMd.slice(aqStart, aqEnd > 0 ? aqEnd : undefined);
+    const aqBlock = aqStart >= 0
+      ? skillMd.slice(aqStart, aqEnd > 0 ? aqEnd : undefined)
+      : '';
 
     const outputPath = path.join(sessionDir, 'question-output.md');
 

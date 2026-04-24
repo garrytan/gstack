@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# gstack-gbrain-detect — emit current gbrain/gstack-brain state as JSON.
+#
+# Usage:
+#   gstack-gbrain-detect
+#
+# Output (always valid JSON, even when every check is false):
+#   {
+#     "gbrain_on_path": true|false,
+#     "gbrain_version": "0.18.2" | null,
+#     "gbrain_config_exists": true|false,
+#     "gbrain_engine": "pglite"|"postgres" | null,
+#     "gbrain_doctor_ok": true|false,
+#     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
+#     "gstack_brain_git": true|false
+#   }
+#
+# The /setup-gbrain skill reads this once at startup to decide which path
+# branches are live and which steps can be skipped. Never modifies state;
+# pure introspection. Exits 0 unless `jq` is missing.
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack for gstack-brain-* state lookups.
+set -euo pipefail
+
+STATE_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+
+die() { echo "gstack-gbrain-detect: $*" >&2; exit 2; }
+
+require_jq() {
+  command -v jq >/dev/null 2>&1 || die "jq is required. Install with: brew install jq"
+}
+require_jq
+
+# --- gbrain binary presence + version ---
+gbrain_on_path=false
+gbrain_version=null
+if command -v gbrain >/dev/null 2>&1; then
+  gbrain_on_path=true
+  # Format versions as JSON strings; gbrain --version may print other chatter.
+  v=$(gbrain --version 2>/dev/null | head -1 | tr -d '[:space:]' || true)
+  if [ -n "$v" ]; then
+    gbrain_version=$(jq -Rn --arg v "$v" '$v')
+  fi
+fi
+
+# --- gbrain config file ---
+gbrain_config_exists=false
+gbrain_engine=null
+if [ -f "$GBRAIN_CONFIG" ]; then
+  gbrain_config_exists=true
+  # Engine is defensively parsed; an invalid config returns null, not a crash.
+  engine_raw=$(jq -r '.engine // empty' "$GBRAIN_CONFIG" 2>/dev/null || true)
+  case "$engine_raw" in
+    pglite|postgres) gbrain_engine=$(jq -Rn --arg e "$engine_raw" '$e') ;;
+  esac
+fi
+
+# --- gbrain doctor health ---
+# Doctor is wrapped in `timeout 5s` to match the /health D6 pattern and avoid
+# the detect step hanging the skill when gbrain is broken or its DB is
+# unreachable. Any nonzero exit or non-"ok"/"warnings" status → false.
+gbrain_doctor_ok=false
+if [ "$gbrain_on_path" = "true" ]; then
+  # Use `timeout` if available; some minimal macs use gtimeout from coreutils.
+  timeout_bin=""
+  if command -v timeout >/dev/null 2>&1; then timeout_bin="timeout 5s"
+  elif command -v gtimeout >/dev/null 2>&1; then timeout_bin="gtimeout 5s"
+  fi
+  if doctor_json=$(eval "$timeout_bin gbrain doctor --json" 2>/dev/null); then
+    status=$(echo "$doctor_json" | jq -r '.status // empty' 2>/dev/null || true)
+    case "$status" in
+      ok|warnings) gbrain_doctor_ok=true ;;
+    esac
+  fi
+fi
+
+# --- gstack-brain-sync state (memory sync, separate from gbrain itself) ---
+gstack_brain_sync_mode="off"
+if [ -x "$CONFIG_BIN" ]; then
+  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || true)
+  case "$mode" in
+    off|artifacts-only|full) gstack_brain_sync_mode="$mode" ;;
+  esac
+fi
+
+gstack_brain_git=false
+if [ -d "$STATE_DIR/.git" ]; then
+  gstack_brain_git=true
+fi
+
+# Emit single-object JSON.
+jq -n \
+  --argjson on_path "$gbrain_on_path" \
+  --argjson version "$gbrain_version" \
+  --argjson config_exists "$gbrain_config_exists" \
+  --argjson engine "$gbrain_engine" \
+  --argjson doctor_ok "$gbrain_doctor_ok" \
+  --arg sync_mode "$gstack_brain_sync_mode" \
+  --argjson brain_git "$gstack_brain_git" \
+  '{
+    gbrain_on_path: $on_path,
+    gbrain_version: $version,
+    gbrain_config_exists: $config_exists,
+    gbrain_engine: $engine,
+    gbrain_doctor_ok: $doctor_ok,
+    gstack_brain_sync_mode: $sync_mode,
+    gstack_brain_git: $brain_git
+  }'

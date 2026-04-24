@@ -16,3 +16,6 @@ if ! printf '%s' "$INPUT" | bun -e "JSON.parse(await Bun.stdin.text())" 2>/dev/n
 fi
 
 echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"
+
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null &

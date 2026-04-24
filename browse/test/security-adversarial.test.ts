@@ -172,11 +172,11 @@ describe('canary — realistic outbound-channel attacks', () => {
 
 describe('combineVerdict — realistic attack/defense scenarios', () => {
   test('attack passes StackOne but Haiku catches it → BLOCK (ensemble save)', () => {
-    // Stack Overflow-style FP: StackOne 0.99 INJECTION, Haiku says WARN 0.7
-    // Both >= WARN → BLOCK
+    // Real attack: TestSavant 0.92 INJECTION, Haiku returns verdict=block.
+    // Both vote block → BLOCK.
     const r = combineVerdict([
       { layer: 'testsavant_content', confidence: 0.92 },
-      { layer: 'transcript_classifier', confidence: 0.75 },
+      { layer: 'transcript_classifier', confidence: 0.80, meta: { verdict: 'block' } },
     ]);
     expect(r.verdict).toBe('block');
     expect(r.reason).toBe('ensemble_agreement');
@@ -206,10 +206,12 @@ describe('combineVerdict — realistic attack/defense scenarios', () => {
   });
 
   test('both layers at threshold edge — WARN cutoff respects boundary', () => {
-    // Both exactly at WARN (0.6) — combiner treats >= WARN as firing, so BLOCK.
+    // testsavant at exactly WARN + transcript with verdict=block → BLOCK.
+    // Testsavant at WARN is a block-vote (>= WARN); transcript with
+    // verdict=block + conf >= LOG_ONLY is a block-vote.
     const r = combineVerdict([
       { layer: 'testsavant_content', confidence: THRESHOLDS.WARN },
-      { layer: 'transcript_classifier', confidence: THRESHOLDS.WARN },
+      { layer: 'transcript_classifier', confidence: THRESHOLDS.WARN, meta: { verdict: 'block' } },
     ]);
     expect(r.verdict).toBe('block');
   });
@@ -260,6 +262,80 @@ describe('combineVerdict — realistic attack/defense scenarios', () => {
     const r = combineVerdict([
       { layer: 'aria_regex', confidence: 0.9 },
       { layer: 'testsavant_content', confidence: 0.8 },
+    ]);
+    expect(r.verdict).toBe('warn');
+  });
+});
+
+// ─── Label-first voting (v1.5.2.0+) ──────────────────────────
+
+describe('combineVerdict — label-first voting for transcript_classifier', () => {
+  test('Haiku verdict=warn at high confidence is a soft signal only, not a block-vote', () => {
+    // Under v1.5.2.0 label-first: Haiku's 'warn' label means "suspicious but
+    // not hijack-level" regardless of its confidence. It should NOT single-
+    // handedly upgrade the ensemble to BLOCK even when pointed at 0.80.
+    const r = combineVerdict([
+      { layer: 'testsavant_content', confidence: 0.80 },
+      { layer: 'transcript_classifier', confidence: 0.80, meta: { verdict: 'warn' } },
+    ]);
+    // testsavant is a block-vote (1), transcript is a warn-vote only.
+    // Total block-votes = 1, below the 2-of-N rule → WARN, not BLOCK.
+    // testsavant at 0.80 is below the BLOCK threshold (0.85), so reason
+    // is single_layer_medium (WARN-tier), not single_layer_high.
+    expect(r.verdict).toBe('warn');
+    expect(r.reason).toBe('single_layer_medium');
+  });
+
+  test('Haiku verdict=block at moderate confidence still block-votes (ensemble save on real hijack)', () => {
+    const r = combineVerdict([
+      { layer: 'testsavant_content', confidence: 0.80 },
+      { layer: 'transcript_classifier', confidence: 0.80, meta: { verdict: 'block' } },
+    ]);
+    expect(r.verdict).toBe('block');
+    expect(r.reason).toBe('ensemble_agreement');
+  });
+
+  test('three-way: warn-transcript + two ML block-votes still BLOCKs (ensemble reaches 2)', () => {
+    // Even when Haiku says warn (not block), two other classifiers agreeing
+    // still reaches the 2-of-N threshold.
+    const r = combineVerdict([
+      { layer: 'testsavant_content', confidence: 0.80 },
+      { layer: 'deberta_content', confidence: 0.80 },
+      { layer: 'transcript_classifier', confidence: 0.80, meta: { verdict: 'warn' } },
+    ]);
+    expect(r.verdict).toBe('block');
+    expect(r.reason).toBe('ensemble_agreement');
+  });
+
+  test('hallucination guard: verdict=block at confidence 0.30 drops to warn-vote', () => {
+    // Below LOG_ONLY (0.40), a block label is suspected hallucination — drop
+    // it to warn-vote. testsavant alone remains a single block-vote → WARN,
+    // not BLOCK.
+    const r = combineVerdict([
+      { layer: 'testsavant_content', confidence: 0.80 },
+      { layer: 'transcript_classifier', confidence: 0.30, meta: { verdict: 'block' } },
+    ]);
+    expect(r.verdict).toBe('warn');
+  });
+
+  test('above hallucination floor: verdict=block at confidence 0.50 counts as block-vote', () => {
+    // Once confidence >= LOG_ONLY (0.40), the label is trusted. BLOCK.
+    const r = combineVerdict([
+      { layer: 'testsavant_content', confidence: 0.80 },
+      { layer: 'transcript_classifier', confidence: 0.50, meta: { verdict: 'block' } },
+    ]);
+    expect(r.verdict).toBe('block');
+    expect(r.reason).toBe('ensemble_agreement');
+  });
+
+  test('backward-compat: transcript signal with no meta.verdict never block-votes', () => {
+    // Pre-v1.5.2.0 signals (or adversarial tests) may arrive without
+    // meta.verdict. Under the new rule, missing meta is warn-vote-only
+    // when confidence >= WARN, never a block-vote. Even at 0.95 (high
+    // confidence), transcript alone doesn't upgrade the ensemble.
+    const r = combineVerdict([
+      { layer: 'testsavant_content', confidence: 0.80 },
+      { layer: 'transcript_classifier', confidence: 0.95 }, // no meta
     ]);
     expect(r.verdict).toBe('warn');
   });

@@ -241,11 +241,13 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('git branch --show-current');
   });
 
-  test('tier 2+ skills contain ELI16 simplification rules (AskUserQuestion format)', () => {
+  test('tier 2+ skills contain ELI10 simplification rules (AskUserQuestion format)', () => {
     // Root SKILL.md is tier 1 (no AskUserQuestion format). Check a tier 2+ skill instead.
+    // v1.7.0.0 Pros/Cons format uses "ELI10 (ALWAYS)" rather than "Simplify (ELI10".
     const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('No raw function names');
+    expect(content).toContain('ELI10');
     expect(content).toContain('plain English');
+    expect(content).toContain('not function names');
   });
 
   test('tier 1 skills do NOT contain AskUserQuestion format', () => {
@@ -2770,5 +2772,101 @@ describe('voice-triggers processing', () => {
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(0, fmEnd);
     expect(frontmatter).not.toContain('voice-triggers:');
+  });
+});
+
+describe('plan-mode-info resolver (handshake-replacement)', () => {
+  const REVIEW_SKILLS = [
+    'plan-ceo-review',
+    'plan-eng-review',
+    'plan-design-review',
+    'plan-devex-review',
+  ];
+
+  // Header for the vestigial handshake that was removed. If it ever reappears,
+  // someone accidentally re-introduced the resolver.
+  const HANDSHAKE_MARKER = '## Plan Mode Handshake';
+  // Header for the new plan-mode-info section (previously lived at the tail
+  // of completion-status.ts; now hoisted to position 1 of the preamble).
+  const PLAN_MODE_INFO_MARKER = '## Skill Invocation During Plan Mode';
+
+  test('vestigial handshake is absent from all generated Claude SKILL.md files', () => {
+    // Scan every generated SKILL.md under ROOT (top-level directory per skill).
+    // Using fs.readdirSync + filter instead of a glob so we catch any skill
+    // that gets added later without updating this list.
+    const entries = fs.readdirSync(ROOT, { withFileTypes: true });
+    let checked = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillMd = path.join(ROOT, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      expect(content, `handshake marker in ${entry.name}/SKILL.md`).not.toContain(HANDSHAKE_MARKER);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  test('vestigial handshake is absent from non-Claude host outputs when present on disk', () => {
+    // Non-Claude hosts render to hostSubdirs (.agents/, .openclaw/, etc). The
+    // plan-mode-info resolver has no host-scoping — all hosts get the new
+    // section, none get the old handshake. Scan all candidate host dirs.
+    const hostDirs = ['.agents', '.openclaw', '.opencode', '.factory', '.hermes', '.kiro', '.cursor', '.slate'];
+    let checked = 0;
+    for (const host of hostDirs) {
+      const skillsRoot = path.join(ROOT, host, 'skills');
+      if (!fs.existsSync(skillsRoot)) continue;
+      const entries = fs.readdirSync(skillsRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillMd = path.join(skillsRoot, entry.name, 'SKILL.md');
+        if (!fs.existsSync(skillMd)) continue;
+        const content = fs.readFileSync(skillMd, 'utf-8');
+        expect(content, `handshake marker in ${host}/skills/${entry.name}/SKILL.md`).not.toContain(HANDSHAKE_MARKER);
+        checked++;
+      }
+    }
+    if (checked === 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'plan-mode-info: no non-Claude host outputs found for cross-host absence check — ' +
+          'run `bun run gen:skill-docs --host all` to populate',
+      );
+    }
+  });
+
+  test.each(REVIEW_SKILLS)(
+    '%s/SKILL.md contains the new plan-mode-info section near the top',
+    (skill) => {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      const idx = content.indexOf(PLAN_MODE_INFO_MARKER);
+      expect(idx).toBeGreaterThan(0);
+      // Position 1 in preamble composition = within the first ~300 lines.
+      // Roughly translates to first ~15KB of text.
+      expect(idx).toBeLessThan(15_000);
+    },
+  );
+
+  test('plan-mode-info is wired BEFORE generateUpgradeCheck in preamble', () => {
+    const content = fs.readFileSync(
+      path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
+      'utf-8',
+    );
+    const planModeIdx = content.indexOf(PLAN_MODE_INFO_MARKER);
+    const upgradeIdx = content.indexOf('UPGRADE_AVAILABLE');
+    expect(planModeIdx).toBeGreaterThan(0);
+    expect(upgradeIdx).toBeGreaterThan(0);
+    expect(planModeIdx).toBeLessThan(upgradeIdx);
+  });
+
+  test('0C-bis STOP block present in plan-ceo-review/SKILL.md', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
+    const presentIdx = content.indexOf('Present these approach options via AskUserQuestion');
+    const preludeIdx = content.indexOf('### 0D-prelude');
+    expect(presentIdx).toBeGreaterThan(0);
+    expect(preludeIdx).toBeGreaterThan(presentIdx);
+    const between = content.slice(presentIdx, preludeIdx);
+    expect(between).toContain('**STOP.**');
+    expect(between).toContain('Do NOT proceed to Step 0D or 0F until the user responds to 0C-bis');
   });
 });

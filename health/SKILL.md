@@ -114,6 +114,21 @@ echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
+## Plan Mode Safe Operations
+
+In plan mode, these are always allowed (they inform the plan, don't modify source):
+`$B` (browse), `$D` (design), `codex exec`/`codex review`, writes to `~/.gstack/`,
+writes to the plan file, `open` for generated artifacts.
+
+## Skill Invocation During Plan Mode
+
+If the user invokes a skill in plan mode, that skill takes precedence over generic plan mode behavior. Treat it as executable instructions, not reference. Follow step
+by step. AskUserQuestion calls satisfy plan mode's end-of-turn requirement. At a STOP
+point, stop immediately. Do not continue the workflow past a STOP point and do not call ExitPlanMode there. Commands marked "PLAN
+MODE EXCEPTION — ALWAYS RUN" execute. Other writes need to be already permitted
+above or explicitly exception-marked. Call ExitPlanMode only after the skill
+workflow completes — only then call ExitPlanMode (or if the user tells you to cancel the skill or leave plan mode).
+
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills AND do not
 auto-invoke skills based on conversation context. Only run skills the user explicitly
 types (e.g., /qa, /ship). If you would have auto-invoked a skill, instead briefly say:
@@ -352,6 +367,234 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
+## AskUserQuestion Format
+
+**ALWAYS follow this structure for every AskUserQuestion call. Every element is non-skippable. If you find yourself about to skip any of them, stop and back up.**
+
+### Required shape
+
+Every AskUserQuestion reads like a decision brief, not a bullet list:
+
+```
+D<N> — <one-line question title>
+
+ELI10: <plain English a 16-year-old could follow, 2-4 sentences, name the stakes>
+
+Stakes if we pick wrong: <one sentence on what breaks, what user sees, what's lost>
+
+Recommendation: <choice> because <one-line reason>
+
+Completeness: A=X/10, B=Y/10   (or: Note: options differ in kind, not coverage — no completeness score)
+
+Pros / cons:
+
+A) <option label> (recommended)
+  ✅ <pro — concrete, observable, ≥40 chars>
+  ✅ <pro>
+  ❌ <con — honest, ≥40 chars>
+
+B) <option label>
+  ✅ <pro>
+  ❌ <con>
+
+Net: <one-line synthesis of what you're actually trading off>
+```
+
+### Element rules
+
+1. **D-numbering.** First question in a skill invocation is `D1`. Increment per
+   question within the same skill. This is a model-level instruction, not a
+   runtime counter — you count your own questions. Nested skill invocation
+   (e.g., `/plan-ceo-review` running `/office-hours` inline) starts its own
+   D1; label as `D1 (office-hours)` to disambiguate when the user will see
+   both. Drift is expected over long sessions; minor inconsistency is fine.
+
+2. **Re-ground.** Before ELI10, state the project, current branch (use the
+   `_BRANCH` value from the preamble, NOT conversation history or gitStatus),
+   and the current plan/task. 1-2 sentences. Assume the user hasn't looked at
+   this window in 20 minutes.
+
+3. **ELI10 (ALWAYS).** Explain in plain English a smart 16-year-old could
+   follow. Concrete examples and analogies, not function names. Say what it
+   DOES, not what it's called. This is not preamble — the user is about to
+   make a decision and needs context. Even in terse mode, emit the ELI10.
+
+4. **Stakes if we pick wrong (ALWAYS).** One sentence naming what breaks in
+   concrete terms (pain avoided / capability unlocked / consequence named).
+   "Users see a 3-second spinner" beats "performance may degrade." Forces
+   the trade-off to be real.
+
+5. **Recommendation (ALWAYS).** `Recommendation: <choice> because <one-line
+   reason>` on its own line. Never omit it. Required for every AskUserQuestion,
+   even when neutral-posture (see rule 8). The `(recommended)` label on the
+   option is REQUIRED — `scripts/resolvers/question-tuning.ts` reads it to
+   power the AUTO_DECIDE path. Omitting it breaks auto-decide.
+
+6. **Completeness scoring (when meaningful).** When options differ in
+   coverage (full test coverage vs happy path vs shortcut, complete error
+   handling vs partial), score each `Completeness: N/10` on its own line.
+   Calibration: 10 = complete, 7 = happy path only, 3 = shortcut. Flag any
+   option ≤5 where a higher-completeness option exists. When options differ
+   in kind (review posture, architectural A-vs-B, cherry-pick Add/Defer/Skip,
+   two different kinds of systems), SKIP the score and write one line:
+   `Note: options differ in kind, not coverage — no completeness score.`
+   Do NOT fabricate filler scores — empty 10/10 on every option is worse
+   than no score.
+
+7. **Pros / cons block.** Every option gets per-bullet ✅ (pro) and ❌ (con)
+   markers. Rules:
+   - **Minimum 2 pros and 1 con per option.** If you can't name a con for
+     the recommended option, the recommendation is hollow — go find one. If
+     you can't name a pro for the rejected option, the question isn't real.
+   - **Minimum 40 characters per bullet.** `✅ Simple` is not a pro. `✅
+     Reuses the YAML frontmatter format already in MEMORY.md, zero new
+     parser` is a pro. Concrete, observable, specific.
+   - **Hard-stop escape** for genuinely one-sided choices (destructive-action
+     confirmation, one-way doors): a single bullet `✅ No cons — this is a
+     hard-stop choice` satisfies the rule. Use sparingly; overuse flips a
+     decision brief into theater.
+
+8. **Net line (ALWAYS).** Closes the decision with a one-sentence synthesis
+   of what the user is actually trading off. From the reference screenshot:
+   *"The new-format case is speculative. The copy-format case is immediate
+   leverage. Copy now, evolve later if a real pattern emerges."* Not a
+   summary — a verdict frame.
+
+9. **Neutral-posture handling.** When the skill explicitly says "neutral
+   recommendation posture" (SELECTIVE EXPANSION cherry-picks, taste calls,
+   kind-differentiated choices where neither side dominates), the
+   Recommendation line reads: `Recommendation: <default-choice> — this is a
+   taste call, no strong preference either way`. The `(recommended)` label
+   STAYS on the default option (machine-readable hint for AUTO_DECIDE). The
+   `— this is a taste call` prose is the human-readable neutrality signal.
+   Both coexist.
+
+10. **Effort both-scales.** When an option involves effort, show both human
+    and CC scales: `(human: ~2 days / CC: ~15 min)`.
+
+11. **Tool_use, not prose.** A markdown block labeled `Question:` is not a
+    question — the user never sees it as interactive. If you wrote one in
+    prose, stop and reissue as an actual AskUserQuestion tool_use. The rich
+    markdown goes in the question body; the `options` array stays short
+    labels (A, B, C).
+
+### Self-check before emitting
+
+Before calling AskUserQuestion, verify:
+- [ ] D<N> header present
+- [ ] ELI10 paragraph present (stakes line too)
+- [ ] Recommendation line present with concrete reason
+- [ ] Completeness scored (coverage) OR kind-note present (kind)
+- [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
+- [ ] (recommended) label on one option (even for neutral-posture — see rule 9)
+- [ ] Net line closes the decision
+- [ ] You are calling the tool, not writing prose
+
+If you'd need to read the source to understand your own explanation, it's
+too complex — simplify before emitting.
+
+Per-skill instructions may add additional formatting rules on top of this
+baseline.
+
+## GBrain Sync (skill start)
+
+```bash
+# gbrain-sync: drain pending writes, pull once per day. Silent no-op when
+# the feature isn't initialized or gbrain_sync_mode is "off". See
+# docs/gbrain-sync.md.
+
+_GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+_BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+_BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
+_BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
+
+_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+
+# New-machine hint: URL file present, local .git missing, sync not yet enabled.
+if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
+  _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$_BRAIN_NEW_URL" ]; then
+    echo "BRAIN_SYNC: brain repo detected: $_BRAIN_NEW_URL"
+    echo "BRAIN_SYNC: run 'gstack-brain-restore' to pull your cross-machine memory (or 'gstack-config set gbrain_sync_mode off' to dismiss forever)"
+  fi
+fi
+
+# Active-sync path.
+if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+  # Once-per-day pull.
+  _BRAIN_LAST_PULL_FILE="$_GSTACK_HOME/.brain-last-pull"
+  _BRAIN_NOW=$(date +%s)
+  _BRAIN_DO_PULL=1
+  if [ -f "$_BRAIN_LAST_PULL_FILE" ]; then
+    _BRAIN_LAST=$(cat "$_BRAIN_LAST_PULL_FILE" 2>/dev/null || echo 0)
+    _BRAIN_AGE=$(( _BRAIN_NOW - _BRAIN_LAST ))
+    [ "$_BRAIN_AGE" -lt 86400 ] && _BRAIN_DO_PULL=0
+  fi
+  if [ "$_BRAIN_DO_PULL" = "1" ]; then
+    ( cd "$_GSTACK_HOME" && git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
+    echo "$_BRAIN_NOW" > "$_BRAIN_LAST_PULL_FILE"
+  fi
+  # Drain pending queue, push.
+  "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
+fi
+
+# Status line — always emitted, easy to grep.
+if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+  _BRAIN_QUEUE_DEPTH=0
+  [ -f "$_GSTACK_HOME/.brain-queue.jsonl" ] && _BRAIN_QUEUE_DEPTH=$(wc -l < "$_GSTACK_HOME/.brain-queue.jsonl" | tr -d ' ')
+  _BRAIN_LAST_PUSH="never"
+  [ -f "$_GSTACK_HOME/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(cat "$_GSTACK_HOME/.brain-last-push" 2>/dev/null || echo never)
+  echo "BRAIN_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+else
+  echo "BRAIN_SYNC: off"
+fi
+```
+
+
+
+**Privacy stop-gate (fires ONCE per machine).**
+
+If the bash output shows `BRAIN_SYNC: off` AND the config value
+`gbrain_sync_mode_prompted` is `false` AND gbrain is detected on this host
+(either `gbrain doctor --fast --json` succeeds or the `gbrain` binary is in PATH),
+fire a one-time privacy gate via AskUserQuestion:
+
+> gstack can publish your session memory (learnings, plans, designs, retros) to a
+> private GitHub repo that GBrain indexes across your machines. Higher tiers
+> include behavioral data (session timelines, developer profile). How much do you
+> want to sync?
+
+Options:
+- A) Everything allowlisted (recommended — maximum cross-machine memory)
+- B) Only artifacts (plans, designs, retros, learnings) — skip timelines and profile
+- C) Decline — keep everything local
+
+After the user answers, run (substituting the chosen value):
+
+```bash
+# Chosen mode: full | artifacts-only | off
+"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode <choice>
+"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode_prompted true
+```
+
+If A or B was chosen AND `~/.gstack/.git` doesn't exist, ask a follow-up:
+"Set up the GBrain sync repo now? (runs `gstack-brain-init`)"
+- A) Yes, run it now
+- B) Show me the command, I'll run it myself
+
+Do not block the skill. Emit the question, continue the skill workflow. The
+next skill run picks up wherever this left off.
+
+**At skill END (before the telemetry block),** run these bash commands to
+catch artifact writes (design docs, plans, retros) that skipped the writer
+shims, plus drain any still-pending queue entries:
+
+```bash
+"~/.claude/skills/gstack/bin/gstack-brain-sync" --discover-new 2>/dev/null || true
+"~/.claude/skills/gstack/bin/gstack-brain-sync" --once 2>/dev/null || true
+```
+
+
 ## Model-Specific Behavioral Patch (claude)
 
 The following nudges are tuned for the claude model family. They are
@@ -464,18 +707,6 @@ want /[next skill]."
 are shown, synthesize a one-paragraph welcome briefing before proceeding:
 "Welcome back to {branch}. Last session: /{skill} ({outcome}). [Checkpoint summary if
 available]. [Health score if available]." Keep it to 2-3 sentences.
-
-## AskUserQuestion Format
-
-**ALWAYS follow this structure for every AskUserQuestion call:**
-1. **Re-ground:** State the project, the current branch (use the `_BRANCH` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify:** Explain the problem in plain English a smart 16-year-old could follow. No raw function names, no internal jargon, no implementation details. Use concrete examples and analogies. Say what it DOES, not what it's called.
-3. **Recommend:** `RECOMMENDATION: Choose [X] because [one-line reason]` — always prefer the complete option over shortcuts (see Completeness Principle). Include `Completeness: X/10` for each option. Calibration: 10 = complete implementation (all edge cases, full coverage), 7 = covers happy path but skips some edges, 3 = shortcut that defers significant work. If both options are 8+, pick the higher; if one is ≤5, flag it.
-4. **Options:** Lettered options: `A) ... B) ... C) ...` — when an option involves effort, show both scales: `(human: ~X / CC: ~Y)`
-
-Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
-
-Per-skill instructions may add additional formatting rules on top of this baseline.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -591,7 +822,7 @@ AI makes completeness near-free. Always recommend the complete option over short
 | Feature | 1 week | 30 min | ~30x |
 | Bug fix | 4 hours | 15 min | ~20x |
 
-Include `Completeness: X/10` for each option (10=all edge cases, 7=happy path, 3=shortcut).
+When options differ in coverage (e.g. full vs happy-path vs shortcut), include `Completeness: X/10` on each option (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind (mode posture, architectural choice, cherry-pick A/B/C where each is a different kind of thing, not a more-or-less-complete version of the same thing), skip the score and write one line explaining why: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
 ## Confusion Protocol
 
@@ -780,21 +1011,6 @@ success/error/abort, and `USED_BROWSE` with true/false based on whether `$B` was
 If you cannot determine the outcome, use "unknown". The local JSONL always logs. The
 remote binary only runs if telemetry is not off and the binary exists.
 
-## Plan Mode Safe Operations
-
-In plan mode, these are always allowed (they inform the plan, don't modify source):
-`$B` (browse), `$D` (design), `codex exec`/`codex review`, writes to `~/.gstack/`,
-writes to the plan file, `open` for generated artifacts.
-
-## Skill Invocation During Plan Mode
-
-If the user invokes a skill in plan mode, that skill takes precedence over generic plan mode behavior. Treat it as executable instructions, not reference. Follow step
-by step. AskUserQuestion calls satisfy plan mode's end-of-turn requirement. At a STOP
-point, stop immediately. Do not continue the workflow past a STOP point and do not call ExitPlanMode there. Commands marked "PLAN
-MODE EXCEPTION — ALWAYS RUN" execute. Other writes need to be already permitted
-above or explicitly exception-marked. Call ExitPlanMode only after the skill
-workflow completes — only then call ExitPlanMode (or if the user tells you to cancel the skill or leave plan mode).
-
 ## Plan Status Footer
 
 In plan mode, before ExitPlanMode: if the plan file lacks a `## GSTACK REVIEW REPORT`
@@ -851,6 +1067,12 @@ command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
 
 # Shell linting
 command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/null | head -1 | xargs -I{} echo "SHELL: shellcheck"
+
+# GBrain presence (D6) — only report as a dimension if gbrain is actually
+# set up; otherwise skip so machines without gbrain aren't penalized.
+if command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.gbrain/config.json" ]; then
+  echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
+fi
 ```
 
 Use Glob to search for shell scripts:
@@ -915,11 +1137,12 @@ Score each category on a 0-10 scale using this rubric:
 
 | Category | Weight | 10 | 7 | 4 | 0 |
 |-----------|--------|------|-----------|------------|-----------|
-| Type check | 25% | Clean (exit 0) | <10 errors | <50 errors | >=50 errors |
-| Lint | 20% | Clean (exit 0) | <5 warnings | <20 warnings | >=20 warnings |
-| Tests | 30% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
-| Dead code | 15% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
-| Shell lint | 10% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
+| Type check | 22% | Clean (exit 0) | <10 errors | <50 errors | >=50 errors |
+| Lint | 18% | Clean (exit 0) | <5 warnings | <20 warnings | >=20 warnings |
+| Tests | 28% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
+| Dead code | 13% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
+| Shell lint | 9% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
+| GBrain (D6) | 10% | doctor=ok, queue<10, pushed <24h | doctor=warnings OR queue<100 OR pushed <72h | doctor broken OR queue>=100 OR pushed >=72h | N/A (gbrain not installed) |
 
 **Parsing tool output for counts:**
 - **tsc:** Count lines matching `error TS` in output.
@@ -930,11 +1153,30 @@ Score each category on a 0-10 scale using this rubric:
 
 **Composite score:**
 ```
-composite = (typecheck_score * 0.25) + (lint_score * 0.20) + (test_score * 0.30) + (deadcode_score * 0.15) + (shell_score * 0.10)
+composite = (typecheck_score * 0.22) + (lint_score * 0.18) + (test_score * 0.28) + (deadcode_score * 0.13) + (shell_score * 0.09) + (gbrain_score * 0.10)
 ```
 
-If a category is skipped (tool not available), redistribute its weight proportionally
-among the remaining categories.
+If a category is skipped (tool not available — includes GBrain when gbrain
+is not installed), redistribute its weight proportionally among the
+remaining categories.
+
+**GBrain sub-score computation (D6):**
+
+```
+doctor_component: 10 if `gbrain doctor --json | jq -r .status` == "ok";
+                   7 if "warnings"; 0 otherwise (or command times out after 5s).
+queue_component:   10 if ~/.gstack/.brain-queue.jsonl has <10 lines;
+                    7 if 10-100; 0 if >=100 (suggests secret-scan rejections
+                    piling up). N/A if gbrain_sync_mode == off.
+push_component:    10 if (now - mtime of ~/.gstack/.brain-last-push) < 24h;
+                    7 if <72h; 0 if >=72h. N/A if gbrain_sync_mode == off.
+gbrain_score     = 0.5 * doctor_component + 0.3 * queue_component + 0.2 * push_component
+                   (redistribute 0.3 + 0.2 into doctor when sync_mode is off:
+                   gbrain_score = doctor_component in that case)
+```
+
+The `gbrain doctor --json` call MUST be wrapped in `timeout 5s` so a hung
+or misconfigured gbrain doesn't stall the entire /health dashboard.
 
 ---
 
@@ -957,6 +1199,7 @@ Lint          biome check .      8/10   WARNING    2s         3 warnings
 Tests         bun test          10/10   CLEAN      12s        47/47 passed
 Dead code     knip               7/10   WARNING    5s         4 unused exports
 Shell lint    shellcheck        10/10   CLEAN      1s         0 issues
+GBrain        gbrain doctor     10/10   CLEAN      <1s        doctor=ok, queue=3, pushed 2h ago
 
 COMPOSITE SCORE: 9.1 / 10
 
@@ -990,17 +1233,19 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gst
 Append one JSONL line to `~/.gstack/projects/$SLUG/health-history.jsonl`:
 
 ```json
-{"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"duration_s":23}
+{"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"gbrain":10,"duration_s":23}
 ```
 
 Fields:
 - `ts` -- ISO 8601 timestamp
 - `branch` -- current git branch
 - `score` -- composite score (one decimal)
-- `typecheck`, `lint`, `test`, `deadcode`, `shell` -- individual category scores (integer 0-10)
+- `typecheck`, `lint`, `test`, `deadcode`, `shell`, `gbrain` -- individual category scores (integer 0-10)
 - `duration_s` -- total time for all tools in seconds
 
-If a category was skipped, set its value to `null`.
+If a category was skipped, set its value to `null`. Pre-D6 history entries
+won't have a `gbrain` field — treat them as `null` for trend comparison
+and start new tracking from the first post-D6 run.
 
 ---
 
@@ -1019,12 +1264,12 @@ tail -10 ~/.gstack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_H
 ```
 HEALTH TREND (last 5 runs)
 ==========================
-Date          Branch         Score   TC   Lint  Test  Dead  Shell
-----------    -----------    -----   --   ----  ----  ----  -----
-2026-03-28    main           9.4     10   9     10    8     10
-2026-03-29    feat/auth      8.8     10   7     10    7     10
-2026-03-30    feat/auth      8.2     10   6     9     7     10
-2026-03-31    feat/auth      9.1     10   8     10    7     10
+Date          Branch         Score   TC   Lint  Test  Dead  Shell  GBrain
+----------    -----------    -----   --   ----  ----  ----  -----  ------
+2026-03-28    main           9.4     10   9     10    8     10     10
+2026-03-29    feat/auth      8.8     10   7     10    7     10     10
+2026-03-30    feat/auth      8.2     10   6     9     7     10      7
+2026-03-31    feat/auth      9.1     10   8     10    7     10     10
 
 Trend: IMPROVING (+0.9 since last run)
 ```

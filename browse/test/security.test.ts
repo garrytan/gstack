@@ -54,12 +54,12 @@ describe('combineVerdict — ensemble rule', () => {
 
   test('both ML layers at WARN → BLOCK (ensemble agreement)', () => {
     const r = combineVerdict([
-      { layer: 'testsavant_content', confidence: 0.7 },
-      { layer: 'transcript_classifier', confidence: 0.65 },
+      { layer: 'testsavant_content', confidence: 0.8 },
+      { layer: 'transcript_classifier', confidence: 0.78, meta: { verdict: 'block' } },
     ]);
     expect(r.verdict).toBe('block');
     expect(r.reason).toBe('ensemble_agreement');
-    expect(r.confidence).toBe(0.65); // min of the two
+    expect(r.confidence).toBe(0.78); // min of the two
   });
 
   test('single layer >= BLOCK (no cross-confirm) → WARN, NOT block', () => {
@@ -67,7 +67,7 @@ describe('combineVerdict — ensemble rule', () => {
     // shouldn't kill sessions without a second opinion.
     const r = combineVerdict([
       { layer: 'testsavant_content', confidence: 0.95 },
-      { layer: 'transcript_classifier', confidence: 0.1 },
+      { layer: 'transcript_classifier', confidence: 0.1, meta: { verdict: 'safe' } },
     ]);
     expect(r.verdict).toBe('warn');
     expect(r.reason).toBe('single_layer_high');
@@ -75,8 +75,8 @@ describe('combineVerdict — ensemble rule', () => {
 
   test('single layer >= WARN → WARN (other layer low)', () => {
     const r = combineVerdict([
-      { layer: 'testsavant_content', confidence: 0.7 },
-      { layer: 'transcript_classifier', confidence: 0.2 },
+      { layer: 'testsavant_content', confidence: 0.8 },
+      { layer: 'transcript_classifier', confidence: 0.2, meta: { verdict: 'safe' } },
     ]);
     expect(r.verdict).toBe('warn');
     expect(r.reason).toBe('single_layer_medium');
@@ -101,7 +101,7 @@ describe('combineVerdict — ensemble rule', () => {
     const r = combineVerdict([
       { layer: 'testsavant_content', confidence: 0.3 },
       { layer: 'testsavant_content', confidence: 0.8 },
-      { layer: 'transcript_classifier', confidence: 0.75 },
+      { layer: 'transcript_classifier', confidence: 0.75, meta: { verdict: 'block' } },
     ]);
     expect(r.verdict).toBe('block');
     expect(r.reason).toBe('ensemble_agreement');
@@ -110,20 +110,25 @@ describe('combineVerdict — ensemble rule', () => {
   // --- 3-way ensemble (DeBERTa opt-in) ---
 
   test('3-way: DeBERTa + testsavant at WARN → BLOCK (two ML classifiers agreeing)', () => {
+    // Two scalar-layer block-votes; transcript offers no vote.
     const r = combineVerdict([
-      { layer: 'testsavant_content', confidence: 0.7 },
-      { layer: 'deberta_content', confidence: 0.65 },
-      { layer: 'transcript_classifier', confidence: 0.1 },
+      { layer: 'testsavant_content', confidence: 0.8 },
+      { layer: 'deberta_content', confidence: 0.78 },
+      { layer: 'transcript_classifier', confidence: 0.1, meta: { verdict: 'safe' } },
     ]);
     expect(r.verdict).toBe('block');
     expect(r.reason).toBe('ensemble_agreement');
   });
 
   test('3-way: only deberta fires alone → WARN (no cross-confirm)', () => {
+    // deberta at 0.95 is >= SOLO_CONTENT_BLOCK (0.92) → single_layer_high
+    // path. For user-input mode (no toolOutput opt), it degrades to WARN
+    // (SO-FP mitigation). Confidence bumped from 0.9 to 0.95 to stay above
+    // the new SOLO_CONTENT_BLOCK threshold.
     const r = combineVerdict([
       { layer: 'testsavant_content', confidence: 0.1 },
-      { layer: 'deberta_content', confidence: 0.9 },
-      { layer: 'transcript_classifier', confidence: 0.1 },
+      { layer: 'deberta_content', confidence: 0.95 },
+      { layer: 'transcript_classifier', confidence: 0.1, meta: { verdict: 'safe' } },
     ]);
     expect(r.verdict).toBe('warn');
     expect(r.reason).toBe('single_layer_high');
@@ -131,15 +136,15 @@ describe('combineVerdict — ensemble rule', () => {
 
   test('3-way: all three ML layers at WARN → BLOCK with min confidence', () => {
     const r = combineVerdict([
-      { layer: 'testsavant_content', confidence: 0.7 },
-      { layer: 'deberta_content', confidence: 0.65 },
-      { layer: 'transcript_classifier', confidence: 0.8 },
+      { layer: 'testsavant_content', confidence: 0.8 },
+      { layer: 'deberta_content', confidence: 0.76 },
+      { layer: 'transcript_classifier', confidence: 0.82, meta: { verdict: 'block' } },
     ]);
     expect(r.verdict).toBe('block');
     expect(r.reason).toBe('ensemble_agreement');
-    // Confidence reports the MIN of the WARN+ signals (most conservative
-    // estimate of agreed-upon signal strength)
-    expect(r.confidence).toBe(0.65);
+    // Confidence reports the MIN of the contributing block-votes
+    // (most conservative estimate of agreed-upon signal strength).
+    expect(r.confidence).toBe(0.76);
   });
 
   test('DeBERTa disabled (confidence 0, meta.disabled) does not degrade verdict', () => {
@@ -148,9 +153,9 @@ describe('combineVerdict — ensemble rule', () => {
     // identically to a safe/absent signal — never let the zero drag
     // down what testsavant + transcript would have said.
     const r = combineVerdict([
-      { layer: 'testsavant_content', confidence: 0.7 },
+      { layer: 'testsavant_content', confidence: 0.8 },
       { layer: 'deberta_content', confidence: 0, meta: { disabled: true } },
-      { layer: 'transcript_classifier', confidence: 0.7 },
+      { layer: 'transcript_classifier', confidence: 0.8, meta: { verdict: 'block' } },
     ]);
     expect(r.verdict).toBe('block');
     expect(r.reason).toBe('ensemble_agreement');

@@ -1,5 +1,41 @@
 import type { TemplateContext } from '../types';
 
+/**
+ * Plan-mode-skill semantics block.
+ *
+ * Lives at the TOP of the preamble (position 1) so models read the authoritative
+ * plan-mode rule before any other instructions. Replaces the vestigial
+ * generate-plan-mode-handshake.ts that used to sit at this position and told
+ * interactive review skills to emit an exit-and-rerun handshake instead of
+ * running their interactive STOP-Ask workflow.
+ *
+ * Text is the same "Plan Mode Safe Operations" + "Skill Invocation During Plan
+ * Mode" blocks that previously lived at the tail of generateCompletionStatus().
+ * Only the position changes. All skills (not just interactive: true) see this.
+ *
+ * Composition position: index 1 in scripts/resolvers/preamble.ts — after
+ * generatePreambleBash (so _SESSION_ID / _BRANCH / _TEL env vars exist before
+ * any plan-mode-aware telemetry) and before generateUpgradeCheck + onboarding
+ * gates. See ceo-plan 2026-04-24 "remove vestigial plan-mode handshake" for
+ * the full rationale.
+ */
+export function generatePlanModeInfo(_ctx: TemplateContext): string {
+  return `## Plan Mode Safe Operations
+
+In plan mode, these are always allowed (they inform the plan, don't modify source):
+\`$B\` (browse), \`$D\` (design), \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`,
+writes to the plan file, \`open\` for generated artifacts.
+
+## Skill Invocation During Plan Mode
+
+If the user invokes a skill in plan mode, that skill takes precedence over generic plan mode behavior. Treat it as executable instructions, not reference. Follow step
+by step. AskUserQuestion calls satisfy plan mode's end-of-turn requirement. At a STOP
+point, stop immediately. Do not continue the workflow past a STOP point and do not call ExitPlanMode there. Commands marked "PLAN
+MODE EXCEPTION — ALWAYS RUN" execute. Other writes need to be already permitted
+above or explicitly exception-marked. Call ExitPlanMode only after the skill
+workflow completes — only then call ExitPlanMode (or if the user tells you to cancel the skill or leave plan mode).`;
+}
+
 export function generateCompletionStatus(ctx: TemplateContext): string {
   return `## Completion Status Protocol
 
@@ -80,21 +116,6 @@ Replace \`SKILL_NAME\` with the actual skill name from frontmatter, \`OUTCOME\` 
 success/error/abort, and \`USED_BROWSE\` with true/false based on whether \`$B\` was used.
 If you cannot determine the outcome, use "unknown". The local JSONL always logs. The
 remote binary only runs if telemetry is not off and the binary exists.
-
-## Plan Mode Safe Operations
-
-In plan mode, these are always allowed (they inform the plan, don't modify source):
-\`$B\` (browse), \`$D\` (design), \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`,
-writes to the plan file, \`open\` for generated artifacts.
-
-## Skill Invocation During Plan Mode
-
-If the user invokes a skill in plan mode, that skill takes precedence over generic plan mode behavior. Treat it as executable instructions, not reference. Follow step
-by step. AskUserQuestion calls satisfy plan mode's end-of-turn requirement. At a STOP
-point, stop immediately. Do not continue the workflow past a STOP point and do not call ExitPlanMode there. Commands marked "PLAN
-MODE EXCEPTION — ALWAYS RUN" execute. Other writes need to be already permitted
-above or explicitly exception-marked. Call ExitPlanMode only after the skill
-workflow completes — only then call ExitPlanMode (or if the user tells you to cancel the skill or leave plan mode).
 
 ## Plan Status Footer
 
