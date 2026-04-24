@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { PassThrough } from 'node:stream';
-import { CdpPipeTransport, extractCookiesViaCdpPipe } from '../src/cookie-import-browser';
+import { CdpPipeTransport, extractCookiesViaCdpPipe, buildCdpSpawnArgs } from '../src/cookie-import-browser';
 
 // ─── Test Constants ─────────────────────────────────────────────
 
@@ -783,5 +783,39 @@ describe('extractCookiesViaCdpPipe', () => {
     const cookies = await extractCookiesViaCdpPipe(transport as any, []);
     expect(cookies).toEqual([]);
     expect(transport.sent).toHaveLength(0);
+  });
+});
+
+describe('buildCdpSpawnArgs', () => {
+  test('includes --remote-debugging-pipe', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Default');
+    expect(args).toContain('--remote-debugging-pipe');
+  });
+
+  test('never includes --remote-debugging-port', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Default');
+    expect(args.some(a => /^--remote-debugging-port/.test(a))).toBe(false);
+  });
+
+  test('passes user-data-dir and profile-directory', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Profile 1');
+    expect(args).toContain('--user-data-dir=C:\\udd');
+    expect(args).toContain('--profile-directory=Profile 1');
+  });
+
+  test('includes headless and hardening flags', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Default');
+    for (const expected of [
+      '--remote-debugging-pipe',
+      '--headless=new',
+      '--no-first-run',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-sync',
+      '--no-default-browser-check',
+    ]) {
+      expect(args).toContain(expected);
+    }
   });
 });
