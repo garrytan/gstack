@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.7.0.0] - 2026-04-22
+## [1.9.0.0] - 2026-04-23
 
 ## **Your gstack memory now travels with you. Cross-machine brain via a private git repo + optional GBrain indexing, no daemon, no credential leaks.**
 
