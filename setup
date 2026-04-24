@@ -24,6 +24,10 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+CURSOR_SKILLS="$HOME/.cursor/skills"
+CURSOR_GSTACK="$CURSOR_SKILLS/gstack"
+SLATE_SKILLS="$HOME/.slate/skills"
+SLATE_GSTACK="$SLATE_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -43,7 +47,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, slate, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -56,7 +60,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|slate|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -91,7 +95,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, cursor, slate, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -155,14 +159,18 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_CURSOR=0
+INSTALL_SLATE=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v cursor >/dev/null 2>&1 && INSTALL_CURSOR=1
+  command -v slate >/dev/null 2>&1 && INSTALL_SLATE=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_SLATE" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -175,6 +183,10 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "cursor" ]; then
+  INSTALL_CURSOR=1
+elif [ "$HOST" = "slate" ]; then
+  INSTALL_SLATE=1
 fi
 
 migrate_direct_codex_install() {
@@ -318,6 +330,26 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .cursor/ Cursor skill docs (hosts/cursor.ts — symlink-generated)
+if [ "$INSTALL_CURSOR" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .cursor/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host cursor
+  )
+fi
+
+# 1f. Generate .slate/ Slate skill docs (hosts/slate.ts)
+if [ "$INSTALL_SLATE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .slate/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host slate
   )
 fi
 
@@ -646,6 +678,80 @@ create_factory_runtime_root() {
   fi
 }
 
+# Cursor + Slate share hosts/*.ts runtimeRoot (slimmer than OpenCode: no design/qa extras).
+create_cursorlike_runtime_root() {
+  local gstack_dir="$1"
+  local host_gstack="$2"
+  local repo_skills="$3"
+  local gen_dir="$gstack_dir/$repo_skills"
+
+  if [ -L "$host_gstack" ]; then
+    rm -f "$host_gstack"
+  elif [ -d "$host_gstack" ] && [ "$host_gstack" != "$gstack_dir" ]; then
+    rm -rf "$host_gstack"
+  fi
+
+  mkdir -p "$host_gstack" "$host_gstack/browse" "$host_gstack/gstack-upgrade" "$host_gstack/review"
+
+  if [ -f "$gen_dir/gstack/SKILL.md" ]; then
+    ln -snf "$gen_dir/gstack/SKILL.md" "$host_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$host_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$host_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$host_gstack/browse/bin"
+  fi
+  if [ -f "$gen_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$gen_dir/gstack-upgrade/SKILL.md" "$host_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$host_gstack/review/$f"
+    fi
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$host_gstack/ETHOS.md"
+  fi
+}
+
+link_cursorlike_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local repo_skills="$3"
+  local gen_host="$4"
+  local gen_dir="$gstack_dir/$repo_skills"
+  local linked=()
+
+  if [ ! -d "$gen_dir" ]; then
+    echo "  Generating $repo_skills/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host "$gen_host" )
+  fi
+
+  if [ ! -d "$gen_dir" ]; then
+    echo "  warning: $repo_skills/ generation failed — run 'bun run gen:skill-docs --host $gen_host' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$gen_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 create_opencode_runtime_root() {
   local gstack_dir="$1"
   local opencode_gstack="$2"
@@ -933,6 +1039,26 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Cursor (generated skills under .cursor/skills → ~/.cursor/skills)
+if [ "$INSTALL_CURSOR" -eq 1 ]; then
+  mkdir -p "$CURSOR_SKILLS"
+  create_cursorlike_runtime_root "$SOURCE_GSTACK_DIR" "$CURSOR_GSTACK" ".cursor/skills"
+  link_cursorlike_skill_dirs "$SOURCE_GSTACK_DIR" "$CURSOR_SKILLS" ".cursor/skills" "cursor"
+  echo "gstack ready (cursor)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  cursor skills: $CURSOR_SKILLS"
+fi
+
+# 6e. Install for Slate
+if [ "$INSTALL_SLATE" -eq 1 ]; then
+  mkdir -p "$SLATE_SKILLS"
+  create_cursorlike_runtime_root "$SOURCE_GSTACK_DIR" "$SLATE_GSTACK" ".slate/skills"
+  link_cursorlike_skill_dirs "$SOURCE_GSTACK_DIR" "$SLATE_SKILLS" ".slate/skills" "slate"
+  echo "gstack ready (slate)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  slate skills: $SLATE_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
