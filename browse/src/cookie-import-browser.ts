@@ -40,6 +40,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import type { Writable as NodeWritable, Readable as NodeReadable } from 'node:stream';
 import { TEMP_DIR } from './platform';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -1017,6 +1018,136 @@ function cdpSameSite(value: string): 'Strict' | 'Lax' | 'None' {
     case 'Lax': return 'Lax';
     case 'None': return 'None';
     default: return 'Lax';
+  }
+}
+
+// ─── Internal: CDP-over-pipe transport ─────────────────────────
+// Chrome's --remote-debugging-pipe exposes CDP over anonymous stdio pipes
+// rather than a TCP socket. Framing is simple: UTF-8 JSON payloads delimited
+// by single NUL bytes (0x00), in both directions. No length prefix, no
+// WebSocket envelope.
+//
+// The transport accepts Node-style streams (Writable + Readable) so it can
+// be unit-tested with PassThrough without spawning a real subprocess. In
+// production, the streams come from `child.stdio[3]` (net.Socket, writable —
+// parent→Chrome) and `child.stdio[4]` (net.Socket, readable — Chrome→parent)
+// of a `node:child_process.spawn` child.
+//
+// Why node:child_process and not Bun.spawn: Bun.spawn exposes fds ≥ 3 as
+// raw numeric file descriptors rather than stream objects, and the Node
+// Writable.toWeb / Readable.toWeb bridges hang in Bun. node:child_process
+// gives us net.Socket endpoints that Just Work.
+
+type CdpPending = {
+  resolve: (value: any) => void;
+  reject: (err: Error) => void;
+};
+
+export class CdpPipeTransport {
+  private nextId = 1;
+  private pending = new Map<number, CdpPending>();
+  private closed = false;
+  private writeStream: NodeWritable;
+  private readStream: NodeReadable;
+  private readBuffer = new Uint8Array(0);
+  private decoder = new TextDecoder();
+
+  constructor(writeStream: NodeWritable, readStream: NodeReadable) {
+    this.writeStream = writeStream;
+    this.readStream = readStream;
+
+    this.readStream.on('data', (chunk: Buffer | string) => {
+      const bytes = typeof chunk === 'string'
+        ? new TextEncoder().encode(chunk)
+        : new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      this.ingest(bytes);
+    });
+    this.readStream.on('end', () => {
+      if (!this.closed) {
+        this.abortAll(new CookieImportError('CDP read stream ended unexpectedly', 'cdp_error'));
+      }
+    });
+    this.readStream.on('error', (err: Error) => this.abortAll(err));
+    this.writeStream.on('error', (err: Error) => this.abortAll(err));
+  }
+
+  send(method: string, params?: object, sessionId?: string): Promise<any> {
+    if (this.closed) {
+      return Promise.reject(new CookieImportError('CDP transport closed', 'cdp_error'));
+    }
+    const id = this.nextId++;
+    const frame: Record<string, unknown> = { id, method };
+    if (params !== undefined) frame.params = params;
+    if (sessionId !== undefined) frame.sessionId = sessionId;
+    const promise = new Promise<any>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+    });
+    // Write is fire-and-forget; errors bubble via the 'error' listener above.
+    this.writeStream.write(JSON.stringify(frame) + '\x00');
+    return promise;
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.abortAll(new CookieImportError('CDP transport closed', 'cdp_error'));
+    try { this.writeStream.end(); } catch {}
+  }
+
+  private ingest(chunk: Uint8Array): void {
+    // Append to accumulated buffer.
+    const combined = new Uint8Array(this.readBuffer.length + chunk.length);
+    combined.set(this.readBuffer, 0);
+    combined.set(chunk, this.readBuffer.length);
+    this.readBuffer = combined;
+
+    // Split on NUL; last piece (no trailing NUL) becomes the new buffer.
+    let start = 0;
+    for (let i = 0; i < this.readBuffer.length; i++) {
+      if (this.readBuffer[i] === 0x00) {
+        const frame = this.readBuffer.slice(start, i);
+        start = i + 1;
+        this.handleFrame(this.decoder.decode(frame));
+      }
+    }
+    this.readBuffer = this.readBuffer.slice(start);
+  }
+
+  private handleFrame(text: string): void {
+    if (text.length === 0) return;
+    let msg: any;
+    try {
+      msg = JSON.parse(text);
+    } catch {
+      // Malformed frame — ignore. Real CDP does not send malformed frames;
+      // if we see one, it's a bug, but crashing the transport punishes the
+      // caller for Chrome's bug.
+      return;
+    }
+
+    // Responses have an id. Events (no id) are ignored — we don't subscribe.
+    if (typeof msg.id !== 'number') return;
+
+    const pending = this.pending.get(msg.id);
+    if (!pending) return;
+    this.pending.delete(msg.id);
+
+    if (msg.error) {
+      pending.reject(new CookieImportError(
+        `CDP error: ${msg.error.message || 'unknown'}`,
+        'cdp_error',
+      ));
+    } else {
+      pending.resolve(msg.result ?? {});
+    }
+  }
+
+  private abortAll(err: Error): void {
+    const wrapped = err instanceof CookieImportError
+      ? err
+      : new CookieImportError(`CDP transport error: ${err.message}`, 'cdp_error');
+    for (const pending of this.pending.values()) pending.reject(wrapped);
+    this.pending.clear();
   }
 }
 

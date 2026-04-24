@@ -19,6 +19,8 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { PassThrough } from 'node:stream';
+import { CdpPipeTransport } from '../src/cookie-import-browser';
 
 // ─── Test Constants ─────────────────────────────────────────────
 
@@ -515,5 +517,163 @@ describe('Cookie Import Browser', () => {
         expect(err.message).toContain('chrome');
       }
     });
+  });
+});
+
+// ─── CdpPipeTransport ────────────────────────────────────────────
+
+// Helper: create a controllable pair of PassThrough streams mimicking Chrome's
+// pipe ends. `writeToChild` is the stream the transport writes TO (Chrome
+// would read). `readFromChild` is the stream the transport reads FROM (Chrome
+// would write). PassThrough is structurally equivalent to the net.Socket ends
+// that node:child_process.spawn returns at stdio[3]/[4] for this purpose.
+function makeMockPipes() {
+  const writeToChild = new PassThrough();
+  const readFromChild = new PassThrough();
+  const writtenChunks: Buffer[] = [];
+  writeToChild.on('data', (chunk: Buffer) => writtenChunks.push(chunk));
+
+  return {
+    writeToChild,
+    readFromChild,
+    getWritten: () => Buffer.concat(writtenChunks).toString('utf-8'),
+    pushFromChild: (s: string) => readFromChild.write(s),
+    closeFromChild: () => readFromChild.end(),
+    errorFromChild: (err: Error) => readFromChild.destroy(err),
+  };
+}
+
+// Flush pending I/O ticks so writes reach the PassThrough 'data' listener.
+const flush = async () => {
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+};
+
+describe('CdpPipeTransport', () => {
+  test('send writes a NUL-terminated JSON frame with monotonic id', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    // Attach catch handlers — we never await these, but close() will reject them.
+    t.send('Network.enable').catch(() => {});
+    t.send('Network.getAllCookies').catch(() => {});
+    await flush();
+
+    const written = pipes.getWritten();
+    expect(written).toBe(
+      '{"id":1,"method":"Network.enable"}\x00' +
+      '{"id":2,"method":"Network.getAllCookies"}\x00'
+    );
+
+    t.close();
+  });
+
+  test('send resolves when matching id arrives as a single frame', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.enable');
+    pipes.pushFromChild('{"id":1,"result":{}}\x00');
+    const result = await pending;
+    expect(result).toEqual({});
+
+    t.close();
+  });
+
+  test('send resolves when response arrives split across two reads at the NUL boundary', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.getAllCookies');
+    pipes.pushFromChild('{"id":1,"result":{"coo');
+    pipes.pushFromChild('kies":[]}}\x00');
+    const result = await pending;
+    expect(result).toEqual({ cookies: [] });
+
+    t.close();
+  });
+
+  test('ingest handles multiple frames arriving in one chunk', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const p1 = t.send('Network.enable');
+    const p2 = t.send('Network.getAllCookies');
+    pipes.pushFromChild('{"id":1,"result":{}}\x00{"id":2,"result":{"cookies":[{"name":"x"}]}}\x00');
+
+    expect(await p1).toEqual({});
+    expect(await p2).toEqual({ cookies: [{ name: 'x' }] });
+
+    t.close();
+  });
+
+  test('error frame rejects the matching pending promise with cdp_error', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.getAllCookies');
+    pipes.pushFromChild('{"id":1,"error":{"code":-32000,"message":"nope"}}\x00');
+
+    let caught: any = null;
+    try { await pending; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+    expect(caught!.message).toContain('nope');
+
+    t.close();
+  });
+
+  test('close rejects pending promises with cdp_error', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.enable');
+    t.close();
+
+    let caught: any = null;
+    try { await pending; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+    expect(caught!.message.toLowerCase()).toContain('closed');
+  });
+
+  test('unexpected read-stream end rejects pending with cdp_error', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.enable');
+    pipes.closeFromChild();
+
+    let caught: any = null;
+    try { await pending; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+  });
+
+  test('send with explicit sessionId includes it in the frame', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    t.send('Network.enable', undefined, 'SESSION123').catch(() => {});
+    await flush();
+
+    const written = pipes.getWritten();
+    expect(written).toBe('{"id":1,"method":"Network.enable","sessionId":"SESSION123"}\x00');
+
+    t.close();
+  });
+
+  test('send with params serializes them into the frame', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    t.send('Target.attachToTarget', { targetId: 'T1', flatten: true }).catch(() => {});
+    await flush();
+
+    const written = pipes.getWritten();
+    expect(written).toBe(
+      '{"id":1,"method":"Target.attachToTarget","params":{"targetId":"T1","flatten":true}}\x00'
+    );
+
+    t.close();
   });
 });
