@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.10.2.0] - 2026-04-24
+
+**`./setup --host cursor` and `./setup --host slate` install gstack skills into the right IDE trees.**
+
+You can target Cursor and Slate directly instead of reusing another host or copying folders by hand. `--host auto` also notices `cursor` and `slate` on your PATH.
+
+### The numbers that matter
+
+No new benchmarks for this change. Touch surface is the `setup` script only.
+
+### What this means for you
+
+From your gstack repo, run `./setup --host cursor` or `./setup --host slate` once, or keep `./setup --host auto` if those CLIs are installed.
+
+### Itemized changes
+
+#### Added
+
+- `setup` — `--host cursor` and `--host slate`, PATH auto-detect, `.cursor/skills` and `.slate/skills` install paths, and `bun run gen:skill-docs` for those hosts (same pattern as OpenCode).
+
 ## [1.10.1.0] - 2026-04-23
 
 ## **We tried to make Opus 4.7 faster with a prompt. Measurement said it got slower. Pulled the bullet.**
