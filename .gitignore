@@ -32,3 +32,7 @@ supabase/.temp/
 
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
 docs/throughput-*.json
+
+# BrowseSafe-Bench fixture — 28MB replay corpus, regenerate via:
+#   GSTACK_BENCH_ENSEMBLE=1 bun test browse/test/security-bench-ensemble-live.test.ts
+browse/test/fixtures/security-bench-haiku-responses.json

@@ -1634,7 +1634,17 @@ describe('no compiled binaries in git', () => {
   test('git tracks no files larger than 2MB', () => {
     // Pure fs.statSync — no shell spawn per file.
     const MAX_BYTES = 2 * 1024 * 1024;
+
+    // Intentionally large tracked files:
+    //   - big-file.md: gbrain E2E fixture that exercises large-file handling
+    //   - japan-trip-infographic-v2.png: historical research artifact in History/
+    const ALLOWED_LARGE = new Set([
+      'Tools/gbrain/test/e2e/fixtures/large/big-file.md',
+      'History/research/2026-03/2026-03-05_japan-trip/japan-trip-infographic-v2.png',
+    ]);
+
     const oversized = trackedFiles.filter((f: string) => {
+      if (ALLOWED_LARGE.has(f)) return false;
       const full = path.join(ROOT, f);
       try {
         return fs.statSync(full).size > MAX_BYTES;

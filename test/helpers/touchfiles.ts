@@ -78,12 +78,25 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-ceo-review-selective':        ['plan-ceo-review/**'],
   'plan-ceo-review-benefits':         ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
   'plan-ceo-review-expansion-energy': ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
+  'plan-ceo-review-format-mode':      ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-ceo-review-format-approach':  ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-ceo-review-prosons-cadence':  ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-ceo-review-plan-mode':        ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-mode-no-op':                  ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts'],
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
+  'plan-eng-review-format-coverage':  ['plan-eng-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-eng-review-format-kind':      ['plan-eng-review/**', 'scripts/resolvers/preamble.ts'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-review-prosons-format':       ['plan-ceo-review/**', 'plan-eng-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-review-prosons-hardstop-neg': ['plan-ceo-review/**', 'plan-eng-review/**', 'scripts/resolvers/preamble.ts'],
+  'plan-review-prosons-neutral-neg':  ['plan-ceo-review/**', 'plan-eng-review/**', 'scripts/resolvers/preamble.ts'],
 
   // /plan-tune (v1 observational)
   'plan-tune-inspect':         ['plan-tune/**', 'scripts/question-registry.ts', 'scripts/psychographic-signals.ts', 'scripts/one-way-doors.ts', 'bin/gstack-question-log', 'bin/gstack-question-preference', 'bin/gstack-developer-profile'],
+
+  // E2E harness audit (cross-skill, depends on all plan reviews + interactive skills)
+  'e2e-harness-audit':           ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'test/e2e-harness-audit.test.ts'],
 
   // Codex offering verification
   'codex-offered-office-hours':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
@@ -95,8 +108,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
   'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**'],
-  'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
-  'ship-plan-verification': ['ship/**', 'scripts/gen-skill-docs.ts'],
 
   // Retro
   'retro':             ['retro/**'],
@@ -270,13 +281,26 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-ceo-review-selective': 'periodic',
   'plan-ceo-review-benefits': 'gate',
   'plan-ceo-review-expansion-energy': 'gate',  // V1.1 mode-posture regression gate (Opus generator, Sonnet judge)
+  'plan-ceo-review-format-mode': 'periodic',
+  'plan-ceo-review-format-approach': 'periodic',
+  'plan-ceo-review-prosons-cadence': 'periodic',
+  'plan-ceo-review-plan-mode': 'gate',
+  'plan-mode-no-op': 'gate',
   'plan-eng-review': 'periodic',
   'plan-eng-review-artifact': 'periodic',
+  'plan-eng-review-format-coverage': 'periodic',
+  'plan-eng-review-format-kind': 'periodic',
   'plan-eng-coverage-audit': 'gate',
   'plan-review-report': 'gate',
+  'plan-review-prosons-format': 'periodic',
+  'plan-review-prosons-hardstop-neg': 'periodic',
+  'plan-review-prosons-neutral-neg': 'periodic',
 
   // /plan-tune — gate (core v1 DX promise: plain-English intent routing)
   'plan-tune-inspect': 'gate',
+
+  // E2E harness audit
+  'e2e-harness-audit': 'gate',
 
   // Codex offering verification
   'codex-offered-office-hours': 'gate',

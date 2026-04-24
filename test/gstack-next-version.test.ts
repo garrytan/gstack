@@ -154,10 +154,11 @@ describe("markActiveSiblings", () => {
 // the CLI executes end-to-end against real APIs without crashing.
 describe("integration (smoke)", () => {
   test("CLI runs against real repo and emits parseable JSON", async () => {
+    const binPath = new URL("../bin/gstack-next-version", import.meta.url).pathname;
     const proc = Bun.spawnSync([
       "bun",
       "run",
-      "./bin/gstack-next-version",
+      binPath,
       "--base",
       "main",
       "--bump",
