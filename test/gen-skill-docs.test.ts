@@ -905,7 +905,7 @@ describe('PLAN_VERIFICATION_EXEC placeholder', () => {
   });
 
   test('contains localhost reachability check', () => {
-    expect(shipSkill).toContain('localhost:3000');
+    expect(shipSkill).toContain('localhost:3101');
     expect(shipSkill).toContain('NO_SERVER');
   });
 

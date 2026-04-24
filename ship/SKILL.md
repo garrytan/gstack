@@ -1785,7 +1785,7 @@ Using the plan file already discovered in Step 8, look for a verification sectio
 Before invoking browse-based verification, check if a dev server is reachable:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}' http://localhost:3000 2>/dev/null || \
+curl -s -o /dev/null -w '%{http_code}' http://localhost:3101 2>/dev/null || \
 curl -s -o /dev/null -w '%{http_code}' http://localhost:8080 2>/dev/null || \
 curl -s -o /dev/null -w '%{http_code}' http://localhost:5173 2>/dev/null || \
 curl -s -o /dev/null -w '%{http_code}' http://localhost:4000 2>/dev/null || echo "NO_SERVER"

@@ -111,7 +111,7 @@ This is the **primary mode** for developers verifying their work. When the user 
 
 3. **Detect the running app** — check common local dev ports:
    \`\`\`bash
-   $B goto http://localhost:3000 2>/dev/null && echo "Found app on :3000" || \\
+   $B goto http://localhost:3101 2>/dev/null && echo "Found app on :3101" || \\
    $B goto http://localhost:4000 2>/dev/null && echo "Found app on :4000" || \\
    $B goto http://localhost:8080 2>/dev/null && echo "Found app on :8080"
    \`\`\`
