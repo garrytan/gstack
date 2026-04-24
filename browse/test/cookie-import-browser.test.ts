@@ -649,6 +649,25 @@ describe('CdpPipeTransport', () => {
     expect(caught!.code).toBe('cdp_error');
   });
 
+  test('send after read-stream end rejects immediately (closed flag flipped)', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    pipes.closeFromChild();
+    // Give the 'end' handler a tick to fire.
+    await flush();
+
+    let caught: any = null;
+    try {
+      await t.send('Network.enable');
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught.code).toBe('cdp_error');
+    expect(caught.message.toLowerCase()).toContain('closed');
+  });
+
   test('send with explicit sessionId includes it in the frame', async () => {
     const pipes = makeMockPipes();
     const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
@@ -783,6 +802,33 @@ describe('extractCookiesViaCdpPipe', () => {
     const cookies = await extractCookiesViaCdpPipe(transport as any, []);
     expect(cookies).toEqual([]);
     expect(transport.sent).toHaveLength(0);
+  });
+
+  test('returns empty array when Network.getAllCookies response has no cookies field', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', { targetInfos: [{ targetId: 'P', type: 'page' }] });
+    transport.script('Target.attachToTarget', { sessionId: 'S1' });
+    transport.script('Network.enable', {});
+    transport.script('Network.getAllCookies', {}); // no 'cookies' field
+
+    const cookies = await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    expect(cookies).toEqual([]);
+  });
+
+  test('throws cdp_error when attachToTarget returns no sessionId', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', { targetInfos: [{ targetId: 'P', type: 'page' }] });
+    transport.script('Target.attachToTarget', {}); // missing sessionId
+
+    let caught: any = null;
+    try {
+      await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught.code).toBe('cdp_error');
+    expect(caught.message.toLowerCase()).toContain('sessionid');
   });
 });
 

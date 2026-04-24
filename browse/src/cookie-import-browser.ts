@@ -989,6 +989,7 @@ export class CdpPipeTransport {
     });
     this.readStream.on('end', () => {
       if (!this.closed) {
+        this.closed = true;
         this.abortAll(new CookieImportError('CDP read stream ended unexpectedly', 'cdp_error'));
       }
     });
@@ -1113,7 +1114,13 @@ export async function extractCookiesViaCdpPipe(
     targetId: pageTarget.targetId,
     flatten: true,
   });
-  const sessionId = attached.sessionId as string;
+  const sessionId = attached.sessionId as string | undefined;
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    throw new CookieImportError(
+      'Target.attachToTarget returned no sessionId',
+      'cdp_error',
+    );
+  }
 
   await transport.send('Network.enable', undefined, sessionId);
   const cookiesResp = await transport.send('Network.getAllCookies', undefined, sessionId);
@@ -1126,7 +1133,7 @@ export async function extractCookiesViaCdpPipe(
   }
 
   const result: PlaywrightCookie[] = [];
-  for (const c of cookiesResp.cookies as CdpCookie[]) {
+  for (const c of (cookiesResp.cookies ?? []) as CdpCookie[]) {
     if (!domainSet.has(c.domain)) continue;
     result.push({
       name: c.name,
