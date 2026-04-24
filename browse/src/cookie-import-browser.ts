@@ -880,6 +880,11 @@ export async function importCookiesViaCdp(
     stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
   });
 
+  // Without this listener, an async spawn failure (ENOENT, EACCES) would
+  // emit 'error' and crash the parent process via Node's default handler.
+  // Errors are surfaced via the transport's error path or the stdio null-check.
+  chromeProc.on('error', () => {});
+
   const writeSocket = chromeProc.stdio[3] as NodeJS.WritableStream | null;
   const readSocket = chromeProc.stdio[4] as NodeJS.ReadableStream | null;
   if (!writeSocket || !readSocket) {
@@ -891,8 +896,8 @@ export async function importCookiesViaCdp(
   }
 
   const transport = new CdpPipeTransport(
-    writeSocket as unknown as import('node:stream').Writable,
-    readSocket as unknown as import('node:stream').Readable,
+    writeSocket as unknown as NodeWritable,
+    readSocket as unknown as NodeReadable,
   );
 
   try {
