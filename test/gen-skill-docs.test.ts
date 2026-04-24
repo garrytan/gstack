@@ -2138,16 +2138,18 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|factory|opencode|cursor|slate', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|slate|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
+  test('auto mode detects claude, codex, kiro, opencode, cursor, and slate binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v cursor');
+    expect(setupContent).toContain('command -v slate');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
