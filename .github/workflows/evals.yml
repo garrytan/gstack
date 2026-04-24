@@ -25,7 +25,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}" >> "$GITHUB_OUTPUT"
+        env:
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ "$IS_FORK_PR" = "true" ]; then
+            echo "Fork PR detected — reusing upstream ci:latest because GITHUB_TOKEN cannot push org packages from cross-repo PRs."
+            echo "tag=${{ env.IMAGE }}:latest" >> "$GITHUB_OUTPUT"
+            echo "push_allowed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}" >> "$GITHUB_OUTPUT"
+            echo "push_allowed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: docker/login-action@v3
         with:
@@ -42,10 +52,10 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - if: steps.check.outputs.exists == 'false'
+      - if: steps.check.outputs.exists == 'false' && steps.meta.outputs.push_allowed == 'true'
         run: cp package.json .github/docker/
 
-      - if: steps.check.outputs.exists == 'false'
+      - if: steps.check.outputs.exists == 'false' && steps.meta.outputs.push_allowed == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .github/docker
@@ -54,6 +64,11 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE }}:latest
+
+      - if: steps.check.outputs.exists == 'false' && steps.meta.outputs.push_allowed != 'true'
+        run: |
+          echo "::error::Upstream ci:latest is missing, so this fork PR cannot reuse it. Ask a maintainer to refresh the CI image from a same-repo branch."
+          exit 1
 
   evals:
     runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-2' }}
