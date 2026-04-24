@@ -344,6 +344,142 @@ export const OVERLAY_FIXTURES: OverlayFixture[] = [
     metric: uniqueFilesEdited,
     pass: higherIsBetter20Pct,
   },
+
+  // =========================================================================
+  // Sonnet 4.6 variants of the Opus-4.7 fixtures.
+  //
+  // Rationale: /claude.md + /opus-4-7.md overlays measured as no-op or
+  // counterproductive on Opus 4.7. Before deleting the whole overlay stack,
+  // check whether weaker Claude models (Sonnet, Haiku) benefit from the same
+  // nudges. Same overlays, same prompts, same metrics, different model ID.
+  // Sonnet is ~4x cheaper than Opus so these 5 add ~$3 to a run.
+  // =========================================================================
+
+  {
+    id: 'opus-4-7-fanout-toy-sonnet',
+    overlayPath: 'model-overlays/opus-4-7.md',
+    model: 'claude-sonnet-4-6',
+    trials: 10,
+    concurrency: 3,
+    setupWorkspace: (dir) => {
+      fs.writeFileSync(path.join(dir, 'alpha.txt'), 'Alpha file: used in module A.\n');
+      fs.writeFileSync(path.join(dir, 'beta.txt'), 'Beta file: used in module B.\n');
+      fs.writeFileSync(path.join(dir, 'gamma.txt'), 'Gamma file: used in module C.\n');
+    },
+    userPrompt:
+      'Read alpha.txt, beta.txt, and gamma.txt and summarize each in one line.',
+    metric: (r) => firstTurnParallelism(r.assistantTurns[0]),
+    pass: fanoutPass,
+  },
+
+  {
+    id: 'opus-4-7-fanout-realistic-sonnet',
+    overlayPath: 'model-overlays/opus-4-7.md',
+    model: 'claude-sonnet-4-6',
+    trials: 10,
+    concurrency: 3,
+    setupWorkspace: (dir) => {
+      fs.writeFileSync(
+        path.join(dir, 'app.ts'),
+        "import { config } from './config';\nimport { util } from './src/util';\n\nexport function main() { return config.name + ':' + util(); }\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'config.ts'),
+        "export const config = { name: 'demo', version: 1 };\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'README.md'),
+        '# demo project\n\nA small demo. Entry: `app.ts`. Config: `config.ts`.\n',
+      );
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'src', 'util.ts'),
+        "export function util() { return 'util-result'; }\n",
+      );
+    },
+    userPrompt:
+      'Audit this project: read app.ts, config.ts, and README.md, and glob for ' +
+      'every .ts file under src/. Summarize what you find in 3 bullet points.',
+    metric: (r) => firstTurnParallelism(r.assistantTurns[0]),
+    pass: fanoutPass,
+  },
+
+  {
+    id: 'claude-dedicated-tools-vs-bash-sonnet',
+    overlayPath: 'model-overlays/claude.md',
+    model: 'claude-sonnet-4-6',
+    trials: 10,
+    concurrency: 3,
+    direction: 'lower_is_better',
+    maxTurns: 15,
+    setupWorkspace: (dir) => {
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src', 'index.ts'), "export const x = 1;\n");
+      fs.writeFileSync(path.join(dir, 'src', 'util.ts'), "export function util() { return 42; }\n");
+      fs.writeFileSync(path.join(dir, 'src', 'types.ts'), "export type Foo = { a: number };\n");
+      fs.writeFileSync(path.join(dir, 'src', 'config.ts'), "export const c = { n: 'demo' };\n");
+      fs.writeFileSync(path.join(dir, 'src', 'api.ts'), "export async function fetchFoo() { return null; }\n");
+    },
+    userPrompt:
+      "List every TypeScript file under src/ and tell me what each exports. " +
+      "You may use any tools available.",
+    metric: bashToolCallCount,
+    pass: lowerIsBetter20Pct,
+  },
+
+  {
+    id: 'opus-4-7-effort-match-trivial-sonnet',
+    overlayPath: 'model-overlays/opus-4-7.md',
+    model: 'claude-sonnet-4-6',
+    trials: 10,
+    concurrency: 3,
+    direction: 'lower_is_better',
+    maxTurns: 8,
+    setupWorkspace: (dir) => {
+      fs.writeFileSync(
+        path.join(dir, 'config.json'),
+        '{"name": "demo", "version": "1.0.0"}\n',
+      );
+    },
+    userPrompt: "What's the version in config.json?",
+    metric: turnsToCompletion,
+    pass: lowerIsBetter20Pct,
+  },
+
+  {
+    id: 'opus-4-7-literal-interpretation-sonnet',
+    overlayPath: 'model-overlays/opus-4-7.md',
+    model: 'claude-sonnet-4-6',
+    trials: 10,
+    concurrency: 3,
+    direction: 'higher_is_better',
+    allowedTools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write'],
+    maxTurns: 15,
+    setupWorkspace: (dir) => {
+      fs.writeFileSync(
+        path.join(dir, 'auth.test.ts'),
+        "import { test, expect } from 'bun:test';\n" +
+          "test('auth returns true', () => { expect(1).toBe(2); });\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'billing.test.ts'),
+        "import { test, expect } from 'bun:test';\n" +
+          "test('billing computes total', () => { expect('ten').toBe('10'); });\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'notifications.test.ts'),
+        "import { test, expect } from 'bun:test';\n" +
+          "test('notifications fire on save', () => { expect([1,2]).toEqual([1,2,3]); });\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, 'README.md'),
+        "# demo\n\nSmall project with three failing test files.\n",
+      );
+    },
+    userPrompt: "Fix the failing tests.",
+    metric: uniqueFilesEdited,
+    pass: higherIsBetter20Pct,
+  },
 ];
 
 // Validate at module load so a broken fixture fails fast at test startup,
