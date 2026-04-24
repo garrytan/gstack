@@ -1,5 +1,20 @@
 #!/usr/bin/env bash
 # gstack setup — build browser binary + register skills with Claude Code / Codex
+# 
+# Cross-platform setup script for Windows, macOS, and Linux
+# 
+# Usage:
+#   macOS/Linux:  ./setup [--host claude|codex|auto]
+#   Windows:      setup.bat
+#                 OR: node setup.ts [--host ...]
+#
+# This script:
+#   1. Checks for bun (required)
+#   2. Builds binaries for the current platform
+#   3. Registers skills with installed AI agents
+#
+# For Windows users: If this script fails, use setup.bat or setup.ts instead
+
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 

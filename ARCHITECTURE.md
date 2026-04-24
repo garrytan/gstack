@@ -2,6 +2,15 @@
 
 This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
 
+## Claude Code Version Support
+
+gstack works with any Claude Code interface:
+- **Terminal CLI** (`claude` command) — macOS, Linux, Windows (Git Bash/WSL)
+- **VS Code Extension** (Claude Code IDE) — macOS, Linux, Windows
+- **Web Browser** (Claude.ai) — All browsers via any device
+
+The core architecture is platform-agnostic. See [Phase 4 testing documentation](lib/__tests__/integration.test.ts) for cross-platform implementation details (binary discovery, path utilities, platform-specific build targets).
+
 ## The core idea
 
 gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.

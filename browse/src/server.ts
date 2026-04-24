@@ -343,6 +343,24 @@ function findBrowseBin(): string {
 
 const BROWSE_BIN = findBrowseBin();
 
+/**
+ * Find the claude binary in known installation locations.
+ * 
+ * RESERVED FOR FUTURE USE: Sidebar agent integration (v0.15+)
+ * 
+ * Search order (macOS/Linux):
+ *   1. Conductor app bundled binary (~/Library/Application Support/com.conductor.app/bin/claude)
+ *   2. Versioned binaries (~/.local/share/claude/versions/*)
+ *   3. Standard user install (~/.local/bin/claude)
+ *   4. System paths (/usr/local/bin/claude — common on all Unix systems)
+ *   5. Homebrew paths (/opt/homebrew/bin/claude — Apple Silicon Macs via Homebrew)
+ *   6. System PATH (via 'which claude')
+ * 
+ * Hardcoded paths /usr/local/bin and /opt/homebrew/bin are platform-standard locations:
+ *   - /usr/local/bin: POSIX standard system location (all Unix systems)
+ *   - /opt/homebrew/bin: Homebrew standard location (Apple Silicon macOS)
+ * These are well-known, stable installation locations, not arbitrary paths.
+ */
 function findClaudeBin(): string | null {
   const home = process.env.HOME || '';
   const candidates = [

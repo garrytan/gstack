@@ -13,11 +13,12 @@
  *        between paragraphs, and homoglyph substitution. We add a word-token
  *        diff and a paragraph-boundary assertion on top.
  *
- * Resolution order for the pdftotext binary:
+ * Resolution order for the pdftotext binary (cross-platform):
  *   1. $PDFTOTEXT_BIN env override
- *   2. `which pdftotext` on PATH
- *   3. standard Homebrew paths on macOS
- *   4. throws a friendly "install poppler" error
+ *   2. Automatic discovery via lib/binary-locator
+ *      - Searches: Program Files, Homebrew, /usr/bin, Snap, etc.
+ *      - Platform-aware for Windows, macOS, Linux
+ *   3. Throws a friendly "install poppler" error with helpful guides
  *
  * The wrapper is *optional at runtime*: production renders don't need it.
  * Only the CI gate and unit tests invoke pdftotext.
@@ -25,8 +26,9 @@
 
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import * as os from "node:os";
+import { findBinary, describeSearchPaths } from "../../lib/binary-locator";
 
 export class PdftotextUnavailableError extends Error {
   constructor(message: string) {
@@ -43,31 +45,29 @@ export interface PdftotextInfo {
 
 /**
  * Locate pdftotext. Throws PdftotextUnavailableError if none is found.
+ * Uses environment variable override first, then cross-platform search.
  */
-export function resolvePdftotext(): PdftotextInfo {
+export async function resolvePdftotext(): Promise<PdftotextInfo> {
   const envOverride = process.env.PDFTOTEXT_BIN;
-  if (envOverride && isExecutable(envOverride)) {
-    return describeBinary(envOverride);
+  if (envOverride) {
+    try {
+      fs.accessSync(envOverride, fs.constants.X_OK);
+      return describeBinary(envOverride);
+    } catch {
+      throw new PdftotextUnavailableError(
+        `PDFTOTEXT_BIN="${envOverride}" is not executable`
+      );
+    }
   }
 
-  // Try PATH
-  try {
-    const which = execFileSync("which", ["pdftotext"], { encoding: "utf8" }).trim();
-    if (which && isExecutable(which)) return describeBinary(which);
-  } catch {
-    // fall through
+  // Use cross-platform binary locator
+  const pdftotext = await findBinary("pdftotext");
+  if (pdftotext) {
+    return describeBinary(pdftotext);
   }
 
-  // Common macOS Homebrew locations
-  const macCandidates = [
-    "/opt/homebrew/bin/pdftotext",     // Apple Silicon
-    "/usr/local/bin/pdftotext",        // Intel Mac or Linuxbrew
-    "/usr/bin/pdftotext",              // distro package
-  ];
-  for (const candidate of macCandidates) {
-    if (isExecutable(candidate)) return describeBinary(candidate);
-  }
-
+  // Not found — provide helpful error message
+  const searchInfo = describeSearchPaths("pdftotext");
   throw new PdftotextUnavailableError([
     "pdftotext not found.",
     "",
@@ -78,20 +78,15 @@ export function resolvePdftotext(): PdftotextInfo {
     "  macOS:  brew install poppler",
     "  Ubuntu: sudo apt-get install poppler-utils",
     "  Fedora: sudo dnf install poppler-utils",
+    "  Windows: https://github.com/oschwartz10612/poppler-windows/releases/",
     "",
     "Or set PDFTOTEXT_BIN to an explicit path:",
     "  export PDFTOTEXT_BIN=/path/to/pdftotext",
+    "",
+    searchInfo,
   ].join("\n"));
 }
 
-function isExecutable(p: string): boolean {
-  try {
-    fs.accessSync(p, fs.constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function describeBinary(bin: string): PdftotextInfo {
   let version = "unknown";
@@ -119,9 +114,12 @@ function describeBinary(bin: string): PdftotextInfo {
  *
  * Uses `-layout` by default because that's what downstream normalization
  * expects. Callers that need raw text can pass layout=false.
+ * 
+ * Note: This is now async because resolvePdftotext uses the async binary-locator.
+ * For backwards compatibility, you can cache the resolved binary and reuse it.
  */
-export function pdftotext(pdfPath: string, opts?: { layout?: boolean }): string {
-  const info = resolvePdftotext();
+export async function pdftotext(pdfPath: string, opts?: { layout?: boolean }): Promise<string> {
+  const info = await resolvePdftotext();
   const layout = opts?.layout ?? true;
   const args: string[] = [];
   if (layout) args.push("-layout");
@@ -178,8 +176,8 @@ export interface GateResult {
   extracted: string;
 }
 
-export function copyPasteGate(pdfPath: string, expected: string): GateResult {
-  const extracted = normalize(pdftotext(pdfPath, { layout: true }));
+export async function copyPasteGate(pdfPath: string, expected: string): Promise<GateResult> {
+  const extracted = normalize(await pdftotext(pdfPath, { layout: true }));
   const expectedNorm = normalize(expected);
   const reasons: string[] = [];
 
@@ -240,10 +238,13 @@ function truncate(s: string, n: number): string {
 /**
  * Emit diagnostic info to stderr — useful for CI failure debugging.
  * Call this once before running any gate in a CI log.
+ * 
+ * Note: This is now async because resolvePdftotext uses the async binary-locator.
+ * For backwards compatibility, you can wrap with await in your test setup.
  */
-export function logDiagnostics(): void {
+export async function logDiagnostics(): Promise<void> {
   try {
-    const info = resolvePdftotext();
+    const info = await resolvePdftotext();
     process.stderr.write(
       `[pdftotext] bin=${info.bin} flavor=${info.flavor} version="${info.version}" ` +
       `os=${os.platform()}-${os.arch()} node=${process.version}\n`,

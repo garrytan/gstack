@@ -34,14 +34,15 @@ function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } 
   if (!fs.existsSync(BROWSE_BIN)) return { ok: false, reason: `browse binary missing (${BROWSE_BIN}).` };
   if (!fs.existsSync(FIXTURE)) return { ok: false, reason: `fixture missing (${FIXTURE}).` };
   if (!fs.existsSync(EXPECTED)) return { ok: false, reason: `expected.txt missing (${EXPECTED}).` };
-  try { resolvePdftotext(); } catch (err: any) { return { ok: false, reason: err.message }; }
+  // Note: pdftotext check is now async, so we skip it here
+  // It will be checked when the test actually runs
   return { ok: true };
 }
 
 describe("combined-features copy-paste gate", () => {
   const avail = prerequisitesAvailable();
 
-  test.skipIf(!avail.ok)("fixture PDF extracts cleanly through pdftotext", () => {
+  test.skipIf(!avail.ok)("fixture PDF extracts cleanly through pdftotext", async () => {
     if (!avail.ok) return; // satisfies the type checker
     // Use /tmp directly (browse's validateOutputPath allows /private/tmp,
     // which macOS resolves /tmp to). os.tmpdir() returns /var/folders/...
@@ -56,7 +57,7 @@ describe("combined-features copy-paste gate", () => {
       expect(fs.existsSync(outputPdf)).toBe(true);
 
       const expected = fs.readFileSync(EXPECTED, "utf8");
-      const result = copyPasteGate(outputPdf, expected);
+      const result = await copyPasteGate(outputPdf, expected);
       if (!result.ok) {
         // Attach the extracted text so CI logs make the failure diagnosable
         process.stderr.write(`\n--- EXTRACTED ---\n${result.extracted}\n--- END ---\n\n`);

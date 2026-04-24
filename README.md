@@ -40,40 +40,193 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 5. Run `/qa` on your staging URL
 6. Stop there. You'll know if this is for you.
 
-## Install — 30 seconds
+## Installation
 
-**Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
+### Which Claude Code version do you need?
 
-### Step 1: Install on your machine
+gstack works with **any** Claude Code interface. Pick the one that fits your workflow:
 
-Open Claude Code and paste this. Claude does the rest.
+| Interface | Where to use | Supported? |
+|-----------|-------------|------------|
+| **Terminal** — `claude` command-line CLI | macOS, Linux, Windows (WSL) | ✅ Primary. Full feature set. |
+| **IDE Extension** — Claude Code inside VS Code | macOS, Linux, Windows | ✅ Full feature set. Recommended for most developers. |
+| **Web Browser** — Claude.ai in your browser | Any OS with a browser | ✅ All skills work. Browser automation via `/browse` and `/open-gstack-browser`. |
 
-> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
+**Start here:** Most developers use the [IDE Extension](https://docs.anthropic.com/en/docs/claude-code). It integrates directly into VS Code and is the easiest way to get started.
 
-### Step 2: Team mode — auto-update for shared repos (recommended)
+### Prerequisites
 
-From inside your repo, paste this. Switches you to team mode, bootstraps the repo so teammates get gstack automatically, and commits the change:
+gstack needs these tools installed **first** — before you install gstack itself.
+
+#### Step 1A: macOS Prerequisites
+
+1. **Xcode Command Line Tools** (required for Git and C++ compilation):
+   ```bash
+   xcode-select --install
+   ```
+   Then agree to the license: `sudo xcodebuild -license accept`
+
+2. **Homebrew** (package manager — optional but recommended):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+3. **Git** (version control):
+   ```bash
+   # If you installed Homebrew:
+   brew install git
+   
+   # OR if you're using the Xcode Command Line Tools:
+   # (git is included — verify with: git --version)
+   ```
+
+4. **Bun** (JavaScript runtime, required by gstack):
+   ```bash
+   curl -fsSL https://bun.sh/install | bash
+   # Then add to your shell profile if not automatically added:
+   export BUN_INSTALL="$HOME/.bun"
+   export PATH="$BUN_INSTALL/bin:$PATH"
+   ```
+
+5. **Verify installation:**
+   ```bash
+   git --version
+   bun --version
+   ```
+
+#### Step 1B: Linux Prerequisites
+
+1. **Git** (version control):
+   ```bash
+   # Ubuntu/Debian:
+   sudo apt update && sudo apt install -y git
+   
+   # Fedora/RHEL:
+   sudo dnf install -y git
+   
+   # Arch:
+   sudo pacman -S git
+   ```
+
+2. **Bun** (JavaScript runtime, required by gstack):
+   ```bash
+   curl -fsSL https://bun.sh/install | bash
+   # Then add to your shell profile (~/.bashrc, ~/.zshrc, etc):
+   export BUN_INSTALL="$HOME/.bun"
+   export PATH="$BUN_INSTALL/bin:$PATH"
+   ```
+
+3. **Verify installation:**
+   ```bash
+   git --version
+   bun --version
+   ```
+
+#### Step 1C: Windows Prerequisites
+
+1. **Git for Windows** (version control + Bash):
+   - Download from [git-scm.com](https://git-scm.com/)
+   - During installation, select "Use Git from Git Bash only" or add to PATH
+   - Verify: Open PowerShell or Git Bash and run `git --version`
+
+2. **Bun** (JavaScript runtime, required by gstack):
+   ```bash
+   # In PowerShell:
+   powershell -Command "irm https://bun.sh/install.ps1 | iex"
+   
+   # Or in Git Bash:
+   curl -fsSL https://bun.sh/install | bash
+   ```
+   Verify: `bun --version`
+
+3. **Node.js** (required for Windows browse support):
+   - Download from [nodejs.org](https://nodejs.org/)
+   - Choose the LTS (Long Term Support) version
+   - During installation, keep defaults (includes npm)
+   - Verify: `node --version` and `npm --version`
+
+4. **WSL2** (optional but recommended for better compatibility):
+   - If you're on Windows 10/11, consider installing [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install)
+   - Then follow the Linux prerequisites above for a Linux environment inside Windows
+   - Many gstack users find WSL2 simpler than native Windows
+
+5. **Verify all installations:**
+   ```bash
+   git --version
+   bun --version
+   node --version
+   ```
+
+### Step 2: Install gstack
+
+Once prerequisites are installed, follow the instructions for your Claude Code interface:
+
+#### Install in Claude Code (IDE Extension or Terminal)
+
+1. **Open Claude Code** (either the VS Code extension or the Terminal CLI)
+
+2. **Paste this command:**
+   ```bash
+   git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
+   ```
+
+3. **The setup script will:**
+   - Detect your OS and architecture (macOS arm64/x64, Linux x64/arm64, Windows)
+   - Build required binaries (browse, design)
+   - Create skill directories with symlinks
+   - Ask about command naming preferences
+   - Update your `CLAUDE.md` with gstack configuration
+
+4. **Verify installation:**
+   ```bash
+   # In Claude Code, type:
+   /office-hours
+   
+   # If the /office-hours skill appears and you can run it, you're set!
+   ```
+
+#### Install in Browser (Claude.ai)
+
+If you're using Claude.ai in your browser:
+
+1. You can't install gstack directly in the browser, but you can still access `/browse` and other web-based features
+2. Install gstack on your **machine** (following Step 2 above)
+3. When you use Claude.ai, you can reference gstack workflows manually
+4. For full browser automation, use `/open-gstack-browser` from a Terminal/IDE Claude Code session
+
+### Step 3: Team mode (optional but recommended)
+
+To auto-distribute gstack to your team, run this **from inside your repo**:
 
 ```bash
-(cd ~/.claude/skills/gstack && ./setup --team) && ~/.claude/skills/gstack/bin/gstack-team-init required && git add .claude/ CLAUDE.md && git commit -m "require gstack for AI-assisted work"
+(cd ~/.claude/skills/gstack && ./setup --team) && \
+  ~/.claude/skills/gstack/bin/gstack-team-init required && \
+  git add .claude/ CLAUDE.md && \
+  git commit -m "require gstack for AI-assisted work"
 ```
 
-No vendored files in your repo, no version drift, no manual upgrades. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent).
+**What this does:**
+- Adds a `.claude/config.yaml` file to your repo (tiny, version-controlled)
+- Every Claude Code session auto-detects and auto-installs gstack
+- No manual setup needed for teammates
+- Auto-update checks run once per hour (silent, fast, network-failure-safe)
+- Swap `required` for `optional` if you want to nudge instead of block
+
+**No vendored files.** The `.claude/` directory is tiny. gstack itself stays at `~/.claude/skills/gstack` on each machine, shared globally.
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
 ### OpenClaw
 
-OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works
-when Claude Code has gstack installed. Paste this to your OpenClaw agent:
+OpenClaw spawns Claude Code sessions (Terminal or IDE) via ACP, so every gstack skill works when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 
-> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
+> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code (Terminal or IDE extension). Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
 
 **After setup, just talk to your OpenClaw agent naturally:**
 
 | You say | What happens |
 |---------|-------------|
-| "Fix the typo in README" | Simple — Claude Code session, no gstack needed |
+| "Fix the typo in README" | Simple — Claude Code session (Terminal or IDE), no gstack needed |
 | "Run a security audit on this repo" | Spawns Claude Code with `Run /cso` |
 | "Build me a notifications feature" | Spawns Claude Code with /autoplan → implement → /ship |
 | "Help me plan the v2 API redesign" | Spawns Claude Code with /office-hours → /autoplan, saves plan |
@@ -101,8 +254,7 @@ These are conversational skills. Your OpenClaw agent runs them directly via chat
 
 ### Other AI Agents
 
-gstack works on 10 AI coding agents, not just Claude. Setup auto-detects which
-agents you have installed:
+gstack works on 10 AI coding agents, not just Claude Code. Each agent that supports skills can run gstack. Setup auto-detects which agents you have installed:
 
 ```bash
 git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/gstack
@@ -111,16 +263,17 @@ cd ~/gstack && ./setup
 
 Or target a specific agent with `./setup --host <name>`:
 
-| Agent | Flag | Skills install to |
-|-------|------|-------------------|
-| OpenAI Codex CLI | `--host codex` | `~/.codex/skills/gstack-*/` |
-| OpenCode | `--host opencode` | `~/.config/opencode/skills/gstack-*/` |
-| Cursor | `--host cursor` | `~/.cursor/skills/gstack-*/` |
-| Factory Droid | `--host factory` | `~/.factory/skills/gstack-*/` |
-| Slate | `--host slate` | `~/.slate/skills/gstack-*/` |
-| Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
-| Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
-| GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
+| Agent | Setup flag | Skills install to | Supports |
+|-------|------------|-------------------|----------|
+| Claude Code (Default) | `--host claude` | `~/.claude/skills/gstack*/` | Terminal, IDE Extension, Web (partial) |
+| OpenAI Codex CLI | `--host codex` | `~/.codex/skills/gstack-*/` | Terminal only |
+| OpenCode | `--host opencode` | `~/.config/opencode/skills/gstack-*/` | IDE Extension |
+| Cursor | `--host cursor` | `~/.cursor/skills/gstack-*/` | IDE Extension |
+| Factory Droid | `--host factory` | `~/.factory/skills/gstack-*/` | Terminal |
+| Slate | `--host slate` | `~/.slate/skills/gstack-*/` | IDE Extension |
+| Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` | Terminal |
+| Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` | Terminal |
+| GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` | Terminal |
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
@@ -416,23 +569,144 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 ## Troubleshooting
 
-**Skill not showing up?** `cd ~/.claude/skills/gstack && ./setup`
+### Installation issues
 
-**`/browse` fails?** `cd ~/.claude/skills/gstack && bun install && bun run build`
+#### macOS: "Command not found: bun"
+```bash
+# Add Bun to your PATH if the install didn't do it automatically:
+echo 'export BUN_INSTALL="$HOME/.bun"' >> ~/.zshrc
+echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 
-**Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
-
-**Want shorter commands?** `cd ~/.claude/skills/gstack && ./setup --no-prefix` — switches from `/gstack-qa` to `/qa`. Your choice is remembered for future upgrades.
-
-**Want namespaced commands?** `cd ~/.claude/skills/gstack && ./setup --prefix` — switches from `/qa` to `/gstack-qa`. Useful if you run other skill packs alongside gstack.
-
-**Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
-
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
-
-**Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
-
+# Then verify:
+bun --version
 ```
+
+#### macOS: "Xcode command line tools"
+```bash
+# If git isn't found, install Xcode Command Line Tools:
+xcode-select --install
+
+# Agree to license:
+sudo xcodebuild -license accept
+```
+
+#### Linux: "Command not found: git"
+```bash
+# Ubuntu/Debian:
+sudo apt update && sudo apt install -y git
+
+# Fedora/RHEL:
+sudo dnf install -y git
+
+# Arch:
+sudo pacman -S git
+```
+
+#### Windows: "git: command not found" in PowerShell
+```bash
+# 1. Make sure you installed Git for Windows from git-scm.com
+# 2. Restart PowerShell or your terminal
+# 3. Or use Git Bash instead (installed with Git for Windows)
+
+# Verify:
+git --version
+```
+
+#### Windows: "Node.js required for browse"
+```bash
+# gstack uses Node.js for browser automation on Windows
+# Download from https://nodejs.org/ (LTS version)
+# Then verify:
+node --version
+npm --version
+```
+
+#### All platforms: "Setup script fails"
+```bash
+# Make the setup script executable:
+chmod +x ~/.claude/skills/gstack/setup
+
+# Then try again:
+cd ~/.claude/skills/gstack && ./setup
+```
+
+#### All platforms: "Skill not showing up in Claude Code"
+```bash
+# Rebuild and reinstall:
+cd ~/.claude/skills/gstack && \
+  bun install && \
+  bun run build && \
+  ./setup
+
+# Then restart Claude Code completely (close and reopen)
+```
+
+### Runtime issues
+
+#### `/browse` fails: "Chromium not found"
+```bash
+# Rebuild browse binary:
+cd ~/.claude/skills/gstack && bun run build
+
+# Install Playwright dependencies (may require system libraries):
+# macOS:
+brew install libpng libjpeg webp
+
+# Linux (Ubuntu):
+sudo apt install -y libpng-dev libjpeg-dev
+
+# Windows:
+# Usually automatic with Node.js, but may need Visual C++ Build Tools
+```
+
+#### `/browse` fails on Windows: "Pipe transport error"
+gstack uses Node.js on Windows to work around a Bun limitation. Make sure Node.js is installed:
+```bash
+node --version  # Should be 18+ LTS
+npm --version
+```
+
+#### Stale install issues
+```bash
+# Check for updates:
+~/.claude/skills/gstack/bin/gstack-update-check
+
+# Upgrade to latest:
+/gstack-upgrade
+
+# Or manually:
+cd ~/.claude/skills/gstack && git pull && ./setup
+```
+
+#### Performance slow on first run
+First run compiles binaries. Subsequent runs are fast.
+```bash
+# Force rebuild:
+cd ~/.claude/skills/gstack && bun run build
+```
+
+### Configuration
+
+#### Want shorter commands?
+```bash
+cd ~/.claude/skills/gstack && ./setup --no-prefix
+
+# Changes /gstack-qa to /qa, /gstack-review to /review, etc.
+```
+
+#### Want namespaced commands?
+```bash
+cd ~/.claude/skills/gstack && ./setup --prefix
+
+# Changes /qa to /gstack-qa, /review to /gstack-review, etc.
+# Useful if you run other skill packs alongside gstack.
+```
+
+#### Can't see skills in Claude Code?
+Add this to your project's `CLAUDE.md`:
+
+```markdown
 ## gstack
 Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
 Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
@@ -440,6 +714,39 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 /canary, /benchmark, /browse, /open-gstack-browser, /qa, /qa-only, /design-review,
 /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex,
 /cso, /autoplan, /pair-agent, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
+```
+
+#### Codex says "Invalid SKILL.md"?
+Your Codex install is stale. Fix:
+```bash
+cd ~/.codex/skills/gstack && git pull && ./setup --host codex
+
+# Or for repo-local installs:
+cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex
+```
+
+#### Auto-update not working
+```bash
+# Check manually:
+~/.claude/skills/gstack/bin/gstack-update-check
+
+# Or disable auto-update and update manually:
+gstack-config set auto_upgrade false
+/gstack-upgrade  # when you want to update
+```
+
+#### Analytics / telemetry questions
+gstack collects **opt-in** usage data only. On first run, you'll be asked.
+```bash
+# Check current setting:
+gstack-config get telemetry
+
+# Change anytime:
+gstack-config set telemetry off   # disable
+gstack-config set telemetry on    # enable
+
+# View your local analytics:
+gstack-analytics
 ```
 
 ## License

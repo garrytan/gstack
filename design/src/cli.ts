@@ -3,11 +3,11 @@
  *
  * Unlike the browse binary (persistent Chromium daemon), the design binary
  * is stateless: each invocation makes API calls and writes files. Session
- * state for multi-turn iteration is a JSON file in /tmp.
+ * state for multi-turn iteration is a JSON file in temp directory.
  *
  * Flow:
  *   1. Parse command + flags from argv
- *   2. Resolve auth (~/. gstack/openai.json → OPENAI_API_KEY → guided setup)
+ *   2. Resolve auth (config dir/openai.json → OPENAI_API_KEY → guided setup)
  *   3. Execute command (API call → write PNG/HTML)
  *   4. Print result JSON to stdout
  */
@@ -25,6 +25,7 @@ import { evolve } from "./evolve";
 import { generateDesignToCodePrompt } from "./design-to-code";
 import { serve } from "./serve";
 import { gallery } from "./gallery";
+import { getTempDir, getConfigDir } from "../../lib/paths";
 
 function parseArgs(argv: string[]): { command: string; flags: Record<string, string | boolean> } {
   const args = argv.slice(2); // skip bun/node and script path
@@ -54,13 +55,14 @@ function parseArgs(argv: string[]): { command: string; flags: Record<string, str
 }
 
 function printUsage(): void {
+  const configDir = getConfigDir();
   console.log("gstack design — AI-powered UI mockup generation\n");
   console.log("Commands:");
   for (const [name, info] of COMMANDS) {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log(`\nAuth: ${configDir}/openai.json or OPENAI_API_KEY env var`);
   console.log("Setup: $D setup");
 }
 
@@ -86,7 +88,8 @@ async function runSetup(): Promise<void> {
     }
 
     saveApiKey(key);
-    console.log("Key saved to ~/.gstack/openai.json (0600 permissions).");
+    const configDir = getConfigDir();
+    console.log(`Key saved to ${configDir}/openai.json (0600 permissions).`);
   }
 
   // Smoke test
@@ -94,7 +97,7 @@ async function runSetup(): Promise<void> {
   try {
     await generate({
       brief: "A simple blue square centered on a white background. Minimal, geometric, clean.",
-      output: "/tmp/gstack-design-smoke-test.png",
+      output: `${getTempDir()}/gstack-design-smoke-test.png`,
       size: "1024x1024",
       quality: "low",
     });
@@ -120,7 +123,7 @@ async function main(): Promise<void> {
       await generate({
         brief: flags.brief as string,
         briefFile: flags["brief-file"] as string,
-        output: (flags.output as string) || "/tmp/gstack-mockup.png",
+        output: (flags.output as string) || `${getTempDir()}/gstack-mockup.png`,
         check: !!flags.check,
         retry: flags.retry ? parseInt(flags.retry as string) : 0,
         size: flags.size as string,
@@ -136,7 +139,7 @@ async function main(): Promise<void> {
       // Parse --images as glob or multiple files
       const imagesArg = flags.images as string;
       const images = await resolveImagePaths(imagesArg);
-      const outputPath = (flags.output as string) || "/tmp/gstack-design-board.html";
+      const outputPath = (flags.output as string) || `${getTempDir()}/gstack-design-board.html`;
       compare({ images, output: outputPath });
       // If --serve flag is set, start HTTP server for the board
       if (flags.serve) {
@@ -171,7 +174,7 @@ async function main(): Promise<void> {
         brief: flags.brief as string,
         briefFile: flags["brief-file"] as string,
         count: flags.count ? parseInt(flags.count as string) : 3,
-        outputDir: (flags["output-dir"] as string) || "/tmp/gstack-variants/",
+        outputDir: (flags["output-dir"] as string) || `${getTempDir()}/gstack-variants/`,
         size: flags.size as string,
         quality: flags.quality as string,
         viewports: flags.viewports as string,
@@ -182,7 +185,7 @@ async function main(): Promise<void> {
       await iterate({
         session: flags.session as string,
         feedback: flags.feedback as string,
-        output: (flags.output as string) || "/tmp/gstack-iterate.png",
+        output: (flags.output as string) || `${getTempDir()}/gstack-iterate.png`,
       });
       break;
 
@@ -234,14 +237,14 @@ async function main(): Promise<void> {
       await evolve({
         screenshot: flags.screenshot as string,
         brief: flags.brief as string,
-        output: (flags.output as string) || "/tmp/gstack-evolved.png",
+        output: (flags.output as string) || `${getTempDir()}/gstack-evolved.png`,
       });
       break;
 
     case "gallery":
-      gallery({
+      await gallery({
         designsDir: flags["designs-dir"] as string,
-        output: (flags.output as string) || "/tmp/gstack-design-gallery.html",
+        output: (flags.output as string) || `${getTempDir()}/gstack-design-gallery.html`,
       });
       break;
 
