@@ -2,7 +2,7 @@
 
 **Status:** PROPOSAL — seeking directional feedback from maintainer before implementation.
 **Author:** @mastermanas805
-**Tracking issue:** (will be added after filing)
+**Tracking PR:** [#1192](https://github.com/garrytan/gstack/pull/1192)
 **Supporting materials:** [`docs/designs/plan-rollout/`](./plan-rollout/)
 
 ---
