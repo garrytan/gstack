@@ -11,6 +11,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   shouldRunTranscriptCheck,
   getClassifierStatus,
+  isClassifierInactive,
 } from '../src/security-classifier';
 import { THRESHOLDS, type LayerSignal } from '../src/security';
 
@@ -69,6 +70,36 @@ describe('shouldRunTranscriptCheck — Haiku gating optimization', () => {
       { layer: 'aria_regex', confidence: 0.45 }, // just above LOG_ONLY
     ];
     expect(shouldRunTranscriptCheck(signals)).toBe(true);
+  });
+});
+
+describe('isClassifierInactive — fail-closed gate', () => {
+  test('returns true when both testsavant and transcript are off', () => {
+    expect(isClassifierInactive({ testsavant: 'off', transcript: 'off' })).toBe(true);
+  });
+
+  test('returns true when deberta is also off', () => {
+    expect(isClassifierInactive({ testsavant: 'off', transcript: 'off', deberta: 'off' })).toBe(true);
+  });
+
+  test('returns false when testsavant is ok', () => {
+    expect(isClassifierInactive({ testsavant: 'ok', transcript: 'off' })).toBe(false);
+  });
+
+  test('returns false when transcript is ok', () => {
+    expect(isClassifierInactive({ testsavant: 'off', transcript: 'ok' })).toBe(false);
+  });
+
+  test('returns false when testsavant is degraded (model load failed but attempted)', () => {
+    expect(isClassifierInactive({ testsavant: 'degraded', transcript: 'off' })).toBe(false);
+  });
+
+  test('returns false when only deberta is ok (ensemble provides coverage)', () => {
+    expect(isClassifierInactive({ testsavant: 'off', transcript: 'off', deberta: 'ok' })).toBe(false);
+  });
+
+  test('returns false when all three are ok', () => {
+    expect(isClassifierInactive({ testsavant: 'ok', transcript: 'ok', deberta: 'ok' })).toBe(false);
   });
 });
 
