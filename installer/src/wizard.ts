@@ -23,11 +23,18 @@ export async function runWizard(): Promise<void> {
   if (!alreadyInstalled) {
     p.note(
       "gstack turns Claude Code into a virtual engineering team.\n" +
-        "CEO review, eng manager, designer, QA, release engineer — all /commands.",
+        "CEO review, eng manager, designer, QA, release engineer — all /commands.\n\n" +
+        "Two install modes:\n" +
+        "  • Machine install — just for you, manual upgrades\n" +
+        "  • Team mode     — machine install + repo config so teammates auto-update",
       "about",
     );
   } else {
-    p.note(`Already installed at ${paths.gstackDir}.`, "detected");
+    p.note(
+      `Already installed at ${paths.gstackDir}.\n\n` +
+        "Team mode adds auto-update + repo-level config on top of this install.",
+      "detected",
+    );
   }
 
   type Mode = "install" | "init" | "uninstall" | "doctor";
@@ -36,13 +43,15 @@ export async function runWizard(): Promise<void> {
     options: [
       {
         value: "install",
-        label: alreadyInstalled ? "Update global install" : "Install globally (on this machine)",
-        hint: "~/.claude/skills/gstack",
+        label: alreadyInstalled ? "Update global install" : "Install gstack on this machine",
+        hint: "installs to ~/.claude/skills/gstack — just you, manual upgrades",
       },
       {
         value: "init",
-        label: "Add to this project (team mode)",
-        hint: inRepo ? "teammates auto-update on session start" : "must be inside a git repo",
+        label: "Enable team mode for this repo",
+        hint: inRepo
+          ? "global install + commits team-sync config to this repo so teammates auto-update"
+          : "must be inside a git repo",
       },
       { value: "uninstall", label: "Uninstall", hint: "remove gstack" },
       { value: "doctor", label: "Doctor", hint: "diagnose install issues" },
@@ -130,12 +139,12 @@ export async function runWizard(): Promise<void> {
         {
           value: "required",
           label: "Required",
-          hint: "block sessions without gstack",
+          hint: "PreToolUse hook blocks Claude Code work until teammate runs gstack install",
         },
         {
           value: "optional",
           label: "Optional",
-          hint: "nudge teammates, don't block",
+          hint: "CLAUDE.md nudge only — teammate can ignore",
         },
       ],
       initialValue: "required",
