@@ -27,12 +27,13 @@
 # restore), D16 (pooler URL paste hygiene with redacted preview).
 
 # _gstack_gbrain_validate_varname <name> — returns 0 if usable, 2 otherwise.
+# Bash glob ranges honor LC_COLLATE; under en_US.UTF-8 the [A-Z] range also
+# matches lowercase letters because collation order is AaBbCc.... Use a
+# bash regex with an ASCII-explicit character class so the validator stays
+# locale-immune.
 _gstack_gbrain_validate_varname() {
   local name="$1"
-  case "$name" in
-    [A-Z_][A-Z0-9_]*) return 0 ;;
-    *) return 2 ;;
-  esac
+  [[ "$name" =~ ^[ABCDEFGHIJKLMNOPQRSTUVWXYZ_][ABCDEFGHIJKLMNOPQRSTUVWXYZ0-9_]*$ ]]
 }
 
 read_secret_to_env() {
