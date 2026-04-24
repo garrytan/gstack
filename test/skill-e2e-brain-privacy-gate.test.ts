@@ -59,22 +59,38 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
     const askUserQuestions: Array<{ input: Record<string, unknown> }> = [];
     const binary = resolveClaudeBinary();
 
+    // Ambient env mutations — restored in finally so other tests in the file
+    // don't inherit them.
+    const origGstackHome = process.env.GSTACK_HOME;
+    const origPath = process.env.PATH;
+    process.env.GSTACK_HOME = gstackHome;
+    process.env.PATH = `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
+
     try {
-      // Pick a small skill with the preamble. `/learn` is read-only +
-      // short, which keeps the token cost down. The preamble fires
-      // regardless of which skill we pick.
+      // Pick a small skill with the preamble and load it via Read to force
+      // the model to execute every preamble directive. A narrow "run /learn"
+      // prompt often gets reduced to a direct action, skipping the preamble
+      // gates. Mirror the plan-mode-no-op test pattern: ask the model to
+      // follow the skill's instructions in full.
+      const learnSkill = path.resolve(
+        import.meta.dir,
+        '..',
+        'learn',
+        'SKILL.md'
+      );
       await runAgentSdkTest({
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         userPrompt:
-          'Run /learn with no arguments. Just report the learnings count and answer any AskUserQuestion that fires.',
+          `Read the skill file at ${learnSkill} and follow its instructions from the top, including every preamble directive. Execute every bash block. If any AskUserQuestion fires, present it.`,
         workingDirectory: gstackHome,
-        maxTurns: 6,
+        maxTurns: 10,
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
-        env: {
-          GSTACK_HOME: gstackHome,
-          // Prepend the fake gbrain to PATH so the preamble's detection wins.
-          PATH: `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`,
-        },
+        // NOTE: do NOT pass `env:` here. When the Agent SDK gets an explicit
+        // env object, its auth pipeline doesn't pick up ANTHROPIC_API_KEY the
+        // same way as when env is undefined (SDK-internal detail, verified
+        // against the plan-mode-no-op test which passes no env and auths
+        // cleanly). Instead, mutate process.env before the call so the SDK
+        // inherits our overrides ambiently.
         ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
         canUseTool: async (toolName, input) => {
           if (toolName === 'AskUserQuestion') {
@@ -125,6 +141,11 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
       // (The preamble is supposed to be idempotent within a session.)
       expect(privacyQuestions.length).toBe(1);
     } finally {
+      // Restore ambient env before other tests.
+      if (origGstackHome === undefined) delete process.env.GSTACK_HOME;
+      else process.env.GSTACK_HOME = origGstackHome;
+      if (origPath === undefined) delete process.env.PATH;
+      else process.env.PATH = origPath;
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
     }
@@ -150,6 +171,12 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
     const askUserQuestions: Array<{ input: Record<string, unknown> }> = [];
     const binary = resolveClaudeBinary();
 
+    // Ambient env mutations (see note on the first test).
+    const origGstackHome = process.env.GSTACK_HOME;
+    const origPath = process.env.PATH;
+    process.env.GSTACK_HOME = gstackHome;
+    process.env.PATH = `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
+
     try {
       await runAgentSdkTest({
         systemPrompt: { type: 'preset', preset: 'claude_code' },
@@ -158,10 +185,6 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
         workingDirectory: gstackHome,
         maxTurns: 4,
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
-        env: {
-          GSTACK_HOME: gstackHome,
-          PATH: `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`,
-        },
         ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
         canUseTool: async (toolName, input) => {
           if (toolName === 'AskUserQuestion') {
@@ -193,6 +216,10 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
       });
       expect(privacyQuestions.length).toBe(0);
     } finally {
+      if (origGstackHome === undefined) delete process.env.GSTACK_HOME;
+      else process.env.GSTACK_HOME = origGstackHome;
+      if (origPath === undefined) delete process.env.PATH;
+      else process.env.PATH = origPath;
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
     }
