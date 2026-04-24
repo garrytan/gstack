@@ -3,7 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { makeTmpDir, rmTmpDir } from "../helpers.js";
-import { findGitRoot, isGitRepo, isInstalled, readVersion } from "../../src/lib/paths.js";
+import {
+  findGitRoot,
+  findLocalInstall,
+  isGitRepo,
+  isInstalled,
+  readVersion,
+  resolveProjectInstallPaths,
+} from "../../src/lib/paths.js";
 import type { InstallPaths } from "../../src/lib/paths.js";
 
 describe("findGitRoot", () => {
@@ -79,6 +86,44 @@ describe("isInstalled", () => {
     fs.mkdirSync(target);
     fs.symlinkSync(target, link);
     expect(isInstalled(makePaths(link))).toBe(true);
+  });
+});
+
+describe("resolveProjectInstallPaths", () => {
+  let tmp: string;
+  beforeEach(() => (tmp = makeTmpDir()));
+  afterEach(() => rmTmpDir(tmp));
+
+  test("roots install inside the project, not home", () => {
+    const p = resolveProjectInstallPaths(tmp);
+    expect(p.gstackDir).toBe(path.join(tmp, ".claude", "skills", "gstack"));
+    expect(p.claudeMd).toBe(path.join(tmp, "CLAUDE.md"));
+  });
+});
+
+describe("findLocalInstall", () => {
+  let tmp: string;
+  beforeEach(() => (tmp = makeTmpDir()));
+  afterEach(() => rmTmpDir(tmp));
+
+  test("returns null when no local install is present", () => {
+    expect(findLocalInstall(tmp)).toBeNull();
+  });
+
+  test("finds install at cwd", () => {
+    fs.mkdirSync(path.join(tmp, ".claude", "skills", "gstack"), { recursive: true });
+    const found = findLocalInstall(tmp);
+    expect(found).toBeTruthy();
+    expect(fs.realpathSync(found!.gstackDir)).toBe(
+      fs.realpathSync(path.join(tmp, ".claude", "skills", "gstack")),
+    );
+  });
+
+  test("walks up to find install in parent", () => {
+    fs.mkdirSync(path.join(tmp, ".claude", "skills", "gstack"), { recursive: true });
+    const sub = path.join(tmp, "a", "b");
+    fs.mkdirSync(sub, { recursive: true });
+    expect(findLocalInstall(sub)).toBeTruthy();
   });
 });
 

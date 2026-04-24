@@ -1,12 +1,16 @@
 import fs from "node:fs";
 import * as p from "@clack/prompts";
-import { resolveInstallPaths, isInstalled } from "../lib/paths.js";
+import {
+  resolveInstallPaths,
+  resolveProjectInstallPaths,
+  isInstalled,
+} from "../lib/paths.js";
 import { checkRequirements } from "../lib/system.js";
 import { cloneGstack, pullGstack } from "../lib/git.js";
 import { runSetupForHosts } from "../lib/setup.js";
 import { buildGstackBlock, upsertClaudeMd } from "../lib/claude-md.js";
 import { HOSTS, type HostId } from "../lib/hosts.js";
-import { createLogger } from "../lib/logger.js";
+import { createLogger, colors } from "../lib/logger.js";
 
 export interface InstallArgs {
   hosts: HostId[];
@@ -14,11 +18,25 @@ export interface InstallArgs {
   writeClaudeMd: boolean;
   quiet: boolean;
   reinstall: boolean;
+  local?: boolean;
+  projectDir?: string;
 }
 
 export async function installGlobal(args: InstallArgs): Promise<void> {
-  const paths = resolveInstallPaths();
+  const isLocal = args.local === true;
+  const projectDir = args.projectDir ?? process.cwd();
+  const paths = isLocal
+    ? resolveProjectInstallPaths(projectDir)
+    : resolveInstallPaths();
   const log = createLogger(args.quiet);
+
+  if (isLocal) {
+    log.warn(
+      `Project-only install is ${colors.yellow("deprecated upstream")}. You give up cross-project auto-update and vendor ~100MB per project.`,
+    );
+    log.dim("For shared repos, team mode (`gstack init`) is strictly better.");
+    log.plain("");
+  }
 
   const sys = await checkRequirements();
   if (!sys.ok) {
@@ -59,10 +77,18 @@ export async function installGlobal(args: InstallArgs): Promise<void> {
     }
   }
 
-  const hosts = args.hosts.length > 0 ? args.hosts : (["claude"] as HostId[]);
+  const hosts = isLocal
+    ? (["claude"] as HostId[])
+    : args.hosts.length > 0
+      ? args.hosts
+      : (["claude"] as HostId[]);
+  if (isLocal && args.hosts.length > 1) {
+    log.warn("Project-only install supports Claude Code only; other hosts skipped.");
+  }
   log.info(`Registering with ${hosts.map((h) => HOSTS.find((x) => x.id === h)?.label ?? h).join(", ")}`);
   await runSetupForHosts(paths, hosts, {
     prefix: args.prefix,
+    local: isLocal,
     quiet: args.quiet,
   });
 
@@ -77,9 +103,14 @@ export async function installGlobal(args: InstallArgs): Promise<void> {
   }
 
   log.plain("");
-  log.success("gstack installed.");
+  log.success(isLocal ? "gstack installed in this project." : "gstack installed.");
   log.bullet(`Location: ${paths.gstackDir}`);
   log.bullet(`Hosts: ${hosts.join(", ")}`);
+  if (isLocal) {
+    log.bullet("Mode: project-only (vendored)");
+    log.dim("Teammates who clone this repo get the same install.");
+    log.dim("Remember to add .claude/skills/gstack/node_modules/ to .gitignore if you commit the checkout.");
+  }
   log.plain("");
   log.plain("Next: open Claude Code and try /office-hours, /review, or /qa");
 }

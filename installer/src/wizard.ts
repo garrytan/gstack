@@ -37,7 +37,7 @@ export async function runWizard(): Promise<void> {
     );
   }
 
-  type Mode = "install" | "init" | "uninstall" | "doctor";
+  type Mode = "install" | "init" | "local" | "uninstall" | "doctor";
   const mode = await p.select<{ value: Mode; label: string; hint?: string }[], Mode>({
     message: "What do you want to do?",
     options: [
@@ -53,6 +53,11 @@ export async function runWizard(): Promise<void> {
           ? "global install + commits team-sync config to this repo so teammates auto-update"
           : "must be inside a git repo",
       },
+      {
+        value: "local",
+        label: "Install inside this project only (vendored)",
+        hint: "installs to <repo>/.claude/skills/gstack — deprecated, prefer team mode",
+      },
       { value: "uninstall", label: "Uninstall", hint: "remove gstack" },
       { value: "doctor", label: "Doctor", hint: "diagnose install issues" },
     ],
@@ -67,15 +72,23 @@ export async function runWizard(): Promise<void> {
   }
 
   if (mode === "uninstall") {
-    type UninstallTarget = "global" | "project";
-    const target = await p.select<{ value: UninstallTarget; label: string; hint?: string }[], UninstallTarget>({
+    type UninstallTarget = "global" | "project" | "local";
+    const target = await p.select<
+      { value: UninstallTarget; label: string; hint?: string }[],
+      UninstallTarget
+    >({
       message: "Uninstall from where?",
       options: [
         { value: "global", label: "Global (~/.claude/skills/gstack)" },
         {
           value: "project",
-          label: "This project only",
-          hint: inRepo ? "" : "not in a git repo",
+          label: "Team-mode config in this repo",
+          hint: "removes .claude/hooks/check-gstack.sh, settings.json hook, CLAUDE.md block",
+        },
+        {
+          value: "local",
+          label: "Project-local (vendored) install",
+          hint: "removes <repo>/.claude/skills/gstack",
         },
       ],
       initialValue: "global",
@@ -84,6 +97,7 @@ export async function runWizard(): Promise<void> {
     const { uninstall } = await import("./commands/uninstall.js");
     await uninstall({
       project: target === "project",
+      local: target === "local",
       yes: false,
       keepClaudeMd: false,
       quiet: false,
@@ -123,6 +137,30 @@ export async function runWizard(): Promise<void> {
       reinstall: false,
     });
     p.outro("Done. Open Claude Code and try /office-hours.");
+    return;
+  }
+
+  if (mode === "local") {
+    const confirmLocal = await p.confirm({
+      message:
+        "Project-only install is deprecated upstream. You give up cross-project auto-update and vendor ~100MB into this project. Continue?",
+      initialValue: false,
+    });
+    assertValue(confirmLocal);
+    if (!confirmLocal) {
+      p.outro("Aborted. Use `gstack install` (global) or `gstack init` (team mode) instead.");
+      return;
+    }
+    await installGlobal({
+      hosts: ["claude"],
+      prefix: prefixChoice === "prefixed",
+      writeClaudeMd: writeClaudeMdChoice,
+      quiet: false,
+      reinstall: false,
+      local: true,
+      projectDir: process.cwd(),
+    });
+    p.outro("Done. Project-local install complete.");
     return;
   }
 

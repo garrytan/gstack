@@ -332,6 +332,65 @@ describe("cli: uninstall --project", () => {
   });
 });
 
+describe("cli: status detects project-local install", () => {
+  let tmp: string;
+  let homeTmp: string;
+
+  beforeEach(() => {
+    tmp = makeTmpDir();
+    homeTmp = makeTmpDir("gstack-home-");
+    const gstackDir = path.join(tmp, ".claude", "skills", "gstack");
+    fs.mkdirSync(gstackDir, { recursive: true });
+    fs.writeFileSync(path.join(gstackDir, "VERSION"), "0.0.0-local-test");
+    fs.mkdirSync(path.join(gstackDir, "qa"), { recursive: true });
+    fs.writeFileSync(
+      path.join(gstackDir, "qa", "SKILL.md"),
+      "---\nname: qa\ndescription: Local QA\n---\n",
+    );
+  });
+
+  afterEach(() => {
+    rmTmpDir(tmp);
+    rmTmpDir(homeTmp);
+  });
+
+  test("status shows project-local mode when only a local install exists", () => {
+    const r = runCli(["status"], { cwd: tmp, env: { HOME: homeTmp } });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("project-local");
+    expect(r.stdout).toContain("0.0.0-local-test");
+  });
+
+  test("list discovers skills from project-local install", () => {
+    const r = runCli(["list"], { cwd: tmp, env: { HOME: homeTmp } });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("/qa");
+  });
+
+  test("uninstall --local --yes removes the project-local install", () => {
+    const r = runCli(["uninstall", "--local", "--yes"], {
+      cwd: tmp,
+      env: { HOME: homeTmp },
+    });
+    expect(r.code).toBe(0);
+    expect(fs.existsSync(path.join(tmp, ".claude", "skills", "gstack"))).toBe(false);
+  });
+
+  test("uninstall --local fails cleanly when no project-local install exists", () => {
+    const nowhere = makeTmpDir();
+    try {
+      const r = runCli(["uninstall", "--local", "--yes"], {
+        cwd: nowhere,
+        env: { HOME: homeTmp },
+      });
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain("No project-local gstack install");
+    } finally {
+      rmTmpDir(nowhere);
+    }
+  });
+});
+
 describe("cli: no args launches wizard", () => {
   let homeTmp: string;
 

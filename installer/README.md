@@ -10,9 +10,11 @@ npx @garrytan/gstack
 
 # Scripted: verb-based subcommands
 npx @garrytan/gstack install --host claude,codex
+npx @garrytan/gstack install --local           # vendored (deprecated — prefer team mode)
 npx @garrytan/gstack init --tier required
 npx @garrytan/gstack upgrade
 npx @garrytan/gstack uninstall --project --yes
+npx @garrytan/gstack uninstall --local --yes    # remove vendored project install
 npx @garrytan/gstack doctor
 npx @garrytan/gstack status
 npx @garrytan/gstack list
@@ -25,6 +27,8 @@ Works with `npx`, `bunx`, and `pnpm dlx`.
 ## What it does
 
 **`install`** — clones gstack into `~/.claude/skills/gstack`, builds the browse/design binaries via `bun`, registers with your chosen AI hosts (Claude Code, Codex, Factory Droid, OpenCode, Kiro), and inserts a `<!-- gstack:begin -->` / `<!-- gstack:end -->` block into `~/.claude/CLAUDE.md` documenting the available skills.
+
+**`install --local`** — vendored mode: installs gstack into `<cwd>/.claude/skills/gstack` instead of the home directory. Everything stays inside the project. **Deprecated upstream** in favor of team mode (`init`) because vendoring means no cross-project auto-update and ~100MB duplicated per project. Exposed here because `./setup --local` still supports it. Claude Code only (other hosts skipped).
 
 **`init`** — runs inside a git repo. Installs globally if needed, enables team mode (the SessionStart auto-update hook), runs `gstack-team-init <tier>` to bootstrap the repo, and stages/commits the changes. Teammates get gstack automatically on their next session.
 

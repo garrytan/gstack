@@ -8,6 +8,7 @@ export interface SetupOptions {
   prefix?: boolean;
   team?: boolean;
   noTeam?: boolean;
+  local?: boolean;
   quiet?: boolean;
 }
 
@@ -17,6 +18,7 @@ export async function runSetup(paths: InstallPaths, opts: SetupOptions): Promise
   if (opts.prefix === false) args.push("--no-prefix");
   if (opts.team) args.push("--team");
   if (opts.noTeam) args.push("--no-team");
+  if (opts.local) args.push("--local");
   if (opts.quiet) args.push("-q");
 
   const setupScript = path.join(paths.gstackDir, "setup");

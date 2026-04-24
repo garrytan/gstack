@@ -1,4 +1,4 @@
-import { resolveInstallPaths, isInstalled } from "../lib/paths.js";
+import { resolveActiveInstall } from "../lib/paths.js";
 import { scanSkills } from "../lib/skills.js";
 import { createLogger, colors } from "../lib/logger.js";
 
@@ -8,9 +8,9 @@ export interface ListArgs {
 
 export async function list(args: ListArgs): Promise<void> {
   const log = createLogger(args.quiet);
-  const paths = resolveInstallPaths();
+  const { paths, mode } = resolveActiveInstall();
 
-  if (!isInstalled(paths)) {
+  if (mode === "none") {
     log.error("gstack is not installed. Run `gstack install` first.");
     process.exit(1);
   }

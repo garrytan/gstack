@@ -27,6 +27,45 @@ export function resolveInstallPaths(): InstallPaths {
   };
 }
 
+export function resolveProjectInstallPaths(projectDir: string): InstallPaths {
+  const home = os.homedir();
+  const claudeDir = path.join(projectDir, ".claude");
+  return {
+    home,
+    claudeDir,
+    claudeSkillsDir: path.join(claudeDir, "skills"),
+    gstackDir: path.join(claudeDir, "skills", "gstack"),
+    gstackStateDir: path.join(home, ".gstack"),
+    claudeMd: path.join(projectDir, "CLAUDE.md"),
+  };
+}
+
+export function findLocalInstall(startDir: string): InstallPaths | null {
+  let cur = path.resolve(startDir);
+  while (true) {
+    const candidate = path.join(cur, ".claude", "skills", "gstack");
+    if (fs.existsSync(candidate)) {
+      return resolveProjectInstallPaths(cur);
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) return null;
+    cur = parent;
+  }
+}
+
+export interface ResolvedInstall {
+  paths: InstallPaths;
+  mode: "global" | "project-local" | "none";
+}
+
+export function resolveActiveInstall(cwd: string = process.cwd()): ResolvedInstall {
+  const globalPaths = resolveInstallPaths();
+  if (isInstalled(globalPaths)) return { paths: globalPaths, mode: "global" };
+  const local = findLocalInstall(cwd);
+  if (local && isInstalled(local)) return { paths: local, mode: "project-local" };
+  return { paths: globalPaths, mode: "none" };
+}
+
 export function isInstalled(paths: InstallPaths): boolean {
   try {
     const stat = fs.lstatSync(paths.gstackDir);

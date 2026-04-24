@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { resolveInstallPaths, isInstalled, readVersion } from "../lib/paths.js";
+import { resolveActiveInstall, readVersion } from "../lib/paths.js";
 import { pullGstack, getInstalledCommit } from "../lib/git.js";
 import { runSetup } from "../lib/setup.js";
 import { createLogger } from "../lib/logger.js";
@@ -10,11 +10,14 @@ export interface UpgradeArgs {
 
 export async function upgrade(args: UpgradeArgs): Promise<void> {
   const log = createLogger(args.quiet);
-  const paths = resolveInstallPaths();
+  const { paths, mode } = resolveActiveInstall();
 
-  if (!isInstalled(paths)) {
+  if (mode === "none") {
     log.error("gstack is not installed. Run `gstack install` first.");
     process.exit(1);
+  }
+  if (mode === "project-local") {
+    log.info(`Upgrading project-local install at ${paths.gstackDir}`);
   }
 
   const beforeVersion = readVersion(paths);

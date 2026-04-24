@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveInstallPaths, isInstalled, readVersion } from "../lib/paths.js";
+import { resolveActiveInstall, readVersion } from "../lib/paths.js";
 import {
   checkRequirements,
   getBunVersion,
@@ -24,7 +24,7 @@ interface Check {
 
 export async function doctor(args: DoctorArgs): Promise<void> {
   const log = createLogger(args.quiet);
-  const paths = resolveInstallPaths();
+  const { paths, mode } = resolveActiveInstall();
   const checks: Check[] = [];
 
   const sys = await checkRequirements();
@@ -39,11 +39,13 @@ export async function doctor(args: DoctorArgs): Promise<void> {
     detail: (await getBunVersion()) ?? "not found (required to build binaries)",
   });
 
-  const installed = isInstalled(paths);
+  const installed = mode !== "none";
   checks.push({
     name: "install",
     status: installed ? "ok" : "fail",
-    detail: installed ? paths.gstackDir : `missing (run \`gstack install\`)`,
+    detail: installed
+      ? `${paths.gstackDir}${mode === "project-local" ? " (project-local)" : ""}`
+      : `missing (run \`gstack install\`)`,
   });
 
   if (installed) {

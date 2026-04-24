@@ -109,8 +109,9 @@ ${colors.bold("Usage:")}
 
 ${colors.bold("Commands:")}
   install        Install gstack globally (~/.claude/skills/gstack)
+  install --local  Install gstack inside this project (vendored, deprecated)
   init           Add gstack to the current project (team mode)
-  uninstall      Remove gstack (global; add --project for just this repo)
+  uninstall      Remove gstack (global; add --project or --local for per-repo)
   upgrade        Pull latest gstack and rebuild
   doctor         Diagnose install issues
   status         Show install version, hosts, and settings
@@ -129,7 +130,9 @@ ${colors.bold("Common options:")}
   --quiet, -q    Suppress non-essential output
   --tier <t>     init only: "required" or "optional" (default: required)
   --no-commit    init only: stage but don't commit changes
-  --project      uninstall only: remove from current project, not global
+  --local        install only: vendor into <cwd>/.claude/skills/gstack
+                 uninstall only: remove vendored project-local install
+  --project      uninstall only: remove team-mode config from current repo
   --keep-claude-md  uninstall only: leave CLAUDE.md section in place
 
 ${colors.bold("Examples:")}
@@ -173,6 +176,7 @@ async function main(): Promise<void> {
         writeClaudeMd,
         quiet,
         reinstall,
+        local: bool(args, "local", false),
       });
       break;
     case "init": {
@@ -199,6 +203,7 @@ async function main(): Promise<void> {
     case "uninstall":
       await uninstall({
         project: bool(args, "project", false),
+        local: bool(args, "local", false),
         yes,
         keepClaudeMd: bool(args, "keep-claude-md", false),
         quiet,

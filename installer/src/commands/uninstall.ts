@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as p from "@clack/prompts";
-import { resolveInstallPaths, isInstalled, findGitRoot } from "../lib/paths.js";
+import {
+  resolveInstallPaths,
+  isInstalled,
+  findGitRoot,
+  findLocalInstall,
+} from "../lib/paths.js";
 import {
   cleanupHostSymlinks,
   removeGstackInstall,
@@ -15,17 +20,51 @@ import { run } from "../lib/exec.js";
 
 export interface UninstallArgs {
   project: boolean;
+  local: boolean;
   yes: boolean;
   keepClaudeMd: boolean;
   quiet: boolean;
 }
 
 export async function uninstall(args: UninstallArgs): Promise<void> {
-  if (args.project) {
+  if (args.local) {
+    await uninstallLocal(args);
+  } else if (args.project) {
     await uninstallProject(args);
   } else {
     await uninstallGlobal(args);
   }
+}
+
+async function uninstallLocal(args: UninstallArgs): Promise<void> {
+  const log = createLogger(args.quiet);
+  const paths = findLocalInstall(process.cwd());
+  if (!paths) {
+    log.error("No project-local gstack install found (looked for .claude/skills/gstack in cwd and parents).");
+    process.exit(1);
+  }
+
+  if (!args.yes) {
+    const proceed = await p.confirm({
+      message: `Remove project-local gstack at ${paths.gstackDir}?`,
+      initialValue: false,
+    });
+    if (p.isCancel(proceed) || !proceed) {
+      log.dim("Aborted.");
+      return;
+    }
+  }
+
+  fs.rmSync(paths.gstackDir, { recursive: true, force: true });
+  log.bullet(`removed ${paths.gstackDir}`);
+
+  if (!args.keepClaudeMd) {
+    const { removeGstackBlock: remove } = await import("../lib/claude-md.js");
+    if (remove(paths.claudeMd)) log.bullet(`removed gstack block from ${paths.claudeMd}`);
+  }
+
+  log.plain("");
+  log.success("Project-local gstack uninstalled.");
 }
 
 async function uninstallGlobal(args: UninstallArgs): Promise<void> {
