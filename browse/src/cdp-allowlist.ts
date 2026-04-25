@@ -185,7 +185,7 @@ export const CDP_ALLOWLIST: ReadonlyArray<CdpAllowEntry> = Object.freeze([
     method: 'disable',
     scope: 'tab',
     output: 'trusted',
-    justification: 'Domain disable.',
+    justification: 'Domain disable; mirrors Network.enable for cleanup symmetry.',
   },
   // NOTE: Network.getResponseBody, Network.getCookies, Network.replayXHR,
   // Network.loadNetworkResource are INTENTIONALLY NOT allowed (Codex T2 cat 7).
