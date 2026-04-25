@@ -2674,6 +2674,22 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
     }
     expect(violations).toEqual([]);
   });
+
+  test('codex review commands pass diff scope through prompt, not --base', () => {
+    const checkedFiles = [
+      'codex/SKILL.md.tmpl',
+      'codex/SKILL.md',
+      'scripts/resolvers/review.ts',
+      'review/SKILL.md',
+      'ship/SKILL.md',
+    ];
+
+    for (const rel of checkedFiles) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
+      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+    }
+  });
 });
 
 // ─── Learnings + Confidence Resolver Tests ─────────────────────

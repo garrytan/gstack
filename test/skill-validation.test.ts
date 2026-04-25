@@ -1400,6 +1400,14 @@ describe('Codex skill', () => {
     expect(content).toContain('codex exec');
   });
 
+  test('codex review invocations avoid the prompt plus --base argument shape', () => {
+    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
+      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+    }
+  });
+
   test('/review persists a review-log entry for ship readiness', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('"skill":"review"');
