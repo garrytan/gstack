@@ -87,6 +87,101 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #
 '
 
+# validate_gbrain_url — reject URLs that point at the operator's own
+# private network. gstack-brain-init POSTs the brain bearer token plus
+# the brain repo URL to ${gbrain_url}/ingest-repo; without this check,
+# `gstack-config set gbrain_url http://169.254.169.254/...` (or any
+# RFC1918 / loopback / link-local target) lets a process that controls
+# the config exfiltrate both the token and the repo URL to an internal
+# target via the regular consumer-registration flow.
+#
+# Returns 0 if the URL is acceptable, non-zero with a stderr explanation
+# otherwise. Set GSTACK_ALLOW_INTERNAL_URL=1 to opt into local targets
+# for dev (e.g. running a personal gbrain on http://127.0.0.1:8080).
+validate_gbrain_url() {
+  local url="${1:-}"
+  local allow_internal="${GSTACK_ALLOW_INTERNAL_URL:-0}"
+
+  if [ -z "$url" ]; then
+    echo "Error: gbrain_url must not be empty" >&2
+    return 1
+  fi
+
+  # Require http:// or https://. No other schemes (file://, gopher://,
+  # data:, etc.) ever make sense for the consumer-registration POST.
+  case "$url" in
+    http://*|https://*) ;;
+    *)
+      echo "Error: gbrain_url must start with http:// or https://" >&2
+      return 1
+      ;;
+  esac
+
+  # Extract the authority (host[:port]) — strip the scheme prefix and
+  # everything from the first slash onwards. No userinfo support: a
+  # gbrain_url should never carry credentials in the URL.
+  local host_port="${url#*://}"
+  host_port="${host_port%%/*}"
+  local host
+  case "$host_port" in
+    \[*)
+      # IPv6 literal: host is everything through the closing bracket.
+      host="${host_port%%\]*}]"
+      ;;
+    *)
+      host="${host_port%%:*}"
+      ;;
+  esac
+  local host_lower
+  host_lower=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')
+
+  if [ "$allow_internal" = "1" ]; then
+    return 0
+  fi
+
+  # Reject literal hostnames that always resolve to the local box.
+  # `localhost.*` covers `localhost.localdomain` and any other
+  # variant that is conventionally aliased back to 127.0.0.1.
+  case "$host_lower" in
+    localhost|localhost.*|*.local|*.localhost|local|broadcasthost)
+      echo "Error: gbrain_url host \"$host_lower\" resolves to local-only network. Set GSTACK_ALLOW_INTERNAL_URL=1 to override (dev only)." >&2
+      return 1
+      ;;
+  esac
+
+  # Reject IPv6 loopback / link-local / unique-local literal forms.
+  # URL host syntax wraps IPv6 in [brackets]; we keep them in the
+  # string for matching. The patterns intentionally end at the closing
+  # bracket so a port suffix like `[fe80::1]:8443` would produce host
+  # `[fe80::1]` after the extraction above and still match here.
+  case "$host_lower" in
+    \[::1\]|\[::\]|\[fe80:*|\[fc00:*|\[fd*)
+      echo "Error: gbrain_url host \"$host\" is IPv6 loopback / link-local / unique-local. Set GSTACK_ALLOW_INTERNAL_URL=1 to override." >&2
+      return 1
+      ;;
+  esac
+
+  # IPv4 private / loopback / link-local / IMDS check.
+  if printf '%s' "$host_lower" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+    local a b c d
+    IFS='.' read -r a b c d <<<"$host_lower"
+    local reason=""
+    if [ "$a" = "127" ]; then reason="loopback (127.0.0.0/8)";
+    elif [ "$a" = "0" ]; then reason="reserved (0.0.0.0/8)";
+    elif [ "$a" = "10" ]; then reason="RFC1918 private (10.0.0.0/8)";
+    elif [ "$a" = "192" ] && [ "$b" = "168" ]; then reason="RFC1918 private (192.168.0.0/16)";
+    elif [ "$a" = "172" ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ] 2>/dev/null; then reason="RFC1918 private (172.16.0.0/12)";
+    elif [ "$a" = "169" ] && [ "$b" = "254" ]; then reason="link-local / cloud IMDS (169.254.0.0/16)";
+    fi
+    if [ -n "$reason" ]; then
+      echo "Error: gbrain_url host $host_lower is $reason. Set GSTACK_ALLOW_INTERNAL_URL=1 to override (dev only)." >&2
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
 # DEFAULTS table — canonical default values for known keys.
 # `get <key>` returns DEFAULTS[key] when the key is absent from the config file
 # AND the env override is not set. Keep in sync with the CONFIG_HEADER comments.
@@ -142,6 +237,18 @@ case "${1:-}" in
       echo "Warning: gbrain_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
     fi
+    # SSRF guard: reject gbrain_url targets that point at the operator's
+    # own private network. gstack-brain-init POSTs the brain bearer
+    # token + repo URL to ${gbrain_url}/ingest-repo; without this check,
+    # `gstack-config set gbrain_url http://169.254.169.254/...` lets a
+    # config-write turn into token + repo-URL exfil to an internal
+    # target. Set GSTACK_ALLOW_INTERNAL_URL=1 to opt into local targets
+    # for dev (e.g. http://127.0.0.1:8080 against a personal gbrain).
+    if [ "$KEY" = "gbrain_url" ]; then
+      if ! validate_gbrain_url "$VALUE"; then
+        exit 1
+      fi
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -190,6 +297,16 @@ case "${1:-}" in
                gbrain_sync_mode gbrain_sync_mode_prompted; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
+    ;;
+  __validate-url)
+    # Internal subcommand: defense-in-depth validator that other bin/
+    # scripts can invoke without duplicating the SSRF guard. Keeps the
+    # validation rules in one place even when GBRAIN_URL is supplied
+    # via env var (and therefore bypasses gstack-config set entirely).
+    # Empty arg falls through to validate_gbrain_url which returns the
+    # specific "must not be empty" message instead of bash's generic
+    # parameter-substitution error.
+    validate_gbrain_url "${2:-}"
     ;;
   *)
     echo "Usage: gstack-config {get|set|list|defaults} [key] [value]"

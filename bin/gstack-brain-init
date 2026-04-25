@@ -287,18 +287,31 @@ GBRAIN_URL_VAL="${GBRAIN_URL:-$("$CONFIG_BIN" get gbrain_url 2>/dev/null || echo
 GBRAIN_TOKEN_VAL="${GBRAIN_TOKEN:-$("$CONFIG_BIN" get gbrain_token 2>/dev/null || echo "")}"
 
 if [ -n "$GBRAIN_URL_VAL" ] && [ -n "$GBRAIN_TOKEN_VAL" ]; then
-  # Try the HTTP handoff.
-  HTTP_RESP=$(curl -sS -X POST "${GBRAIN_URL_VAL%/}/ingest-repo" \
-    -H "Authorization: Bearer $GBRAIN_TOKEN_VAL" \
-    -H "Content-Type: application/json" \
-    --data "{\"repo_url\":\"$REMOTE_URL\"}" \
-    -w "\n%{http_code}" 2>&1 || echo -e "\ncurl-error")
-  HTTP_CODE=$(echo "$HTTP_RESP" | tail -1)
-  if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "204" ]; then
-    CONSUMER_STATUS="ok"
-    echo "GBrain consumer registered: $GBRAIN_URL_VAL"
+  # SSRF guard: re-validate the URL even when it came from env. The
+  # `gstack-config set gbrain_url` path validates at write time; the
+  # GBRAIN_URL env override skips that path entirely, so we re-check
+  # here so an env-supplied loopback / RFC1918 / link-local target
+  # cannot turn this curl into a token + repo-URL exfil to an internal
+  # endpoint. GSTACK_ALLOW_INTERNAL_URL=1 opts into local targets for
+  # dev (e.g. http://127.0.0.1:8080 against a personal gbrain).
+  if ! "$CONFIG_BIN" __validate-url "$GBRAIN_URL_VAL" >/dev/null 2>&1; then
+    "$CONFIG_BIN" __validate-url "$GBRAIN_URL_VAL" || true
+    echo "Skipping GBrain consumer registration — gbrain_url failed SSRF validation." >&2
+    CONSUMER_STATUS="rejected"
   else
-    echo "GBrain ingest endpoint returned HTTP $HTTP_CODE; will retry on next skill run."
+    # Try the HTTP handoff.
+    HTTP_RESP=$(curl -sS -X POST "${GBRAIN_URL_VAL%/}/ingest-repo" \
+      -H "Authorization: Bearer $GBRAIN_TOKEN_VAL" \
+      -H "Content-Type: application/json" \
+      --data "{\"repo_url\":\"$REMOTE_URL\"}" \
+      -w "\n%{http_code}" 2>&1 || echo -e "\ncurl-error")
+    HTTP_CODE=$(echo "$HTTP_RESP" | tail -1)
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "204" ]; then
+      CONSUMER_STATUS="ok"
+      echo "GBrain consumer registered: $GBRAIN_URL_VAL"
+    else
+      echo "GBrain ingest endpoint returned HTTP $HTTP_CODE; will retry on next skill run."
+    fi
   fi
 elif [ -z "$GBRAIN_URL_VAL" ]; then
   echo "(GBRAIN_URL not configured; skipping consumer registration. Set it with:"
