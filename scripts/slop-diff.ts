@@ -18,8 +18,14 @@ import * as path from "path";
 
 const base = process.argv[2] || "main";
 
-// 1. Find changed files
-const diffResult = spawnSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+// 1. Find changed files. Use merge-base form so we (a) ignore commits on `base` not yet
+// merged into HEAD (no false "deletions"), and (b) include uncommitted working-tree edits.
+const mergeBaseResult = spawnSync("git", ["merge-base", base, "HEAD"], {
+  encoding: "utf-8",
+  timeout: 10000,
+});
+const mergeBase = (mergeBaseResult.stdout || "").trim();
+const diffResult = spawnSync("git", ["diff", "--name-only", mergeBase || `${base}...HEAD`], {
   encoding: "utf-8",
   timeout: 10000,
 });

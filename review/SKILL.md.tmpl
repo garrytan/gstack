@@ -38,7 +38,7 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 1. Run `git branch --show-current` to get the current branch.
 2. If on the base branch, output: **"Nothing to review — you're on the base branch or have no changes against it."** and stop.
-3. Run `git fetch origin <base> --quiet && git diff origin/<base> --stat` to check if there's a diff. If no diff, output the same message and stop.
+3. Run `git fetch origin <base> --quiet && git diff $(git merge-base origin/<base> HEAD) --stat` to check if there's a diff. If no diff, output the same message and stop.
 
 ---
 
@@ -72,7 +72,7 @@ Fetch the latest base branch to avoid false positives from stale local state:
 git fetch origin <base> --quiet
 ```
 
-Run `git diff origin/<base>` to get the full diff. This includes both committed and uncommitted changes against the latest base branch.
+Run `git diff $(git merge-base origin/<base> HEAD)` to get the full diff. This diffs the working tree against the merge-base of the branch and `origin/<base>`, which means: (a) commits that landed on `origin/<base>` but aren't yet merged into this branch are correctly excluded (they don't appear as false deletions), and (b) uncommitted working-tree changes ARE included. This is the form `gh`'s "Files changed" tab approximates, plus your in-progress edits.
 
 ## Step 3.4: Workspace-aware queue status (advisory)
 

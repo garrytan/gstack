@@ -11,7 +11,7 @@ For each failing test:
 
 1. **Get the files changed on this branch:**
    \`\`\`bash
-   git diff origin/<base>...HEAD --name-only
+   git diff $(git merge-base origin/<base> HEAD) --name-only
    \`\`\`
 
 2. **Classify the failure:**

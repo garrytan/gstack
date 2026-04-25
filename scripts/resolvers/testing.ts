@@ -233,7 +233,7 @@ Store this number for the PR body.`);
     ? `**Step 1. Trace every codepath in the plan:**
 
 Read the plan document. For each new feature, service, endpoint, or component described, trace how data will flow through the code — don't just list planned functions, actually follow the planned execution:`
-    : `**${mode === 'ship' ? '1' : 'Step 1'}. Trace every codepath changed** using \`git diff origin/<base>...HEAD\`:
+    : `**${mode === 'ship' ? '1' : 'Step 1'}. Trace every codepath changed** using \`git diff $(git merge-base origin/<base> HEAD)\`:
 
 Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:`;
 

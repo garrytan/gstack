@@ -77,7 +77,7 @@ Never skip a verification step because a prior `/ship` run already performed it.
 
 2. Run `git status` (never use `-uall`). Uncommitted changes are always included — no need to ask.
 
-3. Run `git diff <base>...HEAD --stat` and `git log <base>..HEAD --oneline` to understand what's being shipped.
+3. Run `git diff $(git merge-base <base> HEAD) --stat` and `git log <base>..HEAD --oneline` to understand what's being shipped.
 
 4. Check review readiness:
 
@@ -87,7 +87,7 @@ If the Eng Review is NOT "CLEAR":
 
 Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
 
-Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+Check diff size: `git diff $(git merge-base <base> HEAD) --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
 
 If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
 
@@ -104,7 +104,7 @@ service with existing deployment — verify that a distribution pipeline exists.
 
 1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
    ```bash
-   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
+   git diff $(git merge-base origin/<base> HEAD) --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
    ```
 
 2. If new artifact detected, check for a release workflow:
@@ -178,7 +178,7 @@ Evals are mandatory when prompt-related files change. Skip this step entirely if
 **1. Check if the diff touches prompt-related files:**
 
 ```bash
-git diff origin/<base> --name-only
+git diff $(git merge-base origin/<base> HEAD) --name-only
 ```
 
 Match against these patterns (from CLAUDE.md):
@@ -239,7 +239,7 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
-> You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push — report only.
+> You are running a ship-workflow test coverage audit. Run `git diff $(git merge-base <base> HEAD)` as needed. Do not commit or push — report only.
 >
 > {{TEST_COVERAGE_AUDIT_SHIP}}
 >
@@ -263,7 +263,7 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 **Subagent prompt:** Pass these instructions to the subagent:
 
-> You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff <base>...HEAD` to see what shipped. Do not commit or push — report only.
+> You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff $(git merge-base <base> HEAD)` to see what shipped. Do not commit or push — report only.
 >
 > {{PLAN_COMPLETION_AUDIT_SHIP}}
 >
@@ -295,7 +295,7 @@ Review the diff for structural issues that tests don't catch.
 
 1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
+2. Run `git diff $(git merge-base origin/<base> HEAD)` to get the full diff. This diffs the working tree against the merge-base, which excludes commits that landed on `origin/<base>` but aren't yet merged into this branch (no false deletions), and includes any uncommitted edits.
 
 3. Apply the review checklist in two passes:
    - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
@@ -458,7 +458,7 @@ Read the `STATE:` line and dispatch:
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
 2. **Auto-decide the bump level based on the diff:**
-   - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
+   - Count lines changed (`git diff $(git merge-base origin/<base> HEAD) --stat | tail -1`)
    - Check for feature signals: new route/page files (e.g. `app/*/page.tsx`, `pages/*.ts`), new DB migration/schema files, new test files alongside new source files, or branch name starting with `feat/`
    - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
    - **PATCH** (3rd digit): 50+ lines changed, no feature signals detected
@@ -579,7 +579,7 @@ Read TODOS.md and verify it follows the recommended structure:
 This step is fully automatic — no user interaction.
 
 Use the diff and commit history already gathered in earlier steps:
-- `git diff <base>...HEAD` (full diff against the base branch)
+- `git diff $(git merge-base <base> HEAD)` (full diff against the base branch)
 - `git log <base>..HEAD --oneline` (all commits being shipped)
 
 For each TODO item, check if the changes in this PR complete it by:
