@@ -19,7 +19,7 @@ const claude: HostConfig = {
 
   generation: {
     generateMetadata: false,
-    skipSkills: [],
+    skipSkills: ['claude'],  // Claude outside-voice skill is for non-Claude hosts
   },
 
   pathRewrites: [],  // Claude is the primary host — no rewrites needed

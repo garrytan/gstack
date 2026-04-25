@@ -1468,12 +1468,16 @@ describe('Codex skill validation', () => {
     cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
   });
 
-  // Discover all Claude skills with templates (except /codex which is Claude-only)
+  // Discover all shared skills with templates.
+  // Host-exclusive outside-voice skills are intentionally omitted here:
+  // - /codex is Claude-only
+  // - /claude is external-host-only
   const CLAUDE_SKILLS_WITH_TEMPLATES = (() => {
     const skills: string[] = [];
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       if (entry.name === 'codex') continue; // Claude-only skill
+      if (entry.name === 'claude') continue; // External-host-only skill
       if (fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) {
         skills.push(entry.name);
       }
@@ -1502,6 +1506,13 @@ describe('Codex skill validation', () => {
     expect(fs.existsSync(path.join(ROOT, 'codex', 'SKILL.md'))).toBe(true);
     // Codex variant must NOT exist
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
+  });
+
+  test('/claude skill is external-host-only — no Claude-host variant', () => {
+    // Claude host should not get an outside-voice skill that shells into Claude.
+    expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md'))).toBe(false);
+    // Codex/external hosts should get the generated wrapper.
+    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'))).toBe(true);
   });
 
   test('Codex skill names follow gstack-{name} convention', () => {

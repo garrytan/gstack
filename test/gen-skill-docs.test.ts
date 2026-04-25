@@ -56,6 +56,9 @@ const ALL_SKILLS = (() => {
   return skills;
 })();
 
+const CLAUDE_SKIPPED_SKILL_DIRS = new Set(['claude']);
+const CLAUDE_GENERATED_SKILLS = ALL_SKILLS.filter(skill => !CLAUDE_SKIPPED_SKILL_DIRS.has(skill.dir));
+
 describe('gen-skill-docs', () => {
   test('generated SKILL.md contains all command categories', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
@@ -114,7 +117,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('every skill has a generated SKILL.md with auto-generated header', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const mdPath = path.join(ROOT, skill.dir, 'SKILL.md');
       expect(fs.existsSync(mdPath)).toBe(true);
       const content = fs.readFileSync(mdPath, 'utf-8');
@@ -124,7 +127,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('every generated SKILL.md has valid YAML frontmatter', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       expect(content.startsWith('---\n')).toBe(true);
       expect(content).toContain('name:');
@@ -133,11 +136,16 @@ describe('gen-skill-docs', () => {
   });
 
   test(`every generated SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const description = extractDescription(content);
       expect(description.length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
     }
+  });
+
+  test('Claude outside-voice skill is not generated for Claude host', () => {
+    expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md.tmpl'))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md'))).toBe(false);
   });
 
   test(`every Codex SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
@@ -186,7 +194,7 @@ describe('gen-skill-docs', () => {
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // Every skill should be FRESH
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
       expect(output).toContain(`FRESH: ${file}`);
     }
@@ -194,7 +202,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('no generated SKILL.md contains unresolved placeholders', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const unresolved = content.match(/\{\{[A-Z_]+\}\}/g);
       expect(unresolved).toBeNull();
@@ -264,7 +272,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('preamble .pending-* glob is zsh-safe (uses find, not shell glob)', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       if (!content.includes('.pending-')) continue;
       // Must NOT have a bare shell glob ".pending-*" outside of find's -name argument
@@ -275,7 +283,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('bash blocks with shell globs are zsh-safe (setopt guard or find)', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const bashBlocks = [...content.matchAll(/```bash\n([\s\S]*?)```/g)].map(m => m[1]);
 
@@ -1603,6 +1611,18 @@ describe('Codex generation (--host codex)', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);
   });
 
+  test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('claude -p');
+    expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
+    expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
+    expect(content).toContain('--disable-slash-commands');
+    expect(content).toContain('--tools ""');
+    expect(content).toContain('--allowedTools Read,Grep,Glob');
+    expect(content).toContain('--disallowedTools Bash,Edit,Write');
+    expect(content).toContain('is_error');
+  });
+
   test('Codex review step stripped from Codex-host ship and review', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
@@ -1773,7 +1793,7 @@ describe('Codex generation (--host codex)', () => {
   });
 
   test('Claude output unchanged: all Claude skills have zero Codex paths', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       // pair-agent legitimately documents how Codex agents store credentials.
       // codex + autoplan document the Codex CLI auth file (~/.codex/auth.json)
@@ -1994,6 +2014,16 @@ describe('Parameterized host smoke tests', () => {
           expect(content).toMatch(/^name:\s/m);
           expect(content).toMatch(/^description:\s/m);
         }
+      });
+
+      test('generates Claude outside-voice skill for external hosts', () => {
+        const skillMd = path.join(hostDir, 'gstack-claude', 'SKILL.md');
+        expect(fs.existsSync(skillMd)).toBe(true);
+        const content = fs.readFileSync(skillMd, 'utf-8');
+        expect(content).toContain('claude -p');
+        expect(content).toContain('--disable-slash-commands');
+        expect(content).toContain('--allowedTools Read,Grep,Glob');
+        expect(content).toContain('--disallowedTools Bash,Edit,Write');
       });
 
       test('--dry-run freshness check passes', () => {
