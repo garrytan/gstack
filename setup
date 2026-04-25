@@ -180,9 +180,11 @@ fi
 migrate_direct_codex_install() {
   local gstack_dir="$1"
   local codex_gstack="$2"
+  local codex_gstack_real
   local migrated_dir="$HOME/.gstack/repos/gstack"
 
-  [ "$gstack_dir" = "$codex_gstack" ] || return 0
+  codex_gstack_real="$(cd "$(dirname "$codex_gstack")" 2>/dev/null && pwd -P)/$(basename "$codex_gstack")"
+  [ "$gstack_dir" = "$codex_gstack" ] || [ "$gstack_dir" = "$codex_gstack_real" ] || return 0
   [ -L "$gstack_dir" ] && return 0
 
   mkdir -p "$(dirname "$migrated_dir")"
@@ -199,6 +201,92 @@ migrate_direct_codex_install() {
   INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
   BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
 }
+
+create_claude_runtime_root() {
+  local gstack_dir="$1"
+  local claude_gstack="$2"
+
+  [ "$gstack_dir" = "$claude_gstack" ] && return 0
+
+  if [ -L "$claude_gstack" ]; then
+    rm -f "$claude_gstack"
+  elif [ -d "$claude_gstack" ] && [ "$claude_gstack" != "$gstack_dir" ]; then
+    if [ -d "$claude_gstack/.git" ]; then
+      echo "gstack setup failed: existing Claude checkout found at $claude_gstack" >&2
+      echo "Move it aside or run setup from that checkout so it can be migrated safely." >&2
+      exit 1
+    fi
+    # Old direct installs left a real checkout here with source skills for every
+    # host. Remove it so Claude only sees top-level Claude skills plus runtime
+    # assets under gstack/.
+    rm -rf "$claude_gstack"
+  fi
+
+  mkdir -p "$claude_gstack" "$claude_gstack/browse" "$claude_gstack/design" "$claude_gstack/make-pdf" "$claude_gstack/review" "$claude_gstack/qa"
+
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$claude_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$claude_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$claude_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    ln -snf "$gstack_dir/design/dist" "$claude_gstack/design/dist"
+  fi
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    ln -snf "$gstack_dir/make-pdf/dist" "$claude_gstack/make-pdf/dist"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$claude_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    ln -snf "$gstack_dir/review/specialists" "$claude_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    ln -snf "$gstack_dir/qa/templates" "$claude_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    ln -snf "$gstack_dir/qa/references" "$claude_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$claude_gstack/ETHOS.md"
+  fi
+}
+
+migrate_direct_claude_install() {
+  local gstack_dir="$1"
+  local claude_gstack="$2"
+  local claude_gstack_real
+  local migrated_dir="$HOME/.gstack/repos/gstack"
+
+  claude_gstack_real="$(cd "$(dirname "$claude_gstack")" 2>/dev/null && pwd -P)/$(basename "$claude_gstack")"
+  [ "$gstack_dir" = "$claude_gstack" ] || [ "$gstack_dir" = "$claude_gstack_real" ] || return 0
+  [ -L "$gstack_dir" ] && return 0
+  [ "$LOCAL_INSTALL" -eq 1 ] && return 0
+
+  mkdir -p "$(dirname "$migrated_dir")"
+  if [ -e "$migrated_dir" ] && [ "$migrated_dir" != "$gstack_dir" ]; then
+    echo "gstack setup failed: direct Claude install detected at $gstack_dir" >&2
+    echo "A migrated repo already exists at $migrated_dir; move one of them aside and rerun setup." >&2
+    exit 1
+  fi
+
+  log "Migrating direct Claude install to $migrated_dir to keep Claude skill discovery clean..."
+  mv "$gstack_dir" "$migrated_dir"
+  SOURCE_GSTACK_DIR="$migrated_dir"
+  INSTALL_GSTACK_DIR="$claude_gstack"
+  INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
+  BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+}
+
+if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+  migrate_direct_claude_install "$SOURCE_GSTACK_DIR" "$HOME/.claude/skills/gstack"
+fi
 
 if [ "$INSTALL_CODEX" -eq 1 ]; then
   migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
@@ -540,7 +628,7 @@ create_agents_sidecar() {
   mkdir -p "$agents_gstack"
 
   # Sidecar directories that skills reference at runtime
-  for asset in bin browse review qa; do
+  for asset in bin browse make-pdf review qa; do
     local src="$SOURCE_GSTACK_DIR/$asset"
     local dst="$agents_gstack/$asset"
     if [ -d "$src" ] || [ -f "$src" ]; then
@@ -579,7 +667,7 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/make-pdf" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -592,6 +680,9 @@ create_codex_runtime_root() {
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
     ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    ln -snf "$gstack_dir/make-pdf/dist" "$codex_gstack/make-pdf/dist"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
@@ -619,7 +710,7 @@ create_factory_runtime_root() {
     rm -rf "$factory_gstack"
   fi
 
-  mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
+  mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/make-pdf" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
 
   if [ -f "$factory_dir/gstack/SKILL.md" ]; then
     ln -snf "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
@@ -632,6 +723,9 @@ create_factory_runtime_root() {
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
     ln -snf "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    ln -snf "$gstack_dir/make-pdf/dist" "$factory_gstack/make-pdf/dist"
   fi
   if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
     ln -snf "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
@@ -657,7 +751,7 @@ create_opencode_runtime_root() {
     rm -rf "$opencode_gstack"
   fi
 
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/make-pdf" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
     ln -snf "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
@@ -673,6 +767,9 @@ create_opencode_runtime_root() {
   fi
   if [ -d "$gstack_dir/design/dist" ]; then
     ln -snf "$gstack_dir/design/dist" "$opencode_gstack/design/dist"
+  fi
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    ln -snf "$gstack_dir/make-pdf/dist" "$opencode_gstack/make-pdf/dist"
   fi
   if [ -f "$opencode_dir/gstack-upgrade/SKILL.md" ]; then
     ln -snf "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
@@ -773,6 +870,13 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    # Global installs need a runtime-only sidecar at ~/.claude/skills/gstack.
+    # Project-local contributor/dev-mode installs intentionally keep
+    # .claude/skills/gstack as a symlink to the working tree, as documented in
+    # CONTRIBUTING.md, so edits are live while developing gstack itself.
+    if [ "$INSTALL_SKILLS_DIR" = "$HOME/.claude/skills" ]; then
+      create_claude_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_GSTACK_DIR"
+    fi
     # Clean up stale symlinks from the opposite prefix mode
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
@@ -810,8 +914,8 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
     CLAUDE_GSTACK_LINK="$CLAUDE_SKILLS_DIR/gstack"
     mkdir -p "$CLAUDE_SKILLS_DIR"
-    ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
-    log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
+    create_claude_runtime_root "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
+    log "  created runtime root $CLAUDE_GSTACK_LINK"
     INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
     INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
     # Clean up stale symlinks from the opposite prefix mode
@@ -869,10 +973,13 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   KIRO_GSTACK="$KIRO_SKILLS/gstack"
   # Remove old whole-dir symlink from previous installs
   [ -L "$KIRO_GSTACK" ] && rm -f "$KIRO_GSTACK"
-  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
+  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/make-pdf" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
   ln -snf "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
   ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
   ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
+  if [ -d "$SOURCE_GSTACK_DIR/make-pdf/dist" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR/make-pdf/dist" "$KIRO_GSTACK/make-pdf/dist"
+  fi
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
     ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"

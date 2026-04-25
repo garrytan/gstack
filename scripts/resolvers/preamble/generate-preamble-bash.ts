@@ -10,6 +10,7 @@ GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 `
     : '';
 
@@ -114,4 +115,3 @@ if command -v gbrain &>/dev/null; then
 fi` : ''}
 \`\`\``;
 }
-
