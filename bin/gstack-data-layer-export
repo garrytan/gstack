@@ -1,0 +1,497 @@
+#!/usr/bin/env bun
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const VALID_WINDOWS = new Set(['7d', '30d', '90d', 'all']);
+
+function usage() {
+  return `gstack-data-layer-export
+
+Usage:
+  gstack-data-layer-export [--out DIR] [--analytics FILE] [--business-events FILE]
+                           [--date YYYY-MM-DD] [--project NAME] [--domain DOMAIN]
+                           [--window 7d|30d|90d|all]
+
+Defaults:
+  --analytics       $GSTACK_STATE_DIR/analytics/skill-usage.jsonl or ~/.gstack/analytics/skill-usage.jsonl
+  --business-events .gstack/data-layer/business-events.jsonl
+  --out             .gstack/data-layer/exports/<YYYY-MM-DD>
+
+This command is local-only. It never sends data over the network.`;
+}
+
+function parseArgs(argv) {
+  const args = {
+    outDir: '',
+    analyticsFile: '',
+    businessEventsFile: '',
+    date: new Date().toISOString().slice(0, 10),
+    project: '',
+    domain: 'general',
+    window: 'all',
+    help: false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') {
+      args.help = true;
+      continue;
+    }
+    const next = argv[i + 1];
+    switch (arg) {
+      case '--out':
+        args.outDir = requireValue(arg, next);
+        i++;
+        break;
+      case '--analytics':
+        args.analyticsFile = requireValue(arg, next);
+        i++;
+        break;
+      case '--business-events':
+        args.businessEventsFile = requireValue(arg, next);
+        i++;
+        break;
+      case '--date':
+        args.date = requireValue(arg, next);
+        i++;
+        break;
+      case '--project':
+        args.project = requireValue(arg, next);
+        i++;
+        break;
+      case '--domain':
+        args.domain = requireValue(arg, next);
+        i++;
+        break;
+      case '--window':
+        args.window = requireValue(arg, next);
+        i++;
+        break;
+      default:
+        throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date)) {
+    throw new Error('--date must use YYYY-MM-DD');
+  }
+  if (!VALID_WINDOWS.has(args.window)) {
+    throw new Error('--window must be one of 7d, 30d, 90d, all');
+  }
+
+  const stateDir = process.env.GSTACK_STATE_DIR || path.join(os.homedir(), '.gstack');
+  args.analyticsFile ||= path.join(stateDir, 'analytics', 'skill-usage.jsonl');
+  args.businessEventsFile ||= path.join(process.cwd(), '.gstack', 'data-layer', 'business-events.jsonl');
+  args.outDir ||= path.join(process.cwd(), '.gstack', 'data-layer', 'exports', args.date);
+
+  return args;
+}
+
+function requireValue(flag, value) {
+  if (!value || value.startsWith('--')) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+function hash(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function safeNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readJsonl(file) {
+  const result = { records: [], malformed: 0, missing: false };
+  if (!fs.existsSync(file)) {
+    result.missing = true;
+    return result;
+  }
+
+  const content = fs.readFileSync(file, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        result.records.push(obj);
+      } else {
+        result.malformed++;
+      }
+    } catch {
+      result.malformed++;
+    }
+  }
+  return result;
+}
+
+function cutoffForWindow(window) {
+  if (window === 'all') return null;
+  const days = Number(window.replace('d', ''));
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
+function isInsideWindow(record, cutoff) {
+  if (!cutoff) return true;
+  const ts = record.ts || record.created_at;
+  if (typeof ts !== 'string') return false;
+  const date = new Date(ts);
+  return Number.isFinite(date.getTime()) && date >= cutoff;
+}
+
+function isSkillRun(record) {
+  if (!record || typeof record !== 'object') return false;
+  if (record.event === 'hook_fire') return false;
+  if (typeof record.event_type === 'string' && record.event_type !== 'skill_run') return false;
+  if (typeof record.event_type === 'string' && record.event_type.startsWith('upgrade_')) return false;
+  return typeof record.skill === 'string' && typeof record.ts === 'string';
+}
+
+function withSlash(skill) {
+  if (!skill) return '/unknown';
+  return skill.startsWith('/') ? skill : `/${skill}`;
+}
+
+function inferPhase(skill) {
+  const key = skill.replace(/^\//, '');
+  if (key.includes('office-hours') || key.includes('plan') || key.includes('autoplan')) return 'plan';
+  if (key.includes('review') || key === 'cso') return 'review';
+  if (key.includes('qa') || key.includes('canary') || key.includes('benchmark')) return 'qa';
+  if (key.includes('ship') || key.includes('deploy')) return 'ship';
+  if (key.includes('retro') || key.includes('learn') || key.includes('data-layer')) return 'analysis';
+  if (key.includes('investigate') || key.includes('debug')) return 'analysis';
+  return 'analysis';
+}
+
+function inferWorkflow(skill) {
+  const key = skill.replace(/^\//, '').replace(/-/g, '_');
+  const phase = inferPhase(skill);
+  if (phase === 'plan') return 'planning';
+  if (phase === 'review') return 'review';
+  if (phase === 'qa') return 'quality_assurance';
+  if (phase === 'ship') return 'release';
+  return key || 'unknown';
+}
+
+function normalizeStatus(outcome) {
+  const value = typeof outcome === 'string' ? outcome.toLowerCase() : 'unknown';
+  if (value === 'success' || value === 'error' || value === 'aborted') return value;
+  if (value === 'fail' || value === 'failed' || value === 'failure') return 'error';
+  return 'unknown';
+}
+
+function normalizeAgentEvent(record, index, args) {
+  const skill = withSlash(String(record.skill || 'unknown'));
+  const repoSlug = record._repo_slug || record.repo || '';
+  const durationSeconds = safeNumber(record.duration_s);
+  const createdAt = String(record.ts);
+  const sessionId = record.session_id || '';
+  const idSeed = `${createdAt}|${sessionId}|${skill}|${index}`;
+
+  return {
+    id: `evt_${hash(idSeed).slice(0, 16)}`,
+    created_at: createdAt,
+    source: record.source || 'gstack',
+    project: args.project || 'local-project',
+    repo_slug_hash: repoSlug ? `sha256:${hash(repoSlug)}` : null,
+    host: record.host || 'claude-code',
+    skill,
+    workflow: record.workflow || inferWorkflow(skill),
+    phase: record.phase || inferPhase(skill),
+    duration_ms: durationSeconds === null ? null : Math.round(durationSeconds * 1000),
+    status: normalizeStatus(record.outcome),
+    human_review_status: record.human_review_status || 'unknown',
+    tokens_in_estimate: safeNumber(record.tokens_in_estimate),
+    tokens_out_estimate: safeNumber(record.tokens_out_estimate),
+    cost_estimate_usd: safeNumber(record.cost_estimate_usd),
+    privacy_level: record.privacy_level || 'local_only',
+    pii_level: record.pii_level || 'unknown',
+  };
+}
+
+function normalizeBusinessEvent(record, index, args) {
+  const createdAt = record.created_at || record.ts || new Date().toISOString();
+  const rawEntity = record.entity_id || record.entity_id_raw || '';
+  const entityHash = record.entity_id_hash || (rawEntity ? `sha256:${hash(rawEntity)}` : null);
+  const idSeed = `${createdAt}|${record.workflow || ''}|${record.event_type || ''}|${index}`;
+
+  return {
+    id: record.id || `biz_${hash(idSeed).slice(0, 16)}`,
+    created_at: createdAt,
+    domain: record.domain || args.domain || 'general',
+    entity_type: record.entity_type || 'unknown',
+    entity_id_hash: entityHash,
+    workflow: record.workflow || 'unknown',
+    event_type: record.event_type || 'business_event',
+    value: safeNumber(record.value) ?? 1,
+    amount_usd: safeNumber(record.amount_usd),
+    source: record.source || 'manual',
+    agent_event_ids: Array.isArray(record.agent_event_ids) ? record.agent_event_ids : [],
+    metadata_redacted: record.metadata_redacted && typeof record.metadata_redacted === 'object'
+      ? record.metadata_redacted
+      : {},
+    privacy_level: record.privacy_level || 'local_only',
+    pii_level: record.pii_level || 'unknown',
+  };
+}
+
+function median(values) {
+  const nums = values.filter((v) => typeof v === 'number' && Number.isFinite(v)).sort((a, b) => a - b);
+  if (nums.length === 0) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : Math.round((nums[mid - 1] + nums[mid]) / 2);
+}
+
+function buildWorkflowOutcomes(agentEvents, businessEvents, domain) {
+  const byWorkflow = new Map();
+  for (const event of agentEvents) {
+    const key = event.workflow || 'unknown';
+    if (!byWorkflow.has(key)) byWorkflow.set(key, []);
+    byWorkflow.get(key).push(event);
+  }
+  for (const event of businessEvents) {
+    const key = event.workflow || 'unknown';
+    if (!byWorkflow.has(key)) byWorkflow.set(key, []);
+  }
+
+  return [...byWorkflow.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([workflow, events]) => {
+    const agentRows = events.filter((event) => event.id && event.id.startsWith('evt_'));
+    const accepted = agentRows.filter((event) => event.human_review_status === 'accepted').length;
+    const edited = agentRows.filter((event) => event.human_review_status === 'edited').length;
+    const rejected = agentRows.filter((event) => event.human_review_status === 'rejected').length;
+    const reviewed = accepted + edited + rejected;
+    const runs = agentRows.length;
+    const acceptanceRate = reviewed > 0 ? Number((accepted / reviewed).toFixed(3)) : null;
+    const linkedMetrics = [...new Set(
+      businessEvents
+        .filter((event) => event.workflow === workflow)
+        .map((event) => event.event_type)
+        .filter(Boolean),
+    )];
+    const medianDuration = median(agentRows.map((event) => event.duration_ms));
+    const estimatedHoursSaved = medianDuration && runs > 0
+      ? Number(((medianDuration * runs * 0.5) / 3600000).toFixed(2))
+      : null;
+    const slmCandidate = reviewed >= 50 && acceptanceRate !== null && acceptanceRate >= 0.8;
+
+    return {
+      workflow,
+      domain,
+      runs,
+      accepted_runs: accepted,
+      edited_runs: edited,
+      rejected_runs: rejected,
+      acceptance_rate: acceptanceRate,
+      median_duration_ms: medianDuration,
+      estimated_hours_saved: estimatedHoursSaved,
+      linked_business_metrics: linkedMetrics,
+      slm_candidate: slmCandidate,
+      reason: slmCandidate
+        ? 'High reviewed volume and high acceptance rate.'
+        : 'Needs more reviewed local outcomes before routing or SLM-readiness decisions.',
+    };
+  });
+}
+
+function countBy(records, field) {
+  const counts = {};
+  for (const record of records) {
+    const key = record[field] || 'unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
+}
+
+function buildDashboardSummary(agentEvents, businessEvents, workflowOutcomes, quality, args) {
+  return {
+    generated_at: new Date().toISOString(),
+    privacy_model: 'local_only',
+    project: args.project || 'local-project',
+    domain: args.domain,
+    window: args.window,
+    counts: {
+      agent_events: agentEvents.length,
+      business_events: businessEvents.length,
+      workflows: workflowOutcomes.length,
+    },
+    top_skills: countBy(agentEvents, 'skill'),
+    workflows: countBy(agentEvents, 'workflow'),
+    business_events_by_type: countBy(businessEvents, 'event_type'),
+    data_quality: quality,
+    downstream_targets: [
+      'csv',
+      'json',
+      'jsonl',
+      'duckdb',
+      'sqlite',
+      'postgres',
+      'supabase',
+      'nextjs',
+      'streamlit',
+      'observable',
+      'evidence.dev',
+      'metabase',
+      'grafana',
+      'retool',
+    ],
+  };
+}
+
+function writeJsonl(file, records) {
+  fs.writeFileSync(file, records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : ''));
+}
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return '';
+  const text = Array.isArray(value) ? value.join('|') : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function writeCsv(file, records, fields) {
+  const rows = [fields.join(',')];
+  for (const record of records) {
+    rows.push(fields.map((field) => csvEscape(record[field])).join(','));
+  }
+  fs.writeFileSync(file, `${rows.join('\n')}\n`);
+}
+
+function writeReadme(file, args, counts) {
+  fs.writeFileSync(file, `# GStack Data Layer Export
+
+Generated: ${new Date().toISOString()}
+
+This export is local-only and dashboard-ready. It was written by
+\`gstack-data-layer-export\` from local analytics and optional redacted business
+events.
+
+## Files
+
+- \`agent-events.jsonl\` / \`agent-events.csv\`: normalized GStack skill runs.
+- \`business-events.jsonl\` / \`business-events.csv\`: optional redacted business events.
+- \`workflow-outcomes.json\` / \`workflow-outcomes.csv\`: workflow rollups.
+- \`dashboard-summary.json\`: summary counts and data-quality notes.
+
+## Counts
+
+- Agent events: ${counts.agentEvents}
+- Business events: ${counts.businessEvents}
+- Workflow outcomes: ${counts.workflowOutcomes}
+
+## Privacy
+
+Raw repo names are not exported. Repo slugs are represented as hashes when
+available. Do not commit this directory unless you intentionally reviewed and
+sanitized the contents.
+
+## Source Paths
+
+- Analytics: \`${args.analyticsFile}\`
+- Business events: \`${args.businessEventsFile}\`
+`);
+}
+
+function main() {
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    console.error('');
+    console.error(usage());
+    process.exit(2);
+  }
+
+  if (args.help) {
+    console.log(usage());
+    return;
+  }
+
+  const cutoff = cutoffForWindow(args.window);
+  const analytics = readJsonl(args.analyticsFile);
+  const business = readJsonl(args.businessEventsFile);
+
+  const skillRuns = analytics.records.filter((record) => isSkillRun(record) && isInsideWindow(record, cutoff));
+  const agentEvents = skillRuns.map((record, index) => normalizeAgentEvent(record, index, args));
+  const businessEvents = business.records
+    .filter((record) => isInsideWindow(record, cutoff))
+    .map((record, index) => normalizeBusinessEvent(record, index, args));
+  const workflowOutcomes = buildWorkflowOutcomes(agentEvents, businessEvents, args.domain);
+  const dataQuality = {
+    analytics_file_missing: analytics.missing,
+    business_events_file_missing: business.missing,
+    malformed_analytics_lines: analytics.malformed,
+    malformed_business_event_lines: business.malformed,
+    note: 'Review metric definitions, denominators, date windows, and PII status before sharing exports.',
+  };
+  const dashboardSummary = buildDashboardSummary(agentEvents, businessEvents, workflowOutcomes, dataQuality, args);
+
+  fs.mkdirSync(args.outDir, { recursive: true });
+  writeJsonl(path.join(args.outDir, 'agent-events.jsonl'), agentEvents);
+  writeCsv(path.join(args.outDir, 'agent-events.csv'), agentEvents, [
+    'id',
+    'created_at',
+    'source',
+    'project',
+    'repo_slug_hash',
+    'host',
+    'skill',
+    'workflow',
+    'phase',
+    'duration_ms',
+    'status',
+    'human_review_status',
+    'privacy_level',
+    'pii_level',
+  ]);
+  writeJsonl(path.join(args.outDir, 'business-events.jsonl'), businessEvents);
+  writeCsv(path.join(args.outDir, 'business-events.csv'), businessEvents, [
+    'id',
+    'created_at',
+    'domain',
+    'entity_type',
+    'entity_id_hash',
+    'workflow',
+    'event_type',
+    'value',
+    'amount_usd',
+    'source',
+    'privacy_level',
+    'pii_level',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'workflow-outcomes.json'), JSON.stringify(workflowOutcomes, null, 2) + '\n');
+  writeCsv(path.join(args.outDir, 'workflow-outcomes.csv'), workflowOutcomes, [
+    'workflow',
+    'domain',
+    'runs',
+    'accepted_runs',
+    'edited_runs',
+    'rejected_runs',
+    'acceptance_rate',
+    'median_duration_ms',
+    'estimated_hours_saved',
+    'slm_candidate',
+    'reason',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'dashboard-summary.json'), JSON.stringify(dashboardSummary, null, 2) + '\n');
+  writeReadme(path.join(args.outDir, 'README.md'), args, {
+    agentEvents: agentEvents.length,
+    businessEvents: businessEvents.length,
+    workflowOutcomes: workflowOutcomes.length,
+  });
+
+  console.log(`gstack data layer export: ${args.outDir}`);
+  console.log(`agent_events=${agentEvents.length}`);
+  console.log(`business_events=${businessEvents.length}`);
+  console.log(`workflow_outcomes=${workflowOutcomes.length}`);
+  if (analytics.missing) console.log(`analytics_missing=${args.analyticsFile}`);
+  if (business.missing) console.log(`business_events_missing=${args.businessEventsFile}`);
+}
+
+main();

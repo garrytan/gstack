@@ -1,0 +1,126 @@
+{
+  "schema": "gstack-data-layer-kpi-templates-v1",
+  "sanitized": true,
+  "verticals": {
+    "real_estate": [
+      {
+        "id": "real_estate_lead_response_time",
+        "name": "Lead response time",
+        "description": "Median time between a new lead and the first follow-up.",
+        "numerator": "median(minutes_between(lead_created, followup_sent))",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "business_user",
+        "grounding_required": true
+      },
+      {
+        "id": "real_estate_lead_to_appointment_rate",
+        "name": "Lead-to-appointment rate",
+        "description": "Percentage of new leads that book an appointment or showing.",
+        "numerator": "count(business_events where event_type in ['appointment_booked','showing_booked'])",
+        "denominator": "count(business_events where event_type='lead_created')",
+        "time_window": "30d",
+        "owner": "business_user",
+        "grounding_required": true
+      },
+      {
+        "id": "real_estate_human_edit_rate",
+        "name": "Human edit rate by workflow",
+        "description": "Share of agent outputs that required human edits before acceptance.",
+        "numerator": "count(agent_events where human_review_status='edited')",
+        "denominator": "count(agent_events where human_review_status in ['accepted','edited','rejected'])",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      }
+    ],
+    "saas": [
+      {
+        "id": "saas_activation_rate",
+        "name": "Activation rate",
+        "description": "Percentage of trial signups reaching the activation event.",
+        "numerator": "count(business_events where event_type='activated')",
+        "denominator": "count(business_events where event_type='trial_signup')",
+        "time_window": "30d",
+        "owner": "growth",
+        "grounding_required": true
+      },
+      {
+        "id": "saas_issue_to_pr_cycle_time",
+        "name": "Issue-to-PR cycle time",
+        "description": "Median time from issue creation to PR opened.",
+        "numerator": "median(hours_between(issue_created, pr_opened))",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "engineering",
+        "grounding_required": true
+      }
+    ],
+    "ecommerce": [
+      {
+        "id": "ecommerce_average_order_value",
+        "name": "Average order value",
+        "description": "Average order amount over the selected time window.",
+        "numerator": "sum(business_events.amount_usd where event_type='order_created')",
+        "denominator": "count(business_events where event_type='order_created')",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "ecommerce_support_tickets_per_order",
+        "name": "Support tickets per order",
+        "description": "Support burden normalized by order volume.",
+        "numerator": "count(business_events where event_type='support_ticket_created')",
+        "denominator": "count(business_events where event_type='order_created')",
+        "time_window": "30d",
+        "owner": "support",
+        "grounding_required": true
+      }
+    ],
+    "agency_services": [
+      {
+        "id": "agency_proposal_turnaround_time",
+        "name": "Proposal turnaround time",
+        "description": "Median time from inbound lead to proposal sent.",
+        "numerator": "median(hours_between(inbound_lead_created, proposal_sent))",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "business_user",
+        "grounding_required": true
+      },
+      {
+        "id": "agency_billable_hours_saved",
+        "name": "Billable hours saved",
+        "description": "Estimated human hours saved by accepted agent workflows.",
+        "numerator": "sum(workflow_outcomes.estimated_hours_saved)",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      }
+    ],
+    "legal_finance_ops": [
+      {
+        "id": "legal_intake_completion_rate",
+        "name": "Intake completion rate",
+        "description": "Percentage of started matter intakes that reach completion.",
+        "numerator": "count(business_events where event_type='intake_completed')",
+        "denominator": "count(business_events where event_type='intake_started')",
+        "time_window": "30d",
+        "owner": "operations",
+        "grounding_required": true
+      },
+      {
+        "id": "finance_document_review_turnaround",
+        "name": "Document review turnaround",
+        "description": "Median time from document received to review completed.",
+        "numerator": "median(hours_between(document_received, review_completed))",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "operations",
+        "grounding_required": true
+      }
+    ]
+  }
+}

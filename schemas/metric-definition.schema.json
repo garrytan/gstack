@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/metric-definition.schema.json",
+  "title": "MetricDefinition",
+  "description": "A human-readable metric definition with numerator, denominator, time window, owner, and grounding requirement.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "name",
+    "domain",
+    "description",
+    "numerator",
+    "denominator",
+    "time_window",
+    "owner",
+    "grounding_required"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "examples": ["real_estate_lead_to_showing_rate"]
+    },
+    "name": {
+      "type": "string",
+      "examples": ["Lead-to-showing rate"]
+    },
+    "domain": {
+      "type": "string",
+      "examples": ["real_estate", "saas", "ecommerce", "agency", "legal_ops"]
+    },
+    "description": {
+      "type": "string"
+    },
+    "numerator": {
+      "type": "string",
+      "description": "Plain-language or SQL-like expression. Keep definitions auditable."
+    },
+    "denominator": {
+      "type": "string",
+      "description": "Plain-language or SQL-like expression. Use '1' for count or sum metrics."
+    },
+    "time_window": {
+      "type": "string",
+      "examples": ["7d", "30d", "quarter_to_date"]
+    },
+    "owner": {
+      "type": "string",
+      "examples": ["business_user", "operator", "founder", "data_owner"]
+    },
+    "grounding_required": {
+      "type": "boolean"
+    }
+  }
+}

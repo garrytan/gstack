@@ -27,6 +27,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
+| [`/data-layer`](#data-layer) | **BI Engineer** | Local-first BI for agent activity, workflow analytics, business KPIs, and dashboard-ready JSON/CSV exports. |
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
@@ -952,6 +953,28 @@ Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
         - "auth middleware uses JWT" — auth/middleware.ts was deleted
         [Prune these? Y/N]
 ```
+
+---
+
+## `/data-layer`
+
+This is my **business intelligence mode**.
+
+`/data-layer` turns local GStack/OpenClaw/Hermes activity into dashboard-ready
+JSONL, JSON, and CSV artifacts. It reads local analytics such as
+`~/.gstack/analytics/skill-usage.jsonl`, optionally connects them to redacted
+business events under `.gstack/data-layer/`, and exports agent events, workflow
+outcomes, KPI inputs, and data-quality notes.
+
+The skill is local-first and approval-gated. It does not train models, call
+external APIs, add remote telemetry, or store raw PII. It complements
+`gstack-analytics`, `/retro`, `/benchmark`, `/learn`, and GBrain by giving
+business users a clean data layer for workflow analytics and future
+context/eval/trace exports.
+
+Use it when you want to answer: what is my harness doing, which workflows are
+working, which KPIs are moving, and which repeated workflows are becoming
+reusable intelligence?
 
 ---
 

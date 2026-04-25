@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/business-event.schema.json",
+  "title": "BusinessEvent",
+  "description": "A redacted business-process event linked to agent activity for local BI and workflow analytics.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "created_at",
+    "domain",
+    "entity_type",
+    "workflow",
+    "event_type",
+    "value",
+    "source"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "examples": ["biz_001"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "domain": {
+      "type": "string",
+      "examples": ["real_estate", "saas", "ecommerce", "agency", "legal_ops"]
+    },
+    "entity_type": {
+      "type": "string",
+      "examples": ["lead", "customer", "deal", "order", "ticket", "account", "property"]
+    },
+    "entity_id_hash": {
+      "type": ["string", "null"],
+      "description": "Hash or opaque local identifier. Do not store raw names, emails, phone numbers, or addresses."
+    },
+    "workflow": {
+      "type": "string",
+      "examples": ["lead_intake", "crm_follow_up", "listing_copy_qa"]
+    },
+    "event_type": {
+      "type": "string",
+      "examples": ["lead_created", "followup_sent", "showing_booked", "offer_submitted", "deal_closed"]
+    },
+    "value": {
+      "type": "number"
+    },
+    "amount_usd": {
+      "type": ["number", "null"]
+    },
+    "source": {
+      "type": "string",
+      "examples": ["crm", "email", "calendar", "manual", "app", "gbrain"]
+    },
+    "agent_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metadata_redacted": {
+      "type": "object",
+      "description": "Sanitized metadata only. Use placeholders or hashes for sensitive values."
+    },
+    "privacy_level": {
+      "type": "string",
+      "examples": ["local_only", "sanitized_export", "team_opt_in"]
+    },
+    "pii_level": {
+      "type": "string",
+      "examples": ["none", "low", "medium", "high", "unknown"]
+    }
+  }
+}

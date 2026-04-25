@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/agent-event.schema.json",
+  "title": "AgentEvent",
+  "description": "A normalized local event describing a GStack/OpenClaw/Hermes agent or skill run for dashboard-ready analytics.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "created_at",
+    "source",
+    "project",
+    "host",
+    "skill",
+    "workflow",
+    "phase",
+    "status",
+    "privacy_level",
+    "pii_level"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "examples": ["evt_001"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "description": "Event source such as gstack, openclaw, hermes, claude, codex, cursor, or gbrain.",
+      "examples": ["gstack", "openclaw", "hermes"]
+    },
+    "project": {
+      "type": "string",
+      "description": "Local project label chosen by the user. Avoid raw client names in shared exports."
+    },
+    "repo_slug_hash": {
+      "type": ["string", "null"],
+      "description": "Optional hash of a repo slug when grouping is needed without exposing the raw repo name."
+    },
+    "host": {
+      "type": "string",
+      "examples": ["claude-code", "openclaw", "hermes", "codex", "cursor"]
+    },
+    "skill": {
+      "type": "string",
+      "examples": ["/qa", "/review", "/data-layer"]
+    },
+    "workflow": {
+      "type": "string",
+      "examples": ["lead_intake", "quality_assurance", "release"]
+    },
+    "phase": {
+      "type": "string",
+      "examples": ["plan", "review", "build", "qa", "ship", "follow_up", "analysis"]
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "examples": ["success", "error", "aborted", "unknown"]
+    },
+    "human_review_status": {
+      "type": "string",
+      "examples": ["accepted", "edited", "rejected", "unknown"]
+    },
+    "tokens_in_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "tokens_out_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "cost_estimate_usd": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "privacy_level": {
+      "type": "string",
+      "examples": ["local_only", "sanitized_export", "team_opt_in"]
+    },
+    "pii_level": {
+      "type": "string",
+      "examples": ["none", "low", "medium", "high", "unknown"]
+    }
+  }
+}

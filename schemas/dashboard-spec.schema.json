@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/dashboard-spec.schema.json",
+  "title": "DashboardSpec",
+  "description": "A lightweight dashboard specification that maps panels to local metrics and export targets.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "domain",
+    "panels",
+    "export_targets"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "examples": ["real_estate_operator_dashboard"]
+    },
+    "domain": {
+      "type": "string"
+    },
+    "panels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "metrics"],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "export_targets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "examples": ["csv", "json", "jsonl", "duckdb", "sqlite", "postgres", "supabase", "nextjs", "streamlit"]
+      }
+    }
+  }
+}
