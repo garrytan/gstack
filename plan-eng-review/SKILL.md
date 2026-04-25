@@ -1048,6 +1048,13 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
 # Plan Review Mode
 
+> **Execution settings recommendation**
+> Bounded engineering planning: produce a build plan from a spec, with
+> known target files and patterns. Second-tier compute (e.g., Opus
+> Extra high) handles this cleanly. Top-tier compute is warranted only
+> if the spec is unusually large or touches an unfamiliar codebase
+> region.
+
 Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
 
 ## Priority hierarchy
