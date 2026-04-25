@@ -22,7 +22,9 @@ No compatibility matrices. The prompt is the bridge.
        ├── sessions_spawn(runtime: "acp")       │   (planning discipline)
        │       │                                │
        │       └── Claude Code                  ├── Generates gstack-full
-       │           └── gstack installed at      │   (complete pipeline)
+       │           └── gstack source at         │   (complete pipeline)
+       │               ~/.gstack/repos/gstack   │
+       │               + Claude sidecar at      │
        │               ~/.claude/skills/gstack  │
        │                                        └── docs/OPENCLAW.md (this file)
        └── Dispatch routing (AGENTS.md)

@@ -470,11 +470,12 @@ Tests spin up a local HTTP server (`browse/test/test-server.ts`) serving HTML fi
 
 ### Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+The source checkout lives at `~/.gstack/repos/gstack/`. Claude discovers a
+runtime-only sidecar at `~/.claude/skills/gstack/`. After making changes:
 
 1. Push your branch
-2. Pull in the skill directory: `cd ~/.claude/skills/gstack && git pull`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+2. Pull in the source checkout: `cd ~/.gstack/repos/gstack && git pull`
+3. Rebuild and relink runtime assets: `cd ~/.gstack/repos/gstack && bun run build && ./setup`
 
 Or copy the binary directly: `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 

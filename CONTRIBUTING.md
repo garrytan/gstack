@@ -402,7 +402,7 @@ Setup cleans up the old symlinks automatically. No manual cleanup needed.
 If you don't want per-project symlinks, you can switch the global install:
 
 ```bash
-cd ~/.claude/skills/gstack
+cd ~/.gstack/repos/gstack
 git fetch origin
 git checkout origin/<branch>
 bun install && bun run build && ./setup
