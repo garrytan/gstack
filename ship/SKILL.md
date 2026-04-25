@@ -1129,7 +1129,7 @@ Never skip a verification step because a prior `/ship` run already performed it.
 
 2. Run `git status` (never use `-uall`). Uncommitted changes are always included — no need to ask.
 
-3. Run `git diff <base>...HEAD --stat` and `git log <base>..HEAD --oneline` to understand what's being shipped.
+3. Run `git diff $(git merge-base <base> HEAD) --stat` and `git log <base>..HEAD --oneline` to understand what's being shipped.
 
 4. Check review readiness:
 
@@ -1188,7 +1188,7 @@ If the Eng Review is NOT "CLEAR":
 
 Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
 
-Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+Check diff size: `git diff $(git merge-base <base> HEAD) --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
 
 If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
 
@@ -1205,7 +1205,7 @@ service with existing deployment — verify that a distribution pipeline exists.
 
 1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
    ```bash
-   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
+   git diff $(git merge-base origin/<base> HEAD) --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
    ```
 
 2. If new artifact detected, check for a release workflow:
@@ -1426,7 +1426,7 @@ For each failing test:
 
 1. **Get the files changed on this branch:**
    ```bash
-   git diff origin/<base>...HEAD --name-only
+   git diff $(git merge-base origin/<base> HEAD) --name-only
    ```
 
 2. **Classify the failure:**
@@ -1533,7 +1533,7 @@ Evals are mandatory when prompt-related files change. Skip this step entirely if
 **1. Check if the diff touches prompt-related files:**
 
 ```bash
-git diff origin/<base> --name-only
+git diff $(git merge-base origin/<base> HEAD) --name-only
 ```
 
 Match against these patterns (from CLAUDE.md):
@@ -1594,7 +1594,7 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
-> You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push — report only.
+> You are running a ship-workflow test coverage audit. Run `git diff $(git merge-base <base> HEAD)` as needed. Do not commit or push — report only.
 >
 > 100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
 
@@ -1629,7 +1629,7 @@ find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec
 
 Store this number for the PR body.
 
-**1. Trace every codepath changed** using `git diff origin/<base>...HEAD`:
+**1. Trace every codepath changed** using `git diff $(git merge-base origin/<base> HEAD)`:
 
 Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:
 
@@ -1852,7 +1852,7 @@ Repo: {owner/repo}
 
 **Subagent prompt:** Pass these instructions to the subagent:
 
-> You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff <base>...HEAD` to see what shipped. Do not commit or push — report only.
+> You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff $(git merge-base <base> HEAD)` to see what shipped. Do not commit or push — report only.
 >
 > ### Plan File Discovery
 
@@ -1912,7 +1912,7 @@ For each item, note:
 
 ### Cross-Reference Against Diff
 
-Run `git diff origin/<base>...HEAD` and `git log origin/<base>..HEAD --oneline` to understand what was implemented.
+Run `git diff $(git merge-base origin/<base> HEAD)` and `git log origin/<base>..HEAD --oneline` to understand what was implemented.
 
 For each extracted plan item, check the diff and classify:
 
@@ -2089,7 +2089,7 @@ Before reviewing code quality, check: **did they build what was requested — no
    Read commit messages (`git log origin/<base>..HEAD --oneline`).
    **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
 2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run `git diff origin/<base>...HEAD --stat` and compare the files changed against the stated intent.
+3. Run `git diff $(git merge-base origin/<base> HEAD) --stat` and compare the files changed against the stated intent.
 
 4. Evaluate with skepticism (incorporating plan completion results if available from an earlier step or adjacent section):
 
@@ -2124,7 +2124,7 @@ Review the diff for structural issues that tests don't catch.
 
 1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
+2. Run `git diff $(git merge-base origin/<base> HEAD)` to get the full diff. This diffs the working tree against the merge-base, which excludes commits that landed on `origin/<base>` but aren't yet merged into this branch (no false deletions), and includes any uncommitted edits.
 
 3. Apply the review checklist in two passes:
    - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
@@ -2227,8 +2227,9 @@ STACK=""
 [ -f go.mod ] && STACK="${STACK}go "
 [ -f Cargo.toml ] && STACK="${STACK}rust "
 echo "STACK: ${STACK:-unknown}"
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+_MERGE_BASE=$(git merge-base origin/<base> HEAD 2>/dev/null)
+DIFF_INS=$(git diff "$_MERGE_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff "$_MERGE_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_LINES=$((DIFF_INS + DIFF_DEL))
 echo "DIFF_LINES: $DIFF_LINES"
 # Detect test framework for specialist test stub generation
@@ -2302,7 +2303,7 @@ If learnings are found, include them: "Past learnings for this domain: {learning
 4. Instructions:
 
 "You are a specialist code reviewer. Read the checklist below, then run
-`git diff origin/<base>` to get the full diff. Apply the checklist against the diff.
+`git diff $(git merge-base origin/<base> HEAD)` to get the full diff. Apply the checklist against the diff.
 
 For each finding, output a JSON object on its own line:
 {\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
@@ -2405,7 +2406,7 @@ The Red Team subagent receives:
 
 Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
 who found the following issues: {merged findings summary}. Your job is to find what they
-MISSED. Read the checklist, run `git diff origin/<base>`, and look for gaps.
+MISSED. Read the checklist, run `git diff $(git merge-base origin/<base> HEAD)`, and look for gaps.
 Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
 concerns, integration boundary issues, and failure modes that specialist checklists
 don't cover."
@@ -2541,8 +2542,9 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 **Detect diff size and tool availability:**
 
 ```bash
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+_MERGE_BASE=$(git merge-base origin/<base> HEAD 2>/dev/null)
+DIFF_INS=$(git diff "$_MERGE_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff "$_MERGE_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 # Legacy opt-out — only gates Codex passes, Claude always runs
@@ -2562,7 +2564,7 @@ If `OLD_CFG` is `disabled`: skip Codex passes only. Claude adversarial subagent 
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
 Subagent prompt:
-"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
+"Read the diff for this branch with `git diff $(git merge-base origin/<base> HEAD)`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment)."
 
 Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
 
@@ -2577,7 +2579,7 @@ If Codex is available AND `OLD_CFG` is NOT `disabled`:
 ```bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
+codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run git diff $(git merge-base origin/<base> HEAD) to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -2743,7 +2745,7 @@ Read the `STATE:` line and dispatch:
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
 2. **Auto-decide the bump level based on the diff:**
-   - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
+   - Count lines changed (`git diff $(git merge-base origin/<base> HEAD) --stat | tail -1`)
    - Check for feature signals: new route/page files (e.g. `app/*/page.tsx`, `pages/*.ts`), new DB migration/schema files, new test files alongside new source files, or branch name starting with `feat/`
    - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
    - **PATCH** (3rd digit): 50+ lines changed, no feature signals detected
@@ -2840,7 +2842,7 @@ echo "Drift repaired: package.json synced to $REPAIR_VERSION. No version bump pe
 
 3. **Read the full diff** to understand what each commit actually changed:
    ```bash
-   git diff <base>...HEAD
+   git diff $(git merge-base <base> HEAD)
    ```
 
 4. **Group commits by theme** before writing anything. Common themes:
@@ -2904,7 +2906,7 @@ Read TODOS.md and verify it follows the recommended structure:
 This step is fully automatic — no user interaction.
 
 Use the diff and commit history already gathered in earlier steps:
-- `git diff <base>...HEAD` (full diff against the base branch)
+- `git diff $(git merge-base <base> HEAD)` (full diff against the base branch)
 - `git log <base>..HEAD --oneline` (all commits being shipped)
 
 For each TODO item, check if the changes in this PR complete it by:

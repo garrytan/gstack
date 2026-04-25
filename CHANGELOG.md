@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.12.3.0] - 2026-04-24
+
+## **`/review` and `/ship` now diff from the merge-base, including uncommitted changes.**
+
+Fix for [#1152](https://github.com/garrytan/gstack/issues/1152): when `origin/<base>` had moved ahead of your feature branch, `/review` and `/ship` were computing the diff with two-dot syntax (`git diff origin/<base>`), which is the symmetric diff between the two tips. Any commits that landed on base but weren't yet merged into your branch showed up as **deletions** in the review output, and the reviewers (Claude, Codex, the specialist army) flagged them as regressions.
+
+Switched every diff invocation in the review and ship pipelines to `git diff $(git merge-base origin/<base> HEAD)`. This form diffs the working tree against the merge-base of the branch and `origin/<base>`, which means: (a) commits that landed on base but aren't yet in your branch are correctly excluded — no false deletions; (b) uncommitted working-tree edits are still included, so `/review` keeps working on in-progress code without forcing you to commit first. The simpler three-dot alternative (`origin/<base>...HEAD`) would have fixed (a) but silently dropped (b).
+
+### What this means for you
+
+Run `/review` on a branch whose base has advanced without merging in `origin/<base>` first. The reviewers see only the changes your branch actually introduces, plus your uncommitted edits. The previous workaround (cancel, `git merge origin/<base>`, re-run) is no longer needed.
+
+### Itemized changes
+
+#### Fixed
+- `review/SKILL.md.tmpl` Step 1 (no-diff check) and Step 3 (full diff) now use `$(git merge-base origin/<base> HEAD)`.
+- `scripts/resolvers/review.ts`: scope-drift `--stat`, plan completion audit, adversarial review diff-stat sizing, Claude subagent prompt, and Codex challenge prompt all use the merge-base form.
+- `scripts/resolvers/review-army.ts`: specialist diff-stat sizing, specialist dispatch prompt, and Red Team prompt.
+- `scripts/resolvers/testing.ts`: codepath-trace prompt for ship and review modes.
+- `scripts/resolvers/preamble/generate-test-failure-triage.ts`: triage `--name-only` lookup.
+- `scripts/resolvers/utility.ts`: `/qa` branch-diff scoping and changelog-summarization step.
+- `scripts/resolvers/design.ts`: `/design-review` branch-diff scoping (still hardcodes `main`; that's a separate issue).
+- `ship/SKILL.md.tmpl`: distribution pipeline check, prompt-files detection, pre-landing review, ship-readiness summary, test coverage audit, plan completion audit, and the diff-size check.
+- `scripts/slop-diff.ts`: `/slop:diff` now uses merge-base with a three-dot fallback when merge-base resolution fails.
+- `review/checklist.md` and `review/greptile-triage.md`: doc references updated to match.
+
 ## [1.12.2.0] - 2026-04-24
 
 ## **`/setup-gbrain` polish: PATH parsing, repo init order, MCP user scope.**

@@ -95,7 +95,7 @@ This is the **primary mode** for developers verifying their work. When the user 
 
 1. **Analyze the branch diff** to understand what changed:
    \`\`\`bash
-   git diff main...HEAD --name-only
+   git diff $(git merge-base main HEAD) --name-only
    git log main..HEAD --oneline
    \`\`\`
 
@@ -385,7 +385,7 @@ export function generateChangelogWorkflow(_ctx: TemplateContext): string {
 
 3. **Read the full diff** to understand what each commit actually changed:
    \`\`\`bash
-   git diff <base>...HEAD
+   git diff $(git merge-base <base> HEAD)
    \`\`\`
 
 4. **Group commits by theme** before writing anything. Common themes:

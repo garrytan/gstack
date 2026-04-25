@@ -1399,7 +1399,7 @@ This is the **primary mode** for developers verifying their work. When the user 
 
 1. **Analyze the branch diff** to understand what changed:
    ```bash
-   git diff main...HEAD --name-only
+   git diff $(git merge-base main HEAD) --name-only
    git log main..HEAD --oneline
    ```
 

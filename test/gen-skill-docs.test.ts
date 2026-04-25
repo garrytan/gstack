@@ -791,7 +791,7 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
   test('T1 includes classification criteria (in-branch vs pre-existing)', () => {
     expect(shipSkill).toContain('In-branch');
     expect(shipSkill).toContain('Likely pre-existing');
-    expect(shipSkill).toContain('git diff origin/');
+    expect(shipSkill).toContain('git diff $(git merge-base origin/');
   });
 
   test('T3 branches on REPO_MODE (solo vs collaborative)', () => {

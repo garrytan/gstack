@@ -1557,7 +1557,7 @@ describe('Test failure triage in ship skill', () => {
 
   test('ship/SKILL.md triage uses git diff for classification', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('git diff origin/<base>...HEAD --name-only');
+    expect(content).toContain('git diff $(git merge-base origin/<base> HEAD) --name-only');
   });
 
   test('ship/SKILL.md triage has solo and collaborative paths', () => {
