@@ -27,6 +27,9 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
+| [`/context-compress`](#context-compress) | **Context Compression** | Turn repeated workflow prompts, rules, examples, and human feedback into compact Context Cards. Local-first, approval-gated, and redacted by default. |
+| [`/trace-to-train`](#trace-to-train) | **Trace Steward** | Convert human-approved runs into redacted TraceRecords, eval candidates, and optional training-ready JSONL for future model-agnostic SLM experiments. |
+| [`/data-review`](#data-review) | **Data Reviewer** | Review data-heavy work for schema drift, leakage, statistical assumptions, bias, reproducibility, misleading visuals, PII, and domain-specific risk. |
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
@@ -952,6 +955,64 @@ Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
         - "auth middleware uses JWT" — auth/middleware.ts was deleted
         [Prune these? Y/N]
 ```
+
+---
+
+## `/context-compress`
+
+This is my **workflow compression mode**.
+
+Repeated vertical work should not require the same giant prompt forever.
+`/context-compress` turns approved prompts, stable rules, examples, and human
+feedback into compact Context Cards under `.gstack/flywheel/context-cards/`.
+
+The skill is local-first and approval-gated. It redacts source material,
+separates stable rules from examples, records human approval gates, estimates
+before/after token budgets when possible, and can draft a small eval stub for
+known failure modes. It does not train a model, call external model APIs, or
+preserve raw PII.
+
+Use it when a workflow has become repeatable enough that the same domain rules,
+tool contracts, and review notes keep appearing in the prompt.
+
+---
+
+## `/trace-to-train`
+
+This is my **approved-run trace mode**.
+
+`/trace-to-train` converts a completed, human-reviewed run into a redacted
+TraceRecord and, when safe, an optional TrainingExample JSONL line. It explicitly
+separates three readiness levels:
+
+- **retrieval-ready**
+- **eval-ready**
+- **trainable**
+
+Trainable is the strictest state: the output must be human accepted or lightly
+edited, redaction must pass, raw input should not be stored, and the user must
+approve the artifact. Rejected runs can still become negative eval cases, but
+they are not positive training examples.
+
+The goal is not "train a model inside gstack." The goal is to make future
+retrieval, evals, prompt shrinking, and optional open-weight SLM or adapter work
+possible from private, opt-in artifacts.
+
+---
+
+## `/data-review`
+
+This is my **data quality review mode**.
+
+`/data-review` reviews data-heavy work before it becomes a decision, dashboard,
+eval, training example, or customer-facing output. It checks schema drift,
+leakage, statistical assumptions, sample bias, reproducibility, split quality,
+misleading visualizations, privacy/PII exposure, and domain-specific compliance
+risk supplied by the user or a Context Card.
+
+Default mode is report-only. It does not edit code, rewrite datasets, train
+models, or invent compliance rules. If the user wants fixes after the report,
+the skill can propose a narrow follow-up plan.
 
 ---
 

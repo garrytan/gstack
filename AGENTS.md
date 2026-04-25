@@ -30,6 +30,9 @@ Skills live in `.agents/skills/`. Invoke them by name (e.g., `/office-hours`).
 | `/guard` | Activate both careful + freeze at once. |
 | `/unfreeze` | Remove directory edit restrictions. |
 | `/gstack-upgrade` | Update gstack to the latest version. |
+| `/context-compress` | Create compact Context Cards from repeated workflow prompts and feedback. |
+| `/trace-to-train` | Convert approved runs into redacted traces and training-ready examples. |
+| `/data-review` | Review data-heavy work for leakage, drift, bias, privacy, and validity. |
 
 ## Build commands
 
