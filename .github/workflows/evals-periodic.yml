@@ -54,6 +54,8 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            USE_HETZNER_MIRROR=${{ github.repository == 'garrytan/gstack' && 'true' || 'false' }}
 
   evals:
     runs-on: ubicloud-standard-2

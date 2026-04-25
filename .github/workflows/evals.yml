@@ -26,15 +26,19 @@ jobs:
       - id: meta
         env:
           IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          IMAGE_TAG: ${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}
+          BASE_IMAGE: ghcr.io/${{ github.repository }}/ci
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          IMAGE_HASH: ${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}
         run: |
-          echo "tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
           if [ "$IS_FORK_PR" = "true" ]; then
-            echo "Fork PR detected — reusing the prebuilt image for the current Dockerfile/package.json/bun.lock hash because GITHUB_TOKEN cannot push org packages from cross-repo PRs."
+            IMAGE="ghcr.io/$HEAD_REPOSITORY/ci"
+            echo "Fork PR detected — reusing the fork-owned prebuilt image for the current Dockerfile/package.json/bun.lock hash because GITHUB_TOKEN cannot push org packages from cross-repo PRs."
             echo "push_allowed=false" >> "$GITHUB_OUTPUT"
           else
+            IMAGE="$BASE_IMAGE"
             echo "push_allowed=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "tag=$IMAGE:$IMAGE_HASH" >> "$GITHUB_OUTPUT"
 
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
   build-image:
@@ -74,6 +78,8 @@ jobs:
           tags: |
             ${{ needs.meta.outputs.image-tag }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            USE_HETZNER_MIRROR=${{ github.repository == 'garrytan/gstack' && 'true' || 'false' }}
 
   verify-fork-image:
     runs-on: ubicloud-standard-2
@@ -89,10 +95,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Ensure upstream image exists
+      - name: Ensure fork-owned image exists
         run: |
           if ! docker manifest inspect ${{ needs.meta.outputs.image-tag }} > /dev/null 2>&1; then
-            echo "::error::Required prebuilt CI image for this Dockerfile/package.json/bun.lock hash is missing in GHCR, so this fork PR cannot reuse it. Ask a maintainer to refresh the CI image from a same-repo branch."
+            echo "::error::Required fork-owned prebuilt CI image for this Dockerfile/package.json/bun.lock hash is missing in GHCR. Run Build CI Image in the fork, then rerun this check."
             exit 1
           fi
 

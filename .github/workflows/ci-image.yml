@@ -18,7 +18,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubicloud-standard-2
+    runs-on: ${{ github.repository == 'garrytan/gstack' && 'ubicloud-standard-2' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -46,3 +46,5 @@ jobs:
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ steps.meta.outputs.tag }}
+          build-args: |
+            USE_HETZNER_MIRROR=${{ github.repository == 'garrytan/gstack' && 'true' || 'false' }}
