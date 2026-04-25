@@ -26,11 +26,11 @@ jobs:
       - id: meta
         env:
           IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          IMAGE_TAG: ${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}
+          IMAGE_TAG: ${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}
         run: |
           echo "tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
           if [ "$IS_FORK_PR" = "true" ]; then
-            echo "Fork PR detected — reusing the prebuilt image for the current Dockerfile/package.json hash because GITHUB_TOKEN cannot push org packages from cross-repo PRs."
+            echo "Fork PR detected — reusing the prebuilt image for the current Dockerfile/package.json/bun.lock hash because GITHUB_TOKEN cannot push org packages from cross-repo PRs."
             echo "push_allowed=false" >> "$GITHUB_OUTPUT"
           else
             echo "push_allowed=true" >> "$GITHUB_OUTPUT"
@@ -63,7 +63,7 @@ jobs:
           fi
 
       - if: steps.check.outputs.exists == 'false'
-        run: cp package.json .github/docker/
+        run: cp package.json bun.lock .github/docker/
 
       - if: steps.check.outputs.exists == 'false'
         uses: docker/build-push-action@v6
@@ -92,7 +92,7 @@ jobs:
       - name: Ensure upstream image exists
         run: |
           if ! docker manifest inspect ${{ needs.meta.outputs.image-tag }} > /dev/null 2>&1; then
-            echo "::error::Required prebuilt CI image for this Dockerfile/package.json hash is missing in GHCR, so this fork PR cannot reuse it. Ask a maintainer to refresh the CI image from a same-repo branch."
+            echo "::error::Required prebuilt CI image for this Dockerfile/package.json/bun.lock hash is missing in GHCR, so this fork PR cannot reuse it. Ask a maintainer to refresh the CI image from a same-repo branch."
             exit 1
           fi
 
@@ -162,7 +162,9 @@ jobs:
       # Restore pre-installed node_modules from Docker image via symlink (~0s vs ~15s install)
       - name: Restore deps
         run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+          if [ -d /opt/node_modules_cache ] \
+            && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1 \
+            && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
             ln -s /opt/node_modules_cache node_modules
           else
             bun install

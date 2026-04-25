@@ -84,8 +84,8 @@ RUN for i in 1 2 3; do \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-install dependencies (cached layer — only rebuilds when package.json changes)
-COPY package.json /workspace/
+# Pre-install dependencies (cached layer — only rebuilds when package.json or bun.lock changes)
+COPY package.json bun.lock /workspace/
 WORKDIR /workspace
 RUN bun install && rm -rf /tmp/*
 
@@ -102,9 +102,10 @@ RUN bun --version && node --version && claude --version && jq --version && gh --
 
 # At runtime: checkout overwrites /workspace, but node_modules persists
 # if we move it out of the way and symlink back
-# Save node_modules + package.json snapshot for cache validation at runtime
+# Save node_modules + dependency manifest snapshots for cache validation at runtime
 RUN mv /workspace/node_modules /opt/node_modules_cache \
-    && cp /workspace/package.json /opt/node_modules_cache/.package.json
+    && cp /workspace/package.json /opt/node_modules_cache/.package.json \
+    && cp /workspace/bun.lock /opt/node_modules_cache/.bun.lock
 
 # Claude CLI refuses --dangerously-skip-permissions as root.
 # Create a non-root user for eval runs (GH Actions overrides USER, so
