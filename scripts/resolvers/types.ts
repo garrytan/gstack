@@ -37,7 +37,7 @@ function buildHostPaths(): Record<string, HostPaths> {
       };
     } else {
       const root = `~/${config.globalRoot}`;
-      const skillDocsRoot = config.name === 'claude' ? '~/.gstack/repos/gstack' : root;
+      const skillDocsRoot = config.name === 'claude' ? '$GSTACK_SOURCE_ROOT' : root;
       paths[config.name] = {
         skillRoot: root,
         skillDocsRoot,

@@ -13,11 +13,23 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 `
     : '';
+  const sourceRoot = ctx.host === 'claude'
+    ? `_ROOT=\${_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}
+GSTACK_SOURCE_ROOT="$HOME/.gstack/repos/gstack"
+if [ -n "$_ROOT" ] && [ -f "$_ROOT/.claude/skills/gstack/SKILL.md" ]; then
+  GSTACK_SOURCE_ROOT="$_ROOT/.claude/skills/gstack"
+elif [ -f "$HOME/.claude/skills/gstack/SOURCE_ROOT" ]; then
+  _GSTACK_SOURCE_ROOT_CANDIDATE=$(cat "$HOME/.claude/skills/gstack/SOURCE_ROOT" 2>/dev/null || true)
+  [ -n "$_GSTACK_SOURCE_ROOT_CANDIDATE" ] && [ -d "$_GSTACK_SOURCE_ROOT_CANDIDATE" ] && GSTACK_SOURCE_ROOT="$_GSTACK_SOURCE_ROOT_CANDIDATE"
+fi
+echo "GSTACK_SOURCE_ROOT: $GSTACK_SOURCE_ROOT"
+`
+    : '';
 
   return `## Preamble (run first)
 
 \`\`\`bash
-${runtimeRoot}_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
+${runtimeRoot}${sourceRoot}_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"

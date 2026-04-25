@@ -3,7 +3,7 @@
  * Each resolver takes a TemplateContext and returns the replacement string.
  */
 
-import type { TemplateContext, ResolverFn } from './types';
+import type { ResolverFn } from './types';
 
 // Domain modules
 import { generatePreamble } from './preamble';
@@ -70,6 +70,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   MODEL_OVERLAY: generateModelOverlay,
   TASTE_PROFILE: generateTasteProfile,
   BIN_DIR: (ctx) => ctx.paths.binDir,
+  SKILL_DOCS_ROOT: (ctx) => ctx.paths.skillDocsRoot,
   GBRAIN_CONTEXT_LOAD: generateGBrainContextLoad,
   GBRAIN_SAVE_RESULTS: generateGBrainSaveResults,
   QUESTION_PREFERENCE_CHECK: generateQuestionPreferenceCheck,

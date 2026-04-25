@@ -223,6 +223,7 @@ create_claude_runtime_root() {
   fi
 
   mkdir -p "$claude_gstack" "$claude_gstack/browse" "$claude_gstack/design" "$claude_gstack/make-pdf" "$claude_gstack/review" "$claude_gstack/qa"
+  printf '%s\n' "$gstack_dir" > "$claude_gstack/SOURCE_ROOT"
 
   if [ -d "$gstack_dir/bin" ]; then
     ln -snf "$gstack_dir/bin" "$claude_gstack/bin"
@@ -896,11 +897,13 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     fi
     # Backwards-compat alias: /connect-chrome → /open-gstack-browser
     _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+    _OGB_TARGET="open-gstack-browser"
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+      _OGB_TARGET="gstack-open-gstack-browser"
     fi
     if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+      ln -snf "$_OGB_TARGET" "$_OGB_LINK"
     fi
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
@@ -931,11 +934,13 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
     _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+    _OGB_TARGET="open-gstack-browser"
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+      _OGB_TARGET="gstack-open-gstack-browser"
     fi
     if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+      ln -snf "$_OGB_TARGET" "$_OGB_LINK"
     fi
     log "gstack ready (claude)."
     log "  browse: $BROWSE_BIN"

@@ -63,7 +63,7 @@ cd ~/.gstack/repos/gstack && ./setup --team
 ```
 
 Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
-Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.'
+Use /browse for all web browsing. Use ~/.gstack/repos/gstack/... for gstack source and skill files; ~/.claude/skills/gstack/... is runtime assets only.'
 else
   SNIPPET='## gstack (REQUIRED — global install)
 
@@ -87,7 +87,7 @@ Do not skip skills, ignore gstack errors, or work around missing gstack.
 
 Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
 and /browse are available. Use /browse for all web browsing.
-Use ~/.claude/skills/gstack/... for gstack file paths (the global path).'
+Use ~/.gstack/repos/gstack/... for gstack source and skill files; ~/.claude/skills/gstack/... is runtime assets only.'
 fi
 
 # Check if CLAUDE.md already has a gstack section
