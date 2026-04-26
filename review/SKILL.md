@@ -1200,6 +1200,35 @@ For each extracted plan item, check the diff and classify:
 **Be conservative with DONE** — require clear evidence in the diff. A file being touched is not enough; the specific functionality described must be present.
 **Be generous with CHANGED** — if the goal is met by different means, that counts as addressed.
 
+### Test-Promise Audit
+
+For each plan item categorized as TEST, scan the diff for evidence that the test actually landed:
+
+1. **New test files** — `git diff origin/<base>...HEAD --name-only --diff-filter=A` and match against language-specific test patterns:
+   - JS/TS: `*.test.ts`, `*.test.tsx`, `*.test.js`, `*.spec.ts`, `__tests__/*`
+   - Python: `test_*.py`, `tests/*.py`, `*_test.py`
+   - Go: `*_test.go`
+   - Ruby: `*_spec.rb`, `spec/*`, `test/*_test.rb`
+   - Rust: `#[test]`/`#[cfg(test)]` blocks added in any `.rs` file
+   - Java/Kotlin: `*Test.java`, `*Test.kt`, `*Spec.kt` under `src/test/`
+   - Shell: `test/*.bats`, `*.test.sh`
+2. **Existing test files modified** — same patterns above, but with `--diff-filter=M` and a non-trivial diff (not just whitespace or imports).
+3. **New test functions/cases** — diff hunks adding `test(...)`, `it(...)`, `describe(...)`, `def test_*`, `func Test*`, `@Test`, `#[test]`.
+
+Match heuristically — a TEST item that says "Add test for UserService" pairs with a new `user_service.test.ts` or new `it('UserService...')` block. Don't require literal name matches; the test file just has to plausibly cover the promised scope.
+
+Classify each TEST item:
+
+- **landed** — clear matching evidence in the diff (cite the file)
+- **missing** — no test file or test function in the diff matches this item
+
+Track these counts for the final JSON output:
+- `tests_promised` = number of TEST-category plan items
+- `tests_landed` = number of TEST items with evidence in the diff
+- `tests_missing` = list of TEST item texts (verbatim or concise) where evidence was absent
+
+**Why this matters:** Reviewer asked for the test in /plan-eng-review. Plan listed it. Implementer didn't write it. Step 8 used to count it as a NOT DONE generic item — now it gets called out specifically so users can decide whether the gap is acceptable before the PR lands.
+
 ### Output Format
 
 ```
