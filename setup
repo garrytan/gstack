@@ -845,8 +845,12 @@ link_windsurf_skill_dirs() {
 
   for skill_dir in "$windsurf_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "gstack" ] && continue
+      dir_name="$(basename "$skill_dir")"
+      [ "$dir_name" = "gstack" ] && continue
+      # Extract skill name from SKILL.md frontmatter
+      skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" | sed 's/^name: //' | tr -d ' ')
+      # Fallback to directory name if name field not found
+      [ -z "$skill_name" ] && skill_name="$dir_name"
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "$skill_dir" "$target"
