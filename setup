@@ -3,6 +3,40 @@
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
+usage() {
+  cat <<'EOF'
+gstack setup — install gstack skills + build browse binary
+
+Usage: ./setup [options]
+
+Options:
+  --host <name>     Install for a specific host (claude, codex, kiro, factory,
+                    opencode, openclaw, hermes, gbrain, auto). Default: claude.
+  --prefix          Install skills with the gstack- prefix (e.g. /gstack-review).
+  --no-prefix       Install skills with short names (e.g. /review). Default.
+  --team            Switch to team mode (per-repo gstack with auto-update).
+  --no-team         Force solo install even if a team-mode repo is detected.
+  -q, --quiet       Suppress progress output.
+  -h, --help        Show this help and exit.
+
+Examples:
+  ./setup                          # solo install for Claude Code
+  ./setup --host codex             # install for OpenAI Codex CLI
+  ./setup --team                   # team mode for a shared repo
+  ./setup --no-prefix              # use short slash-command names
+
+Docs: https://github.com/garrytan/gstack
+EOF
+}
+
+# Short-circuit on -h/--help before any environment checks so users can
+# discover flags even without bun installed.
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help) usage; exit 0 ;;
+  esac
+done
+
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required but not installed." >&2
   echo "Install with checksum verification:" >&2
