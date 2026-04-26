@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.15.4.0] - 2026-04-26
+
+## **`/ship` now calls out tests that the plan promised but the diff doesn't have.**
+
+`/plan-eng-review` produces a Test review section that gets translated into TEST-category plan items. `/ship`'s Plan Completion Audit was rolling those into the generic NOT DONE count, so a disciplined review→implement→ship loop could silently drop the test step and the gap only surfaced if you went looking for it. Step 8 now scans the diff for per-language test-file evidence and surfaces a one-line gap in the PR body when promised tests are missing.
+
+### What this means for you
+
+If you run `/plan-eng-review` and it lists three tests, then `/ship` will tell you "promised 3 tests, 2 landed. Missing: E2E test for signup flow". Informational only — no new gate, the existing `deferred` flow still handles the user-facing decision. The point is to make the test gap explicit instead of hiding it inside an aggregate count.
+
+### The numbers that matter
+
+From the issue author's `/retro global 7d` (8 active repos, 2026-04-11 → 2026-04-18):
+
+| Metric | Count | Share |
+|---|---|---|
+| Total commits | 172 | — |
+| `feat:` commits | 67 | 34% |
+| `fix:` commits | 56 | 28% |
+| `test:` commits | 6 | **3%** |
+
+Every plan listed specific tests. Most just didn't land. The Test-Promise Audit doesn't fix that — implementers still drop the test — but it makes the gap visible at the moment ship would otherwise let it through.
+
+### Itemized changes
+
+#### Added
+- Test-Promise Audit step in `scripts/resolvers/review.ts` (`generatePlanCompletionAuditInner`) instructs the audit subagent to cross-reference each TEST-category plan item against the diff, with per-language patterns enumerated for JS/TS, Python, Go, Ruby, Rust, Java/Kotlin, and shell. (#1070)
+- Three new fields on the Step 8 JSON contract: `tests_promised`, `tests_landed`, `tests_missing`. Parent processing in `ship/SKILL.md.tmpl` appends an informational line to the Plan Completion summary when `tests_missing.length > 0`. No gate, no JSONL schema change.
+
+#### For contributors
+- `test/resolver-test-promise-audit.test.ts` pins the resolver output contract (per-language test patterns, JSON field names, the Item Extraction TEST category). Free-tier; runs in <200ms.
+- Resolver change applies to both `ship` and `review` modes — review's whole job is delivery integrity, so it surfaces the same gap.
+
 ## [1.14.0.0] - 2026-04-25
 
 ## **The gstack browser sidebar is now an interactive Claude Code REPL with live tab awareness.**
