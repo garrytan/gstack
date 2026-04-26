@@ -1085,7 +1085,7 @@ Do NOT stop to ask the user for permission between phases unless a sub-agent fai
 Once all phases are complete:
 1. Verify the code compiles and passes tests.
 2. Ensure all changes are committed to your feature branch.
-3. You MUST automatically execute the `/land-and-deploy` skill to merge the feature branch and deploy the feature. Do NOT ask the user if you should run it—just run it immediately.
+3. You MUST automatically invoke the deployment skill. To do this, use the `Bash` tool to execute: `claude -p /ship`. Do NOT ask the user for permission—just run the bash command immediately.
 4. Report the completion to the user: summarize what you built, what tests were run, and confirm the merge/deployment status.
 
 **Rules:**
