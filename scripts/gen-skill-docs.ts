@@ -371,6 +371,12 @@ function processExternalHost(
   // Transform frontmatter (host-aware)
   let result = transformFrontmatter(content, host);
 
+  // Rewrite frontmatter name to match external directory name.
+  // Templates use short names (e.g., "ship") but external hosts emit into
+  // gstack-prefixed directories (e.g., gstack-ship/). Hosts like Pi require
+  // the frontmatter name to match the parent directory.
+  result = result.replace(/^(name:\s*).+$/m, `$1${name}`);
+
   // Insert safety advisory at the top of the body (after frontmatter)
   if (safetyProse) {
     const bodyStart = result.indexOf('\n---') + 4;
