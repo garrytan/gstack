@@ -2,6 +2,158 @@
   "schema": "gstack-data-layer-kpi-templates-v1",
   "sanitized": true,
   "verticals": {
+    "agentic_ai_operations": [
+      {
+        "id": "agent_runs_by_period",
+        "name": "Agent runs by period",
+        "description": "Number of agent or skill runs grouped by hour, day, week, or month.",
+        "numerator": "count(agent_events grouped by bucket_start)",
+        "denominator": "1",
+        "time_window": "flexible",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "cron_runs_by_period",
+        "name": "Cron runs by period",
+        "description": "Number of scheduled agent runs grouped by hour, day, week, or month.",
+        "numerator": "count(cron_runs grouped by bucket_start)",
+        "denominator": "1",
+        "time_window": "flexible",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "cron_success_rate",
+        "name": "Cron success rate",
+        "description": "Share of scheduled runs that complete successfully.",
+        "numerator": "count(cron_runs where status='success')",
+        "denominator": "count(cron_runs)",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "cron_duration_p95",
+        "name": "Cron duration p95",
+        "description": "95th percentile scheduled-run duration for capacity planning.",
+        "numerator": "p95(cron_runs.duration_ms)",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "active_agents",
+        "name": "Active agents",
+        "description": "Unique local agent/session/worker ids active in the selected period.",
+        "numerator": "count_distinct(agent_id_hash)",
+        "denominator": "1",
+        "time_window": "flexible",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "tokens_by_period",
+        "name": "Tokens by period",
+        "description": "Estimated input, output, and total token use grouped by time bucket.",
+        "numerator": "sum(tokens_total_estimate grouped by bucket_start)",
+        "denominator": "1",
+        "time_window": "flexible",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "cost_by_period",
+        "name": "Cost by period",
+        "description": "Estimated model/tool cost grouped by time bucket.",
+        "numerator": "sum(cost_estimate_usd grouped by bucket_start)",
+        "denominator": "1",
+        "time_window": "flexible",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "cost_per_successful_run",
+        "name": "Cost per successful run",
+        "description": "Estimated spend divided by successful agent or cron runs.",
+        "numerator": "sum(cost_estimate_usd)",
+        "denominator": "count(agent_events + cron_runs where status='success')",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "human_acceptance_rate",
+        "name": "Human acceptance rate",
+        "description": "Share of reviewed outputs accepted without edits.",
+        "numerator": "count(agent_events where human_review_status='accepted')",
+        "denominator": "count(agent_events where human_review_status in ['accepted','edited','rejected'])",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "human_edit_rate",
+        "name": "Human edit rate",
+        "description": "Share of reviewed outputs that required edits.",
+        "numerator": "count(agent_events where human_review_status='edited')",
+        "denominator": "count(agent_events where human_review_status in ['accepted','edited','rejected'])",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "error_rate",
+        "name": "Error rate",
+        "description": "Share of agent or scheduled runs ending in error.",
+        "numerator": "count(agent_events + cron_runs where status='error')",
+        "denominator": "count(agent_events + cron_runs)",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "category_resource_mix",
+        "name": "Category resource mix",
+        "description": "Agent runs, cron runs, tokens, cost, and duration grouped by user-defined category.",
+        "numerator": "sum(agent_events + cron_runs grouped by category)",
+        "denominator": "1",
+        "time_window": "flexible",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "workflow_repeatability",
+        "name": "Workflow repeatability",
+        "description": "High-volume workflows with high acceptance and low failure rates.",
+        "numerator": "count(workflow_outcomes where runs >= 50 and acceptance_rate >= 0.8)",
+        "denominator": "count(workflow_outcomes)",
+        "time_window": "90d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "time_saved_estimate",
+        "name": "Time saved estimate",
+        "description": "Estimated human time saved by accepted or successful workflows.",
+        "numerator": "sum(workflow_outcomes.estimated_hours_saved)",
+        "denominator": "1",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      },
+      {
+        "id": "daily_report_delivery_status",
+        "name": "Daily report delivery status",
+        "description": "Whether the daily dashboard screenshot/report was produced and delivered through an approved channel.",
+        "numerator": "count(dashboard_reports where delivery_status='sent')",
+        "denominator": "count(expected_dashboard_reports)",
+        "time_window": "30d",
+        "owner": "operator",
+        "grounding_required": true
+      }
+    ],
     "real_estate": [
       {
         "id": "real_estate_lead_response_time",

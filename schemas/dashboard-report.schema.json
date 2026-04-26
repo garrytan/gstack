@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/dashboard-report.schema.json",
+  "title": "DashboardReport",
+  "description": "An opt-in local report spec for daily dashboard screenshots or chart summaries. Delivery channels require explicit user configuration outside the data layer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "cadence",
+    "charts",
+    "privacy_level"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "examples": ["daily_resource_report"]
+    },
+    "cadence": {
+      "type": "string",
+      "examples": ["daily", "weekly", "0 8 * * *"]
+    },
+    "timezone": {
+      "type": "string",
+      "examples": ["America/Toronto"]
+    },
+    "charts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "examples": [["resource_overview", "activity_series", "tokens", "cron_timeline", "categories"]]
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "User-approved destination metadata. Do not store secrets here.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "examples": ["local_file", "manual", "email", "slack", "webhook"]
+        },
+        "destination_label": {
+          "type": "string"
+        }
+      }
+    },
+    "privacy_level": {
+      "type": "string",
+      "examples": ["local_only", "sanitized_export", "team_opt_in"]
+    },
+    "pii_level": {
+      "type": "string",
+      "examples": ["none", "low", "medium", "high", "unknown"]
+    }
+  }
+}

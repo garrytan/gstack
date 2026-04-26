@@ -16,6 +16,10 @@ The missing layer for vertical operators is business visibility:
 - Which skills and workflows are used most?
 - How long do they take, and how often do they succeed?
 - Which outputs are accepted, edited, or rejected?
+- Which crons fired, when they started, when they finished, and how long they ran?
+- How many agents were active?
+- How many tokens and dollars were used by hour, day, week, or month?
+- Which user-defined categories are consuming resources?
 - Which business workflows are touched?
 - Which KPIs are moving?
 - Which repeated workflows are ready for context compression, evals, or future
@@ -62,6 +66,8 @@ The default project-local path is:
 ```text
 .gstack/data-layer/
   business-events.jsonl
+  cron-runs.jsonl
+  category-rules.json
   metric-definitions.json
   dashboard-spec.json
   exports/<YYYY-MM-DD>/
@@ -76,16 +82,32 @@ The export helper writes:
 - `agent-events.csv`
 - `business-events.jsonl`
 - `business-events.csv`
+- `cron-runs.jsonl`
+- `cron-runs.csv`
 - `workflow-outcomes.json`
 - `workflow-outcomes.csv`
+- `activity-series.json`
+- `activity-series.csv`
+- `category-summary.json`
+- `category-summary.csv`
+- `agent-concurrency.json`
+- `agent-concurrency.csv`
+- `cron-timeline.json`
+- `cron-timeline.csv`
 - `dashboard-summary.json`
+- `dashboard-data.json`
+- `dashboard.html`
+- `daily-report.md`
 - `README.md`
 
 Run:
 
 ```bash
-gstack-data-layer-export --window 30d --project "local-project" --domain "real_estate"
+gstack-data-layer-export --window 30d --bucket day --project "local-project" --domain "real_estate"
 ```
+
+Use `--bucket hour`, `--bucket day`, `--bucket week`, or `--bucket month` to
+shape the time series for charts.
 
 ## Core Schemas
 
@@ -99,6 +121,13 @@ The first schema set lives under `schemas/`:
 - `WorkflowOutcome`: workflow rollups with review status, duration, business
   metric links, and future routing readiness.
 - `DashboardSpec`: panels, metrics, and export targets.
+- `CronRun`: scheduled/cron runs with start and finish timestamps for Gantt
+  charting.
+- `CategoryRuleSet`: user-defined resource categories such as personal, admin,
+  work, financial, coding, sales, support, or any local custom bucket.
+- `ActivitySeries`: flexible time buckets for runs, crons, tokens, costs, and
+  active agents.
+- `DashboardReport`: opt-in daily screenshot/report preferences.
 
 These schemas are intentionally model-agnostic and vertical-agnostic. They use
 examples and descriptions rather than hard-coding one provider, model family,
@@ -112,6 +141,7 @@ Local-first is the default.
 - No raw prompts, raw code, client names, addresses, emails, phone numbers, or
   unredacted CRM records belong in shared examples.
 - Raw repo slugs are not exported by the helper; when present, they are hashed.
+- Raw agent ids are not exported by the helper; when present, they are hashed.
 - Business data should stay under `.gstack/data-layer/` unless explicitly
   sanitized for sharing.
 - Local analytics are different from remote telemetry. `gstack-analytics` and
@@ -128,6 +158,8 @@ Downstream targets can include:
 - CSV
 - JSON
 - JSONL
+- local `dashboard.html`
+- daily screenshot reports from a user-approved agent
 - DuckDB
 - SQLite
 - Postgres
@@ -141,8 +173,24 @@ Downstream targets can include:
 - Grafana
 - Retool
 
-The mergeable first step is local JSONL to normalized JSON/CSV. Heavy dashboard
-dependencies should stay out of GStack unless a later PR proves the need.
+The mergeable first step is local JSONL to normalized JSON/CSV plus a small
+static HTML dashboard. Heavy dashboard dependencies should stay out of GStack
+unless a later PR proves the need.
+
+The local `dashboard.html` is intentionally dependency-free. It renders:
+
+- resource overview
+- agent activity by time bucket
+- token use by time bucket
+- cron runs and active-agent counts
+- user-defined task categories
+- Gantt-style cron timeline
+- workflow outcomes
+
+For daily resource management, users can approve an agent or local cron to run
+the exporter, open `dashboard.html`, capture screenshots of the key sections,
+and send them through a user-configured channel. The data layer does not send
+anything by default and does not store delivery secrets.
 
 ## Relationship To Existing GStack Pieces
 
@@ -184,6 +232,25 @@ Real estate / OpenClaw:
 - CRM enrichment completion rate
 - human edit rate by workflow
 - fair-housing review flags
+
+Agentic AI operations:
+
+- agent runs by hour/day/week/month
+- cron runs by hour/day/week/month
+- cron success rate
+- cron duration p50/p95
+- active agents by period
+- tokens in/out/total by period
+- estimated cost by period
+- cost per successful run
+- cost per workflow
+- human acceptance, edit, and rejection rates
+- error and abort rates
+- category resource mix
+- workflow repeatability
+- queue/backlog age where available
+- time saved estimate
+- daily dashboard/report delivery status
 
 SaaS / tech:
 

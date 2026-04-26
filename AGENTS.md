@@ -30,7 +30,7 @@ Skills live in `.agents/skills/`. Invoke them by name (e.g., `/office-hours`).
 | `/guard` | Activate both careful + freeze at once. |
 | `/unfreeze` | Remove directory edit restrictions. |
 | `/gstack-upgrade` | Update gstack to the latest version. |
-| `/data-layer` | Local-first BI for agent activity, workflow analytics, KPIs, and exports. |
+| `/data-layer` | Local-first BI for agent activity, cron timelines, resource KPIs, and dashboards. |
 
 ## Build commands
 

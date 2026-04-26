@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/category-rule-set.schema.json",
+  "title": "CategoryRuleSet",
+  "description": "User-defined local rules for grouping agent activity into dashboard categories such as personal, admin, work, financial, coding, sales, support, or custom resource buckets.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "default_category": {
+      "type": "string",
+      "default": "uncategorized"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category"],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" },
+            "examples": [["/qa", "/review", "/ship"]]
+          },
+          "workflows": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "phases": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "sources": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "hosts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "run_types": {
+            "type": "array",
+            "items": { "type": "string" },
+            "examples": [["cron", "manual"]]
+          }
+        }
+      }
+    }
+  }
+}

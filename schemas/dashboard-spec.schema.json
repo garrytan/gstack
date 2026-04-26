@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gstack.dev/schemas/dashboard-spec.schema.json",
   "title": "DashboardSpec",
-  "description": "A lightweight dashboard specification that maps panels to local metrics and export targets.",
+  "description": "A lightweight dashboard specification that maps panels to local metrics, charts, screenshot sections, and export targets.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -33,16 +33,37 @@
             "items": {
               "type": "string"
             }
+          },
+          "chart": {
+            "type": "string",
+            "examples": ["stat", "bar", "line", "gantt", "table"]
+          },
+          "screenshot_priority": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Lower numbers are more important for daily screenshot/report summaries."
           }
         },
         "additionalProperties": true
       }
     },
+    "time_buckets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "examples": ["hour", "day", "week", "month"]
+      }
+    },
+    "daily_report": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional screenshot/report preferences. Actual sending requires explicit user-approved setup."
+    },
     "export_targets": {
       "type": "array",
       "items": {
         "type": "string",
-        "examples": ["csv", "json", "jsonl", "duckdb", "sqlite", "postgres", "supabase", "nextjs", "streamlit"]
+        "examples": ["csv", "json", "jsonl", "html_dashboard", "daily_screenshot_report", "duckdb", "sqlite", "postgres", "supabase", "nextjs", "streamlit"]
       }
     }
   }

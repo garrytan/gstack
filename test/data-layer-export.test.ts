@@ -128,6 +128,77 @@ describe('gstack-data-layer-export', () => {
     expect(summary.data_quality.malformed_business_event_lines).toBe(1);
   });
 
+  test('exports cron timelines, time buckets, categories, and local dashboard artifacts', () => {
+    writeFileSync(join(stateDir, 'analytics', 'skill-usage.jsonl'), [
+      JSON.stringify({
+        v: 1,
+        ts: '2026-04-25T18:15:00Z',
+        event_type: 'skill_run',
+        skill: 'review',
+        session_id: 'agent-a',
+        duration_s: 60,
+        outcome: 'success',
+        tokens_in_estimate: 1000,
+        tokens_out_estimate: 250,
+      }),
+    ].join('\n'));
+    mkdirSync(join(workDir, '.gstack', 'data-layer'), { recursive: true });
+    writeFileSync(join(workDir, '.gstack', 'data-layer', 'category-rules.json'), JSON.stringify({
+      default_category: 'personal',
+      rules: [
+        { category: 'coding', skills: ['/review'], workflows: ['listing_copy_qa'] },
+        { category: 'admin', run_types: ['cron'] },
+      ],
+    }));
+    writeFileSync(join(workDir, '.gstack', 'data-layer', 'cron-runs.jsonl'), [
+      JSON.stringify({
+        id: 'cron_daily_followup',
+        started_at: '2026-04-25T09:00:00Z',
+        finished_at: '2026-04-25T09:12:00Z',
+        name: 'daily follow-up sweep',
+        workflow: 'crm_followup',
+        schedule: '0 9 * * *',
+        status: 'success',
+        agent_id: 'private-agent-id',
+        tokens_in_estimate: 2000,
+        tokens_out_estimate: 600,
+        cost_estimate_usd: 0.12,
+      }),
+      'bad json',
+    ].join('\n'));
+
+    const result = runExport(['--date', '2026-04-25', '--bucket', 'hour']);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('cron_runs=1');
+    expect(result.stdout).toContain('dashboard_html=');
+
+    const outDir = join(workDir, '.gstack', 'data-layer', 'exports', '2026-04-25');
+    expect(existsSync(join(outDir, 'dashboard.html'))).toBe(true);
+    expect(existsSync(join(outDir, 'daily-report.md'))).toBe(true);
+
+    const cronRuns = readJsonl(join(outDir, 'cron-runs.jsonl'));
+    expect(cronRuns).toHaveLength(1);
+    expect(cronRuns[0].started_at).toBe('2026-04-25T09:00:00.000Z');
+    expect(cronRuns[0].finished_at).toBe('2026-04-25T09:12:00.000Z');
+    expect(cronRuns[0].duration_ms).toBe(720000);
+    expect(cronRuns[0].agent_id_hash).toStartWith('sha256:');
+    expect(JSON.stringify(cronRuns)).not.toContain('private-agent-id');
+
+    const activitySeries = JSON.parse(readFileSync(join(outDir, 'activity-series.json'), 'utf8'));
+    expect(activitySeries.some((row: any) => row.bucket_start === '2026-04-25T09:00:00.000Z' && row.cron_runs === 1)).toBe(true);
+    expect(activitySeries.some((row: any) => row.bucket_start === '2026-04-25T18:00:00.000Z' && row.agent_runs === 1)).toBe(true);
+
+    const categorySummary = JSON.parse(readFileSync(join(outDir, 'category-summary.json'), 'utf8'));
+    expect(categorySummary.some((row: any) => row.category === 'coding' && row.agent_runs === 1)).toBe(true);
+    expect(categorySummary.some((row: any) => row.category === 'admin' && row.cron_runs === 1)).toBe(true);
+
+    const summary = JSON.parse(readFileSync(join(outDir, 'dashboard-summary.json'), 'utf8'));
+    expect(summary.counts.cron_runs).toBe(1);
+    expect(summary.counts.active_agents).toBeGreaterThanOrEqual(1);
+    expect(summary.resources.tokens_total_estimate).toBe(3850);
+    expect(summary.data_quality.malformed_cron_run_lines).toBe(1);
+  });
+
   test('succeeds with missing inputs and writes empty local-only export', () => {
     const result = runExport(['--date', '2026-04-25']);
     expect(result.status).toBe(0);
@@ -139,5 +210,6 @@ describe('gstack-data-layer-export', () => {
     expect(summary.privacy_model).toBe('local_only');
     expect(summary.data_quality.analytics_file_missing).toBe(true);
     expect(summary.data_quality.business_events_file_missing).toBe(true);
+    expect(summary.data_quality.cron_runs_file_missing).toBe(true);
   });
 });

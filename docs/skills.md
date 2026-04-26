@@ -961,10 +961,12 @@ Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
 This is my **business intelligence mode**.
 
 `/data-layer` turns local GStack/OpenClaw/Hermes activity into dashboard-ready
-JSONL, JSON, and CSV artifacts. It reads local analytics such as
+JSONL, JSON, CSV, and local HTML dashboard artifacts. It reads local analytics such as
 `~/.gstack/analytics/skill-usage.jsonl`, optionally connects them to redacted
-business events under `.gstack/data-layer/`, and exports agent events, workflow
-outcomes, KPI inputs, and data-quality notes.
+business events and cron runs under `.gstack/data-layer/`, and exports agent
+events, workflow outcomes, Gantt-ready cron timelines, flexible time-bucketed
+token/cost/activity series, task category rollups, KPI inputs, and data-quality
+notes.
 
 The skill is local-first and approval-gated. It does not train models, call
 external APIs, add remote telemetry, or store raw PII. It complements
@@ -972,9 +974,12 @@ external APIs, add remote telemetry, or store raw PII. It complements
 business users a clean data layer for workflow analytics and future
 context/eval/trace exports.
 
-Use it when you want to answer: what is my harness doing, which workflows are
+Use it when you want to answer: what is my harness doing, when are crons firing,
+how many agents are active, where are tokens/costs going, which workflows are
 working, which KPIs are moving, and which repeated workflows are becoming
-reusable intelligence?
+reusable intelligence? The local `dashboard.html` is screenshot-ready for daily
+resource and project-management reports, but sending those screenshots requires
+explicit user-approved delivery setup.
 
 ---
 

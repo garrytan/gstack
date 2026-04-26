@@ -1,0 +1,19 @@
+{
+  "id": "daily_resource_report",
+  "cadence": "daily",
+  "timezone": "America/Toronto",
+  "charts": [
+    "resource_overview",
+    "activity_series",
+    "tokens_by_period",
+    "cron_runs_and_active_agents",
+    "task_categories",
+    "cron_timeline"
+  ],
+  "delivery": {
+    "mode": "local_file",
+    "destination_label": "User-approved email, Slack, webhook, or manual channel can be configured outside this sanitized example."
+  },
+  "privacy_level": "local_only",
+  "pii_level": "none"
+}

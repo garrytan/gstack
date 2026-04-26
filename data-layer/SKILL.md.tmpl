@@ -5,9 +5,10 @@ version: 1.0.0
 description: |
   Set up a local-first BI/data layer for GStack/OpenClaw/Hermes activity.
   Normalize local analytics, connect agent runs to redacted business events,
-  define KPIs, and export dashboard-ready JSON/CSV artifacts. Use when asked
-  to measure agent harness activity, workflow analytics, business KPIs, or
-  dashboard-ready metrics. (gstack)
+  cron timelines, define KPIs, and export dashboard-ready JSON/CSV/HTML
+  artifacts. Use when asked to measure agent harness activity, workflow
+  analytics, business KPIs, cron runs, token usage, active agents, task
+  categories, or dashboard-ready metrics. (gstack)
 triggers:
   - data layer
   - business intelligence
@@ -46,6 +47,8 @@ context/eval/SLM work.
 - Do not commit `.gstack/data-layer/` artifacts unless the user explicitly says
   they reviewed and sanitized them.
 - Ask for human approval before writing any project-local data-layer files.
+- Do not configure daily screenshot delivery to email, Slack, webhooks, or other
+  channels without explicit user approval and user-provided destination details.
 
 ---
 
@@ -60,6 +63,7 @@ Common modes:
 - `/data-layer export` - create dashboard-ready local JSON/CSV exports
 - `/data-layer kpis` - draft KPI templates for the user's vertical
 - `/data-layer review` - review metric definitions, denominators, and data gaps
+- `/data-layer report` - prepare a local dashboard screenshot/report workflow
 
 ---
 
@@ -87,6 +91,8 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || echo "SLUG=unknow
 printf 'project_slug=%s\n' "${SLUG:-unknown}"
 [ -f ~/.gstack/analytics/skill-usage.jsonl ] && wc -l ~/.gstack/analytics/skill-usage.jsonl || echo "no local skill analytics"
 [ -f .gstack/data-layer/business-events.jsonl ] && wc -l .gstack/data-layer/business-events.jsonl || echo "no project business events"
+[ -f .gstack/data-layer/cron-runs.jsonl ] && wc -l .gstack/data-layer/cron-runs.jsonl || echo "no project cron runs"
+[ -f .gstack/data-layer/category-rules.json ] && echo "category rules found" || echo "no category rules"
 find .gstack/data-layer -maxdepth 3 -type f 2>/dev/null | sort || true
 ```
 
@@ -103,7 +109,11 @@ mode. Otherwise recommend the smallest next step:
 1. If local analytics exist, recommend `/data-layer export`.
 2. If no business events exist, recommend drafting a redacted
    `.gstack/data-layer/business-events.jsonl` template.
-3. If the user wants BI but has no KPI definitions, recommend `/data-layer kpis`.
+3. If the user wants cron/Gantt charts, recommend drafting
+   `.gstack/data-layer/cron-runs.jsonl` with start and finish timestamps.
+4. If they want resource management by life/work buckets, recommend
+   `.gstack/data-layer/category-rules.json`.
+5. If the user wants BI but has no KPI definitions, recommend `/data-layer kpis`.
 
 Before writing files, ask:
 
@@ -121,6 +131,8 @@ Create this local-only structure after approval:
 ```text
 .gstack/data-layer/
   business-events.jsonl
+  cron-runs.jsonl
+  category-rules.json
   metric-definitions.json
   dashboard-spec.json
   exports/
@@ -135,6 +147,18 @@ Business event placeholder:
 {"id":"biz_example","created_at":"2026-04-25T00:00:00Z","domain":"example","entity_type":"lead","entity_id_hash":"sha256_example","workflow":"lead_intake","event_type":"lead_created","value":1,"amount_usd":null,"source":"manual","agent_event_ids":[],"metadata_redacted":{"note":"illustrative only"},"privacy_level":"local_only","pii_level":"none"}
 ```
 
+Cron run placeholder:
+
+```json
+{"id":"cron_example","started_at":"2026-04-25T09:00:00Z","finished_at":"2026-04-25T09:12:00Z","source":"openclaw","project":"local-project","host":"openclaw","schedule":"0 9 * * *","name":"daily follow-up sweep","workflow":"crm_followup","phase":"automation","run_type":"cron","agent_id_hash":"sha256_example","category":"admin","status":"success","duration_ms":720000,"tokens_in_estimate":2200,"tokens_out_estimate":650,"tokens_total_estimate":2850,"cost_estimate_usd":0.14,"privacy_level":"local_only","pii_level":"none"}
+```
+
+Category rules placeholder:
+
+```json
+{"default_category":"uncategorized","rules":[{"category":"coding","skills":["/review","/qa","/ship"]},{"category":"admin","run_types":["cron","scheduled"]},{"category":"financial","workflows":["invoice_collection","expense_review"]},{"category":"personal","workflows":["personal_planning"]},{"category":"work","phases":["plan","review","qa","ship","analysis"]}]}
+```
+
 ---
 
 ## Phase 4: Export Mode
@@ -142,27 +166,35 @@ Business event placeholder:
 Run the helper:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-data-layer-export --window 30d
+~/.claude/skills/gstack/bin/gstack-data-layer-export --window 30d --bucket day
 ```
 
 If the user provides a project/domain, pass them explicitly:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-data-layer-export --project "PROJECT_LABEL" --domain "DOMAIN" --window 30d
+~/.claude/skills/gstack/bin/gstack-data-layer-export --project "PROJECT_LABEL" --domain "DOMAIN" --window 30d --bucket day
 ```
 
 Then summarize the generated files:
 
 - `agent-events.jsonl` and `agent-events.csv`
 - `business-events.jsonl` and `business-events.csv`
+- `cron-runs.jsonl` and `cron-runs.csv`
 - `workflow-outcomes.json` and `workflow-outcomes.csv`
+- `activity-series.json` and `activity-series.csv`
+- `category-summary.json` and `category-summary.csv`
+- `agent-concurrency.json` and `agent-concurrency.csv`
+- `cron-timeline.json` and `cron-timeline.csv`
 - `dashboard-summary.json`
+- `dashboard.html`
+- `daily-report.md`
 - `README.md`
 
-Emphasize that these are dashboard-ready exports for local tools or downstream
-systems such as DuckDB, SQLite, Postgres, Supabase, Evidence.dev, Streamlit,
-Observable, Metabase, Grafana, Next.js, Retool, or a custom dashboard. Do not
-install any dashboard dependency in this skill.
+Emphasize that these are dashboard-ready exports and a local static dashboard
+for screenshots. They can feed local tools or downstream systems such as DuckDB,
+SQLite, Postgres, Supabase, Evidence.dev, Streamlit, Observable, Metabase,
+Grafana, Next.js, Retool, or a custom dashboard. Do not install any dashboard
+dependency in this skill.
 
 ---
 
@@ -173,6 +205,12 @@ denominator, time window, owner, and whether grounding is required.
 
 Use these categories as examples, adapting to the user's business:
 
+- Agentic AI operations: agent runs by hour/day/week/month, cron runs by
+  hour/day/week/month, cron success rate, cron duration p50/p95, active agents,
+  tokens in/out/total by period, estimated cost by period, cost per successful
+  run, cost per workflow, human acceptance/edit/rejection rates, error rate,
+  abort rate, task category resource mix, workflow repeatability, time saved,
+  queue/backlog age if available, daily screenshot/report delivery status.
 - Real estate: lead response time, lead-to-appointment rate, appointment-to-offer
   rate, offer-to-close rate, follow-up completion, listing-copy revisions, CMA
   turnaround time, showing coordination time saved, CRM enrichment completion,
@@ -234,6 +272,30 @@ verified.
 
 ---
 
+## Phase 7: Report Mode
+
+For daily resource management and project management, prepare a screenshot-ready
+workflow:
+
+1. Confirm the user wants daily reporting and ask which channel they approve
+   outside GStack, such as local file, email, Slack, webhook, or manual share.
+2. Run the exporter with the requested window and bucket.
+3. Point the user or scheduled agent at `dashboard.html`.
+4. Screenshot these sections when present:
+   - Resource Overview
+   - Activity By hour/day/week/month
+   - Token Use By hour/day/week/month
+   - Cron Runs And Active Agents
+   - Task Categories
+   - Cron Timeline
+   - Workflow Outcomes
+5. Use `daily-report.md` as the text summary.
+
+Do not store credentials in `.gstack/data-layer/`. Do not send screenshots
+anywhere unless the user explicitly approves the destination.
+
+---
+
 ## Readiness Heuristics
 
 Frame these as rough heuristics, not hard scientific cutoffs:
@@ -257,8 +319,10 @@ End with a concise BI summary:
 
 - Local analytics: found/missing
 - Business events: found/missing
+- Cron runs: found/missing
 - Workflows detected: N
 - Dashboard export: path or not created
+- Daily screenshot/report: ready/not configured
 - KPI definitions: ready/missing
 - Data-quality risks: ...
 - Recommended next step: ...

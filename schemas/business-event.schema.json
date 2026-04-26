@@ -54,6 +54,10 @@
       "type": "string",
       "examples": ["crm", "email", "calendar", "manual", "app", "gbrain"]
     },
+    "category": {
+      "type": "string",
+      "description": "User-defined resource category used for dashboard rollups."
+    },
     "agent_event_ids": {
       "type": "array",
       "items": {

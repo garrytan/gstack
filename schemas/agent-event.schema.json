@@ -27,6 +27,16 @@
       "type": "string",
       "format": "date-time"
     },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Start timestamp for timeline and Gantt charting."
+    },
+    "finished_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Finish timestamp when known. May be derived from duration estimates."
+    },
     "source": {
       "type": "string",
       "description": "Event source such as gstack, openclaw, hermes, claude, codex, cursor, or gbrain.",
@@ -56,6 +66,22 @@
       "type": "string",
       "examples": ["plan", "review", "build", "qa", "ship", "follow_up", "analysis"]
     },
+    "run_type": {
+      "type": "string",
+      "examples": ["manual", "cron", "scheduled", "hook", "agent_loop"]
+    },
+    "cron_run_id": {
+      "type": ["string", "null"],
+      "description": "Optional link to a CronRun when this agent event happened inside a scheduled run."
+    },
+    "agent_id_hash": {
+      "type": ["string", "null"],
+      "description": "Optional hash of an agent/session/worker id for active-agent and concurrency charts."
+    },
+    "category": {
+      "type": "string",
+      "description": "User-defined resource category such as personal, admin, work, financial, coding, sales, or support."
+    },
     "duration_ms": {
       "type": ["integer", "null"],
       "minimum": 0
@@ -73,6 +99,10 @@
       "minimum": 0
     },
     "tokens_out_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "tokens_total_estimate": {
       "type": ["number", "null"],
       "minimum": 0
     },

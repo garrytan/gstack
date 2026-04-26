@@ -204,7 +204,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/setup-browser-cookies` | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | `/autoplan` | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | `/learn` | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns, pitfalls, and preferences. Learnings compound across sessions so gstack gets smarter on your codebase over time. |
-| `/data-layer` | **BI Engineer** | Build a local-first data layer for agent activity, workflow analytics, business KPIs, and dashboard-ready JSON/CSV exports. |
+| `/data-layer` | **BI Engineer** | Build a local-first data layer for agent activity, cron timelines, workflow analytics, business KPIs, and screenshot-ready dashboard exports. |
 
 ### Which review should I use?
 
@@ -403,7 +403,7 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Lake, Search Before Building, three layers of knowledge |
 | [Using GBrain with GStack](USING_GBRAIN_WITH_GSTACK.md) | Every path, flag, bin helper, and troubleshooting step for `/setup-gbrain` |
 | [GBrain Sync](docs/gbrain-sync.md) | Cross-machine memory setup, privacy modes, troubleshooting |
-| [GStack Data Layer](docs/gstack-data-layer.md) | Local-first BI, workflow analytics, KPI schemas, and dashboard-ready exports |
+| [GStack Data Layer](docs/gstack-data-layer.md) | Local-first BI, cron timelines, workflow analytics, KPI schemas, and screenshot-ready dashboard exports |
 | [Architecture](ARCHITECTURE.md) | Design decisions and system internals |
 | [Browser Reference](BROWSER.md) | Full command reference for `/browse` |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |

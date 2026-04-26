@@ -5,14 +5,45 @@
   "panels": [
     {
       "title": "GStack/OpenClaw activity",
+      "chart": "stat",
+      "screenshot_priority": 1,
       "metrics": [
         "skill_runs",
+        "cron_runs",
+        "active_agents",
+        "tokens_by_period",
+        "cost_by_period",
         "hours_saved",
         "acceptance_rate"
       ]
     },
     {
+      "title": "Cron timeline",
+      "chart": "gantt",
+      "screenshot_priority": 2,
+      "metrics": [
+        "cron_runs_by_period",
+        "cron_success_rate",
+        "cron_duration_p95"
+      ]
+    },
+    {
+      "title": "Task categories",
+      "chart": "bar",
+      "screenshot_priority": 3,
+      "metrics": [
+        "category_resource_mix",
+        "personal",
+        "admin",
+        "work",
+        "financial",
+        "coding"
+      ]
+    },
+    {
       "title": "Lead funnel",
+      "chart": "bar",
+      "screenshot_priority": 4,
       "metrics": [
         "new_leads",
         "lead_response_time",
@@ -23,6 +54,8 @@
     },
     {
       "title": "Workflow quality",
+      "chart": "table",
+      "screenshot_priority": 5,
       "metrics": [
         "edited_runs",
         "rejected_runs",
@@ -31,10 +64,33 @@
       ]
     }
   ],
+  "time_buckets": [
+    "hour",
+    "day",
+    "week",
+    "month"
+  ],
+  "daily_report": {
+    "cadence": "daily",
+    "timezone": "America/Toronto",
+    "charts": [
+      "resource_overview",
+      "activity_series",
+      "tokens_by_period",
+      "cron_timeline",
+      "task_categories"
+    ],
+    "delivery": {
+      "mode": "local_file",
+      "destination_label": "User-approved channel can be configured outside this example."
+    }
+  },
   "export_targets": [
     "csv",
     "json",
     "jsonl",
+    "html_dashboard",
+    "daily_screenshot_report",
     "duckdb",
     "sqlite",
     "postgres",
