@@ -10,6 +10,7 @@ bin/gstack-global-discover
 .claude/scheduled_tasks.lock
 .claude/*.lock
 .agents/
+.ainative/
 .factory/
 .kiro/
 .opencode/
