@@ -1208,6 +1208,30 @@ describe('Codex filesystem boundary', () => {
     expect(boundarySection).toContain('skills/gstack');
     expect(boundarySection).toContain(BOUNDARY_MARKER);
   });
+
+  test('autoplan skill-loading step uses host-resolved docs root', () => {
+    const tmplContent = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf-8');
+    const stepStart = tmplContent.indexOf('### Step 3: Load skill files from disk');
+    const stepEnd = tmplContent.indexOf('**Section skip list', stepStart);
+    const stepSection = tmplContent.slice(stepStart, stepEnd);
+
+    expect(stepSection).toContain('{{SKILL_DOCS_ROOT}}/plan-ceo-review/SKILL.md');
+    expect(stepSection).not.toContain('~/.gstack/repos/gstack/plan-ceo-review/SKILL.md');
+
+    const claudeContent = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md'), 'utf-8');
+    expect(claudeContent).toContain('$GSTACK_SOURCE_ROOT/plan-ceo-review/SKILL.md');
+
+    for (const generatedPath of [
+      path.join(ROOT, '.agents', 'skills', 'gstack-autoplan', 'SKILL.md'),
+      path.join(ROOT, '.factory', 'skills', 'gstack-autoplan', 'SKILL.md'),
+      path.join(ROOT, '.opencode', 'skills', 'gstack-autoplan', 'SKILL.md'),
+    ]) {
+      if (!fs.existsSync(generatedPath)) continue;
+      const generatedContent = fs.readFileSync(generatedPath, 'utf-8');
+      expect(generatedContent).toContain('$GSTACK_ROOT/plan-ceo-review/SKILL.md');
+      expect(generatedContent).not.toContain('~/.gstack/repos/gstack/plan-ceo-review/SKILL.md');
+    }
+  });
 });
 
 // --- {{BENEFITS_FROM}} resolver tests ---
@@ -2086,6 +2110,7 @@ describe('setup script validation', () => {
       setupContent.indexOf('# 5. Install for Codex')
     );
     expect(claudeSection).toContain('link_claude_skill_dirs');
+    expect(claudeSection).toContain('create_claude_runtime_root');
     expect(claudeSection).not.toContain('link_codex_skill_dirs');
   });
 
@@ -2222,12 +2247,13 @@ describe('setup script validation', () => {
   });
 
   test('create_agents_sidecar links runtime assets', () => {
-    // Sidecar must link bin, browse, review, qa
+    // Sidecar must link bin, browse, make-pdf, review, qa
     const fnStart = setupContent.indexOf('create_agents_sidecar()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('bin');
     expect(fnBody).toContain('browse');
+    expect(fnBody).toContain('make-pdf');
     expect(fnBody).toContain('review');
     expect(fnBody).toContain('qa');
   });
@@ -2239,6 +2265,7 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('make-pdf/dist');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
     // Review runtime assets (individual files, not the whole dir)
     expect(fnBody).toContain('checklist.md');
@@ -2248,10 +2275,165 @@ describe('setup script validation', () => {
     expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$codex_gstack"');
   });
 
+  test('create_claude_runtime_root exposes only runtime assets', () => {
+    const fnStart = setupContent.indexOf('create_claude_runtime_root()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('browse/dist');
+    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('design/dist');
+    expect(fnBody).toContain('make-pdf/dist');
+    expect(fnBody).toContain('SOURCE_ROOT');
+    expect(fnBody).toContain('qa/templates');
+    expect(fnBody).toContain('ETHOS.md');
+    expect(fnBody).not.toContain('SKILL.md');
+    expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$claude_gstack"');
+  });
+
+  test('Claude runtime root records source checkout path', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-setup-source-root-'));
+    const home = path.join(tmp, 'home');
+    const source = path.join(tmp, 'source');
+    fs.mkdirSync(source, { recursive: true });
+    const fnStart = setupContent.indexOf('create_claude_runtime_root()');
+    const fnEnd = setupContent.indexOf('\nmigrate_direct_claude_install()', fnStart);
+    const script = path.join(tmp, 'check-source-root.sh');
+    fs.writeFileSync(script, [
+      'set -e',
+      setupContent.slice(fnStart, fnEnd),
+      `create_claude_runtime_root ${JSON.stringify(source)} "$HOME/.claude/skills/gstack"`,
+    ].join('\n'));
+
+    const result = Bun.spawnSync(['bash', script], {
+      env: { ...process.env, HOME: home },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fs.readFileSync(path.join(home, '.claude', 'skills', 'gstack', 'SOURCE_ROOT'), 'utf-8').trim()).toBe(source);
+  });
+
+  test('create_claude_runtime_root refuses to delete existing checkout', () => {
+    const fnStart = setupContent.indexOf('create_claude_runtime_root()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('[ -d "$claude_gstack/.git" ]');
+    expect(fnBody).toContain('Move it aside or run setup from that checkout so it can be migrated safely.');
+    expect(fnBody.indexOf('[ -d "$claude_gstack/.git" ]')).toBeLessThan(fnBody.indexOf('rm -rf "$claude_gstack"'));
+  });
+
+  test('Claude runtime root creation refuses old checkout from new source path', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-setup-safe-'));
+    const home = path.join(tmp, 'home');
+    const source = path.join(tmp, 'source');
+    fs.mkdirSync(path.join(home, '.claude', 'skills', 'gstack', '.git'), { recursive: true });
+    fs.mkdirSync(source, { recursive: true });
+    const fnStart = setupContent.indexOf('create_claude_runtime_root()');
+    const fnEnd = setupContent.indexOf('\nmigrate_direct_claude_install()', fnStart);
+    const script = path.join(tmp, 'check-runtime-root.sh');
+    fs.writeFileSync(script, [
+      'set -e',
+      setupContent.slice(fnStart, fnEnd),
+      `create_claude_runtime_root ${JSON.stringify(source)} "$HOME/.claude/skills/gstack"`,
+    ].join('\n'));
+
+    const result = Bun.spawnSync(['bash', script], {
+      env: { ...process.env, HOME: home },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain('existing Claude checkout found');
+    expect(fs.existsSync(path.join(home, '.claude', 'skills', 'gstack', '.git'))).toBe(true);
+  });
+
+  test('setup preserves project-local Claude dev symlink', () => {
+    const claudeInstallSection = setupContent.slice(
+      setupContent.indexOf('if [ "$INSTALL_CLAUDE" -eq 1 ]; then'),
+      setupContent.indexOf('else', setupContent.indexOf('if [ "$SKILLS_BASENAME" = "skills" ]; then'))
+    );
+    expect(claudeInstallSection).toContain('[ "$INSTALL_SKILLS_DIR" = "$HOME/.claude/skills" ]');
+    expect(claudeInstallSection).toContain('CONTRIBUTING.md');
+    expect(claudeInstallSection).toContain('Project-local contributor/dev-mode installs intentionally keep');
+  });
+
+  test('direct Claude installs are migrated out of ~/.claude/skills/gstack', () => {
+    expect(setupContent).toContain('migrate_direct_claude_install');
+    expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
+    expect(setupContent).toContain('keep Claude skill discovery clean');
+    expect(setupContent).toContain('claude_gstack_real');
+    expect(setupContent).toContain('pwd -P');
+  });
+
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
     expect(setupContent).toContain('migrate_direct_codex_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
     expect(setupContent).toContain('avoid duplicate skill discovery');
+    expect(setupContent).toContain('codex_gstack_real');
+  });
+
+  test('generated Claude docs read skill files from source repo, not runtime sidecar', () => {
+    expect(setupContent).toContain('create_claude_runtime_root');
+    expect(setupContent).not.toContain('ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"');
+    const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(shipContent).toContain('GSTACK_SOURCE_ROOT="$HOME/.gstack/repos/gstack"');
+    expect(shipContent).toContain('GSTACK_SOURCE_ROOT: $GSTACK_SOURCE_ROOT');
+    expect(shipContent).toContain('$GSTACK_SOURCE_ROOT/[skill-name]/SKILL.md');
+    expect(shipContent).toContain('$GSTACK_SOURCE_ROOT/gstack-upgrade/SKILL.md');
+    expect(shipContent).not.toContain('~/.claude/skills/gstack/[skill-name]/SKILL.md');
+    expect(shipContent).not.toContain('~/.claude/skills/gstack/gstack-upgrade/SKILL.md');
+  });
+
+  test('generated Claude docs contain no hardcoded runtime sidecar skill-file reads', () => {
+    const claudeSkillFiles = ALL_SKILLS.map(skill =>
+      skill.dir === '.'
+        ? path.join(ROOT, 'SKILL.md')
+        : path.join(ROOT, skill.dir, 'SKILL.md')
+    );
+
+    const hardcodedSidecarReads = claudeSkillFiles.flatMap(file => {
+      const content = fs.readFileSync(file, 'utf-8');
+      return [...content.matchAll(/(?:~|\$\{HOME\}|\$HOME)\/\.claude\/skills\/gstack\/[^`\s]+\/SKILL\.md/g)]
+        .map(match => `${path.relative(ROOT, file)}: ${match[0]}`);
+    });
+
+    expect(hardcodedSidecarReads).toEqual([]);
+    const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(shipContent).toContain('$GSTACK_SOURCE_ROOT/document-release/SKILL.md');
+  });
+
+  test('generated make-pdf setup has runtime env path', () => {
+    const makePdfContent = fs.readFileSync(path.join(ROOT, 'make-pdf', 'SKILL.md'), 'utf-8');
+    expect(makePdfContent).toContain('.claude/skills/gstack/make-pdf/dist/pdf');
+    const codexMakePdf = path.join(ROOT, '.agents', 'skills', 'gstack-make-pdf', 'SKILL.md');
+    if (fs.existsSync(codexMakePdf)) {
+      const codexContent = fs.readFileSync(codexMakePdf, 'utf-8');
+      expect(codexContent).toContain('GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"');
+      expect(codexContent).toContain('P="$GSTACK_MAKE_PDF/pdf"');
+      expect(codexContent).not.toContain('$HOME$GSTACK_MAKE_PDF');
+    }
+  });
+
+  test('connect-chrome alias points at top-level open-gstack-browser skill', () => {
+    expect(setupContent).toContain('_OGB_TARGET="open-gstack-browser"');
+    expect(setupContent).toContain('_OGB_TARGET="gstack-open-gstack-browser"');
+    expect(setupContent).toContain('ln -snf "$_OGB_TARGET" "$_OGB_LINK"');
+    expect(setupContent).not.toContain('ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"');
+  });
+
+  test('team-mode snippets distinguish source files from Claude runtime assets', () => {
+    const teamInitContent = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-team-init'), 'utf-8');
+    expect(teamInitContent).toContain('~/.gstack/repos/gstack/... for gstack source and skill files');
+    expect(teamInitContent).toContain('~/.claude/skills/gstack/... is runtime assets only');
+    expect(teamInitContent).not.toContain('Use ~/.claude/skills/gstack/... for gstack file paths');
+  });
+
+  test('Codex stale-skill troubleshooting updates source checkout, not runtime root', () => {
+    const readmeContent = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf-8');
+    expect(readmeContent).toContain('cd ~/.gstack/repos/gstack && git pull && ./setup --host codex');
+    expect(readmeContent).not.toContain('cd ~/.codex/skills/gstack && git pull');
   });
 
   // --- Symlink prefix tests (PR #503) ---

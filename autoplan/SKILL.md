@@ -33,6 +33,15 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
+_ROOT=${_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}
+GSTACK_SOURCE_ROOT="$HOME/.gstack/repos/gstack"
+if [ -n "$_ROOT" ] && [ -f "$_ROOT/.claude/skills/gstack/SKILL.md" ]; then
+  GSTACK_SOURCE_ROOT="$_ROOT/.claude/skills/gstack"
+elif [ -f "$HOME/.claude/skills/gstack/SOURCE_ROOT" ]; then
+  _GSTACK_SOURCE_ROOT_CANDIDATE=$(cat "$HOME/.claude/skills/gstack/SOURCE_ROOT" 2>/dev/null || true)
+  [ -n "$_GSTACK_SOURCE_ROOT_CANDIDATE" ] && [ -d "$_GSTACK_SOURCE_ROOT_CANDIDATE" ] && GSTACK_SOURCE_ROOT="$_GSTACK_SOURCE_ROOT_CANDIDATE"
+fi
+echo "GSTACK_SOURCE_ROOT: $GSTACK_SOURCE_ROOT"
 _UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
@@ -144,9 +153,9 @@ The user opted out of proactive behavior.
 If `SKILL_PREFIX` is `"true"`, the user has namespaced skill names. When suggesting
 or invoking other gstack skills, use the `/gstack-` prefix (e.g., `/gstack-qa` instead
 of `/qa`, `/gstack-ship` instead of `/ship`). Disk paths are unaffected — always use
-`~/.claude/skills/gstack/[skill-name]/SKILL.md` for reading skill files.
+`$GSTACK_SOURCE_ROOT/[skill-name]/SKILL.md` for reading skill files.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `$GSTACK_SOURCE_ROOT/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
 
 If output shows `JUST_UPGRADED <from> <to>` AND `SPAWNED_SESSION` is NOT set: tell
 the user "Running gstack v{to} (just updated!)" and then check for new features to
@@ -354,7 +363,7 @@ If A:
 2. Run `echo '.claude/skills/gstack/' >> .gitignore`
 3. Run `~/.claude/skills/gstack/bin/gstack-team-init required` (or `optional`)
 4. Run `git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd ~/.claude/skills/gstack && ./setup --team`"
+5. Tell the user: "Done. Each developer now runs: `cd ~/.gstack/repos/gstack && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -1109,7 +1118,7 @@ If they choose A:
 Say: "Running /office-hours inline. Once the design doc is ready, I'll pick up
 the review right where we left off."
 
-Read the `/office-hours` skill file at `~/.claude/skills/gstack/office-hours/SKILL.md` using the Read tool.
+Read the `/office-hours` skill file at `$GSTACK_SOURCE_ROOT/office-hours/SKILL.md` using the Read tool.
 
 **If unreadable:** Skip with "Could not load /office-hours — skipping." and continue.
 
@@ -1313,10 +1322,10 @@ Then prepend a one-line HTML comment to the plan file:
 ### Step 3: Load skill files from disk
 
 Read each file using the Read tool:
-- `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-design-review/SKILL.md` (only if UI scope detected)
-- `~/.claude/skills/gstack/plan-eng-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-devex-review/SKILL.md` (only if DX scope detected)
+- `$GSTACK_SOURCE_ROOT/plan-ceo-review/SKILL.md`
+- `$GSTACK_SOURCE_ROOT/plan-design-review/SKILL.md` (only if UI scope detected)
+- `$GSTACK_SOURCE_ROOT/plan-eng-review/SKILL.md`
+- `$GSTACK_SOURCE_ROOT/plan-devex-review/SKILL.md` (only if DX scope detected)
 
 **Section skip list — when following a loaded skill file, SKIP these sections
 (they are already handled by /autoplan):**

@@ -207,10 +207,10 @@ Then prepend a one-line HTML comment to the plan file:
 ### Step 3: Load skill files from disk
 
 Read each file using the Read tool:
-- `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-design-review/SKILL.md` (only if UI scope detected)
-- `~/.claude/skills/gstack/plan-eng-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-devex-review/SKILL.md` (only if DX scope detected)
+- `{{SKILL_DOCS_ROOT}}/plan-ceo-review/SKILL.md`
+- `{{SKILL_DOCS_ROOT}}/plan-design-review/SKILL.md` (only if UI scope detected)
+- `{{SKILL_DOCS_ROOT}}/plan-eng-review/SKILL.md`
+- `{{SKILL_DOCS_ROOT}}/plan-devex-review/SKILL.md` (only if DX scope detected)
 
 **Section skip list — when following a loaded skill file, SKIP these sections
 (they are already handled by /autoplan):**

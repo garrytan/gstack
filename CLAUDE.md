@@ -697,11 +697,12 @@ Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigat
 
 ## Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+The source checkout lives at `~/.gstack/repos/gstack/`. Claude discovers a
+runtime-only sidecar at `~/.claude/skills/gstack/`. After making changes:
 
 1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
+2. Fetch and reset in the source checkout: `cd ~/.gstack/repos/gstack && git fetch origin && git reset --hard origin/main`
+3. Rebuild and relink runtime assets: `cd ~/.gstack/repos/gstack && bun run build && ./setup`
 
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`

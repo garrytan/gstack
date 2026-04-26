@@ -1,6 +1,8 @@
 import type { TemplateContext } from '../types';
 
 export function generateUpgradeCheck(ctx: TemplateContext): string {
+  const skillDocsRoot = ctx.paths.skillDocsRoot;
+
   return `If \`PROACTIVE\` is \`"false"\`, do not proactively suggest gstack skills AND do not
 auto-invoke skills based on conversation context. Only run skills the user explicitly
 types (e.g., /qa, /ship). If you would have auto-invoked a skill, instead briefly say:
@@ -10,9 +12,9 @@ The user opted out of proactive behavior.
 If \`SKILL_PREFIX\` is \`"true"\`, the user has namespaced skill names. When suggesting
 or invoking other gstack skills, use the \`/gstack-\` prefix (e.g., \`/gstack-qa\` instead
 of \`/qa\`, \`/gstack-ship\` instead of \`/ship\`). Disk paths are unaffected — always use
-\`${ctx.paths.skillRoot}/[skill-name]/SKILL.md\` for reading skill files.
+\`${skillDocsRoot}/[skill-name]/SKILL.md\` for reading skill files.
 
-If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`${ctx.paths.skillRoot}/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
+If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`${skillDocsRoot}/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
 
 If output shows \`JUST_UPGRADED <from> <to>\` AND \`SPAWNED_SESSION\` is NOT set: tell
 the user "Running gstack v{to} (just updated!)" and then check for new features to
@@ -45,4 +47,3 @@ prompts from sub-sessions.
 After handling JUST_UPGRADED (prompts done or skipped), continue with the skill
 workflow.`;
 }
-
