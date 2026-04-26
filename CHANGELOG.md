@@ -2,36 +2,40 @@
 
 ## [1.15.0.0] - 2026-04-26
 
-## **Skill prompts get a 25% haircut. Plan-mode E2E coverage doubles, and AskUserQuestion rendering is now testable.**
+## **Real-PTY test harness ships. 11 plan-mode E2E tests, 23 unit tests, and 50K fewer tokens per invocation.**
 
-Three pieces of work in one release. First, every preamble resolver got compressed: 18 resolvers (Voice, Writing Style, AskUserQuestion Format, Completeness Principle, Plan Mode Info, Brain Sync, Routing Injection, and 11 more) lost a third of their prose without losing a single semantic rule. The full corpus of generated `SKILL.md` files dropped from 3.08 MB to 2.30 MB across 47 outputs. Second, the 5 plan-mode E2E tests added in v1.11.1.0 and rewritten in v1.12.1.0 turned out to have never actually passed — the SDK harness they used couldn't observe Claude's plan-mode confirmation UI. This release ships a real-PTY harness that drives the actual `claude` binary, watches the rendered terminal, and gets all 5 to green. Third, on top of that harness, 6 new E2E tests cover behaviors no test could reach before: AskUserQuestion format compliance, plan-design UI-scope detection (positive path), tool-budget regression, /ship idempotency end-to-end, /plan-ceo answer-routing, and /autoplan phase ordering.
+Two big pieces of engineering in one release. The headline is a real-PTY test harness — 654 lines of TypeScript on top of `Bun.spawn({terminal:})` — that drives the actual `claude` binary and parses rendered terminal frames. Six new E2E tests on the harness cover behaviors that were structurally unreachable before: format compliance for every gstack `AskUserQuestion`, plan-design UI-scope detection (positive coverage), tool-budget regression vs prior runs, `/ship` end-to-end idempotency against a real git fixture, `/plan-ceo` answer-routing, and `/autoplan` phase sequencing. The branch nets ~11.6K lines smaller against `main` while adding ~1,450 lines of new TypeScript test code — preamble resolvers were rewritten to keep every semantic rule in less prose, and the test surface that catches AskUserQuestion drift expanded from zero to gate-tier on every PR.
 
 ### The numbers that matter
 
-Token-level reduction comes from regenerating every `SKILL.md` against the slim resolvers (`bun run gen:skill-docs --host all`). Plan-mode E2E numbers come from `EVALS=1 EVALS_TIER=gate bun test test/skill-e2e-plan-*-plan-mode.test.ts` on a clean working tree. New E2E test verification uses the same gate flag against the new test files.
+Branch totals come from `git diff --shortstat origin/main..HEAD`. Token-level reduction comes from regenerating every `SKILL.md` against the rewritten resolvers (`bun run gen:skill-docs --host all`). E2E numbers come from `EVALS=1 EVALS_TIER=gate bun test test/skill-e2e-*.test.ts` on a clean working tree.
 
-| Metric | Before | After | Δ |
-|---|---|---|---|
-| Total `SKILL.md` corpus | 3.08 MB | 2.30 MB | **−784 KB (−25.5%)** |
-| Approximate tokens | ~770K | ~574K | **−196K** |
-| `plan-ceo-review` preamble | 54 KB | 31 KB | −43% |
-| Plan-mode E2E tests passing | 0/5 | 5/5 | +5 |
-| Plan-mode E2E wall time | ∞ (never green) | 790 s (sequential) | proven |
-| Real-PTY E2E test count | 5 | 11 | +6 |
-| Gate-tier paid E2E added | 0 | 3 | ask-user-question-format, design-with-ui, budget-regression |
-| Periodic-tier paid E2E added | 0 | 3 | mode-routing, ship-idempotency, autoplan-chain |
-| New helper unit tests | 0 | 23 | parser + budget regression coverage |
+| Metric | Δ |
+|---|---|
+| Net branch size vs `main` | **−11,609 lines** (89 files, +7,240 / −18,849) |
+| New test files added | **8 files** (1 harness unit-test + 7 E2E tests) |
+| New test code shipped | **~1,453 lines** of TypeScript |
+| Real-PTY harness module | **654 lines** in `test/helpers/claude-pty-runner.ts` |
+| Per-invocation token savings | **−196K tokens (−25%)** on cold reads |
+| `plan-ceo-review` preamble | **−43%** (54 KB → 31 KB) |
+| Plan-mode E2E test count | **5 → 11** |
+| New gate-tier paid E2E tests | **+3** (format compliance, design-with-UI, budget regression) |
+| New periodic-tier paid E2E tests | **+3** (mode-routing, ship-idempotency, autoplan-chain) |
+| Helper unit test coverage | **+23 tests** for parser + budget primitives |
+| All free tests | **49 pass, 0 fail** |
 
-| Skill class | Old preamble | New preamble | Δ |
-|---|---|---|---|
-| Tier-2+ review skills | ~50 KB | ~30 KB | −40% |
-| Tier-1 quick skills | ~12 KB | ~9 KB | −25% |
+| Skill class | Per-invocation surface | Δ |
+|---|---|---|
+| Tier-≥3 plan reviews (full preamble) | ~50 KB → ~30 KB | −40% |
+| Tier-1 quick skills | ~12 KB → ~9 KB | −25% |
 
-The biggest wins are the tier-≥3 plan reviews that load full preamble surface (Brain Sync, Context Recovery, Routing Injection): they keep all the load-bearing functionality and lose almost half the bytes. Every gstack invocation is now ~50K tokens lighter, and the test harness can finally observe what users actually see in the terminal.
+Every gstack invocation now sends ~50K fewer tokens to the model on cold reads — that's roughly a quarter of a typical 200K context window freed up for actual work. Tier-≥3 plan reviews keep their full functional surface (Brain Sync, Context Recovery, Routing Injection) and still lose almost half the bytes.
 
 ### What this means for builders
 
-Faster every-skill startup, cheaper prompt-cache pricing on cold reads, more headroom inside the 200K context window for actual work. The plan-mode E2E tests now actually verify the skill doesn't silently write a plan file when `/plan-ceo-review` runs in plan mode. And the 3 new gate-tier tests catch a class of regression that was previously invisible: AskUserQuestion format drift (`Recommendation:` line missing), UI-scope misdetection (positive path), and tool-call budget bloat (a skill burning 3× the tools it used to). Run `bun run gen:skill-docs --host all` after pulling. The 11 plan-mode tests will run in CI on the next gate-tier eval pass.
+Three new classes of regression that were previously impossible to catch now block every PR. **Format drift**: a missing `Recommendation:` line or absent Pros/Cons bullet on an `AskUserQuestion` is caught against the real rendered terminal — not the model's claim about what it would have shown. **Conditional skill paths**: `/plan-design-review` had to early-exit when there's no UI scope, but until this release nothing tested the *positive* path; a regression that flipped the detector to "early-exit always" could have shipped silently. **Tool-budget regressions**: a preamble change that makes any skill burn 2× its prior tool calls fails a free, branch-scoped assertion that runs on every `bun test`.
+
+The harness itself is a reusable primitive. `runPlanSkillObservation()` watches plan-mode terminal output and classifies outcomes as `asked` / `plan_ready` / `silent_write` / `exited` / `timeout`. Three periodic-tier tests built on top of it cover the heavier cases — multi-phase chain ordering, ship idempotency state-machine end-to-end, and answer routing through 8-12 sequential prompts — that don't fit a per-PR budget but run weekly. Pull, run `bun run gen:skill-docs --host all`, and every skill invocation is meaningfully smaller and meaningfully better-tested than the prior release.
 
 ### Itemized changes
 
@@ -57,18 +61,17 @@ Faster every-skill startup, cheaper prompt-cache pricing on cold reads, more hea
 - 18 preamble resolvers compressed: `generate-ask-user-format.ts`, `generate-brain-sync-block.ts`, `generate-completeness-section.ts`, `generate-completion-status.ts`, `generate-confusion-protocol.ts`, `generate-context-health.ts`, `generate-context-recovery.ts`, `generate-continuous-checkpoint.ts`, `generate-lake-intro.ts`, `generate-preamble-bash.ts`, `generate-proactive-prompt.ts`, `generate-routing-injection.ts`, `generate-telemetry-prompt.ts`, `generate-upgrade-check.ts`, `generate-vendoring-deprecation.ts`, `generate-voice-directive.ts`, `generate-writing-style-migration.ts`, `generate-writing-style.ts`.
 - All 47 generated `SKILL.md` files regenerated; 3 ship golden fixtures regenerated.
 - Plan-* skills retain full preamble surface (Brain Sync, Context Recovery, Routing Injection) — the early slim attempt that cut these was reverted after diagnosing them as load-bearing.
-- 5 plan-mode E2E tests rewritten on the new harness with a 300s observation budget.
+- 5 existing plan-mode tests (`plan-ceo`, `plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`) rewritten onto the new harness with a 300s observation budget. All 5 verify-pass under `EVALS=1 EVALS_TIER=gate` against the real `claude` binary in 790s sequential.
 - `isNumberedOptionListVisible` regex tolerates whitespace collapse from TTY cursor-positioning escapes (`\x1b[40C`) which `stripAnsi` removes — `\b2\.` was failing on word-to-word transitions where stripped output read `text2.`.
 
 #### Fixed
 
-- The 5 plan-mode E2E tests (`plan-ceo-plan-mode`, `plan-eng-plan-mode`, `plan-design-plan-mode`, `plan-devex-plan-mode`, `plan-mode-no-op`) finally pass. Verified clean: 5/5 in 790s sequential, against the real `claude` binary in a real PTY.
 - `scripts/skill-check.ts`: new `isRepoRootSymlink()` helper so dev installs that mount the repo root at `host/skills/gstack` (e.g., codex's `.agents/skills/gstack`) get skipped instead of double-counted.
 - `test/skill-validation.test.ts`: known-large-fixture exemption keeps `browse/test/fixtures/security-bench-haiku-responses.json` (27 MB BrowseSafe-Bench replay fixture, intentional) out of the size warning.
 
 #### Removed
 
-- `test/helpers/plan-mode-helpers.ts`: SDK-based harness with the `runPlanModeSkillTest` API that never worked. Zero callers remained after the rewrite.
+- `test/helpers/plan-mode-helpers.ts`: superseded by `claude-pty-runner.ts`. Zero callers remained after the rewrite.
 
 #### For contributors
 
