@@ -2,12 +2,20 @@
  * gstack design CLI — stateless CLI for AI-powered design generation.
  *
  * Unlike the browse binary (persistent Chromium daemon), the design binary
- * is stateless: each invocation makes API calls and writes files. Session
- * state for multi-turn iteration is a JSON file in /tmp.
+ * is stateless: each invocation resolves a provider, makes API calls, and
+ * writes files. Session state for multi-turn iteration is a JSON file in /tmp.
+ *
+ * Supported providers:
+ *   - Google Gemini (default, Nano Banana 2 image + Gemini Flash vision)
+ *   - OpenAI (legacy, gpt-4o image_generation + gpt-4o vision)
+ *
+ * Provider resolution:
+ *   1. GSTACK_DESIGN_PROVIDER env var ("gemini" | "openai") — explicit
+ *   2. Auto-detect: prefer Gemini if a key is available, fall back to OpenAI
  *
  * Flow:
  *   1. Parse command + flags from argv
- *   2. Resolve auth (~/. gstack/openai.json → OPENAI_API_KEY → guided setup)
+ *   2. Resolve provider via ./providers/factory
  *   3. Execute command (API call → write PNG/HTML)
  *   4. Print result JSON to stdout
  */
@@ -18,7 +26,12 @@ import { checkCommand } from "./check";
 import { compare } from "./compare";
 import { variants } from "./variants";
 import { iterate } from "./iterate";
-import { resolveApiKey, saveApiKey } from "./auth";
+import {
+  resolveOpenAIKey,
+  saveOpenAIKey,
+  resolveGeminiKey,
+  saveGeminiKey,
+} from "./auth";
 import { extractDesignLanguage, updateDesignMd } from "./memory";
 import { diffMockups, verifyAgainstMockup } from "./diff";
 import { evolve } from "./evolve";
@@ -60,36 +73,62 @@ function printUsage(): void {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
-  console.log("Setup: $D setup");
+  console.log("\nProviders:");
+  console.log("  Gemini (default):  ~/.gstack/gemini.json or GEMINI_API_KEY");
+  console.log("                     https://aistudio.google.com/app/apikey");
+  console.log("  OpenAI (legacy):   ~/.gstack/openai.json or OPENAI_API_KEY");
+  console.log("                     https://platform.openai.com/api-keys");
+  console.log("\nForce provider: GSTACK_DESIGN_PROVIDER=gemini|openai");
+  console.log("Setup:          $D setup");
+}
+
+async function readLineFromStdin(): Promise<string> {
+  const reader = Bun.stdin.stream().getReader();
+  const { value } = await reader.read();
+  reader.releaseLock();
+  return new TextDecoder().decode(value).trim();
 }
 
 async function runSetup(): Promise<void> {
-  const existing = resolveApiKey();
-  if (existing) {
-    console.log("Existing API key found. Running smoke test...");
+  const existingGemini = resolveGeminiKey();
+  const existingOpenAI = resolveOpenAIKey();
+
+  if (existingGemini) {
+    console.log("Existing Gemini API key found. Running smoke test on Gemini...");
+  } else if (existingOpenAI) {
+    console.log("Existing OpenAI API key found (legacy).");
+    console.log("Gemini is the new default provider and produces better UI mockups.");
+    console.log("Get a Gemini key at: https://aistudio.google.com/app/apikey\n");
+    process.stdout.write("Gemini API key (or blank to keep using OpenAI): ");
+    const key = await readLineFromStdin();
+    if (key) {
+      saveGeminiKey(key);
+      console.log("Gemini key saved to ~/.gstack/gemini.json (0600 permissions).");
+    } else {
+      console.log("Keeping OpenAI. Set GSTACK_DESIGN_PROVIDER=openai or clear the Gemini key to force OpenAI.");
+    }
   } else {
-    console.log("No API key found. Please enter your OpenAI API key.");
-    console.log("Get one at: https://platform.openai.com/api-keys");
-    console.log("(Needs image generation permissions)\n");
+    console.log("No API key found. Please enter a Gemini API key (recommended).");
+    console.log("Get one at: https://aistudio.google.com/app/apikey\n");
+    console.log("Or enter an OpenAI key prefixed with 'sk-' to use the legacy provider.\n");
 
-    // Read from stdin
     process.stdout.write("API key: ");
-    const reader = Bun.stdin.stream().getReader();
-    const { value } = await reader.read();
-    reader.releaseLock();
-    const key = new TextDecoder().decode(value).trim();
+    const key = await readLineFromStdin();
 
-    if (!key || !key.startsWith("sk-")) {
-      console.error("Invalid key. Must start with 'sk-'.");
+    if (!key) {
+      console.error("No key entered.");
       process.exit(1);
     }
 
-    saveApiKey(key);
-    console.log("Key saved to ~/.gstack/openai.json (0600 permissions).");
+    if (key.startsWith("sk-")) {
+      saveOpenAIKey(key);
+      console.log("OpenAI key saved to ~/.gstack/openai.json (0600 permissions).");
+    } else {
+      saveGeminiKey(key);
+      console.log("Gemini key saved to ~/.gstack/gemini.json (0600 permissions).");
+    }
   }
 
-  // Smoke test
   console.log("\nRunning smoke test (generating a simple image)...");
   try {
     await generate({
@@ -101,7 +140,7 @@ async function runSetup(): Promise<void> {
     console.log("\nSmoke test PASSED. Design generation is working.");
   } catch (err: any) {
     console.error(`\nSmoke test FAILED: ${err.message}`);
-    console.error("Check your API key and organization verification status.");
+    console.error("Check your API key and provider configuration.");
     process.exit(1);
   }
 }

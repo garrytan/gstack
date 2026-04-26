@@ -1,62 +1,103 @@
 /**
- * Auth resolution for OpenAI API access.
+ * Auth resolution for design provider API keys.
  *
- * Resolution order:
- * 1. ~/.gstack/openai.json → { "api_key": "sk-..." }
- * 2. OPENAI_API_KEY environment variable
- * 3. null (caller handles guided setup or fallback)
+ * Supports both OpenAI and Google Gemini. Each provider has its own resolution
+ * path and its own on-disk config file so users can have both keys available
+ * and switch between providers via the GSTACK_DESIGN_PROVIDER env var.
+ *
+ * OpenAI resolution order:
+ *   1. ~/.gstack/openai.json → { "api_key": "sk-..." }
+ *   2. OPENAI_API_KEY environment variable
+ *   3. null
+ *
+ * Gemini resolution order:
+ *   1. ~/.gstack/gemini.json → { "api_key": "..." }
+ *   2. GEMINI_API_KEY environment variable
+ *   3. GOOGLE_API_KEY environment variable (common Google AI alias)
+ *   4. null
  */
 
 import fs from "fs";
 import path from "path";
 
-const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "openai.json");
+const HOME = process.env.HOME || "~";
+const OPENAI_CONFIG_PATH = path.join(HOME, ".gstack", "openai.json");
+const GEMINI_CONFIG_PATH = path.join(HOME, ".gstack", "gemini.json");
 
-export function resolveApiKey(): string | null {
-  // 1. Check ~/.gstack/openai.json
+function readKeyFromFile(filePath: string): string | null {
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const content = fs.readFileSync(CONFIG_PATH, "utf-8");
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, "utf-8");
       const config = JSON.parse(content);
       if (config.api_key && typeof config.api_key === "string") {
         return config.api_key;
       }
     }
   } catch {
-    // Fall through to env var
+    // fall through to caller's next fallback
   }
-
-  // 2. Check environment variable
-  if (process.env.OPENAI_API_KEY) {
-    return process.env.OPENAI_API_KEY;
-  }
-
   return null;
 }
 
-/**
- * Save an API key to ~/.gstack/openai.json with 0600 permissions.
- */
-export function saveApiKey(key: string): void {
-  const dir = path.dirname(CONFIG_PATH);
+function saveKeyToFile(filePath: string, key: string): void {
+  const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify({ api_key: key }, null, 2));
-  fs.chmodSync(CONFIG_PATH, 0o600);
+  fs.writeFileSync(filePath, JSON.stringify({ api_key: key }, null, 2));
+  fs.chmodSync(filePath, 0o600);
 }
 
-/**
- * Get API key or exit with setup instructions.
- */
+// --- OpenAI ---
+
+export function resolveOpenAIKey(): string | null {
+  const fromFile = readKeyFromFile(OPENAI_CONFIG_PATH);
+  if (fromFile) return fromFile;
+  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  return null;
+}
+
+export function saveOpenAIKey(key: string): void {
+  saveKeyToFile(OPENAI_CONFIG_PATH, key);
+}
+
+// --- Gemini ---
+
+export function resolveGeminiKey(): string | null {
+  const fromFile = readKeyFromFile(GEMINI_CONFIG_PATH);
+  if (fromFile) return fromFile;
+  if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
+  if (process.env.GOOGLE_API_KEY) return process.env.GOOGLE_API_KEY;
+  return null;
+}
+
+export function saveGeminiKey(key: string): void {
+  saveKeyToFile(GEMINI_CONFIG_PATH, key);
+}
+
+// --- Legacy back-compat ---
+// These preserve the old public API so any caller outside this module that
+// still imports resolveApiKey/saveApiKey continues to work. New code should
+// use getProvider() from ./providers/factory instead.
+
+/** @deprecated Use resolveOpenAIKey or getProvider() from ./providers/factory. */
+export function resolveApiKey(): string | null {
+  return resolveOpenAIKey();
+}
+
+/** @deprecated Use saveOpenAIKey. */
+export function saveApiKey(key: string): void {
+  saveOpenAIKey(key);
+}
+
+/** @deprecated Use getProvider() from ./providers/factory. */
 export function requireApiKey(): string {
-  const key = resolveApiKey();
+  const key = resolveOpenAIKey();
   if (!key) {
     console.error("No OpenAI API key found.");
     console.error("");
-    console.error("Run: $D setup");
-    console.error("  or save to ~/.gstack/openai.json: { \"api_key\": \"sk-...\" }");
-    console.error("  or set OPENAI_API_KEY environment variable");
+    console.error("Prefer the new provider abstraction:");
+    console.error("  import { getProvider } from './providers/factory'");
     console.error("");
-    console.error("Get a key at: https://platform.openai.com/api-keys");
+    console.error("Or run: $D setup");
     process.exit(1);
   }
   return key;

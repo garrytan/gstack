@@ -1,11 +1,12 @@
 /**
- * Visual diff between two mockups using GPT-4o vision.
- * Identifies what changed between design iterations or between
- * an approved mockup and the live implementation.
+ * Visual diff between two mockups via the current design provider's vision.
+ * Identifies what changed between design iterations or between an approved
+ * mockup and the live implementation.
  */
 
 import fs from "fs";
-import { requireApiKey } from "./auth";
+import { getProvider } from "./providers/factory";
+import { ProviderError } from "./providers/provider";
 
 export interface DiffResult {
   differences: { area: string; description: string; severity: string }[];
@@ -20,28 +21,11 @@ export async function diffMockups(
   beforePath: string,
   afterPath: string,
 ): Promise<DiffResult> {
-  const apiKey = requireApiKey();
+  const provider = getProvider();
   const beforeData = fs.readFileSync(beforePath).toString("base64");
   const afterData = fs.readFileSync(afterPath).toString("base64");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Compare these two UI images. The first is the BEFORE (or design intent), the second is the AFTER (or actual implementation). Return valid JSON only:
+  const prompt = `Compare these two UI images. The first is the BEFORE (or design intent), the second is the AFTER (or actual implementation). Return valid JSON only:
 
 {
   "differences": [
@@ -54,35 +38,25 @@ export async function diffMockups(
 
 severity: "high" = noticeable to any user, "medium" = visible on close inspection, "low" = minor/pixel-level.
 matchScore: 100 = identical, 0 = completely different.
-Focus on layout, typography, colors, spacing, and element presence/absence. Ignore rendering differences (anti-aliasing, sub-pixel).`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/png;base64,${beforeData}` },
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/png;base64,${afterData}` },
-            },
-          ],
-        }],
-        max_tokens: 600,
-        response_format: { type: "json_object" },
-      }),
-      signal: controller.signal,
-    });
+Focus on layout, typography, colors, spacing, and element presence/absence. Ignore rendering differences (anti-aliasing, sub-pixel).`;
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error(`Diff API error (${response.status}): ${error.slice(0, 200)}`);
+  try {
+    const { text } = await provider.vision({
+      prompt,
+      images: [
+        { data: beforeData, mimeType: "image/png" },
+        { data: afterData, mimeType: "image/png" },
+      ],
+      maxTokens: 600,
+      jsonMode: true,
+    });
+    return JSON.parse(text) as DiffResult;
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      console.error(`Diff vision error: ${err.message.slice(0, 200)}`);
       return { differences: [], summary: "Diff unavailable", matchScore: -1 };
     }
-
-    const data = await response.json() as any;
-    const content = data.choices?.[0]?.message?.content?.trim() || "";
-    return JSON.parse(content) as DiffResult;
-  } finally {
-    clearTimeout(timeout);
+    throw err;
   }
 }
 

@@ -1,13 +1,16 @@
 /**
- * Generate N design variants from a brief.
- * Uses staggered parallel: 1s delay between API calls to avoid rate limits.
- * Falls back to exponential backoff on 429s.
+ * Generate N design variants from a brief via the current design provider.
+ *
+ * Uses staggered parallel: 1.5s delay between API calls to avoid rate limits.
+ * Falls back to exponential backoff on retryable errors (429).
  */
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
+import { getProvider } from "./providers/factory";
+import { ProviderError } from "./providers/provider";
+import type { DesignProvider } from "./providers/provider";
 
 export interface VariantsOptions {
   brief?: string;
@@ -30,10 +33,10 @@ const STYLE_VARIATIONS = [
 ];
 
 /**
- * Generate a single variant with retry on 429.
+ * Generate a single variant with retry on retryable errors (429, rate limits).
  */
 async function generateVariant(
-  apiKey: string,
+  provider: DesignProvider,
   prompt: string,
   outputPath: string,
   size: string,
@@ -50,54 +53,24 @@ async function generateVariant(
       await new Promise(r => setTimeout(r, delay));
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          input: prompt,
-          tools: [{ type: "image_generation", size, quality }],
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      if (response.status === 429) {
-        lastError = "Rate limited (429)";
-        continue;
-      }
-
-      if (!response.ok) {
-        const error = await response.text();
-        if (response.status === 403 && error.includes("organization must be verified")) {
-          return { path: outputPath, success: false, error: "OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify." };
-        }
-        return { path: outputPath, success: false, error: `API error (${response.status}): ${error.slice(0, 200)}` };
-      }
-
-      const data = await response.json() as any;
-      const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
-
-      if (!imageItem?.result) {
-        return { path: outputPath, success: false, error: "No image data in response" };
-      }
-
-      fs.writeFileSync(outputPath, Buffer.from(imageItem.result, "base64"));
+      const { imageData } = await provider.generateImage({ prompt, size, quality });
+      fs.writeFileSync(outputPath, Buffer.from(imageData, "base64"));
       return { path: outputPath, success: true };
-    } catch (err: any) {
-      clearTimeout(timeout);
-      if (err.name === "AbortError") {
+    } catch (err) {
+      if (err instanceof ProviderError) {
+        lastError = err.message;
+        if (err.retryable) {
+          continue;
+        }
+        // Non-retryable error — fail fast
+        return { path: outputPath, success: false, error: err.message };
+      }
+      const message = (err as Error)?.message || String(err);
+      lastError = message;
+      if (message.toLowerCase().includes("timeout") || message.toLowerCase().includes("abort")) {
         return { path: outputPath, success: false, error: "Timeout (120s)" };
       }
-      lastError = err.message;
     }
   }
 
@@ -108,7 +81,7 @@ async function generateVariant(
  * Generate N variants with staggered parallel execution.
  */
 export async function variants(options: VariantsOptions): Promise<void> {
-  const apiKey = requireApiKey();
+  const provider = getProvider();
   const baseBrief = options.briefFile
     ? parseBrief(options.briefFile, true)
     : parseBrief(options.brief!, false);
@@ -119,14 +92,14 @@ export async function variants(options: VariantsOptions): Promise<void> {
 
   // If viewports specified, generate responsive variants instead of style variants
   if (options.viewports) {
-    await generateResponsiveVariants(apiKey, baseBrief, options.outputDir, options.viewports, quality);
+    await generateResponsiveVariants(provider, baseBrief, options.outputDir, options.viewports, quality);
     return;
   }
 
   const count = Math.min(options.count, 7); // Cap at 7 style variations
   const size = options.size || "1536x1024";
 
-  console.error(`Generating ${count} variants...`);
+  console.error(`Generating ${count} variants [${provider.name}]...`);
   const startTime = Date.now();
 
   // Staggered parallel: start each call 1.5s apart
@@ -146,7 +119,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
       new Promise(resolve => setTimeout(resolve, delay))
         .then(() => {
           console.error(`  Starting variant ${String.fromCharCode(65 + i)}...`);
-          return generateVariant(apiKey, prompt, outputPath, size, quality);
+          return generateVariant(provider, prompt, outputPath, size, quality);
         })
     );
   }
@@ -172,9 +145,9 @@ export async function variants(options: VariantsOptions): Promise<void> {
 
   console.error(`\n${succeeded.length}/${count} variants generated (${elapsed}s)`);
 
-  // Output structured result to stdout
   console.log(JSON.stringify({
     outputDir: options.outputDir,
+    provider: provider.name,
     count,
     succeeded: succeeded.length,
     failed: failed.length,
@@ -190,7 +163,7 @@ const VIEWPORT_CONFIGS: Record<string, { size: string; suffix: string; desc: str
 };
 
 async function generateResponsiveVariants(
-  apiKey: string,
+  provider: DesignProvider,
   baseBrief: string,
   outputDir: string,
   viewports: string,
@@ -204,7 +177,7 @@ async function generateResponsiveVariants(
     process.exit(1);
   }
 
-  console.error(`Generating responsive variants: ${configs.map(c => c.desc).join(", ")}...`);
+  console.error(`Generating responsive variants [${provider.name}]: ${configs.map(c => c.desc).join(", ")}...`);
   const startTime = Date.now();
 
   const promises = configs.map((config, i) => {
@@ -220,7 +193,7 @@ async function generateResponsiveVariants(
       setTimeout(resolve, delay)
     ).then(() => {
       console.error(`  Starting ${config.desc}...`);
-      return generateVariant(apiKey, prompt, outputPath, config.size, quality);
+      return generateVariant(provider, prompt, outputPath, config.size, quality);
     });
   });
 
@@ -242,6 +215,7 @@ async function generateResponsiveVariants(
   console.error(`\n${succeeded.length}/${configs.length} responsive variants generated (${elapsed}s)`);
   console.log(JSON.stringify({
     outputDir,
+    provider: provider.name,
     viewports: viewportList,
     succeeded: succeeded.length,
     paths: succeeded,
