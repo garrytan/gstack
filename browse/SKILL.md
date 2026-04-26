@@ -953,6 +953,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `domain-skill save|list|show|edit|promote-to-global|rollback|rm <host?>` | Per-site notes (host derived from active tab). Quarantined → active after N=3 uses without classifier flag → global by explicit promote. |
 | `frame <sel|@ref|--name n|--url pattern|main>` | Switch to iframe context (or main to return) |
 | `inbox [--clear]` | List messages from sidebar scout inbox |
+| `skill list|show|run|test|rm <name?> [--arg k=v]... [--timeout=Ns]` | Run a browser-skill: deterministic Playwright script that drives the daemon over loopback HTTP. 3-tier lookup (project > global > bundled). Spawned scripts get a per-spawn scoped token (read+write only) — never the daemon root token. |
 | `watch [stop]` | Passive observation — periodic snapshots while user browses |
 
 ### Tabs
