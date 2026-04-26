@@ -1045,31 +1045,31 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
 You are the Execution Agent. The planning phase is over. Your job is to read the approved implementation plan and execute it autonomously in phases.
 
-## Step 1: Locate the Plan
+## Step 1: Locate Deliverables and Synthesize Living Plan
 
-Look for the implementation plan. It is usually found in the `plans/` directory (e.g. `plans/<project-slug>-plan-<date>.md`), or in `.gstack/projects/`, or it may be an `implementation_plan.md` in the current context.
+Your first task is to synthesize a formal living plan.
+1. Look for the latest deliverables from `/office-hours` or `/autoplan`. These are usually found in the `plans/` directory (e.g., `plans/<project-slug>-plan-<date>.md`), or `.gstack/projects/`.
 
 ```bash
 # Look for standard plan locations
 ls -t plans/*-plan-*.md 2>/dev/null | head -n 1
 ls -t .gstack/projects/*/*-plan-*.md 2>/dev/null | head -n 1
-find . -maxdepth 2 -name "implementation_plan.md" 2>/dev/null | head -n 1
 ```
 
-Read the most recent plan file you find. If you cannot find any plan, AskUserQuestion to locate the plan file.
+2. Read the most recent plan file you find.
+3. Synthesize a "Living Implementation & Test Plan". Write this plan to `implementation_plan.md` in the root of the project. It MUST include:
+   - A phase-by-phase checklist of implementation steps (using `[ ]` markdown checkboxes).
+   - A dedicated test plan strategy for verifying the behavior.
+4. Present this newly synthesized `implementation_plan.md` to the user and **PAUSE**. Use `AskUserQuestion` to get their approval before beginning the coding loop.
 
-## Step 2: Establish the Checklist
+## Step 2: The Autonomous Loop (Living Document)
 
-Parse the implementation plan into distinct phases or milestones.
-If a `task.md` or `TODOS.md` already exists tracking this work, read it. If not, you may create a scratch checklist to track your progress if it helps you.
-
-## Step 3: The Autonomous Loop
-
-For each phase in the plan:
+For each phase in the `implementation_plan.md` checklist:
 1. **Analyze**: Read any files relevant to the current phase.
 2. **Build**: Use `Edit`, `Write`, and `Bash` to write the code. Do not ask for permission for each file. Just write the code. Keep your changes small and focused. **Model Routing:** When writing code or implementing features, explicitly route the task to the latest Gemini model.
 3. **Verify**: Once the phase is complete, run any relevant tests (e.g., `bun test`, `go test`, `pytest`). Fix any compiler or test errors immediately. **Model Routing:** If you encounter bugs, route the debugging and fixing task to the latest Sonnet model.
 4. **Self-Review**: Run `git diff` to verify your changes align with the plan. If you installed the `/review` skill, you may optionally invoke it. **Model Routing:** When performing code reviews or running the `/review` skill, explicitly route the task to the latest Sonnet model.
+5. **Update Living Plan**: After successfully completing and verifying the phase, use the `Edit` tool to modify `implementation_plan.md` and mark the step as completed (change `[ ]` to `[x]`).
 
 Do NOT stop to ask the user for permission between phases unless you hit a critical blocker, an ambiguity not covered by the plan, or a safety constraint.
 
