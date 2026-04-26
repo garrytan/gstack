@@ -379,4 +379,62 @@ describe('gstack-gbrain-source-wireup — uninstall mode', () => {
     const r = run(['--uninstall']);
     expect(r.status).toBe(3);
   });
+
+  test('--uninstall when gbrain is missing: exits 0 (best-effort), still removes worktree', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    // First wireup with fake gbrain to create the worktree + register source
+    makeFakeGbrain({});
+    run([], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(fs.existsSync(worktreeDir)).toBe(true);
+    // Now remove the fake gbrain so uninstall sees gbrain missing
+    fs.rmSync(path.join(fakeBinDir, 'gbrain'), { force: true });
+    const r = run(['--uninstall'], {
+      env: { PATH: `${fakeBinDir}:/usr/bin:/bin:/opt/homebrew/bin` },
+    });
+    expect(r.status).toBe(0); // best-effort, never fails on gbrain absence
+    expect(fs.existsSync(worktreeDir)).toBe(false); // worktree still cleaned up
+  });
+});
+
+describe('gstack-gbrain-source-wireup — defensive paths', () => {
+  test('--no-pull skips HEAD advance on existing worktree', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    // First run to create worktree
+    run([], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    // Make a new commit on parent so worktree HEAD is "behind"
+    fs.writeFileSync(path.join(gstackHome, 'newfile.md'), 'new');
+    spawnSync('git', ['-C', gstackHome, 'add', '.'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', gstackHome, 'commit', '-q', '-m', 'second commit'], { stdio: 'pipe' });
+    const parentHeadAfter = spawnSync('git', ['-C', gstackHome, 'rev-parse', 'HEAD'], {
+      encoding: 'utf-8',
+    }).stdout.trim();
+    const worktreeHeadBefore = spawnSync('git', ['-C', worktreeDir, 'rev-parse', 'HEAD'], {
+      encoding: 'utf-8',
+    }).stdout.trim();
+    expect(parentHeadAfter).not.toBe(worktreeHeadBefore); // sanity: parent advanced
+    // --no-pull should leave worktree HEAD where it was
+    const r = run(['--no-pull'], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(r.status).toBe(0);
+    const worktreeHeadAfter = spawnSync('git', ['-C', worktreeDir, 'rev-parse', 'HEAD'], {
+      encoding: 'utf-8',
+    }).stdout.trim();
+    expect(worktreeHeadAfter).toBe(worktreeHeadBefore);
+    expect(worktreeHeadAfter).not.toBe(parentHeadAfter);
+  });
+
+  test('stray non-git directory at worktree path is cleaned up + worktree created', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    // Plant a stray non-git directory at the worktree path
+    fs.mkdirSync(worktreeDir, { recursive: true });
+    fs.writeFileSync(path.join(worktreeDir, 'unrelated.txt'), 'not a worktree');
+    expect(fs.existsSync(path.join(worktreeDir, 'unrelated.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(worktreeDir, '.git'))).toBe(false);
+    // Helper should remove the stray dir + create a real worktree
+    const r = run([], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(worktreeDir, '.git'))).toBe(true); // real worktree
+    expect(fs.existsSync(path.join(worktreeDir, 'unrelated.txt'))).toBe(false); // stray gone
+  });
 });
