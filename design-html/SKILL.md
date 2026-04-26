@@ -235,6 +235,7 @@ Key routing rules:
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Build a domain glossary, document ubiquitous language, find naming inconsistencies → invoke /glossary
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 ```
