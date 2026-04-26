@@ -987,7 +987,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `type <text>` | Type into focused element |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
-| `viewport [<WxH>] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. |
+| `viewport [<WxH>|auto|reset] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). `auto` or `reset` unpins a previously fixed viewport so it follows the window again (in launched mode this rebuilds the context; in headed mode it resyncs once to the live window size). --scale requires a context rebuild. |
 | `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
 
 ### Inspection
