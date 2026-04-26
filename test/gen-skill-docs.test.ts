@@ -40,6 +40,35 @@ function extractDescription(content: string): string {
   return description;
 }
 
+function extractMarkdownSection(content: string, heading: string): string {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const startMatch = content.match(new RegExp(`^${escaped}.*$`, 'm'));
+  expect(startMatch?.index).toBeDefined();
+  const start = startMatch!.index!;
+  const afterHeading = start + startMatch![0].length;
+  const nextSection = content.slice(afterHeading).match(/\n## /);
+  const end = nextSection?.index === undefined
+    ? content.length
+    : afterHeading + nextSection.index;
+  return content.slice(start, end).trim();
+}
+
+function extractPreambleBeforeWorkflow(content: string, workflowMarkers: string[]): string {
+  const markerIndexes = workflowMarkers
+    .map(marker => content.indexOf(marker))
+    .filter(index => index >= 0);
+  expect(markerIndexes.length).toBeGreaterThan(0);
+  return content.slice(0, Math.min(...markerIndexes));
+}
+
+function isRepoRootSymlink(candidateDir: string): boolean {
+  try {
+    return fs.realpathSync(candidateDir) === fs.realpathSync(ROOT);
+  } catch {
+    return false;
+  }
+}
+
 // Dynamic template discovery — matches the generator's findTemplates() behavior.
 // New skills automatically get test coverage without updating a static list.
 const ALL_SKILLS = (() => {
@@ -269,6 +298,50 @@ describe('gen-skill-docs', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('skill-usage.jsonl');
     expect(content).toContain('~/.gstack/analytics');
+  });
+
+  test('plan-review generated preambles stay under the Option A budget', () => {
+    const reviewSkills = [
+      {
+        path: path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
+        markers: ['# Mega Plan Review Mode', '## Step 0: Detect platform and base branch'],
+      },
+      {
+        path: path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
+        markers: ['# Plan Review Mode'],
+      },
+    ];
+
+    // Plan skills carry the same preamble surface as other tier-≥2 skills
+    // (Brain Sync, Context Recovery, Routing Injection are load-bearing
+    // functionality, not optional). Budget is set to current size + small
+    // headroom; ratchet down if a future slim trims real bytes.
+    for (const skill of reviewSkills) {
+      const content = fs.readFileSync(skill.path, 'utf-8');
+      const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(33_000);
+    }
+  });
+
+  test('voice and writing-style preamble sections stay compact', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const voice = extractMarkdownSection(content, '## Voice');
+    const writingStyle = extractMarkdownSection(content, '## Writing Style');
+
+    expect(Buffer.byteLength(voice, 'utf-8')).toBeLessThan(3_000);
+    expect(Buffer.byteLength(writingStyle, 'utf-8')).toBeLessThan(2_000);
+  });
+
+  test('slim voice section preserves the gstack voice contract', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const voice = extractMarkdownSection(content, '## Voice');
+
+    expect(voice).toMatch(/lead with the point|direct/i);
+    expect(voice).toMatch(/file|function|line|command|real numbers/i);
+    expect(voice).toMatch(/user.*outcome|user.*experience|real user/i);
+    expect(voice).toMatch(/corporate|academic|PR|hype/i);
+    expect(voice).toMatch(/AI vocabulary|delve|crucial|robust/i);
+    expect(voice).toMatch(/user decides|user.*context|sovereignty|recommendation, not a decision/i);
   });
 
   test('preamble .pending-* glob is zsh-safe (uses find, not shell glob)', () => {
@@ -1986,13 +2059,13 @@ describe('Parameterized host smoke tests', () => {
         expect(skills.length).toBeGreaterThan(0);
       });
 
-      test('no .claude/skills path leakage in non-root skills', () => {
+      test('no .claude/skills path leakage outside repo-root sidecar symlinks', () => {
         if (!fs.existsSync(hostDir)) return; // skip if not generated
         const skills = fs.readdirSync(hostDir);
         for (const skill of skills) {
-          // Skip root gstack skill — it contains preamble with intentional .claude/skills
-          // fallback paths for binary lookup and skill prefix instructions
-          if (skill === 'gstack') continue;
+          // Dev installs may mount the repo root at host/skills/gstack as a runtime
+          // sidecar. The generator skips that symlink loop, so leakage checks should too.
+          if (isRepoRootSymlink(path.join(hostDir, skill))) continue;
           const skillMd = path.join(hostDir, skill, 'SKILL.md');
           if (!fs.existsSync(skillMd)) continue;
           const content = fs.readFileSync(skillMd, 'utf-8');

@@ -84,14 +84,25 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // Plan-mode smoke tests — gate-tier safety regression tests. Each fires when
   // any of: the interactive skill's template, the plan-mode resolver
-  // (completion-status now owns generatePlanModeInfo), preamble composition,
-  // the Agent SDK harness, or the shared plan-mode-helpers change.
-  'plan-ceo-review-plan-mode':    ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/plan-mode-helpers.ts'],
-  'plan-eng-review-plan-mode':    ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/plan-mode-helpers.ts'],
-  'plan-design-review-plan-mode': ['plan-design-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/plan-mode-helpers.ts'],
-  'plan-devex-review-plan-mode':  ['plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/plan-mode-helpers.ts'],
-  'plan-mode-no-op':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/plan-mode-helpers.ts'],
-  'e2e-harness-audit':            ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/plan-mode-helpers.ts'],
+  // (completion-status owns generatePlanModeInfo), preamble composition, or
+  // the real-PTY runner (which the tests now use instead of the SDK harness)
+  // change.
+  'plan-ceo-review-plan-mode':    ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-eng-review-plan-mode':    ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-design-review-plan-mode': ['plan-design-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-devex-review-plan-mode':  ['plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-mode-no-op':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+
+  // Real-PTY E2E batch (#6 new tests on the harness).
+  // Each one tests behavior the SDK harness can't observe (rendered TTY,
+  // numbered-option lists, multi-phase ordering, idempotency state echo).
+  'ask-user-question-format-pty':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-ceo-mode-routing':       ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-design-with-ui-scope':   ['plan-design-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
+  'budget-regression-pty':       ['test/helpers/eval-store.ts', 'test/skill-budget-regression.test.ts'],
+  'ship-idempotency-pty':        ['ship/**', 'bin/gstack-next-version', 'lib/worktree.ts', 'test/helpers/claude-pty-runner.ts'],
+  'autoplan-chain-pty':          ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
+  'e2e-harness-audit':            ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/claude-pty-runner.ts'],
   'brain-privacy-gate':           ['scripts/resolvers/preamble/generate-brain-sync-block.ts', 'scripts/resolvers/preamble.ts', 'bin/gstack-brain-sync', 'bin/gstack-brain-init', 'bin/gstack-config', 'test/helpers/agent-sdk-runner.ts'],
 
   // AskUserQuestion format regression (RECOMMENDATION + Completeness: N/10)
@@ -336,6 +347,16 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-devex-review-plan-mode': 'gate',
   'plan-mode-no-op': 'gate',
   'e2e-harness-audit': 'gate',
+
+  // Real-PTY E2E batch — tier classification:
+  //   gate: cheap, deterministic, run on every PR
+  //   periodic: long-running or expensive (>$3/run), run weekly
+  'ask-user-question-format-pty':            'gate',       // ~$0.50/run, single skill probe
+  'plan-ceo-mode-routing':     'periodic',   // ~$3/run, deep navigation through 8-12 prior AskUserQuestions
+  'plan-design-with-ui-scope': 'gate',       // ~$0.80/run
+  'budget-regression-pty':     'gate',       // free, library-only assertion
+  'ship-idempotency-pty':      'periodic',   // ~$3/run, real /ship in plan mode
+  'autoplan-chain-pty':        'periodic',   // ~$8/run, all 3 phases sequential
 
   // Privacy gate for gstack-brain-sync — periodic (non-deterministic LLM call,
   // costs ~$0.30-$0.50 per run, not needed on every commit)

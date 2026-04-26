@@ -15,6 +15,15 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const ROOT_REALPATH = fs.realpathSync(ROOT);
+
+function isRepoRootSymlink(candidateDir: string): boolean {
+  try {
+    return fs.realpathSync(candidateDir) === ROOT_REALPATH;
+  } catch {
+    return false;
+  }
+}
 
 // Find all SKILL.md files (dynamic discovery — no hardcoded list)
 const SKILL_FILES = discoverSkillFiles(ROOT);
@@ -91,7 +100,12 @@ for (const hostConfig of getExternalHosts()) {
     let count = 0;
     let missing = 0;
     for (const dir of dirs) {
-      const skillMd = path.join(hostDir, dir, 'SKILL.md');
+      const skillDir = path.join(hostDir, dir);
+      if (isRepoRootSymlink(skillDir)) {
+        console.log(`  -  ${dir.padEnd(30)} — sidecar symlink, skipped`);
+        continue;
+      }
+      const skillMd = path.join(skillDir, 'SKILL.md');
       if (fs.existsSync(skillMd)) {
         count++;
         const content = fs.readFileSync(skillMd, 'utf-8');
