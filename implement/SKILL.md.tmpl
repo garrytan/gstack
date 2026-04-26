@@ -73,7 +73,7 @@ For each phase in your living plan checklist (if in Reexamine Mode, audit ALL ph
 3. **Spawn Sonnet Review/Ship Sub-Agent**: After Gemini finishes writing the code, you MUST spawn a dedicated Sonnet sub-agent. Use the `Bash` tool to run `claude -m sonnet -p "<prompt>"`. The prompt must instruct the sub-agent to:
    - Use the `Bash` tool to run `claude -p "/codex review"` to get an independent code review. If there are UI changes, use the `Bash` tool to run `claude -m sonnet -p /qa`. **CRITICAL: Do NOT invoke the native `codex` or `qa` tools!**
    - Iteratively fix any bugs, lint errors, or review findings Codex discovers, re-running the bash commands until the codebase passes perfectly clean.
-   - Once the code is fully clean, use the `Bash` tool to run `claude -m sonnet -p /ship && claude -m sonnet -p /land-and-deploy` to automatically ship and deploy the phase's PR. **CRITICAL: Do NOT invoke the native `ship` tool!**
+   - Once the code is fully clean, use the `Bash` tool to run **EXACTLY**: `claude -m sonnet -p /ship && claude -m sonnet -p /land-and-deploy`. **CRITICAL: Do NOT substitute these skills with raw `gh pr create` or `gh pr merge` commands! You MUST use the GStack skills because they contain mandatory CI/CD safety gates.** Do NOT invoke the native `ship` tool!
 4. **Wait for Sonnet Completion**: Wait for the deployment bash command to finish.
 5. **Update Living Plan**: After the Sonnet sub-agent successfully ships the phase, use the `Edit` tool to modify the living plan and mark the step as completed (change `[ ]` to `[x]`).
 
