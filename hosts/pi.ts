@@ -47,6 +47,8 @@ const pi: HostConfig = {
     'Invoke the Skill tool': 'Read the skill file',
     'via the Skill tool': 'by reading the skill file',
     'ExitPlanMode': '/plan (toggle off)',
+    'Agent tool calls': 'subagent calls',
+    'foreground Agent tool': 'foreground subagent',
   },
 
   // Do NOT suppress — GBrain resolvers handle not-installed gracefully.
