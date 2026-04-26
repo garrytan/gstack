@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.16.1.0] - 2026-04-26
+## [1.18.0.0] - 2026-04-26
 
 ## **`browse screenshot` no longer bricks your session by capturing 3000px-tall PNGs.**
 
