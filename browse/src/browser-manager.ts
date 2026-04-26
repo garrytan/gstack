@@ -63,6 +63,12 @@ export class BrowserManager {
   // track the latest so context recreation restores it instead of hardcoding 1280x720.
   private deviceScaleFactor: number = 1;
   private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
+  // Whether the viewport is pinned to a fixed size (true) or follows the window
+  // (false). Launched mode starts pinned at 1280x720; headed mode starts unpinned
+  // (viewport: null in launchHeaded). `viewport auto` / `viewport reset` toggles
+  // back to unpinned. Tracked so recreateContext() can rebuild with the right
+  // viewport setting.
+  private viewportPinned: boolean = true;
 
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
@@ -817,7 +823,52 @@ export class BrowserManager {
   // ─── Viewport ──────────────────────────────────────────────
   async setViewport(width: number, height: number) {
     this.currentViewport = { width, height };
+    this.viewportPinned = true;
     await this.getPage().setViewportSize({ width, height });
+  }
+
+  /**
+   * Unpin the viewport so it follows the real window size again (#1059).
+   *
+   * Once `setViewport(w, h)` pins via `setViewportSize`, Playwright has no
+   * page-level API to restore window-following. The only fix is to rebuild
+   * the context with `viewport: null`.
+   *
+   * Modes:
+   *  - launched (headless): full `recreateContext()` with viewport:null.
+   *    Cookies/storage/URL are preserved via the standard save/restore path.
+   *  - headed (persistent context): `recreateContext()` is forbidden because
+   *    persistent contexts are tied to the user's Chrome window. Instead,
+   *    read the live window's innerWidth/innerHeight and resync the viewport
+   *    once. This is a snapshot, not true follow — re-call after a resize
+   *    if needed. Documented in the command help.
+   *
+   * Returns null on success, or an error string when the recreation fallback
+   * left the browser in a degraded state (parity with recreateContext).
+   */
+  async unpinViewport(): Promise<string | null> {
+    this.viewportPinned = false;
+    if (this.connectionMode === 'headed') {
+      // Headed: persistent context can't be rebuilt. Resync the viewport to
+      // the real window size as a one-shot. The viewport is still technically
+      // pinned in Playwright's eyes, but it now matches the window — which
+      // is what the user sees, and what they wanted.
+      try {
+        const dims = await this.getPage().evaluate(() => ({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }));
+        if (dims.width > 0 && dims.height > 0) {
+          this.currentViewport = { width: dims.width, height: dims.height };
+          await this.getPage().setViewportSize(dims);
+        }
+        return null;
+      } catch (err) {
+        return `Could not read window size: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    // Launched: full context rebuild with viewport:null restores true follow.
+    return await this.recreateContext();
   }
 
   // ─── Extra Headers ─────────────────────────────────────────
@@ -1018,11 +1069,17 @@ export class BrowserManager {
       this.tabSessions.clear();
       await this.context.close().catch(() => {});
 
-      // 3. Create new context with updated settings
-      const contextOptions: BrowserContextOptions = {
-        viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-        deviceScaleFactor: this.deviceScaleFactor,
-      };
+      // 3. Create new context with updated settings.
+      // When viewport is unpinned (null), deviceScaleFactor must be omitted —
+      // Playwright rejects DSF without an explicit viewport. The headed launch
+      // path uses the same constraint (launchPersistentContext with viewport:null
+      // sets no DSF). #1059
+      const contextOptions: BrowserContextOptions = this.viewportPinned
+        ? {
+            viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+            deviceScaleFactor: this.deviceScaleFactor,
+          }
+        : { viewport: null };
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
       }
@@ -1043,10 +1100,12 @@ export class BrowserManager {
         this.tabSessions.clear();
         if (this.context) await this.context.close().catch(() => {});
 
-        const contextOptions: BrowserContextOptions = {
-          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-          deviceScaleFactor: this.deviceScaleFactor,
-        };
+        const contextOptions: BrowserContextOptions = this.viewportPinned
+          ? {
+              viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+              deviceScaleFactor: this.deviceScaleFactor,
+            }
+          : { viewport: null };
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
         }

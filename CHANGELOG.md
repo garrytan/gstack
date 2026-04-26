@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.15.3.0] - 2026-04-26
+
+## **`browse viewport auto` unpins a fixed viewport without restarting Chrome.**
+
+If a skill called `$B viewport 1280x520` for responsive testing, the browser stayed locked at that size for the rest of the session — visibly smaller than the real Chrome window. The only escape used to be `browse restart`, which kills the Chrome session. New `browse viewport auto` (alias `reset`) rebuilds the context with `viewport: null` in launched mode, or resyncs to the live window in headed mode. Cookies, storage, and URLs are preserved.
+
+### What this means for you
+
+Drop `$B viewport auto` after any responsive-test sequence and the browser goes back to following the window. In headed mode (real Chrome via `/connect-chrome`), the unpin is a one-shot resync to the current window size — re-run after a resize if needed. The headed/launched difference is real (persistent contexts can't be rebuilt the same way) and the command help documents it.
+
+### The numbers that matter
+
+| Mode | Before | After |
+|---|---|---|
+| Launched (headless) | Locked at last `viewport WxH` until `browse restart` | `viewport auto` rebuilds context with `viewport: null`; cookies + storage preserved |
+| Headed (`/connect-chrome`) | Same lock; `browse restart` would drop the headed attachment | `viewport auto` resyncs once to `window.innerWidth/innerHeight`; tab/URL preserved |
+
+Reported by @markddyer in #1059 with a clean Windows 11 reproducer in both connection modes.
+
+### Itemized changes
+
+#### Added
+- `browse viewport auto` (alias `viewport reset`) — unpins a previously fixed viewport. (#1059)
+- `BrowserManager.unpinViewport()` — connection-mode-aware unpin. Returns null on success, error string on degraded fallback (parity with `recreateContext`).
+
+#### Fixed
+- `recreateContext()` now builds two distinct context-option shapes. With `viewport: null`, Playwright rejects `deviceScaleFactor`, so the unpinned path omits it (the existing headed-launch path already obeys this constraint).
+
+#### For contributors
+- New `viewportPinned: boolean` field on `BrowserManager` tracks whether the viewport is fixed. `setViewport(w, h)` sets it to true so re-pinning after auto works.
+- `--scale` plus `auto`/`reset` is rejected at the command parser — scale needs an explicit WxH to multiply.
+- 4 new tests in `browse/test/commands.test.ts` in a dedicated end-of-file describe block (context recreation renumbers tab IDs; the existing "tab switches to specific tab" test hardcodes tab 1).
+
 ## [1.14.0.0] - 2026-04-25
 
 ## **The gstack browser sidebar is now an interactive Claude Code REPL with live tab awareness.**

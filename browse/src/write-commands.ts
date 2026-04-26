@@ -497,7 +497,7 @@ export async function handleWriteCommand(
     }
 
     case 'viewport': {
-      // Parse args: [<WxH>] [--scale <n>]. Either may be omitted, but NOT both.
+      // Parse args: [<WxH> | auto | reset] [--scale <n>]. Either may be omitted, but NOT both.
       let sizeArg: string | undefined;
       let scaleArg: number | undefined;
       for (let i = 0; i < args.length; i++) {
@@ -516,12 +516,28 @@ export async function handleWriteCommand(
         } else if (sizeArg === undefined) {
           sizeArg = args[i];
         } else {
-          throw new Error(`Unexpected positional arg: ${args[i]}. Usage: viewport [WxH] [--scale <n>]`);
+          throw new Error(`Unexpected positional arg: ${args[i]}. Usage: viewport [WxH|auto|reset] [--scale <n>]`);
         }
       }
 
+      // `viewport auto` / `viewport reset` — unpin a previously fixed viewport (#1059).
+      // Skills that call `$B viewport WxH` for responsive checks would otherwise leave
+      // the browser locked at that size for the rest of the session.
+      if (sizeArg === 'auto' || sizeArg === 'reset') {
+        if (scaleArg !== undefined) {
+          throw new Error(`viewport ${sizeArg}: cannot combine with --scale (scale needs an explicit WxH).`);
+        }
+        const err = await bm.unpinViewport();
+        if (err) return `Viewport unpin partially failed: ${err}`;
+        if (bm.getConnectionMode() === 'headed') {
+          const v = bm.getCurrentViewport();
+          return `Viewport synced to current window size (${v.width}x${v.height}). Re-run \`viewport auto\` after resizing.`;
+        }
+        return 'Viewport unpinned — now follows window size (context recreated; refs and load-html content replayed).';
+      }
+
       if (sizeArg === undefined && scaleArg === undefined) {
-        throw new Error('Usage: browse viewport [<WxH>] [--scale <n>]  (e.g. 375x812, or --scale 2 to keep current size)');
+        throw new Error('Usage: browse viewport [<WxH>|auto|reset] [--scale <n>]  (e.g. 375x812, auto to unpin, or --scale 2 to keep current size)');
       }
 
       // Resolve width/height: either from sizeArg or from current viewport if --scale-only.

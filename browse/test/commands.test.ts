@@ -331,6 +331,15 @@ describe('Interaction', () => {
     await handleWriteCommand('viewport', ['1280x720'], bm);
   });
 
+  test('viewport auto rejects --scale combination', async () => {
+    try {
+      await handleWriteCommand('viewport', ['auto', '--scale', '2'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('cannot combine with --scale');
+    }
+  });
+
   test('type and press work', async () => {
     await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
     await handleWriteCommand('click', ['#name'], bm);
@@ -2423,5 +2432,52 @@ describe('Command aliases', () => {
   test('set-content (hyphenated) alias also routes', async () => {
     const result = await handleMetaCommand('chain', [JSON.stringify([['set-content', aliasFix]])], bm, async () => {});
     expect(result).toContain('Loaded HTML:');
+  });
+});
+
+// ─── viewport auto / reset (#1059) ─────────────────────────────────
+//
+// These tests rebuild the browser context, which renumbers tab IDs and
+// invalidates earlier locator refs. Run them last so they don't disturb
+// the rest of the suite (Tabs > "tab switches to specific tab" hardcodes
+// tab id 1, which gets gone after a recreate).
+describe('viewport auto / reset (#1059)', () => {
+  test('viewport auto unpins a fixed size', async () => {
+    // Pin to a non-default size, unpin via `viewport auto`, then re-pin to
+    // a different size. The re-pin must take effect — confirms the previous
+    // pin didn't survive the unpin.
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleWriteCommand('viewport', ['400x600'], bm);
+    let size = await handleReadCommand('js', ['`${window.innerWidth}x${window.innerHeight}`'], bm);
+    expect(size).toBe('400x600');
+
+    const result = await handleWriteCommand('viewport', ['auto'], bm);
+    expect(result.toLowerCase()).toMatch(/unpin|sync/);
+
+    await handleWriteCommand('viewport', ['800x600'], bm);
+    size = await handleReadCommand('js', ['`${window.innerWidth}x${window.innerHeight}`'], bm);
+    expect(size).toBe('800x600');
+  });
+
+  test('viewport reset is an alias for auto', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleWriteCommand('viewport', ['400x600'], bm);
+    const result = await handleWriteCommand('viewport', ['reset'], bm);
+    expect(result.toLowerCase()).toMatch(/unpin|sync/);
+  });
+
+  test('viewport auto preserves cookies across context recreation', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleWriteCommand('cookie', ['gstack_test=preserved'], bm);
+    const before = await handleReadCommand('cookies', [], bm);
+    expect(before).toContain('gstack_test');
+
+    await handleWriteCommand('viewport', ['400x600'], bm);
+    await handleWriteCommand('viewport', ['auto'], bm);
+
+    const after = await handleReadCommand('cookies', [], bm);
+    expect(after).toContain('gstack_test');
+    // No cleanup needed: this describe runs last, cookie tests upstream
+    // already finished.
   });
 });
