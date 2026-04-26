@@ -1,10 +1,16 @@
 /**
- * Generate UI mockups via OpenAI Responses API with image_generation tool.
+ * Generate UI mockups via OpenAI GPT Image 1.5 or Google Gemini Nano Banana 2.
+ *
+ * Provider selection:
+ * - openai: GPT Image 1.5 via Images API (best text rendering for UI mockups)
+ * - gemini: Gemini 3.1 Flash Image via generateContent (fast, good quality, cheaper)
+ *
+ * See auth.ts for provider resolution order.
  */
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { requireProvider, type Provider } from "./auth";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
@@ -27,10 +33,10 @@ export interface GenerateResult {
 }
 
 /**
- * Call OpenAI Responses API with image_generation tool.
- * Returns the response ID and base64 image data.
+ * Call OpenAI Images API with GPT Image 1.5.
+ * Upgraded from gpt-4o Responses API to dedicated image model.
  */
-async function callImageGeneration(
+async function callOpenAIImageGeneration(
   apiKey: string,
   prompt: string,
   size: string,
@@ -40,20 +46,19 @@ async function callImageGeneration(
   const timeout = setTimeout(() => controller.abort(), 120_000);
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
-        input: prompt,
-        tools: [{
-          type: "image_generation",
-          size,
-          quality,
-        }],
+        model: "gpt-image-1",
+        prompt,
+        n: 1,
+        size: size === "1536x1024" ? "1536x1024" : size,
+        quality: quality === "high" ? "high" : "medium",
+        output_format: "png",
       }),
       signal: controller.signal,
     });
@@ -67,24 +72,20 @@ async function callImageGeneration(
           + "After verification, wait up to 15 minutes for access to propagate.",
         );
       }
-      throw new Error(`API error (${response.status}): ${error.slice(0, 200)}`);
+      throw new Error(`OpenAI API error (${response.status}): ${error.slice(0, 200)}`);
     }
 
     const data = await response.json() as any;
+    // GPT Image models always return base64. Check both b64_json (DALL-E format) and b64 (GPT Image format).
+    const imageData = data.data?.[0]?.b64_json || data.data?.[0]?.b64;
 
-    const imageItem = data.output?.find((item: any) =>
-      item.type === "image_generation_call"
-    );
-
-    if (!imageItem?.result) {
-      throw new Error(
-        `No image data in response. Output types: ${data.output?.map((o: any) => o.type).join(", ") || "none"}`
-      );
+    if (!imageData) {
+      throw new Error(`No image data in OpenAI response. Keys: ${JSON.stringify(Object.keys(data.data?.[0] || {}))}`);
     }
 
     return {
-      responseId: data.id,
-      imageData: imageItem.result,
+      responseId: data.created?.toString() || "openai-" + Date.now(),
+      imageData,
     };
   } finally {
     clearTimeout(timeout);
@@ -92,10 +93,77 @@ async function callImageGeneration(
 }
 
 /**
+ * Call Google Gemini API with Nano Banana 2 (Gemini 3.1 Flash Image).
+ */
+async function callGeminiImageGeneration(
+  apiKey: string,
+  prompt: string,
+): Promise<{ responseId: string; imageData: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+
+  try {
+    const model = "gemini-2.0-flash-exp";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }],
+        }],
+        generationConfig: {
+          responseModalities: ["TEXT", "IMAGE"],
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Gemini API error (${response.status}): ${error.slice(0, 200)}`);
+    }
+
+    const data = await response.json() as any;
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith("image/"));
+
+    if (!imagePart?.inlineData?.data) {
+      throw new Error("No image data in Gemini response.");
+    }
+
+    return {
+      responseId: "gemini-" + Date.now(),
+      imageData: imagePart.inlineData.data,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Route to the correct provider.
+ */
+async function callImageGeneration(
+  provider: Provider,
+  apiKey: string,
+  prompt: string,
+  size: string,
+  quality: string,
+): Promise<{ responseId: string; imageData: string }> {
+  if (provider === "gemini") {
+    return callGeminiImageGeneration(apiKey, prompt);
+  }
+  return callOpenAIImageGeneration(apiKey, prompt, size, quality);
+}
+
+/**
  * Generate a single mockup from a brief.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
-  const apiKey = requireApiKey();
+  const { provider, apiKey } = requireProvider();
+  console.error(`Using provider: ${provider}`);
 
   // Parse the brief
   const prompt = options.briefFile
@@ -115,7 +183,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
 
     // Generate the image
     const startTime = Date.now();
-    const { responseId, imageData } = await callImageGeneration(apiKey, prompt, size, quality);
+    const { responseId, imageData } = await callImageGeneration(provider, apiKey, prompt, size, quality);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
     // Write to disk
