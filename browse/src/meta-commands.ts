@@ -18,6 +18,49 @@ import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
 
+/**
+ * Read PNG dimensions from the IHDR chunk. Returns null if the input is not
+ * a valid PNG (signature mismatch). The IHDR chunk follows the 8-byte PNG
+ * signature: 4-byte length, 4-byte "IHDR" type, 4-byte width, 4-byte height,
+ * each big-endian. We only need width/height, at offsets 16 and 20.
+ */
+function readPngDimensions(input: Buffer | string): { width: number; height: number } | null {
+  let buf: Buffer;
+  if (typeof input === 'string') {
+    try {
+      const fd = fs.openSync(input, 'r');
+      buf = Buffer.alloc(24);
+      fs.readSync(fd, buf, 0, 24, 0);
+      fs.closeSync(fd);
+    } catch {
+      return null;
+    }
+  } else {
+    buf = input;
+  }
+  if (buf.length < 24) return null;
+  // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+  if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4E || buf[3] !== 0x47) return null;
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+/** Anthropic vision API rejects images with any side > 2000px in many-image
+ *  requests. We warn at 1800 to leave headroom. The screenshot still saves —
+ *  the warning just tells the agent to expect breakage downstream. */
+const SCREENSHOT_DIMENSION_WARN_PX = 1800;
+
+function warnIfOversize(input: Buffer | string) {
+  const dims = readPngDimensions(input);
+  if (!dims) return;
+  if (dims.width > SCREENSHOT_DIMENSION_WARN_PX || dims.height > SCREENSHOT_DIMENSION_WARN_PX) {
+    console.warn(
+      `[browse] warning: full-page screenshot is ${dims.width}x${dims.height}px — ` +
+      `exceeds ~2000px Anthropic vision API limit. ` +
+      `Consider --viewport (default), --clip x,y,w,h, or --selector for a smaller capture.`
+    );
+  }
+}
+
 /** Tokenize a pipe segment respecting double-quoted strings. */
 function tokenizePipeSegment(segment: string): string[] {
   const tokens: string[] = [];
@@ -419,19 +462,28 @@ export async function handleMetaCommand(
 
     // ─── Visual ────────────────────────────────────────
     case 'screenshot': {
-      // Parse priority: flags (--viewport, --clip, --base64) → selector (@ref, CSS) → output path
+      // Parse priority: flags (--viewport, --full-page, --clip, --base64) → selector (@ref, CSS) → output path
+      //
+      // Default is viewport-only. `--full-page` opts in. The previous default
+      // was fullPage:true, which silently produced PNGs taller than 2000px on
+      // long pages, exceeding the Anthropic vision API limit and bricking
+      // sessions when the agent later tried to Read the file (#1214). Matches
+      // Playwright's own page.screenshot() default of fullPage:false.
+      // `--viewport` is kept as a back-compat no-op alias for the new default.
       const page = bm.getPage();
       let outputPath = `${TEMP_DIR}/browse-screenshot.png`;
       let clipRect: { x: number; y: number; width: number; height: number } | undefined;
       let targetSelector: string | undefined;
-      let viewportOnly = false;
+      let fullPage = false;
       let base64Mode = false;
 
       const remaining: string[] = [];
       let flagSelector: string | undefined;
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--viewport') {
-          viewportOnly = true;
+          // Back-compat: --viewport is the new default. Accept silently.
+        } else if (args[i] === '--full-page') {
+          fullPage = true;
         } else if (args[i] === '--base64') {
           base64Mode = true;
         } else if (args[i] === '--selector') {
@@ -477,8 +529,11 @@ export async function handleMetaCommand(
       if (clipRect && targetSelector) {
         throw new Error('Cannot use --clip with a selector/ref — choose one');
       }
-      if (viewportOnly && clipRect) {
-        throw new Error('Cannot use --viewport with --clip — choose one');
+      if (fullPage && clipRect) {
+        throw new Error('Cannot use --full-page with --clip — choose one');
+      }
+      if (fullPage && targetSelector) {
+        throw new Error('Cannot use --full-page with a selector/ref — choose one');
       }
 
       // --base64 mode: capture to buffer instead of disk
@@ -491,7 +546,8 @@ export async function handleMetaCommand(
         } else if (clipRect) {
           buffer = await page.screenshot({ clip: clipRect });
         } else {
-          buffer = await page.screenshot({ fullPage: !viewportOnly });
+          buffer = await page.screenshot({ fullPage });
+          if (fullPage) warnIfOversize(buffer);
         }
         if (buffer.length > 10 * 1024 * 1024) {
           throw new Error('Screenshot too large for --base64 (>10MB). Use disk path instead.');
@@ -511,8 +567,9 @@ export async function handleMetaCommand(
         return `Screenshot saved (clip ${clipRect.x},${clipRect.y},${clipRect.width},${clipRect.height}): ${outputPath}`;
       }
 
-      await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
-      return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
+      await page.screenshot({ path: outputPath, fullPage });
+      if (fullPage) warnIfOversize(outputPath);
+      return `Screenshot saved${fullPage ? ' (full-page)' : ''}: ${outputPath}`;
     }
 
     case 'pdf': {
