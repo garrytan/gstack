@@ -1096,8 +1096,9 @@ Do NOT stop to ask the user for permission between phases unless a sub-agent fai
 Once all phases are complete:
 1. Verify the code compiles and passes tests.
 2. Ensure all changes are committed to your feature branch.
-3. You MUST automatically invoke the full deployment pipeline. To do this, use the `Bash` tool to execute: `claude -m sonnet -p /ship && claude -m sonnet -p /land-and-deploy`. Do NOT ask the user for permission—just run the bash command immediately.
-4. Report the completion to the user: summarize what you built, what tests were run, and confirm the merge/deployment status.
+3. **Sync Status**: Use the `Edit` tool to update the execution status in the *original* plan file (the one you located in Step 1). Synchronize all the `[x]` completion marks from your synthesized living plan back to the original plan.
+4. You MUST automatically invoke the full deployment pipeline. To do this, use the `Bash` tool to execute: `claude -m sonnet -p /ship && claude -m sonnet -p /land-and-deploy`. Do NOT ask the user for permission—just run the bash command immediately.
+5. Report the completion to the user: summarize what you built, what tests were run, and confirm the merge/deployment status.
 
 **Rules:**
 - **Autonomous Continuity**: Do NOT ask for the user's confirmation to proceed between steps, phases, or loops unless you are critically blocked. Just narrate your current state and keep moving.
