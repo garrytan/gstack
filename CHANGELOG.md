@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.16.0.0] - 2026-04-26
+
+## **`/env-check` is the pre-flight every gstack project deserved.**
+
+Env var drift is the quiet bug that breaks deploys: a new `process.env.X` nobody added to `.env.example`, an API key that drifted into a tracked file, a stale example file your teammate clones tomorrow. None of it shows up in tests. `/cso` catches it eventually, but `/cso` is the deep audit, not the pre-flight. New `/env-check` is the 5-second pre-flight you run before `/ship`.
+
+### What this means for you
+
+Type `/env-check` before pushing. Three sections come back: Drift (what's missing between `.env.example` and `.env`), Undocumented References (what code reads but `.env.example` doesn't list), Hardcoded Secrets (what's leaked into tracked source). One verdict at the bottom: SHIP-READY, NEEDS REVIEW, or DO NOT SHIP. Read-only. No edits, no gate — just the teammate-asking-a-question pre-flight.
+
+### The numbers that matter
+
+| Metric | Value |
+|---|---|
+| Steps in the skill | 4 (detect + drift + refs + secrets) |
+| Stacks covered for env-var-reference scan | Node/TS, Deno, Python, Ruby, Go, Rust, .NET, JVM, shell |
+| Secret patterns scanned | OpenAI, Anthropic, GitHub PAT/OAuth/App/fine-grained, AWS access keys, Slack tokens, Stripe live + test, Google API, JWT, postgres/mongo/mysql/redis URLs with creds, RSA/EC/DSA/OpenSSH private keys |
+| FP rules built in | runtime-provided keys (NODE_ENV, CI/*, cloud auto-injected), public-by-design prefixes (NEXT_PUBLIC_*, VITE_*, PUBLIC_*), placeholders in example files, test fixtures |
+| Modes | full, `--drift`, `--refs`, `--secrets`, `--diff` (combinable) |
+
+Reported by @tashonna-labs in #1106. The persona ("the teammate who reads a PR and asks: did you add this to `.env.example`?") is derived from the issue's framing — "quiet problems that bites you at deployment time", "run before /ship to catch ... before they reach CI." Tone is calm and informational, not alarmist; CRITICAL is reserved for the actual deploy-breaking case (hardcoded secret in tracked source).
+
+`/cso` still does the deep work: git-history secret archaeology, dependency CVEs, OWASP, threat modeling. `/env-check` is what you run every PR; `/cso` is what you run weekly. Different jobs.
+
+### Itemized changes
+
+#### Added
+- New `/env-check` skill — pre-ship env var sanity check. Compares `.env.example` against `.env`, flags env vars referenced in code but missing from `.env.example`, scans tracked source for hardcoded secrets. (#1106)
+- Mode flags: `--drift` (only example/env comparison), `--refs` (only orphaned references), `--secrets` (only hardcoded scan), `--diff` (only files changed on this branch, combinable).
+- Voice triggers: "env check", "check the env", "env audit", "check env vars".
+
+#### For contributors
+- Auto-discovered by `discoverTemplates` in `scripts/discover-skills.ts` — no `setup` script wiring needed beyond dropping `env-check/SKILL.md.tmpl`.
+- Bisected commits: template separate from regenerated `SKILL.md`. The `SKILL.md` is generated for all hosts via `bun run gen:skill-docs --host all` (which `bun run build` invokes).
+
 ## [1.14.0.0] - 2026-04-25
 
 ## **The gstack browser sidebar is now an interactive Claude Code REPL with live tab awareness.**
