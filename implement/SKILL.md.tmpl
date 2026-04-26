@@ -64,28 +64,26 @@ Because this is a long-running skill, your context window will eventually become
 
 For each phase in your living plan checklist (if in Reexamine Mode, audit ALL phases regardless of `[x]` status):
 **Narrate Your State:** Before starting each phase, explicitly tell the user your current state (e.g., "Implementing Phase 1 via sub-agent...", "Spawning sub-agent for Phase 2...").
-1. **Spawn Sub-Agent**: You MUST spawn the execution sub-agent using the **Gemini** model. Use the `Bash` tool to run `claude -m gemini -p "<prompt>"` to handle the current phase. The prompt must include:
+1. **Spawn Gemini Execution Sub-Agent**: You MUST spawn the execution sub-agent using the **Gemini** model. Use the `Bash` tool to run `claude -m gemini -p "<prompt>"` to handle the current phase. The prompt must include:
    - The exact goal and phase checklist from the living plan.
-   - Instructions to Build, Verify, and Self-Review the code for this specific phase. You MUST autonomously invoke the `/review` skill via the `Bash` tool (e.g., `claude -m sonnet -p /review`) to self-review your code. If your phase includes UI changes, you MUST also invoke the `/qa` skill (e.g., `claude -m sonnet -p /qa`) to verify the UI. If `/review` or `/qa` report any issues, you MUST iteratively fix them and re-run the skills until they pass cleanly.
-   - Instructions: If the project uses GitHub CI/CD actions, make sure all your actions/checks are green. If not, fix the issues and check iteratively until they pass.
-   - The strict **Model Routing Discipline**: Gemini for coding, Sonnet for code reviews/bugs. If you face ambiguous issues or multiple choices for a fix, you MUST autonomously dispatch the problem to Opus and Codex via the `Bash` tool (e.g., `claude -m opus -p /claude` and `claude -p /codex`) to debate and reach a consensus.
-   - Instructions to fail forward and only return to you when the phase passes tests/CI or if it is critically blocked.
-2. **Wait for Completion**: The Gemini sub-agent will run in the shell (analyzing, building, testing, reviewing). You just wait for the bash command to finish.
-3. **Update Living Plan**: After the Gemini sub-agent successfully completes the phase, use the `Edit` tool to modify the living plan and mark the step as completed (change `[ ]` to `[x]`).
+   - Instructions to Build and Verify the code for this specific phase.
+   - Instructions: If the project uses GitHub CI/CD actions, make sure all your actions/checks are green.
+   - Instructions to fail forward and only return to you when the code is written. (Do NOT instruct Gemini to run /review or /ship).
+2. **Wait for Gemini Completion**: The Gemini sub-agent will run in the shell. You just wait for the bash command to finish.
+3. **Spawn Sonnet Review/Ship Sub-Agent**: After Gemini finishes writing the code, you MUST spawn a dedicated Sonnet sub-agent. Use the `Bash` tool to run `claude -m sonnet -p "<prompt>"`. The prompt must instruct the sub-agent to:
+   - Autonomously run the `/review` skill, and if there are UI changes, the `/qa` skill.
+   - Iteratively fix any bugs, lint errors, or review findings it discovers, re-running the skills until the codebase passes perfectly clean.
+   - Once the code is fully clean, run `claude -m sonnet -p /ship && claude -m sonnet -p /land-and-deploy` to automatically ship and deploy the phase's PR.
+4. **Wait for Sonnet Completion**: Wait for the deployment bash command to finish.
+5. **Update Living Plan**: After the Sonnet sub-agent successfully ships the phase, use the `Edit` tool to modify the living plan and mark the step as completed (change `[ ]` to `[x]`).
 
 Do NOT stop to ask the user for permission between phases unless a sub-agent fails catastrophically or hits a safety constraint. Keep the loop going.
 
-## Step 3: Completion and Deployment
+## Step 3: Completion
 
 Once all phases are complete:
-1. Verify the code compiles and passes tests.
-2. Ensure all changes are committed to your feature branch.
-3. **Sync Status**: Use the `Edit` tool to update the execution status in the *original* plan file (the one you located in Step 1). Synchronize all the `[x]` completion marks from your synthesized living plan back to the original plan.
-4. **Final Review & Deployment**: You MUST spawn a dedicated Sonnet sub-agent to handle the final QA and deployment. Use the `Bash` tool to run `claude -m sonnet -p "<prompt>"`. The prompt must instruct the sub-agent to:
-   - Autonomously run the `/review` skill, and if there are UI changes, the `/qa` skill.
-   - Iteratively fix any bugs, lint errors, or review findings it discovers, re-running the skills until the codebase passes perfectly clean.
-   - Once the code is fully clean, run `claude -m sonnet -p /ship && claude -m sonnet -p /land-and-deploy` to automatically ship and deploy the PR.
-5. Report the completion to the user: summarize what you built, what tests were run, and confirm the merge/deployment status.
+1. **Sync Status**: Use the `Edit` tool to update the execution status in the *original* plan file (the one you located in Step 1). Synchronize all the `[x]` completion marks from your synthesized living plan back to the original plan.
+2. Report the completion to the user: summarize what you built and confirm that all phases have been shipped and deployed successfully.
 
 **Rules:**
 - **Autonomous Continuity**: Do NOT ask for the user's confirmation to proceed between steps, phases, or loops unless you are critically blocked. Just narrate your current state and keep moving.
