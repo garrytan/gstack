@@ -43,7 +43,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, pi, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -79,6 +79,22 @@ case "$HOST" in
     echo "  2. Or generate artifacts: bun run gen:skill-docs --host hermes"
     echo ""
     exit 0 ;;
+  pi)
+    echo ""
+    echo "Pi uses a companion installer that generates skills, installs a"
+    echo "Pi extension (slash commands, plan mode, ask_user), and symlinks"
+    echo "everything into ~/.pi/agent/skills/."
+    echo ""
+    echo "Install:"
+    echo "  git clone https://github.com/qwadratic/pi-gstack.git ~/pi-gstack"
+    echo "  cd ~/pi-gstack && bun install && bun run install-skills"
+    echo ""
+    echo "Update:"
+    echo "  cd ~/pi-gstack && bun run sync"
+    echo ""
+    echo "See: https://github.com/qwadratic/pi-gstack"
+    echo ""
+    exit 0 ;;
   gbrain)
     echo ""
     echo "GBrain is a mod for gstack — it makes coding skills brain-aware."
@@ -91,7 +107,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, pi, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
