@@ -49,6 +49,7 @@ const pi: HostConfig = {
     'ExitPlanMode': '/plan (toggle off)',
     'Agent tool calls': 'subagent calls',
     'foreground Agent tool': 'foreground subagent',
+    'subagent_type: "general-purpose"': 'agent: "worker"',
   },
 
   // Do NOT suppress — GBrain resolvers handle not-installed gracefully.
