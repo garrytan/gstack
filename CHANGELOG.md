@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.7.0] - 2026-04-26 — Fork Management
+
+Upstream merges are now agent-delegatable. A manifest documents every intentional divergence from upstream gstack, and a verification script catches banned content re-introductions automatically.
+
+### Added
+
+- **`FORK_MANIFEST.md`.** Declarative spec of every nstack divergence from upstream: what was added, removed, modified, and why. Includes conflict resolution strategies, banned pattern definitions, a watch list for upstream skill name collisions, and a step-by-step merge checklist. Any Claude Code agent can read this file and perform a correct upstream merge without prior knowledge.
+- **`bin/verify-fork-integrity`.** Post-merge verification script. Checks custom skill directories, resolver exports, banned YC/promotional patterns (grep -F), SKILL.md regeneration, and test suite. Run-all-and-report semantics with PASS/FAIL per check. Supports `--self-test`, `--help`, and `--skip=CHECK_NAME` flags.
+- **Fork Management section in CLAUDE.md** pointing agents to the manifest and verification script.
+
 ## [0.16.6.1] - 2026-04-13
 
 ### Changed
