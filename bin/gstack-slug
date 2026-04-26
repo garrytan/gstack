@@ -2,6 +2,14 @@
 # gstack-slug — output project slug and sanitized branch name
 # Usage: eval "$(gstack-slug)"  → sets SLUG and BRANCH variables
 # Or:    gstack-slug            → prints SLUG=... and BRANCH=... lines
+#        gstack-slug --reset    → clears the cached slug for $PWD
+#
+# Per-project override: a `.gstack-slug` file in $PWD (one line, sanitized)
+# is used verbatim and skips all inference. Survives gstack-upgrade.
+#
+# Subdir guard: if $PWD is not the git toplevel (i.e. PWD lives inside a
+# parent repo), the parent's `origin` is NOT inherited. Falls through to
+# `.gstack-slug` or basename, preventing cross-project contamination.
 #
 # Security: output is sanitized to [a-zA-Z0-9._-] only, preventing
 # shell injection when consumed via source or eval.
@@ -13,25 +21,43 @@ PROJECT_DIR="$(pwd)"
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
 
+# 0. --reset: clear the cache entry for this PWD and exit
+if [[ "${1:-}" == "--reset" ]]; then
+  rm -f "$CACHE_FILE" 2>/dev/null || true
+  echo "Reset slug cache for $PROJECT_DIR" >&2
+  exit 0
+fi
+
 # 1. Try cached slug first (guarantees consistency across sessions)
 if [[ -f "$CACHE_FILE" ]]; then
   SLUG=$(cat "$CACHE_FILE")
 fi
 
-# 2. If no cache, compute from git remote (separated from pipeline to avoid
-#    pipefail swallowing the error and producing an empty slug)
+# 2. Per-project override: .gstack-slug in PWD wins over git inference.
+#    Sanitized identically to the rest of the pipeline.
+if [[ -z "${SLUG:-}" && -f "$PROJECT_DIR/.gstack-slug" ]]; then
+  RAW_SLUG=$(head -n 1 "$PROJECT_DIR/.gstack-slug" 2>/dev/null || echo "")
+  SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+fi
+
+# 3. If no cache and no override, compute from git remote — but only when
+#    PWD is the git toplevel. Subdirs of an outer repo would otherwise
+#    inherit the outer's slug and silently contaminate `~/.gstack/projects/`.
 if [[ -z "${SLUG:-}" ]]; then
-  REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
-  if [[ -n "$REMOTE_URL" ]]; then
-    RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-    SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+  TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || TOPLEVEL=""
+  if [[ -n "$TOPLEVEL" && "$TOPLEVEL" == "$PROJECT_DIR" ]]; then
+    REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
+    if [[ -n "$REMOTE_URL" ]]; then
+      RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+      SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+    fi
   fi
 fi
 
-# 3. Fallback to basename only when there's truly no git remote configured
+# 4. Fallback to basename when no remote, no override, or PWD is a subdir.
 SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
 
-# 4. Cache the slug for future sessions (atomic write, fail silently)
+# 5. Cache the slug for future sessions (atomic write, fail silently)
 if [[ -n "$SLUG" ]]; then
   mkdir -p "$CACHE_DIR" 2>/dev/null || true
   CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
