@@ -1,0 +1,447 @@
+#!/usr/bin/env bash
+# gstack-gbrain-supabase-provision — Supabase Management API wrapper for
+# /setup-gbrain path 2a (auto-provision).
+#
+# Subcommands:
+#   list-orgs
+#     GET /v1/organizations. Output: {"orgs": [{"slug","name"}, ...]}
+#
+#   create <name> <region> <org-slug>
+#     POST /v1/projects with {name, db_pass, organization_slug, region}.
+#     db_pass must be in the DB_PASS env var (never argv — D8 grep test
+#     enforces this). Output: {"ref","name","region","organization_slug","status"}.
+#
+#     NOTE: does NOT send a `plan` field. Per verified Supabase Management
+#     API OpenAPI, the `plan` field is now deprecated at the project level
+#     — subscription tier is an org-level decision (D17 updated).
+#
+#   wait <ref> [--timeout <seconds>]
+#     Poll GET /v1/projects/{ref} every 5s until status=ACTIVE_HEALTHY,
+#     or fail on terminal states (INIT_FAILED, REMOVED). Default timeout
+#     180s. Output on success: {"ref","status","elapsed_s"}.
+#
+#   pooler-url <ref>
+#     GET /v1/projects/{ref}/config/database/pooler, construct the full
+#     Session Pooler URL using DB_PASS from env (the API response's
+#     connection_string is typically templated [PASSWORD] rather than the
+#     real value — we build from db_user/db_host/db_port/db_name instead).
+#     Output: {"ref","pooler_url"}.
+#
+#   list-orphans [--name-prefix <str>]
+#     GET /v1/projects. Filter to projects whose name starts with --name-prefix
+#     (default "gbrain") AND whose ref does NOT match the one in the local
+#     active ~/.gbrain/config.json pooler URL. Those are the gbrain-shaped
+#     projects that aren't pointed at by a working local config — candidates
+#     for /setup-gbrain --cleanup-orphans.
+#     Output: {"active_ref","orphans":[{"ref","name","created_at","region"}, ...]}.
+#
+#   delete-project <ref>
+#     DELETE /v1/projects/{ref}. Destructive, one-way — callers must
+#     double-confirm before invoking. This bin performs NO confirmation
+#     prompt; the skill's UI layer owns that responsibility.
+#     Output: {"deleted_ref"}.
+#
+# Secrets discipline (D8, D10, D11):
+#   - SUPABASE_ACCESS_TOKEN is read from env; never accepted as argv.
+#   - DB_PASS (for `create` and `pooler-url`) is read from env; never argv.
+#   - Forbidden strings (enforced by skill-validation grep test):
+#       --insecure, -k (curl), NODE_TLS_REJECT_UNAUTHORIZED
+#   - `set +x` default — debug mode requires explicit opt-in around
+#     non-secret lines.
+#
+# Env:
+#   SUPABASE_ACCESS_TOKEN — PAT for auth (required on all subcommands)
+#   DB_PASS               — database password (required for create + pooler-url)
+#   SUPABASE_API_BASE     — override the API host (tests point this at a
+#                           local mock server). Default: https://api.supabase.com
+#
+# Exit codes:
+#   0 — success
+#   2 — usage / invalid input
+#   3 — auth failure (401/403) — retry with fresh PAT
+#   4 — quota / billing (402) — user action needed
+#   5 — conflict (409) — duplicate name, user action needed
+#   6 — timeout (wait subcommand hit its deadline)
+#   7 — terminal failure state from Supabase (INIT_FAILED, REMOVED)
+#   8 — network / 5xx after retries
+set +x  # Defensive: never trace secrets in this helper.
+set -euo pipefail
+
+SUPABASE_API_BASE="${SUPABASE_API_BASE:-https://api.supabase.com}"
+API_VERSION="v1"
+DEFAULT_WAIT_TIMEOUT=180
+POLL_INTERVAL=5
+CURL_TIMEOUT=30
+
+die()     { echo "gstack-gbrain-supabase-provision: $*" >&2; exit 2; }
+die_auth() { echo "gstack-gbrain-supabase-provision: $*" >&2; exit 3; }
+die_quota(){ echo "gstack-gbrain-supabase-provision: $*" >&2; exit 4; }
+die_conflict(){ echo "gstack-gbrain-supabase-provision: $*" >&2; exit 5; }
+die_net() { echo "gstack-gbrain-supabase-provision: $*" >&2; exit 8; }
+
+require_jq() {
+  command -v jq >/dev/null 2>&1 || die "jq is required. Install with: brew install jq"
+}
+require_curl() {
+  command -v curl >/dev/null 2>&1 || die "curl is required"
+}
+
+require_pat() {
+  if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+    die_auth "SUPABASE_ACCESS_TOKEN is not set. Generate a PAT at https://supabase.com/dashboard/account/tokens"
+  fi
+}
+
+require_db_pass() {
+  if [ -z "${DB_PASS:-}" ]; then
+    die "DB_PASS env var is required (never passed as argv — that leaks via ps/history)"
+  fi
+}
+
+# api_call <method> <path> [<json-body-file>]
+# Handles: 401/403 → exit 3, 402 → 4, 409 → 5, 429 + 5xx → retry w/
+# exponential backoff up to 3 attempts. Returns the response body on
+# stdout and HTTP status on an internal variable via a pipe trick.
+#
+# Because bash lacks multi-value returns, we write response body to a
+# tmpfile + status to another tmpfile and the caller reads them.
+api_call() {
+  local method="$1"
+  local apipath="$2"
+  local body_file="${3:-}"
+
+  local url="$SUPABASE_API_BASE/$API_VERSION/$apipath"
+  local body_tmp
+  body_tmp=$(mktemp)
+  local status_tmp
+  status_tmp=$(mktemp)
+  # shellcheck disable=SC2064
+  trap "rm -f '$body_tmp' '$status_tmp'" RETURN
+
+  local attempt=0
+  local max_attempts=3
+  local backoff=2
+  while : ; do
+    attempt=$((attempt + 1))
+    local curl_args=(
+      --silent
+      --show-error
+      --max-time "$CURL_TIMEOUT"
+      -o "$body_tmp"
+      -w "%{http_code}"
+      -X "$method"
+      -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+      -H "Accept: application/json"
+      -H "Content-Type: application/json"
+      -H "User-Agent: gstack-gbrain-supabase-provision"
+    )
+    if [ -n "$body_file" ]; then
+      curl_args+=(--data-binary "@$body_file")
+    fi
+    local status
+    if ! status=$(curl "${curl_args[@]}" "$url" 2>/dev/null); then
+      # curl itself failed (network, timeout, etc.). Retry.
+      if [ "$attempt" -ge "$max_attempts" ]; then
+        die_net "network failure calling $method $apipath after $attempt attempts"
+      fi
+      sleep "$backoff"
+      backoff=$((backoff * 2))
+      continue
+    fi
+
+    case "$status" in
+      2??)
+        cat "$body_tmp"
+        printf '%s' "$status" > "$status_tmp"
+        return 0
+        ;;
+      401)
+        die_auth "401 Unauthorized — your PAT is invalid or expired. Re-generate at https://supabase.com/dashboard/account/tokens"
+        ;;
+      403)
+        die_auth "403 Forbidden — your PAT lacks permission for $method $apipath. Regenerate with All Access scope."
+        ;;
+      402)
+        die_quota "402 Payment Required — Supabase project/organization quota exceeded. See https://supabase.com/dashboard"
+        ;;
+      409)
+        die_conflict "409 Conflict on $method $apipath — likely a duplicate project name. Pick a different name and re-run."
+        ;;
+      429|5??)
+        if [ "$attempt" -ge "$max_attempts" ]; then
+          die_net "$status after $attempt attempts on $method $apipath"
+        fi
+        sleep "$backoff"
+        backoff=$((backoff * 2))
+        continue
+        ;;
+      *)
+        # 400, 404, etc. — surface the error body for debugging.
+        local err
+        err=$(jq -r '.message // .error // empty' "$body_tmp" 2>/dev/null || true)
+        if [ -n "$err" ]; then
+          die "HTTP $status from $method $apipath: $err"
+        else
+          die "HTTP $status from $method $apipath (no error message in response)"
+        fi
+        ;;
+    esac
+  done
+}
+
+cmd_list_orgs() {
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json_mode=true; shift ;;
+      *) die "list-orgs: unknown flag: $1" ;;
+    esac
+  done
+
+  require_jq; require_curl; require_pat
+  local resp
+  resp=$(api_call GET organizations)
+  if $json_mode; then
+    printf '%s' "$resp" | jq '{orgs: map({slug: .slug, name: .name})}'
+  else
+    printf '%s' "$resp" | jq -r '.[] | "\(.slug)\t\(.name)"'
+  fi
+}
+
+cmd_create() {
+  local name="" region="" org_slug=""
+  local json_mode=false
+  local instance_size=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json_mode=true; shift ;;
+      --instance-size) instance_size="$2"; shift 2 ;;
+      --*) die "create: unknown flag: $1" ;;
+      *)
+        if   [ -z "$name" ]; then name="$1"
+        elif [ -z "$region" ]; then region="$1"
+        elif [ -z "$org_slug" ]; then org_slug="$1"
+        else die "create: too many positional arguments"
+        fi
+        shift
+        ;;
+    esac
+  done
+  [ -z "$name" ] && die "create: missing <name>"
+  [ -z "$region" ] && die "create: missing <region>"
+  [ -z "$org_slug" ] && die "create: missing <org-slug>"
+
+  require_jq; require_curl; require_pat; require_db_pass
+
+  local body_file
+  body_file=$(mktemp)
+  # shellcheck disable=SC2064
+  trap "rm -f '$body_file'" RETURN
+  if [ -n "$instance_size" ]; then
+    jq -n \
+      --arg name "$name" \
+      --arg db_pass "$DB_PASS" \
+      --arg organization_slug "$org_slug" \
+      --arg region "$region" \
+      --arg desired_instance_size "$instance_size" \
+      '{name: $name, db_pass: $db_pass, organization_slug: $organization_slug, region: $region, desired_instance_size: $desired_instance_size}' \
+      > "$body_file"
+  else
+    jq -n \
+      --arg name "$name" \
+      --arg db_pass "$DB_PASS" \
+      --arg organization_slug "$org_slug" \
+      --arg region "$region" \
+      '{name: $name, db_pass: $db_pass, organization_slug: $organization_slug, region: $region}' \
+      > "$body_file"
+  fi
+
+  local resp
+  resp=$(api_call POST projects "$body_file")
+  if $json_mode; then
+    printf '%s' "$resp" | jq '{ref, name, region, organization_slug, status}'
+  else
+    printf '%s' "$resp" | jq -r '"ref=\(.ref) status=\(.status) region=\(.region)"'
+  fi
+}
+
+cmd_wait() {
+  local ref="" timeout="$DEFAULT_WAIT_TIMEOUT"
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --timeout) timeout="$2"; shift 2 ;;
+      --json) json_mode=true; shift ;;
+      --*) die "wait: unknown flag: $1" ;;
+      *) ref="$1"; shift ;;
+    esac
+  done
+  [ -z "$ref" ] && die "wait: missing <ref>"
+
+  require_jq; require_curl; require_pat
+
+  local elapsed=0
+  while : ; do
+    local resp
+    resp=$(api_call GET "projects/$ref")
+    local status
+    status=$(printf '%s' "$resp" | jq -r '.status // "UNKNOWN"')
+    case "$status" in
+      ACTIVE_HEALTHY)
+        if $json_mode; then
+          jq -n --arg ref "$ref" --arg status "$status" --argjson elapsed "$elapsed" \
+            '{ref: $ref, status: $status, elapsed_s: $elapsed}'
+        else
+          echo "ready ref=$ref status=$status elapsed_s=$elapsed"
+        fi
+        return 0
+        ;;
+      INIT_FAILED|REMOVED|RESTORE_FAILED|PAUSE_FAILED)
+        echo "gstack-gbrain-supabase-provision: project $ref reached terminal failure state '$status'" >&2
+        exit 7
+        ;;
+      COMING_UP|INACTIVE|ACTIVE_UNHEALTHY|UNKNOWN|RESTORING|UPGRADING|PAUSING|RESTARTING|RESIZING|GOING_DOWN)
+        # Still provisioning — keep polling.
+        ;;
+      *)
+        # Unexpected status from Supabase. Log but keep polling.
+        echo "gstack-gbrain-supabase-provision: unexpected status '$status' — continuing to poll" >&2
+        ;;
+    esac
+
+    if [ "$elapsed" -ge "$timeout" ]; then
+      echo "gstack-gbrain-supabase-provision: wait timed out after ${timeout}s (last status: $status)" >&2
+      echo "gstack-gbrain-supabase-provision: re-run with /setup-gbrain --resume-provision $ref" >&2
+      exit 6
+    fi
+    sleep "$POLL_INTERVAL"
+    elapsed=$((elapsed + POLL_INTERVAL))
+  done
+}
+
+cmd_pooler_url() {
+  local ref=""
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json_mode=true; shift ;;
+      --*) die "pooler-url: unknown flag: $1" ;;
+      *) ref="$1"; shift ;;
+    esac
+  done
+  [ -z "$ref" ] && die "pooler-url: missing <ref>"
+
+  require_jq; require_curl; require_pat; require_db_pass
+
+  local resp
+  resp=$(api_call GET "projects/$ref/config/database/pooler")
+
+  # Prefer the singular Session Pooler config when Supabase returns an
+  # array (response shape can vary by project state). Fall back to the
+  # first PRIMARY entry if no "session" pool_mode is present.
+  local db_user db_host db_port db_name
+  local first_or_session
+  if printf '%s' "$resp" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    first_or_session=$(printf '%s' "$resp" | jq '[.[] | select(.pool_mode == "session")][0] // .[0]')
+  else
+    first_or_session="$resp"
+  fi
+
+  db_user=$(printf '%s' "$first_or_session" | jq -r '.db_user // empty')
+  db_host=$(printf '%s' "$first_or_session" | jq -r '.db_host // empty')
+  db_port=$(printf '%s' "$first_or_session" | jq -r '.db_port // empty')
+  db_name=$(printf '%s' "$first_or_session" | jq -r '.db_name // empty')
+
+  if [ -z "$db_user" ] || [ -z "$db_host" ] || [ -z "$db_port" ] || [ -z "$db_name" ]; then
+    die "pooler-url: missing pooler config fields (db_user/db_host/db_port/db_name); re-poll or check project state"
+  fi
+
+  local url="postgresql://${db_user}:${DB_PASS}@${db_host}:${db_port}/${db_name}"
+
+  if $json_mode; then
+    jq -n --arg ref "$ref" --arg pooler_url "$url" '{ref: $ref, pooler_url: $pooler_url}'
+  else
+    # Non-JSON mode prints the URL; callers capturing it into a variable
+    # keep it in process memory only.
+    echo "$url"
+  fi
+}
+
+cmd_list_orphans() {
+  local name_prefix="gbrain"
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name-prefix) name_prefix="$2"; shift 2 ;;
+      --json) json_mode=true; shift ;;
+      --*) die "list-orphans: unknown flag: $1" ;;
+      *) die "list-orphans: unexpected arg: $1" ;;
+    esac
+  done
+
+  require_jq; require_curl; require_pat
+  local all
+  all=$(api_call GET projects)
+
+  # Extract the active brain's ref from ~/.gbrain/config.json if present.
+  # Pooler URL format: postgresql://postgres.<ref>:<pw>@...
+  local active_ref="null"
+  local gbrain_cfg="$HOME/.gbrain/config.json"
+  if [ -f "$gbrain_cfg" ]; then
+    local url
+    url=$(jq -r '.database_url // empty' "$gbrain_cfg" 2>/dev/null || true)
+    if [ -n "$url" ]; then
+      # Extract user portion before the colon: postgresql://USER:pw@...
+      local user
+      user=$(printf '%s' "$url" | sed -E 's|^[a-z]+://([^:]+):.*$|\1|')
+      # User format: postgres.<ref> — pull ref suffix
+      case "$user" in
+        postgres.*)
+          local ref="${user#postgres.}"
+          active_ref=$(jq -Rn --arg r "$ref" '$r')
+          ;;
+      esac
+    fi
+  fi
+
+  local orphans
+  orphans=$(printf '%s' "$all" | jq \
+    --arg prefix "$name_prefix" \
+    --argjson active "$active_ref" \
+    '[.[]
+       | select(.name | startswith($prefix))
+       | select(.ref != $active)
+       | {ref: .ref, name: .name, created_at: .created_at, region: .region}]')
+
+  jq -n --argjson active "$active_ref" --argjson orphans "$orphans" \
+    '{active_ref: $active, orphans: $orphans}'
+}
+
+cmd_delete_project() {
+  local ref=""
+  local json_mode=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json_mode=true; shift ;;
+      --*) die "delete-project: unknown flag: $1" ;;
+      *) ref="$1"; shift ;;
+    esac
+  done
+  [ -z "$ref" ] && die "delete-project: missing <ref>"
+
+  require_jq; require_curl; require_pat
+  api_call DELETE "projects/$ref" >/dev/null
+  jq -n --arg ref "$ref" '{deleted_ref: $ref}'
+}
+
+case "${1:-}" in
+  list-orgs)        shift; cmd_list_orgs "$@" ;;
+  create)           shift; cmd_create "$@" ;;
+  wait)             shift; cmd_wait "$@" ;;
+  pooler-url)       shift; cmd_pooler_url "$@" ;;
+  list-orphans)     shift; cmd_list_orphans "$@" ;;
+  delete-project)   shift; cmd_delete_project "$@" ;;
+  --help|-h|help)   sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//' ;;
+  "")  die "usage: gstack-gbrain-supabase-provision {list-orgs|create|wait|pooler-url|list-orphans|delete-project|--help}" ;;
+  *)   die "unknown subcommand: $1" ;;
+esac

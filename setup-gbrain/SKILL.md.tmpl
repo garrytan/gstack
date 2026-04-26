@@ -1,0 +1,465 @@
+---
+name: setup-gbrain
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Set up gbrain for this coding agent: install the CLI, initialize a
+  local PGLite or Supabase brain, register MCP, capture per-remote trust
+  policy. One command from zero to "gbrain is running, and this agent
+  can call it." Use when: "setup gbrain", "connect gbrain", "start
+  gbrain", "install gbrain", "configure gbrain for this machine". (gstack)
+triggers:
+  - setup gbrain
+  - install gbrain
+  - connect gbrain
+  - start gbrain
+  - configure gbrain
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /setup-gbrain — Coding-Agent Onboarding for gbrain
+
+You are setting up gbrain (https://github.com/garrytan/gbrain), a persistent
+knowledge base, on the user's local Mac so that this coding agent (typically
+Claude Code) can call it as both a CLI and an MCP tool.
+
+**Scope honesty:** This skill's MCP registration step (5a) uses
+`claude mcp add` and targets Claude Code specifically. Other local hosts
+(Cursor, Codex CLI, etc.) will still get the gbrain CLI on PATH — they can
+register `gbrain serve` in their own MCP config manually after setup.
+
+**Audience:** local-Mac users. openclaw/hermes agents typically run in cloud
+docker containers with their own gbrain; "sharing" a brain between them and
+local Claude Code is only possible through shared Postgres (Supabase).
+
+## User-invocable
+When the user types `/setup-gbrain`, run this skill. Three shortcut modes:
+
+- `/setup-gbrain` — full flow (default)
+- `/setup-gbrain --repo` — only flip the per-remote policy for the current repo
+- `/setup-gbrain --switch` — only migrate the engine (PGLite ↔ Supabase)
+- `/setup-gbrain --resume-provision <ref>` — re-enter a previously interrupted
+  Supabase auto-provision at the polling step
+- `/setup-gbrain --cleanup-orphans` — list + delete in-flight Supabase projects
+
+Parse the invocation args yourself — these are prose hints to the skill, not
+implemented as a dispatcher binary.
+
+---
+
+## Step 1: Detect current state
+
+```bash
+~/.claude/skills/gstack/bin/gstack-gbrain-detect
+```
+
+Capture the JSON output. It contains: `gbrain_on_path`, `gbrain_version`,
+`gbrain_config_exists`, `gbrain_engine`, `gbrain_doctor_ok`,
+`gstack_brain_sync_mode`, `gstack_brain_git`.
+
+Skip downstream steps that are already done. Report the detected state in
+one line so the user knows what you found:
+
+> "Detected: gbrain v0.18.2 on PATH, engine=postgres, doctor=ok,
+>  sync=artifacts-only. Nothing to install; jumping to the policy check."
+
+Branch on the `--repo`, `--switch`, `--resume-provision`, `--cleanup-orphans`
+invocation flags here and skip to the matching step.
+
+---
+
+## Step 2: Pick a path (AskUserQuestion)
+
+Only fire this if Step 1 shows no existing working config AND no shortcut
+flag was passed. The question title: "Where should your brain live?"
+
+Options (present based on detected state):
+
+- **1 — Supabase, I already have a connection string.** Cloud-agent users
+  whose openclaw/hermes provisioned one already. Paste the Session Pooler
+  URL from the Supabase dashboard (Settings → Database → Connection Pooler
+  → Session). *Trust-surface caveat to include in the prompt:* "Pasting this
+  URL gives your local Claude Code full read/write access to every page your
+  cloud agent can see. If that's not the trust level you want, pick PGLite
+  local instead and accept the brains are disjoint."
+- **2a — Supabase, auto-provision a new project.** You'll need a Supabase
+  Personal Access Token (~90 seconds). Best choice for a shared team brain.
+- **2b — Supabase, create manually.** Walk through supabase.com signup
+  yourself; paste the URL back when ready.
+- **3 — PGLite local.** Zero accounts, ~30 seconds. Isolated brain on this
+  Mac only. Best for try-first.
+- **Switch** (only if Step 1 detected an existing engine): "You already have
+  a `<engine>` brain. Migrate it to the other engine?" → runs
+  `gbrain migrate --to <other>` wrapped in `timeout 180s` (D9).
+
+Do NOT silently pick; fire the AskUserQuestion.
+
+---
+
+## Step 3: Install gbrain CLI (if missing)
+
+Only if `gbrain_on_path=false`:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-gbrain-install
+```
+
+The installer runs D5 detect-first (probes `~/git/gbrain`, `~/gbrain` first),
+then D19 PATH-shadow validation (post-link `gbrain --version` must match
+install-dir `package.json`). On D19 failure the installer exits 3 with a
+clear remediation menu; surface the full output to the user and STOP. Do not
+continue the skill — the environment is broken until the user fixes PATH.
+
+---
+
+## Step 4: Initialize the brain
+
+Path-specific.
+
+### Path 1 (Supabase, existing URL)
+
+Source the secret-read helper, collect URL with `read -s` + redacted preview:
+
+```bash
+. ~/.claude/skills/gstack/bin/gstack-gbrain-lib.sh
+read_secret_to_env GBRAIN_POOLER_URL "Paste Session Pooler URL: " \
+  --echo-redacted 's#://[^@]*@#://***@#'
+```
+
+Then validate structurally:
+
+```bash
+printf '%s' "$GBRAIN_POOLER_URL" | ~/.claude/skills/gstack/bin/gstack-gbrain-supabase-verify -
+```
+
+If the verify exit code is 3 (direct-connection URL), the verifier's own
+message explains the fix; surface it and re-prompt for a Session Pooler URL.
+
+On success, hand off to gbrain via env var (D10, never argv):
+
+```bash
+GBRAIN_DATABASE_URL="$GBRAIN_POOLER_URL" gbrain init --non-interactive --json
+```
+
+Then `unset GBRAIN_POOLER_URL GBRAIN_DATABASE_URL` immediately. The URL is
+now persisted in `~/.gbrain/config.json` at mode 0600 by gbrain itself.
+
+### Path 2a (Supabase, auto-provision — D7)
+
+Show the D11 PAT scope disclosure verbatim BEFORE collecting the token:
+
+> *This Supabase Personal Access Token grants full read/write/delete access
+> to every project in your Supabase account, not just the `gbrain` one we're
+> about to create. Supabase doesn't currently support scoped tokens. We use
+> this PAT only to: create one project, poll it until healthy, read the
+> Session Pooler URL — then discard it from process memory. The token
+> remains valid on Supabase's side until you manually revoke it at
+> https://supabase.com/dashboard/account/tokens — we recommend revoking
+> immediately after setup completes.*
+
+Then:
+
+```bash
+. ~/.claude/skills/gstack/bin/gstack-gbrain-lib.sh
+read_secret_to_env SUPABASE_ACCESS_TOKEN "Paste PAT: "
+```
+
+Ask the D17 tier prompt via AskUserQuestion: "Which Supabase tier?" Present
+Free (2-project limit, pauses after 7d inactivity) vs Pro ($25/mo, no
+pauses, recommended for real use). Explain that tier is **org-level** (per
+the Management API contract) — user picks their org based on its current
+tier. Pro may require them to upgrade the org first at supabase.com.
+
+List orgs, pick one (AskUserQuestion if multiple):
+
+```bash
+orgs=$(~/.claude/skills/gstack/bin/gstack-gbrain-supabase-provision list-orgs --json)
+```
+
+If the `.orgs` array is empty, surface: "Your Supabase account has no
+organizations. Create one at https://supabase.com/dashboard, then re-run
+`/setup-gbrain`." STOP.
+
+Ask the user for a region (default `us-east-1`; valid values are the 18
+enum values in the Supabase Management API — list a few common ones, let
+them pick "Other" for a full list).
+
+Generate the DB password (never shown to the user):
+
+```bash
+export DB_PASS=$(openssl rand -base64 24)
+```
+
+Set up a SIGINT trap (D12 basic recovery):
+
+```bash
+trap 'echo ""; echo "gstack-gbrain: interrupted. In-flight ref: $INFLIGHT_REF"; \
+      echo "Resume: /setup-gbrain --resume-provision $INFLIGHT_REF"; \
+      echo "Delete: https://supabase.com/dashboard/project/$INFLIGHT_REF"; \
+      unset SUPABASE_ACCESS_TOKEN DB_PASS; exit 130' INT TERM
+```
+
+Create + wait + fetch:
+
+```bash
+result=$(~/.claude/skills/gstack/bin/gstack-gbrain-supabase-provision \
+  create gbrain "$REGION" "$ORG_SLUG" --json)
+INFLIGHT_REF=$(echo "$result" | jq -r .ref)
+~/.claude/skills/gstack/bin/gstack-gbrain-supabase-provision wait "$INFLIGHT_REF" --json
+pooler=$(~/.claude/skills/gstack/bin/gstack-gbrain-supabase-provision \
+  pooler-url "$INFLIGHT_REF" --json)
+GBRAIN_DATABASE_URL=$(echo "$pooler" | jq -r .pooler_url)
+export GBRAIN_DATABASE_URL
+gbrain init --non-interactive --json
+unset SUPABASE_ACCESS_TOKEN DB_PASS GBRAIN_DATABASE_URL INFLIGHT_REF
+trap - INT TERM
+```
+
+After success, emit the PAT revocation reminder:
+
+> "Setup complete. Revoke the PAT you pasted at
+> https://supabase.com/dashboard/account/tokens — we've already discarded
+> it from memory and don't need it again. The gbrain project will continue
+> working because it uses its own embedded database password."
+
+### Path 2b (Supabase, manual)
+
+Walk the user through the supabase.com steps:
+1. Login at https://supabase.com/dashboard
+2. Click "New Project," name it `gbrain`, pick a region, copy the generated
+   database password (you'll need it for paste-back? no — it's embedded in
+   the pooler URL we collect next)
+3. Wait ~2 min for the project to initialize
+4. Settings → Database → Connection Pooler → Session → copy the URL (port
+   6543)
+
+Then follow the same secret-read + verify + init flow as Path 1.
+
+### Path 3 (PGLite local)
+
+```bash
+gbrain init --pglite --json
+```
+
+Done. No network, no secrets.
+
+### Switch (from detect's existing-engine state)
+
+```bash
+# Going PGLite → Supabase, collect URL first (Path 1 flow), then:
+timeout 180s gbrain migrate --to supabase --url "$URL" --json
+# Going Supabase → PGLite:
+timeout 180s gbrain migrate --to pglite --json
+```
+
+If `timeout` returns 124 (exit code for timeout): surface D9 message
+("Migration didn't complete in 3 minutes — another gstack session may be
+holding a lock on the source brain. Close other workspaces and re-run
+`/setup-gbrain --switch`. Your original brain is untouched."). STOP.
+
+---
+
+## Step 5: Verify gbrain doctor
+
+```bash
+doctor=$(gbrain doctor --json)
+status=$(echo "$doctor" | jq -r .status)
+```
+
+If status is `ok` or `warnings`, proceed. Anything else → surface the full
+doctor output and STOP.
+
+---
+
+## Step 5a: Register gbrain as Claude Code MCP (D18)
+
+Only if `which claude` resolves. Ask: "Give Claude Code a typed tool surface
+for gbrain? (recommended yes)"
+
+If yes, register at **user scope** with an **absolute path** to the gbrain
+binary. User scope makes the MCP available in every Claude Code session on
+this machine, not just the current workspace. Absolute path avoids PATH
+resolution issues when Claude Code spawns `gbrain serve` as a subprocess.
+
+```bash
+GBRAIN_BIN=$(command -v gbrain)
+[ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
+claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+claude mcp list | grep gbrain  # verify: should show "✓ Connected"
+```
+
+If the user already had a local-scope registration from an earlier run,
+remove it first so both scopes don't conflict:
+```bash
+claude mcp remove gbrain 2>/dev/null || true
+```
+
+If `claude` is not on PATH: emit "MCP registration skipped — this skill is
+Claude-Code-targeted; register `gbrain serve` in your agent's MCP config
+manually." Continue to step 6.
+
+**Heads-up for the user:** an already-open Claude Code session will not
+pick up the new MCP tools until restart. Tell them: "Restart any open
+Claude Code sessions to see `mcp__gbrain__*` tools — they're loaded at
+session start, not mid-session."
+
+---
+
+## Step 6: Per-remote policy (D3 triad, gated repo-import)
+
+If we're in a git repo with an `origin` remote, check the policy:
+
+```bash
+current_tier=$(~/.claude/skills/gstack/bin/gstack-gbrain-repo-policy get)
+```
+
+Branches:
+- `read-write` → import this repo: `gbrain import "$(pwd)" --no-embed` then
+  `gbrain embed --stale &` in the background.
+- `read-only` → skip import entirely (this tier is enforced by the future
+  auto-import hook + by gbrain resolver injection, not here).
+- `deny` → do nothing.
+- `unset` → AskUserQuestion: "How should `<normalized-remote>` interact with
+  gbrain?"
+  - `read-write` — agent can search AND write new pages from this repo
+  - `read-only` — agent can search but never write
+  - `deny` — no interaction at all
+  - `skip-for-now` — don't persist, ask next time
+
+  On answer (other than skip-for-now):
+  ```bash
+  ~/.claude/skills/gstack/bin/gstack-gbrain-repo-policy set "$REMOTE" "$TIER"
+  ```
+  Then import iff `read-write`.
+
+If outside a git repo OR no origin remote: skip this step with a note.
+
+For `/setup-gbrain --repo` invocations, execute ONLY Step 6 and exit.
+
+---
+
+## Step 7: Offer gstack-brain-sync
+
+Separate AskUserQuestion: "Also sync your gstack session memory (learnings,
+plans, retros) to a private git repo that gbrain can index across machines?"
+
+Options:
+- Yes, full sync (everything allowlisted)
+- Yes, artifacts-only (plans, designs, retros — skip behavioral data)
+- No thanks
+
+If yes:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-brain-init
+~/.claude/skills/gstack/bin/gstack-config set gbrain_sync_mode artifacts-only
+# or "full" if user picked yes-full
+```
+
+---
+
+## Step 8: Persist `## GBrain Configuration` in CLAUDE.md
+
+Find-and-replace (or append) this section in CLAUDE.md:
+
+```markdown
+## GBrain Configuration (configured by /setup-gbrain)
+- Engine: {pglite|postgres}
+- Config file: ~/.gbrain/config.json (mode 0600)
+- Setup date: {today}
+- MCP registered: {yes/no}
+- Memory sync: {off|artifacts-only|full}
+- Current repo policy: {read-write|read-only|deny|unset}
+```
+
+---
+
+## Step 9: Smoke test
+
+```bash
+SLUG="setup-gbrain-smoke-test-$(date +%s)"
+echo "Set up on $(date). Smoke test for /setup-gbrain." | gbrain put "$SLUG"
+gbrain search "smoke test" | grep -i "$SLUG"
+```
+
+Confirms the round trip. On failure, surface `gbrain doctor --json` output
+and STOP with a NEEDS_CONTEXT escalation.
+
+---
+
+## `/setup-gbrain --cleanup-orphans` (D20)
+
+Re-collect a PAT (Step 4 path-2a scope disclosure), then:
+
+```bash
+# List user's Supabase projects (user has to pipe this through their own
+# shell to review; we don't rely on a stored PAT).
+export SUPABASE_ACCESS_TOKEN="<collected from read_secret_to_env>"
+projects=$(curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  https://api.supabase.com/v1/projects)
+```
+
+Parse the response, identify any project named starting with `gbrain` whose
+`ref` doesn't match the user's active `~/.gbrain/config.json` pooler URL.
+For each orphan, AskUserQuestion per project: "Delete orphan project
+`<ref>` (`<name>`, created `<created_at>`)?" — NEVER batch; per-project
+confirm is a one-way door.
+
+On confirmed delete:
+```bash
+curl -s -X DELETE -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  https://api.supabase.com/v1/projects/$REF
+```
+
+Never delete the active brain without a second explicit confirmation.
+
+At end: `unset SUPABASE_ACCESS_TOKEN`. Revocation reminder.
+
+---
+
+## Telemetry (D4)
+
+The preamble's Telemetry block logs skill success/failure at exit. When
+emitting the event, add these enumerated categorical values to the
+telemetry payload (SAFE — no free-form secrets, never the URL or PAT):
+
+- `scenario`: `supabase-existing` | `supabase-auto-provision` |
+  `supabase-manual` | `pglite-local` | `switch-to-supabase` |
+  `switch-to-pglite` | `repo-flip-only` | `cleanup-orphans` |
+  `resume-provision`
+- `install_performed`: `yes` | `no` (D5 reuse) | `skipped` (pre-existing)
+- `mcp_registered`: `yes` | `no` | `claude-missing`
+- `trust_tier_set`: `read-write` | `read-only` | `deny` |
+  `skip-for-now` | `n/a` (outside git repo)
+
+Never pass `SUPABASE_ACCESS_TOKEN`, `DB_PASS`, `GBRAIN_POOLER_URL`,
+`GBRAIN_DATABASE_URL`, or any `postgresql://` substring to the telemetry
+invocation. The CI grep test in `test/skill-validation.test.ts` enforces
+this at build time.
+
+---
+
+## Important Rules
+
+- **One rule for every secret.** PAT, DB_PASS, pooler URL: env-var only,
+  never argv, never logged, never persisted to disk by us. The only file
+  that holds the pooler URL long-term is `~/.gbrain/config.json`, written
+  by gbrain's own `init` at mode 0600 — that's gbrain's discipline, not
+  ours.
+- **STOP points are hard.** Gbrain doctor not healthy, D19 PATH shadow, D9
+  migrate timeout, smoke test failure — each is a STOP. Do not paper over.
+- **Concurrent-run lock.** At skill start, `mkdir ~/.gstack/.setup-gbrain.lock.d`
+  (atomic). If the mkdir fails, abort with: "Another `/setup-gbrain` instance
+  is running. Wait for it, or `rm -rf ~/.gstack/.setup-gbrain.lock.d` if
+  you're sure it's stale." Release on normal exit AND in the SIGINT trap.
+- **CLAUDE.md is the audit trail.** Always update it in Step 8 after a
+  successful setup.

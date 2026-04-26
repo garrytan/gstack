@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Live activity feed and @ref overlays for gstack browse",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
-  "host_permissions": ["http://127.0.0.1:*/"],
+  "host_permissions": ["http://127.0.0.1:*/", "ws://127.0.0.1:*/"],
   "action": {
     "default_icon": {
       "16": "icons/icon-16.png",

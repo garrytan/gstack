@@ -64,60 +64,595 @@ Phase 2 (next release) is where the productivity gain lives. The agent prototype
 - The canonical SDK at `browse/src/browse-client.ts` and the sibling at `browser-skills/hackernews-frontpage/_lib/browse-client.ts` MUST be byte-identical. The skill-validation test fails the build otherwise. When the canonical SDK changes, update every bundled skill's `_lib/` copy.
 - Phase 2 design questions are tracked in `docs/designs/BROWSER_SKILLS_V1.md` ("Phase 2 sketch"). Specifically: synthesis from lossy activity feed, and Bun runtime distribution for user-authored skills landing on machines without Bun.
 
-## [1.8.0.0] - 2026-04-25
+## [1.15.0.0] - 2026-04-26
 
-## **Two new browser primitives that compound the agent over time. Per-site notes save what works once and reuse it. Raw CDP gets a tightly-scoped escape hatch.**
+## **Real-PTY test harness ships. 11 plan-mode E2E tests, 23 unit tests, and 50K fewer tokens per invocation.**
 
-The agent learns LinkedIn's iframe trick once and remembers it next session. That's the whole pitch. `$B domain-skill save` writes a per-site markdown note keyed to the active tab's hostname; future sessions on that host get the note injected into their prompt. New skills land quarantined, auto-promote to active after 3 successful uses without classifier flags, and stay per-project unless you explicitly promote to global. Storage piggybacks on `/learn`'s JSONL so the same tooling works.
-
-`$B cdp <Domain.method>` is the escape hatch when curated commands miss. Deny-default by construction: ~25 read-only methods are pre-allowed (Accessibility tree, DOM/CSS inspection, Performance metrics, screenshots, viewport overrides). Adding a method requires a PR with a one-line justification. Dangerous methods that would be RCE or silent exfil if exposed (`Runtime.evaluate`, `Page.navigate`, `Network.getResponseBody`, `Browser.close`, `Target.attachToTarget`, etc.) are intentionally absent and verified absent by a unit test.
-
-Both features went through CEO review (9 decisions), DevEx review (5/10 to 8/10), Eng review, and a brutal Codex outside-voice pass. Codex's pass rolled back significant scope: a planned "agents author their own gstack commands" expansion was deferred to a P1 TODO with "needs out-of-process isolation design" attached, because in-daemon agent-authored TypeScript can't be safely contained with AST + approval gate alone. The shipped scope is what the security model actually defends.
+Two big pieces of engineering in one release. The headline is a real-PTY test harness — 654 lines of TypeScript on top of `Bun.spawn({terminal:})` — that drives the actual `claude` binary and parses rendered terminal frames. Six new E2E tests on the harness cover behaviors that were structurally unreachable before: format compliance for every gstack `AskUserQuestion`, plan-design UI-scope detection (positive coverage), tool-budget regression vs prior runs, `/ship` end-to-end idempotency against a real git fixture, `/plan-ceo` answer-routing, and `/autoplan` phase sequencing. The branch nets ~11.6K lines smaller against `main` while adding ~1,450 lines of new TypeScript test code — preamble resolvers were rewritten to keep every semantic rule in less prose, and the test surface that catches AskUserQuestion drift expanded from zero to gate-tier on every PR.
 
 ### The numbers that matter
 
-Source: 30 unit tests in `browse/test/` (`domain-skills-storage.test.ts`, `cdp-allowlist.test.ts`, `cdp-mutex.test.ts`, `telemetry.test.ts`), all passing in under one second.
+Branch totals come from `git diff --shortstat origin/main..HEAD`. Token-level reduction comes from regenerating every `SKILL.md` against the rewritten resolvers (`bun run gen:skill-docs --host all`). E2E numbers come from `EVALS=1 EVALS_TIER=gate bun test test/skill-e2e-*.test.ts` on a clean working tree.
 
-| Surface | Shape |
+| Metric | Δ |
 |---|---|
-| New `$B` commands | `domain-skill` (8 subcommands), `cdp` |
-| New modules | 7 (`domain-skills.ts`, `domain-skill-commands.ts`, `cdp-allowlist.ts`, `cdp-bridge.ts`, `cdp-commands.ts`, `project-slug.ts`, `telemetry.ts`) |
-| Lines of agent-facing TypeScript shipped | ~1100 (including 350+ of allowlist + state machine + mutex tests) |
-| Curated CDP allowlist size | 25 methods, deny-default |
-| Dangerous CDP surfaces verified absent | 18 (Runtime/Debugger/Page navigation/Network exfil/Browser/Target) |
-| Codex outside-voice findings resolved | 7 of 20 (12 mooted by T1 scope drop) |
-| State-machine transitions covered by tests | 6 (save to quarantined, 3-use auto-promote, classifier-flag-blocks-promotion, promote-to-global, rollback, tombstone) |
+| Net branch size vs `main` | **−11,609 lines** (89 files, +7,240 / −18,849) |
+| New test files added | **8 files** (1 harness unit-test + 7 E2E tests) |
+| New test code shipped | **~1,453 lines** of TypeScript |
+| Real-PTY harness module | **654 lines** in `test/helpers/claude-pty-runner.ts` |
+| Per-invocation token savings | **−196K tokens (−25%)** on cold reads |
+| `plan-ceo-review` preamble | **−43%** (54 KB → 31 KB) |
+| Plan-mode E2E test count | **5 → 11** |
+| New gate-tier paid E2E tests | **+3** (format compliance, design-with-UI, budget regression) |
+| New periodic-tier paid E2E tests | **+3** (mode-routing, ship-idempotency, autoplan-chain) |
+| Helper unit test coverage | **+23 tests** for parser + budget primitives |
+| All free tests | **49 pass, 0 fail** |
+
+| Skill class | Per-invocation surface | Δ |
+|---|---|---|
+| Tier-≥3 plan reviews (full preamble) | ~50 KB → ~30 KB | −40% |
+| Tier-1 quick skills | ~12 KB → ~9 KB | −25% |
+
+Every gstack invocation now sends ~50K fewer tokens to the model on cold reads — that's roughly a quarter of a typical 200K context window freed up for actual work. Tier-≥3 plan reviews keep their full functional surface (Brain Sync, Context Recovery, Routing Injection) and still lose almost half the bytes.
 
 ### What this means for builders
 
-Domain skills are how an agent gets faster on a site over time. The first time it figures out LinkedIn's apply-button iframe, it costs minutes. Save that as a skill and the next session starts already knowing it. Across a sprint of repetitive site work, you'll feel the compounding inside a week. To opt into cross-project compounding (your LinkedIn skill follows you to every project, for instance), one explicit `$B domain-skill promote-to-global` per skill. Never silent, because Codex correctly argued that silent cross-project leakage is a privacy and contamination vector.
+Three new classes of regression that were previously impossible to catch now block every PR. **Format drift**: a missing `Recommendation:` line or absent Pros/Cons bullet on an `AskUserQuestion` is caught against the real rendered terminal — not the model's claim about what it would have shown. **Conditional skill paths**: `/plan-design-review` had to early-exit when there's no UI scope, but until this release nothing tested the *positive* path; a regression that flipped the detector to "early-exit always" could have shipped silently. **Tool-budget regressions**: a preamble change that makes any skill burn 2× its prior tool calls fails a free, branch-scoped assertion that runs on every `bun test`.
 
-`$B cdp` exists for the rare case you need raw CDP. Use it when curated commands don't fit, file a PR adding the method to the allowlist when you're done so the next agent doesn't need it. Or, if you don't want gstack's rails at all, the README now plugs [browser-use/browser-harness-js](https://github.com/browser-use/browser-harness-js): different philosophy, different tradeoffs, also good.
+The harness itself is a reusable primitive. `runPlanSkillObservation()` watches plan-mode terminal output and classifies outcomes as `asked` / `plan_ready` / `silent_write` / `exited` / `timeout`. Three periodic-tier tests built on top of it cover the heavier cases — multi-phase chain ordering, ship idempotency state-machine end-to-end, and answer routing through 8-12 sequential prompts — that don't fit a per-PR budget but run weekly. Pull, run `bun run gen:skill-docs --host all`, and every skill invocation is meaningfully smaller and meaningfully better-tested than the prior release.
 
 ### Itemized changes
 
 #### Added
 
-- `$B domain-skill save|list|show|edit|promote-to-global|rollback|rm`. Host derived from active tab's top-level origin, closing a confused-deputy class of bugs. Body via stdin or `--from-file`, never inline argv.
-- `$B cdp <Domain.method> [json-params]`. Deny-default allowlist (`browse/src/cdp-allowlist.ts`). Output for data-exfil methods wrapped in UNTRUSTED envelope.
-- Two-tier CDP mutex in `browser-manager.ts`: per-tab plus global escalation, 5-second acquire timeout with `try/finally` release.
-- Lightweight telemetry in `~/.gstack/analytics/browse-telemetry.jsonl` for `domain_skill_*` and `cdp_method_*` signals. Fire-and-forget. Hostname and method only. `GSTACK_TELEMETRY_OFF=1` silences.
-- Sidebar-agent prompt context now injects per-project plus global domain skills matching the active tab's hostname, wrapped in UNTRUSTED markers.
-- `docs/domain-skills.md` reference plus error lookup table.
-- README plug for browser-harness-js as the no-rails alternative.
+- `test/helpers/claude-pty-runner.ts`: real-PTY test harness using `Bun.spawn({terminal:})` (Bun 1.3.10+ has built-in PTY — no `node-pty`, no native modules). Exposes `launchClaudePty()` for raw session control and `runPlanSkillObservation()` as the high-level contract for plan-mode skill tests.
+- `parseNumberedOptions(visible)` and `isPermissionDialogVisible(visible)` helpers in `claude-pty-runner.ts`. Tests can now look up an option index by its label without hard-coding positions, and auto-grant Claude Code's file-edit / workspace-trust / bash-permission dialogs that fire during preamble side-effects.
+- `findBudgetRegressions()` and `assertNoBudgetRegression()` in `test/helpers/eval-store.ts`. Pure functions returning tests that grew >2× in tools or turns vs the prior eval run, with floors at 5 prior tools / 3 prior turns to avoid noise. Env override `GSTACK_BUDGET_RATIO`.
+- 6 new real-PTY E2E tests on the harness:
+    - `skill-e2e-ask-user-question-format-compliance.test.ts` (gate, ~$0.50/run): asserts every gstack `AskUserQuestion` rendering contains the 7 mandated format elements (ELI10, Recommendation, Pros/Cons with ✅/❌, Net, `(recommended)` label).
+    - `skill-e2e-plan-design-with-ui.test.ts` (gate, ~$0.80/run): positive coverage for `/plan-design-review` UI-scope detection. Counterpart to the existing no-UI early-exit test — without it, a regression that flips the detector to "early-exit always" would ship undetected.
+    - `skill-budget-regression.test.ts` (gate, free): branch-scoped library-only assertion that no skill burns >2× tools or turns vs its prior recorded run.
+    - `skill-e2e-plan-ceo-mode-routing.test.ts` (periodic, ~$3/run): verifies AskUserQuestion answer routing — HOLD SCOPE picks routes to rigor language, SCOPE EXPANSION picks route to expansion language.
+    - `skill-e2e-ship-idempotency.test.ts` (periodic, ~$3/run): runs `/ship` end-to-end against a real git fixture with `STATE: ALREADY_BUMPED` baked in; asserts no double-bump, no double-commit, no fixture mutation.
+    - `skill-e2e-autoplan-chain.test.ts` (periodic, ~$8/run): asserts `/autoplan` phase ordering by tee'ing timestamps as each `**Phase N complete.**` marker appears.
+- `test/helpers-unit.test.ts`: 23 unit tests covering `parseNumberedOptions` edge cases (empty, partial paint, >9 options, stale-vs-fresh anchoring) and `findBudgetRegressions` (noise floor, env override, missing tool data).
+- `test/fixtures/plans/ui-heavy-feature.md`: planted plan with explicit UI scope keywords for the new design-with-UI test.
+- Auto-handling of the workspace-trust dialog so tests run in temp directories without manual intervention.
+- Outcome contract: `asked` | `plan_ready` | `silent_write` | `exited` | `timeout`. Tests pass on `asked` or `plan_ready`, fail on the rest.
 
 #### Changed
 
-- `browse/src/server.ts` `spawnClaude` is now async to await `readSkill`. The system prompt has a one-line introduction to `$B domain-skill` so agents discover the feature.
-- `browse/src/commands.ts` registers `domain-skill` and `cdp` as META commands.
+- 18 preamble resolvers compressed: `generate-ask-user-format.ts`, `generate-brain-sync-block.ts`, `generate-completeness-section.ts`, `generate-completion-status.ts`, `generate-confusion-protocol.ts`, `generate-context-health.ts`, `generate-context-recovery.ts`, `generate-continuous-checkpoint.ts`, `generate-lake-intro.ts`, `generate-preamble-bash.ts`, `generate-proactive-prompt.ts`, `generate-routing-injection.ts`, `generate-telemetry-prompt.ts`, `generate-upgrade-check.ts`, `generate-vendoring-deprecation.ts`, `generate-voice-directive.ts`, `generate-writing-style-migration.ts`, `generate-writing-style.ts`.
+- All 47 generated `SKILL.md` files regenerated; 3 ship golden fixtures regenerated.
+- Plan-* skills retain full preamble surface (Brain Sync, Context Recovery, Routing Injection) — the early slim attempt that cut these was reverted after diagnosing them as load-bearing.
+- 5 existing plan-mode tests (`plan-ceo`, `plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`) rewritten onto the new harness with a 300s observation budget. All 5 verify-pass under `EVALS=1 EVALS_TIER=gate` against the real `claude` binary in 790s sequential.
+- `isNumberedOptionListVisible` regex tolerates whitespace collapse from TTY cursor-positioning escapes (`\x1b[40C`) which `stripAnsi` removes — `\b2\.` was failing on word-to-word transitions where stripped output read `text2.`.
+
+#### Fixed
+
+- `scripts/skill-check.ts`: new `isRepoRootSymlink()` helper so dev installs that mount the repo root at `host/skills/gstack` (e.g., codex's `.agents/skills/gstack`) get skipped instead of double-counted.
+- `test/skill-validation.test.ts`: known-large-fixture exemption keeps `browse/test/fixtures/security-bench-haiku-responses.json` (27 MB BrowseSafe-Bench replay fixture, intentional) out of the size warning.
+
+#### Removed
+
+- `test/helpers/plan-mode-helpers.ts`: superseded by `claude-pty-runner.ts`. Zero callers remained after the rewrite.
 
 #### For contributors
 
-- `browse/src/domain-skills.ts` is the storage layer. Tests in `browse/test/domain-skills-storage.test.ts` lock in the state machine.
-- Adding a CDP method: edit `browse/src/cdp-allowlist.ts`, add `{domain, method, scope, output, justification}`. The `cdp-allowlist.test.ts` linter enforces all four fields.
-- The full review trail (CEO + DevEx + Eng + Codex) is in `~/.claude/plans/system-instruction-you-are-working-drifting-alpaca.md` for posterity.
+- `test/helpers/touchfiles.ts`: 5 plan-mode test selections + e2e-harness-audit selection now point at `claude-pty-runner.ts` instead of the deleted helper. 6 new entries (`ask-user-question-format-pty`, `plan-ceo-mode-routing`, `plan-design-with-ui-scope`, `budget-regression-pty`, `ship-idempotency-pty`, `autoplan-chain-pty`) with tier classifications: 3 gate, 3 periodic.
+- `test/e2e-harness-audit.test.ts`: recognizes `runPlanSkillObservation` as a valid coverage path alongside the legacy `canUseTool` / `runPlanModeSkillTest` patterns.
+- New unit test: `test/gen-skill-docs.test.ts` asserts plan-review preambles stay under 33 KB and the slim Voice section preserves its load-bearing semantic contract (lead-with-the-point, name-the-file, user-outcome framing, no-corporate, no-AI-vocab, user-sovereignty).
+- `test/touchfiles.test.ts`: skill-specific change selection count updated 15 → 18 to match the 6 new touchfile entries that depend on `plan-ceo-review/**`.
 
-## [1.7.0.0] - 2026-04-22
+## [1.14.0.0] - 2026-04-25
+
+## **The gstack browser sidebar is now an interactive Claude Code REPL with live tab awareness.**
+
+Open the side panel and Claude Code is right there in a real terminal. Type, watch the agent work, switch browser tabs and Claude sees the change. The old one-shot chat queue is gone. Two-way conversation, slash commands, `/resume`, ANSI colors, all of it. Plus a `$B tab-each` command that fans out a single browse command across every open tab and returns per-tab JSON results.
+
+### The numbers that matter
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Sidebar surfaces | Chat (one-shot `claude -p`) + 3 debug | Terminal (live PTY) + 3 debug | -1 surface, +interactive |
+| Subprocesses spawned per session | Many (one per chat message) | One (PTY claude, lazy-spawned) | -N |
+| Lines in `extension/sidepanel.js` | 1969 | 1042 | -47% |
+| Total diff | — | 27 files, +2875 / -3885 | -1010 net |
+| New unit + integration + regression tests | 0 | 56+ | +56 |
+| Live `tabs.json` push latency | n/a (no live state) | <50ms after `chrome.tabs` event | new capability |
+
+### What this means for builders
+
+Open the sidebar, type. Real PTY means slash commands, `/resume`, real ANSI rendering, real claude process lifecycle. Switch browser tabs while Claude is running and `<stateDir>/tabs.json` + `active-tab.json` update in place — Claude reads them, no need to ask `$B tabs`. Need to do the same thing on every tab? `$B tab-each <command>` returns a JSON array, original active tab restored when done, no OS focus stealing.
+
+The old chat queue is gone. `sidebar-agent.ts`, `/sidebar-command`, `/sidebar-chat`, `/sidebar-agent/event` all deleted. The Cleanup / Screenshot / Cookies toolbar buttons survive in the Terminal pane — Cleanup pipes its prompt straight into the live PTY via `window.gstackInjectToTerminal()` instead of spawning yet another `claude -p`.
+
+### Itemized changes
+
+#### Added
+
+- **Interactive Terminal sidebar tab.** xterm.js + a non-compiled `terminal-agent.ts` Bun process that spawns claude with `Bun.spawn({terminal: {rows, cols, data}})`. Auto-connects when the side panel opens, no keypress needed.
+- **`$B tab-each <command>`** — fan-out helper for multi-tab work. Returns `{command, args, total, results: [{tabId, url, title, status, output}]}`. Skips chrome:// pages, scope-checks the inner command before iterating, restores the original active tab in a `finally` block, never pulls focus away from the user's foreground app.
+- **Live tab state files.** `<stateDir>/tabs.json` (full list with id, url, title, active, pinned, audible, windowId) and `<stateDir>/active-tab.json` (current active). Updated atomically on every `chrome.tabs` event (activated, created, removed, URL/title change). Claude reads on demand instead of running `$B tabs`.
+- **Tab-awareness system prompt** injected via `claude --append-system-prompt` at spawn so the model knows about the state files and the `$B tab-each` command without being told.
+- **Always-visible Restart button** in the Terminal toolbar. Force-restart claude any time, not just from the "session ended" state.
+
+#### Changed
+- **Sidebar is Terminal-only.** No more `Terminal | Chat` primary tab nav. Activity / Refs / Inspector still live behind the `debug` toggle in the footer. Quick-actions (🧹 Cleanup / 📸 Screenshot / 🍪 Cookies) moved into the Terminal toolbar.
+- **WebSocket auth uses `Sec-WebSocket-Protocol`** instead of cookies. Browsers can't set `Authorization` on WS upgrades, and `SameSite=Strict` cookies don't survive the cross-port jump from server.ts:34567 to the agent's random port from a chrome-extension origin. The token rides on `new WebSocket(url, [`gstack-pty.<token>`])` and the agent echoes the protocol back (Chromium closes connections that don't pick a protocol).
+- **Cleanup button now drives the live PTY.** Clicking "🧹 Cleanup" injects the cleanup prompt straight into claude via `window.gstackInjectToTerminal()`. The Inspector "Send to Code" action uses the same path. No more `/sidebar-command` POSTs.
+- **Repaint after debug-tab close.** xterm.js doesn't auto-redraw when its container flips from `display: none` back to `display: flex`. A MutationObserver on `#tab-terminal`'s class attribute now forces a `fitAddon.fit() + term.refresh() + resize` push when the pane becomes visible.
+
+#### Removed
+- **`browse/src/sidebar-agent.ts`** — the one-shot `claude -p` queue worker. ~900 lines.
+- **Server endpoints**: `/sidebar-command`, `/sidebar-chat[/clear]`, `/sidebar-agent/{event,kill,stop}`, `/sidebar-tabs[/switch]`, `/sidebar-session{,/new,/list}`, `/sidebar-queue/dismiss`. ~600 lines.
+- **Chat-related state** in server.ts: `ChatEntry`, `SidebarSession`, `TabAgentState`, `pickSidebarModel`, `addChatEntry`, `processAgentEvent`, `killAgent`, the agent-health watchdog, `chatBuffer`, the per-tab agent map.
+- **Chat UI in sidepanel.html**: primary-tab nav, `<main id="tab-chat">`, the chat input bar, the experimental "Browser co-pilot" banner, the security event banner, the `clear-chat` footer button.
+- **Five obsolete test files**: `sidebar-agent.test.ts`, `sidebar-agent-roundtrip.test.ts`, `security-e2e-fullstack.test.ts`, `security-review-fullstack.test.ts`, `security-review-sidepanel-e2e.test.ts`. Plus 5 chat-only describe blocks inside surviving security tests (loadSession session-ID validation, switchChatTab DocumentFragment, pollChat reentrancy, sidebar-tabs URL sanitization, agent queue security).
+
+#### For contributors
+- **`browse/src/pty-session-cookie.ts`** mirrors `sse-session-cookie.ts`. Same TTL, same opportunistic pruning, separate registry (PTY tokens must never be valid as SSE tokens or vice versa).
+- **`docs/designs/SIDEBAR_MESSAGE_FLOW.md`** rewritten around the Terminal flow: WebSocket upgrade, dual-token model (`AUTH_TOKEN` for `/pty-session`, `gstack-pty.<token>` for `/ws`, `INTERNAL_TOKEN` for server↔agent loopback), threat-model boundary (Terminal tab bypasses the prompt-injection stack on purpose; user keystrokes are the trust source).
+- **`browse/test/terminal-agent.test.ts`** (16 tests) + `terminal-agent-integration.test.ts` (real `/bin/bash` PTY round-trip, raw `Sec-WebSocket-Protocol` upgrade verification) + `tab-each.test.ts` (10 tests with mock `BrowserManager`) + `sidebar-tabs.test.ts` (27 structural assertions locking the chat-rip invariants).
+- **CLAUDE.md** updated with the dual-token model, the cookie-vs-protocol rationale, and the cross-pane injection pattern.
+- **`vendor:xterm`** build step copies `xterm@5.x` and `xterm-addon-fit` from `node_modules/` into `extension/lib/` at build time. xterm files are gitignored.
+- **TODOS.md** carries three v1.1+ follow-ups: PTY session survival across sidebar reload (Issue 1C deferred), `/health` `AUTH_TOKEN` distribution audit (codex finding, pre-existing soft leak), and dropping the now-dead `security-classifier.ts` ML pipeline.
+
+## [1.13.0.0] - 2026-04-25
+
+## **`/gstack-claude` gives non-Claude hosts a read-only outside voice.**
+
+This release adds the reverse of `/codex`: external hosts can now ask Claude for review, adversarial challenge, or read-only consultation without handing nested Claude mutation tools.
+
+### Added
+
+- `claude/SKILL.md.tmpl`: new external-only `/gstack-claude` skill with `review`, `challenge`, and `consult` modes.
+- Review and challenge mode feed the detected base-branch diff to `claude -p --tools ""` with `--disable-slash-commands`.
+- Consult mode allows only `Read,Grep,Glob`, explicitly disallows `Bash,Edit,Write`, saves `.context/claude-session-id`, and can resume the prior consult session.
+- Claude prompt transport now uses a `/tmp/gstack-claude-prompt-*` file piped over stdin with cleanup.
+- Auth checks require the `claude` CLI plus either `~/.claude/.credentials.json` or `ANTHROPIC_API_KEY`.
+- JSON output parsing extracts `result`, `usage`, `model`, `session_id`, and `is_error`.
+
+### Fixed
+
+- `hosts/claude.ts`: excludes the Claude outside-voice skill from Claude-host generation.
+- `test/brain-sync.test.ts`: the `GSTACK_HOME` isolation test now snapshots and preserves the real config file instead of assuming local machine state.
+- `claude/SKILL.md.tmpl`: uses `mktemp` for diff capture in review/challenge mode instead of a `$$`-based temp path, avoiding collisions across concurrent invocations.
+
+### Changed
+
+- `test/skill-validation.test.ts`: the tracked-file-size check is now advisory. Large fixtures remain allowed in git and are reported as `[size-warning]` instead of failing the suite.
+- `test/gen-skill-docs.test.ts`: generation coverage now asserts external host docs include `gstack-claude/SKILL.md` while Claude host output omits `claude/SKILL.md`.
+
+## [1.12.2.0] - 2026-04-24
+
+## **`/setup-gbrain` polish: PATH parsing, repo init order, MCP user scope.**
+
+Small refinements to the /setup-gbrain onboarding path.
+
+### Fixed
+- `bin/gstack-gbrain-install`: parse `gbrain --version` output with `awk '{print $NF}'` so the D19 PATH-shadow check compares just the version number.
+- `bin/gstack-brain-init`: omit `--source` from `gh repo create`. Later steps handle `git init` + remote setup explicitly.
+- `setup-gbrain` Step 9: smoke test uses `gbrain put <slug>` with body piped on stdin.
+- `setup-gbrain` Step 5a: MCP registers with `--scope user` and an absolute path to the gbrain binary, so `mcp__gbrain__*` tools are available in every Claude Code session on the machine.
+
+### Changed
+- `test/gstack-brain-init-gh-mock.test.ts`: asserts `--source` is absent from the `gh repo create` call.
+
+## [1.12.1.0] - 2026-04-24
+
+## **Plan-mode review skills run the review directly, no more "exit and rerun" prompt.**
+
+Before this release, `/plan-eng-review` (and the three other `interactive: true` review skills) greeted plan-mode users with an A/B/C handshake asking them to exit plan mode and rerun, or cancel. That handshake was vestigial: the preamble already contains an authoritative "Skill Invocation During Plan Mode" rule saying AskUserQuestion satisfies plan mode's end-of-turn requirement. Two contradictory rules, the bossy one at the top won, the review never ran. This release deletes the bossier rule and hoists the correct one to position 1 of the preamble so skills run straight through.
+
+### What shipped
+
+The vestigial `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` resolver is deleted. The "Plan Mode Safe Operations" and "Skill Invocation During Plan Mode" blocks are split out of `generate-completion-status.ts` into a sibling `generatePlanModeInfo()` export in the same module, then wired at preamble position 1 where the handshake used to live. The "you see this first" positioning stays; only the content changes. Four dead plan-mode-handshake question-registry IDs are removed. The `interactive: true` frontmatter flag stays on the four review skill templates because `test/e2e-harness-audit.test.ts` reads it to classify which skills must have `canUseTool` coverage, per codex outside-voice review.
+
+The four per-skill plan-mode E2E tests are rewritten as smoke tests that assert Step 0's actual scope-mode question fires (not an A/B/C handshake), no Write/Edit before the first AskUserQuestion, and no early `ExitPlanMode`. The write-guard helper from the old `plan-mode-handshake-helpers.ts` is preserved in the renamed `plan-mode-helpers.ts` so silent-bypass regressions still get caught. `test/skill-e2e-plan-mode-no-op.test.ts` is kept for the opposite coverage case: the plan-mode-info block stays quiet outside plan mode. `test/gen-skill-docs.test.ts` now scans every generated `SKILL.md` across all 9 host subdirs (`.agents/`, `.openclaw/`, `.kiro/`, etc.) and asserts `## Plan Mode Handshake` is absent. That's a sub-second unit gate blocking any future PR from re-introducing the resolver.
+
+### The numbers that matter
+
+Source: `bun test` on HEAD against the pre-change baseline.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Preamble resolvers | 19 (handshake + completion-status) | 18 (completion-status owns both functions) | -1 module |
+| Handshake lines in generated SKILL.md | 92 per skill × 4 skills = 368 | 0 | -368 |
+| Question-registry entries | 51 | 47 | -4 dead entries |
+| Plan-mode gate-tier tests | 5 handshake-asserting | 5 smoke + no-op + write-guard | same count, stronger assertions |
+| Multi-host handshake-absence unit test | none | 1 (scans 9 host dirs, <1s) | new regression gate |
+| `bun test` on changed files | 360 gen-skill-docs pass | 360 gen-skill-docs pass | no regression |
+
+The preamble position for the new `## Skill Invocation During Plan Mode` section lands at line ~127 of every `plan-*-review/SKILL.md` (first ~15% of the file), before the upgrade check and onboarding gates, so the authoritative plan-mode rule is the first thing the model reads after bash env setup.
+
+### What this means for plan-mode users
+
+Invoke `/plan-eng-review` from plan mode. You get the scope-mode question (`SCOPE EXPANSION` / `SELECTIVE EXPANSION` / `HOLD SCOPE` / `SCOPE REDUCTION`) immediately, the review runs, each finding gets its own `AskUserQuestion`, `ExitPlanMode` fires at the end. No two-step "exit and rerun" friction. Same for `/plan-ceo-review`, `/plan-design-review`, `/plan-devex-review`.
+
+### Itemized changes
+
+#### Fixed
+
+- `/plan-eng-review`, `/plan-ceo-review`, `/plan-design-review`, `/plan-devex-review` no longer show an A/B/C handshake prompt when invoked in plan mode. Each skill runs its interactive review directly, with every finding gated by `AskUserQuestion` just like outside plan mode.
+
+#### Changed
+
+- The "Plan Mode Safe Operations" and "Skill Invocation During Plan Mode" preamble sections are now emitted at position 1 (right after the bash env setup) instead of at the tail of the completion-status block. All skills see these two sections earlier in the preamble; nothing else changes about the content.
+- `test/helpers/plan-mode-handshake-helpers.ts` is renamed to `test/helpers/plan-mode-helpers.ts`. The exported API is renamed from `runPlanModeHandshakeTest` to `runPlanModeSkillTest` and from `assertHandshakeShape` to `assertNotHandshakeShape`. The write-guard detection (no `Write`/`Edit` tool call before the first `AskUserQuestion`) is preserved and extended with `ExitPlanMode`-before-ask detection.
+
+#### Removed
+
+- `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` deleted (vestigial, superseded by `generatePlanModeInfo` in `generate-completion-status.ts`).
+- Four question-registry entries removed from `scripts/question-registry.ts`: `plan-ceo-review-plan-mode-handshake`, `plan-eng-review-plan-mode-handshake`, `plan-design-review-plan-mode-handshake`, `plan-devex-review-plan-mode-handshake`. These IDs are no longer emitted by any skill; keeping them in the registry was dead weight.
+
+#### For contributors
+
+- `test/gen-skill-docs.test.ts` now has a "plan-mode-info resolver" describe block that (a) scans every generated `SKILL.md` under the repo root plus every host subdir (`.agents/`, `.openclaw/`, `.opencode/`, `.factory/`, `.hermes/`, `.kiro/`, `.cursor/`, `.slate/`) and asserts `## Plan Mode Handshake` is absent, and (b) asserts `## Skill Invocation During Plan Mode` lands in the first 15,000 bytes of each of the four review skills' generated `SKILL.md`. Both assertions run on every `bun test`. Any PR that re-introduces the handshake resolver fails CI immediately.
+- The `interactive: true` frontmatter flag on the four review skill templates is preserved. It still has a reader: `test/e2e-harness-audit.test.ts` uses it to enforce `canUseTool` coverage on interactive review E2E tests. Removing the flag was part of the initial plan; codex outside-voice review caught the downstream dependency during review and that decision was reversed.
+
+## [1.12.0.0] - 2026-04-24
+
+## **`/setup-gbrain` — any coding agent goes from zero to "gbrain is running, and I can call it" in under five minutes.**
+
+gstack v1.9.0.0 shipped `gbrain-sync`, which assumed a `gbrain` CLI was already installed. That was fine on Garry's machine (he'd manually cloned `~/git/gbrain`), broken for everyone else. This release closes the onboarding gap: one skill, three paths (local PGLite, existing Supabase URL, or Supabase auto-provision via the Management API), an MCP registration step for Claude Code, a per-remote trust triad (read-write / read-only / deny) so multi-client consultants don't mingle brains, and a reusable secret-sink test harness other skills can import when they start handling secrets.
+
+### What shipped
+
+Six new `bin/` helpers and one new skill template. `bin/gstack-gbrain-repo-policy` stores per-remote ingest tiers at `~/.gstack/gbrain-repo-policy.json` with a `_schema_version: 2` field so future migrations are deterministic (the first one — legacy `allow` → `read-write` — already runs on first read of any pre-D3 file). `bin/gstack-gbrain-detect` emits the full state as JSON so the skill can skip steps that are already done. `bin/gstack-gbrain-install` probes `~/git/gbrain` and `~/gbrain` before cloning fresh (fixes the day-one dup-clone footgun on the author's own machine) and fails hard on PATH shadowing with a three-option remediation menu instead of warn-and-continue. `bin/gstack-gbrain-lib.sh` extracts the `read_secret_to_env` helper used for both PAT collection and pooler-URL paste — one canonical implementation of the stty-echo-off + SIGINT-restore + env-var-only pattern. `bin/gstack-gbrain-supabase-verify` rejects direct-connection URLs (IPv6-only, fails in most environments) with exit code 3 so the caller's retry UX is distinct from a generic format error. `bin/gstack-gbrain-supabase-provision` wraps the Management API — list-orgs, create, poll, pooler-url, list-orphans, delete-project — with full HTTP error coverage (401/403/402/409/429/5xx), exponential backoff, and `--cleanup-orphans` support for the rare case where someone kills setup mid-provision.
+
+The skill template itself threads these together into a single interactive flow. PAT collection shows the full scope disclosure verbatim before the read-s prompt, explains that the token grants access to every project in the user's Supabase account, and emits a revocation reminder at the end. Path 1's pooler-URL paste gets the same hygiene plus a redacted preview (host / port / database visible, password masked). Switching between engines wraps `gbrain migrate` in `timeout 180s` with an actionable message on deadlock. Concurrent-run protection via `mkdir ~/.gstack/.setup-gbrain.lock.d`. Telemetry records scenario, install result, MCP opt-in, trust tier — all enumerated categorical values, never free-form strings that could leak secrets.
+
+`/health` gets a new GBrain dimension (weight 10%, wrapped in `timeout 5s`) alongside type-check / lint / tests / dead-code / shell-linter. The dimension is omitted — not red — when gbrain isn't installed, so running `/health` on a non-gbrain machine doesn't penalize that choice.
+
+`test/helpers/secret-sink-harness.ts` is new infrastructure. Runs a subprocess with a seeded secret, captures stdout / stderr / files-under-HOME / telemetry-JSONL, and asserts the seed never appears in any channel via four match rules (exact + URL-decoded + first-12-char prefix + base64). Seven positive-control tests prove the harness catches leaks in every covered channel; four negative controls run real setup-gbrain bins with seeded secrets and confirm nothing escapes. Any future skill that handles secrets can import `runWithSecretSink` and run the same pattern.
+
+### The numbers that matter
+
+Source: `bun test` against Slices 1–7's five new test files.
+
+| Suite | Tests | Time |
+|---|---|---|
+| `gbrain-repo-policy.test.ts` | 24 | ~1.2s |
+| `gbrain-detect-install.test.ts` | 15 | ~1.0s |
+| `gbrain-lib-verify.test.ts` | 22 | ~0.2s |
+| `gbrain-supabase-provision.test.ts` | 28 | ~13.8s |
+| `secret-sink-harness.test.ts` | 11 | ~7.0s |
+| **Total** | **100** | **~23s** |
+
+Every HTTP error path for the Supabase Management API is covered by a mock-server fixture. Every secret-bearing bin is exercised with a distinctive seed through the leak harness.
+
+### What this means for Claude Code users
+
+Previously: install gbrain manually, hope nothing was shadowing on PATH, paste the pooler URL into an echoing prompt, figure out MCP registration yourself. Now: one command, three paths, PAT-handled-correctly auto-provision, MCP registered for Claude Code automatically, trust tiers for multi-client work, leak-tested end-to-end. Run `/setup-gbrain`.
+
+### Itemized changes
+
+#### Added
+- `/setup-gbrain` skill (`setup-gbrain/SKILL.md.tmpl`) — full onboarding flow with path selection, PAT-scoped disclosure, redacted URL preview, concurrent-run lock, SIGINT recovery with `--resume-provision`, and `--cleanup-orphans` subcommand.
+- `bin/gstack-gbrain-repo-policy` — per-remote trust triad (read-write / read-only / deny), schema-versioned file format, atomic writes, corrupt-file quarantine.
+- `bin/gstack-gbrain-detect` — JSON state reporter for skill branching.
+- `bin/gstack-gbrain-install` — D5 detect-first installer, D19 PATH-shadow fail-hard validator, pinned gbrain commit.
+- `bin/gstack-gbrain-lib.sh` — shared `read_secret_to_env` bash helper.
+- `bin/gstack-gbrain-supabase-verify` — structural URL validator with distinct exit for direct-connection rejects.
+- `bin/gstack-gbrain-supabase-provision` — Management API wrapper (list-orgs / create / wait / pooler-url / list-orphans / delete-project) with full HTTP error coverage and retry+backoff.
+- `test/helpers/secret-sink-harness.ts` — reusable negative-space leak-testing harness.
+
+#### Changed
+- `/health` skill adds a GBrain composite dimension (weight 10%, wrapped in `timeout 5s`). Existing category weights rebalanced to keep the composite score on the 0–10 scale; historical JSONL entries without a `gbrain` field read as `null` for trend comparison.
+
+#### For contributors
+- Pre-Impl Gate 1 verified Supabase Management API shape before any code was written. Corrected two wrong endpoint assumptions (`POST /v1/projects` not `/v1/organizations/{ref}/projects`; `/config/database/pooler` not `/config/database`) and confirmed gbrain's `--non-interactive` + `GBRAIN_DATABASE_URL` env var are real. Documented in the plan file.
+- Review discipline: CEO review + Codex outside voice + Eng review all passed in plan mode before any code landed (3 reviews, 21 D-decisions, 0 unresolved gaps).
+
+## [1.11.1.0] - 2026-04-23
+
+## **Plan mode stopped silently rubber-stamping your reviews. The forcing questions actually fire now.**
+
+If you ran `/plan-ceo-review` or any interactive review skill while in plan mode, the skill used to read your diff, skip every STOP gate, write a plan file, and exit. Zero AskUserQuestion calls. Zero mode selection. Zero per-section decisions. The skill's interactive contract got outranked by plan mode's system-reminder, which tells the model to run its own workflow and ignore everything else. This release adds a preamble-level STOP gate that fires before any analysis, so you always get the interactive review the skill was designed to run.
+
+### What shipped
+
+Four interactive review skills (plan-ceo-review, plan-eng-review, plan-design-review, plan-devex-review) now emit a two-option AskUserQuestion the moment plan mode is detected: exit-and-rerun interactively, or cancel. No silent bypass. The gate is classified one-way-door in the question registry so `/plan-tune` preferences can't auto-decide past it. Outcome gets logged to `~/.gstack/analytics/skill-usage.jsonl` synchronously when the handshake fires, so A-exit and C-cancel are captured even though they terminate the skill before the end-of-run telemetry block.
+
+The test harness got a canUseTool extension built on Anthropic's Agent SDK (already installed at v0.2.117). When a test supplies a canUseTool callback, `test/helpers/agent-sdk-runner.ts` flips `permissionMode` from `bypassPermissions` to `default` so the callback actually fires. This is the foundation for asserting AskUserQuestion content end-to-end, which gstack's E2E tests previously couldn't do at all. They had to instruct the model to skip AskUserQuestion entirely. Every future interactive-skill test builds on this.
+
+### The numbers that matter
+
+Source: new unit tests in `test/gen-skill-docs.test.ts` (8 tests covering handshake presence, absence, composition ordering, 0C-bis STOP block) and `test/agent-sdk-runner.test.ts` (6 tests covering canUseTool + permission-mode + passThrough helper). All 14 pass locally in <250ms, free tier.
+
+| Surface | Before | After |
+|---|---|---|
+| Claude skills rendering the handshake | 0 | 4 (plan-ceo, plan-eng, plan-design, plan-devex) |
+| Non-Claude host outputs with handshake text | N/A | 0 (host-scoped via `ctx.host === 'claude'` check) |
+| E2E tests that can assert AskUserQuestion content | 0 | 1 harness primitive, ready for every interactive skill |
+| Plan-mode entry to any of 4 review skills | Silent bypass | Two-option STOP gate |
+| Step 0C-bis in plan-ceo-review | No STOP block, could drift to 0F | Explicit `**STOP.**` block matching 0F pattern |
+| Post-handshake telemetry outcomes captured | Neither A-exit nor C-cancel | Both (synchronous write before ExitPlanMode) |
+
+### What this means for builders
+
+If you're running gstack in plan mode on a PR review, you'll see one question before the skill does anything: "Exit plan mode and run interactively, or cancel?" Pick A, press esc-esc, rerun the skill in normal mode, get the full interactive review you expected. Pick C to bail cleanly. No more silent rubber-stamp.
+
+If you're building new interactive skills (yours or contributing to gstack), you can now write real E2E tests that assert on AskUserQuestion shape and routing via the canUseTool harness. See `test/agent-sdk-runner.test.ts` for the pattern and `test/helpers/agent-sdk-runner.ts` for the API.
+
+### Itemized changes
+
+#### Fixed
+
+- Plan mode no longer silently skips AskUserQuestion gates in `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, or `/plan-devex-review`. A preamble-level handshake fires as the first thing the skill does when the plan-mode system-reminder is present, forcing a user choice before any analysis or plan-file writes.
+- `/plan-ceo-review` Step 0C-bis now has an explicit STOP block matching the pattern used at Step 0F, so the approach-selection question can't be silently skipped when the skill continues to mode selection.
+
+#### Added
+
+- New resolver `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` emits the handshake prose and telemetry bash. Host-scoped to Claude only via `ctx.host === 'claude'` check. Opt-in per skill via `interactive: true` in frontmatter.
+- New frontmatter field `interactive: boolean` on skill templates. Generator-only input parsed by `scripts/gen-skill-docs.ts`, never written to generated SKILL.md output (follows the `preamble-tier` precedent).
+- New question registry entries `plan-{ceo,eng,design,devex}-review-plan-mode-handshake` with `door_type: 'one-way'` in `scripts/question-registry.ts`. Question-tuning `never-ask` preferences cannot suppress this gate.
+- New telemetry field `plan_mode_handshake` in `~/.gstack/analytics/skill-usage.jsonl` with outcomes `fired`, `A-exit`, `C-cancel` written synchronously as the handshake fires. Captures outcomes that would otherwise terminate the skill before end-of-run telemetry runs.
+- `test/helpers/agent-sdk-runner.ts` extended with optional `canUseTool` callback parameter. When supplied, flips `permissionMode` to `default`, auto-adds `AskUserQuestion` to `allowedTools`, and passes the callback to the SDK. Exports `passThroughNonAskUserQuestion` helper for tests that only want to assert on AskUserQuestion but auto-allow other tools.
+
+#### For contributors
+
+- Added 5 unit tests in `test/gen-skill-docs.test.ts` verifying handshake presence in 4 interactive skills, absence in non-interactive skills, absence in non-Claude host outputs, composition ordering (handshake precedes upgrade-check), and 0C-bis STOP block wiring.
+- Added 6 unit tests in `test/agent-sdk-runner.test.ts` verifying permission-mode flip, allowedTools auto-injection, canUseTool callback propagation, and pass-through helper behavior.
+- Added 6 gate-tier entries to `test/helpers/touchfiles.ts` covering the new E2E test surface. Dependency glob fires any of the new tests when: the relevant skill template, the handshake resolver, preamble composition, the question registry, the one-way-door classifier, or the agent-sdk-runner changes.
+- Filed 2 P1/P2 follow-ups in `TODOS.md`: structural STOP-Ask forcing function across all skills (broader class of bug beyond plan-mode entry), and extending `interactive: true` audit to non-review interactive skills like `/office-hours`, `/codex`, `/investigate`, `/qa`.
+
+## [1.11.0.0] - 2026-04-23
+
+## **Workspace-aware ship. Two open PRs can't both claim the same VERSION anymore.**
+
+If you run gstack in multiple Conductor windows at once, you've probably seen this: two branches bump to the same version, whoever merges second silently overwrites the first one's CHANGELOG entry or lands with a duplicate header, and nobody notices until a `grep "^## \["` later. This release makes that collision impossible by construction. `/ship` now queries the open PR queue, sees what versions are already claimed, and picks the next free slot at your chosen bump level. If a collision is detected between ship and land, the land step aborts and tells you to rerun `/ship` rather than silently overwriting. A new `/landing-report` command shows the whole queue on demand.
+
+### What changes for you
+
+Run `/ship` in one Conductor window while another has an open PR claiming v1.7.0.0. Your ship now sees the claim, renders a queue table, and picks the next free slot above it (same bump level). The PR title starts with `v<X.Y.Z.W>` so landing order is visible in `gh pr list` without opening each PR. If a sibling workspace has uncommitted work at a higher VERSION and looks active (commit in the last 24h), `/ship` asks whether to wait for them or advance past. If the queue shifts between ship and merge, CI's new version-gate catches it, and rerunning `/ship` rewrites VERSION, package.json, CHANGELOG, and the PR title atomically. This very release dogfooded the drift path: the original ship at v1.8.0.0 went stale when three other PRs landed first, and the merge-back-to-main rebump (v1.8.0.0 → v1.11.0.0) happened via the same queue-aware codepath it introduces.
+
+### What shipped (by the numbers)
+
+- `bin/gstack-next-version` — ~390-line Bun/TS util. 21 passing fixture tests covering happy path, 8 collision scenarios, offline fallback, fork-PR filtering, sibling activity detection, self-PR auto-exclusion.
+- Host parity: GitHub + GitLab both supported. CI gates: `.github/workflows/version-gate.yml`, `.github/workflows/pr-title-sync.yml`, plus `.gitlab-ci.yml` mirror.
+- Fail-open semantics on util errors (network, auth, bug). A gstack bug never freezes your merge queue. Fail-closed on confirmed collisions.
+- `/landing-report` skill — read-only dashboard showing queue, siblings, and what all four bump levels would claim.
+- `workspace_root` config key, default `$HOME/conductor/workspaces`, null disables sibling scan for non-Conductor users.
+
+### What this means for teams running parallel workspaces
+
+If you're routinely running 3-10 Conductor windows against the same repo, this is the capability that lets the model scale. Before: you mostly got away with it because you noticed collisions by eye. After: the queue is an observable surface, and the system refuses to ship a stale version. `/landing-report` is the new "where am I in line" check when you're about to open PR #6 for the day. Run it before `/ship` if you want to see what's coming without shipping.
+
+### Itemized changes
+
+#### Added
+
+- `bin/gstack-next-version`. Host-aware (GitHub + GitLab + unknown) VERSION allocator. Queries open PRs, fetches each PR's VERSION at head (bounded concurrency, 10 parallel), scans sibling Conductor worktrees, picks the next free slot. Pure reader, never writes files. Supports `--exclude-pr <N>` to filter out the PR being checked (prevents self-reference when CI runs against the PR's own VERSION).
+- `scripts/detect-bump.ts`, `scripts/compare-pr-version.ts`. CI gate helpers. Three exit paths: pass, block on confirmed collision, fail-open on util errors.
+- `.github/workflows/version-gate.yml`. Merge-time collision gate. Runs when VERSION/CHANGELOG/package.json changes on a PR.
+- `.github/workflows/pr-title-sync.yml`. Auto-rewrites PR title when VERSION changes on push, only for titles already carrying the `v<X.Y.Z.W>` prefix (custom titles left alone, idempotent).
+- `.gitlab-ci.yml`. GitLab CI parity. Both jobs mirrored with the same fail-open semantics.
+- `landing-report/SKILL.md.tmpl`. New `/landing-report` or `/gstack-landing-report` skill. Read-only dashboard.
+- `bin/gstack-config`. New `workspace_root` key. Default `$HOME/conductor/workspaces`, `null` disables sibling scan.
+
+#### Changed
+
+- `ship/SKILL.md.tmpl` Step 12. Queue-aware VERSION pick in FRESH path, drift detection in ALREADY_BUMPED path. On detected drift the user is prompted to rebump, which runs the full metadata path (VERSION + package.json + CHANGELOG header + PR title) atomically so nothing goes stale.
+- `ship/SKILL.md.tmpl` Step 19. PR title format is now `v<X.Y.Z.W> <type>: <summary>`, version ALWAYS first. Rerun path updates the title (not just the body) when VERSION changed. Both GitHub and GitLab paths.
+- `land-and-deploy/SKILL.md.tmpl`. New Step 3.4 pre-merge drift detection. Aborts with a clear rerun-/ship instruction rather than auto-mutating files. Rerunning `/ship` is the clean path because ship owns the full metadata flow.
+- `review/SKILL.md.tmpl`. New Step 3.4 advisory one-liner showing queue status. Non-blocking.
+- `CLAUDE.md`. Versioning invariant paragraph. Documents that VERSION is a monotonic sequence, not a strict semver commitment, and queue-advance within a bump level is permitted.
+
+#### Fixed
+
+- Self-reference bug in the version gate. The first live CI run (PR #1168 at v1.8.0.0) was rejected as "stale" because the util counted the PR being checked as a queued claim, inflating the next slot by one. Fixed with `--exclude-pr` flag + `gh pr view` auto-detect so the util silently filters the current branch's PR. Caught and fixed in the same ship — exactly the dogfood loop the release is designed for.
+
+#### For contributors
+
+- `test/gstack-next-version.test.ts`. 21 pure-function tests (parseVersion / bumpVersion / cmpVersion / pickNextSlot with 8 collision scenarios / markActiveSiblings 4 cases) plus a CLI smoke test against the live repo.
+- Golden ship fixtures refreshed for all three hosts (claude, codex, factory) after Step 12 and Step 19 template changes. This is exactly the blast radius Codex flagged during the CEO review (cross-model tension #8), handled in the same PR rather than as a follow-up.
+
+## **Plan mode stopped silently rubber-stamping your reviews. The forcing questions actually fire now.**
+
+If you ran `/plan-ceo-review` or any interactive review skill while in plan mode, the skill used to read your diff, skip every STOP gate, write a plan file, and exit. Zero AskUserQuestion calls. Zero mode selection. Zero per-section decisions. The skill's interactive contract got outranked by plan mode's system-reminder, which tells the model to run its own workflow and ignore everything else. This release adds a preamble-level STOP gate that fires before any analysis, so you always get the interactive review the skill was designed to run.
+
+### What shipped
+
+Four interactive review skills (plan-ceo-review, plan-eng-review, plan-design-review, plan-devex-review) now emit a two-option AskUserQuestion the moment plan mode is detected: exit-and-rerun interactively, or cancel. No silent bypass. The gate is classified one-way-door in the question registry so `/plan-tune` preferences can't auto-decide past it. Outcome gets logged to `~/.gstack/analytics/skill-usage.jsonl` synchronously when the handshake fires, so A-exit and C-cancel are captured even though they terminate the skill before the end-of-run telemetry block.
+
+The test harness got a canUseTool extension built on Anthropic's Agent SDK (already installed at v0.2.117). When a test supplies a canUseTool callback, `test/helpers/agent-sdk-runner.ts` flips `permissionMode` from `bypassPermissions` to `default` so the callback actually fires. This is the foundation for asserting AskUserQuestion content end-to-end, which gstack's E2E tests previously couldn't do at all. They had to instruct the model to skip AskUserQuestion entirely. Every future interactive-skill test builds on this.
+
+### The numbers that matter
+
+Source: new unit tests in `test/gen-skill-docs.test.ts` (8 tests covering handshake presence, absence, composition ordering, 0C-bis STOP block) and `test/agent-sdk-runner.test.ts` (6 tests covering canUseTool + permission-mode + passThrough helper). All 14 pass locally in <250ms, free tier.
+
+| Surface | Before | After |
+|---|---|---|
+| Claude skills rendering the handshake | 0 | 4 (plan-ceo, plan-eng, plan-design, plan-devex) |
+| Non-Claude host outputs with handshake text | N/A | 0 (host-scoped via `ctx.host === 'claude'` check) |
+| E2E tests that can assert AskUserQuestion content | 0 | 1 harness primitive, ready for every interactive skill |
+| Plan-mode entry to any of 4 review skills | Silent bypass | Two-option STOP gate |
+| Step 0C-bis in plan-ceo-review | No STOP block, could drift to 0F | Explicit `**STOP.**` block matching 0F pattern |
+| Post-handshake telemetry outcomes captured | Neither A-exit nor C-cancel | Both (synchronous write before ExitPlanMode) |
+
+### What this means for builders
+
+If you're running gstack in plan mode on a PR review, you'll see one question before the skill does anything: "Exit plan mode and run interactively, or cancel?" Pick A, press esc-esc, rerun the skill in normal mode, get the full interactive review you expected. Pick C to bail cleanly. No more silent rubber-stamp.
+
+If you're building new interactive skills (yours or contributing to gstack), you can now write real E2E tests that assert on AskUserQuestion shape and routing via the canUseTool harness. See `test/agent-sdk-runner.test.ts` for the pattern and `test/helpers/agent-sdk-runner.ts` for the API.
+
+### Itemized changes
+
+#### Fixed
+
+- Plan mode no longer silently skips AskUserQuestion gates in `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, or `/plan-devex-review`. A preamble-level handshake fires as the first thing the skill does when the plan-mode system-reminder is present, forcing a user choice before any analysis or plan-file writes.
+- `/plan-ceo-review` Step 0C-bis now has an explicit STOP block matching the pattern used at Step 0F, so the approach-selection question can't be silently skipped when the skill continues to mode selection.
+
+#### Added
+
+- New resolver `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` emits the handshake prose and telemetry bash. Host-scoped to Claude only via `ctx.host === 'claude'` check. Opt-in per skill via `interactive: true` in frontmatter.
+- New frontmatter field `interactive: boolean` on skill templates. Generator-only input parsed by `scripts/gen-skill-docs.ts`, never written to generated SKILL.md output (follows the `preamble-tier` precedent).
+- New question registry entry `plan-mode-handshake` with `door_type: 'one-way'` in `scripts/question-registry.ts`. Question-tuning `never-ask` preferences cannot suppress this gate.
+- New telemetry field `plan_mode_handshake` in `~/.gstack/analytics/skill-usage.jsonl` with outcomes `fired`, `A-exit`, `C-cancel` written synchronously as the handshake fires. Captures outcomes that would otherwise terminate the skill before end-of-run telemetry runs.
+- `test/helpers/agent-sdk-runner.ts` extended with optional `canUseTool` callback parameter. When supplied, flips `permissionMode` to `default`, auto-adds `AskUserQuestion` to `allowedTools`, and passes the callback to the SDK. Exports `passThroughNonAskUserQuestion` helper for tests that only want to assert on AskUserQuestion but auto-allow other tools.
+
+#### For contributors
+
+- Added 8 unit tests in `test/gen-skill-docs.test.ts` verifying handshake presence in 4 interactive skills, absence in non-interactive skills, absence in non-Claude host outputs, composition ordering (handshake precedes upgrade-check), and 0C-bis STOP block wiring.
+- Added 6 unit tests in `test/agent-sdk-runner.test.ts` verifying permission-mode flip, allowedTools auto-injection, canUseTool callback propagation, and pass-through helper behavior.
+- Added 6 gate-tier entries to `test/helpers/touchfiles.ts` covering the new E2E test surface. Dependency glob fires any of the new tests when: the relevant skill template, the handshake resolver, preamble composition, the question registry, the one-way-door classifier, or the agent-sdk-runner changes.
+- Filed 2 P1/P2 follow-ups in `TODOS.md`: structural STOP-Ask forcing function across all skills (broader class of bug beyond plan-mode entry), and extending `interactive: true` audit to non-review interactive skills like `/office-hours`, `/codex`, `/investigate`, `/qa`.
+
+## [1.10.1.0] - 2026-04-23
+
+## **We tried to make Opus 4.7 faster with a prompt. Measurement said it got slower. Pulled the bullet.**
+
+gstack shipped a "Fan out explicitly" overlay nudge in `model-overlays/opus-4-7.md`
+back in v1.5.2.0. The idea: tell Opus 4.7 to emit multiple tool calls in one
+assistant turn instead of one per turn, so "read three files" takes one API
+round-trip instead of three. Sounded obvious. This release removes that
+bullet after measuring that it actively hurt performance, and ships the eval
+harness we used to prove it so you can measure your own overlay changes.
+
+### The numbers that matter
+
+Source: new `test/skill-e2e-overlay-harness.test.ts`, N=10 trials per arm per
+fixture, 40 trials per run, ~$3 per run. Pinned to `claude-opus-4-7` via
+Anthropic's published Agent SDK (`@anthropic-ai/claude-agent-sdk@0.2.117`)
+with `pathToClaudeCodeExecutable` set to the locally-installed `claude` binary
+(2.1.118). Metric: number of parallel `tool_use` blocks in the first assistant
+turn.
+
+| Prompt text in overlay | First-turn fanout rate (toy: read 3 files) | Lift vs baseline |
+|---|---|---|
+| No overlay (default Claude Code system prompt only) | **70%** (7/10) | baseline |
+| gstack's original "Fan out explicitly" nudge (v1.5.2.0 through v1.6.3.0) | 10% (1/10) | **-60%** |
+| Anthropic's own canonical `<use_parallel_tool_calls>` text from their parallel-tool-use docs | **0%** (0/10) | **-70%** |
+
+On a realistic multi-file audit prompt (`read app.ts + config.ts + README.md,
+glob src/*.ts, summarize`), Opus 4.7 never fanned out in the first turn at all,
+regardless of overlay. Zero of 20 trials. The nudge had nothing to grip.
+
+Total cost of the investigation: **$7** across three eval runs.
+
+### What this means for you
+
+If you ship system-prompt nudges for Claude, measure them. Anthropic's own
+published best-practice text dropped our fanout rate to zero. That's not a
+claim about Anthropic, it's a claim about measurement: the model, the SDK,
+the binary, and the context all move under the advice, and the advice sits
+still. The harness is in the repo now. Run
+`EVALS=1 EVALS_TIER=periodic bun test test/skill-e2e-overlay-harness.test.ts`.
+Three dollars per run.
+
+### Itemized changes
+
+#### Fixed
+
+- `model-overlays/opus-4-7.md` — removed the "Fan out explicitly" block. The
+  other three nudges (effort-match, batch questions, literal interpretation)
+  are untested and stay in for now. They're candidates for their own
+  measurement in a follow-up PR.
+
+#### Added
+
+- `test/skill-e2e-overlay-harness.test.ts` — periodic-tier eval that iterates a
+  typed fixture registry and runs A/B arms through `@anthropic-ai/claude-agent-sdk`.
+  Uses SDK preset `claude_code` so the arms include Claude Code's real system
+  prompt; overlay-ON appends the resolved overlay text. Saves per-trial raw
+  event streams for forensic recovery. Gated on both `EVALS=1` and
+  `EVALS_TIER=periodic`.
+- `test/fixtures/overlay-nudges.ts` — typed `OverlayFixture` registry with
+  strict validator. Adding a future nudge to measure = one fixture entry.
+  First two fixtures: `opus-4-7-fanout-toy` and `opus-4-7-fanout-realistic`.
+- `test/helpers/agent-sdk-runner.ts` — parametric SDK wrapper with explicit
+  `AgentSdkResult` types, process-level API concurrency semaphore, and
+  three-shape 429 retry (thrown error, result-message error, mid-stream
+  `SDKRateLimitEvent`). Binary pinning via `pathToClaudeCodeExecutable`.
+- `test/agent-sdk-runner.test.ts` — 36 free-tier unit tests covering happy
+  path, all three rate-limit shapes, persistent-429 `RateLimitExhaustedError`,
+  non-429 propagation, options propagation, concurrency cap, and every
+  validator rejection case.
+- `scripts/preflight-agent-sdk.ts` — 20-line sanity check that confirms the
+  SDK loads, `claude-opus-4-7` is a live API model, the `SDKMessage` event
+  shape matches assumptions, and the overlay resolver produces the expected
+  text. Run manually before paid runs if you suspect drift. Costs ~$0.013.
+- `@anthropic-ai/claude-agent-sdk@0.2.117` in `devDependencies`. Exact pin,
+  no caret — SDK event shapes can drift on minor versions.
+
+#### Changed
+
+- `scripts/resolvers/model-overlay.ts` — exported `readOverlay` so the eval
+  harness can resolve `{{INHERIT:claude}}` directives without synthesizing a
+  full `TemplateContext`.
+
+#### For contributors
+
+- `test/helpers/touchfiles.ts` — registered the new eval in both
+  `E2E_TOUCHFILES` (deps: `model-overlays/**`, `overlay-nudges.ts`, runner,
+  resolver) and `E2E_TIERS` (`periodic`). Passes the
+  `test/touchfiles.test.ts` completeness check.
+- The harness is deliberately parametric. Adding a second overlay nudge
+  measurement (for the remaining three nudges in `opus-4-7.md`, or any
+  future nudge in any overlay file) is a single entry in
+  `test/fixtures/overlay-nudges.ts`. Total incremental effort: ~15 minutes
+  per fixture.
+
+## [1.10.0.0] - 2026-04-23
+
+## **Plan reviews walk you through each issue again, and every question is now a real decision brief.**
+
+v1.6.4.0 broke something nobody wrote down. Plan reviews on Opus 4.7 silently stopped asking questions one at a time. They turned into a report: here are 6 findings, end of turn. The interactive dialogue that made `/plan-ceo-review`, `/plan-eng-review`, and the rest useful quietly evaporated. v1.10.0.0 restores that, and bundles a format upgrade so every `AskUserQuestion` now renders as a numbered decision brief with ELI10, stakes, recommendation, per-option pros / cons (✅ / ❌), and a closing "Net:" line that frames the trade-off in one sentence.
+
+### What changes for you
+
+Run `/plan-ceo-review` or `/plan-eng-review` on a plan with 3 findings. You get 3 separate AskUserQuestion prompts, one per finding, with the full Pros / Cons shape. Pick the option in 5 seconds, or expand the pros / cons if you want to think about it. Every review finding becomes a decision you actually made, not a bullet point you skimmed. The reference shape matches the D2 memory-design question Garry hand-crafted for his own use, now baked into every tier-2 skill via the preamble resolver, so `/ship`, `/office-hours`, `/investigate`, and the rest inherit it for free.
+
+### The numbers that matter
+
+Measured across the v1.10.0.0 fix. Verify any claim with `git log 1.9.0.0..1.10.0.0 --oneline` and `bun test` against the pinned commit SHA.
+
+| Metric | v1.6.4.0 | v1.10.0.0 | Δ |
+|---|---|---|---|
+| `AskUserQuestion` renders above model overlay in SKILL.md | no | **yes** | ordering inverted |
+| Escape-hatch sites hardened across plan-review templates | 0 | **16** | +16 |
+| Gate-tier unit tests pinning the format contract | 0 | **30** | +30 (runs in 16ms, $0) |
+| Periodic evals defending against escape-hatch abuse | 0 | **4** | +4 (2 positive, 2 negative-case) |
+| Cross-model review findings incorporated before landing | N/A | **5 of 8** | Codex caught real bugs CEO+Eng missed |
+
+Two of the five Codex findings were load-bearing. (1) The overlay reorder theory wasn't enough on its own. The `(recommended)` label on a neutral-posture question had to stay, because `question-tuning.ts:29` reads it to power AUTO_DECIDE. Omitting it would have silently broken auto-decide on every cherry-pick prompt. (2) The "31 sites global replace" in the original plan was factually wrong. Actual count, verified with `rg`, is 16 sites across 4 templates, and eng/design/devex templates used different phrasing than CEO. Without the audit, the fix would have shipped half-applied.
+
+### What this means for anyone running plan reviews on Opus 4.7
+
+Upgrade and re-run your next plan review. You should see D-numbered prompts (D1, D2, D3...) with ELI10 paragraphs, stakes lines, and ✅ / ❌ bullet blocks per option. If you don't, check that `bun run gen:skill-docs` regenerated cleanly after the upgrade, and verify the `Pros / cons:` header renders in `plan-ceo-review/SKILL.md`. Complete plan reviews that used to take 20 minutes and produced a report now take 10 minutes and produce a row of decisions.
+
+### Itemized changes
+
+#### Added
+
+- New Pros / Cons decision-brief format for every `AskUserQuestion` across all tier-2+ skills. Rendering: `D<N>` header, ELI10, "Stakes if we pick wrong:", Recommendation, per-option `✅ / ❌` bullets with minimum 2 pros + 1 con, closing `Net:` synthesis line. Lands in `scripts/resolvers/preamble/generate-ask-user-format.ts` so every skill inherits it.
+- Hard-stop escape for destructive one-way choices: single bullet `✅ No cons — this is a hard-stop choice`.
+- Neutral-posture handling for SELECTIVE EXPANSION cherry-picks and taste calls: `Recommendation: <default> — this is a taste call, no strong preference either way` with `(recommended)` label preserved on the default to keep AUTO_DECIDE working.
+- Three gate-tier unit tests (`test/preamble-compose.test.ts`, `test/resolver-ask-user-format.test.ts`, `test/model-overlay-opus-4-7.test.ts`) that pin the composition order, format contract, and overlay text. Run in <100ms on every `bun test`.
+- Four periodic-tier Pros/Cons eval cases in `test/skill-e2e-plan-prosons.test.ts` including two negative-case assertions that catch escape-hatch abuse before it drifts.
+- Touchfiles entries (`test/helpers/touchfiles.ts`) for all new eval cases plus expanded-coverage stubs for 7 additional skills.
+
+#### Fixed
+
+- Plan-review cadence regression on Opus 4.7. `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, and `/plan-devex-review` now actually pause after each finding and call `AskUserQuestion` as a tool_use instead of batching everything into one summary report. Root cause: `generateModelOverlay` rendered above `generateAskUserFormat` in `scripts/resolvers/preamble.ts`, so the overlay's "Batch your questions" directive registered as the ambient default before the pacing rule. Fixed by reordering the section array and rewriting the overlay directive as "Pace questions to the skill".
+- Escape-hatch collapse: "If no issues or fix is obvious, state what you'll do and move on, don't waste a question" at 16 sites across 4 templates let Opus 4.7's literal interpreter classify every finding as self-dismissable. Tightened per-template: zero findings gets "No issues, moving on"; findings require AskUserQuestion as a tool_use.
+
+#### Changed
+
+- `test/skill-e2e-plan-format.test.ts`: extended with v1.10.0.0 format token regexes (D-number, ELI10, Stakes, Pros/cons, Net). Existing RECOMMENDATION check loosened to accept mixed-case "Recommendation:".
+- `test/skill-validation.test.ts`: format assertions updated from "RECOMMENDATION: Choose" to the new Pros/Cons token set.
+- Golden fixtures regenerated: `test/fixtures/golden/claude-ship-SKILL.md`, `codex-ship-SKILL.md`, `factory-ship-SKILL.md`.
+
+#### For contributors
+
+- Outside-voice Codex review (`codex exec` with `model_reasoning_effort="high"`) caught two factual bugs in the original plan: the "31 sites" count (actually 16) and the AUTO_DECIDE contract break on neutral-posture questions. 5 of 8 Codex findings incorporated, 1 rejected (kept defense in depth on the composition reorder), 1 declined (HOLD SCOPE mode lock).
+- Follow-up: true multi-turn cadence eval (3 findings produce 3 distinct AskUserQuestion invocations across turns) requires new harness support for multi-capture. Filed in NOT-in-scope. Current single-capture eval covers format + escape-hatch abuse but not cadence itself.
+- Follow-up: expanded-coverage eval cases for `/ship`, `/office-hours`, `/investigate`, `/qa`, `/review`, `/design-review`, `/document-release`. Touchfiles entries exist; test blocks will land per-skill in follow-up PRs.
+- D-numbering is a model-level instruction, not a runtime counter. `TemplateContext` has no state for it. Drift over long sessions is expected; a registry (deferred to TODOs) is the long-term fix.
+
+## [1.9.0.0] - 2026-04-23
 
 ## **Your gstack memory now travels with you. Cross-machine brain via a private git repo + optional GBrain indexing, no daemon, no credential leaks.**
 
@@ -192,6 +727,7 @@ Work on the laptop Monday. Switch to the desktop Tuesday. Skill preamble sees th
 - `test/brain-sync.test.ts` — 12 of 27 tests pass on first bun-test run; remaining 15 hit bun-test's 5s default timeout (spawnSync-heavy git operations). Behaviors verified via integration smokes during implementation. Test infrastructure needs a 30s per-test timeout wrapper.
 - Three unmerged team-sync branches (`garrytan/team-supabase-store`, `garrytan/fix-team-setup`, `garrytan/team-install-mode`) should be formally closed if team-sync isn't landing — flagged in the CEO plan.
 - Pre-existing golden-file regression test failure in `test/host-config.test.ts` (Codex ship skill baseline) exists on `main` too — unrelated to this PR, tracked separately.
+
 ## [1.6.4.0] - 2026-04-22
 
 ## **Sidebar prompt-injection defense got half as noisy, half as trusting of any single classifier.**

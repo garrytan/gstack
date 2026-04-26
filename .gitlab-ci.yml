@@ -1,0 +1,72 @@
+# GitLab CI parity for workspace-aware ship.
+# Mirrors .github/workflows/version-gate.yml and pr-title-sync.yml.
+# Projects that mirror to GitLab get the same protection as GitHub.
+
+stages:
+  - check
+
+variables:
+  BUN_VERSION: "1.3.10"
+
+.setup-bun: &setup-bun
+  - apt-get update -qq && apt-get install -qq -y curl jq git
+  - curl -fsSL https://bun.sh/install | bash -s "bun-v$BUN_VERSION"
+  - export PATH="$HOME/.bun/bin:$PATH"
+
+version-gate:
+  stage: check
+  image: debian:stable-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - VERSION
+        - CHANGELOG.md
+        - package.json
+  script:
+    - *setup-bun
+    - PR_VERSION=$(cat VERSION | tr -d '[:space:]')
+    - BASE_VERSION=$(git show "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
+    - LEVEL=$(bun run scripts/detect-bump.ts "$BASE_VERSION" "$PR_VERSION")
+    # Util fail-open: on non-zero exit, emit offline marker
+    - |
+      set +e
+      bun run bin/gstack-next-version \
+        --base "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" \
+        --bump "$LEVEL" \
+        --current-version "$BASE_VERSION" \
+        --workspace-root null \
+        --exclude-pr "$CI_MERGE_REQUEST_IID" \
+        > next.json
+      RC=$?
+      if [ "$RC" != "0" ] || [ ! -s next.json ]; then
+        echo '{"offline":true}' > next.json
+        echo "WARNING: util exit=$RC — failing open"
+      fi
+      set -e
+    - PR_VERSION="$PR_VERSION" bun run scripts/compare-pr-version.ts next.json "$CI_MERGE_REQUEST_IID"
+
+pr-title-sync:
+  stage: check
+  image: debian:stable-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - VERSION
+  script:
+    - apt-get update -qq && apt-get install -qq -y curl jq git
+    - curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_linux_amd64.deb -o glab.deb && dpkg -i glab.deb
+    - VERSION=$(cat VERSION | tr -d '[:space:]')
+    - TITLE="$CI_MERGE_REQUEST_TITLE"
+    - |
+      if printf '%s' "$TITLE" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ '; then
+        PREFIX=$(printf '%s' "$TITLE" | awk '{print $1}')
+        REST=$(printf '%s' "$TITLE" | sed 's/^v[0-9][0-9.]* //')
+        if [ "v$VERSION" != "$PREFIX" ]; then
+          echo "Rewriting: $PREFIX ... → v$VERSION ..."
+          glab mr update "$CI_MERGE_REQUEST_IID" -t "v$VERSION $REST"
+        else
+          echo "Title already matches v$VERSION; no change."
+        fi
+      else
+        echo "Title does not use v<X.Y.Z.W> prefix — leaving alone."
+      fi

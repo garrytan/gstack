@@ -554,6 +554,71 @@ export function generateCommentary(c: ComparisonResult): string[] {
   return notes;
 }
 
+// --- Budget regression assertion ---
+
+export interface BudgetRegression {
+  testName: string;
+  metric: 'tools' | 'turns';
+  before: number;
+  after: number;
+  ratio: number;
+}
+
+/**
+ * Compute budget regressions: tests where tool calls or turns grew by more
+ * than `ratioCap` between two runs. Pure function — caller decides how to
+ * surface the result. Used by test/skill-budget-regression.test.ts and any
+ * future ship gate.
+ *
+ * `ratioCap` defaults to 2.0 (>2× growth is a regression). Override via
+ * `GSTACK_BUDGET_RATIO` env var. New tests with no prior data are skipped.
+ */
+export function findBudgetRegressions(
+  comparison: ComparisonResult,
+  opts?: { ratioCap?: number; minPriorTools?: number; minPriorTurns?: number },
+): BudgetRegression[] {
+  const envRatio = Number(process.env.GSTACK_BUDGET_RATIO);
+  const cap = opts?.ratioCap ?? (Number.isFinite(envRatio) && envRatio > 0 ? envRatio : 2.0);
+  // Floors avoid noise on tiny numbers (1 → 3 tools is 3× but meaningless).
+  const minPriorTools = opts?.minPriorTools ?? 5;
+  const minPriorTurns = opts?.minPriorTurns ?? 3;
+  const out: BudgetRegression[] = [];
+  for (const d of comparison.deltas) {
+    const beforeTools = Object.values(d.before.tool_summary ?? {}).reduce((a, b) => a + b, 0);
+    const afterTools  = Object.values(d.after.tool_summary  ?? {}).reduce((a, b) => a + b, 0);
+    const beforeTurns = d.before.turns_used ?? 0;
+    const afterTurns  = d.after.turns_used  ?? 0;
+    if (beforeTools >= minPriorTools && afterTools / beforeTools > cap) {
+      out.push({ testName: d.name, metric: 'tools', before: beforeTools, after: afterTools, ratio: afterTools / beforeTools });
+    }
+    if (beforeTurns >= minPriorTurns && afterTurns / beforeTurns > cap) {
+      out.push({ testName: d.name, metric: 'turns', before: beforeTurns, after: afterTurns, ratio: afterTurns / beforeTurns });
+    }
+  }
+  return out;
+}
+
+/**
+ * Throw if any test in the comparison exceeds the budget cap. Convenience
+ * wrapper around findBudgetRegressions for use in test assertions.
+ */
+export function assertNoBudgetRegression(
+  comparison: ComparisonResult,
+  opts?: { ratioCap?: number; minPriorTools?: number; minPriorTurns?: number },
+): void {
+  const regressions = findBudgetRegressions(comparison, opts);
+  if (regressions.length === 0) return;
+  const cap = opts?.ratioCap ?? (Number(process.env.GSTACK_BUDGET_RATIO) || 2.0);
+  const lines = regressions.map(
+    r => `  "${r.testName}" ${r.metric}: ${r.before} → ${r.after} (${r.ratio.toFixed(2)}× > ${cap.toFixed(2)}× cap)`,
+  );
+  throw new Error(
+    `Budget regression: ${regressions.length} test(s) exceeded ${cap.toFixed(2)}× prior usage:\n` +
+    lines.join('\n') +
+    `\n(Override per run: GSTACK_BUDGET_RATIO=<n>. ${comparison.before_file} vs ${comparison.after_file})`,
+  );
+}
+
 // --- EvalCollector ---
 
 function getGitInfo(): { branch: string; sha: string } {

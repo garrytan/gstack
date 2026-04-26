@@ -1,0 +1,477 @@
+#!/usr/bin/env bun
+// gstack-next-version — host-aware VERSION allocator for /ship.
+//
+// Queries the PR queue (GitHub or GitLab), fetches each open PR's VERSION,
+// scans configurable Conductor sibling worktrees, picks the next free version
+// slot at the requested bump level, and emits the whole picture as JSON.
+//
+// Contract: util NEVER writes files or mutates state. Pure reader + reporter.
+// /ship consumes the JSON and decides what to do.
+//
+// Usage:
+//   gstack-next-version --base <branch> --bump <major|minor|patch|micro> \
+//     --current-version <X.Y.Z.W> [--workspace-root <path>|null] [--json]
+//
+// Exit codes:
+//   0 — emitted JSON successfully (may include "offline":true or "host":"unknown")
+//   2 — invalid arguments
+//   3 — util bug (unexpected exception)
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
+type Bump = "major" | "minor" | "patch" | "micro";
+type Version = [number, number, number, number];
+
+type ClaimedPR = {
+  pr: number;
+  branch: string;
+  version: string;
+  url?: string;
+};
+
+type Sibling = {
+  path: string;
+  branch: string;
+  version: string;
+  last_commit_ts: number;
+  has_open_pr: boolean;
+  is_active: boolean;
+};
+
+type Output = {
+  version: string;
+  current_version: string;
+  base_version: string;
+  bump: Bump;
+  host: "github" | "gitlab" | "unknown";
+  offline: boolean;
+  claimed: ClaimedPR[];
+  siblings: Sibling[];
+  active_siblings: Sibling[];
+  reason: string;
+  warnings: string[];
+};
+
+const ACTIVE_SIBLING_MAX_AGE_S = 24 * 60 * 60;
+const GH_API_CONCURRENCY = 10;
+
+function parseVersion(s: string): Version | null {
+  const m = s.trim().match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+}
+
+function fmtVersion(v: Version): string {
+  return v.join(".");
+}
+
+function bumpVersion(v: Version, level: Bump): Version {
+  switch (level) {
+    case "major":
+      return [v[0] + 1, 0, 0, 0];
+    case "minor":
+      return [v[0], v[1] + 1, 0, 0];
+    case "patch":
+      return [v[0], v[1], v[2] + 1, 0];
+    case "micro":
+      return [v[0], v[1], v[2], v[3] + 1];
+  }
+}
+
+function cmpVersion(a: Version, b: Version): number {
+  for (let i = 0; i < 4; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+// Collision resolution: bump past the highest claimed within the same level.
+// Semantics: if my bump is MINOR and the queue claims 1.7.0.0, I advance to
+// 1.8.0.0 (still a MINOR relative to main). Preserves ship-time intent.
+function pickNextSlot(base: Version, claimed: Version[], level: Bump): { version: Version; reason: string } {
+  let candidate = bumpVersion(base, level);
+  const sortedClaimed = [...claimed].sort(cmpVersion);
+  const highest = sortedClaimed[sortedClaimed.length - 1];
+  if (highest && cmpVersion(highest, base) > 0) {
+    // Queue already advanced past base; bump past the highest claim.
+    const bumpedPastHighest = bumpVersion(highest, level);
+    if (cmpVersion(bumpedPastHighest, candidate) > 0) {
+      return { version: bumpedPastHighest, reason: `bumped past claimed ${fmtVersion(highest)}` };
+    }
+  }
+  return { version: candidate, reason: "no collision; clean bump from base" };
+}
+
+function runCommand(cmd: string, args: string[], timeoutMs = 15000): { ok: boolean; stdout: string; stderr: string } {
+  const r = spawnSync(cmd, args, { encoding: "utf8", timeout: timeoutMs });
+  return {
+    ok: r.status === 0 && !r.error,
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? (r.error ? String(r.error) : ""),
+  };
+}
+
+function detectHost(): "github" | "gitlab" | "unknown" {
+  const remote = runCommand("git", ["remote", "get-url", "origin"]);
+  if (remote.ok) {
+    const url = remote.stdout.trim();
+    if (url.includes("github.com")) return "github";
+    if (url.includes("gitlab")) return "gitlab";
+  }
+  const gh = runCommand("gh", ["auth", "status"]);
+  if (gh.ok) return "github";
+  const glab = runCommand("glab", ["auth", "status"]);
+  if (glab.ok) return "gitlab";
+  return "unknown";
+}
+
+function readBaseVersion(base: string, warnings: string[]): string {
+  // git fetch is best-effort; we tolerate failure and fall back to whatever
+  // origin/<base> currently points at.
+  runCommand("git", ["fetch", "origin", base, "--quiet"], 10000);
+  const r = runCommand("git", ["show", `origin/${base}:VERSION`]);
+  if (!r.ok) {
+    warnings.push(`could not read VERSION at origin/${base}; assuming 0.0.0.0`);
+    return "0.0.0.0";
+  }
+  return r.stdout.trim();
+}
+
+async function fetchGithubClaimed(base: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+  const list = runCommand("gh", [
+    "pr",
+    "list",
+    "--state",
+    "open",
+    "--base",
+    base,
+    "--limit",
+    "200",
+    "--json",
+    "number,headRefName,headRepositoryOwner,url,isDraft",
+  ]);
+  if (!list.ok) {
+    warnings.push(`gh pr list failed: ${list.stderr.trim().slice(0, 200)}`);
+    return { claimed: [], offline: true };
+  }
+  let prs: {
+    number: number;
+    headRefName: string;
+    headRepositoryOwner?: { login: string };
+    url: string;
+    isDraft: boolean;
+  }[];
+  try {
+    prs = JSON.parse(list.stdout);
+  } catch (e) {
+    warnings.push(`gh pr list returned invalid JSON`);
+    return { claimed: [], offline: true };
+  }
+  // Determine our repo owner to filter out fork PRs. `gh api contents?ref=<branch>`
+  // resolves to OUR repo regardless of where the PR originated, so fork PRs would
+  // otherwise return our main's VERSION as a phantom claim.
+  const viewer = runCommand("gh", ["repo", "view", "--json", "owner", "-q", ".owner.login"]);
+  const myOwner = viewer.ok ? viewer.stdout.trim() : "";
+  const sameRepoPRs = (myOwner
+    ? prs.filter((p) => (p.headRepositoryOwner?.login ?? "") === myOwner)
+    : prs
+  ).filter((p) => excludePR === null || p.number !== excludePR);
+  // Fetch each PR's VERSION at its head in parallel (bounded concurrency).
+  const results: ClaimedPR[] = [];
+  const queue = [...sameRepoPRs];
+  const workers = Array.from({ length: Math.min(GH_API_CONCURRENCY, sameRepoPRs.length) }, async () => {
+    while (queue.length) {
+      const pr = queue.shift();
+      if (!pr) return;
+      // gh passes branch name via argv, not shell — safe.
+      const content = runCommand("gh", [
+        "api",
+        `repos/{owner}/{repo}/contents/VERSION?ref=${encodeURIComponent(pr.headRefName)}`,
+        "-q",
+        ".content",
+      ]);
+      if (!content.ok) {
+        warnings.push(`PR #${pr.number}: could not fetch VERSION (fork or private)`);
+        continue;
+      }
+      let versionStr: string;
+      try {
+        versionStr = Buffer.from(content.stdout.trim(), "base64").toString("utf8").trim();
+      } catch {
+        warnings.push(`PR #${pr.number}: VERSION is not valid base64`);
+        continue;
+      }
+      if (!parseVersion(versionStr)) {
+        warnings.push(`PR #${pr.number}: VERSION is malformed (${versionStr})`);
+        continue;
+      }
+      results.push({ pr: pr.number, branch: pr.headRefName, version: versionStr, url: pr.url });
+    }
+  });
+  await Promise.all(workers);
+  return { claimed: results, offline: false };
+}
+
+async function fetchGitlabClaimed(base: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+  const list = runCommand("glab", [
+    "mr",
+    "list",
+    "--opened",
+    "--target-branch",
+    base,
+    "--output",
+    "json",
+    "--per-page",
+    "200",
+  ]);
+  if (!list.ok) {
+    warnings.push(`glab mr list failed: ${list.stderr.trim().slice(0, 200)}`);
+    return { claimed: [], offline: true };
+  }
+  let mrs: { iid: number; source_branch: string; web_url: string }[];
+  try {
+    mrs = JSON.parse(list.stdout);
+  } catch {
+    warnings.push(`glab mr list returned invalid JSON`);
+    return { claimed: [], offline: true };
+  }
+  if (excludePR !== null) {
+    mrs = mrs.filter((mr) => mr.iid !== excludePR);
+  }
+  const results: ClaimedPR[] = [];
+  for (const mr of mrs) {
+    const content = runCommand("glab", [
+      "api",
+      `projects/:id/repository/files/VERSION?ref=${encodeURIComponent(mr.source_branch)}`,
+    ]);
+    if (!content.ok) {
+      warnings.push(`MR !${mr.iid}: could not fetch VERSION`);
+      continue;
+    }
+    try {
+      const j = JSON.parse(content.stdout);
+      const versionStr = Buffer.from(j.content, "base64").toString("utf8").trim();
+      if (!parseVersion(versionStr)) {
+        warnings.push(`MR !${mr.iid}: VERSION malformed (${versionStr})`);
+        continue;
+      }
+      results.push({ pr: mr.iid, branch: mr.source_branch, version: versionStr, url: mr.web_url });
+    } catch {
+      warnings.push(`MR !${mr.iid}: unexpected glab api response`);
+    }
+  }
+  return { claimed: results, offline: false };
+}
+
+function resolveWorkspaceRoot(override?: string): string | null {
+  if (override === "null") return null;
+  if (override) return override;
+  const r = runCommand(join(__dirname, "gstack-config"), ["get", "workspace_root"]);
+  const configured = r.ok ? r.stdout.trim() : "";
+  if (configured === "null") return null;
+  if (configured) return configured;
+  // Default: $HOME/conductor/workspaces/
+  return join(homedir(), "conductor", "workspaces");
+}
+
+function currentRepoSlug(): string {
+  const r = runCommand("git", ["remote", "get-url", "origin"]);
+  if (!r.ok) return "";
+  // Extract "owner/repo" from URL like git@github.com:owner/repo.git
+  const m = r.stdout.trim().match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+  return m ? m[1] : "";
+}
+
+function scanSiblings(root: string | null, claimed: ClaimedPR[], warnings: string[]): Sibling[] {
+  if (!root || !existsSync(root)) return [];
+  const mySlug = currentRepoSlug();
+  if (!mySlug) {
+    warnings.push("could not determine current repo slug; skipping sibling scan");
+    return [];
+  }
+  const repoName = mySlug.split("/").pop() ?? "";
+  // Conductor layout: <root>/<repo>/<workspace>/
+  const repoDir = join(root, repoName);
+  if (!existsSync(repoDir)) return [];
+  const myAbsPath = resolve(process.cwd());
+  const results: Sibling[] = [];
+  for (const name of readdirSync(repoDir)) {
+    const p = join(repoDir, name);
+    if (resolve(p) === myAbsPath) continue;
+    try {
+      const s = statSync(p);
+      if (!s.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    if (!existsSync(join(p, ".git")) && !existsSync(join(p, ".git/HEAD"))) continue;
+    const versionFile = join(p, "VERSION");
+    if (!existsSync(versionFile)) continue;
+    let version: string;
+    try {
+      version = readFileSync(versionFile, "utf8").trim();
+      if (!parseVersion(version)) continue;
+    } catch {
+      continue;
+    }
+    const branchR = runCommand("git", ["-C", p, "rev-parse", "--abbrev-ref", "HEAD"]);
+    if (!branchR.ok) continue;
+    const branch = branchR.stdout.trim();
+    const commitTsR = runCommand("git", ["-C", p, "log", "-1", "--format=%ct"]);
+    const last_commit_ts = commitTsR.ok ? Number(commitTsR.stdout.trim()) : 0;
+    const has_open_pr = claimed.some((c) => c.branch === branch);
+    results.push({
+      path: p,
+      branch,
+      version,
+      last_commit_ts,
+      has_open_pr,
+      is_active: false,
+    });
+  }
+  return results;
+}
+
+function markActiveSiblings(siblings: Sibling[], baseVersion: Version): Sibling[] {
+  const now = Math.floor(Date.now() / 1000);
+  return siblings.map((s) => {
+    const v = parseVersion(s.version);
+    const isAhead = v ? cmpVersion(v, baseVersion) > 0 : false;
+    const isFresh = s.last_commit_ts > 0 && now - s.last_commit_ts < ACTIVE_SIBLING_MAX_AGE_S;
+    const is_active = isAhead && isFresh && !s.has_open_pr;
+    return { ...s, is_active };
+  });
+}
+
+function parseArgs(argv: string[]): { base: string; bump: Bump; current: string; workspaceRoot?: string; excludePR: number | null; help: boolean } {
+  let base = "";
+  let bump: Bump | "" = "";
+  let current = "";
+  let workspaceRoot: string | undefined;
+  let excludePR: number | null = null;
+  let help = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--base") base = argv[++i] ?? "";
+    else if (a === "--bump") bump = (argv[++i] ?? "") as Bump;
+    else if (a === "--current-version") current = argv[++i] ?? "";
+    else if (a === "--workspace-root") workspaceRoot = argv[++i];
+    else if (a === "--exclude-pr") {
+      const n = Number(argv[++i]);
+      excludePR = Number.isFinite(n) && n > 0 ? n : null;
+    }
+    else if (a === "-h" || a === "--help") help = true;
+  }
+  if (help) return { base: "", bump: "micro", current: "", excludePR: null, help: true };
+  if (!base) base = "main";
+  if (!bump) {
+    console.error("Error: --bump is required (major|minor|patch|micro)");
+    process.exit(2);
+  }
+  if (!["major", "minor", "patch", "micro"].includes(bump)) {
+    console.error(`Error: --bump must be major|minor|patch|micro (got ${bump})`);
+    process.exit(2);
+  }
+  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, help: false };
+}
+
+// Auto-detect: if --exclude-pr wasn't passed, check whether the current branch
+// already has an open PR and exclude it by default. This prevents the self-
+// reference bug where /ship's own PR inflates the queue on rerun.
+function autoDetectExcludePR(): number | null {
+  const r = runCommand("gh", ["pr", "view", "--json", "number", "-q", ".number"]);
+  if (!r.ok) return null;
+  const n = Number(r.stdout.trim());
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(
+      "Usage: gstack-next-version --base <branch> --bump <level> --current-version <X.Y.Z.W> [--workspace-root <path|null>]",
+    );
+    process.exit(0);
+  }
+  const warnings: string[] = [];
+  const host = detectHost();
+  const baseVersion = args.current || readBaseVersion(args.base, warnings);
+  const baseParsed = parseVersion(baseVersion);
+  if (!baseParsed) {
+    console.error(`Error: could not parse base version '${baseVersion}'`);
+    process.exit(2);
+  }
+
+  const excludePR = args.excludePR ?? autoDetectExcludePR();
+  if (excludePR !== null && args.excludePR === null) {
+    warnings.push(`auto-excluded PR #${excludePR} (current branch's own PR)`);
+  }
+
+  let claimed: ClaimedPR[] = [];
+  let offline = false;
+  if (host === "github") {
+    ({ claimed, offline } = await fetchGithubClaimed(args.base, excludePR, warnings));
+  } else if (host === "gitlab") {
+    ({ claimed, offline } = await fetchGitlabClaimed(args.base, excludePR, warnings));
+  } else {
+    warnings.push("host unknown; queue-awareness unavailable");
+  }
+
+  // Only count PRs that actually bumped VERSION past base as real "claims".
+  // A PR whose VERSION equals base's VERSION hasn't claimed anything.
+  const realClaims = claimed.filter((c) => {
+    const v = parseVersion(c.version);
+    return v !== null && cmpVersion(v, baseParsed) > 0;
+  });
+  const claimedVersions = realClaims
+    .map((c) => parseVersion(c.version))
+    .filter((v): v is Version => v !== null);
+
+  const { version: picked, reason } = pickNextSlot(baseParsed, claimedVersions, args.bump);
+
+  const workspaceRoot = resolveWorkspaceRoot(args.workspaceRoot);
+  const siblings = markActiveSiblings(scanSiblings(workspaceRoot, claimed, warnings), baseParsed);
+  const activeSiblings = siblings.filter((s) => s.is_active);
+
+  // If an active sibling outranks our pick, bump past it (same bump level).
+  let finalVersion = picked;
+  let finalReason = reason;
+  const activeAhead = activeSiblings
+    .map((s) => parseVersion(s.version))
+    .filter((v): v is Version => v !== null)
+    .filter((v) => cmpVersion(v, finalVersion) >= 0);
+  if (activeAhead.length) {
+    const highest = activeAhead.sort(cmpVersion)[activeAhead.length - 1];
+    finalVersion = bumpVersion(highest, args.bump);
+    finalReason = `bumped past active sibling ${fmtVersion(highest)}`;
+  }
+
+  const out: Output = {
+    version: fmtVersion(finalVersion),
+    current_version: args.current || baseVersion,
+    base_version: baseVersion,
+    bump: args.bump,
+    host,
+    offline,
+    claimed: realClaims,
+    siblings,
+    active_siblings: activeSiblings,
+    reason: finalReason,
+    warnings,
+  };
+  process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+}
+
+// Pure-function exports for testing
+export { parseVersion, fmtVersion, bumpVersion, cmpVersion, pickNextSlot, markActiveSiblings };
+
+// Only run main() when invoked as a script, not when imported by tests.
+if (import.meta.main) {
+  main().catch((e) => {
+    console.error("Unexpected error:", e?.stack ?? e);
+    process.exit(3);
+  });
+}

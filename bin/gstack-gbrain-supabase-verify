@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# gstack-gbrain-supabase-verify — structural check on a Supabase Session
+# Pooler URL before handing it to `gbrain init`.
+#
+# Usage:
+#   gstack-gbrain-supabase-verify <url>
+#   echo "<url>" | gstack-gbrain-supabase-verify -
+#
+# Accepts ONLY Session Pooler URLs (port 6543, host *.pooler.supabase.com).
+# Rejects direct-connection URLs (db.*.supabase.co:5432) since those are
+# IPv6-only and fail in many environments — gbrain's init wizard warns
+# about this at init.ts:150-158.
+#
+# Canonical shape (per gbrain init.ts:266):
+#   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+#
+# Exit codes:
+#   0 — URL passes structural check
+#   2 — invalid format (bad scheme, port, host, userinfo, or empty password)
+#   3 — direct-connection URL rejected (common mistake, special-cased for UX)
+#
+# The verifier never makes a network call; purely a regex match. Whether
+# the URL actually works (database up, password correct, host reachable)
+# is gbrain's problem at init time.
+#
+# Reads URL from:
+#   1. argv[1] if provided and not "-"
+#   2. stdin if argv[1] is "-" or missing
+#
+# Never echoes the URL to stderr (it contains a password). Error messages
+# refer to "the URL" generically.
+set -euo pipefail
+
+die()   { echo "gstack-gbrain-supabase-verify: $*" >&2; exit 2; }
+reject_direct() {
+  cat >&2 <<EOF
+gstack-gbrain-supabase-verify: rejected direct-connection URL
+
+  You pasted a Supabase direct-connection URL (db.*.supabase.co on port
+  5432). Direct connections are IPv6-only and fail in many environments.
+
+  Use the Session Pooler instead:
+    Supabase Dashboard → Settings → Database → Connection Pooler →
+    Transaction/Session → copy URI (port 6543)
+
+  Expected shape:
+    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+EOF
+  exit 3
+}
+
+URL=""
+case "${1:-}" in
+  -)   URL=$(cat) ;;
+  "")  URL=$(cat) ;;
+  *)   URL="$1" ;;
+esac
+
+URL=$(printf '%s' "$URL" | tr -d '[:space:]')
+[ -z "$URL" ] && die "empty URL"
+
+# Scheme: must be postgresql:// or postgres://. Explicitly reject other
+# schemes rather than guess.
+case "$URL" in
+  postgresql://*|postgres://*) ;;
+  *) die "bad scheme (must start with postgresql:// or postgres://)" ;;
+esac
+
+# Strip scheme to expose userinfo + host + port + path.
+rest="${URL#*://}"
+
+# Userinfo portion: everything before the first @. Must contain a : (user:pass).
+case "$rest" in
+  *@*) ;;
+  *) die "missing userinfo (expected postgres.<ref>:<password>@host)" ;;
+esac
+userinfo="${rest%%@*}"
+after_at="${rest#*@}"
+
+# Userinfo must be user:password with neither part empty.
+case "$userinfo" in
+  *:*) ;;
+  *) die "userinfo missing password separator (expected user:password@)" ;;
+esac
+user_part="${userinfo%%:*}"
+pass_part="${userinfo#*:}"
+[ -z "$user_part" ] && die "empty user portion in userinfo"
+[ -z "$pass_part" ] && die "empty password in userinfo"
+
+# Host + port + path.
+# Direct-connection detection FIRST (specific error beats generic).
+case "$after_at" in
+  db.*.supabase.co:5432*|db.*.supabase.co/*|db.*.supabase.co) reject_direct ;;
+esac
+
+# Extract host:port (before first / if present).
+hostport="${after_at%%/*}"
+case "$hostport" in
+  *:*) ;;
+  *) die "missing port (Session Pooler requires :6543)" ;;
+esac
+host="${hostport%:*}"
+port="${hostport##*:}"
+
+# Host must be *.pooler.supabase.com (case-insensitive).
+host_lower=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')
+case "$host_lower" in
+  *.pooler.supabase.com) ;;
+  *) die "host '$host' is not a Supabase Session Pooler (expected *.pooler.supabase.com)" ;;
+esac
+
+# Port must be 6543 (Session Pooler default).
+if [ "$port" != "6543" ]; then
+  die "port must be 6543 for Session Pooler (got $port)"
+fi
+
+# User portion should look like postgres.<ref> (20-char lowercase ref,
+# per the Supabase Management API contract). Not strictly required by
+# gbrain, but rejecting a plain "postgres" user catches a common paste
+# error where someone grabs the Direct URL userinfo by mistake.
+case "$user_part" in
+  postgres.*) ;;
+  *) die "user portion '$user_part' should be 'postgres.<project-ref>' (20-char ref)" ;;
+esac
+
+echo "ok"

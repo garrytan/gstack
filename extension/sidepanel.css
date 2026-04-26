@@ -675,6 +675,118 @@ body::after {
 }
 .tab-content.active { display: flex; flex-direction: column; }
 
+/* ─── Terminal Tab ────────────────────────────────────────────── */
+/* The Terminal pane manages its own scrolling (xterm has a viewport with
+   scrollback). The default .tab-content rules above set overflow-y: auto,
+   which collapses min-height for nested flex children — that's why
+   .terminal-mount couldn't grow to fill available space. Override here. */
+#tab-terminal {
+  background: #0a0a0a;
+  padding: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+#tab-terminal.active {
+  display: flex;
+  flex-direction: column;
+}
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #1a1a1a;
+  background: #0a0a0a;
+  flex-shrink: 0;
+}
+.terminal-toolbar-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.terminal-toolbar-btn {
+  background: transparent;
+  border: 1px solid #27272a;
+  color: #a1a1aa;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.terminal-toolbar-btn:hover {
+  color: #f59e0b;
+  border-color: #f59e0b;
+}
+.terminal-bootstrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #71717a;
+  padding: 24px;
+}
+.terminal-bootstrap-icon {
+  font-size: 32px;
+  color: #f59e0b;
+  margin-bottom: 8px;
+}
+.terminal-bootstrap p { margin: 4px 0; }
+.terminal-install-card {
+  margin: 24px;
+  padding: 16px;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  text-align: center;
+}
+.terminal-install-card a { color: #f59e0b; }
+.install-retry-btn {
+  margin-top: 12px;
+  padding: 6px 14px;
+  background: #f59e0b;
+  color: #0a0a0a;
+  border: none;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.install-retry-btn:hover { opacity: 0.9; }
+.terminal-mount {
+  /* min-height: 0 is the standard flex-overflow fix — without it, a flex
+     item with overflowing content can't shrink below its content size,
+     so flex:1 refuses to expand into available space and xterm renders
+     into whatever the content happens to be (i.e. its own initial 2x2
+     measurement). With min-height:0 the item respects the flex parent's
+     remaining space and xterm grows to fill it. */
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  background: #0a0a0a;
+  padding: 8px;
+  box-sizing: border-box;
+  /* position: relative so xterm's absolutely-positioned helpers (the
+     hidden textarea for input) anchor inside us, not on body. */
+  position: relative;
+}
+.terminal-mount .xterm,
+.terminal-mount .xterm .xterm-viewport,
+.terminal-mount .xterm .xterm-screen {
+  height: 100% !important;
+}
+.terminal-ended {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #71717a;
+  padding: 24px;
+}
+
 /* ─── Activity Feed ───────────────────────────────────── */
 #activity-feed { flex: 1; }
 

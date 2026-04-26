@@ -3,16 +3,50 @@ import type { TemplateContext } from '../types';
 export function generateAskUserFormat(_ctx: TemplateContext): string {
   return `## AskUserQuestion Format
 
-**ALWAYS follow this structure for every AskUserQuestion call. All four elements are non-skippable. If you find yourself about to skip any of them, stop and back up.**
+Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
 
-1. **Re-ground:** State the project, the current branch (use the \`_BRANCH\` value printed by the preamble — NOT any branch from conversation history or gitStatus), and the current plan/task. (1-2 sentences)
-2. **Simplify (ELI10, ALWAYS):** Explain what's happening in plain English a smart 16-year-old could follow. Concrete examples and analogies, not function names or internal jargon. Say what it DOES, not what it's called. State the stakes: what breaks if we pick wrong. This is NOT optional verbosity and it is NOT preamble — the user is about to make a decision and needs context. Even if you'd normally stay terse, emit the ELI10 paragraph. The user will ask for it anyway; do it the first time.
-3. **Recommend (ALWAYS):** Every question ends with \`RECOMMENDATION: Choose [X] because [one-line reason]\` on its own line. Never omit it. Never collapse it into the options list. Required for every AskUserQuestion, regardless of whether the options are coverage-differentiated or different-in-kind.
-4. **Score completeness (when meaningful):** When options differ in coverage (e.g. full test coverage vs happy path vs shortcut, complete error handling vs partial), score each with \`Completeness: N/10\` on its own line. Calibration: 10 = complete (all edge cases, full coverage), 7 = happy path only, 3 = shortcut. Flag any option ≤5 where a higher-completeness option exists. When options differ in kind (picking a review posture, picking an architectural approach, cherry-pick Add/Defer/Skip, choosing between two different kinds of systems), the completeness axis doesn't apply — skip \`Completeness: N/10\` entirely and write one line: \`Note: options differ in kind, not coverage — no completeness score.\` Do not fabricate filler scores.
-5. **Options:** Lettered options: \`A) ... B) ... C) ...\` — when an option involves effort, show both scales: \`(human: ~X / CC: ~Y)\`
+\`\`\`
+D<N> — <one-line question title>
+Project/branch/task: <1 short grounding sentence using _BRANCH>
+ELI10: <plain English a 16-year-old could follow, 2-4 sentences, name the stakes>
+Stakes if we pick wrong: <one sentence on what breaks, what user sees, what's lost>
+Recommendation: <choice> because <one-line reason>
+Completeness: A=X/10, B=Y/10   (or: Note: options differ in kind, not coverage — no completeness score)
+Pros / cons:
+A) <option label> (recommended)
+  ✅ <pro — concrete, observable, ≥40 chars>
+  ❌ <con — honest, ≥40 chars>
+B) <option label>
+  ✅ <pro>
+  ❌ <con>
+Net: <one-line synthesis of what you're actually trading off>
+\`\`\`
 
-Assume the user hasn't looked at this window in 20 minutes and doesn't have the code open. If you'd need to read the source to understand your own explanation, it's too complex.
+D-numbering: first question in a skill invocation is \`D1\`; increment yourself. This is a model-level instruction, not a runtime counter.
 
-Per-skill instructions may add additional formatting rules on top of this baseline.`;
+ELI10 is always present, in plain English, not function names. Recommendation is ALWAYS present. Keep the \`(recommended)\` label; AUTO_DECIDE depends on it.
+
+Completeness: use \`Completeness: N/10\` only when options differ in coverage. 10 = complete, 7 = happy path, 3 = shortcut. If options differ in kind, write: \`Note: options differ in kind, not coverage — no completeness score.\`
+
+Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: \`✅ No cons — this is a hard-stop choice\`.
+
+Neutral posture: \`Recommendation: <default> — this is a taste call, no strong preference either way\`; \`(recommended)\` STAYS on the default option for AUTO_DECIDE.
+
+Effort both-scales: when an option involves effort, label both human-team and CC+gstack time, e.g. \`(human: ~2 days / CC: ~15 min)\`. Makes AI compression visible at decision time.
+
+Net line closes the tradeoff. Per-skill instructions may add stricter rules.
+
+### Self-check before emitting
+
+Before calling AskUserQuestion, verify:
+- [ ] D<N> header present
+- [ ] ELI10 paragraph present (stakes line too)
+- [ ] Recommendation line present with concrete reason
+- [ ] Completeness scored (coverage) OR kind-note present (kind)
+- [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
+- [ ] (recommended) label on one option (even for neutral-posture)
+- [ ] Dual-scale effort labels on effort-bearing options (human / CC)
+- [ ] Net line closes the decision
+- [ ] You are calling the tool, not writing prose
+`;
 }
-

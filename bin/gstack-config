@@ -78,6 +78,13 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
+# ─── Workspace-aware ship ────────────────────────────────────────────
+# workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
+#                           # Conductor worktrees when picking a VERSION slot.
+#                           # Set to "null" to disable sibling scanning entirely.
+#                           # Non-Conductor users can point this at any directory
+#                           # that holds parallel worktrees of the same repo.
+#
 '
 
 # DEFAULTS table — canonical default values for known keys.
@@ -96,6 +103,7 @@ lookup_default() {
     codex_reviews) echo "enabled" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
+    workspace_root) echo "$HOME/conductor/workspaces" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     gbrain_sync_mode) echo "off" ;;
     gbrain_sync_mode_prompted) echo "false" ;;
@@ -162,8 +170,8 @@ case "${1:-}" in
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review gbrain_sync_mode \
-               gbrain_sync_mode_prompted; do
+               gstack_contributor skip_eng_review workspace_root \
+               gbrain_sync_mode gbrain_sync_mode_prompted; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -178,8 +186,8 @@ case "${1:-}" in
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review gbrain_sync_mode \
-               gbrain_sync_mode_prompted; do
+               gstack_contributor skip_eng_review workspace_root \
+               gbrain_sync_mode gbrain_sync_mode_prompted; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

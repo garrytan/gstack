@@ -85,8 +85,20 @@ describe('selectTests', () => {
     expect(result.selected).toContain('codex-offered-ceo-review');
     expect(result.selected).toContain('plan-ceo-review-format-mode');
     expect(result.selected).toContain('plan-ceo-review-format-approach');
-    expect(result.selected.length).toBe(8);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 8);
+    // v1.10.2.0 plan-mode handshake entries also depend on plan-ceo-review/**
+    expect(result.selected).toContain('plan-ceo-review-plan-mode');
+    expect(result.selected).toContain('plan-mode-no-op');
+    expect(result.selected).toContain('e2e-harness-audit');
+    expect(result.selected).toContain('plan-ceo-review-prosons-cadence');
+    expect(result.selected).toContain('plan-review-prosons-format');
+    expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
+    expect(result.selected).toContain('plan-review-prosons-neutral-neg');
+    // v1.13.x real-PTY E2E batch entries that also depend on plan-ceo-review/**
+    expect(result.selected).toContain('ask-user-question-format-pty');
+    expect(result.selected).toContain('plan-ceo-mode-routing');
+    expect(result.selected).toContain('autoplan-chain-pty');
+    expect(result.selected.length).toBe(18);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 18);
   });
 
   test('global touchfile triggers ALL tests', () => {

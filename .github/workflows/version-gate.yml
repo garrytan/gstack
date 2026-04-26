@@ -1,0 +1,74 @@
+name: Version Gate
+
+on:
+  pull_request:
+    paths:
+      - 'VERSION'
+      - 'CHANGELOG.md'
+      - 'package.json'
+
+concurrency:
+  group: version-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check VERSION is not stale vs queue
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Read versions
+        id: versions
+        run: |
+          set -euo pipefail
+          PR_VERSION=$(cat VERSION | tr -d '[:space:]')
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          git fetch origin "$BASE_REF" --depth=1 --quiet || true
+          BASE_VERSION=$(git show "origin/$BASE_REF:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
+          {
+            echo "pr_version=$PR_VERSION"
+            echo "base_version=$BASE_VERSION"
+            echo "base_ref=$BASE_REF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Detect bump level
+        id: bump
+        run: |
+          LEVEL=$(bun run scripts/detect-bump.ts "${{ steps.versions.outputs.base_version }}" "${{ steps.versions.outputs.pr_version }}")
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+
+      - name: Query queue (util) — fail-open on error
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          bun run bin/gstack-next-version \
+            --base "${{ steps.versions.outputs.base_ref }}" \
+            --bump "${{ steps.bump.outputs.level }}" \
+            --current-version "${{ steps.versions.outputs.base_version }}" \
+            --workspace-root null \
+            --exclude-pr "${{ github.event.pull_request.number }}" \
+            > next.json 2> next.err
+          RC=$?
+          if [ "$RC" != "0" ] || [ ! -s next.json ]; then
+            echo '{"offline":true}' > next.json
+            echo "::warning::util exit=$RC — failing open. stderr:"
+            cat next.err || true
+          fi
+
+      - name: Compare PR VERSION to next free slot
+        env:
+          PR_VERSION: ${{ steps.versions.outputs.pr_version }}
+        run: |
+          bun run scripts/compare-pr-version.ts next.json "${{ github.event.pull_request.number }}"

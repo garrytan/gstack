@@ -24,7 +24,7 @@ const OVERLAY_DIR = path.resolve(import.meta.dir, '../../model-overlays');
 
 const INHERIT_RE = /^\s*\{\{INHERIT:([a-z0-9-]+(?:\.[0-9]+)*)\}\}\s*\n/;
 
-function readOverlay(model: string, seen: Set<string> = new Set()): string {
+export function readOverlay(model: string, seen: Set<string> = new Set()): string {
   if (seen.has(model)) return ''; // cycle guard
   seen.add(model);
 

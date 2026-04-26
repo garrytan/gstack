@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# gstack-gbrain-repo-policy — per-remote trust tier for gbrain repo ingest.
+#
+# Usage:
+#   gstack-gbrain-repo-policy get [<remote-url>]
+#     Print the tier for the given remote, or the current repo's origin
+#     if no URL is passed. Exits 0 with one of: read-write, read-only,
+#     deny, unset.
+#
+#   gstack-gbrain-repo-policy set <remote-url> <read-write|read-only|deny>
+#     Persist a tier for the given remote. Exits 0 on success.
+#
+#   gstack-gbrain-repo-policy list
+#     Print every entry as "<key>\t<tier>", sorted by key.
+#
+#   gstack-gbrain-repo-policy normalize <url>
+#     Print the normalized (canonical) key for a given remote URL.
+#     Use this when other skills or tests need the same collapsing logic.
+#
+#   gstack-gbrain-repo-policy --help
+#
+# Storage:
+#   ~/.gstack/gbrain-repo-policy.json, mode 0600.
+#
+# File format:
+#   {
+#     "_schema_version": 2,
+#     "github.com/foo/bar": "read-write",
+#     "github.com/baz/qux": "deny"
+#   }
+#
+# Tier semantics:
+#   read-write — agent may search AND write new pages from this repo.
+#   read-only  — agent may search but NEVER write pages from this repo.
+#                (Enforced at the caller level; this binary just stores the
+#                decision.)
+#   deny       — no gbrain interaction at all.
+#
+# Legacy migration:
+#   On any read of a file missing `_schema_version` (or with version < 2),
+#   legacy `allow` values are atomically rewritten to `read-write`, and
+#   `_schema_version: 2` is added. Log line emitted on stderr when the
+#   migration actually changes anything. Idempotent: running twice is safe.
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack state directory (aligns with other
+#                 gstack-* bins; used heavily in tests).
+set -euo pipefail
+
+STATE_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+POLICY_FILE="$STATE_DIR/gbrain-repo-policy.json"
+SCHEMA_VERSION=2
+
+die() { echo "gstack-gbrain-repo-policy: $*" >&2; exit 2; }
+
+require_jq() {
+  if ! command -v jq >/dev/null 2>&1; then
+    die "jq is required. Install with: brew install jq"
+  fi
+}
+
+# normalize <url> — canonical form: lowercase host + path, no protocol,
+# no userinfo, no trailing .git or /. SSH shorthand (git@host:path) collapses
+# to the same key as https://host/path.
+normalize() {
+  local url="$1"
+  [ -z "$url" ] && { echo ""; return 0; }
+  # Strip protocol://
+  url="${url#*://}"
+  # Strip userinfo (git@, user:password@, etc.) — everything up to and
+  # including the first @ iff an @ appears before the first / or :.
+  case "$url" in
+    *@*)
+      local before_at="${url%%@*}"
+      case "$before_at" in
+        */*|*:*) : ;;  # @ is in the path, not userinfo — leave it
+        *) url="${url#*@}" ;;
+      esac
+      ;;
+  esac
+  # SSH shorthand: github.com:foo/bar → github.com/foo/bar. Only when the
+  # hostname-part (before first /) contains a colon. sed is clearer than
+  # bash's `${var/:/\/}` which has tricky escaping.
+  local head="${url%%/*}"
+  case "$head" in
+    *:*) url=$(printf '%s' "$url" | sed 's|:|/|') ;;
+  esac
+  # Strip trailing .git
+  url="${url%.git}"
+  # Strip trailing /
+  url="${url%/}"
+  # Lowercase the whole thing. GitHub and most hosts are case-insensitive on
+  # paths anyway; collapsing avoids duplicate entries for "Foo/Bar" vs
+  # "foo/bar".
+  printf '%s\n' "$url" | tr '[:upper:]' '[:lower:]'
+}
+
+# ensure_file — create the policy file if missing, migrate if legacy.
+# Emits the migration log line on stderr exactly once per run when a
+# migration actually rewrites values.
+ensure_file() {
+  require_jq
+  mkdir -p "$STATE_DIR"
+
+  if [ ! -f "$POLICY_FILE" ]; then
+    # Fresh file — just the schema version, no entries.
+    local tmp
+    tmp=$(mktemp "$POLICY_FILE.tmp.XXXXXX")
+    printf '{"_schema_version":%d}\n' "$SCHEMA_VERSION" > "$tmp"
+    mv "$tmp" "$POLICY_FILE"
+    chmod 0600 "$POLICY_FILE"
+    return 0
+  fi
+
+  # File exists — validate, migrate if needed.
+  local raw
+  if ! raw=$(cat "$POLICY_FILE" 2>/dev/null); then
+    die "Cannot read $POLICY_FILE"
+  fi
+
+  # Corrupt JSON → quarantine and start fresh.
+  if ! echo "$raw" | jq empty 2>/dev/null; then
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    local quarantine="$POLICY_FILE.corrupt-$ts"
+    mv "$POLICY_FILE" "$quarantine"
+    echo "gstack-gbrain-repo-policy: corrupt policy file quarantined to $quarantine; starting fresh" >&2
+    local tmp
+    tmp=$(mktemp "$POLICY_FILE.tmp.XXXXXX")
+    printf '{"_schema_version":%d}\n' "$SCHEMA_VERSION" > "$tmp"
+    mv "$tmp" "$POLICY_FILE"
+    chmod 0600 "$POLICY_FILE"
+    return 0
+  fi
+
+  # Check schema version.
+  local version
+  version=$(echo "$raw" | jq -r '._schema_version // 0')
+  if [ "$version" -ge "$SCHEMA_VERSION" ]; then
+    return 0
+  fi
+
+  # Migrate: rename `allow` → `read-write`, add _schema_version.
+  local allow_count migrated
+  allow_count=$(echo "$raw" | jq '[to_entries[] | select(.key != "_schema_version" and .value == "allow")] | length')
+  migrated=$(echo "$raw" | jq --argjson v "$SCHEMA_VERSION" '
+    (to_entries | map(
+      if .key == "_schema_version" then empty
+      elif .value == "allow" then .value = "read-write"
+      else .
+      end
+    ) | from_entries) + {_schema_version: $v}
+  ')
+  local tmp
+  tmp=$(mktemp "$POLICY_FILE.tmp.XXXXXX")
+  printf '%s\n' "$migrated" > "$tmp"
+  mv "$tmp" "$POLICY_FILE"
+  chmod 0600 "$POLICY_FILE"
+  if [ "$allow_count" -gt 0 ]; then
+    echo "[gstack-gbrain-repo-policy] Migrated $allow_count legacy allow entries to read-write" >&2
+  fi
+}
+
+cmd_get() {
+  local url="${1:-}"
+  if [ -z "$url" ]; then
+    url=$(git remote get-url origin 2>/dev/null || true)
+    if [ -z "$url" ]; then
+      echo "unset"
+      return 0
+    fi
+  fi
+  local key
+  key=$(normalize "$url")
+  if [ -z "$key" ]; then
+    echo "unset"
+    return 0
+  fi
+  ensure_file
+  jq -r --arg key "$key" '.[$key] // "unset"' "$POLICY_FILE"
+}
+
+cmd_set() {
+  local url="${1:-}"
+  local tier="${2:-}"
+  [ -z "$url" ] && die "usage: set <remote-url> <tier>"
+  [ -z "$tier" ] && die "usage: set <remote-url> <tier>"
+  case "$tier" in
+    read-write|read-only|deny) ;;
+    *) die "invalid tier '$tier' (must be one of: read-write, read-only, deny)" ;;
+  esac
+  local key
+  key=$(normalize "$url")
+  [ -z "$key" ] && die "cannot normalize remote URL: $url"
+  ensure_file
+  local tmp
+  tmp=$(mktemp "$POLICY_FILE.tmp.XXXXXX")
+  jq --arg key "$key" --arg tier "$tier" '.[$key] = $tier' "$POLICY_FILE" > "$tmp"
+  mv "$tmp" "$POLICY_FILE"
+  chmod 0600 "$POLICY_FILE"
+  echo "Set $key → $tier"
+}
+
+cmd_list() {
+  if [ ! -f "$POLICY_FILE" ]; then
+    # Nothing to list; don't create the file just for a read.
+    return 0
+  fi
+  ensure_file
+  jq -r 'to_entries[] | select(.key != "_schema_version") | "\(.key)\t\(.value)"' "$POLICY_FILE" | sort
+}
+
+cmd_normalize() {
+  local url="${1:-}"
+  [ -z "$url" ] && die "usage: normalize <url>"
+  normalize "$url"
+}
+
+case "${1:-}" in
+  get) shift; cmd_get "$@" ;;
+  set) shift; cmd_set "$@" ;;
+  list) shift; cmd_list "$@" ;;
+  normalize) shift; cmd_normalize "$@" ;;
+  --help|-h|help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//' ;;
+  "") die "usage: gstack-gbrain-repo-policy {get|set|list|normalize|--help}" ;;
+  *) die "unknown subcommand: $1" ;;
+esac

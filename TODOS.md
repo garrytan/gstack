@@ -159,7 +159,75 @@
 **Depends on:** v1.8.0.0 telemetry in production. P1 self-authoring commands.
 
 ---
+## Sidebar Terminal (cc-pty-import follow-ups)
 
+### v1.1: PTY session survives sidebar reload
+
+**What:** Today the Terminal tab's PTY dies with the WebSocket — sidebar
+reload, side-panel close, even a quick navigate-away in another tab close
+the session. v1.1 should key the PTY on a tab/session id so a reload
+reattaches to the existing claude process and you keep `/resume` history.
+
+**Why:** Mid-task resilience. When you've been pair-programming with claude
+for 20 minutes and an accidental Cmd-R blows it away, the cost is real.
+
+**Pros:** Better UX, fewer interrupted sessions. **Cons:** Session-tracking
+state, ghost-process risk, lifecycle bugs (when DOES the PTY actually go
+away?). v1 chose the simple "PTY dies with WS" model deliberately.
+
+**Context:** /plan-eng-review Issue 1C decision (cc-pty-import branch,
+2026-04-25). v1 ships with phoenix's lifecycle. **Depends on:**
+cc-pty-import landed.
+
+**Priority:** P2 (nice-to-have).
+**Effort:** M. Likely needs a per-tab session map keyed by chrome.tabs.id
+plus a TTL so abandoned PTYs eventually exit.
+
+---
+
+### v1.1+: Audit `/health` token distribution
+
+**What:** Codex's outside-voice review on cc-pty-import flagged that
+`/health` already surfaces `AUTH_TOKEN` to any localhost caller in headed
+mode (`server.ts:1657`). That's a pre-existing soft leak — anything
+running on localhost gets the root token by hitting `/health`.
+
+**Why:** cc-pty-import sidesteps it by NOT putting the PTY token there
+(uses an HttpOnly cookie path instead). But the underlying leak is still
+shippable surface. A second extension or a localhost web app could
+currently scrape `AUTH_TOKEN` and hit any browse-server endpoint.
+
+**Pros:** Closes a real privilege-escalation path on multi-extension
+machines. **Cons:** Either we tighten the gate (Origin must be OUR
+extension id, not just any chrome-extension://) or we move bootstrap
+discovery off `/health` entirely. Either has migration cost for tests
+and the existing extension.
+
+**Context:** codex finding #2 on cc-pty-import plan-eng review. Not in
+scope of that PR; deliberately deferred to keep PTY-import small.
+
+**Priority:** P2.
+**Effort:** M.
+
+---
+
+## Testing
+
+## P1: Structural STOP-Ask forcing function across all skills
+
+**What:** Design and implement a structural forcing function that catches when a skill mandates per-issue AskUserQuestion but the model silently substitutes batch-synthesis. Candidate mechanisms: question-count assertion (skill declares expected question count in frontmatter; post-run audit logs if model fired <N), typed question templates (skill hands the model pre-built AskUserQuestion payloads rather than prose instructions), or a canUseTool-based post-run audit that compares declared-gates-fired vs expected.
+
+**Why:** The authoritative "Skill Invocation During Plan Mode" rule (hoisted to preamble position 1) tells the model AskUserQuestion satisfies plan mode's end-of-turn requirement. That fixes plan-mode entry, but NOT the broader class of failures: the model silently substitutes batch-synthesis for STOP-Ask loops whenever the skill's interactive contract collides with any other rule surface (auto mode, tool-count anxiety, cognitive load). Without structural enforcement, every skill with STOP-per-issue contracts remains vulnerable.
+
+**Pros:** Catches a class-of-bug, not an instance. Applies to every skill that declares STOP gates. Builds on `canUseTool` primitive in `test/helpers/agent-sdk-runner.ts`.
+
+**Cons:** Real design work. How does a skill declare expected question count — static value in frontmatter, or dynamic based on number of review sections that surface findings? Is the audit inline (blocking, same-turn) or post-hoc (after skill completion)? Calibration of expected-vs-actual thresholds depends on real V0 question-log data across skills.
+
+**Context:** Relevant files — `scripts/question-registry.ts` (typed question catalog), `scripts/resolvers/question-tuning.ts` (preference classification), `bin/gstack-question-log` (event log), `bin/gstack-question-preference` (read/write preferences), `test/helpers/agent-sdk-runner.ts` (canUseTool harness). Existing question-log already captures fire events; the gap is declaring expected counts and auditing against them.
+
+**Effort:** L (human: ~1-2 weeks / CC+gstack: ~2-3 hours for design doc + first-pass implementation).
+**Priority:** P1 if interactive-skill volume is growing; P2 otherwise.
+**Depends on / blocked by:** design doc — likely its own `docs/designs/STOP_ASK_ENFORCEMENT_V0.md`.
 ## Context skills
 
 ### `/context-save --lane` + `/context-restore --lane` for parallel workstreams
@@ -177,22 +245,6 @@
 **Effort:** M (human: ~1-2 days / CC: ~45-60 min)
 **Priority:** P3 (nice-to-have, not blocking anyone yet)
 **Depends on:** `/context-save` + `/context-restore` rename stable in production (v1.0.1.0+). Research: does Conductor expose a spawn-workspace CLI?
-
-## P0: Verify Opus 4.7 fanout nudge inside Claude Code harness (next rev)
-
-**What:** Re-run the fanout A/B from `test/skill-e2e-opus-47.test.ts` against Opus 4.7 **inside Claude Code's interactive harness**, not via `claude -p`. The current eval calls `claude -p` as a subprocess, which does not load SKILL.md content as system context and uses different tool wiring than the live Claude Code session. Build a small harness (Claude Code extension hook, direct API call with the same system prompt Claude Code uses, or a scripted MCP invocation) that reproduces the real tool_use context, then run the same 3-file-read A/B with and without the `model-overlays/opus-4-7.md` overlay. Record parallel-tool-call count in the first assistant turn for each arm.
-
-**Why:** v1.6.1.0 shipped a rewritten "Fan out explicitly" nudge with a concrete tool_use example (`[Read(a), Read(b), Read(c)]`). Under `claude -p` on `claude-opus-4-7`, both overlay-ON and overlay-OFF arms emitted zero parallel tool calls in the first turn. The routing A/B worked fine in the same harness (3/3 positives routed correctly), so the gap is specific to fanout, and likely specific to how `claude -p` constructs system prompts and tool schemas. Without measurement inside the real harness, we do not know whether the nudge ever lands for a real user. The PR went to production with the fanout claim asserted but unverified; this TODO closes that loop.
-
-**Pros:** Produces the "actually shipped fanout" measurement the ship-quality review flagged as missing. If the nudge works in Claude Code harness, we can gate it with a `periodic` eval and stop worrying. If it does not, we know to rewrite or drop the nudge rather than carry dead prompt weight. Either answer is better than the current "unverified."
-
-**Cons:** Requires instrumenting Claude Code's harness (or a faithful replica) rather than the easier `claude -p` path. A faithful replica needs the same system prompt, the same tool definitions, and the same stop-sequence handling. Estimated one afternoon to wire, plus $3-5 per eval run.
-
-**Context:** See `~/.gstack/projects/garrytan-gstack/evals/1.6.0.0-feat-opus-4.7-migration-e2e-opus-47-*.json` for the raw transcripts showing 0 parallel calls in first turn across both arms. The overlay is at `model-overlays/opus-4-7.md` with an explicit wrong/right tool_use example. The eval file at `test/skill-e2e-opus-47.test.ts` has the full setup including per-skill SKILL.md install, CLAUDE.md routing block, and overlay inlining.
-
-**Effort:** M (human: ~1 day / CC: ~45 min for the harness wiring, plus the eval run cost)
-**Priority:** P0 (ship-quality commitment from v1.6.1.0 — do not let it drift)
-**Depends on / blocked by:** Access to Claude Code's system prompt + tool schema (or a reproducible way to mirror them). May require a small MCP server or a direct Messages API call that mirrors Claude Code's session setup.
 
 ## P0: PACING_UPDATES_V0 — Louise's fatigue root cause (V1.1)
 
@@ -1427,6 +1479,56 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
 ## Completed
+
+### Slim preamble + real-PTY plan-mode E2E harness (v1.13.1.0)
+
+- Compressed 18 preamble resolvers; total `SKILL.md` corpus dropped from 3.08 MB to 2.30 MB across 47 outputs (-25.5%, ~196K tokens saved).
+- Built `test/helpers/claude-pty-runner.ts` — real-PTY harness using `Bun.spawn({terminal:})` (Bun 1.3.10+ has built-in PTY, no `node-pty` needed).
+- Rewrote 5 plan-mode E2E tests (`plan-ceo`, `plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`); all 5 pass for the first time ever (790s sequential).
+- Same tests were 0/5 on `origin/main`, on v1.0.0.0, and on this branch with the SDK harness — the SDK couldn't observe Claude's plan-mode confirmation UI.
+- Side fixes folded in: `scripts/skill-check.ts` sidecar-symlink helper, `test/skill-validation.test.ts` exemption for `browse/test/fixtures/security-bench-haiku-responses.json` (resolves the size-warning noise from main's warn-only conversion).
+
+**Completed:** v1.13.1.0 (2026-04-25)
+
+---
+
+### Pre-existing test failures surfaced during v1.12.0.0 ship — RESOLVED
+
+- `test/brain-sync.test.ts` GSTACK_HOME isolation fixed on main in v1.13.0.0.
+- `test/model-overlay-opus-4-7.test.ts` updated on main to match the new overlay content (the v1.10.1.0 removal of "Fan out explicitly" was correct — measured −60pp fanout vs baseline).
+
+**Completed:** v1.13.0.0 (2026-04-25, on main)
+
+---
+
+### `security-bench-haiku-responses.json` size gate — RESOLVED
+
+- Main converted the 2 MB tracked-file gate to warn-only in v1.13.0.0.
+- v1.13.1.0 added a `knownLargeFixtures` exemption to suppress the warning for this specific intentional fixture.
+
+**Completed:** v1.13.1.0 (2026-04-25)
+
+---
+
+### Bearer-token secret-scan regression fixed + E2E coverage added for privacy gate + gh auto-create (v1.12.0.0)
+
+- **Fixed the `bearer-token-json` regression in `bin/gstack-brain-sync`** — the value charset `[A-Za-z0-9_./+=-]{16,}` didn't permit spaces, so auth headers with the standard `Bearer <token>` form (literal space after the scheme name) slipped past the scanner. Added an optional `(Bearer |Basic |Token )?` prefix to the pattern. Validated against 5 positive cases (including the regression fixture) + 3 negative cases (short tokens, non-secret keys, random JSON). The 7-pattern secret scanner now passes all fixtures including bearer-json.
+- **Added `test/gstack-brain-init-gh-mock.test.ts`** — 8 tests exercising the `gh` CLI auto-create path that previously had zero coverage. Stubs `gh` on PATH to record every call, asserts `gh repo create --private --description "..." --source <GSTACK_HOME>` fires with the computed `gstack-brain-<user>` default name. Covers: happy path, fall-through-to-`gh repo view` when create hits already-exists, user-provided-URL-bypasses-gh, gh-not-on-path prompts for URL, gh-not-authed prompts for URL, idempotent `--remote` re-runs, conflicting-remote rejection.
+- **Added `test/skill-e2e-brain-privacy-gate.test.ts`** — periodic-tier E2E (~$0.30-$0.50/run). Stages a fake `gbrain` on PATH + `gbrain_sync_mode_prompted=false` in config, runs a real skill via `runAgentSdkTest`, intercepts tool-use via `canUseTool`, and asserts the preamble fires the 3-option privacy AskUserQuestion with canonical prose ("publish session memory" / "artifact" / "decline"). Second test asserts the gate is silent when `prompted=true` (idempotency-within-session).
+- **Registered `brain-privacy-gate` in `test/helpers/touchfiles.ts`** (periodic tier) with dependency tracking on `scripts/resolvers/preamble/generate-brain-sync-block.ts`, `bin/gstack-brain-sync`, `bin/gstack-brain-init`, `bin/gstack-config`, and the Agent SDK runner. Diff-based selection will re-run the E2E whenever any of those change.
+
+**Completed:** v1.12.0.0 (2026-04-24)
+
+---
+
+### Overlay efficacy harness + Opus 4.7 fanout nudge removal (v1.10.1.0)
+- Built `test/skill-e2e-overlay-harness.test.ts`, a parametric periodic-tier eval that drives `@anthropic-ai/claude-agent-sdk` and measures first-turn fanout rate (overlay-ON vs overlay-OFF) across registered fixtures
+- Measured the original "Fan out explicitly" overlay nudge: baseline Opus 4.7 = 70% first-turn fanout on toy prompt, with our nudge = 10%, with Anthropic's own canonical `<use_parallel_tool_calls>` text = 0%
+- Removed the counterproductive nudge from `model-overlays/opus-4-7.md`
+- Shipped 36-test free-tier unit suite for the SDK runner + strict fixture validator
+- Registered `overlay-harness-opus-4-7-fanout-{toy,realistic}` in E2E_TOUCHFILES and E2E_TIERS
+- Total investigation cost: ~$7 across 3 eval runs
+**Completed:** v1.10.1.0
 
 ### CI eval pipeline (v0.9.9.0)
 - GitHub Actions eval upload on Ubicloud runners ($0.006/run)

@@ -1,6 +1,7 @@
 ---
 name: plan-devex-review
 preamble-tier: 3
+interactive: true
 version: 2.0.0
 description: |
   Interactive developer experience plan review. Explores developer personas,
@@ -666,8 +667,11 @@ DX reviews:
 * **Map to DX First Principles above.** One sentence connecting your recommendation
   to a specific principle (e.g., "This violates 'zero friction at T0' because
   [persona] needs 3 extra config steps before their first API call").
-* **Escape hatch:** If a section has no issues, say so and move on. If a gap has an
-  obvious fix, state what you'll add and move on, don't waste a question.
+* **Escape hatch (tightened):** If a section has zero findings, state "No issues,
+  moving on" and proceed. If it has findings, use AskUserQuestion for each — a
+  gap with an "obvious fix" is still a gap and still needs user approval before
+  any change lands in the plan. Only skip AskUserQuestion when the fix is
+  genuinely trivial AND there are no meaningful DX alternatives. When in doubt, ask.
 * Assume the user hasn't looked at this window in 20 minutes. Re-ground every question.
 
 ## Required Outputs

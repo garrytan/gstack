@@ -88,7 +88,12 @@ patterns = [
     ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
     ('jwt', re.compile(r'\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b')),
     ('bearer-token-json',
-     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\\s*:\\s*\"[ A-Za-z0-9_./+=-]{16,}\"',
+     # JSON-embedded auth headers. The optional Bearer/Basic/Token prefix
+     # matters: real auth values include a literal space after the scheme
+     # name, but the value charset below does not include spaces, so
+     # without the optional prefix every Bearer token in a JSON blob slips
+     # past the scanner.
+     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\\s*:\\s*\"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}\"',
                 re.IGNORECASE)),
 ]
 text = sys.stdin.read()

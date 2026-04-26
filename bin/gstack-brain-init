@@ -86,7 +86,10 @@ if [ -z "$REMOTE_URL" ]; then
     read -r REPLY || REPLY=""
     if [ -z "$REPLY" ]; then
       echo "Creating GitHub repo: $DEFAULT_NAME ..."
-      if ! gh repo create "$DEFAULT_NAME" --private --description "gstack session memory" --source "$GSTACK_HOME" 2>/dev/null; then
+      # Note: --source omitted intentionally. gh requires --source to point at
+      # an existing git repo, but we don't init $GSTACK_HOME until after the
+      # remote is chosen. Create bare, then fetch URL.
+      if ! gh repo create "$DEFAULT_NAME" --private --description "gstack session memory" 2>/dev/null; then
         # Maybe the repo already exists; try to fetch its URL.
         REMOTE_URL=$(gh repo view "$DEFAULT_NAME" --json sshUrl -q .sshUrl 2>/dev/null || echo "")
         if [ -z "$REMOTE_URL" ]; then
