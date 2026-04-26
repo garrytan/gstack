@@ -1055,12 +1055,11 @@ You are the Execution Agent. The planning phase is over. Your job is to read the
   - Loop through *every* phase in the existing plan (ignoring `[x]` marks).
   - For each phase, spawn a sub-agent to audit the codebase and verify the phase was fully implemented. If missing steps are found, the sub-agent MUST fix them. If fully implemented, mark it clean.
 
-## Step 1: Create Feature Branch & Synthesize Living Plan (Skip if Reexamine Mode)
+## Step 1: Synthesize Living Plan (Skip if Reexamine Mode)
 
 Your first task is to set up your environment and synthesize a formal living plan.
 If you are in **Reexamine Mode**, skip this entire step and proceed directly to Step 2 using the existing living plan.
-1. **Create a Feature Branch**: Before doing anything else, use the `Bash` tool to create and check out a new feature branch for this implementation (e.g., `git checkout -b feat/your-feature-name`). Do NOT work directly on the `main` or `master` branch.
-2. Look for the latest deliverables from `/office-hours` or `/autoplan`. These are usually found in the `plans/` directory (e.g., `plans/<project-slug>-plan-<date>.md`), or `.gstack/projects/`.
+1. Look for the latest deliverables from `/office-hours` or `/autoplan`. These are usually found in the `plans/` directory (e.g., `plans/<project-slug>-plan-<date>.md`), or `.gstack/projects/`.
 
 ```bash
 # Look for standard plan locations
@@ -1080,7 +1079,8 @@ Because this is a long-running skill, your context window will eventually become
 
 For each phase in your living plan checklist (if in Reexamine Mode, audit ALL phases regardless of `[x]` status):
 **Narrate Your State:** Before starting each phase, explicitly tell the user your current state (e.g., "Implementing Phase 1 via sub-agent...", "Spawning sub-agent for Phase 2...").
-1. **Spawn Gemini Execution Sub-Agent**: You MUST spawn the execution sub-agent using the **Gemini** model. Use the `Bash` tool to run `claude -m gemini -p "<prompt>"` to handle the current phase. The prompt must include:
+1. **Prepare Phase Branch**: Since every phase is shipped individually, you must create a fresh branch for this phase. Use the `Bash` tool to run: `git checkout main && git pull && git checkout -b feat/phase-<number>-<short-name>`.
+2. **Spawn Gemini Execution Sub-Agent**: You MUST spawn the execution sub-agent using the **Gemini** model. Use the `Bash` tool to run `claude -m gemini -p "<prompt>"` to handle the current phase. The prompt must include:
    - The exact goal and phase checklist from the living plan.
    - Instructions to Build and Verify the code for this specific phase.
    - Instructions: If the project uses GitHub CI/CD actions, make sure all your actions/checks are green.
