@@ -31,6 +31,8 @@ const pi: HostConfig = {
     { from: 'Claude Code', to: 'Pi' },
     { from: 'claude code', to: 'Pi' },
     { from: 'this Pi window', to: 'this Pi session' },
+    // Project config file
+    { from: 'CLAUDE.md', to: 'AGENTS.md' },
   ],
 
   toolRewrites: {
@@ -42,6 +44,9 @@ const pi: HostConfig = {
     'Agent tool with': 'subagent tool with',
     'Agent tool,': 'subagent tool,',
     "Claude Code's Grep tool": "Pi's grep tool",
+    'Invoke the Skill tool': 'Read the skill file',
+    'via the Skill tool': 'by reading the skill file',
+    'ExitPlanMode': '/plan (toggle off)',
   },
 
   // Do NOT suppress — GBrain resolvers handle not-installed gracefully.
