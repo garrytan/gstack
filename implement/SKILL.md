@@ -1,7 +1,7 @@
 ---
 name: implement
 preamble-tier: 4
-version: 1.3.0
+version: 1.4.0
 description: |
   Autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -1046,7 +1046,7 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 # /implement — Autonomous Execution Loop
 
 You are the Execution Agent. The planning phase is over. Your job is to read the approved implementation plan and execute it autonomously in phases.
-**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/implement` orchestrator v1.3.0").**
+**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/implement` orchestrator v1.4.0").**
 
 **Execution Modes**:
 - **Normal Mode**: Synthesize a new living plan and build the feature from scratch. (Default)
@@ -1093,17 +1093,21 @@ For each phase in your living plan checklist that is marked as `[ ]` (if in Reex
    - Instructions to commit the code to the current branch.
    - Instructions to fail forward and only return to you when the code is written. (Do NOT instruct Gemini to run /review or /ship).
 2. **Wait for Gemini Completion**: The MCP tool call will execute synchronously. Let it block until it finishes. **NEVER skip the sub-agent to do the work yourself.**
-3. **Update Living Plan**: After the Gemini sub-agent successfully completes the phase, use the `Edit` tool to modify the living plan and mark the step as completed (change `[ ]` to `[x]`).
+3. **Spawn Sonnet Review Sub-Agent**: After Gemini finishes writing the code, you MUST spawn a dedicated Sonnet sub-agent to review the phase. Use the `Bash` tool to run `claude --model sonnet -p "<prompt>"`. The prompt must instruct the sub-agent to:
+   - Use the `Bash` tool to run `claude -p "/codex review"` to get an independent code review. If there are UI changes, use the `Bash` tool to run `claude --model sonnet -p /qa`. **CRITICAL: Do NOT invoke the native `codex` or `qa` tools!**
+   - Iteratively fix any bugs, lint errors, or review findings Codex discovers, re-running the bash commands until the codebase passes perfectly clean.
+   - **CRITICAL**: Do NOT instruct this sub-agent to run `/ship` or `/land-and-deploy`. It should ONLY review and fix bugs on the active feature branch.
+4. **Wait for Sonnet Completion**: Run the Sonnet sub-agent synchronously in the foreground. Wait for the Bash tool to return.
+5. **Update Living Plan**: After the Sonnet sub-agent successfully reviews and fixes the phase, use the `Edit` tool to modify the living plan and mark the step as completed (change `[ ]` to `[x]`).
 
 Do NOT stop to ask the user for permission between phases unless a sub-agent fails catastrophically or hits a safety constraint. Keep the loop going.
 
-## Step 3: Final Review, Ship & Completion
+## Step 3: Final Ship & Completion
 
-Once ALL phases are complete:
-1. **Spawn Sonnet Review/Ship Sub-Agent**: You MUST spawn a dedicated Sonnet sub-agent to review and ship the entire feature branch. Use the `Bash` tool to run `claude --model sonnet -p "<prompt>"`. The prompt must instruct the sub-agent to:
-   - Use the `Bash` tool to run `claude -p "/codex review"` to get an independent code review. If there are UI changes, use the `Bash` tool to run `claude --model sonnet -p /qa`. **CRITICAL: Do NOT invoke the native `codex` or `qa` tools!**
-   - Iteratively fix any bugs, lint errors, or review findings Codex discovers, re-running the bash commands until the codebase passes perfectly clean.
-   - Once the code is fully clean, use the `Bash` tool to run **EXACTLY**: `claude --model sonnet -p /ship && claude --model sonnet -p /land-and-deploy`. **CRITICAL: Do NOT substitute these skills with raw `gh pr create` or `gh pr merge` commands! You MUST use the GStack skills because they contain mandatory CI/CD safety gates.** Do NOT invoke the native `ship` tool!
+Once ALL phases are complete (and have been individually reviewed):
+1. **Spawn Sonnet Ship Sub-Agent**: You MUST spawn a dedicated Sonnet sub-agent to merge and deploy the fully reviewed feature branch. Use the `Bash` tool to run `claude --model sonnet -p "<prompt>"`. The prompt must instruct the sub-agent to:
+   - Use the `Bash` tool to run **EXACTLY**: `claude --model sonnet -p /ship && claude --model sonnet -p /land-and-deploy`.
+   - **CRITICAL: Do NOT substitute these skills with raw `gh pr create` or `gh pr merge` commands! You MUST use the GStack skills because they contain mandatory CI/CD safety gates.** Do NOT invoke the native `ship` tool!
 2. **Wait for Sonnet Completion**: Run the Sonnet sub-agent synchronously in the foreground. Wait for the Bash tool to return.
 3. **Sync Status**: Use the `Edit` tool to update the execution status in the *original* plan file (the one you located in Step 1). Synchronize all the `[x]` completion marks from your synthesized living plan back to the original plan.
 4. Report the completion to the user: summarize what you built and confirm that all phases have been shipped and deployed successfully.
