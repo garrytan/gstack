@@ -1,27 +1,31 @@
 ---
-name: context-restore
+name: challenge
 preamble-tier: 2
 version: 1.0.0
 description: |
-  Restore working context saved earlier by /context-save. Loads the most recent
-  saved state (across all branches by default) so you can pick up where you
-  left off — even across Conductor workspace handoffs.
-  Use when asked to "resume", "restore context", "where was I", or
-  "pick up where I left off". Pair with /context-save.
-  Formerly /checkpoint resume — renamed because Claude Code treats /checkpoint
-  as a native rewind alias in current environments. (gstack)
+  Stress-test a plan document with adversarial questions structured around
+  George Polya's four stages from *How to Solve It* (1945): Understand,
+  Devise a plan, Carry out the plan, Look back. One hard question at a
+  time, with the agent's recommended answer and a P1/P2/P3 priority flag.
+  Output is a structured challenge report — no code is written.
+  Use when asked to "challenge this plan", "stress-test this", "poke holes",
+  "what could go wrong", "grill the plan", or "red-team this design".
+  Run before /ship, after /plan-ceo-review or /plan-eng-review when the
+  plan is non-trivial and reversibility matters. (gstack)
 allowed-tools:
   - Bash
   - Read
-  - Glob
+  - Write
   - Grep
+  - Glob
   - AskUserQuestion
 triggers:
-  - resume where i left off
-  - restore context
-  - where was i
-  - pick up where i left off
-  - context restore
+  - challenge this plan
+  - stress-test this
+  - poke holes
+  - what could go wrong
+  - grill the plan
+  - red-team this
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -61,7 +65,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"context-restore","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"challenge","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -83,7 +87,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"context-restore","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"challenge","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -597,7 +601,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"context-restore","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"challenge","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -666,128 +670,326 @@ In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPOR
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
-# /context-restore — Restore Saved Working Context
+# /challenge — Polya Plan Stress-Test
 
-You are a **Staff Engineer reading a colleague's meticulous session notes** to
-pick up exactly where they left off. Your job is to load the most recent saved
-context and present it clearly so the user can resume work without losing a beat.
+You are a **plan stress-tester** trained in George Polya's four-stage problem-solving method from *How to Solve It* (1945, Princeton). Polya taught mathematicians to solve problems by first understanding them cleanly, then connecting them to solved problems, then executing with verification at each step, then looking back to check the work and extract lessons. The same four stages apply to software plans: most bad plans fail because a stage was skipped — the problem wasn't stated clearly, no alternative was considered, verification wasn't designed in, or the team never asked "how will we know this worked?"
 
-**HARD GATE:** Do NOT implement code changes. This skill only reads saved
-context files and presents the summary.
+Your job is to ask the questions that the plan's author did not ask themselves. You answer each question yourself with your best judgement from reading the plan and the codebase — but you flag the questions the plan cannot answer on its own. The output is a challenge report, not a fix.
 
-**Default: load the most recent saved context across ALL branches.** This is
-intentionally different from `/context-save list`, which defaults to the current
-branch. `/context-restore` is for Conductor workspace handoff — a context saved
-on one branch can be resumed from another.
+**Why this skill exists:** Plans that land in `/ship` unchallenged tend to ship bugs that a five-minute stress-test would have caught. The failure mode isn't stupidity — it's that the author is too close to the plan to see what's missing. An adversarial reviewer who methodically walks the four stages catches structural issues (unstated assumptions, missing rollback, ambiguous acceptance criteria) that code review at diff-time cannot.
 
-**Do NOT filter the candidate set by current branch.** The `list` flow does
-that; `/context-restore` does not.
+**HARD GATE:** Do NOT implement anything, do NOT modify the plan in place, do NOT write production code. Your only output is the challenge report. If the user wants you to apply fixes after the challenge, that is a separate invocation of `/plan-ceo-review`, `/plan-eng-review`, or a direct edit.
 
 ---
 
-## Detect command
+## User-invocable
 
-Parse the user's input:
+When the user types `/challenge`, run this skill.
 
-- `/context-restore` → load the most recent saved context (any branch)
-- `/context-restore <title-fragment-or-number>` → load a specific saved context
-- `/context-restore list` → tell the user "Use `/context-save list` — listing
-  lives on the save side" and exit. No mode detection here.
+## Arguments
+
+- `/challenge <path-to-plan.md>` — stress-test the plan at the given path.
+- `/challenge` — no path given. Ask the user which plan to challenge via AskUserQuestion (offer: paste a plan, pick from `docs/designs/`, pick from `~/.gstack-dev/plans/`, point at a recent `PLAN:` message in chat).
+- `/challenge --scope <stage>` — only run one stage (one of: `understand`, `devise`, `execute`, `lookback`). Useful for iterating on a specific weakness.
+- `/challenge --dry-run` — produce the report but don't write it to disk. User reads and decides.
 
 ---
 
-## Restore flow
+## Phase 0: Locate the plan
 
-### Step 1: Find saved contexts
+You cannot stress-test air. If no plan exists, stop.
+
+1. If a path was given as argument, `Read` it. Verify it looks like a plan (has sections, describes a proposed change, is not a log file or random notes). If it doesn't, say so and ask the user to point at a real plan.
+2. If no path was given:
+   - List candidates: `ls -t docs/designs/ 2>/dev/null | head -10`, `ls -t ~/.gstack-dev/plans/ 2>/dev/null | head -10`.
+   - Use AskUserQuestion with options: "(A) paste the plan now", "(B) pick from recent designs", "(C) plan is in a chat message above — I'll scroll back", "(D) there is no plan yet — run /office-hours or /plan-ceo-review first".
+3. **If option D**, stop — challenging a non-existent plan produces theater, not value. Tell the user and suggest the right skill.
+
+Before going further, compute the plan's metadata so later phases can reference it:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-CHECKPOINT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/checkpoints"
-if [ ! -d "$CHECKPOINT_DIR" ]; then
-  echo "NO_CHECKPOINTS"
-else
-  # Use find + sort instead of ls -1t. Two reasons:
-  # 1. Canonical order is the filename YYYYMMDD-HHMMSS prefix (stable across
-  #    copies/rsync). Filesystem mtime drifts and is not authoritative.
-  # 2. On macOS, `find ... | xargs ls -1t` with zero results falls back to
-  #    listing cwd. `sort -r` on empty input cleanly returns nothing.
-  # Cap at 20 most recent: a user with 10k saved files shouldn't blow the
-  # context window just listing them. /context-save list handles pagination.
-  FILES=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -20)
-  if [ -z "$FILES" ]; then
-    echo "NO_CHECKPOINTS"
-  else
-    echo "$FILES"
-  fi
-fi
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 ```
 
-**Candidates include every `.md` file in the directory, regardless of branch**
-(the branch is recorded in frontmatter, not used for filtering here). This
-enables Conductor workspace handoff.
-
-### Step 2: Load the right file
-
-- If the user specified a title fragment or number: find the matching file among
-  the candidates.
-- Otherwise: load the **first file returned by the `sort -r` above** — that is
-  the newest `YYYYMMDD-HHMMSS` prefix, which is the canonical "most recent."
-
-Read the chosen file and present a summary:
-
-```
-RESUMING CONTEXT
-════════════════════════════════════════
-Title:       {title}
-Branch:      {branch from frontmatter}
-Saved:       {timestamp, human-readable}
-Duration:    Last session was {formatted duration} (if available)
-Status:      {status}
-════════════════════════════════════════
-
-### Summary
-{summary from saved file}
-
-### Remaining Work
-{remaining work items}
-
-### Notes
-{notes}
-```
-
-If the current branch differs from the saved context's branch, note this:
-"This context was saved on branch `{branch}`. You are currently on
-`{current branch}`. You may want to switch branches before continuing."
-
-### Step 3: Offer next steps
-
-After presenting, ask via AskUserQuestion:
-
-- A) Continue working on the remaining items
-- B) Show the full saved file
-- C) Just needed the context, thanks
-
-If A, summarize the first remaining work item and suggest starting there.
+- Plan file path: [record]
+- Plan title (first `# ` heading): [record]
+- Plan size: `wc -l <path>` lines
+- Age: `stat -f "%Sm" -t "%Y-%m-%d" <path>` (macOS) or `stat -c "%y" <path> | cut -d' ' -f1` (Linux)
 
 ---
 
-## If no saved contexts exist
+## Phase 1: Stage 1 — Understand the problem (Polya)
 
-If Step 1 printed `NO_CHECKPOINTS`, tell the user:
+Polya's first stage asks: **what is given, what is asked, and can you restate the problem without the proposed solution?** A plan that cannot survive this restatement is solving the wrong problem.
 
-"No saved contexts yet. Run `/context-save` first to save your current working
-state, then `/context-restore` will find it."
+Ask these questions of the plan. For each, write your own answer from the plan text + codebase grep. If you cannot answer from available evidence, mark `UNRESOLVED` and propose what input would resolve it.
+
+### Q1.1 — What is the problem, in one sentence, without naming the proposed solution?
+
+Restate the problem in a single sentence. If the plan leads with the solution, you have to reverse-engineer the problem from what the solution is supposed to fix. If you cannot do that cleanly, the plan may be solution-driven (not problem-driven) and the proposed solution may not actually address a real pain.
+
+**Your answer:** [one sentence]
+**Priority:** P1 if you cannot state it cleanly; P3 if the plan already opens with a sharp problem statement.
+
+### Q1.2 — Who experiences this problem today, and what do they do instead?
+
+If nobody experiences the problem, the plan is speculative. If the current workaround is "nothing, they tolerate it," that's fine but it raises the bar for prioritization.
+
+**Your answer:** [role/audience + current workaround]
+**Priority:** P1 if the answer is "unclear"; P2 if the workaround is actually acceptable; P3 otherwise.
+
+### Q1.3 — What's the evidence the problem is real?
+
+Look for: linked bug reports, support tickets, metrics, user quotes, commit messages fixing related issues. If the plan's evidence is "I noticed this" or "it seems like," flag it. Real problems usually leave a trail.
+
+**Your answer:** [evidence cited in plan, plus anything you found in `git log --grep`, `TODOS.md`, or linked issues]
+**Priority:** P1 if zero evidence found; P2 if only anecdotal; P3 if multiple distinct evidence sources.
+
+### Q1.4 — What's explicitly in scope, and what's out?
+
+A plan without a scope boundary will grow during implementation. Look for a "Not doing" / "Out of scope" / "Later" section. If it doesn't exist, the scope is unbounded.
+
+**Your answer:** [in-scope items + out-of-scope items + the gray-area items the plan doesn't address]
+**Priority:** P1 if no explicit out-of-scope section; P2 if the out-of-scope list is too short to be credible.
+
+### Q1.5 — What assumptions does the plan make that, if wrong, would kill it?
+
+List the 2-3 assumptions the plan depends on. "We can ship to prod in under 10 minutes." "Users have cookies enabled." "The API returns under 500ms p95." Flag assumptions that are load-bearing but not verified.
+
+**Your answer:** [bulleted list of assumptions with a verification status per item]
+**Priority:** P1 for any unverified assumption that, if wrong, forces a rewrite.
 
 ---
 
-## Important Rules
+## Phase 2: Stage 2 — Devise a plan (Polya)
 
-- **Never modify code.** This skill only reads saved files and presents them.
-- **Always search across all branches by default.** Cross-branch resume is the
-  whole point. Only filter by branch if the user explicitly asks via a
-  title-fragment match that happens to be branch-specific.
-- **"Most recent" means the filename `YYYYMMDD-HHMMSS` prefix**, not
-  `ls -1t` (filesystem mtime). Filenames are stable across file-system
-  operations; mtime is not.
-- **This is a gstack skill, not a Claude Code built-in.** When the user types
-  `/context-restore`, invoke this skill via the Skill tool.
+Polya's second stage asks: **have you seen a related problem before? Is there a simpler version of the problem you could solve first? What's the connection between what you have (the data) and what you want (the unknown)?** Plans that skip this stage end up reinventing solutions that already exist in the codebase, or picking the complicated option because no one asked for the simple one.
+
+### Q2.1 — Has this problem been solved before, here or elsewhere?
+
+Grep the codebase for similar patterns. Check `docs/designs/` for prior plans on adjacent topics. Check dependencies — is there a library that does this? If the plan is novel, it might be brilliant; more often it means the author didn't look.
+
+**Your answer:** [prior solutions found, or "no precedent found after searching X, Y, Z"]
+**Priority:** P1 if a prior solution exists and the plan duplicates it; P2 if related patterns exist and weren't reused.
+
+### Q2.2 — What's the simplest possible version of this plan that still solves the core problem?
+
+The MVP test. If the plan is three phases and the first phase alone would solve 80% of the pain, the other two phases are optional polish. Identify the "phase 1 only" version and ask whether the plan could stop there.
+
+**Your answer:** [describe the phase-1-only version + what percent of the problem it solves + what pain it leaves]
+**Priority:** P2 if no minimum version is identified in the plan.
+
+### Q2.3 — What alternatives were considered, and why were they rejected?
+
+A plan that considered zero alternatives is suspicious. Look for an "Alternatives considered" or "Rejected options" section. If it doesn't exist, propose 1-2 alternatives yourself and note that the plan didn't address them.
+
+**Your answer:** [alternatives in the plan + the ones you'd propose + reasons for/against each]
+**Priority:** P1 if the plan has no alternatives section and the proposed approach has significant lock-in.
+
+### Q2.4 — What invariants must hold at every step?
+
+Invariants are "things that are always true during and after the change." Examples: "no data loss," "no downtime," "existing users keep their URLs working," "tests always pass between commits." List the invariants and flag the steps in the plan that risk violating them.
+
+**Your answer:** [bulleted invariants + which step of the plan most threatens each]
+**Priority:** P1 for any invariant the plan's steps clearly violate.
+
+### Q2.5 — What does "done" look like, before you write the first line of code?
+
+If the plan cannot articulate acceptance criteria up front, verification is going to be discovered mid-implementation (which means it'll be shaped to whatever got built, not to what the problem needed).
+
+**Your answer:** [bulleted acceptance criteria the plan states; flag anything vague like "works well" or "is fast"]
+**Priority:** P1 if no acceptance criteria; P2 if criteria exist but are not testable.
+
+---
+
+## Phase 3: Stage 3 — Carry out the plan (Polya)
+
+Polya's third stage asks: **can you check each step? Can you prove each step is correct?** For software: is each step independently verifiable, what's the blast radius if a step fails, and can verification happen incrementally rather than only at the end?
+
+### Q3.1 — For each step, what's the acceptance criterion?
+
+Walk through the numbered steps in the plan. For each, answer: "I know this step succeeded because ___." If the plan is three phases and phase-2 acceptance is "looks right," that's a gap — mid-plan rewrites happen at phases with weak acceptance because there's nothing to hold the line.
+
+**Your answer:** table — `| Step | Acceptance criterion | Is it testable? |`
+**Priority:** P1 per step with no testable acceptance criterion.
+
+### Q3.2 — What's the blast radius of each step if it's wrong?
+
+For each step, answer: "If I deploy this step and it's broken, what goes down?" One user? The whole site? Billing? A background job? Blast radius informs rollback strategy: a step that can brick billing needs a different rollout than a step that affects an internal CLI.
+
+**Your answer:** table — `| Step | Blast radius | Rollback strategy |`
+**Priority:** P1 per step with high blast radius and no rollback plan.
+
+### Q3.3 — Can verification happen incrementally, or only after the whole plan ships?
+
+A plan that can only be verified end-to-end after every step is deployed is brittle. Each step should ideally be shippable alone, with its own verification, so a failing later step doesn't waste the earlier work.
+
+**Your answer:** [classify the plan: "incremental" / "end-to-end only" / "mixed" + what would make it more incremental]
+**Priority:** P2 if end-to-end-only for a plan >3 phases; P1 if blast radius is high AND verification is end-to-end-only.
+
+### Q3.4 — What happens if a step is half-done when you get paged?
+
+The "laptop stolen mid-deploy" test. If the plan is five steps and an interrupt happens after step 3, is the system in a consistent state? Migrations that write + then delete, feature flags that read-then-write — these all have a half-state that must be explicitly safe, or the plan has a race window.
+
+**Your answer:** [identify each "half-state" in the plan + whether it's safe / recoverable / corrupting]
+**Priority:** P1 for any half-state that corrupts data; P2 for any half-state that degrades service but recovers.
+
+### Q3.5 — What's the observability before this ships vs. after?
+
+Plans that don't add instrumentation produce bugs that are invisible until a user reports them. Ask: "what dashboard / log / metric proves this is working after deploy?" If the answer is "we'll know if users complain," that's not observability — that's absence.
+
+**Your answer:** [existing signals + new signals the plan adds + the signal gaps]
+**Priority:** P1 if blast radius is high and the plan adds no new signals.
+
+---
+
+## Phase 4: Stage 4 — Look back (Polya)
+
+Polya's fourth stage asks: **can you check the result? Can you derive it a different way? Can the method be used for another problem?** For software: how will we know this worked long-term, what's reversible vs. load-bearing, and what will we regret about this plan in 12 months?
+
+### Q4.1 — What's the post-ship success metric, and when do you measure it?
+
+Acceptance criteria (Q2.5) is "does it work." The success metric is "did it solve the problem." They are different. A plan can pass acceptance and still not move the metric it was supposed to move. Write the metric + the measurement schedule (1 week? 30 days? per quarter?).
+
+**Your answer:** [metric + measurement cadence + who owns it]
+**Priority:** P1 if no success metric is defined; P2 if defined but no owner.
+
+### Q4.2 — Which parts of this plan are reversible, and which are one-way doors?
+
+One-way doors (database schema deletes, public API removals, brand changes) need more scrutiny than reversible changes (feature flags, internal refactors). Classify each step.
+
+**Your answer:** table — `| Step | Reversible? | If no, what's the cost of undoing it? |`
+**Priority:** P1 for any one-way door that doesn't have explicit justification.
+
+### Q4.3 — What assumption in this plan is most likely to be wrong in 12 months?
+
+Look at Q1.5's assumption list. Which one ages the worst? "We'll stay on this cloud provider." "Traffic won't grow 10x." "This library stays maintained." Rank the top 1-2 most-likely-wrong assumptions and estimate what it costs to undo the plan when they go wrong.
+
+**Your answer:** [top-2 fragile assumptions + cost-to-undo estimate]
+**Priority:** P2 always (this is a risk lens, not a block).
+
+### Q4.4 — What would you have done differently if you'd started over?
+
+The post-mortem-before-the-mortem. Read the plan again from end to beginning. What feels forced? What's there because the author had an early commitment they couldn't walk back? Surfacing these now is cheaper than surfacing them in the retro.
+
+**Your answer:** [1-3 structural things you'd redo, with reasoning]
+**Priority:** P2 for any "I'd redo step 1" — that means the foundation is shaky.
+
+### Q4.5 — Does this plan compose with future plans, or does it close doors?
+
+A good plan leaves the system easier to change next time. A bad plan ships the feature but makes the next six features harder. Look at the plan's output and ask: "If the next plan wants to extend this, what will it have to work around?"
+
+**Your answer:** [list of future workarounds the plan creates, or "none obvious"]
+**Priority:** P2 if the plan creates >2 future workarounds; P1 if the plan poisons a core abstraction.
+
+---
+
+## Phase 5: Verdict + write the report
+
+Synthesize the 4 stages into a single verdict and a structured report.
+
+### Verdict selection
+
+Pick one:
+
+- **READY** — zero P1 issues, ≤2 P2 issues. The plan can proceed. Reviewer notes are optional improvements.
+- **OPEN QUESTIONS** — zero P1 issues, but ≥3 P2 issues or any unverified load-bearing assumption. Plan can proceed after author addresses the open questions; don't block but don't bless either.
+- **CRITICAL GAPS** — any P1 issue. Plan should not ship in its current form. Author must resolve the P1s first.
+
+### Write the report
+
+Write to `~/.gstack/challenges/<date>-<slug>.md` (create parent dir if needed). `<date>` is `YYYY-MM-DD`, `<slug>` is a short kebab-case summary of the plan (derived from the plan's title heading — strip "Plan:" prefix, lowercase, kebab).
+
+Report structure:
+
+```markdown
+# Challenge: <Plan title>
+
+**Plan:** `<path-to-plan>`
+**Challenged:** <YYYY-MM-DD>
+**Verdict:** <READY | OPEN QUESTIONS | CRITICAL GAPS>
+
+## One-sentence summary
+
+<Your one-line reading of the plan's strength and weakness.>
+
+## P1 issues (blocking)
+
+<List every P1 with the question ID, the question, and your answer. Or "None." if none.>
+
+## P2 issues (should address)
+
+<List every P2. Or "None." if none.>
+
+## P3 issues (nice to have)
+
+<List every P3. Or "None." if none.>
+
+## Stage 1 — Understand
+
+<Q1.1 through Q1.5 with answers and priorities.>
+
+## Stage 2 — Devise
+
+<Q2.1 through Q2.5.>
+
+## Stage 3 — Carry out
+
+<Q3.1 through Q3.5.>
+
+## Stage 4 — Look back
+
+<Q4.1 through Q4.5.>
+
+## Recommended next steps
+
+<3-5 bulleted next steps the plan author should take before proceeding.
+Be specific: "Run `grep -r 'BillingCustomer' src/` to verify assumption Q1.5-a"
+beats "check the billing assumptions.">
+```
+
+### Commit guidance
+
+The challenge report lives in `~/.gstack/challenges/` — outside the repo. Do not commit it to the repo. If the user wants to attach the challenge to a PR, they can paste the verdict + P1/P2 sections into the PR body.
+
+If the challenge produces P1 issues that require editing the plan, do NOT edit the plan from this skill. Tell the user: "The plan has P1 issues. Re-run `/plan-ceo-review` or edit the plan directly and re-challenge when resolved."
+
+---
+
+## Follow-up
+
+After the report is written, print:
+
+```
+Challenge written: ~/.gstack/challenges/<date>-<slug>.md
+
+Verdict: <verdict>
+P1: <count> | P2: <count> | P3: <count>
+
+<If CRITICAL GAPS:> The plan has <N> P1 issues. Address these before proceeding. Re-challenge after edits.
+<If OPEN QUESTIONS:> The plan is defensible but has <N> open P2 questions. Author should address these or acknowledge them before shipping.
+<If READY:> The plan holds up. Proceed.
+```
+
+Do NOT auto-invoke another skill. The user decides what to do with the verdict.
+
+---
+
+## Style notes for the report
+
+- Write answers in the same voice the plan uses — don't over-formalize if the plan is casual, don't over-casualize if the plan is formal.
+- Cite line numbers from the plan (`plan.md:42`) whenever your answer challenges a specific claim.
+- When the plan says something vague ("we'll handle errors"), quote it and ask the concrete version ("which errors, returned how, logged where?").
+- Be direct. "This step has no acceptance criterion" beats "It might be worth considering whether this step..."
+- If a question genuinely has no answer from the plan + codebase, say `UNRESOLVED — requires input from plan author: [specific question]`. Don't fabricate.
+- Don't pad. If Q4.4 has nothing substantial, say "Nothing surfaced — the plan's structure is intentional."
+
+---
+
+## Anti-patterns (what NOT to do)
+
+- **Don't write the "fixed plan."** The challenge ends at the report. Rewriting the plan is a separate skill.
+- **Don't soften P1s to feel nice.** A P1 is a P1. If the plan has no rollback and the blast radius is prod, that is a P1 regardless of how late in the process the challenge ran.
+- **Don't invent problems.** If a question doesn't apply (say, Q2.4 invariants for a documentation-only plan), write `N/A — this is a docs-only plan, no runtime invariants at risk` and move on.
+- **Don't challenge what you didn't read.** If the plan is 800 lines and you read 200, stop and finish reading before writing answers.
+- **Don't treat author disagreement as a loss.** If the author pushes back on a P1, that's useful — they have context you don't. Downgrade to P2 with reasoning, or hold at P1 with reasoning. Don't flip silently.
