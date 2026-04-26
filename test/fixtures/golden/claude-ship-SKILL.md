@@ -355,6 +355,105 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
+## GBrain Sync (skill start)
+
+```bash
+# gbrain-sync: drain pending writes, pull once per day. Silent no-op when
+# the feature isn't initialized or gbrain_sync_mode is "off". See
+# docs/gbrain-sync.md.
+
+_GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+_BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+_BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
+_BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
+
+_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+
+# New-machine hint: URL file present, local .git missing, sync not yet enabled.
+if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
+  _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$_BRAIN_NEW_URL" ]; then
+    echo "BRAIN_SYNC: brain repo detected: $_BRAIN_NEW_URL"
+    echo "BRAIN_SYNC: run 'gstack-brain-restore' to pull your cross-machine memory (or 'gstack-config set gbrain_sync_mode off' to dismiss forever)"
+  fi
+fi
+
+# Active-sync path.
+if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+  # Once-per-day pull.
+  _BRAIN_LAST_PULL_FILE="$_GSTACK_HOME/.brain-last-pull"
+  _BRAIN_NOW=$(date +%s)
+  _BRAIN_DO_PULL=1
+  if [ -f "$_BRAIN_LAST_PULL_FILE" ]; then
+    _BRAIN_LAST=$(cat "$_BRAIN_LAST_PULL_FILE" 2>/dev/null || echo 0)
+    _BRAIN_AGE=$(( _BRAIN_NOW - _BRAIN_LAST ))
+    [ "$_BRAIN_AGE" -lt 86400 ] && _BRAIN_DO_PULL=0
+  fi
+  if [ "$_BRAIN_DO_PULL" = "1" ]; then
+    ( cd "$_GSTACK_HOME" && git fetch origin >/dev/null 2>&1 && git merge --ff-only "origin/$(git rev-parse --abbrev-ref HEAD)" >/dev/null 2>&1 ) || true
+    echo "$_BRAIN_NOW" > "$_BRAIN_LAST_PULL_FILE"
+  fi
+  # Drain pending queue, push.
+  "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
+fi
+
+# Status line — always emitted, easy to grep.
+if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+  _BRAIN_QUEUE_DEPTH=0
+  [ -f "$_GSTACK_HOME/.brain-queue.jsonl" ] && _BRAIN_QUEUE_DEPTH=$(wc -l < "$_GSTACK_HOME/.brain-queue.jsonl" | tr -d ' ')
+  _BRAIN_LAST_PUSH="never"
+  [ -f "$_GSTACK_HOME/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(cat "$_GSTACK_HOME/.brain-last-push" 2>/dev/null || echo never)
+  echo "BRAIN_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+else
+  echo "BRAIN_SYNC: off"
+fi
+```
+
+
+
+**Privacy stop-gate (fires ONCE per machine).**
+
+If the bash output shows `BRAIN_SYNC: off` AND the config value
+`gbrain_sync_mode_prompted` is `false` AND gbrain is detected on this host
+(either `gbrain doctor --fast --json` succeeds or the `gbrain` binary is in PATH),
+fire a one-time privacy gate via AskUserQuestion:
+
+> gstack can publish your session memory (learnings, plans, designs, retros) to a
+> private GitHub repo that GBrain indexes across your machines. Higher tiers
+> include behavioral data (session timelines, developer profile). How much do you
+> want to sync?
+
+Options:
+- A) Everything allowlisted (recommended — maximum cross-machine memory)
+- B) Only artifacts (plans, designs, retros, learnings) — skip timelines and profile
+- C) Decline — keep everything local
+
+After the user answers, run (substituting the chosen value):
+
+```bash
+# Chosen mode: full | artifacts-only | off
+"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode <choice>
+"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode_prompted true
+```
+
+If A or B was chosen AND `~/.gstack/.git` doesn't exist, ask a follow-up:
+"Set up the GBrain sync repo now? (runs `gstack-brain-init`)"
+- A) Yes, run it now
+- B) Show me the command, I'll run it myself
+
+Do not block the skill. Emit the question, continue the skill workflow. The
+next skill run picks up wherever this left off.
+
+**At skill END (before the telemetry block),** run these bash commands to
+catch artifact writes (design docs, plans, retros) that skipped the writer
+shims, plus drain any still-pending queue entries:
+
+```bash
+"~/.claude/skills/gstack/bin/gstack-brain-sync" --discover-new 2>/dev/null || true
+"~/.claude/skills/gstack/bin/gstack-brain-sync" --once 2>/dev/null || true
+```
+
+
 ## Model-Specific Behavioral Patch (claude)
 
 The following nudges are tuned for the claude model family. They are
