@@ -673,46 +673,95 @@ If all your hypotheses point to the same file or module, you're probably anchore
 
 ### 3a. Write ad-hoc diagnostic tests
 
-For each hypothesis, write a **targeted test** that would fail if the hypothesis is true and pass if it's false (or vice versa). These are not production tests — they're diagnostic instruments.
+A diagnostic test is a **counterfactual experiment**, not an observation. Its job is to demonstrate that *if* the hypothesized cause were different, the outcome *would* be different. If the result of the test cannot, even in principle, change your belief about the hypothesis, it is not a test — it is a ritual that consumes turns and produces false confidence.
 
-```
-# Example: Hypothesis is "race condition in user creation causes duplicate records"
-# Ad-hoc test: Query DB for duplicate records matching the pattern
-```
+Throughout test design and result interpretation, hold two questions open in the background:
+- **WHY does the code under suspicion exist in this form?** (Intent — see below.)
+- **WHAT would change elsewhere if the hypothesis is right and the cause is altered?** (Blast radius of the *change*, distinct from Phase 4's blast radius of the *bug*.)
+
+These shape the test you write, the controls you hold constant, and the report you produce.
+
+#### What makes a test diagnostic
+
+A test must satisfy ALL of these or it has no diagnostic value. If any fail, the test is decoration:
+
+1. **It probes a causal mechanism, not a correlation.** Draw the arrow: "Hypothesis says A causes B via mechanism M. The test perturbs A; M predicts how B changes." If you cannot draw the arrow, you do not yet have a testable hypothesis — you have a suspicion.
+
+2. **You can predict the result before running.** Write down — *before* running — what you will observe if the hypothesis is true and what you will observe if it is false. Two distinct, specific predictions. If you cannot produce them, you do not understand the hypothesis well enough to test it. If both predictions look the same, the test does not discriminate.
+
+3. **It isolates the variable.** A "single change" is often actually five things moving together (config + cache + restart + new connection pool + fresh clock). Strip the entanglements where you can; instrument them where you can't. Otherwise the result attributes to nothing in particular.
+
+4. **It can surprise you.** A test whose result *cannot* make you abandon the hypothesis is confirming a belief, not testing one. The most valuable tests are the ones whose outcome might force you to change your mind — or, more often, reveal that the system has structure you haven't yet modeled.
+
+#### Designing the test from the workflow map
+
+Find the hypothesis's blame point on the Phase 1f workflow map. The hypothesis already pinpoints a step (Phase 2 enforces this). Now ask:
+
+- **What is the smallest perturbation that, given the workflow as it actually executes, MUST produce a different outcome if the hypothesis is correct?** Not "what change might fix it" — what change *mechanistically* must alter the result, given how the steps actually compose.
+- **Walk the workflow forward in your head with the perturbation applied. What happens at each step?** If you hit a step where you cannot predict the downstream behavior, that is a gap in your model of the system. Fill it before testing — read the code, query the data, ask the user. Testing through a gap produces a result you cannot interpret.
+- **What variables tag along when you perturb the one you want to test?** Surface the entanglements explicitly. Choose a perturbation that minimizes them, or measure them so you can rule them out as the cause of any observed change.
+
+#### The "why" analysis: read the code as deliberate before you call it wrong
+
+Code rarely exists by accident. Behavior you would call a bug may be the side-effect of a constraint someone else solved. *Before* you finalize the test — and certainly before you recommend a fix — ask, and answer with evidence:
+
+- **Is this load-bearing or accidental?** Accidental: written quickly, no caller depends on the specifics. Load-bearing: satisfies a constraint, invariant, or contract elsewhere.
+- **What does git blame say?** Read the introducing commit message and the surrounding PR. Authors often state a constraint that is not visible in the code itself.
+- **What tests pin the current behavior?** A test asserting the "buggy" output is a strong signal that the behavior was deliberate.
+- **What callers depend on the current semantics?** Grep for usages, subscribers, schema consumers. Each is a place that may rely on exactly the behavior you would change.
+- **What objective constraint might force this shape?** Performance (caching, batching, rate limits). Security (intentional rejection, defense-in-depth, time-of-check vs time-of-use). Correctness (race avoidance, idempotency, atomicity). External systems (third-party API quirks, browser/OS limits). Compliance (audit, retention, regulation). Backwards compatibility (existing data shapes, migration cost).
+- **Is there a design doc, ARCHITECTURE.md, ADR, or PR thread explaining this area?**
+
+If you find no evidence of intent and the code looks accidental, say so — that is a finding. If you find evidence of intent, your test must avoid breaking the constraint while perturbing the variable, and your diagnostic report (Phase 6) must surface the constraint so the fix does not trade one bug for another.
+
+#### The "what-if" analysis: predict the blast radius of the change
+
+This is *not* the same as Phase 4's blast radius analysis. Phase 4 asks: "what else does the BUG affect?" This asks: "what would a CHANGE to the buggy code affect?"
+
+For each candidate cause, walk the system forward as if your proposed change were already deployed:
+
+- **Which other code paths flow through this code, config, or data?** Each is a place the change might surface. Grep callers, dependents, subscribers, consumers.
+- **Which invariants does the current behavior preserve that the change would violate?** Ordering, idempotency, atomicity, bounded latency, monotonicity, contract with downstream services.
+- **Which edge cases does the "buggy" code handle implicitly?** It may swallow nulls, retry on a specific error, normalize input shapes, or short-circuit a race. The replacement must explicitly handle each.
+- **Which tests, contracts, schemas, or downstream consumers would need updating?**
+
+If the blast radius is wide, the diagnostic report should propose alternatives that shrink it: narrow the change to the failing path, gate behind a flag, or fix at a different layer where impact is contained.
+
+#### Writing the test
+
+Once the design is sound, encode the thinking in the test header so future readers (and future you) can audit the reasoning:
 
 ```bash
-# Write the diagnostic test to a temporary file
 cat > /tmp/diag-test-h1.sh << 'DIAG_EOF'
 #!/bin/bash
-# Diagnostic test for H1: [hypothesis description]
-# Expected result if H1 is true: [description]
-# Expected result if H1 is false: [description]
+# Hypothesis H1: [one-sentence claim, pinpointing step N in the workflow map]
+# Causal mechanism: [the arrow — A → M → B]
+# Perturbation: [what you change, and why this isolates the variable]
+# Prediction if H1 true: [specific observable, written BEFORE running]
+# Prediction if H1 false: [specific observable, written BEFORE running]
+# Known entanglements / controls: [variables that move with the perturbation, and how you hold or measure them]
+# Why this code exists in this form: [load-bearing constraint with evidence, OR accidental complexity]
 
-[test commands here]
+[setup that holds other variables constant]
+[the perturbation]
+[the measurement]
 DIAG_EOF
 chmod +x /tmp/diag-test-h1.sh
 ```
 
-For code-level hypotheses, write actual test files:
+Run the test. Record the result.
 
-```bash
-# Write a focused test that isolates the suspected behavior
-cat > /tmp/diag_test_h1.py << 'PYTEST_EOF'
-"""
-Diagnostic test for H1: [hypothesis description]
-This test is NOT for production — it's a diagnostic instrument.
-If this test FAILS, H1 is supported.
-If this test PASSES, H1 is refuted.
-"""
-def test_hypothesis_1():
-    # Setup: reproduce the exact conditions described in the symptom
-    # Act: trigger the suspected code path
-    # Assert: check for the specific behavior the hypothesis predicts
-    pass
-PYTEST_EOF
-```
+#### Reading the result honestly
 
-Run each test. Record the result. **Do not interpret ambiguous results as confirmation.** If the test doesn't clearly confirm or refute, the test needs refinement, not the hypothesis.
+- **Result matches the "true" prediction** → evidence FOR the hypothesis. Update the table; do *not* yet declare confirmed (Phase 4 still applies).
+- **Result matches the "false" prediction** → evidence AGAINST. Do not silently re-interpret the result to save the hypothesis.
+- **Result is ambiguous** → the test design is flawed. Refine the *test*, not the hypothesis.
+- **Result matches NEITHER prediction** → the system has structure you did not model. Stop. Do not patch the hypothesis to fit. Instead:
+  1. Re-examine the workflow map. A surprise almost always means a step exists that you missed: an interceptor, a cache layer, a fallback, a retry, a race window, an environment difference, a feature flag, a permission check.
+  2. Add a hypothesis for the unmapped factor. The surprise IS evidence that another force is in play — that is a finding, not a failure.
+  3. Consider that multiple causes coexist. The bug may require a conjunction (A AND B); perturbing only A leaves B to still produce the outcome. Design a test for the combination.
+
+Surprise is the highest-value outcome of testing. It is the moment that prevents you from confidently fixing the wrong cause. Phase 3f records each new observation; this section is about how to *interpret* those observations honestly.
 
 ### 3b. Browser-based hypothesis testing
 
