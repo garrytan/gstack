@@ -268,14 +268,17 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 > {{PLAN_COMPLETION_AUDIT_SHIP}}
 >
 > After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-> `{"total_items":N,"done":N,"changed":N,"deferred":N,"summary":"<markdown checklist for PR body>"}`
+> `{"total_items":N,"done":N,"changed":N,"deferred":N,"tests_promised":N,"tests_landed":N,"tests_missing":["item text",...],"summary":"<markdown checklist for PR body>"}`
+>
+> The `tests_*` fields come from the Test-Promise Audit section. If the plan has no TEST-category items, set `tests_promised:0`, `tests_landed:0`, `tests_missing:[]`.
 
 **Parent processing:**
 
 1. Parse the LAST line of the subagent's output as JSON.
 2. Store `done`, `deferred` for Step 20 metrics; use `summary` in PR body.
 3. If `deferred > 0` and no user override, present the deferred items via AskUserQuestion before continuing.
-4. Embed `summary` in PR body's `## Plan Completion` section (Step 19).
+4. **Test-promise gap (#1070):** if `tests_missing.length > 0`, append one informational line to the `summary` before embedding it: `> ⚠ Plan promised {tests_promised} tests, {tests_landed} landed. Missing: {tests_missing joined with "; "}`. Informational only — does NOT gate. The user already saw NOT-DONE items via the existing `deferred` flow; this just makes the test gap explicit instead of hiding it inside a generic "NOT DONE" count.
+5. Embed `summary` in PR body's `## Plan Completion` section (Step 19).
 
 **If the subagent fails or returns invalid JSON:** Fall back to running the audit inline. Never block /ship on subagent failure.
 
