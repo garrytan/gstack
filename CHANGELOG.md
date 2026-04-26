@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.9.0.0] - 2026-04-26
+## [1.13.0.0] - 2026-04-26
 
 ## **Browser-skills land. Hand-write a deterministic browser script once, run it forever in 200ms instead of 30s of agent re-exploration.**
 
