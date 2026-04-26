@@ -33,6 +33,10 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 phase3-quantitative-eval.md에서 C등급 이하(C/D)인 에이전트와,
 phase2-kpt-consolidated.md의 Problem 항목에서 명시적으로 지목된 에이전트를 대상으로 합니다. 두 기준 중 하나라도 해당하면 개선 대상에 포함합니다.
 
+**일반화 가능성 가드 (R4 / NG1 정합)**:
+phase2-kpt-consolidated.md에서 **"단일 프로젝트 한정"으로 분류된 Problem만 근거가 되는 개선 후보는 plugin agent 수정 대상에서 제외**합니다. 해당 후보는 `.crew/gotchas.md` 후보 또는 프로젝트 차원 액션 아이템으로 분류하여 Step 8 사용자 승인의 별도 흐름(R9, AC11)에서 처리합니다.
+같은 에이전트가 다중 프로젝트 재현 Problem과 단일 프로젝트 한정 Problem 둘 다에 의해 지목된 경우, 다중 프로젝트 재현 Problem 부분만 plugin agent 수정 대상에 포함합니다.
+
 **Step 7a: Advisor 호출** — Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, 조언자 모드. 컨텍스트: phase3-quantitative-eval.md, phase2-kpt-consolidated.md, phase3-qualitative-*.md, agents 정의 디렉터리. (agent_start/end: `orchestrator-advisor-step7-{date}`)
 
 > **조언자 요청 — Phase 4 Step 7 개선안 수립 대상 결정**
@@ -101,6 +105,14 @@ phase2-kpt-consolidated.md의 Problem 항목에서 명시적으로 지목된 에
 > - 등급: {A/B/C/D}
 > - 주요 문제: {Phase 3 산출물 핵심 요약 2-3줄}
 >
+> ### 일반화 가능성 (필수, 둘 중 1개 반드시 체크)
+> [ ] 다중 프로젝트 재현 가능 (3개 이상)
+> [ ] 단일 프로젝트 한정
+>
+> 판정 임계값: 3개 이상 프로젝트에서 재현 가능한 패턴만 "다중 프로젝트 재현 가능"으로 분류. 그 외는 보수적으로 "단일 프로젝트 한정".
+>
+> 근거: {대상 Problem의 분류 사유 1-2줄. 단일 프로젝트 한정인 경우 한정 차원(스택/도메인/외부 서비스/특정 브라우저·OS·디바이스 등)을 명시}
+>
 > ### 현재 행동 규칙 (변경 대상)
 > > 현재: {agents/*.md에서 인용한 원문}
 >
@@ -111,10 +123,14 @@ phase2-kpt-consolidated.md의 Problem 항목에서 명시적으로 지목된 에
 > {구체적 수치 또는 행동 변화 기술}
 >
 > ### 적용 범위
-> [ ] 행동 규칙 수정
-> [ ] 학습된 교훈 추가
+> [ ] 행동 규칙 수정         (※ "단일 프로젝트 한정" 체크 시 비활성 — plugin agents/*.md 수정 금지)
+> [ ] 학습된 교훈 추가       (※ "단일 프로젝트 한정" 체크 시 비활성 — plugin agents/*.md 수정 금지)
 > [ ] gotcha 승격
+> [ ] .crew/gotchas.md 후보   (※ "단일 프로젝트 한정" 체크 시 권장 — Step 8 별도 AskUserQuestion에서 사용자 확인)
 > ```
+>
+> **NF1 호환성 안내 (옵셔널 처리)**:
+> 기존 `phase4-improvement-*.md` 파일에 `### 일반화 가능성` 섹션이 없는 것은 오류가 아닙니다. 신규 필드는 옵셔널 처리되며, 미존재 시 표시 단계에서 "분류 미상"으로 간주합니다(Step 8 표시 시 명시적 분류 라벨 부재).
 >
 > **orchestrator 종합 작업:**
 > - 모든 phase4-improvement-*.md 수집
@@ -135,24 +151,55 @@ phase2-kpt-consolidated.md의 Problem 항목에서 명시적으로 지목된 에
 phase4-improvements-summary.md를 Read하여 개선안 목록을 파악한 뒤,
 AskUserQuestion으로 사용자에게 제시합니다.
 
-**질문 형식:**
+**질문 형식 (1단계 — plugin 개선 승인):**
 ```
 다음 에이전트 개선안이 준비되었습니다. 적용 방식을 선택하세요.
 
 개선 대상 에이전트 ({N}개):
 1. {에이전트명} — 등급 {C/D} — {주요 문제 1줄 요약}
-   적용 범위: {행동 규칙 수정 / 학습된 교훈 추가 / gotcha 승격}
+   일반화 가능성: {다중 프로젝트 재현 가능 / 단일 프로젝트 한정}
+   적용 범위: {행동 규칙 수정 / 학습된 교훈 추가 / gotcha 승격 / .crew/gotchas.md 후보}
 2. ...
 
 선택지:
-A) 전체 승인 — 모든 개선안을 hr-agent가 즉시 적용합니다
-B) 선택 승인 — 적용할 에이전트 번호를 입력하세요 (예: 1,3)
+A) 전체 승인 — 모든 "다중 프로젝트 재현 가능" 분류 개선안을 hr-agent가 즉시 적용합니다
+B) 선택 승인 — 적용할 에이전트 번호를 입력하세요 (예: 1,3). "단일 프로젝트 한정" 분류 항목을 선택해도 plugin agents/*.md는 수정되지 않습니다 (R4 가드)
 C) 보류 — 개선안 파일만 저장하고 에이전트 파일은 수정하지 않습니다
 ```
 
-- **전체 승인**: 모든 개선안 → Step 9 위임
-- **선택 승인**: 선택된 에이전트 번호에 해당하는 개선안 → Step 9 위임, 나머지 "보류" 기록
-- **보류**: Step 9 skip, Phase 5로 직행. 개선안 파일 경로를 최종 보고서에 포함
+**일반화 가능성 표시 규칙(R6, AC7)**:
+phase4-improvements-summary.md에서 각 개선안의 `### 일반화 가능성` 섹션 체크 결과를 읽어 위 형식의 "일반화 가능성:" 라인에 표시합니다. 분류가 "단일 프로젝트 한정"인 항목은 A/B 선택지에서 plugin agents/*.md 수정 대상에서 자동 제외됩니다.
+
+- **전체 승인**: 모든 "다중 프로젝트 재현 가능" 개선안 → Step 9 위임. "단일 프로젝트 한정" 개선안은 plugin agents/*.md 수정 대상이 아니므로 별도 처리(아래 2단계 질문).
+- **선택 승인**: 선택된 에이전트 번호에 해당하는 "다중 프로젝트 재현 가능" 개선안 → Step 9 위임. "단일 프로젝트 한정" 분류는 자동 제외 후 별도 처리(아래 2단계 질문).
+- **보류**: Step 9 skip, Phase 5로 직행. 개선안 파일 경로를 최종 보고서에 포함.
+
+### Step 8-2: 단일 프로젝트 한정 개선안 .crew/gotchas.md 승격 확인 (조건부, R9/AC11)
+
+**발동 조건(필수)**: phase4-improvements-summary.md 내 `### 일반화 가능성`이 **"단일 프로젝트 한정"**으로 체크된 개선안이 **1건 이상**인 경우에만 본 단계가 발동된다. 0건이면 본 단계는 skip하고 Step 9로 직행한다.
+
+위 1단계 사용자 응답(A/B/C) 처리 직후, 별도 AskUserQuestion으로 다음을 묻는다 (1단계와 분리된 두 번째 질문):
+
+```
+다음은 "단일 프로젝트 한정"으로 분류된 개선 후보입니다 ({M}건).
+이 항목들은 plugin agents/*.md를 수정하지 않으며, 현재 프로젝트의 .crew/gotchas.md 후보로 분류됩니다.
+
+후보 목록:
+1. {에이전트명} — {주요 문제 1줄 요약}
+   한정 차원: {스택 / 도메인 / 외부 서비스 / 특정 브라우저·OS·디바이스 등}
+2. ...
+
+이 후보들의 .crew/gotchas.md 승격 여부를 선택하세요:
+A) 전체 승격 — 모든 후보를 .crew/gotchas.md에 추가합니다
+B) 선택 승격 — 승격할 후보 번호를 입력하세요 (예: 1,3)
+C) 승격 안 함 — 개선안 파일만 보존하고 .crew/gotchas.md는 수정하지 않습니다
+```
+
+**처리**:
+- **전체 승격 / 선택 승격**: hr-agent가 Step 9에서 .crew/gotchas.md만 갱신 (plugin agents/*.md 수정 없음).
+- **승격 안 함**: .crew/gotchas.md 갱신 skip. 개선안 파일 경로는 최종 보고서에 보존.
+
+**원칙(NG1 정합)**: 본 단계는 신규 retro에 대한 가드만 적용한다. 기존 plugin agents/*.md에 박힌 프로젝트 특이 출처는 본 PRD 비목표(NG1)이므로 손대지 않는다.
 
 ---
 
