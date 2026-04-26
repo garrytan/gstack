@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.15.1.0] - 2026-04-26
+
+## **`gstack-slug` no longer eats your project's identity when it's a subdirectory of another repo.**
+
+If you keep a standalone project inside a workspace repo, gstack used to inherit the workspace's slug and dump every artifact under the wrong project folder. Once cached, no recovery. Now there's a subdir guard, a `.gstack-slug` per-project override, and a `--reset` flag for when the cache went bad.
+
+### What this means for you
+
+If you've been seeing `~/.gstack/projects/me-workspace/` collect artifacts that belong to a real project living inside `me-workspace/`, you can drop a one-line `.gstack-slug` in the project, run `gstack-slug --reset` to clear the bad cache entry, and gstack will pick up the right identity from now on. The fix is opt-out: nothing changes for projects that already work.
+
+### The numbers that matter
+
+| Metric | Before | After |
+|---|---|---|
+| Slug for `cd outer/sub && gstack-slug` (no `.git` in `sub`) | `me-outer` (wrong) | `sub` (basename) or override |
+| Cache recovery path | edit/delete files by hand | `gstack-slug --reset` |
+| Per-project override file | none | `.gstack-slug` (sanitized, one line) |
+| Test coverage on `bin/gstack-slug` | 0 cases | 10 cases |
+
+Reported by @marcosmoova in #1125 with a clean reproducer. Mirrors the shape of @snowmaker's PR #897 (deterministic slugs across sessions): one `bin/` script, one regression test file, zero behavior change for the happy path.
+
+### Itemized changes
+
+#### Fixed
+- `bin/gstack-slug` no longer trusts `git remote get-url origin` when `$PWD` is not the repo toplevel. Subdirs of outer repos fall through to `.gstack-slug` or basename instead of inheriting the parent's slug. (#1125)
+- Added `.gstack-slug` per-project override: a one-line sanitized slug in `$PWD/.gstack-slug` skips all git inference. Survives `gstack-upgrade`.
+- Added `gstack-slug --reset` to clear the cache entry for the current PWD without manual cleanup of `~/.gstack/slug-cache/`.
+
+#### For contributors
+- New `test/gstack-slug.test.ts` covers the subdir-guard regression, both override paths, input sanitization, `--reset` behavior, and cross-session cache stability.
+
 ## [1.14.0.0] - 2026-04-25
 
 ## **The gstack browser sidebar is now an interactive Claude Code REPL with live tab awareness.**
