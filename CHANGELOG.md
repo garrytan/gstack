@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.18.0.0] - 2026-04-26
+
+## **`browse screenshot` no longer bricks your session by capturing 3000px-tall PNGs.**
+
+The default flipped from full-page to viewport, matching Playwright's own API. Long pages used to silently produce images that exceeded Anthropic's vision API per-side limit, and the failed image stayed in conversation history so every subsequent turn re-failed on the same envelope. New `--full-page` flag opts in, and warns when the result will be too tall to safely send.
+
+### What this means for you
+
+If you were taking screenshots of any documentation page, blog post, or feed-style UI, you've probably hit this and not realized why your session went sideways. Now `browse screenshot path.png` captures what's visible. If you genuinely want the whole scroll, `--full-page` does the old behavior, and tells you when the resulting PNG is going to exceed ~2000px so you can switch to `--clip` or `--selector` instead. `--viewport` still works as a back-compat alias.
+
+### The numbers that matter
+
+Captured against a fixture with ~3000px scroll height, viewport 1280×720:
+
+| Mode | PNG height | Vision API verdict |
+|---|---|---|
+| Before (default `fullPage:true`) | ~3700px | Rejected (>2000px) |
+| After (default viewport) | ~720px | Accepted |
+| After (`--full-page`) | ~3700px | Rejected, but `[browse] warning` line tells the agent why |
+
+Reported by @raffoz in #1214 with a clean reproducer and three proposed options. Goes with the issue author's vote: option 1 (post-capture warn) plus option 2 (flip the default). Annotated and heatmap snapshot modes still default to full-page — those are debug UI for humans, not images fed to agents via `Read`.
+
+### Itemized changes
+
+#### Changed
+- `browse screenshot` defaults to viewport-only capture, matching Playwright's `page.screenshot()` API. Pass `--full-page` to opt into the previous behavior. (#1214)
+- Output message no longer carries `(viewport)` suffix in the default case; only `--full-page` gets a `(full-page)` suffix.
+
+#### Added
+- `--full-page` flag for explicit full-scroll-height captures.
+- Oversize warning: any `--full-page` capture whose PNG width or height exceeds ~1800px emits `[browse] warning: …exceeds ~2000px Anthropic vision API limit…` on stderr. Capture still succeeds; the warning is informational.
+
+#### Fixed
+- `--viewport` is preserved as a no-op back-compat alias (now the default) so existing scripts continue to work.
+
+#### For contributors
+- New `browse/test/fixtures/tall.html` (~3000px scroll) feeds the regression coverage.
+- Five new test cases in `browse/test/commands.test.ts`: default-viewport regression for #1214, `--full-page` capture height verification, oversize warning emission, and the two mutually-exclusive flag combinations (`--full-page + --clip`, `--full-page + selector`).
+- PNG dimensions are read from the IHDR chunk (zero deps, ~10 lines in `meta-commands.ts`).
 ## [1.15.0.0] - 2026-04-26
 
 ## **Real-PTY test harness ships. 11 plan-mode E2E tests, 23 unit tests, and 50K fewer tokens per invocation.**

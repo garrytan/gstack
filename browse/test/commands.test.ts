@@ -458,14 +458,98 @@ describe('Visual', () => {
     fs.unlinkSync(screenshotPath);
   });
 
-  test('screenshot --viewport saves viewport-only', async () => {
+  test('screenshot --viewport (back-compat) saves viewport-only', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     const p = '/tmp/browse-test-viewport.png';
     const result = await handleMetaCommand('screenshot', ['--viewport', p], bm, async () => {});
-    expect(result).toContain('Screenshot saved (viewport)');
+    // --viewport is now the default; flag is a no-op alias kept for back-compat.
+    expect(result).toContain('Screenshot saved');
+    expect(result).not.toContain('(full-page)');
     expect(fs.existsSync(p)).toBe(true);
     expect(fs.statSync(p).size).toBeGreaterThan(1000);
     fs.unlinkSync(p);
+  });
+
+  test('screenshot defaults to viewport (regression for #1214)', async () => {
+    // Regression for #1214: long pages used to default to fullPage:true and
+    // produce PNGs > 2000px tall, which the Anthropic vision API rejects,
+    // poisoning every following turn. Default is now viewport-only.
+    await handleWriteCommand('viewport', ['1280x720'], bm);
+    await handleWriteCommand('goto', [baseUrl + '/tall.html'], bm);
+    const p = '/tmp/browse-test-default-viewport.png';
+    const result = await handleMetaCommand('screenshot', [p], bm, async () => {});
+    expect(result).toContain('Screenshot saved');
+    expect(result).not.toContain('(full-page)');
+    expect(fs.existsSync(p)).toBe(true);
+    // Read PNG IHDR for dimensions: width @ byte 16, height @ byte 20, big-endian uint32
+    const fd = fs.openSync(p, 'r');
+    const buf = Buffer.alloc(24);
+    fs.readSync(fd, buf, 0, 24, 0);
+    fs.closeSync(fd);
+    const height = buf.readUInt32BE(20);
+    // Viewport is 720px tall; scroll height of tall.html is ~3000px.
+    // A viewport capture must NOT exceed the viewport.
+    expect(height).toBeLessThanOrEqual(800);
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot --full-page captures full scroll height', async () => {
+    await handleWriteCommand('viewport', ['1280x720'], bm);
+    await handleWriteCommand('goto', [baseUrl + '/tall.html'], bm);
+    const p = '/tmp/browse-test-fullpage.png';
+    const result = await handleMetaCommand('screenshot', ['--full-page', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (full-page)');
+    expect(fs.existsSync(p)).toBe(true);
+    const fd = fs.openSync(p, 'r');
+    const buf = Buffer.alloc(24);
+    fs.readSync(fd, buf, 0, 24, 0);
+    fs.closeSync(fd);
+    const height = buf.readUInt32BE(20);
+    // tall.html has ~15 rows × 200px + h1 ≈ 3000+px scroll height
+    expect(height).toBeGreaterThan(2000);
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot --full-page on tall page emits oversize warning', async () => {
+    // The warning is informational; capture still succeeds. Verifies the
+    // agent gets a signal that the resulting image will be rejected
+    // downstream by the Anthropic vision API (>1800px ceiling).
+    await handleWriteCommand('viewport', ['1280x720'], bm);
+    await handleWriteCommand('goto', [baseUrl + '/tall.html'], bm);
+    const p = '/tmp/browse-test-fullpage-warn.png';
+    const captured: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...a: any[]) => { captured.push(a.map(String).join(' ')); };
+    try {
+      await handleMetaCommand('screenshot', ['--full-page', p], bm, async () => {});
+    } finally {
+      console.warn = origWarn;
+    }
+    const warning = captured.find(line => line.includes('[browse] warning'));
+    expect(warning).toBeDefined();
+    expect(warning).toContain('exceeds');
+    expect(warning).toContain('2000px');
+    fs.unlinkSync(p);
+  });
+
+  test('screenshot --full-page + --clip throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--full-page', '--clip', '0,0,100,100'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Cannot use --full-page with --clip');
+    }
+  });
+
+  test('screenshot --full-page + selector throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--full-page', '#title'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Cannot use --full-page with a selector');
+    }
   });
 
   test('screenshot with CSS selector crops to element', async () => {
@@ -509,14 +593,12 @@ describe('Visual', () => {
     }
   });
 
-  test('screenshot --viewport + --clip throws', async () => {
+  test('screenshot --viewport + --clip is allowed (--viewport is no-op default)', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    try {
-      await handleMetaCommand('screenshot', ['--viewport', '--clip', '0,0,100,100'], bm, async () => {});
-      expect(true).toBe(false);
-    } catch (err: any) {
-      expect(err.message).toContain('Cannot use --viewport with --clip');
-    }
+    const p = '/tmp/browse-test-viewport-clip.png';
+    const result = await handleMetaCommand('screenshot', ['--viewport', '--clip', '0,0,100,100', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (clip 0,0,100,100)');
+    fs.unlinkSync(p);
   });
 
   test('screenshot --clip with invalid coords throws', async () => {
