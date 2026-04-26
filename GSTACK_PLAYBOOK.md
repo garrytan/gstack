@@ -97,10 +97,14 @@ If you want the whole plan stack automatically:
 
 Implement from the reviewed plan file, not from scattered notes.
 
+```text
+/implement
+```
+
 Recommended pattern:
 - Build in phases
 - Keep diffs small
-- Re-run `/review` after each meaningful phase
+- Re-run `/review` after each meaningful phase (the `/implement` skill can automate this loop)
 
 ### 6. Debug when something breaks
 
@@ -285,6 +289,7 @@ Cross-project retro:
 | `/plan-design-review` | plan + optional UI focus | `/plan-design-review focus on mobile and empty states` |
 | `/plan-devex-review` | plan + optional DX mode | `/plan-devex-review dx triage for this CLI` |
 | `/autoplan` | current plan | `/autoplan` |
+| `/implement` | usually nothing | `/implement` |
 | `/design-consultation` | product, audience, desired feel | `/design-consultation B2B analytics app, serious and high-trust` |
 | `/design-shotgun` | screen/page description | `/design-shotgun pricing page for a dev tools product` |
 | `/design-html` | approved design, mockup, or description | `/design-html build the approved dashboard design` |
@@ -324,8 +329,9 @@ Cross-project retro:
 /plan-ceo-review
 /plan-eng-review
 /plan-design-review or /plan-devex-review if needed
-build
+/implement
 /review
+
 /qa
 /ship
 /land-and-deploy
@@ -337,7 +343,7 @@ build
 
 ```text
 /plan-eng-review
-build in phases
+/implement
 /review after each phase
 /qa if behavior changed
 /ship
@@ -350,7 +356,7 @@ build in phases
 /plan-ceo-review
 /plan-design-review
 /plan-eng-review
-build
+/implement
 /design-review
 /qa
 /ship
@@ -363,7 +369,7 @@ build
 /plan-ceo-review
 /plan-devex-review
 /plan-eng-review
-build
+/implement
 /devex-review
 /review
 /ship

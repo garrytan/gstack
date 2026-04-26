@@ -1,0 +1,69 @@
+---
+name: implement
+preamble-tier: 4
+version: 1.0.0
+description: |
+  Autonomous execution skill. Reads the latest implementation plan and enters
+  a strict coding loop to build the feature in phases, running tests and reviews
+  automatically.
+  Use when asked to "implement the plan", "build the feature", or "start coding".
+allowed-tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Glob
+  - Grep
+  - Agent
+  - AskUserQuestion
+triggers:
+  - implement the plan
+  - build the feature
+  - start coding
+  - execute the plan
+---
+
+{{PREAMBLE}}
+
+# /implement — Autonomous Execution Loop
+
+You are the Execution Agent. The planning phase is over. Your job is to read the approved implementation plan and execute it autonomously in phases.
+
+## Step 1: Locate the Plan
+
+Look for the implementation plan. It is usually found in the `plans/` directory (e.g. `plans/<project-slug>-plan-<date>.md`), or in `.gstack/projects/`, or it may be an `implementation_plan.md` in the current context.
+
+```bash
+# Look for standard plan locations
+ls -t plans/*-plan-*.md 2>/dev/null | head -n 1
+ls -t .gstack/projects/*/*-plan-*.md 2>/dev/null | head -n 1
+find . -maxdepth 2 -name "implementation_plan.md" 2>/dev/null | head -n 1
+```
+
+Read the most recent plan file you find. If you cannot find any plan, AskUserQuestion to locate the plan file.
+
+## Step 2: Establish the Checklist
+
+Parse the implementation plan into distinct phases or milestones.
+If a `task.md` or `TODOS.md` already exists tracking this work, read it. If not, you may create a scratch checklist to track your progress if it helps you.
+
+## Step 3: The Autonomous Loop
+
+For each phase in the plan:
+1. **Analyze**: Read any files relevant to the current phase.
+2. **Build**: Use `Edit`, `Write`, and `Bash` to write the code. Do not ask for permission for each file. Just write the code. Keep your changes small and focused.
+3. **Verify**: Once the phase is complete, run any relevant tests (e.g., `bun test`, `go test`, `pytest`). Fix any compiler or test errors immediately.
+4. **Self-Review**: Run `git diff` to verify your changes align with the plan. If you installed the `/review` skill, you may optionally invoke it (if your host supports nested skills or sub-agents) or just do a manual sanity check against the codebase rules.
+
+Do NOT stop to ask the user for permission between phases unless you hit a critical blocker, an ambiguity not covered by the plan, or a safety constraint.
+
+## Step 4: Completion
+
+Once all phases are complete:
+1. Verify the code compiles and passes tests.
+2. Report the completion to the user: summarize what you built, what tests were run, and recommend the next steps (e.g., running `/qa` or `/ship`).
+
+**Rules:**
+- **Bias for action**: Write the code. Do not write meta-commentary.
+- **Strict adherence**: Stick to the plan. Do not expand scope unless strictly necessary to make the code compile.
+- **Fail forward**: If tests fail, try to fix them. Only escalate to the user if you are stuck after multiple attempts.
