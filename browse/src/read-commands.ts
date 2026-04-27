@@ -98,9 +98,14 @@ function assertJsOriginAllowed(bm: BrowserManager, pageUrl: string): void {
 export async function handleReadCommand(
   command: string,
   args: string[],
-  session: TabSession,
+  sessionOrBm: TabSession | BrowserManager,
   bm?: BrowserManager,
 ): Promise<string> {
+  const sessionOrBmAny = sessionOrBm as any;
+  const session = typeof sessionOrBmAny.getActiveSession === 'function'
+    ? (sessionOrBm as BrowserManager).getActiveSession()
+    : (sessionOrBm as TabSession);
+  bm = bm ?? (typeof sessionOrBmAny.getActiveSession === 'function' ? (sessionOrBm as BrowserManager) : undefined);
   const page = session.getPage();
   // Frame-aware target for content extraction
   const target = session.getActiveFrameOrPage();

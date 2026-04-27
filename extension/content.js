@@ -209,7 +209,7 @@ function captureBasicData(el) {
             }
           } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
         }
-      } catch (e) { if (!(e instanceof DOMException)) throw e; }
+      } catch (e) { if (!(e instanceof DOMException)) throw e; } // cross-origin stylesheet access
     }
   } catch (e) { if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e; }
 

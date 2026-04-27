@@ -130,9 +130,14 @@ const CLEANUP_SELECTORS = {
 export async function handleWriteCommand(
   command: string,
   args: string[],
-  session: TabSession,
-  bm: BrowserManager
+  sessionOrBm: TabSession | BrowserManager,
+  bm?: BrowserManager
 ): Promise<string> {
+  const sessionOrBmAny = sessionOrBm as any;
+  const session = typeof sessionOrBmAny.getActiveSession === 'function'
+    ? (sessionOrBm as BrowserManager).getActiveSession()
+    : (sessionOrBm as TabSession);
+  bm = bm ?? (typeof sessionOrBmAny.getActiveSession === 'function' ? (sessionOrBm as BrowserManager) : undefined);
   const page = session.getPage();
   // Frame-aware target for locator-based operations (click, fill, etc.)
   const target = session.getActiveFrameOrPage();

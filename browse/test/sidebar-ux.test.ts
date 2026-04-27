@@ -564,10 +564,9 @@ describe('per-tab chat context (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('/sidebar-chat accepts tabId query param', () => {
-    const handler = serverSrc.slice(
-      serverSrc.indexOf("/sidebar-chat'"),
-      serverSrc.indexOf("/sidebar-chat'") + 600,
-    );
+    const handlerStart = serverSrc.indexOf("url.pathname === '/sidebar-chat'");
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handler = serverSrc.slice(handlerStart, handlerStart + 800);
     expect(handler).toContain('tabId');
   });
 
@@ -1617,9 +1616,11 @@ describe('shutdown cleanup (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('shutdown kills sidebar-agent daemon process', () => {
+    const shutdownStart = serverSrc.indexOf('async function shutdown(');
+    expect(shutdownStart).toBeGreaterThan(-1);
     const shutdownFn = serverSrc.slice(
-      serverSrc.indexOf('async function shutdown()'),
-      serverSrc.indexOf('async function shutdown()') + 800,
+      shutdownStart,
+      shutdownStart + 800,
     );
     expect(shutdownFn).toContain('sidebar-agent');
     expect(shutdownFn).toContain('pkill');
