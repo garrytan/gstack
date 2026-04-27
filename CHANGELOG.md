@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.16.0.0] - 2026-04-27
+
+## **`gstack-build` ships. Code-driven phase orchestrator for /build skill.**
+
+The `/build` skill's per-phase loop is unreliable on long plans: the orchestrator LLM stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." This release ships `gstack-build`, a standalone CLI that drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. Code = state machine + persistence + retry. LLM = per-phase brain with a clean context window.
+
+### Added
+- `gstack-build` CLI orchestrator at `bin/gstack-build` (bash wrapper invoking `build/orchestrator/cli.ts` via bun). Exposed in `package.json` `bin` map so `bun install` picks it up.
+- `build/orchestrator/` module with 9 components:
+  - `cli.ts` — driver loop, signal handling, lock, activity log
+  - `parser.ts` — plan markdown → Phase[] (fence-aware, handles partial-checked phases for resume)
+  - `phase-runner.ts` — pure state machine (`decideNextAction`, `applyResult`)
+  - `sub-agents.ts` — gemini/codex/claude CLI wrappers with timeouts and single-retry
+  - `plan-mutator.ts` — atomic checkbox flips via temp+rename, with external-edit detection
+  - `state.ts` — persistence at `~/.gstack/build-state/<slug>.json`, atomic writes, O_EXCL lock
+  - `gbrain.ts` — best-effort cross-machine mirror via `gbrain put`/`gbrain get`
+  - `ship.ts` — final `/ship` then `/land-and-deploy` as two sequential claude invocations
+  - `types.ts` — shared Phase, PhaseState, BuildState
+- 76 unit tests across 6 files: parser (12), state (16), sub-agents (9), phase-runner (24), plan-mutator (11), gbrain (4)
+- `build/orchestrator/README.md` — usage, env vars, file layout, failure modes table, exit codes, architecture
+
+### Changed
+- `build/SKILL.md.tmpl` (and regenerated `build/SKILL.md`) v1.10.0 → v1.11.0: added "LLM-driven loop vs. code-driven CLI" note recommending `gstack-build` for long plans (5+ phases).
+
+### Why this matters
+The new orchestrator decouples build progress from "Claude Code is open and not compacted." Run `gstack-build plans/<slug>-impl-plan-<date>.md` and walk away — state files in `~/.gstack/build-state/` document every step for forensics, and `--no-resume` / `--skip-ship` / `--dry-run` flags cover the common operating modes.
+
 ## [1.15.0.0] - 2026-04-26
 
 ## **Real-PTY test harness ships. 11 plan-mode E2E tests, 23 unit tests, and 50K fewer tokens per invocation.**
