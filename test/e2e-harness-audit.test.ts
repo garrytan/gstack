@@ -1,8 +1,11 @@
 /**
  * E2E harness audit — every skill with `interactive: true` in its frontmatter
- * must have at least one test file that uses `canUseTool` via the extended
- * agent-sdk-runner. This prevents future drift where a skill opts into the
- * handshake without adding real coverage.
+ * must have at least one test file that drives a real interactive session.
+ * Two valid coverage paths:
+ *   1. `canUseTool` via the agent-sdk-runner (legacy SDK-based path)
+ *   2. `runPlanSkillObservation` via the claude-pty-runner (real-PTY path
+ *      added when the SDK harness was found unable to observe plan mode's
+ *      native confirmation UI — see test/helpers/claude-pty-runner.ts)
  *
  * Runs as a free unit test (no API calls). Pure filesystem scan.
  */
@@ -76,14 +79,16 @@ function findInteractiveSkills(): string[] {
 }
 
 /**
- * Scan a test file's contents for the canUseTool-via-harness pattern.
- * Either: direct canUseTool usage in runAgentSdkTest, or usage of the
- * shared plan-mode-helpers that wrap it.
+ * Scan a test file's contents for any of the supported real-interactive
+ * coverage patterns. Either: direct canUseTool usage in runAgentSdkTest,
+ * the legacy plan-mode-helpers wrapper, or the new real-PTY observation
+ * helper.
  */
 function hasCanUseToolCoverage(testFile: string): boolean {
   const content = fs.readFileSync(testFile, 'utf-8');
   if (content.includes('canUseTool')) return true;
   if (content.includes('runPlanModeSkillTest')) return true;
+  if (content.includes('runPlanSkillObservation')) return true;
   return false;
 }
 

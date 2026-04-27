@@ -1,13 +1,9 @@
 import type { TemplateContext } from '../types';
 
 export function generateTelemetryPrompt(ctx: TemplateContext): string {
-  return `If \`TEL_PROMPTED\` is \`no\` AND \`LAKE_INTRO\` is \`yes\`: After the lake intro is handled,
-ask the user about telemetry. Use AskUserQuestion:
+  return `If \`TEL_PROMPTED\` is \`no\` AND \`LAKE_INTRO\` is \`yes\`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better! Community mode shares usage data (which skills you use, how long
-> they take, crash info) with a stable device ID so we can track trends and fix bugs faster.
-> No code, file paths, or repo names are ever sent.
-> Change anytime with \`gstack-config set telemetry off\`.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -15,10 +11,9 @@ Options:
 
 If A: run \`${ctx.paths.binDir}/gstack-config set telemetry community\`
 
-If B: ask a follow-up AskUserQuestion:
+If B: ask follow-up:
 
-> How about anonymous mode? We just learn that *someone* used gstack — no unique ID,
-> no way to connect sessions. Just a counter that helps us know if anyone's out there.
+> Anonymous mode sends only aggregate usage, no unique ID.
 
 Options:
 - A) Sure, anonymous is fine
@@ -32,6 +27,5 @@ Always run:
 touch ~/.gstack/.telemetry-prompted
 \`\`\`
 
-This only happens once. If \`TEL_PROMPTED\` is \`yes\`, skip this entirely.`;
+Skip if \`TEL_PROMPTED\` is \`yes\`.`;
 }
-

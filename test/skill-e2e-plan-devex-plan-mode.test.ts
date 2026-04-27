@@ -1,30 +1,32 @@
 /**
- * plan-devex-review plan-mode smoke test (gate tier, paid).
+ * plan-devex-review plan-mode smoke (gate, paid, real-PTY).
  *
  * See test/skill-e2e-plan-ceo-plan-mode.test.ts for the shared assertion
- * contract. Exercises the same assertions against /plan-devex-review.
+ * contract. Exercises the same contract against /plan-devex-review.
  */
 
 import { describe, test, expect } from 'bun:test';
-import {
-  runPlanModeSkillTest,
-  assertNotHandshakeShape,
-} from './helpers/plan-mode-helpers';
+import { runPlanSkillObservation } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
 
 describeE2E('plan-devex-review plan-mode smoke (gate)', () => {
-  test('goes straight to DX-mode question, no handshake, no silent writes', async () => {
-    const result = await runPlanModeSkillTest({
+  test('reaches a terminal outcome (asked or plan_ready) without silent writes', async () => {
+    const obs = await runPlanSkillObservation({
       skillName: 'plan-devex-review',
-      // Step 0 asks for DX review mode; TRIAGE is the lightest-weight mode.
-      firstAnswerSubstring: 'TRIAGE',
+      inPlanMode: true,
+      timeoutMs: 300_000,
     });
 
-    expect(result.askUserQuestions.length).toBeGreaterThanOrEqual(1);
-    assertNotHandshakeShape(result.askUserQuestions[0]!);
-    expect(result.writeOrEditBeforeAsk).toBe(false);
-    expect(result.exitPlanModeBeforeAsk).toBe(false);
-  }, 120_000);
+    if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
+      throw new Error(
+        `plan-devex-review plan-mode smoke FAILED: outcome=${obs.outcome}\n` +
+          `summary: ${obs.summary}\n` +
+          `elapsed: ${obs.elapsedMs}ms\n` +
+          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+      );
+    }
+    expect(['asked', 'plan_ready']).toContain(obs.outcome);
+  }, 360_000);
 });

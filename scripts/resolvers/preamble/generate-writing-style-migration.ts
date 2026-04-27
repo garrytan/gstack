@@ -1,13 +1,9 @@
 import type { TemplateContext } from '../types';
 
 export function generateWritingStyleMigration(ctx: TemplateContext): string {
-  return `If \`WRITING_STYLE_PENDING\` is \`yes\`: You're on the first skill run after upgrading
-to gstack v1. Ask the user once about the new default writing style. Use AskUserQuestion:
+  return `If \`WRITING_STYLE_PENDING\` is \`yes\`: ask once about writing style:
 
-> v1 prompts = simpler. Technical terms get a one-sentence gloss on first use,
-> questions are framed in outcome terms, sentences are shorter.
->
-> Keep the new default, or prefer the older tighter prose?
+> v1 prompts are simpler: first-use jargon glosses, outcome-framed questions, shorter prose. Keep default or restore terse?
 
 Options:
 - A) Keep the new default (recommended — good writing helps everyone)
@@ -22,5 +18,5 @@ rm -f ~/.gstack/.writing-style-prompt-pending
 touch ~/.gstack/.writing-style-prompted
 \`\`\`
 
-This only happens once. If \`WRITING_STYLE_PENDING\` is \`no\`, skip this entirely.`;
+Skip if \`WRITING_STYLE_PENDING\` is \`no\`.`;
 }

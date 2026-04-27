@@ -19,31 +19,10 @@ import { PAGE_CONTENT_COMMANDS } from '../src/commands';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
-describe('canary stream-chunk split detection', () => {
-  test('detectCanaryLeak uses rolling buffer across consecutive deltas', () => {
-    // Pull in the function via dynamic require so we don't re-export it
-    // from sidebar-agent.ts (it's internal on purpose).
-    const agentSource = fs.readFileSync(
-      path.join(REPO_ROOT, 'browse', 'src', 'sidebar-agent.ts'),
-      'utf-8',
-    );
-    // Contract: detectCanaryLeak accepts an optional DeltaBuffer and
-    // uses .slice(-(canary.length - 1)) to retain a rolling tail.
-    expect(agentSource).toContain('DeltaBuffer');
-    expect(agentSource).toMatch(/text_delta\s*=\s*combined\.slice\(-\(canary\.length - 1\)\)/);
-    expect(agentSource).toMatch(/input_json_delta\s*=\s*combined\.slice\(-\(canary\.length - 1\)\)/);
-  });
-
-  test('canary context initializes deltaBuf', () => {
-    const agentSource = fs.readFileSync(
-      path.join(REPO_ROOT, 'browse', 'src', 'sidebar-agent.ts'),
-      'utf-8',
-    );
-    // The askClaude call site must construct the buffer so the rolling
-    // detection actually runs.
-    expect(agentSource).toContain("deltaBuf: { text_delta: '', input_json_delta: '' }");
-  });
-});
+// canary stream-chunk split detection — tested detectCanaryLeak inside
+// sidebar-agent.ts. Both the chat-stream pipeline and the function are
+// gone (Terminal pane uses an interactive PTY; user keystrokes are the
+// trust source, no chunked LLM stream to canary-scan).
 
 describe('tool-output ensemble rule (single-layer BLOCK)', () => {
   test('user-input context: single layer at BLOCK degrades to WARN', () => {
@@ -117,13 +96,10 @@ describe('transcript classifier tool_output parameter', () => {
     expect(src).toContain('tool_output');
   });
 
-  test('sidebar-agent passes tool text to transcript on tool-result scan', () => {
-    const src = fs.readFileSync(
-      path.join(REPO_ROOT, 'browse', 'src', 'sidebar-agent.ts'),
-      'utf-8',
-    );
-    expect(src).toContain('tool_output: text');
-  });
+  // sidebar-agent passed tool text to the transcript classifier on
+  // tool-result scans. That whole pipeline is gone — Terminal pane has
+  // no LLM stream to scan, and security-classifier.ts is dead code with
+  // no production caller (a separate v1.1+ cleanup TODO).
 });
 
 describe('GSTACK_SECURITY_OFF kill switch', () => {

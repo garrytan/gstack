@@ -1,12 +1,9 @@
 import type { TemplateContext } from '../types';
 
 export function generateProactivePrompt(ctx: TemplateContext): string {
-  return `If \`PROACTIVE_PROMPTED\` is \`no\` AND \`TEL_PROMPTED\` is \`yes\`: After telemetry is handled,
-ask the user about proactive behavior. Use AskUserQuestion:
+  return `If \`PROACTIVE_PROMPTED\` is \`no\` AND \`TEL_PROMPTED\` is \`yes\`: ask once:
 
-> gstack can proactively figure out when you might need a skill while you work —
-> like suggesting /qa when you say "does this work?" or /investigate when you hit
-> a bug. We recommend keeping this on — it speeds up every part of your workflow.
+> Let gstack proactively suggest skills, like /qa for "does this work?" or /investigate for bugs?
 
 Options:
 - A) Keep it on (recommended)
@@ -20,6 +17,5 @@ Always run:
 touch ~/.gstack/.proactive-prompted
 \`\`\`
 
-This only happens once. If \`PROACTIVE_PROMPTED\` is \`yes\`, skip this entirely.`;
+Skip if \`PROACTIVE_PROMPTED\` is \`yes\`.`;
 }
-

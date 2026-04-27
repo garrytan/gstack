@@ -40,6 +40,35 @@ function extractDescription(content: string): string {
   return description;
 }
 
+function extractMarkdownSection(content: string, heading: string): string {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const startMatch = content.match(new RegExp(`^${escaped}.*$`, 'm'));
+  expect(startMatch?.index).toBeDefined();
+  const start = startMatch!.index!;
+  const afterHeading = start + startMatch![0].length;
+  const nextSection = content.slice(afterHeading).match(/\n## /);
+  const end = nextSection?.index === undefined
+    ? content.length
+    : afterHeading + nextSection.index;
+  return content.slice(start, end).trim();
+}
+
+function extractPreambleBeforeWorkflow(content: string, workflowMarkers: string[]): string {
+  const markerIndexes = workflowMarkers
+    .map(marker => content.indexOf(marker))
+    .filter(index => index >= 0);
+  expect(markerIndexes.length).toBeGreaterThan(0);
+  return content.slice(0, Math.min(...markerIndexes));
+}
+
+function isRepoRootSymlink(candidateDir: string): boolean {
+  try {
+    return fs.realpathSync(candidateDir) === fs.realpathSync(ROOT);
+  } catch {
+    return false;
+  }
+}
+
 // Dynamic template discovery — matches the generator's findTemplates() behavior.
 // New skills automatically get test coverage without updating a static list.
 const ALL_SKILLS = (() => {
@@ -55,6 +84,9 @@ const ALL_SKILLS = (() => {
   }
   return skills;
 })();
+
+const CLAUDE_SKIPPED_SKILL_DIRS = new Set(['claude']);
+const CLAUDE_GENERATED_SKILLS = ALL_SKILLS.filter(skill => !CLAUDE_SKIPPED_SKILL_DIRS.has(skill.dir));
 
 describe('gen-skill-docs', () => {
   test('generated SKILL.md contains all command categories', () => {
@@ -114,7 +146,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('every skill has a generated SKILL.md with auto-generated header', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const mdPath = path.join(ROOT, skill.dir, 'SKILL.md');
       expect(fs.existsSync(mdPath)).toBe(true);
       const content = fs.readFileSync(mdPath, 'utf-8');
@@ -124,7 +156,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('every generated SKILL.md has valid YAML frontmatter', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       expect(content.startsWith('---\n')).toBe(true);
       expect(content).toContain('name:');
@@ -133,11 +165,16 @@ describe('gen-skill-docs', () => {
   });
 
   test(`every generated SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const description = extractDescription(content);
       expect(description.length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
     }
+  });
+
+  test('Claude outside-voice skill is not generated for Claude host', () => {
+    expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md.tmpl'))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md'))).toBe(false);
   });
 
   test(`every Codex SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
@@ -186,7 +223,7 @@ describe('gen-skill-docs', () => {
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // Every skill should be FRESH
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
       expect(output).toContain(`FRESH: ${file}`);
     }
@@ -194,7 +231,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('no generated SKILL.md contains unresolved placeholders', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const unresolved = content.match(/\{\{[A-Z_]+\}\}/g);
       expect(unresolved).toBeNull();
@@ -263,8 +300,52 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('~/.gstack/analytics');
   });
 
+  test('plan-review generated preambles stay under the Option A budget', () => {
+    const reviewSkills = [
+      {
+        path: path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
+        markers: ['# Mega Plan Review Mode', '## Step 0: Detect platform and base branch'],
+      },
+      {
+        path: path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
+        markers: ['# Plan Review Mode'],
+      },
+    ];
+
+    // Plan skills carry the same preamble surface as other tier-≥2 skills
+    // (Brain Sync, Context Recovery, Routing Injection are load-bearing
+    // functionality, not optional). Budget is set to current size + small
+    // headroom; ratchet down if a future slim trims real bytes.
+    for (const skill of reviewSkills) {
+      const content = fs.readFileSync(skill.path, 'utf-8');
+      const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(33_000);
+    }
+  });
+
+  test('voice and writing-style preamble sections stay compact', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const voice = extractMarkdownSection(content, '## Voice');
+    const writingStyle = extractMarkdownSection(content, '## Writing Style');
+
+    expect(Buffer.byteLength(voice, 'utf-8')).toBeLessThan(3_000);
+    expect(Buffer.byteLength(writingStyle, 'utf-8')).toBeLessThan(2_000);
+  });
+
+  test('slim voice section preserves the gstack voice contract', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const voice = extractMarkdownSection(content, '## Voice');
+
+    expect(voice).toMatch(/lead with the point|direct/i);
+    expect(voice).toMatch(/file|function|line|command|real numbers/i);
+    expect(voice).toMatch(/user.*outcome|user.*experience|real user/i);
+    expect(voice).toMatch(/corporate|academic|PR|hype/i);
+    expect(voice).toMatch(/AI vocabulary|delve|crucial|robust/i);
+    expect(voice).toMatch(/user decides|user.*context|sovereignty|recommendation, not a decision/i);
+  });
+
   test('preamble .pending-* glob is zsh-safe (uses find, not shell glob)', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       if (!content.includes('.pending-')) continue;
       // Must NOT have a bare shell glob ".pending-*" outside of find's -name argument
@@ -275,7 +356,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('bash blocks with shell globs are zsh-safe (setopt guard or find)', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const bashBlocks = [...content.matchAll(/```bash\n([\s\S]*?)```/g)].map(m => m[1]);
 
@@ -1603,6 +1684,20 @@ describe('Codex generation (--host codex)', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);
   });
 
+  test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('claude -p');
+    expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
+    expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
+    expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
+    expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
+    expect(content).toContain('--disable-slash-commands');
+    expect(content).toContain('--tools ""');
+    expect(content).toContain('--allowedTools Read,Grep,Glob');
+    expect(content).toContain('--disallowedTools Bash,Edit,Write');
+    expect(content).toContain('is_error');
+  });
+
   test('Codex review step stripped from Codex-host ship and review', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
@@ -1773,7 +1868,7 @@ describe('Codex generation (--host codex)', () => {
   });
 
   test('Claude output unchanged: all Claude skills have zero Codex paths', () => {
-    for (const skill of ALL_SKILLS) {
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       // pair-agent legitimately documents how Codex agents store credentials.
       // codex + autoplan document the Codex CLI auth file (~/.codex/auth.json)
@@ -1964,13 +2059,13 @@ describe('Parameterized host smoke tests', () => {
         expect(skills.length).toBeGreaterThan(0);
       });
 
-      test('no .claude/skills path leakage in non-root skills', () => {
+      test('no .claude/skills path leakage outside repo-root sidecar symlinks', () => {
         if (!fs.existsSync(hostDir)) return; // skip if not generated
         const skills = fs.readdirSync(hostDir);
         for (const skill of skills) {
-          // Skip root gstack skill — it contains preamble with intentional .claude/skills
-          // fallback paths for binary lookup and skill prefix instructions
-          if (skill === 'gstack') continue;
+          // Dev installs may mount the repo root at host/skills/gstack as a runtime
+          // sidecar. The generator skips that symlink loop, so leakage checks should too.
+          if (isRepoRootSymlink(path.join(hostDir, skill))) continue;
           const skillMd = path.join(hostDir, skill, 'SKILL.md');
           if (!fs.existsSync(skillMd)) continue;
           const content = fs.readFileSync(skillMd, 'utf-8');
@@ -1994,6 +2089,16 @@ describe('Parameterized host smoke tests', () => {
           expect(content).toMatch(/^name:\s/m);
           expect(content).toMatch(/^description:\s/m);
         }
+      });
+
+      test('generates Claude outside-voice skill for external hosts', () => {
+        const skillMd = path.join(hostDir, 'gstack-claude', 'SKILL.md');
+        expect(fs.existsSync(skillMd)).toBe(true);
+        const content = fs.readFileSync(skillMd, 'utf-8');
+        expect(content).toContain('claude -p');
+        expect(content).toContain('--disable-slash-commands');
+        expect(content).toContain('--allowedTools Read,Grep,Glob');
+        expect(content).toContain('--disallowedTools Bash,Edit,Write');
       });
 
       test('--dry-run freshness check passes', () => {
