@@ -10,10 +10,13 @@ const BIN = path.join(ROOT, 'bin');
 let tmpDir: string;
 let slugDir: string;
 
-function runLog(input: string, opts: { expectFail?: boolean } = {}): { stdout: string; exitCode: number } {
+function runLog(
+  input: string,
+  opts: { expectFail?: boolean; env?: Record<string, string> } = {},
+): { stdout: string; exitCode: number } {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
     cwd: ROOT,
-    env: { ...process.env, GSTACK_HOME: tmpDir },
+    env: { ...process.env, GSTACK_HOME: tmpDir, ...(opts.env ?? {}) },
     encoding: 'utf-8',
     timeout: 15000,
   };
@@ -118,6 +121,106 @@ describe('gstack-timeline-log', () => {
 
     const f = findTimelineFile();
     expect(f).toBeNull();
+  });
+});
+
+describe('gstack-timeline-log: orchestrator dual-routing', () => {
+  const RUN_ID = '4c107dc2-f68e-4b6e-8acc-2fc57c009002';
+  const BUILDER_SLUG = 'test-builder';
+  const COMPANY_SLUG = 'test-co';
+  const ORCH_ENV = {
+    GSTACK_RUN_ID: RUN_ID,
+    GSTACK_BUILDER_SLUG: BUILDER_SLUG,
+    GSTACK_COMPANY_SLUG: COMPANY_SLUG,
+  };
+
+  function orchestratorTimeline(): string {
+    return path.join(tmpDir, 'builders', BUILDER_SLUG, 'companies', COMPANY_SLUG, 'timeline.jsonl');
+  }
+
+  test('routes to builders/<builder>/companies/<co>/ when all three env vars set', () => {
+    const input = JSON.stringify({
+      skill: 'office-hours',
+      event: 'started',
+      run_id: RUN_ID,
+      builder_slug: BUILDER_SLUG,
+      company_slug: COMPANY_SLUG,
+    });
+    runLog(input, { env: ORCH_ENV });
+
+    const orchFile = orchestratorTimeline();
+    expect(fs.existsSync(orchFile)).toBe(true);
+    const parsed = JSON.parse(fs.readFileSync(orchFile, 'utf-8').trim());
+    expect(parsed.skill).toBe('office-hours');
+    expect(parsed.event).toBe('started');
+    expect(parsed.run_id).toBe(RUN_ID);
+    expect(parsed.builder_slug).toBe(BUILDER_SLUG);
+    expect(parsed.company_slug).toBe(COMPANY_SLUG);
+
+    // Project timeline must NOT exist — no leakage.
+    expect(findTimelineFile()).toBeNull();
+  });
+
+  test('passes through stage_tokens field verbatim (no schema enforcement)', () => {
+    const stageTokens = { input_tokens: 1234, output_tokens: 567, cost_usd: 0.0123 };
+    const input = JSON.stringify({
+      skill: 'autoplan',
+      event: 'completed',
+      run_id: RUN_ID,
+      builder_slug: BUILDER_SLUG,
+      company_slug: COMPANY_SLUG,
+      stage_tokens: stageTokens,
+    });
+    runLog(input, { env: ORCH_ENV });
+
+    const parsed = JSON.parse(fs.readFileSync(orchestratorTimeline(), 'utf-8').trim());
+    expect(parsed.stage_tokens).toEqual(stageTokens);
+  });
+
+  test('falls through to project route when only run_id is set (partial env)', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'started' }), {
+      env: { GSTACK_RUN_ID: RUN_ID },
+    });
+    expect(findTimelineFile()).not.toBeNull();
+    expect(fs.existsSync(orchestratorTimeline())).toBe(false);
+  });
+
+  test('falls through to project route when only builder+company set (no run_id)', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'started' }), {
+      env: { GSTACK_BUILDER_SLUG: BUILDER_SLUG, GSTACK_COMPANY_SLUG: COMPANY_SLUG },
+    });
+    expect(findTimelineFile()).not.toBeNull();
+    expect(fs.existsSync(orchestratorTimeline())).toBe(false);
+  });
+
+  test('regression: user-typed flow (no env vars) is byte-for-byte unchanged', () => {
+    // Same payload as the canonical happy-path test above. Route, ts-injection,
+    // and validation must behave identically when orchestrator env is absent.
+    const input = '{"skill":"review","event":"started","branch":"main"}';
+    runLog(input);
+
+    const f = findTimelineFile();
+    expect(f).not.toBeNull();
+    const parsed = JSON.parse(fs.readFileSync(f!, 'utf-8').trim());
+    expect(parsed.skill).toBe('review');
+    expect(parsed.event).toBe('started');
+    expect(parsed.branch).toBe('main');
+    expect(parsed.ts).toBeDefined();
+
+    // Orchestrator tree must NOT have been created.
+    expect(fs.existsSync(path.join(tmpDir, 'builders'))).toBe(false);
+  });
+
+  test('multiple orchestrator events append to the same company timeline', () => {
+    runLog(JSON.stringify({ skill: 'office-hours', event: 'started' }), { env: ORCH_ENV });
+    runLog(JSON.stringify({ skill: 'office-hours', event: 'completed', outcome: 'success' }), { env: ORCH_ENV });
+    runLog(JSON.stringify({ skill: 'autoplan', event: 'started' }), { env: ORCH_ENV });
+
+    const lines = fs.readFileSync(orchestratorTimeline(), 'utf-8').trim().split('\n');
+    expect(lines.length).toBe(3);
+    expect(JSON.parse(lines[0]).skill).toBe('office-hours');
+    expect(JSON.parse(lines[1]).event).toBe('completed');
+    expect(JSON.parse(lines[2]).skill).toBe('autoplan');
   });
 });
 

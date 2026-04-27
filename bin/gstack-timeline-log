@@ -1,19 +1,46 @@
 #!/usr/bin/env bash
-# gstack-timeline-log — append a timeline event to the project timeline
+# gstack-timeline-log — append a timeline event to a project or orchestrator timeline
 # Usage: gstack-timeline-log '{"skill":"review","event":"started","branch":"main"}'
+#
+# Routing (Phase A, orchestrator-aware):
+#   - When ALL THREE of GSTACK_BUILDER_SLUG, GSTACK_COMPANY_SLUG, GSTACK_RUN_ID
+#     are set in env, the event belongs to a /build chain run for a specific
+#     company under a specific builder, and routes to:
+#       ~/.gstack/builders/$BUILDER_SLUG/companies/$COMPANY_SLUG/timeline.jsonl
+#     The script only decides WHERE to write — caller-supplied JSON fields
+#     (including optional run_id, builder_slug, company_slug, stage_tokens)
+#     pass through verbatim. The script does NOT auto-inject from env.
+#   - When ANY of those env vars is unset, falls through to the original
+#     project-scoped path at ~/.gstack/projects/$SLUG/timeline.jsonl. The
+#     user-typed flow (no orchestrator env vars) is byte-for-byte unchanged.
 #
 # Session timeline: local by default. If the user enables `gbrain_sync_mode`
 # with the `full` (not `artifacts-only`) privacy tier — via the first-run
-# stop-gate from `gstack-brain-init` or the preamble — timeline events are
-# published to the user's private GBrain sync repo. See docs/gbrain-sync.md.
+# stop-gate from `gstack-brain-init` or the preamble — project-scoped events
+# publish to the user's private GBrain sync repo. See docs/gbrain-sync.md.
+# Phase A: orchestrator events stay local. Cross-machine sync of company
+# trees is Phase B3.
+#
 # Required fields: skill, event (started|completed).
-# Optional: branch, outcome, duration_s, session, ts.
+# Optional: branch, outcome, duration_s, session, ts, run_id, builder_slug,
+#           company_slug, stage_tokens.
 # Validation failure → skip silently (non-blocking).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-mkdir -p "$GSTACK_HOME/projects/$SLUG"
+
+# Decide WHERE to write. Caller env vars are the only routing signal —
+# everything else (validation, ts injection, append) is identical across
+# both routes.
+if [ -n "${GSTACK_BUILDER_SLUG:-}" ] && [ -n "${GSTACK_COMPANY_SLUG:-}" ] && [ -n "${GSTACK_RUN_ID:-}" ]; then
+  ROUTE_DIR="$GSTACK_HOME/builders/$GSTACK_BUILDER_SLUG/companies/$GSTACK_COMPANY_SLUG"
+  ROUTE_GBRAIN_PATH=""  # orchestrator events stay local in Phase A
+else
+  eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+  ROUTE_DIR="$GSTACK_HOME/projects/$SLUG"
+  ROUTE_GBRAIN_PATH="projects/$SLUG/timeline.jsonl"
+fi
+mkdir -p "$ROUTE_DIR"
 
 INPUT="$1"
 
@@ -34,7 +61,10 @@ if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); 
   " 2>/dev/null) || true
 fi
 
-echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+echo "$INPUT" >> "$ROUTE_DIR/timeline.jsonl"
 
-# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
-"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/timeline.jsonl" 2>/dev/null &
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off, skipped
+# entirely for orchestrator events in Phase A).
+if [ -n "$ROUTE_GBRAIN_PATH" ]; then
+  "$SCRIPT_DIR/gstack-brain-enqueue" "$ROUTE_GBRAIN_PATH" 2>/dev/null &
+fi
