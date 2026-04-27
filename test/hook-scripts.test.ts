@@ -56,13 +56,6 @@ function withFreezeDir(freezePath: string, fn: (stateDir: string) => void) {
   }
 }
 
-// Detect whether the safe-rm-targets regex works on this platform.
-// macOS sed -E does not support \s, so the safe exception check fails there.
-function detectSafeRmWorks(): boolean {
-  const { output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules'));
-  return output.permissionDecision === undefined;
-}
-
 // ============================================================
 // check-careful.sh tests
 // ============================================================
@@ -88,24 +81,13 @@ describe('check-careful.sh', () => {
     test('rm -rf node_modules allows (safe exception)', () => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules'));
       expect(exitCode).toBe(0);
-      if (detectSafeRmWorks()) {
-        // GNU sed: safe exception triggers, allows through
-        expect(output.permissionDecision).toBeUndefined();
-      } else {
-        // macOS sed: safe exception regex uses \\s which is unsupported,
-        // so the safe-targets check fails and the command warns
-        expect(output.permissionDecision).toBe('ask');
-      }
+      expect(output.permissionDecision).toBeUndefined();
     });
 
     test('rm -rf .next dist allows (multiple safe targets)', () => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf .next dist'));
       expect(exitCode).toBe(0);
-      if (detectSafeRmWorks()) {
-        expect(output.permissionDecision).toBeUndefined();
-      } else {
-        expect(output.permissionDecision).toBe('ask');
-      }
+      expect(output.permissionDecision).toBeUndefined();
     });
 
     test('rm -rf node_modules /var/data warns (mixed safe+unsafe)', () => {
