@@ -1,0 +1,130 @@
+---
+name: import-notes
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Pull unprocessed Granola meeting notes from Notion, classify them, and
+  write structured entries to the appropriate databases. Every contractor
+  call, site visit, and architect review gets captured automatically.
+---
+
+{{PREAMBLE}}
+
+# /import-notes: Import Granola Meeting Notes
+
+Every meeting recorded in Granola gets exported to Notion automatically. This skill reads those notes, figures out what type of meeting it was, and writes the structured entries — site reports, decisions, RFIs — to the right places.
+
+---
+
+## Step 1: Find unprocessed notes
+
+Use the Notion MCP to query for pages that:
+- Were created by Granola (check the "Created by" field or a "Source: Granola" property if configured)
+- Do NOT have an "Imported" tag or property set to true
+
+```
+Query: Notion pages in workspace where source = "Granola" AND imported != true
+Sort: by creation date, oldest first
+Limit: 20 per run (don't try to process hundreds at once)
+```
+
+If no unprocessed notes are found: tell the owner and exit.
+
+---
+
+## Step 2: Classify each note
+
+For each unprocessed Granola note, read the title and body and classify it:
+
+| Classification | Signals |
+|---|---|
+| **Site visit** | "site visit," "walked the site," "on site," "GC walkthrough," "inspection" |
+| **Architect meeting** | "arch meeting," "design review," "drawing review," "Zoom with architect" |
+| **Contractor call** | "call with [name]," "phone with," "bid call," "scope call" |
+| **Client/owner meeting** | "client meeting," "owner meeting," "stakeholder" (if you manage for others) |
+| **Bid meeting** | "bid walk," "pre-bid meeting," "site walk for bid" |
+| **Permit/jurisdiction meeting** | "pre-app meeting," "planning department," "building department" |
+| **Internal planning** | "planning session," "project review," "budget review" |
+| **Unknown** | Unclear from title and first paragraph |
+
+---
+
+## Step 3: Extract structured data by type
+
+**Site visit → draft `/site-report` entry:**
+- Date of visit
+- Who was present
+- Key observations (bullet points from the notes)
+- Work completed since last visit
+- Any open items or concerns raised
+- Any informal scope change requests mentioned
+
+**Architect meeting → update `design/options.md`:**
+- Date
+- Design decisions made or discussed
+- Any open questions raised
+- Action items with owner
+
+**Contractor call → check for scope changes and decisions:**
+- Was any pricing discussed? → potential `/cost-check` trigger
+- Was any scope change requested or agreed to? → `/decide` entry needed
+- Was a bid discussed? → log in `budget/bids/`
+
+**Bid meeting → update `budget/bids/`:**
+- Contractor name
+- Scope discussed
+- Any verbal pricing given
+
+**Any note → scan for decisions:**
+Regardless of meeting type, scan for:
+- Any language indicating a decision was made: "we decided," "agreed to," "going with," "confirmed"
+- Any cost figures mentioned
+- Any schedule commitments made
+
+---
+
+## Step 4: Write structured entries
+
+For each classified note, write the appropriate entries. Show the owner a preview before writing. Format:
+
+```
+[Meeting type] — [Date]
+From: "[Note title]" in Notion
+
+WILL WRITE:
+→ Site report: construction/site-reports/site-report-[date].md
+→ Decision entry: "we agreed to use the [X] windows" — cost impact: unknown (needs pricing)
+→ RFI flagged: "[question from contractor about [thing]]"
+
+SKIPPING:
+→ Action item "confirm delivery date with supplier" — informational only
+
+Proceed? [yes/skip/review]
+```
+
+Wait for owner confirmation before writing. If "review," show the full note and ask what to do.
+
+---
+
+## Step 5: Mark as imported
+
+After writing all entries for a note, update the Notion page:
+- Add the "Imported" tag or set `imported: true`
+- Add a note with the date imported and what was created
+
+---
+
+## Step 6: Summary
+
+After processing all notes:
+
+```
+Imported [N] meeting notes:
+  ✓ [N] site reports written
+  ✓ [N] decisions logged
+  ✓ [N] RFIs flagged
+  ✓ [N] budget items to price
+  → [N] items need your review (shown above)
+```
+
+If there were any "unknown" classified notes: show them to the owner and ask how to categorize them.

@@ -1,0 +1,138 @@
+---
+name: email-scan
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Scan recent project-related emails for decision-worthy content. Flags
+  informal scope changes, cost surprises, and commitments buried in casual
+  language. Drafts /decide entries for flagged emails. Covers the #1 source
+  of undocumented scope creep.
+---
+
+{{PREAMBLE}}
+
+# /email-scan: Scan Emails for Decisions
+
+The most dangerous contractor communication: "hey, can we just use the cheaper windows?" sent over email, replied to with "sure," and never formally logged. This skill finds those.
+
+---
+
+## Step 0: Load project context
+
+```bash
+echo "=== PROJECT ==="
+grep -E "^(name|current_phase):" .build-os/config.yaml
+
+echo ""
+echo "=== RECENT DECISIONS (to avoid duplicates) ==="
+_NAME=$(grep "^name:" .build-os/config.yaml | sed 's/^name: *//' | tr -d '"'"'"')
+_SLUG=$(echo "${_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-\|-$//g')
+_DEC="${HOME}/.build-os/projects/${_SLUG}/decisions.jsonl"
+[ -f "${_DEC}" ] && tail -5 "${_DEC}" || echo "None yet"
+```
+
+---
+
+## Step 1: Define the scan scope
+
+Ask the owner (or use defaults):
+- **Time window:** last 7 days (default), or specify a date range
+- **Project email:** the email address associated with this project (for filtering)
+- **Key contacts:** contractor names, architect name, anyone project-related (helps filter)
+
+---
+
+## Step 2: Query Gmail
+
+Use the Gmail MCP to search for emails in the time window matching:
+- Sender or recipient includes any of the key contacts
+- Subject or body mentions the project name
+
+Retrieve the last 50 matching emails. For each email, read: subject, sender, date, and body (first 500 characters if long).
+
+---
+
+## Step 3: Classify each email
+
+For each email, classify it:
+
+| Classification | Description | Action |
+|---|---|---|
+| **Scope change** | Requests or agrees to add/remove/change work | Flag → draft `/decide` |
+| **Informal commitment** | "I'll take care of it," "we'll include that," "no problem" | Flag → draft `/decide` |
+| **Cost surprise** | Unexpected price, budget impact, "it's going to cost more" | Flag → draft `/decide` + `/cost-check` |
+| **RFI response** | Answer to a field question | Flag → update RFI log |
+| **Bid revision** | Updated pricing after initial bid | Flag → update `budget/bids/` |
+| **Scheduling** | Start date, delivery date, milestone update | Note in summary |
+| **Informational** | FYI, confirmation of known info, logistics | Summarize only |
+| **Junk / unrelated** | Not project-related | Skip |
+
+---
+
+## Step 4: Flag decision-worthy emails
+
+For each Scope change, Informal commitment, or Cost surprise email, draft a decision entry:
+
+```
+FLAGGED EMAIL — [subject] from [sender] on [date]
+
+Email summary: "[key sentence or two from the email]"
+
+PROPOSED /decide ENTRY:
+  Decision: [what was agreed/changed, in one sentence]
+  Rationale: [based on email context]
+  Cost impact: [any figure mentioned, or "unknown — needs pricing"]
+  Responsible: [sender if contractor, owner if they agreed]
+  Change order: [yes/no]
+
+Confirm this entry? [yes / skip / edit]
+```
+
+Show all flagged emails as a batch. Wait for the owner to review each one before logging.
+
+---
+
+## Step 5: Handle RFI responses
+
+For emails that appear to be responses to open RFIs:
+
+```bash
+[ -f construction/rfi-log.md ] && grep "Open" construction/rfi-log.md
+```
+
+Match the email to an open RFI (by subject matter). If a match is found, propose updating the RFI log with the response and closing the RFI.
+
+---
+
+## Step 6: Weekly digest
+
+For emails that are purely scheduling or informational (not decision-worthy), generate a one-paragraph digest:
+
+```
+This week's project email summary:
+- [Contractor A] confirmed [delivery/start/milestone] for [date]
+- [Architect] sent [document] — review needed before [deadline]
+- [Note if anything is missing: no response yet to [email sent on date]]
+```
+
+---
+
+## Step 7: SMS gap reminder
+
+At the end of every scan, add this note:
+
+> **Reminder:** This scan covers email only. If your contractors communicate via text or iMessage, important discussions may not appear here. For texts with project implications, use the "Share to build-os" iOS Shortcut (set up via `/connect`) to forward them to your project email before the next scan.
+
+---
+
+## Step 8: Summary
+
+After processing:
+```
+Email scan complete — [date range]
+  [N] emails reviewed
+  [N] decisions logged
+  [N] RFIs updated
+  [N] items skipped (informational)
+  [N] items pending your review
+```
