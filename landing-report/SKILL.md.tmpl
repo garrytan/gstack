@@ -67,7 +67,7 @@ they'd claim for micro/patch/minor/major. Cheap (same gh call cached by bun).
 
 ```bash
 for LEVEL in micro patch minor major; do
-  bun run bin/gstack-next-version \
+  ~/.claude/skills/gstack/bin/gstack-next-version \
     --base "$BASE_BRANCH" \
     --bump "$LEVEL" \
     --current-version "$BASE_VERSION" \

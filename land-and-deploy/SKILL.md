@@ -1101,7 +1101,7 @@ BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:s
 # We don't need the exact original level — we just need "a level" that passes to the util.
 # If the minor digit advanced, call it minor; patch digit, patch; etc. If base > branch, skip (not ours to land).
 # For simplicity: use "patch" as a conservative default; util handles collision-past regardless of input level.
-QUEUE_JSON=$(bun run bin/gstack-next-version \
+QUEUE_JSON=$(~/.claude/skills/gstack/bin/gstack-next-version \
   --base "$BASE_BRANCH" \
   --bump patch \
   --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
