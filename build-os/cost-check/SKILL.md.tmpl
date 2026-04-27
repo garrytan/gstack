@@ -1,0 +1,154 @@
+---
+name: cost-check
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Cost Estimator runs a budget sanity check. Compares current scope to the
+  original budget using $/SF benchmarks, flags at-risk line items, suggests
+  value engineering options, and updates budget/estimate.md with current
+  estimate and variance.
+---
+
+{{PREAMBLE}}
+
+# /cost-check: Budget Sanity Check
+
+{{ESTIMATOR_VOICE}}
+
+---
+
+## Step 0: Load budget and scope
+
+```bash
+echo "=== PROJECT ==="
+grep -E "^(name|project_type|current_phase|budget|location):" .build-os/config.yaml
+
+echo ""
+echo "=== CURRENT ESTIMATE ==="
+if [ -f budget/estimate.md ]; then
+  cat budget/estimate.md
+else
+  echo "No estimate file yet — will create one."
+fi
+
+echo ""
+echo "=== CHANGE ORDERS ==="
+if [ -f budget/change-orders.md ] && [ -s budget/change-orders.md ]; then
+  cat budget/change-orders.md
+else
+  echo "None logged."
+fi
+
+echo ""
+echo "=== DESIGN BRIEF (scope context) ==="
+if [ -f design/brief.md ]; then
+  head -40 design/brief.md
+fi
+```
+
+---
+
+## Step 1: Benchmark the estimate
+
+Using the project type, location, and current scope, apply current $/SF benchmarks to validate (or challenge) the estimate.
+
+**Benchmarks to reference** (use the most specific available for the project type and location):
+
+| Project type | Typical range | What it includes |
+|---|---|---|
+| Residential new construction | $300-550/SF | Hard costs, GC O&P, excludes land/design/FF&E |
+| Residential renovation (gut) | $200-400/SF | Gut renovation of existing structure |
+| Residential renovation (selective) | $80-200/SF | Targeted scope, varies widely by trade mix |
+| Commercial tenant improvement | $150-350/SF | Interior build-out, base building excluded |
+| Commercial new construction | $400-700/SF | Hard costs, varies by occupancy type |
+
+State your benchmark range explicitly: "For [project type] in [location], the current market range is $X-$Y/SF. At [X SF], that's $A-$B. The current estimate of $C is [within range / X% below / X% above]."
+
+**For renovation projects:** $/SF benchmarks are less reliable. Use trade-by-trade pricing instead. Flag hidden-condition contingency explicitly: renovation projects should carry 15-20% contingency vs. 10-15% for new construction.
+
+---
+
+## Step 2: Line-by-line review
+
+For each line item in `budget/estimate.md` (or each trade category if no line items yet):
+
+- **Green:** estimate is credible for the scope described
+- **Yellow:** estimate seems low or scope is ambiguous — note the specific concern
+- **Red:** estimate is clearly insufficient for the scope — give a revised number
+
+Flag these automatically as Red:
+- Any line item with no number ("TBD", "allowance", blank)
+- Any allowance that is more than 20% below typical for the project type
+- Any category missing entirely for the project type (e.g., no MEP line items on a new build)
+
+---
+
+## Step 3: Variance calculation
+
+```bash
+_BUDGET=$(grep "^budget:" .build-os/config.yaml | sed 's/^budget: *//' | tr -d '"'"'"')
+echo "Original budget: \$${_BUDGET}"
+```
+
+Calculate:
+- **Current estimate total** (sum of all line items in estimate.md)
+- **Approved change orders** (sum from change-orders.md if it exists)
+- **Running total** = estimate + change orders
+- **Variance** = running total − original budget (dollar and percent)
+
+Rate the variance:
+- **GREEN:** within 5% of original budget
+- **YELLOW:** 5-15% over — flag specific drivers, suggest value engineering
+- **RED:** >15% over — requires immediate owner decision before proceeding
+
+---
+
+## Step 4: Value engineering (if YELLOW or RED)
+
+If the estimate exceeds budget by more than 5%, propose specific value engineering options. For each option:
+
+- What is being changed?
+- What is the estimated savings? (be specific: "$X-$Y")
+- What is the design or functional impact? (be honest: "this reduces kitchen cabinet count by 4 LF" not "minor impact")
+- Is this a scope reduction, a material substitution, or a design change?
+
+Do not propose value engineering options that would require re-permitting, violate code, or fundamentally compromise the design intent without flagging those consequences clearly.
+
+---
+
+## Step 5: Update budget/estimate.md
+
+Rewrite `budget/estimate.md` with:
+1. The current estimate table (all line items with current amounts)
+2. A summary section at the top:
+
+```markdown
+# Budget Estimate — [Project Name]
+
+**Last updated:** YYYY-MM-DD | **Phase:** [current phase]
+
+| | Amount |
+|---|---|
+| Original budget | $X |
+| Current estimate | $X |
+| Approved change orders | $X |
+| Running total | $X |
+| Variance | +/-$X (+/-X%) |
+| Contingency remaining | $X (X% of original) |
+| **Status** | 🟢 GREEN / 🟡 YELLOW / 🔴 RED |
+
+---
+```
+
+Then the full line-item table.
+
+---
+
+## Step 6: Flagged items and recommendations
+
+Close with a bulleted list:
+- **Action items:** line items that need repricing, scope clarification, or a bid
+- **Value engineering options:** if applicable (from Step 4)
+- **Recommended next step:** run `/phase-gate` now (if budget is GREEN), or resolve flagged items before gate (if YELLOW/RED)
+
+If any line items require a formal change order decision, direct the owner to `/decide`.
