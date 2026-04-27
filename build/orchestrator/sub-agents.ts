@@ -1,0 +1,287 @@
+/**
+ * Sub-agent invocation wrappers for gstack-build.
+ *
+ * Three callable subagents, all spawned as fresh CLI processes (no MCP):
+ *   - runGemini(opts)       implements a phase
+ *   - runCodexReview(opts)  reviews an implementation
+ *   - runShip(opts)         final ship + land-and-deploy
+ *
+ * Each invocation:
+ *   - Streams stdout+stderr to a log file under ~/.gstack/build-state/<slug>/
+ *   - Returns a SubAgentResult with the captured output, exit code, timeout flag
+ *   - Has a configurable timeout via env var (sensible 10/15/30 min defaults)
+ *   - Retries ONCE on timeout. Non-timeout failures bubble up immediately so
+ *     the caller can decide.
+ *
+ * Idioms borrowed from ~/mcp-llm-bridge/src/server.ts:
+ *   - Codex needs stdin closed or `codex exec` hangs forever
+ *   - 20MB max buffer for stdout
+ *   - --yolo on Gemini for autonomous file edits
+ */
+
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { logDir, ensureLogDir } from './state';
+
+const MAX_BUFFER = 20 * 1024 * 1024;
+
+const GEMINI_BIN = process.env.GEMINI_BIN || 'gemini';
+const CODEX_BIN = process.env.CODEX_BIN || 'codex';
+const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
+
+const GEMINI_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_GEMINI_TIMEOUT) || 10 * 60_000;
+const CODEX_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_CODEX_TIMEOUT) || 15 * 60_000;
+const SHIP_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_SHIP_TIMEOUT) || 30 * 60_000;
+
+export type Verdict = 'pass' | 'fail' | 'unclear';
+
+export interface SubAgentResult {
+  /** Captured stdout (also written to logPath). */
+  stdout: string;
+  /** Captured stderr. */
+  stderr: string;
+  /** Exit code; null if process was killed by signal. */
+  exitCode: number | null;
+  /** True if killed by the timeout, not a real exit. */
+  timedOut: boolean;
+  /** Absolute path to the log file written for this invocation. */
+  logPath: string;
+  /** Wall-clock duration in ms. */
+  durationMs: number;
+  /** Number of retries used (0 if first attempt succeeded). */
+  retries: number;
+}
+
+/**
+ * Spawn a child, capture stdout+stderr to a log file, and resolve with
+ * structured result. Closes stdin if `closeStdin` (Codex needs this).
+ */
+function spawnCaptured(args: {
+  bin: string;
+  argv: string[];
+  cwd?: string;
+  timeoutMs: number;
+  logPath: string;
+  closeStdin: boolean;
+}): Promise<SubAgentResult> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let timedOut = false;
+    const child = execFile(
+      args.bin,
+      args.argv,
+      {
+        maxBuffer: MAX_BUFFER,
+        timeout: args.timeoutMs,
+        cwd: args.cwd,
+      },
+      (err, stdout, stderr) => {
+        // Persist captured output regardless of success.
+        try {
+          fs.writeFileSync(
+            args.logPath,
+            `# command: ${args.bin} ${args.argv.map(quote).join(' ')}\n` +
+              `# cwd: ${args.cwd || process.cwd()}\n` +
+              `# started: ${new Date(startedAt).toISOString()}\n` +
+              `# duration_ms: ${Date.now() - startedAt}\n` +
+              `# timed_out: ${timedOut}\n` +
+              `# exit: ${err ? (err as any).code ?? 'killed' : 0}\n` +
+              `\n# ---- stdout ----\n${stdout}\n# ---- stderr ----\n${stderr}\n`
+          );
+        } catch {
+          // Log file write failures shouldn't sink the orchestrator.
+        }
+
+        const exitCode = err ? ((err as any).code as number | null) ?? null : 0;
+        resolve({
+          stdout: String(stdout || ''),
+          stderr: String(stderr || ''),
+          exitCode,
+          timedOut,
+          logPath: args.logPath,
+          durationMs: Date.now() - startedAt,
+          retries: 0,
+        });
+      }
+    );
+
+    // Detect timeout — Node's execFile sets err.signal='SIGTERM' when timeout
+    // fires, so we shadow that detection with our own flag for clarity.
+    if (args.timeoutMs > 0) {
+      const t = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGTERM');
+      }, args.timeoutMs + 1000); // run slightly after Node's own timer fires
+      child.once('exit', () => clearTimeout(t));
+    }
+
+    if (args.closeStdin) child.stdin?.end();
+  });
+}
+
+function quote(s: string): string {
+  if (/^[a-zA-Z0-9_\/\.\-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Run a Gemini implementation pass. Pass `--yolo` for autonomous file edits
+ * (without it Gemini drops to plan mode for multi-file tasks).
+ */
+export async function runGemini(opts: {
+  prompt: string;
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+  model?: string;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+  const argv = ['-p', opts.prompt];
+  if (opts.model) argv.push('-m', opts.model);
+  argv.push('--yolo');
+
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-gemini-${opts.iteration}.log`
+  );
+
+  let result = await spawnCaptured({
+    bin: GEMINI_BIN,
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: GEMINI_TIMEOUT_MS,
+    logPath,
+    closeStdin: false,
+  });
+
+  // Single retry on timeout only.
+  if (result.timedOut) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-gemini-${opts.iteration}-retry.log`
+    );
+    const retryResult = await spawnCaptured({
+      bin: GEMINI_BIN,
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: GEMINI_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: false,
+    });
+    retryResult.retries = 1;
+    return retryResult;
+  }
+  return result;
+}
+
+/**
+ * Run one iteration of Codex review (i.e. `codex exec /gstack-review`).
+ * Caller checks the verdict via parseVerdict(stdout) and decides whether
+ * to loop again.
+ */
+export async function runCodexReview(opts: {
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+  /** Which slash-command to run, e.g. `/gstack-review` or `/gstack-qa`. */
+  command?: string;
+  /** Reasoning effort: low | medium | high. Default high for reviews. */
+  reasoning?: 'low' | 'medium' | 'high';
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+  const command = opts.command || '/gstack-review';
+  const reasoning = opts.reasoning || 'high';
+
+  const argv = [
+    'exec',
+    command,
+    '-s',
+    'read-only',
+    '-c',
+    `model_reasoning_effort="${reasoning}"`,
+    '-C',
+    opts.cwd,
+  ];
+
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-codex-${opts.iteration}.log`
+  );
+
+  let result = await spawnCaptured({
+    bin: CODEX_BIN,
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: CODEX_TIMEOUT_MS,
+    logPath,
+    closeStdin: true, // codex exec hangs without this
+  });
+
+  if (result.timedOut) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-codex-${opts.iteration}-retry.log`
+    );
+    const retryResult = await spawnCaptured({
+      bin: CODEX_BIN,
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: CODEX_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: true,
+    });
+    retryResult.retries = 1;
+    return retryResult;
+  }
+  return result;
+}
+
+/**
+ * Final ship step: spawn Claude Code with /ship && /land-and-deploy.
+ * Long timeout (30 min default) because deploys can wait on CI.
+ */
+export async function runShip(opts: {
+  cwd: string;
+  slug: string;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+  const logPath = path.join(logDir(opts.slug), 'ship.log');
+
+  return spawnCaptured({
+    bin: CLAUDE_BIN,
+    argv: ['--model', 'sonnet', '-p', '/ship && /land-and-deploy'],
+    cwd: opts.cwd,
+    timeoutMs: SHIP_TIMEOUT_MS,
+    logPath,
+    closeStdin: false,
+  });
+}
+
+/**
+ * Strip ANSI escape sequences so verdict parsing isn't fooled by colored
+ * output from codex.
+ */
+const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+export function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, '');
+}
+
+/**
+ * Parse Codex review output for the GATE PASS / GATE FAIL keyword.
+ * Case-sensitive on the keyword (matches the convention used in real plans
+ * — see ~/Documents/Antigravity/agnt2-workspace/.../agnt2-impl-plan-...md).
+ *
+ * Strategy: strip ANSI, then look for the LAST occurrence of either
+ * keyword (last verdict wins, in case Codex iterated mid-output).
+ */
+export function parseVerdict(stdout: string): Verdict {
+  const clean = stripAnsi(stdout);
+  const passIdx = clean.lastIndexOf('GATE PASS');
+  const failIdx = clean.lastIndexOf('GATE FAIL');
+  if (passIdx < 0 && failIdx < 0) return 'unclear';
+  if (passIdx > failIdx) return 'pass';
+  return 'fail';
+}
