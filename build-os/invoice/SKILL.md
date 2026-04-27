@@ -1,0 +1,178 @@
+
+## Project Context
+
+Run this to load the current project state:
+
+```bash
+if [ ! -f .build-os/config.yaml ]; then
+  echo "ERROR: Not in a build-os project. cd into a project folder or run /kickoff first."
+  exit 1
+fi
+
+echo "=== PROJECT CONFIG ==="
+cat .build-os/config.yaml
+echo ""
+
+# Slug for global state access
+_NAME=$(grep "^name:" .build-os/config.yaml | sed 's/^name: *//' | tr -d '"'"'"')
+_SLUG=$(echo "${_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-\|-$//g')
+
+echo "=== RECENT DECISIONS ==="
+_DEC="${HOME}/.build-os/projects/${_SLUG}/decisions.jsonl"
+if [ -f "${_DEC}" ] && [ -s "${_DEC}" ]; then
+  echo "($(wc -l < "${_DEC}" | xargs) total, showing last 3)"
+  tail -3 "${_DEC}"
+else
+  echo "No decisions logged yet."
+fi
+```
+
+Use the project state above throughout this session. Do not ask the owner for information already in the config.
+
+```bash
+echo "=== BUDGET STATUS ==="
+if [ -f budget/estimate.md ]; then
+  head -35 budget/estimate.md
+else
+  _B=$(grep "^budget:" .build-os/config.yaml | sed 's/^budget: *//' | tr -d '"'"'"')
+  echo "Original budget: $${_B} — no estimate file yet (run /cost-check to initialize)"
+fi
+```
+
+# /invoice: Log an Invoice
+
+**Estimator voice:** Evaluate from the perspective of a construction cost estimator with deep knowledge of current market pricing. Use $/SF benchmarks for the project type and region — be specific ("residential light framing in the Pacific Northwest runs $40-55/SF for labor and material"). Flag underestimated line items, scope missing from the estimate, and unpriced change orders.
+
+---
+
+## Step 0: Load budget context
+
+```bash
+echo "=== PROJECT ==="
+grep -E "^(name|project_type|current_phase):" .build-os/config.yaml
+
+echo ""
+echo "=== CURRENT BUDGET ==="
+if [ -f budget/estimate.md ]; then
+  head -40 budget/estimate.md
+fi
+
+echo ""
+echo "=== CHANGE ORDERS ==="
+if [ -f budget/change-orders.md ] && [ -s budget/change-orders.md ]; then
+  cat budget/change-orders.md
+else
+  echo "None"
+fi
+```
+
+---
+
+## Step 1: Receive the invoice
+
+Ask the owner to provide the invoice. Accepted formats:
+- **Paste the text** of the invoice directly into the chat
+- **Describe the invoice** (contractor name, date, line items and amounts)
+- **Photo or upload** — describe what you see in the image
+- **AIA G702/G703 payment application** — state it's a pay app and provide the schedule of values
+
+For each invoice, collect:
+- Contractor / vendor name
+- Invoice number
+- Invoice date
+- Line items with amounts
+- Total
+- Any retainage held (for GC pay applications)
+
+---
+
+## Step 2: Extract and categorize
+
+For each line item in the invoice, map it to a budget category from `budget/estimate.md`.
+
+**AIA G702/G703 payment application:** Extract the schedule of values. For each line: description, scheduled value, work completed this period, materials stored, total completed to date, and retainage. The "amount due this application" is the key figure.
+
+**Standard invoice:** Map each line item to the nearest budget category. If a line item doesn't map clearly, flag it — it may be out-of-scope work.
+
+---
+
+## Step 3: Flag anomalies
+
+Check for each of the following and flag any found:
+
+**Over-contract:**
+- Does this invoice (or the running total for this contractor) exceed the executed contract amount?
+- If yes: is there an approved change order covering the overage? Check `budget/change-orders.md`
+
+**Undocumented scope:**
+- Line items for work not in the original contract or an approved change order
+- Work described differently than in the contract documents
+
+**Duplicate:**
+- Has this invoice number been logged before?
+```bash
+if [ -f budget/estimate.md ]; then
+  grep -i "invoice\|inv #\|payment app" budget/estimate.md | tail -20
+fi
+```
+
+**Retainage:**
+- For GC pay applications: confirm retainage is being held at the contracted rate (typically 10% until substantial completion, 5% after)
+
+**Lien waiver:**
+- For payments over $10K, has a conditional lien waiver been received?
+
+---
+
+## Step 4: Variance update
+
+Calculate the updated budget position for the affected trade:
+
+```
+Contract amount:           $X
+Previously invoiced:       $X
+This invoice:              $X
+Running total invoiced:    $X
+Remaining contract balance: $X (should be ≥ $0 without approved change orders)
+```
+
+If this invoice pushes the running total above the contract amount, flag as a budget alert.
+
+---
+
+## Step 5: Update budget/estimate.md
+
+Add an "Actuals" column or section to `budget/estimate.md` if it doesn't exist. Record:
+
+```markdown
+## Actuals Log
+
+| Date | Contractor | Invoice # | Amount | Budget Category | Notes |
+|------|-----------|-----------|--------|----------------|-------|
+| YYYY-MM-DD | [name] | [#] | $X | [category] | |
+```
+
+Update the budget summary with the new actuals total and variance.
+
+---
+
+## Step 6: Decision prompt (if flagged)
+
+If Step 3 found any anomalies:
+
+For **undocumented scope**: "This line item ([description]) doesn't appear in the contract or any approved change order. Before processing payment, this should be formalized. Do you want to run `/decide` to log it as a change order?"
+
+For **over-contract**: "This invoice would push the [contractor] running total to $X, which is $Y over the $Z contract amount. No approved change order covers this gap. Do not process payment until this is resolved."
+
+For **duplicate**: "Invoice #[X] from [contractor] may have already been logged on [date]. Confirm before processing."
+
+---
+
+## Step 7: Confirm and summarize
+
+Confirm to the owner:
+- Invoice logged: [contractor] invoice #[X] for $[amount] on [date]
+- Budget category: [category]
+- Running total for this contractor: $X of $X contracted (X%)
+- Any flags: [list or "None"]
+- Budget status (updated): GREEN / YELLOW / RED
