@@ -1,0 +1,100 @@
+---
+name: what-if
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Downstream impact analysis. "If I change X, what breaks in budget, schedule,
+  or design?" Each role assesses the ripple effects. Returns GO / CAUTION / STOP.
+---
+
+{{PREAMBLE}}
+
+# /what-if: Downstream Impact Analysis
+
+The most useful question in construction: "If we change this, what else changes?" This skill runs that analysis before you commit.
+
+---
+
+## Step 0: Load context
+
+```bash
+echo "=== PROJECT ==="
+grep -E "^(name|project_type|current_phase):" .build-os/config.yaml
+
+echo ""
+echo "=== CURRENT BUDGET ==="
+[ -f budget/estimate.md ] && head -25 budget/estimate.md
+
+echo ""
+echo "=== SCHEDULE ==="
+[ -f schedule/master.md ] && head -20 schedule/master.md
+```
+
+---
+
+## Step 1: Define the proposed change
+
+Ask the owner to describe the change. It can be:
+- A **material substitution** (cheaper windows, different roofing material, alternate flooring)
+- A **scope addition** (adding a room, adding a feature)
+- A **scope reduction** (cutting a bathroom, simplifying the kitchen)
+- A **design change** (moving a wall, changing the roof pitch, reconfiguring the site plan)
+- A **contractor substitution** (switching from GC A to GC B mid-project)
+- A **schedule change** (delaying start, accelerating timeline)
+- A **budget reallocation** (taking money from one trade to fund another)
+
+Collect:
+1. What specifically is changing?
+2. Why is this change being considered? (cost pressure, owner preference, field condition, availability?)
+3. What phase is the project in? (Earlier = more flexibility, later = more ripple)
+
+---
+
+## Step 2: Multi-role impact assessment
+
+{{ARCH_VOICE}}
+
+**Design and code impact:**
+- Does this change require revising drawings or specs?
+- Does it require a permit revision or re-submittal? (A material change that affects fire rating, structural, or energy code can trigger a plan check revision)
+- Does it affect adjacent systems? (Changing the window size affects rough framing, sill height, HVAC load, drywall quantities)
+- Does it change the design intent in a way the owner would regret?
+- What is the design verdict: does this change improve, maintain, or degrade the quality of the project?
+
+{{ESTIMATOR_VOICE}}
+
+**Cost impact:**
+- What is the direct cost change? (Be specific: "+$X for the higher-spec material" or "-$Y saved on labor")
+- What are the downstream cost ripples? (A smaller window saves $X but requires patching the rough opening for $Y — net may be less than expected)
+- Does this change affect the contingency? (Changes late in construction carry higher risk of unintended consequences)
+- Is there a timing penalty? (Changing a material after it's been ordered incurs restocking fees, re-ordering lead time costs)
+
+{{PM_VOICE}}
+
+**Schedule impact:**
+- Does this change add time? (Material reorders, revised drawings, re-inspection)
+- Does it affect the critical path?
+- Are any subs already mobilized or materials already ordered? (Reversing that has a cost)
+- What's the last responsible moment to make this change without penalty?
+
+---
+
+## Step 3: Verdict
+
+Based on the three assessments, give a clear verdict:
+
+**🟢 GO** — The change is net positive or neutral across all three dimensions. Make it.
+
+**🟡 CAUTION** — The change has real trade-offs. Proceed only if the owner understands and accepts the specific downside: [state it explicitly]. Recommend logging a decision via `/decide` before proceeding.
+
+**🔴 STOP** — The change would hurt the project in a way that outweighs the benefit. Specifically: [state the reason]. Recommend against proceeding unless [specific condition changes].
+
+State the verdict clearly, then give the owner a path forward in each case.
+
+---
+
+## Step 4: Log if CAUTION or STOP
+
+If the verdict is CAUTION and the owner wants to proceed anyway, or if it's STOP and they want to override: direct them to `/decide` to formally log the decision with the risks acknowledged.
+
+This protects the owner: if the change causes a problem later, there's a documented record that the risk was known and accepted.

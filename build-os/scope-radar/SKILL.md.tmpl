@@ -1,0 +1,125 @@
+---
+name: scope-radar
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Pattern-based early warning for scope creep. Scans the decision log for
+  signals: unchecked changes, unpriceable decisions, and informal agreements.
+  Returns GREEN / YELLOW / RED. Automatically runs as part of /project-status
+  when RED.
+---
+
+{{PREAMBLE}}
+
+# /scope-radar: Scope Creep Early Warning
+
+Scope creep is rarely a single big decision. It's 12 small ones, each reasonable on its own, that collectively add $80K and 6 weeks. This skill finds the pattern before it's too late to address.
+
+---
+
+## Step 0: Load the decision history
+
+```bash
+_NAME=$(grep "^name:" .build-os/config.yaml | sed 's/^name: *//' | tr -d '"'"'"')
+_SLUG=$(echo "${_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | tr -s '-' | sed 's/^-\|-$//g')
+_DEC="${HOME}/.build-os/projects/${_SLUG}/decisions.jsonl"
+
+echo "=== ALL DECISIONS ==="
+if [ -f "${_DEC}" ] && [ -s "${_DEC}" ]; then
+  echo "($(wc -l < "${_DEC}" | xargs) total)"
+  cat "${_DEC}"
+else
+  echo "No decisions logged yet — scope radar has nothing to analyze."
+  exit 0
+fi
+
+echo ""
+echo "=== CURRENT PHASE ==="
+grep -E "^(current_phase|project_type):" .build-os/config.yaml
+
+echo ""
+echo "=== CHANGE ORDERS ==="
+[ -f budget/change-orders.md ] && cat budget/change-orders.md || echo "None"
+
+echo ""
+echo "=== SITE REPORTS (for informal changes) ==="
+if ls construction/site-reports/*.md 2>/dev/null | head -1 > /dev/null 2>&1; then
+  ls construction/site-reports/*.md | tail -3 | xargs grep -l "change\|addition\|addition\|swap\|instead\|different" 2>/dev/null || echo "None flagged"
+fi
+```
+
+---
+
+## Step 1: Scan for scope creep signals
+
+Analyze the decision log and site reports for the following patterns. Check each one explicitly.
+
+**Pattern 1: Decisions without cost impact**
+Any decision logged with `"cost_impact": "unknown"` or `"cost_impact": "$0"` that likely has a real cost. Count them. More than 3 in a single phase is a yellow flag.
+
+**Pattern 2: Rapid-fire decisions in the same system**
+Three or more decisions in the same trade/system within a 14-day window. This usually means scope is being added piecemeal (each decision seems minor, but the cumulative effect is significant).
+
+**Pattern 3: Decisions that should have been change orders**
+Decisions with `"change_order": false` but descriptions that include phrases like: "adding," "upgrading," "instead of," "in addition to," "as well as," "owner request." These may represent scope additions that bypassed the change order process.
+
+**Pattern 4: Informal agreements not in the log**
+Scan site reports for phrases like "GC mentioned," "contractor suggested," "owner agreed verbally," "we decided on site." These are unlogged decisions that could become disputes.
+
+**Pattern 5: Budget creep without formal change orders**
+Compare the running total in `budget/estimate.md` (actuals column) against the sum of approved change orders in `budget/change-orders.md`. If actuals are rising faster than approved change orders, there's informal scope expansion happening.
+
+---
+
+## Step 2: Verdict
+
+Count the signals found:
+
+**🟢 GREEN** — 0-1 signals. Scope is well controlled. No action needed.
+
+**🟡 YELLOW** — 2-3 signals. Scope drift is starting. Recommend: (1) price the "unknown" cost impacts before making more decisions in those areas, (2) run `/cost-check` to reset the budget baseline.
+
+**🔴 RED** — 4+ signals, or Pattern 3/4 detected. Scope is drifting and the budget impact is likely larger than the owner realizes. Recommend an immediate scope freeze meeting: (1) list every informal or unpriced change, (2) get a cost estimate for each, (3) decide formally which ones stay in scope and which come out.
+
+---
+
+## Step 3: List the specific findings
+
+For each signal found, name it:
+
+```
+Scope radar findings:
+
+Pattern 2 — Rapid-fire decisions:
+  • [Date]: [Decision summary]
+  • [Date]: [Decision summary]
+  • [Date]: [Decision summary]
+  → 3 decisions in the kitchen finishes system within 11 days
+
+Pattern 3 — Unlogged change orders:
+  • [Date]: "[decision text with red flag phrase]"
+  → This should be a formal change order. Run /decide to log it properly.
+
+Pattern 4 — Informal agreements:
+  • Site report [date]: "owner agreed verbally to..."
+  → Unlogged. Run /decide to formalize.
+```
+
+---
+
+## Step 4: Recommended actions
+
+Based on the verdict:
+
+**If YELLOW:**
+- Price the top 3 decisions with unknown cost impact before proceeding
+- Run `/cost-check` to refresh the budget baseline
+- Next site visit: explicitly ask the GC if there are any verbal agreements not in writing
+
+**If RED:**
+- Schedule a scope freeze meeting this week
+- Before the meeting, run `/cost-check` to see current budget position
+- At the meeting: review every finding from Step 3, decide which items stay in scope
+- Any items that stay in scope: run `/decide` and if over contract, run `/invoice` to track the change order cost
+
+This skill can be run standalone or is triggered automatically when `/project-status` detects a RED condition.
