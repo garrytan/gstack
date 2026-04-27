@@ -1,0 +1,11 @@
+{
+  "name": "build-os",
+  "version": "0.1.0",
+  "description": "AI construction team for the solo owner-builder",
+  "private": true,
+  "scripts": {
+    "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
+    "gen:skill-docs:check": "bun run scripts/gen-skill-docs.ts --dry-run",
+    "build": "bun run gen:skill-docs"
+  }
+}

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# build-os-config: Read or write values in .build-os/config.yaml
+# Usage:
+#   build-os-config get <key>
+#   build-os-config set <key> <value>
+#   build-os-config list
+set -euo pipefail
+
+CONFIG=".build-os/config.yaml"
+
+if [ ! -f "$CONFIG" ]; then
+  echo "ERROR: No build-os project found (missing ${CONFIG})" >&2
+  exit 1
+fi
+
+CMD="${1:-list}"
+
+case "$CMD" in
+  get)
+    KEY="${2:-}"
+    [ -z "$KEY" ] && { echo "Usage: build-os-config get <key>"; exit 1; }
+    grep "^${KEY}:" "$CONFIG" | sed "s/^${KEY}: *//" | tr -d '"'"'"
+    ;;
+  set)
+    KEY="${2:-}"
+    VAL="${3:-}"
+    [ -z "$KEY" ] || [ -z "$VAL" ] && { echo "Usage: build-os-config set <key> <value>"; exit 1; }
+    if grep -q "^${KEY}:" "$CONFIG"; then
+      # Update existing key
+      sed -i "s|^${KEY}:.*|${KEY}: \"${VAL}\"|" "$CONFIG"
+    else
+      echo "${KEY}: \"${VAL}\"" >> "$CONFIG"
+    fi
+    echo "Set ${KEY} = ${VAL}"
+    ;;
+  list)
+    cat "$CONFIG"
+    ;;
+  *)
+    echo "Usage: build-os-config get|set|list"
+    exit 1
+    ;;
+esac
