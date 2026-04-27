@@ -1,0 +1,109 @@
+---
+name: project-status
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Quick project snapshot. Current phase, budget vs. estimate, open items,
+  next milestone. Useful for investor updates, lender check-ins, or just
+  orienting yourself at the start of a session.
+---
+
+{{PREAMBLE}}
+
+# /project-status: Project Snapshot
+
+Generate a concise status report for the current project. This is read-only — no files are updated.
+
+---
+
+## Step 1: Load current state
+
+```bash
+echo "=== PHASE ==="
+grep -E "^(current_phase|project_type):" .build-os/config.yaml
+
+echo ""
+echo "=== BUDGET ==="
+if [ -f budget/estimate.md ]; then
+  head -5 budget/estimate.md
+else
+  grep "^budget:" .build-os/config.yaml
+fi
+
+if [ -f budget/change-orders.md ] && [ -s budget/change-orders.md ]; then
+  echo ""
+  echo "=== CHANGE ORDERS ==="
+  cat budget/change-orders.md
+fi
+
+echo ""
+echo "=== SCHEDULE ==="
+if [ -f schedule/master.md ]; then
+  cat schedule/master.md
+fi
+
+echo ""
+echo "=== OPEN RFIS ==="
+if [ -f construction/rfi-log.md ]; then
+  grep -i "open\|pending" construction/rfi-log.md | head -10 || echo "None"
+else
+  echo "No RFI log yet"
+fi
+```
+
+Also load daily context if available:
+
+```bash
+if [ -f .build-os/daily-context.md ]; then
+  echo ""
+  echo "=== TODAY ==="
+  cat .build-os/daily-context.md
+fi
+```
+
+---
+
+## Step 2: Generate the status report
+
+Based on the data above, produce a status snapshot with these sections:
+
+**Project:** [name] | **Phase:** [current phase] | **Type:** [new construction / renovation]
+
+**Budget:**
+- Original: $X
+- Current estimate: $X (variance: ±$X, ±X%)
+- Approved change orders: $X
+- Contingency remaining: $X (X% of original)
+- Flag: GREEN / YELLOW (5-10% over) / RED (>10% over)
+
+**Schedule:**
+- Current phase target: [date]
+- Next milestone: [what] by [when]
+- Flag: ON TRACK / AT RISK / DELAYED — with one-line reason if not on track
+
+**Open Items** (top 3 only — the ones that block progress):
+1. [item] — owner: [who] — due: [when]
+2. [item] — owner: [who] — due: [when]
+3. [item] — owner: [who] — due: [when]
+
+**Recent Decisions** (last 3):
+- [date]: [decision in one sentence]
+
+**Next Action:** [one thing the owner should do before the next session]
+
+---
+
+## Step 3: Scope radar check
+
+{{DECISION_LOG_RECENT}}
+
+Scan the last 5 decisions quickly. Flag if you see any of these patterns:
+- 3+ decisions in the same system within 14 days (scope drift signal)
+- Any cost impacts logged as "unknown" for more than 7 days (pricing gap)
+- Any decisions that should have been change orders but weren't flagged
+
+If you see a pattern, add a "⚠ Scope radar" note at the bottom of the status report.
+
+---
+
+Output the report to the console. Do not write to any file unless the owner explicitly asks to update `PROJECT.md`.
