@@ -1,7 +1,7 @@
 ---
 name: implement
 preamble-tier: 4
-version: 1.8.0
+version: 1.9.0
 description: |
   Autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -1110,12 +1110,13 @@ For each phase in your living plan checklist that is marked as `[ ]` (if in Reex
    - **Large context**: If the inline code context exceeds ~500 lines, write it to `/tmp/<phase>-context.md` first and reference the path. Never send thousands of lines inline.
    - Explicitly instruct Gemini: "Do NOT use raw `git` commands or the `gh` CLI to ship. Do NOT skip steps or hallucinate your own review process."
 2. **Wait for Gemini Completion**: The MCP tool call will execute synchronously. Let it block until it finishes. **NEVER skip the sub-agent to do the work yourself.**
-3. **Spawn Codex Review Sub-Agent**: After Gemini finishes writing the code, you MUST use the `Bash` tool to run `codex /gstack-review`.
+3. **Spawn Codex Review Sub-Agent (RECURSIVE — loop until clean)**: After Gemini finishes writing the code, you MUST use the `Bash` tool to run `codex /gstack-review`.
    - If the implementation included UI, visual, or frontend behavior changes, you MUST also use the `Bash` tool to run `codex /gstack-qa` after the review completes.
    - The `gstack-review` and `gstack-qa` skills (running via Codex) will natively execute the comprehensive review checklist, iteratively fix bugs, and ensure the code is production-ready.
    - **CRITICAL**: Do NOT run `claude -p /review`, `claude -p /qa`, or `claude --model sonnet`. You MUST use `codex /gstack-review` and `codex /gstack-qa` to offload the review process completely to the Codex orchestrator.
-4. **Wait for Codex Completion**: Run the Codex process synchronously in the foreground. Wait for the Bash tool to return.
-5. **Update Living Plan**: As each sub-agent completes its work, you MUST immediately use the `Edit` tool to modify the living plan and check off its specific sub-checkbox. (i.e., change `[ ] **Implementation...` to `[x]` after Gemini finishes, and change `[ ] **Review...` to `[x]` after Codex finishes).
+   - **RECURSIVE LOOP REQUIREMENT**: After Codex returns, inspect its output. If `/gstack-review` or `/gstack-qa` reported any unresolved issues, re-spawn Codex on the same skill to fix them, then re-run the review. Repeat the review→fix→review cycle until Codex reports zero remaining issues. Do NOT advance to step 5 (Update Living Plan) with open review findings. A single review pass is NOT sufficient — past sessions have left issues unaddressed by stopping after one pass.
+4. **Wait for Codex Completion**: Run the Codex process synchronously in the foreground. Wait for the Bash tool to return. Apply the recursive loop in step 3 until the review is fully clean.
+5. **Update Living Plan (MANDATORY — never skip)**: After both Gemini implementation and the recursive Codex review have completed cleanly, you MUST immediately use the `Edit` tool to modify the living plan and check off the specific sub-checkboxes for this phase (change `[ ] **Implementation...` to `[x]` and `[ ] **Review...` to `[x]`). This step runs unconditionally after every phase, regardless of how trivial the phase felt — past sessions have forgotten this step under context pressure and progress tracking has drifted. Treat this as a hard requirement, not a nice-to-have. Verify there are zero remaining issues from the review before checking the box.
 6. **Context save at phase boundary**: After each phase completes (both implementation and review checked), run `claude --model sonnet -p /context-save` via the `Bash` tool. This ensures progress survives a context window compaction mid-session.
 
 Do NOT stop to ask the user for permission between phases unless a sub-agent fails catastrophically or hits a safety constraint. Keep the loop going.
