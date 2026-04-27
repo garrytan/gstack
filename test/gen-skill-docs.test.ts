@@ -287,6 +287,15 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('not function names');
   });
 
+  test('tier 2+ skills keep AskUserQuestion panel payloads compact', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    expect(content).toContain("Do not pack the full brief into the tool's `question` string");
+    expect(content).toContain('`question` is only the decision prompt');
+    expect(content).toContain('<=80 chars');
+    expect(content).toContain('batch at most two related questions/tabs');
+    expect(content).toContain('No duplicated trade-off text');
+  });
+
   test('tier 1 skills do NOT contain AskUserQuestion format', () => {
     // Use benchmark (tier 1) instead of root — root SKILL.md gets overwritten by Codex test setup
     const content = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
