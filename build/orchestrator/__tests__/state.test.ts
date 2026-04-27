@@ -89,37 +89,37 @@ describe('freshState', () => {
 describe('loadState / saveState round-trip', () => {
   it('saves and reloads a state', () => {
     const original = freshState({ planFile: '/x/foo.md', branch: 'main', phases });
-    saveState(original);
-    const reloaded = loadState(original.slug);
+    saveState(original, { noGbrain: true });
+    const reloaded = loadState(original.slug, { noGbrain: true });
     expect(reloaded).not.toBeNull();
     expect(reloaded!.slug).toBe(original.slug);
     expect(reloaded!.phases).toHaveLength(2);
     expect(reloaded!.phases[1].status).toBe('committed');
   });
 
-  it('returns null when no state file exists', () => {
-    expect(loadState('build-nonexistent')).toBeNull();
+  it('returns null when no state file exists (and no gbrain)', () => {
+    expect(loadState('build-nonexistent', { noGbrain: true })).toBeNull();
   });
 
   it('throws on corrupt state', () => {
     const slug = 'build-corrupt';
     fs.mkdirSync(path.dirname(statePath(slug)), { recursive: true });
     fs.writeFileSync(statePath(slug), '{not valid json');
-    expect(() => loadState(slug)).toThrow(/corrupt/);
+    expect(() => loadState(slug, { noGbrain: true })).toThrow(/corrupt/);
   });
 
   it('updates lastUpdatedAt on every save', async () => {
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases });
-    saveState(s);
+    saveState(s, { noGbrain: true });
     const first = s.lastUpdatedAt;
     await new Promise((r) => setTimeout(r, 10));
-    saveState(s);
+    saveState(s, { noGbrain: true });
     expect(s.lastUpdatedAt).not.toBe(first);
   });
 
   it('writes via temp+rename (no .tmp.* file left behind on success)', () => {
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases });
-    saveState(s);
+    saveState(s, { noGbrain: true });
     const dir = path.dirname(statePath(s.slug));
     const stragglers = fs.readdirSync(dir).filter((f) => f.includes('.tmp.'));
     expect(stragglers).toHaveLength(0);

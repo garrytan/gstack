@@ -17,6 +17,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { BuildState, Phase, PhaseState } from './types';
+import { isGbrainAvailable, gbrainPut, gbrainGet } from './gbrain';
+
+export interface PersistOptions {
+  /** Skip gbrain entirely. Useful for tests and the --no-gbrain CLI flag. */
+  noGbrain?: boolean;
+  /** Optional logger. Default: silent. Used to surface gbrain warnings. */
+  log?: (msg: string) => void;
+}
 
 const STATE_DIR = path.join(os.homedir(), '.gstack', 'build-state');
 
@@ -90,33 +98,67 @@ export function freshState(args: {
 }
 
 /**
- * Load state from local JSON. Returns null if no state file exists for
- * this plan. Throws on parse error (corrupt state is a hard stop).
+ * Load state for a plan. Strategy:
+ *   1. Try local JSON (fast, always-on, source of truth).
+ *   2. If JSON missing AND gbrain available, try gbrain (resume on a
+ *      fresh machine where the build was started elsewhere).
+ *   3. Return null if neither has it.
+ *
+ * Throws on JSON parse error (corrupt local state is a hard stop —
+ * user inspects or deletes to start fresh).
  */
-export function loadState(slug: string): BuildState | null {
+export function loadState(slug: string, opts: PersistOptions = {}): BuildState | null {
   const p = statePath(slug);
-  if (!fs.existsSync(p)) return null;
-  const raw = fs.readFileSync(p, 'utf8');
+  if (fs.existsSync(p)) {
+    const raw = fs.readFileSync(p, 'utf8');
+    try {
+      return JSON.parse(raw) as BuildState;
+    } catch (err) {
+      throw new Error(
+        `state file at ${p} is corrupt (${(err as Error).message}). Inspect or delete to start fresh.`
+      );
+    }
+  }
+
+  if (opts.noGbrain) return null;
+  if (!isGbrainAvailable()) return null;
+
+  const fromBrain = gbrainGet(slug);
+  if (!fromBrain) return null;
   try {
-    return JSON.parse(raw) as BuildState;
-  } catch (err) {
-    throw new Error(
-      `state file at ${p} is corrupt (${(err as Error).message}). Inspect or delete to start fresh.`
-    );
+    const parsed = JSON.parse(fromBrain) as BuildState;
+    // Mirror back to local JSON so subsequent reads are fast and the
+    // local file is the canonical source.
+    saveState(parsed, { noGbrain: true });
+    opts.log?.(`resumed state from gbrain page "${slug}"`);
+    return parsed;
+  } catch {
+    opts.log?.(`gbrain page "${slug}" exists but isn't valid state JSON; ignoring`);
+    return null;
   }
 }
 
 /**
- * Persist state via temp-file-and-rename. Updates lastUpdatedAt as a
- * side effect.
+ * Persist state. JSON is always written (atomic temp+rename); gbrain
+ * is best-effort (failures are logged, not thrown). lastUpdatedAt is
+ * updated as a side effect.
  */
-export function saveState(state: BuildState): void {
+export function saveState(state: BuildState, opts: PersistOptions = {}): void {
   ensureStateDir();
   state.lastUpdatedAt = new Date().toISOString();
   const finalPath = statePath(state.slug);
   const tmpPath = `${finalPath}.tmp.${process.pid}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
+  const serialized = JSON.stringify(state, null, 2) + '\n';
+  fs.writeFileSync(tmpPath, serialized, { mode: 0o600 });
   fs.renameSync(tmpPath, finalPath);
+
+  // Best-effort gbrain mirror.
+  if (opts.noGbrain) return;
+  if (!isGbrainAvailable()) return;
+  const ok = gbrainPut(state.slug, serialized);
+  if (!ok) {
+    opts.log?.(`warning: gbrain put for "${state.slug}" failed; local JSON is canonical`);
+  }
 }
 
 /**
