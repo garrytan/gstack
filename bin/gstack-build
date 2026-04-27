@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# gstack-build — code-driven phase orchestrator for the /build skill.
+#
+# Thin wrapper around build/orchestrator/cli.ts. Matches the convention
+# used by every other bin/ script in this repo (gstack-config, gstack-slug,
+# gstack-update-check, etc.) — bash wrapper invoking the implementation.
+#
+# Compiled binaries via `bun build --compile` were tried and got SIGKILL'd
+# by macOS Gatekeeper in some environments; bash + bun run is reliable.
+#
+# Usage: gstack-build <plan-file> [flags]   (-h for help)
+
+set -euo pipefail
+
+# Resolve the directory this script lives in, following symlinks.
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_PATH=$(readlink "$SCRIPT_PATH")
+done
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd)
+GSTACK_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "gstack-build: bun is required but not on PATH" >&2
+  echo "  install: curl -fsSL https://bun.sh/install | bash" >&2
+  exit 127
+fi
+
+exec bun run "$GSTACK_ROOT/build/orchestrator/cli.ts" "$@"
