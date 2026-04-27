@@ -1,6 +1,11 @@
 # Changelog
 
-## [1.16.0.0] - 2026-04-27
+## [Unreleased]
+
+> Fork-only changes ahead of `garrytan/gstack:main` (currently at v1.15.0.0).
+> Version on this fork is held at v1.15.0.0 to avoid collision when upstream
+> next bumps. When syncing from upstream after their next release, give this
+> entry a real version + date.
 
 ## **`gstack-build` ships. Code-driven phase orchestrator for /build skill.**
 
