@@ -2547,6 +2547,26 @@ describe('community fixes wave', () => {
     }
   });
 
+  test('version queue helpers use installed GSTACK_BIN, not repo-local scripts', () => {
+    const skillPaths = [
+      'ship/SKILL.md',
+      'review/SKILL.md',
+      'landing-report/SKILL.md',
+      'land-and-deploy/SKILL.md',
+      '.agents/skills/gstack-ship/SKILL.md',
+      '.agents/skills/gstack-review/SKILL.md',
+      '.agents/skills/gstack-landing-report/SKILL.md',
+      '.agents/skills/gstack-land-and-deploy/SKILL.md',
+    ];
+
+    for (const skillPath of skillPaths) {
+      const content = fs.readFileSync(path.join(ROOT, skillPath), 'utf-8');
+      expect(content).not.toContain('bun run bin/gstack-next-version');
+      expect(content).not.toContain('`bin/gstack-next-version`');
+      expect(content).toContain('$GSTACK_BIN/gstack-next-version');
+    }
+  });
+
   // #510 — Context warnings: plan-eng-review has explicit anti-warning
   test('plan-eng-review/SKILL.md contains "Do not preemptively warn"', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');

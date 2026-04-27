@@ -686,7 +686,7 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 When you're running 5-10 parallel Conductor workspaces, it helps to see — at a
 glance — which version numbers are claimed, by whom, and what slot your next
 `/ship` would land in. This skill is a read-only call into the same
-`bin/gstack-next-version` utility `/ship` uses, but with nothing mutating.
+`$GSTACK_BIN/gstack-next-version` utility `/ship` uses, but with nothing mutating.
 Think of it as `gh pr list` for VERSION numbers.
 
 ---
@@ -723,7 +723,7 @@ they'd claim for micro/patch/minor/major. Cheap (same gh call cached by bun).
 
 ```bash
 for LEVEL in micro patch minor major; do
-  bun run bin/gstack-next-version \
+  "$GSTACK_BIN/gstack-next-version" \
     --base "$BASE_BRANCH" \
     --bump "$LEVEL" \
     --current-version "$BASE_VERSION" \
