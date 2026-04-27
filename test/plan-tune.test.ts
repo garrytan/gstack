@@ -211,8 +211,7 @@ describe('registry breadth', () => {
     }
   });
 
-  test('preamble one-time prompts are registered (telemetry, proactive, routing)', () => {
-    expect(getQuestion('preamble-telemetry-consent')).toBeDefined();
+  test('preamble one-time prompts are registered (proactive, routing)', () => {
     expect(getQuestion('preamble-proactive-behavior')).toBeDefined();
     expect(getQuestion('preamble-routing-injection')).toBeDefined();
   });

@@ -294,10 +294,11 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('## Completeness Principle');
   });
 
-  test('generated SKILL.md contains telemetry line', () => {
+  test('generated SKILL.md does not contain telemetry analytics writes', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('skill-usage.jsonl');
-    expect(content).toContain('~/.gstack/analytics');
+    expect(content).not.toContain('skill-usage.jsonl');
+    expect(content).not.toContain('~/.gstack/analytics');
+    expect(content).not.toContain('gstack-telemetry-log');
   });
 
   test('plan-review generated preambles stay under the Option A budget', () => {
@@ -344,14 +345,11 @@ describe('gen-skill-docs', () => {
     expect(voice).toMatch(/user decides|user.*context|sovereignty|recommendation, not a decision/i);
   });
 
-  test('preamble .pending-* glob is zsh-safe (uses find, not shell glob)', () => {
+  test('generated preambles do not contain pending telemetry finalizers', () => {
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
-      if (!content.includes('.pending-')) continue;
-      // Must NOT have a bare shell glob ".pending-*" outside of find's -name argument
-      expect(content).not.toMatch(/for _PF in [^\n]*\/\.pending-\*/);
-      // Must use find to avoid zsh NOMATCH error on glob expansion
-      expect(content).toContain("find ~/.gstack/analytics -maxdepth 1 -name '.pending-*'");
+      expect(content).not.toContain('.pending-');
+      expect(content).not.toContain('_pending_finalize');
     }
   });
 
@@ -392,7 +390,7 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  test('preamble-using skills have correct skill name in telemetry', () => {
+  test('preamble-using skills have correct skill name in local timeline', () => {
     const PREAMBLE_SKILLS = [
       { dir: '.', name: 'gstack' },
       { dir: 'ship', name: 'ship' },
@@ -1129,8 +1127,9 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     expect(content).toContain('quality score');
   });
 
-  test('includes metrics path', () => {
-    expect(content).toContain('spec-review.jsonl');
+  test('does not write metrics path', () => {
+    expect(content).not.toContain('spec-review.jsonl');
+    expect(content).toContain('Do not write review metrics or analytics files');
   });
 
   test('includes convergence guard', () => {
@@ -1254,7 +1253,7 @@ describe('Codex filesystem boundary', () => {
   test('codex skill has rabbit-hole detection rule', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Detect skill-file rabbit holes');
-    expect(content).toContain('gstack-update-check');
+    expect(content).not.toContain('gstack-update-check');
     expect(content).toContain('Consider retrying');
   });
 
@@ -1339,7 +1338,7 @@ describe('INVOKE_SKILL resolver', () => {
 
   test('INVOKE_SKILL output includes default skip list', () => {
     expect(ceoContent).toContain('Preamble (run first)');
-    expect(ceoContent).toContain('Telemetry (run last)');
+    expect(ceoContent).not.toContain('Telemetry (run last)');
     expect(ceoContent).toContain('AskUserQuestion Format');
   });
 
@@ -1749,7 +1748,7 @@ describe('Codex generation (--host codex)', () => {
     const descLines = frontmatter.split('\n').filter(l => l.startsWith('  '));
     expect(descLines.length).toBeGreaterThan(1);
     // Verify key phrases survived
-    expect(frontmatter).toContain('YC Office Hours');
+    expect(frontmatter).toContain('Product Office Hours');
   });
 
   test('hook skills have safety prose and no hooks: in frontmatter', () => {
@@ -1779,8 +1778,9 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('GSTACK_ROOT');
     expect(content).toContain('$_ROOT/.agents/skills/gstack');
     expect(content).toContain('$GSTACK_BIN/gstack-config');
-    expect(content).toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
-    expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
+    expect(content).not.toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
+    expect(content).not.toContain('gstack-config get telemetry');
+    expect(content).not.toContain('gstack-update-check');
   });
 
   // ─── Path rewriting regression tests ─────────────────────────
@@ -1838,7 +1838,7 @@ describe('Codex generation (--host codex)', () => {
       // No skill should reference Claude paths
       expect(content).not.toContain('~/.claude/skills');
       expect(content).not.toContain('.claude/skills');
-      if (content.includes('gstack-config') || content.includes('gstack-update-check') || content.includes('gstack-telemetry-log')) {
+      if (content.includes('gstack-config')) {
         expect(content).toContain('$GSTACK_ROOT');
       }
       // If a skill references checklist.md, it must use the correct sidecar path
@@ -2445,55 +2445,38 @@ describe('discover-skills hidden directory filtering', () => {
   });
 });
 
-describe('telemetry', () => {
-  test('generated SKILL.md contains telemetry start block', () => {
+describe('removed telemetry/update mechanisms', () => {
+  test('generated root SKILL.md omits telemetry and update-check blocks', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('_TEL_START');
     expect(content).toContain('_SESSION_ID');
-    expect(content).toContain('TELEMETRY:');
-    expect(content).toContain('TEL_PROMPTED:');
-    expect(content).toContain('gstack-config get telemetry');
+    expect(content).not.toContain('_TEL_START');
+    expect(content).not.toContain('TELEMETRY:');
+    expect(content).not.toContain('TEL_PROMPTED:');
+    expect(content).not.toContain('gstack-config get telemetry');
+    expect(content).not.toContain('.telemetry-prompted');
+    expect(content).not.toContain('Telemetry (run last)');
+    expect(content).not.toContain('gstack-telemetry-log');
+    expect(content).not.toContain('gstack-update-check');
+    expect(content).not.toContain('skill-usage.jsonl');
+    expect(content).not.toContain('eureka.jsonl');
   });
 
-  test('generated SKILL.md contains telemetry opt-in prompt', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('.telemetry-prompted');
-    expect(content).toContain('Help gstack get better');
-    expect(content).toContain('gstack-config set telemetry community');
-    expect(content).toContain('gstack-config set telemetry anonymous');
-    expect(content).toContain('gstack-config set telemetry off');
-  });
-
-  test('generated SKILL.md contains telemetry epilogue', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Telemetry (run last)');
-    expect(content).toContain('gstack-telemetry-log');
-    expect(content).toContain('_TEL_END');
-    expect(content).toContain('_TEL_DUR');
-    expect(content).toContain('SKILL_NAME');
-    expect(content).toContain('OUTCOME');
-    expect(content).toContain('PLAN MODE EXCEPTION');
-  });
-
-  test('generated SKILL.md contains pending marker handling', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('.pending');
-    expect(content).toContain('_pending_finalize');
-  });
-
-  test('telemetry blocks appear in all skill files that use PREAMBLE', () => {
+  test('preamble skills omit removed telemetry/update/eureka mechanisms', () => {
     const skills = ['qa', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review', 'retro'];
     for (const skill of skills) {
       const skillPath = path.join(ROOT, skill, 'SKILL.md');
       if (fs.existsSync(skillPath)) {
         const content = fs.readFileSync(skillPath, 'utf-8');
-        expect(content).toContain('_TEL_START');
-        expect(content).toContain('Telemetry (run last)');
+        expect(content).not.toContain('_TEL_START');
+        expect(content).not.toContain('Telemetry (run last)');
+        expect(content).not.toContain('gstack-telemetry-log');
+        expect(content).not.toContain('gstack-update-check');
+        expect(content).not.toContain('skill-usage.jsonl');
+        expect(content).not.toContain('eureka.jsonl');
       }
     }
   });
 });
-
 describe('community fixes wave', () => {
   // Helper to get all generated SKILL.md files
   function getAllSkillMds(): Array<{ name: string; content: string }> {
@@ -2567,24 +2550,10 @@ describe('community fixes wave', () => {
     }
   });
 
-  // #467 — Telemetry: preamble JSONL writes are gated by telemetry setting
-  test('preamble JSONL writes are inside telemetry conditional', () => {
+  test('preamble resolver sources do not write usage analytics JSONL', () => {
     const preamble = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
-    // Find all skill-usage.jsonl write lines
-    const lines = preamble.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
-        // Look backwards for a telemetry conditional within 5 lines
-        let foundConditional = false;
-        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
-            foundConditional = true;
-            break;
-          }
-        }
-        expect(foundConditional).toBe(true);
-      }
-    }
+    expect(preamble).not.toContain('skill-usage.jsonl');
+    expect(preamble).not.toContain('~/.gstack/analytics');
   });
 });
 
@@ -2952,16 +2921,15 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
     },
   );
 
-  test('plan-mode-info is wired BEFORE generateUpgradeCheck in preamble', () => {
+  test('plan-mode-info is wired without upgrade-check prompts', () => {
     const content = fs.readFileSync(
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       'utf-8',
     );
     const planModeIdx = content.indexOf(PLAN_MODE_INFO_MARKER);
-    const upgradeIdx = content.indexOf('UPGRADE_AVAILABLE');
     expect(planModeIdx).toBeGreaterThan(0);
-    expect(upgradeIdx).toBeGreaterThan(0);
-    expect(planModeIdx).toBeLessThan(upgradeIdx);
+    expect(content).not.toContain('UPGRADE_AVAILABLE');
+    expect(content).not.toContain('gstack-update-check');
   });
 
   test('0C-bis STOP block present in plan-ceo-review/SKILL.md', () => {

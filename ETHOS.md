@@ -87,7 +87,7 @@ them above everything else. The best projects both avoid mistakes (don't
 reinvent the wheel — Layer 1) while also making brilliant observations that
 are out of distribution (Layer 3).
 
-### The Eureka Moment
+### First-principles insights
 
 The most valuable outcome of searching is not finding a solution to copy.
 It is:

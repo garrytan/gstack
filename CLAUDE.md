@@ -118,7 +118,7 @@ gstack/
 ├── canary/          # /canary skill (post-deploy monitoring loop)
 ├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
+├── office-hours/    # /office-hours skill (Product Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
@@ -562,8 +562,8 @@ the GStack/Garry voice, one viewport's worth of prose + tables that lands like a
 verdict, not marketing. The itemized changelog (subsections, bullets, files) goes
 BELOW that summary, separated by a `### Itemized changes` header.
 
-The release-summary section gets read by humans, by the auto-update agent, and by
-anyone deciding whether to upgrade. The itemized list is for agents that need to
+The release-summary section gets read by humans and by anyone deciding whether
+to upgrade. The itemized list is for agents that need to
 know exactly what changed.
 
 Structure for the top of every `## [X.Y.Z]` entry:

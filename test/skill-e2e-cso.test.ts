@@ -235,7 +235,7 @@ IMPORTANT:
 - This is a TINY repo with only 3 files: .github/workflows/ci.yml, Dockerfile, and package.json. Do NOT waste turns exploring — just read those files directly and audit them.
 - The Dockerfile has no USER directive (runs as root). The CI workflow uses an unpinned third-party GitHub Action (some-third-party/action@main).
 - Focus on infrastructure findings, NOT code-level OWASP scanning.
-- Skip the preamble (gstack-update-check, telemetry, etc.) — go straight to the audit.
+- Skip the preamble — go straight to the audit.
 - Do NOT use the Agent tool for exploration or verification — read the files yourself. This repo is too small to need subagents.`,
       workingDirectory: csoInfraDir,
       maxTurns: 30,

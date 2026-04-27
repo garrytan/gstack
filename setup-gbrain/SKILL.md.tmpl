@@ -426,11 +426,10 @@ At end: `unset SUPABASE_ACCESS_TOKEN`. Revocation reminder.
 
 ---
 
-## Telemetry (D4)
+## Local completion notes (D4)
 
-The preamble's Telemetry block logs skill success/failure at exit. When
-emitting the event, add these enumerated categorical values to the
-telemetry payload (SAFE — no free-form secrets, never the URL or PAT):
+Remote reporting has been removed. If you need to summarize setup outcome, keep it in
+the conversation only and use enumerated, non-secret categories such as:
 
 - `scenario`: `supabase-existing` | `supabase-auto-provision` |
   `supabase-manual` | `pglite-local` | `switch-to-supabase` |
@@ -441,9 +440,9 @@ telemetry payload (SAFE — no free-form secrets, never the URL or PAT):
 - `trust_tier_set`: `read-write` | `read-only` | `deny` |
   `skip-for-now` | `n/a` (outside git repo)
 
-Never pass `SUPABASE_ACCESS_TOKEN`, `DB_PASS`, `GBRAIN_POOLER_URL`,
-`GBRAIN_DATABASE_URL`, or any `postgresql://` substring to the telemetry
-invocation. The CI grep test in `test/skill-validation.test.ts` enforces
+Never expose `SUPABASE_ACCESS_TOKEN`, `DB_PASS`, `GBRAIN_POOLER_URL`,
+`GBRAIN_DATABASE_URL`, or any `postgresql://` substring in output, logs, or
+command arguments. The CI grep test in `test/skill-validation.test.ts` enforces
 this at build time.
 
 ---

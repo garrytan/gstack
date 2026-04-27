@@ -6,7 +6,6 @@
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
-#   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
 #
 # Hygiene rules (enforced by test/codex-hardening.test.ts):
 #   - Never set -e / set -u / trap / IFS= / PATH= in this file.
@@ -45,7 +44,6 @@ _gstack_codex_version_check() {
   [ -z "$_ver" ] && return 0
   if echo "$_ver" | grep -Eq '(^|[^0-9.])0\.120\.(0|1|2)([^0-9.]|$)'; then
     echo "WARN: Codex CLI $_ver has known stdin deadlock bugs. Run: npm install -g @openai/codex@latest"
-    _gstack_codex_log_event "codex_version_warning"
   fi
 }
 
@@ -66,24 +64,11 @@ _gstack_codex_timeout_wrapper() {
   fi
 }
 
-# --- Telemetry event --------------------------------------------------------
+# --- Event logging removed --------------------------------------------------
 
 _gstack_codex_log_event() {
-  # Emit a telemetry event to ~/.gstack/analytics/skill-usage.jsonl.
-  # Gated on $_TEL != "off" (caller sets this from gstack-config).
-  # Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
-  #              codex_version_warning.
-  # Payload schema: {skill, event, duration_s, ts}. NEVER includes prompt
-  # content, env var values, or auth tokens.
-  local _event="$1"
-  local _duration="${2:-0}"
-  [ "${_TEL:-off}" = "off" ] && return 0
-  mkdir -p "$HOME/.gstack/analytics" 2>/dev/null || return 0
-  local _ts
-  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
-  printf '{"skill":"codex","event":"%s","duration_s":"%s","ts":"%s"}\n' \
-    "$_event" "$_duration" "$_ts" \
-    >> "$HOME/.gstack/analytics/skill-usage.jsonl" 2>/dev/null || true
+  # Intentionally no-op: remote reporting and local usage analytics have been removed.
+  return 0
 }
 
 # --- Learnings log on hang --------------------------------------------------

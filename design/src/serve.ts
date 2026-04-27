@@ -29,7 +29,7 @@
  * The agent typically backgrounds $D serve and polls for feedback-pending.json.
  * When found: read it, delete it, generate new variants, POST /api/reload.
  *
- * Stderr: structured telemetry (SERVE_STARTED, SERVE_FEEDBACK_RECEIVED, etc.)
+ * Stderr: structured event logs (SERVE_STARTED, SERVE_FEEDBACK_RECEIVED, etc.)
  */
 
 import fs from "fs";

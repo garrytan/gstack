@@ -10,7 +10,7 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 // Preamble Composition (tier → sections)
 // ─────────────────────────────────────────────
-// T1: core + upgrade + lake + telemetry + voice(trimmed) + completion
+// T1: core + lake + voice(trimmed) + completion
 // T2: T1 + voice(full) + ask + completeness + context-recovery
 // T3: T2 + repo-mode + search
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)

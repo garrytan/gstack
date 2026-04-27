@@ -78,23 +78,23 @@ describe('secret-sink-harness — positive controls', () => {
     expect(fileLeaks[0].where).toBe('.gstack/debug.log');
   });
 
-  test('catches a seed leaked into the telemetry channel', async () => {
+  test('catches a seed leaked into a local file', async () => {
     const bin = makeLeakyBin(
-      'leak-telemetry',
-      'mkdir -p "$HOME/.gstack/analytics" && ' +
+      'leak-local-file',
+      'mkdir -p "$HOME/.gstack/logs" && ' +
       'echo "{\\"event\\":\\"x\\",\\"leaked_secret\\":\\"$LEAK_SEED\\"}" ' +
-      '  >> "$HOME/.gstack/analytics/skill-usage.jsonl"'
+      '  >> "$HOME/.gstack/logs/events.jsonl"'
     );
-    const seed = 'telemetry-leaked-abc123xyz';
+    const seed = 'file-leaked-abc123xyz';
     const r = await runWithSecretSink({
       bin,
       args: [],
       seeds: [seed],
       env: { LEAK_SEED: seed },
     });
-    const telemetryLeaks = r.leaks.filter((l) => l.channel === 'telemetry');
-    expect(telemetryLeaks.length).toBeGreaterThan(0);
-    expect(telemetryLeaks[0].where).toContain('analytics/');
+    const fileLeaks = r.leaks.filter((l) => l.channel === 'file');
+    expect(fileLeaks.length).toBeGreaterThan(0);
+    expect(fileLeaks[0].where).toContain('logs/events.jsonl');
   });
 
   test('catches a seed leaked in base64-encoded form (auth header pattern)', async () => {

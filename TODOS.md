@@ -365,7 +365,7 @@ Ship all four together, re-run BrowseSafe-Bench smoke, record before/after. Targ
 
 #### User-feedback flywheel — decisions become training data (P3)
 
-**What:** Every Allow/Block click is labeled data. Log (suspected_text hash, layer scores, user decision, ts) to ~/.gstack/security/feedback.jsonl. Aggregate via community-pulse when `telemetry: community`. Periodically retrain the classifier on aggregate feedback.
+**What:** Every Allow/Block click is labeled data. Log (suspected_text hash, layer scores, user decision, ts) to `~/.gstack/security/feedback.jsonl` only. Any retraining uses explicitly exported local data, not background uploads.
 
 **Why:** The system gets better the more it's used. Closes the loop between user reality and defense quality.
 
@@ -392,18 +392,6 @@ getSecurityStatus()`, and sidepanel.js calls `updateSecurityShield(data.security
 on every poll tick. Shield flips to 'protected' as soon as classifier warmup
 completes (typically ~30s after initial connect on first run), no reload needed.
 
-#### ~~Attack telemetry via gstack-telemetry-log (P1)~~ — SHIPPED
-
-Landed in commits 28ce883c (binary) + f68fa4a9 (security.ts wiring). The
-telemetry binary now accepts `--event-type attack_attempt --url-domain
---payload-hash --confidence --layer --verdict`. `logAttempt()` spawns the
-binary fire-and-forget. Existing tier gating carries the events.
-
-Downstream follow-up still open: update the `community-pulse` Supabase edge
-function to accept the new event type and store in a typed `security_attempts`
-table. Dashboard read path is a separate TODO ("Cross-user aggregate attack
-dashboard" below).
-
 #### Full BrowseSafe-Bench at gate tier (P2)
 
 **What:** Promote `browse/test/security-bench.test.ts` from smoke-200 (gate) to full-3680
@@ -415,17 +403,6 @@ Smoke-200 is a sample; full coverage catches the long tail. Run time ~5min herme
 **Effort:** S (CC: ~45min)
 **Priority:** P2
 **Depends on:** v1 shipped + ~2 weeks real data
-
-#### ~~Cross-user aggregate attack dashboard (P2)~~ — CLI SHIPPED, web UI remains
-
-CLI dashboard shipped in commits a5588ec0 (schema migration) + 2d107978
-(community-pulse edge function security aggregation) + 756875a7 (bin/gstack-
-security-dashboard). Users can now run `gstack-security-dashboard` to see
-attacks last 7 days, top attacked domains, detection-layer distribution,
-and verdict counts — all aggregated from the Supabase community-pulse pipe.
-
-Web UI at gstack.gg/dashboard/security is still open — that's a separate
-webapp project outside this repo's scope.
 
 #### TestSavantAI ensemble → DeBERTa-v3 ensemble (P2) — SHIPPED (opt-in)
 
@@ -953,7 +930,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ~~**What:** Pin E2E tests to claude-sonnet-4-6 for cost efficiency, add retry:2 for flaky LLM responses.~~
 
-Shipped: Default model changed to Sonnet for structure tests (~30), Opus retained for quality tests (~10). `--retry 2` added. `EVALS_MODEL` env var for override. `test:e2e:fast` tier added. Rate-limit telemetry (first_response_ms, max_inter_turn_ms) and wall_clock_ms tracking added to eval-store.
+Shipped: Default model changed to Sonnet for structure tests (~30), Opus retained for quality tests (~10). `--retry 2` added. `EVALS_MODEL` env var for override. `test:e2e:fast` tier added. Rate-limit timing metrics (first_response_ms, max_inter_turn_ms) and wall_clock_ms tracking added to eval-store.
 
 ### Eval web dashboard
 
@@ -1122,19 +1099,19 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 
 ~~**What:** Three new skills that use Claude Code's session-scoped PreToolUse hooks to add safety guardrails on demand.~~
 
-Shipped as `/careful`, `/freeze`, `/guard`, and `/unfreeze` in v0.6.5. Includes hook fire-rate telemetry (pattern name only, no command content) and inline skill activation telemetry.
+Shipped as `/careful`, `/freeze`, `/guard`, and `/unfreeze` in v0.6.5. Includes hook fire-rate counters (pattern name only, no command content) and inline skill activation counters.
 
-### Skill usage telemetry — SHIPPED
+### Skill usage counters — SHIPPED
 
 ~~**What:** Track which skills get invoked, how often, from which repo.~~
 
-Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into preamble telemetry line. Analytics CLI (`bun run analytics`) for querying. /retro integration shows skills-used-this-week.
+Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into preamble usage-counter line. Legacy local dashboard for querying. /retro integration shows skills-used-this-week.
 
-### /investigate scoped debugging enhancements (gated on telemetry)
+### /investigate scoped debugging enhancements (gated on local counters)
 
-**What:** Six enhancements to /investigate auto-freeze, contingent on telemetry showing the freeze hook actually fires in real debugging sessions.
+**What:** Six enhancements to /investigate auto-freeze, contingent on local counters showing the freeze hook actually fires in real debugging sessions.
 
-**Why:** /investigate v0.7.1 auto-freezes edits to the module being debugged. If telemetry shows the hook fires often, these enhancements make the experience smarter. If it never fires, the problem wasn't real and these aren't worth building.
+**Why:** /investigate v0.7.1 auto-freezes edits to the module being debugged. If local counters show the hook fires often, these enhancements make the experience smarter. If it never fires, the problem wasn't real and these aren't worth building.
 
 **Context:** All items are prose additions to `investigate/SKILL.md.tmpl`. No new scripts.
 
@@ -1148,7 +1125,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **Effort:** M (all 6 combined)
 **Priority:** P3
-**Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
+**Depends on:** Local counter data showing freeze hook fires in real /investigate sessions
 
 ## Context Intelligence
 
@@ -1387,7 +1364,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 - /setup-deploy — one-time deploy platform configuration
 - /review Performance & Bundle Impact pass
 - E2E model pinning (Sonnet default, Opus for quality tests)
-- E2E timing telemetry (first_response_ms, max_inter_turn_ms, wall_clock_ms)
+- E2E timing metrics (first_response_ms, max_inter_turn_ms, wall_clock_ms)
 - test:e2e:fast tier, --retry 2 on all E2E scripts
 **Completed:** v0.9.8.0
 

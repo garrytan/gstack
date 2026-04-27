@@ -192,7 +192,7 @@ Run the three-layer synthesis:
 - **[Layer 2]** What are the search results saying?
 - **[Layer 3]** First-principles reasoning — where might the conventional wisdom be wrong?
 
-Feed into the Premise Challenge (0A) and Dream State Mapping (0C). If you find a eureka moment, surface it during the Expansion opt-in ceremony as a differentiation opportunity. Log it (see preamble).
+Feed into the Premise Challenge (0A) and Dream State Mapping (0C). If you find a first-principles insight, surface it during the Expansion opt-in ceremony as a differentiation opportunity.
 
 {{LEARNINGS_SEARCH}}
 
@@ -765,10 +765,9 @@ rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
 After producing the Completion Summary above, persist the review result.
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
-`~/.gstack/` (user config directory, not project files). The skill preamble
-already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
-the same pattern. The review dashboard depends on this data. Skipping this
-command breaks the review readiness dashboard in /ship.
+`~/.gstack/` (user config directory, not project files). The review dashboard
+depends on this local data. Skipping this command breaks the review readiness
+dashboard in /ship.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-ceo-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"MODE","scope_proposed":N,"scope_accepted":N,"scope_deferred":N,"commit":"COMMIT"}'

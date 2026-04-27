@@ -126,9 +126,6 @@ find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec
 # 11. Regression test commits in window
 git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage"
 
-# 12. gstack skill usage telemetry (if available)
-cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-
 # 12. Test files changed in window
 git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
 ```
@@ -189,28 +186,6 @@ Include in the metrics table:
 ```
 
 If TODOS.md doesn't exist, skip the Backlog Health row.
-
-**Skill Usage (if analytics exist):** Read `~/.gstack/analytics/skill-usage.jsonl` if it exists. Filter entries within the retro time window by `ts` field. Separate skill activations (no `event` field) from hook fires (`event: "hook_fire"`). Aggregate by skill name. Present as:
-
-```
-| Skill Usage | /ship(12) /qa(8) /review(5) · 3 safety hook fires |
-```
-
-If the JSONL file doesn't exist or has no entries in the window, skip the Skill Usage row.
-
-**Eureka Moments (if logged):** Read `~/.gstack/analytics/eureka.jsonl` if it exists. Filter entries within the retro time window by `ts` field. For each eureka moment, show the skill that flagged it, the branch, and a one-line summary of the insight. Present as:
-
-```
-| Eureka Moments | 2 this period |
-```
-
-If moments exist, list them:
-```
-  EUREKA /office-hours (branch: garrytan/auth-rethink): "Session tokens don't need server storage — browser crypto API makes client-side JWT validation viable"
-  EUREKA /plan-eng-review (branch: garrytan/cache-layer): "Redis isn't needed here — Bun's built-in LRU cache handles this workload"
-```
-
-If the JSONL file doesn't exist or has no entries in the window, skip the Eureka Moments row.
 
 ### Step 3: Commit Time Distribution
 

@@ -89,7 +89,7 @@ After answer:
 
 If A/B and \`~/.gstack/.git\` is missing, ask whether to run \`gstack-brain-init\`. Do not block the skill.
 
-At skill END before telemetry:
+At skill END:
 
 \`\`\`bash
 "${ctx.paths.binDir}/gstack-brain-sync" --discover-new 2>/dev/null || true

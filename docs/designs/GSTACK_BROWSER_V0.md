@@ -165,7 +165,7 @@ The browser isn't just a viewport. It's a window into the application's health.
 - Accessibility auditing — "this form has no labels, these colors fail contrast"
 
 **Future:**
-- Full application telemetry — CPU, memory, GPU usage in real-time
+- Full application diagnostics — CPU, memory, GPU usage in real-time
 - Cross-browser testing — same test suite across Chrome, Firefox, Safari
 - Real user monitoring correlation — "this bug affects 12% of production users"
 

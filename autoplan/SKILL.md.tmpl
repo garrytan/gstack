@@ -219,7 +219,6 @@ Read each file using the Read tool:
 - Completeness Principle — Boil the Lake
 - Search Before Building
 - Completion Status Protocol
-- Telemetry (run last)
 - Step 0: Detect base branch
 - Review Readiness Dashboard
 - Plan File Review Report
@@ -242,7 +241,6 @@ source it once here and the helper functions stay in scope for the rest of the
 workflow.
 
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
 # Check Codex binary. If missing, tag the degradation matrix and continue

@@ -27,7 +27,6 @@ export function generateInvokeSkill(ctx: TemplateContext, args?: string[]): stri
     'Search Before Building',
     'Contributor Mode',
     'Completion Status Protocol',
-    'Telemetry (run last)',
     'Step 0: Detect platform and base branch',
     'Review Readiness Dashboard',
     'Plan File Review Report',

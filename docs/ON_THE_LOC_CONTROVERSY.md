@@ -130,7 +130,7 @@ I'm going to steelman harder than the critics steelmanned themselves:
 gstack is not a hypothetical. It's a product with real users:
 
 - **75,000+ GitHub stars** in 5 weeks
-- **14,965 unique installations** (opt-in telemetry)
+- **14,965 unique installations** (legacy opt-in usage reporting)
 - **305,309 skill invocations** recorded since January 2026
 - **~7,000 weekly active users** at peak
 - **95.2% success rate** across all skill runs (290,624 successes / 305,309 total)

@@ -200,12 +200,7 @@ After the loop completes (PASS, max iterations, or convergence guard):
 2. If issues remain after max iterations or convergence, add a "## Reviewer Concerns"
    section to the document listing each unresolved issue. Downstream skills will see this.
 
-3. Append metrics:
-\`\`\`bash
-mkdir -p ~/.gstack/analytics
-echo '{"skill":"${_ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","iterations":ITERATIONS,"issues_found":FOUND,"issues_fixed":FIXED,"remaining":REMAINING,"quality_score":SCORE}' >> ~/.gstack/analytics/spec-review.jsonl 2>/dev/null || true
-\`\`\`
-Replace ITERATIONS, FOUND, FIXED, REMAINING, SCORE with actual values from the review.`;
+3. Do not write review metrics or analytics files. Summarize the review outcome in the design document and conversation only.`;
 }
 
 export function generateBenefitsFrom(ctx: TemplateContext): string {

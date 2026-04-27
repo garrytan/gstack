@@ -65,7 +65,7 @@ gstack projects... CLAUDE.md works as-is.
 **Config file:** `slate.json` / `slate.jsonc` (NOT opencode.json)
 
 **Config options (from Slate docs):**
-- `privacy` (boolean) — disables telemetry/logging
+- `privacy` (boolean) — disables remote reporting/logging
 - Permissions: `allow`, `ask`, `deny` per tool (`read`, `edit`, `bash`, `grep`, `webfetch`, `websearch`, `*`)
 - Model slots: `models.main`, `models.subagent`, `models.search`, `models.reasoning`
 - MCP servers: local or remote with custom commands and headers
@@ -136,7 +136,7 @@ SLATE_MODELS_URL                          — models config URL
 SLATE_PERMISSION                          — permission override
 SLATE_SERVER_PASSWORD                     — server auth
 SLATE_SERVER_USERNAME                     — server auth
-SLATE_TELEMETRY_DISABLED                  — disable telemetry
+SLATE_REMOTE_REPORTING_DISABLED                  — disable usage reporting
 SLATE_TEST_HOME                           — test home directory
 SLATE_TOKEN_DIR                           — token storage directory
 ```

@@ -307,58 +307,19 @@ fi
   });
 });
 
-// --- Group 4: Telemetry event emission --------------------------------------
+// --- Group 4: Telemetry removed --------------------------------------------
 
-describe('gstack-codex-probe: telemetry event emission', () => {
-  test('_gstack_codex_log_event writes jsonl when _TEL != off', () => {
+describe('gstack-codex-probe: telemetry removed', () => {
+  test('_gstack_codex_log_event is a no-op and creates no analytics files', () => {
     const home = tempHome();
     try {
       const r = runProbe({
-        snippet: `_gstack_codex_log_event "codex_test_event" "42"; cat "$HOME/.gstack/analytics/skill-usage.jsonl"`,
+        snippet: `_gstack_codex_log_event "codex_test_event" "42"; find "$HOME" -type f | sort`,
         env: { _TEL: 'community' },
         home,
       });
-      expect(r.stdout).toContain('"event":"codex_test_event"');
-      expect(r.stdout).toContain('"duration_s":"42"');
-    } finally {
-      fs.rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  test('_gstack_codex_log_event skips write when _TEL = off', () => {
-    const home = tempHome();
-    try {
-      runProbe({
-        snippet: `_gstack_codex_log_event "codex_test_event" "99"`,
-        env: { _TEL: 'off' },
-        home,
-      });
-      const jsonl = path.join(home, '.gstack/analytics/skill-usage.jsonl');
-      expect(fs.existsSync(jsonl)).toBe(false);
-    } finally {
-      fs.rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  test('payload never contains prompt content, env values, or auth tokens (schema check)', () => {
-    const home = tempHome();
-    try {
-      const r = runProbe({
-        snippet: `_gstack_codex_log_event "codex_test_event" "1"; cat "$HOME/.gstack/analytics/skill-usage.jsonl"`,
-        env: {
-          _TEL: 'community',
-          CODEX_API_KEY: 'SECRET_TOKEN_SHOULD_NOT_LEAK',
-          OPENAI_API_KEY: 'ANOTHER_SECRET',
-        },
-        home,
-      });
-      // The emitted JSON payload should ONLY have {skill, event, duration_s, ts}.
-      // Specifically, it must not contain any env values or auth material.
-      expect(r.stdout).not.toContain('SECRET_TOKEN_SHOULD_NOT_LEAK');
-      expect(r.stdout).not.toContain('ANOTHER_SECRET');
-      // Schema: exactly these keys, in any order.
-      const parsed = JSON.parse(r.stdout.trim().split('\n').pop() ?? '{}');
-      expect(Object.keys(parsed).sort()).toEqual(['duration_s', 'event', 'skill', 'ts']);
+      expect(r.stdout).not.toContain('skill-usage.jsonl');
+      expect(fs.existsSync(path.join(home, '.gstack', 'analytics'))).toBe(false);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

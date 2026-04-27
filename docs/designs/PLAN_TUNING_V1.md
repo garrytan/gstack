@@ -61,7 +61,7 @@ The through-line: every review pass correctly narrowed the ambition until the re
 
 **To V1.1 (explicit, with dedicated design doc):**
 - Review pacing overhaul (ranking, auto-accept, max-3-per-phase, Silent Decisions block, flip mechanism). Reasoning: see [PACING_UPDATES_V0.md](./PACING_UPDATES_V0.md) §"Why it's extracted." Has 10+ structural gaps unfixable via prose-only changes.
-- Preamble first-run meta-prompt audit (lake intro, telemetry, proactive, routing). Louise saw all of them on first run; they count against fatigue. V1.1 considers suppressing until session N.
+- Preamble first-run meta-prompt audit (lake intro, proactive, routing). Louise saw all of them on first run; they count against fatigue. V1.1 considers suppressing until session N.
 
 **To V2 (or later):**
 - Confusion-signal detection from question-log driving on-the-fly translation offers.

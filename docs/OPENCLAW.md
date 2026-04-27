@@ -110,14 +110,14 @@ Published to ClawHub. Install with `clawhub install`:
 
 Source lives in `openclaw/skills/` in the gstack repo. These are hand-crafted
 adaptations of the gstack methodology for OpenClaw's conversational context.
-No gstack infrastructure (no browse, no telemetry, no preamble).
+No gstack infrastructure (no browse, no background preamble).
 
 ## Spawned session detection
 
 When Claude Code runs inside a session spawned by OpenClaw, the `OPENCLAW_SESSION`
 environment variable should be set. gstack detects this and adjusts:
 - Skips interactive prompts (auto-chooses recommended options)
-- Skips upgrade checks and telemetry prompts
+- Skips interactive prompts
 - Focuses on task completion and prose reporting
 
 Set the env var in sessions_spawn: `env: { OPENCLAW_SESSION: "1" }`

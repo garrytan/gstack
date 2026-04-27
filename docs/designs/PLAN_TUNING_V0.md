@@ -57,7 +57,7 @@ After weighing Codex's argument, we chose to roll back CEO EXPANSION and ship an
 | ±0.2 clamp on declared dimensions | Codex #6. Creates logical contradiction with E6 mismatch detection. Pick ONE: editable preference OR inferred behavior. Now: both, tracked separately (dual-track profile). |
 | One-way door classification by parsing prose summaries | Codex #4. Safety depends on wording. door_type must be declared at question definition site (registry), not inferred. |
 | Single event-schema file mixing declarations + overrides + verdicts + feedback | Codex #5. Incompatible domain objects. Now split into three files: question-log.jsonl, question-preferences.json, question-events.jsonl. |
-| TTHW telemetry for /plan-tune onboarding | Codex #14. Contradicts local-first framing. Local logging only. |
+| TTHW local metrics for /plan-tune onboarding | Codex #14. Contradicts local-first framing. Local logging only. |
 | Inline tune: writes without user-origin verification | Codex #16. Profile poisoning attack. Now: user-origin gate is non-optional. |
 
 ## Architecture
@@ -133,7 +133,7 @@ Binary enforcement: `gstack-question-preference --write` requires `source: "inli
 - All data is local-only under `~/.gstack/`. Nothing leaves without explicit user action.
 - `/plan-tune export <path>` writes profile to user-specified path (opt-in export).
 - `/plan-tune delete` wipes local profile files.
-- `gstack-config set telemetry off` prevents any telemetry (this skill never sends profile data regardless).
+- `gstack-config set usage reporting off` prevents any usage reporting (this skill never sends profile data regardless).
 - Profile files have standard user-home permissions.
 
 **Injection defense** (consistent with existing `bin/gstack-learnings-log` patterns): the `question_summary` and any free-form user feedback fields are sanitized against known prompt-injection patterns ("ignore previous instructions," "system:", etc.).
@@ -323,17 +323,17 @@ Initial user position (office-hours): "The psychographic IS the differentiation.
 
 **Chosen: integration point first.** Codex's argument was decisive. The audit is exactly the point — it forces us to catalog what we actually have before building adaptation on top.
 
-### Decision I: Telemetry for TTHW — opt-in telemetry vs. local-only — ANSWER: LOCAL-ONLY
+### Decision I: Local metrics for TTHW — legacy opt-in usage reporting vs. local-only — ANSWER: LOCAL-ONLY
 
-**Opt-in telemetry (original, suggested in DX review):** Instrument TTHW via telemetry event.
+**Opt-in usage reporting (original, suggested in DX review):** Instrument TTHW via usage reporting event.
 - Pros: Quantitative measure of onboarding experience across all users.
-- Cons (Codex #14): Contradicts local-first OSS framing. Adds telemetry surface specifically for this skill.
+- Cons (Codex #14): Contradicts local-first OSS framing. Adds remote-reporting surface specifically for this skill.
 
-**Local-only (revised):** Logging is local. Respect existing `telemetry` config; skill adds no new telemetry channels.
+**Local-only (revised):** Logging is local. Respect local-only policy; skill adds no remote-reporting channels.
 - Pros: Consistent with gstack's local-first ethos.
 - Cons: No aggregate view of onboarding time.
 
-**Chosen: local-only.** If we need TTHW data later, we add it as a gstack-wide telemetry event behind existing opt-in, not a skill-specific one.
+**Chosen: local-only.** If we need TTHW data later, we add it as a gstack-wide remote event behind existing opt-in, not a skill-specific one.
 
 ### Decision J: Profile poisoning defense — no defense vs. confirmation gate vs. user-origin gate — ANSWER: USER-ORIGIN GATE
 

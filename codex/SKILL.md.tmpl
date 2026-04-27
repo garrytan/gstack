@@ -49,11 +49,7 @@ CODEX_BIN=$(which codex 2>/dev/null || echo "")
 If `NOT_FOUND`: stop and tell the user:
 "Codex CLI not found. Install it: `npm install -g @openai/codex` or see https://github.com/openai/codex"
 
-If `NOT_FOUND`, also log the event:
-```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null && _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
-```
+If `NOT_FOUND`, continue without logging; remote reporting has been removed.
 
 ---
 
@@ -64,11 +60,9 @@ CLI version isn't in the known-bad list. Sourcing `gstack-codex-probe` loads the
 shared helpers that both `/codex` and `/autoplan` use.
 
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
 if ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
   echo "AUTH_FAILED"
 fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking
@@ -503,7 +497,7 @@ If token count is not available, display: `Tokens: unknown`
   "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
 - **Timeout (Bash outer gate):** If the Bash call times out (5 min for Review/Challenge, 10 min for Consult), tell the user:
   "Codex timed out. The prompt may be too large or the API may be slow. Try again or use a smaller scope."
-- **Timeout (inner `timeout` wrapper, exit 124):** If the shell `timeout 600` wrapper fires first, the skill's hang-detection block auto-logs a telemetry event + operational learning and prints: "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
+- **Timeout (inner `timeout` wrapper, exit 124):** If the shell `timeout 600` wrapper fires first, the skill's hang-detection block records an operational learning and prints: "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
 - **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
   "Codex returned no response. Check stderr for errors."
 - **Session resume failure:** If resume fails, delete the session file and start fresh.
@@ -520,7 +514,7 @@ If token count is not available, display: `Tokens: unknown`
 - **No double-reviewing.** If the user already ran `/review`, Codex provides a second
   independent opinion. Do not re-run Claude Code's own review.
 - **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
-  that Codex got distracted by skill files: `gstack-config`, `gstack-update-check`,
+  that Codex got distracted by skill files: `gstack-config`,
   `SKILL.md`, or `skills/gstack`. If any of these appear in the output, append a
   warning: "Codex appears to have read gstack skill files instead of reviewing your
   code. Consider retrying."

@@ -43,7 +43,7 @@ Summary of every decision made during the engineering review. Full rationale is 
 
 **Scope (Section 0):**
 1. **Claude-first v1.** Ship compact + rules + verifier on Claude Code only. Codex + OpenClaw land at v1.1 after the wedge is proven on the primary host. Cuts ~2 days of host integration and derisks launch. The original "wedge (ii) native-tool coverage" claim applies to Claude Code at v1; we make no cross-host claim until v1.1.
-2. **13-rule launch library.** v1 ships tests (jest/vitest/pytest/cargo-test/go-test/rspec) + git (diff/log/status) + install (npm/pnpm/pip/cargo). Build/lint/log families defer to v1.1, driven by `gstack compact discover` telemetry from real users.
+2. **13-rule launch library.** v1 ships tests (jest/vitest/pytest/cargo-test/go-test/rspec) + git (diff/log/status) + install (npm/pnpm/pip/cargo). Build/lint/log families defer to v1.1, driven by `gstack compact discover` local discovery data.
 3. **Verifier default ON at v1.0.** `failureCompaction` trigger (exit≠0 AND >50% reduction) is enabled out of the box. The verifier IS the wedge — defaulting it off hides the differentiating feature. Trigger bounds already keep expected fire rate ≤10% of tool calls.
 
 **Architecture (Section 1):**
@@ -684,7 +684,7 @@ Daemon mode is a v2 optimization. If B-series benchmark on the author's corpus s
 - No scenario regresses to <5% reduction under the new rules (catch over-compaction edge cases).
 
 **Privacy (non-negotiable):**
-- Reads `~/.claude/projects/**/*.jsonl` locally only. Never uploads. Never shares. Never logs scenarios to telemetry.
+- Reads `~/.claude/projects/**/*.jsonl` locally only. Never uploads. Never shares. Never uploads scenarios.
 - Output files live under `~/.gstack/compact/benchmark/` with mode `0600`.
 - The command prints a confirmation banner: *"Scanning local transcripts at ~/.claude/projects/ (local-only; nothing leaves this machine)."*
 - Any future community corpus is a separate v2 workstream built from hand-contributed, secret-scanned fixtures on OSS projects.

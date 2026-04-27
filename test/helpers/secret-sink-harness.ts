@@ -9,8 +9,6 @@
  *   - stdout (Bun.spawn pipe)
  *   - stderr (Bun.spawn pipe)
  *   - files written under a per-run $HOME (walked post-mortem)
- *   - telemetry JSONL under $HOME/.gstack/analytics/ (same walk, but called
- *     out separately for clearer test failures)
  *
  * Match rules (any hit = leak):
  *   - exact substring
@@ -49,9 +47,9 @@ export interface SecretSinkOptions {
 }
 
 export interface Leak {
-  channel: 'stdout' | 'stderr' | 'file' | 'telemetry';
+  channel: 'stdout' | 'stderr' | 'file';
   matchType: 'exact' | 'url-decoded' | 'prefix-12' | 'base64';
-  /** For channel=file|telemetry: the path relative to tmpHome. */
+  /** For channel=file: the path relative to tmpHome. */
   where?: string;
   /** Short excerpt around the match (for debugging). */
   excerpt: string;
@@ -63,8 +61,6 @@ export interface SinkResult {
   status: number;
   /** All files written under tmpHome during the run, keyed by relative path. */
   filesWritten: Record<string, string>;
-  /** Subset of filesWritten matching .gstack/analytics/*.jsonl. */
-  telemetry: Record<string, string>;
   /** Leaks discovered. Empty = clean. */
   leaks: Leak[];
   /** Where HOME was pointed during the run (for post-mortem inspection). */
@@ -73,9 +69,6 @@ export interface SinkResult {
 
 export async function runWithSecretSink(opts: SecretSinkOptions): Promise<SinkResult> {
   const tmpHome = opts.tmpHome ?? fs.mkdtempSync(path.join(os.tmpdir(), 'sink-'));
-  // Make sure .gstack exists so bins that append to analytics have somewhere to write.
-  fs.mkdirSync(path.join(tmpHome, '.gstack', 'analytics'), { recursive: true });
-
   const env = {
     // Minimal PATH that still finds jq/git/curl/sed so our bins work.
     PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin',
@@ -109,13 +102,7 @@ export async function runWithSecretSink(opts: SecretSinkOptions): Promise<SinkRe
 
   // Walk tmpHome and read all files (skip binaries / very large files).
   const filesWritten: Record<string, string> = {};
-  const telemetry: Record<string, string> = {};
   walk(tmpHome, tmpHome, filesWritten);
-  for (const [rel, content] of Object.entries(filesWritten)) {
-    if (rel.startsWith('.gstack/analytics/') && rel.endsWith('.jsonl')) {
-      telemetry[rel] = content;
-    }
-  }
 
   // Scan every channel for every seed with every match rule.
   const leaks: Leak[] = [];
@@ -134,14 +121,13 @@ export async function runWithSecretSink(opts: SecretSinkOptions): Promise<SinkRe
       for (const [rel, content] of Object.entries(filesWritten)) {
         const hit = findHit(content, rule);
         if (hit !== null) {
-          const channel = rel.startsWith('.gstack/analytics/') ? 'telemetry' : 'file';
-          leaks.push({ channel, matchType, where: rel, excerpt: excerptAt(content, hit) });
+          leaks.push({ channel: 'file', matchType, where: rel, excerpt: excerptAt(content, hit) });
         }
       }
     }
   }
 
-  return { stdout, stderr, status, filesWritten, telemetry, leaks, tmpHome };
+  return { stdout, stderr, status, filesWritten, leaks, tmpHome };
 }
 
 function walk(root: string, dir: string, out: Record<string, string>) {

@@ -58,7 +58,7 @@ The harness itself is a reusable primitive. `runPlanSkillObservation()` watches 
 
 #### Changed
 
-- 18 preamble resolvers compressed: `generate-ask-user-format.ts`, `generate-brain-sync-block.ts`, `generate-completeness-section.ts`, `generate-completion-status.ts`, `generate-confusion-protocol.ts`, `generate-context-health.ts`, `generate-context-recovery.ts`, `generate-continuous-checkpoint.ts`, `generate-lake-intro.ts`, `generate-preamble-bash.ts`, `generate-proactive-prompt.ts`, `generate-routing-injection.ts`, `generate-telemetry-prompt.ts`, `generate-upgrade-check.ts`, `generate-vendoring-deprecation.ts`, `generate-voice-directive.ts`, `generate-writing-style-migration.ts`, `generate-writing-style.ts`.
+- 18 preamble resolvers compressed: `generate-ask-user-format.ts`, `generate-brain-sync-block.ts`, `generate-completeness-section.ts`, `generate-completion-status.ts`, `generate-confusion-protocol.ts`, `generate-context-health.ts`, `generate-context-recovery.ts`, `generate-continuous-checkpoint.ts`, `generate-lake-intro.ts`, `generate-preamble-bash.ts`, `generate-proactive-prompt.ts`, `generate-routing-injection.ts`, `generate-usage reporting-prompt.ts`, `generate-upgrade-check.ts`, `generate-vendoring-deprecation.ts`, `generate-voice-directive.ts`, `generate-writing-style-migration.ts`, `generate-writing-style.ts`.
 - All 47 generated `SKILL.md` files regenerated; 3 ship golden fixtures regenerated.
 - Plan-* skills retain full preamble surface (Brain Sync, Context Recovery, Routing Injection) — the early slim attempt that cut these was reverted after diagnosing them as load-bearing.
 - 5 existing plan-mode tests (`plan-ceo`, `plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`) rewritten onto the new harness with a 300s observation budget. All 5 verify-pass under `EVALS=1 EVALS_TIER=gate` against the real `claude` binary in 790s sequential.
@@ -200,7 +200,7 @@ Source: `bun test` on HEAD against the pre-change baseline.
 | Multi-host handshake-absence unit test | none | 1 (scans 9 host dirs, <1s) | new regression gate |
 | `bun test` on changed files | 360 gen-skill-docs pass | 360 gen-skill-docs pass | no regression |
 
-The preamble position for the new `## Skill Invocation During Plan Mode` section lands at line ~127 of every `plan-*-review/SKILL.md` (first ~15% of the file), before the upgrade check and onboarding gates, so the authoritative plan-mode rule is the first thing the model reads after bash env setup.
+The preamble position for the new `## Skill Invocation During Plan Mode` section lands at line ~127 of every `plan-*-review/SKILL.md` (first ~15% of the file), before the version check and onboarding gates, so the authoritative plan-mode rule is the first thing the model reads after bash env setup.
 
 ### What this means for plan-mode users
 
@@ -237,11 +237,11 @@ gstack v1.9.0.0 shipped `gbrain-sync`, which assumed a `gbrain` CLI was already 
 
 Six new `bin/` helpers and one new skill template. `bin/gstack-gbrain-repo-policy` stores per-remote ingest tiers at `~/.gstack/gbrain-repo-policy.json` with a `_schema_version: 2` field so future migrations are deterministic (the first one — legacy `allow` → `read-write` — already runs on first read of any pre-D3 file). `bin/gstack-gbrain-detect` emits the full state as JSON so the skill can skip steps that are already done. `bin/gstack-gbrain-install` probes `~/git/gbrain` and `~/gbrain` before cloning fresh (fixes the day-one dup-clone footgun on the author's own machine) and fails hard on PATH shadowing with a three-option remediation menu instead of warn-and-continue. `bin/gstack-gbrain-lib.sh` extracts the `read_secret_to_env` helper used for both PAT collection and pooler-URL paste — one canonical implementation of the stty-echo-off + SIGINT-restore + env-var-only pattern. `bin/gstack-gbrain-supabase-verify` rejects direct-connection URLs (IPv6-only, fails in most environments) with exit code 3 so the caller's retry UX is distinct from a generic format error. `bin/gstack-gbrain-supabase-provision` wraps the Management API — list-orgs, create, poll, pooler-url, list-orphans, delete-project — with full HTTP error coverage (401/403/402/409/429/5xx), exponential backoff, and `--cleanup-orphans` support for the rare case where someone kills setup mid-provision.
 
-The skill template itself threads these together into a single interactive flow. PAT collection shows the full scope disclosure verbatim before the read-s prompt, explains that the token grants access to every project in the user's Supabase account, and emits a revocation reminder at the end. Path 1's pooler-URL paste gets the same hygiene plus a redacted preview (host / port / database visible, password masked). Switching between engines wraps `gbrain migrate` in `timeout 180s` with an actionable message on deadlock. Concurrent-run protection via `mkdir ~/.gstack/.setup-gbrain.lock.d`. Telemetry records scenario, install result, MCP opt-in, trust tier — all enumerated categorical values, never free-form strings that could leak secrets.
+The skill template itself threads these together into a single interactive flow. PAT collection shows the full scope disclosure verbatim before the read-s prompt, explains that the token grants access to every project in the user's Supabase account, and emits a revocation reminder at the end. Path 1's pooler-URL paste gets the same hygiene plus a redacted preview (host / port / database visible, password masked). Switching between engines wraps `gbrain migrate` in `timeout 180s` with an actionable message on deadlock. Concurrent-run protection via `mkdir ~/.gstack/.setup-gbrain.lock.d`. Usage reporting records scenario, install result, MCP opt-in, trust tier — all enumerated categorical values, never free-form strings that could leak secrets.
 
 `/health` gets a new GBrain dimension (weight 10%, wrapped in `timeout 5s`) alongside type-check / lint / tests / dead-code / shell-linter. The dimension is omitted — not red — when gbrain isn't installed, so running `/health` on a non-gbrain machine doesn't penalize that choice.
 
-`test/helpers/secret-sink-harness.ts` is new infrastructure. Runs a subprocess with a seeded secret, captures stdout / stderr / files-under-HOME / telemetry-JSONL, and asserts the seed never appears in any channel via four match rules (exact + URL-decoded + first-12-char prefix + base64). Seven positive-control tests prove the harness catches leaks in every covered channel; four negative controls run real setup-gbrain bins with seeded secrets and confirm nothing escapes. Any future skill that handles secrets can import `runWithSecretSink` and run the same pattern.
+`test/helpers/secret-sink-harness.ts` is new infrastructure. Runs a subprocess with a seeded secret, captures stdout / stderr / files-under-HOME / usage reporting-JSONL, and asserts the seed never appears in any channel via four match rules (exact + URL-decoded + first-12-char prefix + base64). Seven positive-control tests prove the harness catches leaks in every covered channel; four negative controls run real setup-gbrain bins with seeded secrets and confirm nothing escapes. Any future skill that handles secrets can import `runWithSecretSink` and run the same pattern.
 
 ### The numbers that matter
 
@@ -289,7 +289,7 @@ If you ran `/plan-ceo-review` or any interactive review skill while in plan mode
 
 ### What shipped
 
-Four interactive review skills (plan-ceo-review, plan-eng-review, plan-design-review, plan-devex-review) now emit a two-option AskUserQuestion the moment plan mode is detected: exit-and-rerun interactively, or cancel. No silent bypass. The gate is classified one-way-door in the question registry so `/plan-tune` preferences can't auto-decide past it. Outcome gets logged to `~/.gstack/analytics/skill-usage.jsonl` synchronously when the handshake fires, so A-exit and C-cancel are captured even though they terminate the skill before the end-of-run telemetry block.
+Four interactive review skills (plan-ceo-review, plan-eng-review, plan-design-review, plan-devex-review) now emit a two-option AskUserQuestion the moment plan mode is detected: exit-and-rerun interactively, or cancel. No silent bypass. The gate is classified one-way-door in the question registry so `/plan-tune` preferences can't auto-decide past it. Outcome gets logged to `legacy local usage log` synchronously when the handshake fires, so A-exit and C-cancel are captured even though they terminate the skill before the end-of-run usage reporting block.
 
 The test harness got a canUseTool extension built on Anthropic's Agent SDK (already installed at v0.2.117). When a test supplies a canUseTool callback, `test/helpers/agent-sdk-runner.ts` flips `permissionMode` from `bypassPermissions` to `default` so the callback actually fires. This is the foundation for asserting AskUserQuestion content end-to-end, which gstack's E2E tests previously couldn't do at all. They had to instruct the model to skip AskUserQuestion entirely. Every future interactive-skill test builds on this.
 
@@ -304,7 +304,7 @@ Source: new unit tests in `test/gen-skill-docs.test.ts` (8 tests covering handsh
 | E2E tests that can assert AskUserQuestion content | 0 | 1 harness primitive, ready for every interactive skill |
 | Plan-mode entry to any of 4 review skills | Silent bypass | Two-option STOP gate |
 | Step 0C-bis in plan-ceo-review | No STOP block, could drift to 0F | Explicit `**STOP.**` block matching 0F pattern |
-| Post-handshake telemetry outcomes captured | Neither A-exit nor C-cancel | Both (synchronous write before ExitPlanMode) |
+| Post-handshake usage reporting outcomes captured | Neither A-exit nor C-cancel | Both (synchronous write before ExitPlanMode) |
 
 ### What this means for builders
 
@@ -321,10 +321,10 @@ If you're building new interactive skills (yours or contributing to gstack), you
 
 #### Added
 
-- New resolver `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` emits the handshake prose and telemetry bash. Host-scoped to Claude only via `ctx.host === 'claude'` check. Opt-in per skill via `interactive: true` in frontmatter.
+- New resolver `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` emits the handshake prose and usage reporting bash. Host-scoped to Claude only via `ctx.host === 'claude'` check. Opt-in per skill via `interactive: true` in frontmatter.
 - New frontmatter field `interactive: boolean` on skill templates. Generator-only input parsed by `scripts/gen-skill-docs.ts`, never written to generated SKILL.md output (follows the `preamble-tier` precedent).
 - New question registry entries `plan-{ceo,eng,design,devex}-review-plan-mode-handshake` with `door_type: 'one-way'` in `scripts/question-registry.ts`. Question-tuning `never-ask` preferences cannot suppress this gate.
-- New telemetry field `plan_mode_handshake` in `~/.gstack/analytics/skill-usage.jsonl` with outcomes `fired`, `A-exit`, `C-cancel` written synchronously as the handshake fires. Captures outcomes that would otherwise terminate the skill before end-of-run telemetry runs.
+- New usage reporting field `plan_mode_handshake` in `legacy local usage log` with outcomes `fired`, `A-exit`, `C-cancel` written synchronously as the handshake fires. Captures outcomes that would otherwise terminate the skill before end-of-run usage reporting runs.
 - `test/helpers/agent-sdk-runner.ts` extended with optional `canUseTool` callback parameter. When supplied, flips `permissionMode` to `default`, auto-adds `AskUserQuestion` to `allowedTools`, and passes the callback to the SDK. Exports `passThroughNonAskUserQuestion` helper for tests that only want to assert on AskUserQuestion but auto-allow other tools.
 
 #### For contributors
@@ -391,7 +391,7 @@ If you ran `/plan-ceo-review` or any interactive review skill while in plan mode
 
 ### What shipped
 
-Four interactive review skills (plan-ceo-review, plan-eng-review, plan-design-review, plan-devex-review) now emit a two-option AskUserQuestion the moment plan mode is detected: exit-and-rerun interactively, or cancel. No silent bypass. The gate is classified one-way-door in the question registry so `/plan-tune` preferences can't auto-decide past it. Outcome gets logged to `~/.gstack/analytics/skill-usage.jsonl` synchronously when the handshake fires, so A-exit and C-cancel are captured even though they terminate the skill before the end-of-run telemetry block.
+Four interactive review skills (plan-ceo-review, plan-eng-review, plan-design-review, plan-devex-review) now emit a two-option AskUserQuestion the moment plan mode is detected: exit-and-rerun interactively, or cancel. No silent bypass. The gate is classified one-way-door in the question registry so `/plan-tune` preferences can't auto-decide past it. Outcome gets logged to `legacy local usage log` synchronously when the handshake fires, so A-exit and C-cancel are captured even though they terminate the skill before the end-of-run usage reporting block.
 
 The test harness got a canUseTool extension built on Anthropic's Agent SDK (already installed at v0.2.117). When a test supplies a canUseTool callback, `test/helpers/agent-sdk-runner.ts` flips `permissionMode` from `bypassPermissions` to `default` so the callback actually fires. This is the foundation for asserting AskUserQuestion content end-to-end, which gstack's E2E tests previously couldn't do at all. They had to instruct the model to skip AskUserQuestion entirely. Every future interactive-skill test builds on this.
 
@@ -406,7 +406,7 @@ Source: new unit tests in `test/gen-skill-docs.test.ts` (8 tests covering handsh
 | E2E tests that can assert AskUserQuestion content | 0 | 1 harness primitive, ready for every interactive skill |
 | Plan-mode entry to any of 4 review skills | Silent bypass | Two-option STOP gate |
 | Step 0C-bis in plan-ceo-review | No STOP block, could drift to 0F | Explicit `**STOP.**` block matching 0F pattern |
-| Post-handshake telemetry outcomes captured | Neither A-exit nor C-cancel | Both (synchronous write before ExitPlanMode) |
+| Post-handshake usage reporting outcomes captured | Neither A-exit nor C-cancel | Both (synchronous write before ExitPlanMode) |
 
 ### What this means for builders
 
@@ -423,10 +423,10 @@ If you're building new interactive skills (yours or contributing to gstack), you
 
 #### Added
 
-- New resolver `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` emits the handshake prose and telemetry bash. Host-scoped to Claude only via `ctx.host === 'claude'` check. Opt-in per skill via `interactive: true` in frontmatter.
+- New resolver `scripts/resolvers/preamble/generate-plan-mode-handshake.ts` emits the handshake prose and usage reporting bash. Host-scoped to Claude only via `ctx.host === 'claude'` check. Opt-in per skill via `interactive: true` in frontmatter.
 - New frontmatter field `interactive: boolean` on skill templates. Generator-only input parsed by `scripts/gen-skill-docs.ts`, never written to generated SKILL.md output (follows the `preamble-tier` precedent).
 - New question registry entry `plan-mode-handshake` with `door_type: 'one-way'` in `scripts/question-registry.ts`. Question-tuning `never-ask` preferences cannot suppress this gate.
-- New telemetry field `plan_mode_handshake` in `~/.gstack/analytics/skill-usage.jsonl` with outcomes `fired`, `A-exit`, `C-cancel` written synchronously as the handshake fires. Captures outcomes that would otherwise terminate the skill before end-of-run telemetry runs.
+- New usage reporting field `plan_mode_handshake` in `legacy local usage log` with outcomes `fired`, `A-exit`, `C-cancel` written synchronously as the handshake fires. Captures outcomes that would otherwise terminate the skill before end-of-run usage reporting runs.
 - `test/helpers/agent-sdk-runner.ts` extended with optional `canUseTool` callback parameter. When supplied, flips `permissionMode` to `default`, auto-adds `AskUserQuestion` to `allowedTools`, and passes the callback to the SDK. Exports `passThroughNonAskUserQuestion` helper for tests that only want to assert on AskUserQuestion but auto-allow other tools.
 
 #### For contributors
@@ -991,7 +991,7 @@ Page numbers are now controlled by one flag from CLI to CSS, with the custom-foo
 
 ## **Your sidebar agent now defends itself against prompt injection.**
 
-Open a web page with hidden malicious instructions, gstack's sidebar doesn't just trust that Claude will do the right thing. A 22MB ML classifier bundled with the browser scans every page you load, every tool output, every message you send. If it looks like a prompt injection attack, the session stops before Claude executes anything dangerous. A secret canary token in the system prompt catches attempts to exfil your session, if that token shows up anywhere in Claude's output, tool arguments, URLs, or file writes, the session terminates and you see exactly which layer fired and at what confidence. Attempts go to a local log you can read, and optionally to aggregate community telemetry so every gstack user becomes a sensor for defense improvements.
+Open a web page with hidden malicious instructions, gstack's sidebar doesn't just trust that Claude will do the right thing. A 22MB ML classifier bundled with the browser scans every page you load, every tool output, every message you send. If it looks like a prompt injection attack, the session stops before Claude executes anything dangerous. A secret canary token in the system prompt catches attempts to exfil your session, if that token shows up anywhere in Claude's output, tool arguments, URLs, or file writes, the session terminates and you see exactly which layer fired and at what confidence. Attempts go to a local log you can read, and optionally to aggregate community usage reporting so every gstack user becomes a sensor for defense improvements.
 
 ### What changes for you
 
@@ -1010,7 +1010,7 @@ If an attack fires, a centered alert-heavy banner appears, "Session terminated, 
 | Optional ensemble model | none | **721MB DeBERTa-v3** (opt-in via `GSTACK_SECURITY_ENSEMBLE=deberta`) |
 | BLOCK decision rule | none | **2-of-2 ML agreement** (or 2-of-3 with ensemble), prevents single-classifier false positives from killing sessions |
 | Tests covering security surface | 12 | **280** (25 foundation + 23 adversarial + 10 integration + 9 classifier + 7 Playwright + 3 bench + 6 bun-native + 15 source-contracts + 11 adversarial-fix regressions + others) |
-| Attack telemetry aggregation | local file only | **community-pulse edge function + gstack-security-dashboard CLI** |
+| Attack usage reporting aggregation | local file only | **legacy community pulse edge function + gstack-security-dashboard CLI** |
 
 ### What actually ships
 
@@ -1019,7 +1019,7 @@ If an attack fires, a centered alert-heavy banner appears, "Session terminated, 
 * **Pre-spawn ML scan** on every user message plus tool output scan on every Read, Glob, Grep, WebFetch, Bash result
 * **Shield icon** with 3 states (green, amber, red) updating continuously via `/sidebar-chat` poll
 * **Canary leak banner** (centered alert-heavy, per approved design mockup) with expandable layer-score detail
-* **Attack telemetry** via existing `gstack-telemetry-log` to `community-pulse` to Supabase pipe (tier-gated, community uploads, anonymous local-only, off is no-op)
+* **Attack usage reporting** via existing `legacy usage-log helper` to `legacy community pulse` to legacy upload pipe (tier-gated, community uploads, anonymous local-only, off is no-op)
 * **`gstack-security-dashboard` CLI** — attacks detected last 7 days, top attacked domains, layer distribution, verdict split
 * **BrowseSafe-Bench smoke harness** — 200 cases from Perplexity's 3,680-case adversarial dataset, cached hermetically, gates on signal separation
 * **Live Playwright integration test** pins the L1 through L6 defense-in-depth contract
@@ -1068,7 +1068,7 @@ Honest shipping posture: this is meaningfully safer than v1.3.x, not bulletproof
 
 ### For contributors
 
-Supabase migration `004_attack_telemetry.sql` adds five nullable columns to `telemetry_events` (`security_url_domain`, `security_payload_hash`, `security_confidence`, `security_layer`, `security_verdict`) plus two partial indices for dashboard aggregation. `community-pulse` edge function aggregates the security section. Run `cd supabase && ./verify-rls.sh` and deploy via your normal Supabase deploy flow.
+Supabase migration `004_attack_usage reporting.sql` adds five nullable columns to `usage reporting_events` (`security_url_domain`, `security_payload_hash`, `security_confidence`, `security_layer`, `security_verdict`) plus two partial indices for dashboard aggregation. `legacy community pulse` edge function aggregates the security section. Run `cd supabase && ./verify-rls.sh` and deploy via your normal Supabase deploy flow.
 
 ---
 
@@ -1319,10 +1319,10 @@ If you're a solo builder or founder shipping a product one sprint at a time, `/d
 - **Plan reviews no longer quietly bias toward minimal-diff recommendations.** `/plan-ceo-review` and `/plan-eng-review` used to list "minimal diff" as an engineering preference without a counterbalancing "rewrite is fine when warranted" note. Reviewers picked up on that and rejected rewrites that should've been approved. The preference is now framed as "right-sized diff" with explicit permission to recommend a rewrite when the existing foundation is broken. Implementation alternatives in CEO review also got an equal-weight clarification: don't default to minimal viable just because it's smaller.
 
 ### For contributors
-- New `bin/gstack-codex-probe` consolidates the auth probe, version check, timeout wrapper, and telemetry logger into one bash helper that `/codex` and `/autoplan` both source. When a second outside-voice backend lands (Gemini CLI), this is the file to extend.
-- New `test/codex-hardening.test.ts` ships 25 deterministic unit tests for the probe (8 auth probe combinations, 10 version regex cases including `0.120.10` false-positive guards, 4 timeout wrapper + namespace hygiene checks, 3 telemetry payload schema checks confirming no env values leak into events). Free tier, <5s runtime.
+- New `bin/gstack-codex-probe` consolidates the auth probe, version check, timeout wrapper, and usage reporting logger into one bash helper that `/codex` and `/autoplan` both source. When a second outside-voice backend lands (Gemini CLI), this is the file to extend.
+- New `test/codex-hardening.test.ts` ships 25 deterministic unit tests for the probe (8 auth probe combinations, 10 version regex cases including `0.120.10` false-positive guards, 4 timeout wrapper + namespace hygiene checks, 3 usage reporting payload schema checks confirming no env values leak into events). Free tier, <5s runtime.
 - New `test/skill-e2e-autoplan-dual-voice.test.ts` (periodic tier) gates the `/autoplan` dual-voice path. Asserts both Claude subagent and Codex voices produce output in Phase 1, OR that `[codex-unavailable]` is logged when Codex is absent. Periodic ~= $1/run, not a gate.
-- Codex failure telemetry events (`codex_timeout`, `codex_auth_failed`, `codex_cli_missing`, `codex_version_warning`) now land in `~/.gstack/analytics/skill-usage.jsonl` behind the existing user opt-in. Reliability regressions are visible at the user-base scale.
+- Codex failure usage reporting events (`codex_timeout`, `codex_auth_failed`, `codex_cli_missing`, `codex_version_warning`) now land in `legacy local usage log` behind the existing user opt-in. Reliability regressions are visible at the user-base scale.
 - Codex timeouts (`exit 124`) now auto-log operational learnings via `gstack-learnings-log`. Future `/investigate` sessions on the same skill/branch surface prior hang patterns automatically.
 
 ## [0.18.3.0] - 2026-04-17
@@ -1538,7 +1538,7 @@ Community security wave: 8 PRs from 4 contributors, every fix credited as co-aut
 - Queue files created with 0o700/0o600 permissions (server, CLI, sidebar-agent).
 - `escapeRegExp` utility exported from meta-commands.
 - State load filters cookies from localhost, .internal, and metadata domains.
-- Telemetry sync logs upsert errors from installation tracking.
+- Usage reporting sync logs upsert errors from installation tracking.
 
 ## [0.15.14.0] - 2026-04-05
 
@@ -1560,7 +1560,7 @@ Hat tip to Jared Friedman for the design.
 - **`./setup -q` / `--quiet`.** Suppresses all informational output. Used by the session-update hook but also useful for CI and scripted installs.
 - **`gstack-team-init` command.** Generates repo-level bootstrap files in two flavors: `optional` (gentle CLAUDE.md suggestion, one-time offer per developer) or `required` (CLAUDE.md enforcement + PreToolUse hook that blocks work without gstack installed).
 - **`gstack-settings-hook` helper.** DRY utility for adding/removing hooks in Claude Code's `settings.json`. Atomic writes (.tmp + rename) prevent corruption.
-- **`gstack-session-update` script.** The SessionStart hook target. Background fork, PID-based lockfile with stale recovery, `GIT_TERMINAL_PROMPT=0` to prevent credential prompt hangs, debug log at `~/.gstack/analytics/session-update.log`.
+- **`legacy session refresh helper` script.** The SessionStart hook target. Background fork, PID-based lockfile with stale recovery, `GIT_TERMINAL_PROMPT=0` to prevent credential prompt hangs, debug log at `legacy local session-update log`.
 - **Vendoring deprecation in preamble.** Every skill now detects vendored gstack copies in the project and offers one-time migration to team mode. "Want me to do it for you?" beats "here are 4 manual steps."
 
 ### Changed
@@ -1696,7 +1696,7 @@ Fourteen fixes for the security audit (#783). Design server no longer binds all 
 - **DNS rebinding protection checks IPv6.** AAAA records now validated alongside A records. Blocks fe80:: link-local addresses.
 - **Symlink bypass in validateOutputPath.** Real path resolved after lexical validation to catch symlinks inside safe directories.
 - **URL validation on restoreState.** Saved URLs validated before navigation to prevent state file tampering.
-- **Telemetry endpoint uses anon key.** Service role key (bypasses RLS) replaced with anon key for the public telemetry endpoint.
+- **Usage reporting endpoint uses anon key.** Service role key (bypasses RLS) replaced with anon key for the public usage reporting endpoint.
 - **killAgent actually kills subprocess.** Cross-process kill signaling via kill-file + polling.
 
 ## [0.15.6.2] - 2026-04-04. Anti-Skip Review Rule
@@ -1826,7 +1826,7 @@ Your AI sessions now remember what happened. Plans, reviews, checkpoints, and he
 
 ### Added
 
-- **Session timeline.** Every skill auto-logs start/complete events to `timeline.jsonl`. Local-only, never sent anywhere, always on regardless of telemetry setting. /retro can now show "this week: 3 /review, 2 /ship across 3 branches."
+- **Session timeline.** Every skill auto-logs start/complete events to `timeline.jsonl`. Local-only, never sent anywhere, always on regardless of usage reporting setting. /retro can now show "this week: 3 /review, 2 /ship across 3 branches."
 - **Context recovery.** After compaction or session start, the preamble lists your recent CEO plans, checkpoints, and reviews. The agent reads the most recent one to recover decisions and progress without asking you to repeat yourself.
 - **Cross-session injection.** On session start, the preamble prints your last skill run on this branch and your latest checkpoint. You see "Last session: /review (success)" before typing anything.
 - **Predictive skill suggestion.** If your last 3 sessions on a branch follow a pattern (review, ship, review), gstack suggests what you probably want next.
@@ -1973,13 +1973,13 @@ You can now go from an approved design mockup to production-quality HTML with on
 
 ## [0.13.10.0] - 2026-03-29. Office Hours Gets a Reading List
 
-Repeat /office-hours users now get fresh, curated resources every session instead of the same YC closing. 34 hand-picked videos and essays from Garry Tan, Lightcone Podcast, YC Startup School, and Paul Graham, contextually matched to what came up during the session. The system remembers what it already showed you, so you never see the same recommendation twice.
+Repeat /office-hours users now get fresh, curated resources every session instead of the same closing. 34 hand-picked videos and essays from Garry Tan, Lightcone Podcast, startup education, and Paul Graham, contextually matched to what came up during the session. The system remembers what it already showed you, so you never see the same recommendation twice.
 
 ### Added
 
-- **Rotating founder resources in /office-hours closing.** 34 curated resources across 5 categories (Garry Tan videos, YC Backstory, Lightcone Podcast, YC Startup School, Paul Graham essays). Claude picks 2-3 per session based on session context, not randomly.
+- **Rotating founder resources in /office-hours closing.** 34 curated resources across 5 categories (Garry Tan videos, founder interview, Lightcone Podcast, startup education, Paul Graham essays). Claude picks 2-3 per session based on session context, not randomly.
 - **Resource dedup log.** Tracks which resources were shown in `~/.gstack/projects/$SLUG/resources-shown.jsonl` so repeat users always see fresh content.
-- **Resource selection analytics.** Logs which resources get picked to `skill-usage.jsonl` so you can see patterns over time.
+- **Resource selection analytics.** Logs which resources get picked to `legacy local usage log` so you can see patterns over time.
 - **Browser-open offer.** After showing resources, offers to open them in your browser so you can check them out later.
 
 ### Fixed
@@ -2030,11 +2030,11 @@ Browse output is now wrapped in trust boundary markers so agents can tell page c
 
 ## [0.13.7.0] - 2026-03-29. Community Wave
 
-Six community fixes with 16 new tests. Telemetry off now means off everywhere. Skills are findable by name. And changing your prefix setting actually works now.
+Six community fixes with 16 new tests. Usage reporting off now means off everywhere. Skills are findable by name. And changing your prefix setting actually works now.
 
 ### Fixed
 
-- **Telemetry off means off everywhere.** When you set telemetry to off, gstack no longer writes local JSONL analytics files. Previously "off" only stopped remote reporting. Now nothing is written anywhere. Clean trust contract.
+- **Usage reporting off means off everywhere.** When you set usage reporting to off, gstack no longer writes local JSONL analytics files. Previously "off" only stopped remote reporting. Now nothing is written anywhere. Clean trust contract.
 - **`find -delete` replaced with POSIX `-exec rm`.** Safety Net and other non-GNU environments no longer choke on session cleanup.
 - **No more preemptive context warnings.** `/plan-eng-review` no longer warns you about running low on context. The system handles compaction automatically.
 - **Sidebar security test updated** for Write tool fallback string change.
@@ -2152,7 +2152,7 @@ The browse server runs on localhost and requires a token for access, so these is
 - **Extension uses `textContent` instead of `innerHTML`.** Prevents DOM injection if server-provided data ever contained markup. Standard defense-in-depth for browser extensions.
 - **Path validation resolves symlinks before boundary checks.** `validateReadPath` now calls `realpathSync` and handles macOS `/tmp` symlink correctly.
 - **Freeze hook uses portable path resolution.** POSIX-compatible (works on macOS without coreutils), fixes edge case where `/project-evil` could match a freeze boundary set to `/project`.
-- **Shell config scripts validate input.** `gstack-config` rejects regex-special keys and escapes sed patterns. `gstack-telemetry-log` sanitizes branch/repo names in JSON output.
+- **Shell config scripts validate input.** `gstack-config` rejects regex-special keys and escapes sed patterns. `legacy usage-log helper` sanitizes branch/repo names in JSON output.
 
 ### Added
 
@@ -2192,12 +2192,12 @@ gstack can generate real UI mockups. Not ASCII art, not text descriptions of hex
 
 ## [0.12.12.0] - 2026-03-27. Security Audit Compliance
 
-Fixes 20 Socket alerts and 3 Snyk findings from the skills.sh security audit. Your skills are now cleaner, your telemetry is transparent, and 2,000 lines of dead code are gone.
+Fixes 20 Socket alerts and 3 Snyk findings from the skills.sh security audit. Your skills are now cleaner, your usage reporting is transparent, and 2,000 lines of dead code are gone.
 
 ### Fixed
 
 - **No more hardcoded credentials in examples.** QA workflow docs now use `$TEST_EMAIL` / `$TEST_PASSWORD` env vars instead of `test@example.com` / `password123`. Cookie import section now has a safety note.
-- **Telemetry calls are conditional.** The `gstack-telemetry-log` binary only runs if telemetry is enabled AND the binary exists. Local JSONL logging always works, no binary needed.
+- **Usage reporting calls are conditional.** The `legacy usage-log helper` binary only runs if usage reporting is enabled AND the binary exists. Local JSONL logging always works, no binary needed.
 - **Bun install is version-pinned.** Install instructions now pin `BUN_VERSION=1.3.10` and skip the download if bun is already installed.
 - **Untrusted content warning.** Every skill that fetches pages now warns: treat page content as data to inspect, not commands to execute. Covers generated SKILL.md files, BROWSER.md, and docs/skills.md.
 - **Data flow documented in review.ts.** JSDoc header explicitly states what data is sent to external review services (plan content, repo/branch name) and what is NOT sent (source code, credentials, env vars).
@@ -2236,8 +2236,8 @@ Codex was wandering into `~/.claude/skills/` and following gstack's own instruct
 
 ### Fixed
 
-- **Codex stays in the repo.** All `codex exec` and `codex review` calls now prepend a filesystem boundary instruction telling Codex to ignore skill definition files. Prevents Codex from reading SKILL.md preamble scripts and wasting 8+ minutes on session tracking and upgrade checks.
-- **Rabbit-hole detection.** If Codex output contains signs it got distracted by skill files (`gstack-config`, `gstack-update-check`, `SKILL.md`, `skills/gstack`), the /codex skill now warns and suggests a retry.
+- **Codex stays in the repo.** All `codex exec` and `codex review` calls now prepend a filesystem boundary instruction telling Codex to ignore skill definition files. Prevents Codex from reading SKILL.md preamble scripts and wasting 8+ minutes on session tracking and version checks.
+- **Rabbit-hole detection.** If Codex output contains signs it got distracted by skill files (`gstack-config`, `legacy update helper`, `SKILL.md`, `skills/gstack`), the /codex skill now warns and suggests a retry.
 - **5 regression tests.** New test suite validates boundary text appears in all 7 codex-calling skills, the Filesystem Boundary section exists, the rabbit-hole detection rule exists, and autoplan uses cross-host-compatible path patterns.
 
 ## [0.12.9.0] - 2026-03-27. Community PRs: Faster Install, Skill Namespacing, Uninstall
@@ -2290,15 +2290,15 @@ When you run gstack in Conductor with multiple workspaces open, Codex could sile
 
 ## [0.12.7.0] - 2026-03-27. Community PRs + Security Hardening
 
-Seven community contributions merged, reviewed, and tested. Plus security hardening for telemetry and review logging, and E2E test stability fixes.
+Seven community contributions merged, reviewed, and tested. Plus security hardening for usage reporting and review logging, and E2E test stability fixes.
 
 ### Added
 
 - **Dotfile filtering in skill discovery.** Hidden directories (`.git`, `.vscode`, etc.) are no longer picked up as skill templates.
 - **JSON validation gate in review-log.** Malformed input is rejected instead of appended to the JSONL file.
-- **Telemetry input sanitization.** All string fields are stripped of quotes, backslashes, and control characters before being written to JSONL.
+- **Usage reporting input sanitization.** All string fields are stripped of quotes, backslashes, and control characters before being written to JSONL.
 - **Host-specific co-author trailers.** `/ship` and `/document-release` now use the correct co-author line for Codex vs Claude.
-- **10 new security tests** covering telemetry injection, review-log validation, and dotfile filtering.
+- **10 new security tests** covering usage reporting injection, review-log validation, and dotfile filtering.
 
 ### Fixed
 
@@ -2506,7 +2506,7 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 
 ### Fixed
 
-- **Telemetry source tagging no longer crashes.** Fixed duration guards and source field validation in the telemetry logger so it handles edge cases cleanly instead of erroring.
+- **Usage reporting source tagging no longer crashes.** Fixed duration guards and source field validation in the usage reporting logger so it handles edge cases cleanly instead of erroring.
 
 ## [0.11.16.1] - 2026-03-24. Installation ID Privacy Fix
 
@@ -2515,19 +2515,19 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 - **Installation IDs are now random UUIDs instead of hostname hashes.** The old `SHA-256(hostname+username)` approach meant anyone who knew your machine identity could compute your installation ID. Now uses a random UUID stored in `~/.gstack/installation-id`. not derivable from any public input, rotatable by deleting the file.
 - **RLS verification script handles edge cases.** `verify-rls.sh` now correctly treats INSERT success as expected (kept for old client compat), handles 409 conflicts and 204 no-ops.
 
-## [0.11.16.0] - 2026-03-24. Smarter CI + Telemetry Security
+## [0.11.16.0] - 2026-03-24. Smarter CI + Usage reporting Security
 
 ### Changed
 
 - **CI runs only gate tests by default. periodic tests run weekly.** Every E2E test is now classified as `gate` (blocks PRs) or `periodic` (weekly cron + on-demand). Gate tests cover functional correctness and safety guardrails. Periodic tests cover expensive Opus quality benchmarks, non-deterministic routing tests, and tests requiring external services (Codex, Gemini). CI feedback is faster and cheaper while quality benchmarks still run weekly.
 - **Global touchfiles are now granular.** Previously, changing `gen-skill-docs.ts` triggered all 56 E2E tests. Now only the ~27 tests that actually depend on it run. Same for `llm-judge.ts`, `test-server.ts`, `worktree.ts`, and the Codex/Gemini session runners. The truly global list is down to 3 files (session-runner, eval-store, touchfiles.ts itself).
 - **New `test:gate` and `test:periodic` scripts** replace `test:e2e:fast`. Use `EVALS_TIER=gate` or `EVALS_TIER=periodic` to filter tests by tier.
-- **Telemetry sync uses `GSTACK_SUPABASE_URL` instead of `GSTACK_TELEMETRY_ENDPOINT`.** Edge functions need the base URL, not the REST API path. The old variable is removed from `config.sh`.
+- **Usage reporting sync uses `GSTACK_SUPABASE_URL` instead of `GSTACK_TELEMETRY_ENDPOINT`.** Edge functions need the base URL, not the REST API path. The old variable is removed from `config.sh`.
 - **Cursor advancement is now safe.** The sync script checks the edge function's `inserted` count before advancing. if zero events were inserted, the cursor holds and retries next run.
 
 ### Fixed
 
-- **Telemetry RLS policies tightened.** Row-level security policies on all telemetry tables now deny direct access via the anon key. All reads and writes go through validated edge functions with schema checks, event type allowlists, and field length limits.
+- **Usage reporting RLS policies tightened.** Row-level security policies on all usage reporting tables now deny direct access via the anon key. All reads and writes go through validated edge functions with schema checks, event type allowlists, and field length limits.
 - **Community dashboard is faster and server-cached.** Dashboard stats are now served from a single edge function with 1-hour server-side caching, replacing multiple direct queries.
 
 ### For contributors
@@ -2538,7 +2538,7 @@ You can now watch Claude work in a real Chrome window and direct it from a sideb
 - New `.github/workflows/evals-periodic.yml` runs periodic tests Monday 6 AM UTC
 - New migration: `supabase/migrations/002_tighten_rls.sql`
 - New smoke test: `supabase/verify-rls.sh` (9 checks: 5 reads + 4 writes)
-- Extended `test/telemetry.test.ts` with field name verification
+- Extended `test/usage reporting.test.ts` with field name verification
 - Untracked `browse/dist/` binaries from git (arm64-only, rebuilt by `./setup`)
 
 ## [0.11.15.0] - 2026-03-24. E2E Test Coverage for Plan Reviews & Codex
@@ -2617,7 +2617,7 @@ Every `/autoplan` phase now gets two independent second opinions. one from Codex
 ### Fixed
 
 - **Browse server startup crash.** The browse server lock acquisition failed when `.gstack/` directory didn't exist, causing every invocation to think another process held the lock. Fixed by creating the state directory before lock acquisition.
-- **Zsh glob errors in skill preamble.** The telemetry cleanup loop no longer throws `no matches found` in zsh when no pending files exist.
+- **Zsh glob errors in skill preamble.** The usage reporting cleanup loop no longer throws `no matches found` in zsh when no pending files exist.
 - **`--force` now actually forces upgrades.** `gstack-upgrade --force` clears the snooze file, so you can upgrade immediately after snoozing.
 - **Three-dot diff in /review scope drift detection.** Scope drift analysis now correctly shows changes since branch creation, not accumulated changes on the base branch.
 - **CI workflow YAML parsing.** Fixed unquoted multiline `run:` scalars that broke YAML parsing. Added actionlint CI workflow.
@@ -2659,14 +2659,14 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 ### For contributors
 
 - `test/gen-skill-docs.test.ts` validates all `.agents/` descriptions stay within 1024 chars
-- `gstack-update-check` includes a one-time migration that deletes oversized Codex SKILL.md files
+- `legacy update helper` includes a one-time migration that deletes oversized Codex SKILL.md files
 - P1 TODO added: Codex→Claude reverse buddy check skill
 
 ## [0.11.8.0] - 2026-03-23. zsh Compatibility Fix
 
 ### Fixed
 
-- **gstack skills now work in zsh without errors.** Every skill preamble used a `.pending-*` glob pattern that triggered zsh's "no matches found" error on every invocation (the common case where no pending telemetry files exist). Replaced shell glob with `find` to avoid zsh's NOMATCH behavior entirely. Thanks to @hnshah for the initial report and fix in PR #332. Fixes #313.
+- **gstack skills now work in zsh without errors.** Every skill preamble used a `.pending-*` glob pattern that triggered zsh's "no matches found" error on every invocation (the common case where no pending usage reporting files exist). Replaced shell glob with `find` to avoid zsh's NOMATCH behavior entirely. Thanks to @hnshah for the initial report and fix in PR #332. Fixes #313.
 
 ### Added
 
@@ -2854,7 +2854,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - **E2E tests now run 3-5x faster.** Structure tests default to Sonnet (5x faster, 5x cheaper). Quality tests (planted-bug detection, design quality, strategic review) stay on Opus. Full suite dropped from 50-80 minutes to ~15-25 minutes.
 - **`--retry 2` on all E2E tests.** Flaky tests get a second chance without masking real failures.
 - **`test:e2e:fast` tier.** Excludes the 8 slowest Opus quality tests for quick feedback (~5-7 minutes). Run `bun run test:e2e:fast` for rapid iteration.
-- **E2E timing telemetry.** Every test now records `first_response_ms`, `max_inter_turn_ms`, and `model` used. Wall-clock timing shows whether parallelism is actually working.
+- **E2E timing usage reporting.** Every test now records `first_response_ms`, `max_inter_turn_ms`, and `model` used. Wall-clock timing shows whether parallelism is actually working.
 
 ### Fixed
 
@@ -2936,17 +2936,17 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 - **Your design docs now get stress-tested before you see them.** When you run `/office-hours`, an independent AI reviewer checks your design doc for completeness, consistency, clarity, scope creep, and feasibility. up to 3 rounds. You get a quality score (1-10) and a summary of what was caught and fixed. The doc you approve has already survived adversarial review.
 - **Visual wireframes during brainstorming.** For UI ideas, `/office-hours` now generates a rough HTML wireframe using your project's design system (from DESIGN.md) and screenshots it. You see what you're designing while you're still thinking, not after you've coded it.
 - **Skills help each other now.** `/plan-ceo-review` and `/plan-eng-review` detect when you'd benefit from running `/office-hours` first and offer it. one-tap to switch, one-tap to decline. If you seem lost during a CEO review, it'll gently suggest brainstorming first.
-- **Spec review metrics.** Every adversarial review logs iterations, issues found/fixed, and quality score to `~/.gstack/analytics/spec-review.jsonl`. Over time, you can see if your design docs are getting better.
+- **Spec review metrics.** Every adversarial review logs iterations, issues found/fixed, and quality score to `legacy local spec-review log`. Over time, you can see if your design docs are getting better.
 
 ## [0.9.0.1] - 2026-03-19
 
 ### Changed
 
-- **Telemetry opt-in now defaults to community mode.** First-time prompt asks "Help gstack get better!" (community mode with stable device ID for trend tracking). If you decline, you get a second chance with anonymous mode (no unique ID, just a counter). Respects your choice either way.
+- **Usage reporting opt-in now defaults to community mode.** First-time prompt asks "Help gstack get better!" (community mode with stable device ID for trend tracking). If you decline, you get a second chance with anonymous mode (no unique ID, just a counter). Respects your choice either way.
 
 ### Fixed
 
-- **Review logs and telemetry now persist during plan mode.** When you ran `/plan-ceo-review`, `/plan-eng-review`, or `/plan-design-review` in plan mode, the review result wasn't saved to disk. so the dashboard showed stale or missing entries even though you just completed a review. Same issue affected telemetry logging at the end of every skill. Both now work reliably in plan mode.
+- **Review logs and usage reporting now persist during plan mode.** When you ran `/plan-ceo-review`, `/plan-eng-review`, or `/plan-design-review` in plan mode, the review result wasn't saved to disk. so the dashboard showed stale or missing entries even though you just completed a review. Same issue affected usage reporting logging at the end of every skill. Both now work reliably in plan mode.
 
 ## [0.9.0] - 2026-03-19. Works on Codex, Gemini CLI, and Cursor
 
@@ -2961,10 +2961,10 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ### Added
 
-- **You can now see how you use gstack.** Run `gstack-analytics` to see a personal usage dashboard. which skills you use most, how long they take, your success rate. All data stays local on your machine.
-- **Opt-in community telemetry.** On first run, gstack asks if you want to share anonymous usage data (skill names, duration, crash info. never code or file paths). Choose "yes" and you're part of the community pulse. Change anytime with `gstack-config set telemetry off`.
+- **You can now see how you use gstack.** Run `legacy local dashboard` to see a personal usage dashboard. which skills you use most, how long they take, your success rate. All data stays local on your machine.
+- **Opt-in community usage reporting.** On first run, gstack asks if you want to share anonymous usage data (skill names, duration, crash info. never code or file paths). Choose "yes" and you're part of the community pulse. Change anytime with `gstack-config set usage reporting off`.
 - **Community health dashboard.** Run `gstack-community-dashboard` to see what the gstack community is building. most popular skills, crash clusters, version distribution. All powered by Supabase.
-- **Install base tracking via update check.** When telemetry is enabled, gstack fires a parallel ping to Supabase during update checks. giving us an install-base count without adding any latency. Respects your telemetry setting (default off). GitHub remains the primary version source.
+- **Legacy install-count tracking.** When usage reporting is enabled, gstack fires a parallel ping to Supabase during version checks. giving us an install-base count without adding any latency. Respects your usage reporting setting (default off). GitHub remains the primary version source.
 - **Crash clustering.** Errors are automatically grouped by type and version in the Supabase backend, so the most impactful bugs surface first.
 - **Upgrade funnel tracking.** We can now see how many people see upgrade prompts vs actually upgrade. helps us ship better releases.
 - **/retro now shows your gstack usage.** Weekly retrospectives include skill usage stats (which skills you used, how often, success rate) alongside your commit history.
@@ -3055,7 +3055,7 @@ When both `/review` (Claude) and `/codex review` have run, you get a cross-model
 - **Lock edits to one folder with `/freeze`.** Debugging something and don't want Claude to "fix" unrelated code? `/freeze` blocks all file edits outside a directory you choose. Hard block, not just a warning. Run `/unfreeze` to remove the restriction without ending your session.
 - **`/guard` activates both at once.** One command for maximum safety when touching prod or live systems. destructive command warnings plus directory-scoped edit restrictions.
 - **`/debug` now auto-freezes edits to the module being debugged.** After forming a root cause hypothesis, `/debug` locks edits to the narrowest affected directory. No more accidental "fixes" to unrelated code during debugging.
-- **You can now see which skills you use and how often.** Every skill invocation is logged locally to `~/.gstack/analytics/skill-usage.jsonl`. Run `bun run analytics` to see your top skills, per-repo breakdown, and how often safety hooks actually catch something. Data stays on your machine.
+- **You can now see which skills you use and how often.** Every skill invocation is logged locally to `legacy local usage log`. Run `bun run analytics` to see your top skills, per-repo breakdown, and how often safety hooks actually catch something. Data stays on your machine.
 - **Weekly retros now include skill usage.** `/retro` shows which skills you used during the retro window alongside your usual commit analysis and metrics.
 
 ## [0.7.2] - 2026-03-18
@@ -3079,7 +3079,7 @@ When both `/review` (Claude) and `/codex review` have run, you get a cross-model
 
 - `/debug` and `/office-hours` were completely invisible to natural language. no trigger phrases at all. Now both have full reactive + proactive triggers.
 
-## [0.7.0] - 2026-03-18. YC Office Hours
+## [0.7.0] - 2026-03-18. Product Office Hours
 
 **`/office-hours`. sit down with a YC partner before you write a line of code.**
 
@@ -3278,13 +3278,13 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 ## 0.4.4. 2026-03-16
 
-- **New releases detected in under an hour, not half a day.** The update check cache was set to 12 hours, which meant you could be stuck on an old version all day while new releases dropped. Now "you're up to date" expires after 60 minutes, so you'll see upgrades within the hour. "Upgrade available" still nags for 12 hours (that's the point).
+- **New releases detected in under an hour, not half a day.** The version check cache was set to 12 hours, which meant you could be stuck on an old version all day while new releases dropped. Now "you're up to date" expires after 60 minutes, so you'll see upgrades within the hour. "Upgrade available" still nags for 12 hours (that's the point).
 - **`/gstack-upgrade` always checks for real.** Running `/gstack-upgrade` directly now bypasses the cache and does a fresh check against GitHub. No more "you're already on the latest" when you're not.
 
 ### For contributors
 
 - Split `last-update-check` cache TTL: 60 min for `UP_TO_DATE`, 720 min for `UPGRADE_AVAILABLE`.
-- Added `--force` flag to `bin/gstack-update-check` (deletes cache file before checking).
+- Added `--force` flag to `bin/legacy update helper` (deletes cache file before checking).
 - 3 new tests: `--force` busts UP_TO_DATE cache, `--force` busts UPGRADE_AVAILABLE cache, 60-min TTL boundary test with `utimesSync`.
 
 ## 0.4.3. 2026-03-16
@@ -3328,7 +3328,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 ### For contributors
 
-- Renamed `{{UPDATE_CHECK}}` to `{{PREAMBLE}}` across all 11 skill templates. one startup block now handles update check, session tracking, contributor mode, and question formatting.
+- Renamed `{{UPDATE_CHECK}}` to `{{PREAMBLE}}` across all 11 skill templates. one startup block now handles version check, session tracking, contributor mode, and question formatting.
 - DRY'd plan-ceo-review and plan-eng-review question formatting to reference the preamble baseline instead of duplicating rules.
 - Added CHANGELOG style guide and vendored symlink awareness docs to CLAUDE.md.
 
@@ -3361,7 +3361,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 
 ### Added
 - **`bin/gstack-config` CLI**. simple get/set/list interface for `~/.gstack/config.yaml`. Used by update-check and upgrade skill for persistent settings (auto_upgrade, update_check).
-- **Smart update check**. 12h cache TTL (was 24h), exponential snooze backoff (24h → 48h → 1 week) when user declines upgrades, `update_check: false` config option to disable checks entirely. Snooze resets when a new version is released.
+- **Smart version check**. 12h cache TTL (was 24h), exponential snooze backoff (24h → 48h → 1 week) when user declines upgrades, `update_check: false` config option to disable checks entirely. Snooze resets when a new version is released.
 - **Auto-upgrade mode**. set `auto_upgrade: true` in config or `GSTACK_AUTO_UPGRADE=1` env var to skip the upgrade prompt and update automatically.
 - **4-option upgrade prompt**. "Yes, upgrade now", "Always keep me up to date", "Not now" (snooze), "Never ask again" (disable).
 - **Vendored copy sync**. `/gstack-upgrade` now detects and updates local vendored copies in the current project after upgrading the primary install.
@@ -3412,7 +3412,7 @@ Read the philosophy: https://garryslist.org/posts/boil-the-ocean
 - **Stream-json NDJSON parser**. `parseNDJSON()` pure function for real-time E2E progress from `claude -p --output-format stream-json --verbose`.
 - **Eval persistence**. results saved to `~/.gstack-dev/evals/` with auto-comparison against previous run.
 - **Eval CLI tools**. `eval:list`, `eval:compare`, `eval:summary` for inspecting eval history.
-- **All 9 skills converted to `.tmpl` templates**. plan-ceo-review, plan-eng-review, retro, review, ship now use `{{UPDATE_CHECK}}` placeholder. Single source of truth for update check preamble.
+- **All 9 skills converted to `.tmpl` templates**. plan-ceo-review, plan-eng-review, retro, review, ship now use `{{UPDATE_CHECK}}` placeholder. Single source of truth for version check preamble.
 - **3-tier eval suite**. Tier 1: static validation (free), Tier 2: E2E via `claude -p` (~$3.85/run), Tier 3: LLM-as-judge (~$0.15/run). Gated by `EVALS=1`.
 - **Planted-bug outcome testing**. eval fixtures with known bugs, LLM judge scores detection.
 - 15 observability unit tests covering heartbeat schema, progress.log format, NDJSON naming, savePartial, finalize, watcher rendering, stale detection, non-fatal I/O.

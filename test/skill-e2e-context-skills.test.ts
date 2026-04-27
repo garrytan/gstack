@@ -56,7 +56,7 @@ function setupWorkdir(suffix: string): { workDir: string; gstackHome: string; sl
   for (const script of [
     'gstack-timeline-log', 'gstack-timeline-read', 'gstack-slug',
     'gstack-learnings-log', 'gstack-learnings-search',
-    'gstack-update-check', 'gstack-config', 'gstack-repo-mode',
+    'gstack-config', 'gstack-repo-mode',
   ]) {
     const src = path.join(ROOT, 'bin', script);
     if (fs.existsSync(src)) {

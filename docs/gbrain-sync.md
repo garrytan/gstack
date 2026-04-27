@@ -21,7 +21,7 @@ By design, these stay local even when sync is on:
   `security/device-salt`, consumer tokens in `config.yaml`
 - Machine-specific state: Chromium profiles, ONNX model weights,
   caches, eval-cache, CDP-profile, one-time prompt markers
-  (`.welcome-seen`, `.telemetry-prompted`, `.vendoring-warned-*`, etc.)
+  (`.welcome-seen`, `.vendoring-warned-*`, etc.)
 - Question-preferences: per-machine UX preferences
   (`question-preferences.json`, `question-log.jsonl`, `question-events.jsonl`).
 

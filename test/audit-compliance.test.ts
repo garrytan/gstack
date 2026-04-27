@@ -31,27 +31,17 @@ describe('Audit compliance', () => {
     expect(tmpl).toContain('$TEST_PASSWORD');
   });
 
-  // Fix 2: Conditional telemetry — binary calls wrapped with existence check
-  test('preamble telemetry calls are conditional on _TEL and binary existence', () => {
-    // After the preamble.ts refactor (Item 9), the bash/telemetry logic lives
-    // in submodules under scripts/resolvers/preamble/. Concatenate all preamble
-    // source (root + submodules) and assert against the combined text so this
-    // test tracks the semantic contract, not the file layout.
+  test('preamble contains no telemetry or update-check mechanism', () => {
     const preambleDir = join(ROOT, 'scripts/resolvers/preamble');
     const submoduleFiles = existsSync(preambleDir)
       ? readdirSync(preambleDir).filter(f => f.endsWith('.ts')).map(f => readFileSync(join(preambleDir, f), 'utf-8'))
       : [];
     const rootPreamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
     const preamble = [rootPreamble, ...submoduleFiles].join('\n');
-    // Pending finalization must check _TEL and binary existence
-    expect(preamble).toContain('_TEL" != "off"');
-    expect(preamble).toContain('-x ');
-    expect(preamble).toContain('gstack-telemetry-log');
-    // End-of-skill telemetry must also be conditional
-    const completionIdx = preamble.indexOf('Telemetry (run last)');
-    expect(completionIdx).toBeGreaterThan(-1);
-    const completionSection = preamble.slice(completionIdx);
-    expect(completionSection).toContain('_TEL" != "off"');
+    expect(preamble).not.toContain('gstack-telemetry-log');
+    expect(preamble).not.toContain('Telemetry (run last)');
+    expect(preamble).not.toContain('gstack-update-check');
+    expect(preamble).not.toContain('skill-usage.jsonl');
   });
 
   // Round 2 Fix 1: W012 — Bun install uses checksum verification
@@ -112,13 +102,13 @@ describe('Audit compliance', () => {
     expect(cdp).toContain('--remote-allow-origins=');
   });
 
-  // Fix 2+6: All generated SKILL.md files with telemetry are conditional
-  test('all generated SKILL.md files with telemetry calls use conditional pattern', () => {
+  test('all generated SKILL.md files omit removed telemetry/update mechanisms', () => {
     const skills = getAllSkillMds();
     for (const { name, content } of skills) {
-      if (content.includes('gstack-telemetry-log')) {
-        expect(content).toContain('_TEL" != "off"');
-      }
+      expect(content).not.toContain('gstack-telemetry-log');
+      expect(content).not.toContain('gstack-update-check');
+      expect(content).not.toContain('skill-usage.jsonl');
+      expect(content).not.toContain('eureka.jsonl');
     }
   });
 });

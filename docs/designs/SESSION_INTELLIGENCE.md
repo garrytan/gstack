@@ -27,7 +27,6 @@ gstack already writes structured artifacts to `~/.gstack/projects/$SLUG/`:
 - Design reviews: `design-reviews/`
 - Eng reviews: `eng-reviews/`
 - Learnings: `learnings.jsonl`
-- Skill usage: `../analytics/skill-usage.jsonl`
 
 The missing piece is not storage. It's awareness. The preamble needs to tell
 the agent: "These files exist. They contain decisions you've already made.

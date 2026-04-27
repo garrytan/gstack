@@ -145,7 +145,7 @@ What ships:
 What shipped:
 - Session timeline: every skill auto-logs start/complete events to
   `~/.gstack/projects/$SLUG/timeline.jsonl`. Local-only, never sent anywhere,
-  always on regardless of telemetry setting.
+  always on regardless of remote-reporting settings.
 - Context recovery: after compaction or session start, preamble lists recent CEO
   plans, checkpoints, and reviews. Agent reads the most recent to recover context.
 - Cross-session injection: preamble prints LAST_SESSION and LATEST_CHECKPOINT for

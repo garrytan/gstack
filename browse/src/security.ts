@@ -20,7 +20,6 @@
  */
 
 import { randomBytes, createHash } from 'crypto';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -387,74 +386,10 @@ function rotateIfNeeded(): void {
 }
 
 /**
- * Try to locate the gstack-telemetry-log binary. Resolution order matches
- * the existing skill preamble pattern (never relies on PATH — packaged
- * binary layouts can break that).
- *
- * Order:
- *  1. ~/.claude/skills/gstack/bin/gstack-telemetry-log  (global install)
- *  2. .claude/skills/gstack/bin/gstack-telemetry-log    (symlinked dev)
- *  3. bin/gstack-telemetry-log                          (in-repo dev)
- */
-function findTelemetryBinary(): string | null {
-  const candidates = [
-    path.join(os.homedir(), '.claude', 'skills', 'gstack', 'bin', 'gstack-telemetry-log'),
-    path.resolve(process.cwd(), '.claude', 'skills', 'gstack', 'bin', 'gstack-telemetry-log'),
-    path.resolve(process.cwd(), 'bin', 'gstack-telemetry-log'),
-  ];
-  for (const c of candidates) {
-    try {
-      fs.accessSync(c, fs.constants.X_OK);
-      return c;
-    } catch {
-      // try next
-    }
-  }
-  return null;
-}
-
-/**
- * Fire-and-forget subprocess invocation of gstack-telemetry-log with the
- * attack_attempt event type. The binary handles tier gating internally
- * (community → upload, anonymous → local only, off → no-op), so we don't
- * need to re-check here.
- *
- * Never throws. Never blocks. If the binary isn't found or spawn fails, the
- * local attempts.jsonl write from logAttempt() still gives us the audit trail.
- */
-function reportAttemptTelemetry(record: AttemptRecord): void {
-  const bin = findTelemetryBinary();
-  if (!bin) return;
-  try {
-    const child = spawn(bin, [
-      '--event-type', 'attack_attempt',
-      '--url-domain', record.urlDomain || '',
-      '--payload-hash', record.payloadHash,
-      '--confidence', String(record.confidence),
-      '--layer', record.layer,
-      '--verdict', record.verdict,
-    ], {
-      stdio: 'ignore',
-      detached: true,
-    });
-    // unref so this subprocess doesn't hold the event loop open
-    child.unref();
-    child.on('error', () => { /* swallow — telemetry must never break sidebar */ });
-  } catch {
-    // Spawn failure is non-fatal.
-  }
-}
-
-/**
- * Append an attempt to the local log AND fire telemetry via
- * gstack-telemetry-log (which respects the user's telemetry tier setting).
- * Never throws — logging failure should not break the sidebar.
- * Returns true if the local write succeeded.
+ * Append an attempt to the local security log. Never throws — logging failure
+ * should not break the sidebar. Returns true if the local write succeeded.
  */
 export function logAttempt(record: AttemptRecord): boolean {
-  // Fire telemetry first, async — even if local write fails, we still want
-  // the event reported (it goes to a different directory anyway).
-  reportAttemptTelemetry(record);
   try {
     fs.mkdirSync(SECURITY_DIR, { recursive: true, mode: 0o700 });
     rotateIfNeeded();
@@ -475,7 +410,7 @@ const STATE_FILE = path.join(SECURITY_DIR, 'session-state.json');
 export interface SessionState {
   sessionId: string;
   canary: string;
-  warnedDomains: string[]; // per-session rate limit for special telemetry
+  warnedDomains: string[]; // per-session rate limit for warning surfaces
   classifierStatus: {
     testsavant: 'ok' | 'degraded' | 'off';
     transcript: 'ok' | 'degraded' | 'off';

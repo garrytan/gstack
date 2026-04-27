@@ -225,8 +225,8 @@ describe('Generated SKILL.md freshness', () => {
 
 // --- Update check preamble validation ---
 
-describe('Update check preamble', () => {
-  const skillsWithUpdateCheck = [
+describe('Removed update-check preamble', () => {
+  const skillsWithPreamble = [
     'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
     'qa-only/SKILL.md',
     'setup-browser-cookies/SKILL.md',
@@ -245,38 +245,20 @@ describe('Update check preamble', () => {
     'cso/SKILL.md',
   ];
 
-  for (const skill of skillsWithUpdateCheck) {
-    test(`${skill} update check line ends with || true`, () => {
+  for (const skill of skillsWithPreamble) {
+    test(`${skill} contains no update-check variables or binaries`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      // The second line of the bash block must end with || true
-      // to avoid exit code 1 when _UPD is empty (up to date)
-      const match = content.match(/\[ -n "\$_UPD" \].*$/m);
-      expect(match).not.toBeNull();
-      expect(match![0]).toContain('|| true');
+      expect(content).not.toContain('_UPD');
+      expect(content).not.toContain('gstack-update-check');
+      expect(content).not.toContain('UPGRADE_AVAILABLE');
     });
   }
 
-  test('all skills with update check are generated from .tmpl', () => {
-    for (const skill of skillsWithUpdateCheck) {
+  test('all preamble skills are generated from .tmpl', () => {
+    for (const skill of skillsWithPreamble) {
       const tmplPath = path.join(ROOT, skill + '.tmpl');
       expect(fs.existsSync(tmplPath)).toBe(true);
     }
-  });
-
-  test('update check bash block exits 0 when up to date', () => {
-    // Simulate the exact preamble command from SKILL.md
-    const result = Bun.spawnSync(['bash', '-c',
-      '_UPD=$(echo "" || true); [ -n "$_UPD" ] && echo "$_UPD" || true'
-    ], { stdout: 'pipe', stderr: 'pipe' });
-    expect(result.exitCode).toBe(0);
-  });
-
-  test('update check bash block exits 0 when upgrade available', () => {
-    const result = Bun.spawnSync(['bash', '-c',
-      '_UPD=$(echo "UPGRADE_AVAILABLE 0.3.3 0.4.0" || true); [ -n "$_UPD" ] && echo "$_UPD" || true'
-    ], { stdout: 'pipe', stderr: 'pipe' });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.toString().trim()).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
   });
 });
 
@@ -640,9 +622,9 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('Intrapreneurship');
   });
 
-  // YC founder discovery engine
-  test('contains YC apply CTA with ref tracking', () => {
-    expect(content).toContain('ycombinator.com/apply?ref=gstack');
+  test('does not contain YC promotional application tracking', () => {
+    expect(content).not.toContain('ycombinator.com/apply');
+    expect(content).not.toContain('ref=gstack');
   });
 
   test('contains "What I noticed" design doc section', () => {
@@ -653,18 +635,19 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('golden age');
   });
 
-  test('contains Garry Tan personal plea', () => {
-    expect(content).toContain('Garry Tan, the creator of GStack');
+  test('does not contain a personal promotional plea', () => {
+    expect(content).not.toContain('Garry Tan, the creator of GStack');
   });
 
   test('contains founder signal synthesis phase', () => {
     expect(content).toContain('Founder Signal Synthesis');
   });
 
-  test('contains three-tier decision rubric', () => {
-    expect(content).toContain('Top tier');
-    expect(content).toContain('Middle tier');
-    expect(content).toContain('Base tier');
+  test('contains optional resource guidance without promotional tiers', () => {
+    expect(content).toContain('Optional resources');
+    expect(content).not.toContain('Top tier');
+    expect(content).not.toContain('Middle tier');
+    expect(content).not.toContain('Base tier');
   });
 
   test('contains anti-slop examples', () => {
@@ -672,8 +655,8 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('BAD:');
   });
 
-  test('contains "One more thing" transition beat', () => {
-    expect(content).toContain('One more thing');
+  test('does not contain promotional transition beat', () => {
+    expect(content).not.toContain('One more thing');
   });
 
   // Operating principles per mode
@@ -708,8 +691,9 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('quality score');
   });
 
-  test('contains spec review metrics path', () => {
-    expect(content).toContain('spec-review.jsonl');
+  test('does not write spec review metrics', () => {
+    expect(content).not.toContain('spec-review.jsonl');
+    expect(content).toContain('Do not write review metrics or analytics files');
   });
 
   test('contains convergence guard', () => {

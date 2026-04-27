@@ -41,21 +41,21 @@ afterEach(() => {
 
 describe('gstack-config', () => {
   // ─── get ──────────────────────────────────────────────────
-  test('get on missing file returns empty, exit 0', () => {
-    const { exitCode, stdout } = run(['get', 'auto_upgrade']);
+  test('get on missing file returns default for known keys, exit 0', () => {
+    const { exitCode, stdout } = run(['get', 'skill_prefix']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('get existing key returns value', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\n');
-    const { exitCode, stdout } = run(['get', 'auto_upgrade']);
+    writeFileSync(join(stateDir, 'config.yaml'), 'skill_prefix: true\n');
+    const { exitCode, stdout } = run(['get', 'skill_prefix']);
     expect(exitCode).toBe(0);
     expect(stdout).toBe('true');
   });
 
   test('get missing key returns empty', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\n');
+    writeFileSync(join(stateDir, 'config.yaml'), 'skill_prefix: true\n');
     const { exitCode, stdout } = run(['get', 'nonexistent']);
     expect(exitCode).toBe(0);
     expect(stdout).toBe('');
@@ -70,28 +70,28 @@ describe('gstack-config', () => {
 
   // ─── set ──────────────────────────────────────────────────
   test('set creates file and writes key on missing file', () => {
-    const { exitCode } = run(['set', 'auto_upgrade', 'true']);
+    const { exitCode } = run(['set', 'skill_prefix', 'true']);
     expect(exitCode).toBe(0);
     const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('auto_upgrade: true');
+    expect(content).toContain('skill_prefix: true');
   });
 
   test('set appends new key to existing file', () => {
     writeFileSync(join(stateDir, 'config.yaml'), 'foo: bar\n');
-    const { exitCode } = run(['set', 'auto_upgrade', 'true']);
+    const { exitCode } = run(['set', 'skill_prefix', 'true']);
     expect(exitCode).toBe(0);
     const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
     expect(content).toContain('foo: bar');
-    expect(content).toContain('auto_upgrade: true');
+    expect(content).toContain('skill_prefix: true');
   });
 
   test('set replaces existing key in-place', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: false\n');
-    const { exitCode } = run(['set', 'auto_upgrade', 'true']);
+    writeFileSync(join(stateDir, 'config.yaml'), 'skill_prefix: false\n');
+    const { exitCode } = run(['set', 'skill_prefix', 'true']);
     expect(exitCode).toBe(0);
     const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('auto_upgrade: true');
-    expect(content).not.toContain('auto_upgrade: false');
+    expect(content).toContain('skill_prefix: true');
+    expect(content).not.toContain('skill_prefix: false');
   });
 
   test('set creates state dir if missing', () => {
@@ -103,17 +103,18 @@ describe('gstack-config', () => {
 
   // ─── list ─────────────────────────────────────────────────
   test('list shows all keys', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\nupdate_check: false\n');
+    writeFileSync(join(stateDir, 'config.yaml'), 'skill_prefix: true\nrouting_declined: false\n');
     const { exitCode, stdout } = run(['list']);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('auto_upgrade: true');
-    expect(stdout).toContain('update_check: false');
+    expect(stdout).toContain('skill_prefix: true');
+    expect(stdout).toContain('routing_declined: false');
   });
 
-  test('list on missing file returns empty, exit 0', () => {
+  test('list on missing file returns defaults, exit 0', () => {
     const { exitCode, stdout } = run(['list']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toContain('skill_prefix:');
+    expect(stdout).toContain('(default)');
   });
 
   // ─── usage ────────────────────────────────────────────────
@@ -138,13 +139,14 @@ describe('gstack-config', () => {
 
   // ─── annotated header ──────────────────────────────────────
   test('first set writes annotated header with docs', () => {
-    run(['set', 'telemetry', 'off']);
+    run(['set', 'skill_prefix', 'false']);
     const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
     expect(content).toContain('# gstack configuration');
     expect(content).toContain('edit freely');
     expect(content).toContain('proactive:');
-    expect(content).toContain('telemetry:');
-    expect(content).toContain('auto_upgrade:');
+    expect(content).not.toContain('telemetry:');
+    expect(content).not.toContain('auto_upgrade:');
+    expect(content).not.toContain('update_check:');
     expect(content).toContain('skill_prefix:');
     expect(content).toContain('routing_declined:');
     expect(content).toContain('codex_reviews:');
@@ -160,11 +162,10 @@ describe('gstack-config', () => {
   });
 
   test('header does not break get on commented-out keys', () => {
-    run(['set', 'telemetry', 'community']);
-    // Header contains "# telemetry: anonymous" as a comment example.
-    // get should return the real value, not the comment.
-    const { stdout } = run(['get', 'telemetry']);
-    expect(stdout).toBe('community');
+    run(['set', 'skill_prefix', 'true']);
+    // Header contains commented default examples. get should return the real value, not a comment.
+    const { stdout } = run(['get', 'skill_prefix']);
+    expect(stdout).toBe('true');
   });
 
   test('existing config file is not overwritten with header', () => {
@@ -176,9 +177,9 @@ describe('gstack-config', () => {
   });
 
   // ─── routing_declined ──────────────────────────────────────
-  test('routing_declined defaults to empty (not set)', () => {
+  test('routing_declined defaults to false', () => {
     const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('routing_declined can be set and read', () => {

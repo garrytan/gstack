@@ -231,7 +231,7 @@ In output stream checker:
 Detection rate: catches naive exfiltration attempts that try to leak the system prompt.
 Sophisticated attacks avoid this, which is why it's one layer among seven.
 
-## Attack Logging + Special Telemetry
+## Attack Logging + Special Local Logging
 
 ### Local Logging (always on)
 
@@ -249,10 +249,10 @@ Sophisticated attacks avoid this, which is why it's one layer among seven.
 
 Privacy: payload HASH with random salt (not raw payload). URL domain only. No full paths.
 
-### Special Telemetry (ask even when telemetry is off)
+### Special Local Logging (ask even when usage reporting is off)
 
 Prompt injection detections in the wild are rare and scientifically valuable. When a
-detection occurs, even if the user has telemetry set to "off":
+detection occurs, even if the user has remote reporting disabled:
 
 ```
 AskUserQuestion:
@@ -314,7 +314,7 @@ They can afford fast native inference. We're running on the user's Mac.
 **Layer 1 approach:** Use onnxruntime-node (native N-API bindings). ~5ms inference.
 Problem: doesn't work in compiled Bun binaries (native module loading fails).
 
-**Layer 3 / EUREKA approach:** Port the DeBERTa tokenizer and ONNX inference to pure
+**Layer 3 / first-principles approach:** Port the DeBERTa tokenizer and ONNX inference to pure
 Bun/TypeScript using Bun's native SIMD and typed array support. No WASM, no native
 modules, no onnxruntime dependency.
 
@@ -428,7 +428,7 @@ apply to this ML classifier PR:
 - [ ] Add shield icon to sidepanel.js
 - [ ] Add blocking message UI to sidepanel.js
 - [ ] Add security state to /health endpoint
-- [ ] Implement special telemetry (AskUserQuestion on detection)
+- [ ] Implement special local logging (AskUserQuestion on detection)
 - [ ] Create browse/test/security.test.ts (unit + adversarial)
 - [ ] Create browse/test/security-bench.test.ts (BrowseSafe-Bench harness)
 - [ ] Cache BrowseSafe-Bench dataset for offline CI
