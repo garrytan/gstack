@@ -126,11 +126,25 @@ function quote(s: string): string {
 }
 
 /**
- * Run a Gemini implementation pass. Pass `--yolo` for autonomous file edits
- * (without it Gemini drops to plan mode for multi-file tasks).
+ * Run a Gemini implementation pass via FILE-PATH I/O.
+ *
+ * The caller writes the full instruction body to `inputFilePath` BEFORE calling
+ * this function. We construct a short shell-prompt that just tells Gemini where
+ * to read instructions and where to write output. Pass `--yolo` for autonomous
+ * file edits (without it Gemini drops to plan mode for multi-file tasks).
+ *
+ * After Gemini exits, we read `outputFilePath` and put its content into the
+ * returned `stdout` field — so callers (like phase-runner) can parse output
+ * the same way they always have. The shell stdout becomes status-only.
+ *
+ * Universal rule: never pass content inline. Always file paths in, file paths
+ * out. See ~/.claude/projects/.../memory/feedback_llm_file_io.md.
  */
 export async function runGemini(opts: {
-  prompt: string;
+  /** Path to the file containing the full prompt body. Caller must write it first. */
+  inputFilePath: string;
+  /** Path where Gemini will write its output summary. Caller decides the path. */
+  outputFilePath: string;
   cwd: string;
   slug: string;
   phaseNumber: string;
@@ -138,7 +152,15 @@ export async function runGemini(opts: {
   model?: string;
 }): Promise<SubAgentResult> {
   ensureLogDir(opts.slug);
-  const argv = ['-p', opts.prompt];
+
+  const shellPrompt = [
+    `Read instructions at ${opts.inputFilePath}.`,
+    `Do the work autonomously using your --yolo file tools.`,
+    `When done, write your output summary (what files changed, what tests pass, what was committed) to ${opts.outputFilePath}.`,
+    `Return ONLY the output file path. No narrative.`,
+  ].join(' ');
+
+  const argv = ['-p', shellPrompt];
   if (opts.model) argv.push('-m', opts.model);
   argv.push('--yolo');
 
@@ -171,9 +193,37 @@ export async function runGemini(opts: {
       closeStdin: false,
     });
     retryResult.retries = 1;
-    return retryResult;
+    return mergeOutputFile(retryResult, opts.outputFilePath);
   }
-  return result;
+  return mergeOutputFile(result, opts.outputFilePath);
+}
+
+/**
+ * After a sub-agent exits, read the file it was supposed to write and put
+ * its content into the result's `stdout` field. Callers (parseVerdict,
+ * phase-runner) keep working with `stdout` as the work-product source —
+ * they just don't know whether it came from shell stdout or a file.
+ *
+ * If the output file is missing or unreadable, the sub-agent didn't follow
+ * the protocol. We synthesize a clear error message into stdout so verdict
+ * parsing fails the way it should ("unclear"), and surface the original
+ * shell stdout in stderr for forensics.
+ */
+function mergeOutputFile(result: SubAgentResult, outputFilePath: string): SubAgentResult {
+  try {
+    const fileContent = fs.readFileSync(outputFilePath, 'utf8');
+    return {
+      ...result,
+      stderr: result.stderr + (result.stdout ? `\n# original stdout:\n${result.stdout}` : ''),
+      stdout: fileContent,
+    };
+  } catch (err) {
+    return {
+      ...result,
+      stderr: result.stderr + `\n# expected output file ${outputFilePath} not readable: ${(err as Error).message}`,
+      stdout: `Sub-agent did not write expected output file ${outputFilePath}. Original shell stdout:\n${result.stdout}`,
+    };
+  }
 }
 
 /**
@@ -182,6 +232,10 @@ export async function runGemini(opts: {
  * to loop again.
  */
 export async function runCodexReview(opts: {
+  /** Path to file with full review context (which phase, what changed, what to verify). Caller writes it first. */
+  inputFilePath: string;
+  /** Path where Codex will write its review report including the GATE PASS/FAIL line. */
+  outputFilePath: string;
   cwd: string;
   slug: string;
   phaseNumber: string;
@@ -200,9 +254,17 @@ export async function runCodexReview(opts: {
   const reasoning = opts.reasoning || 'high';
   const sandbox = opts.sandbox || 'workspace-write';
 
+  const codexPrompt = [
+    `Read review context at ${opts.inputFilePath}.`,
+    `Run ${command}.`,
+    `Write your full review report to ${opts.outputFilePath}.`,
+    `The report MUST include a final 'GATE PASS' or 'GATE FAIL' line on its own.`,
+    `Return ONLY the output file path. No narrative.`,
+  ].join(' ');
+
   const argv = [
     'exec',
-    command,
+    codexPrompt,
     '-s',
     sandbox,
     '-c',
@@ -239,9 +301,9 @@ export async function runCodexReview(opts: {
       closeStdin: true,
     });
     retryResult.retries = 1;
-    return retryResult;
+    return mergeOutputFile(retryResult, opts.outputFilePath);
   }
-  return result;
+  return mergeOutputFile(result, opts.outputFilePath);
 }
 
 /**

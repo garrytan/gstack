@@ -40,6 +40,7 @@ import {
   readLockInfo,
   ensureLogDir,
   deriveSlug,
+  logDir,
 } from './state';
 import {
   decideNextAction,
@@ -166,27 +167,77 @@ function logActivity(event: Record<string, any>) {
   }
 }
 
-function buildGeminiPrompt(phase: Phase, planFile: string, branch: string): string {
+/**
+ * Build the Gemini prompt body that gets WRITTEN TO A FILE before invocation.
+ * The orchestrator never inlines this content into the CLI call — runGemini's
+ * shell-prompt is just a short "read $input, write $output" instruction. This
+ * is the universal file-path I/O rule (see feedback_llm_file_io.md memory).
+ */
+function buildGeminiPromptBody(phase: Phase, planFile: string, branch: string): string {
   return [
-    `You are executing Phase ${phase.number}: ${phase.name} of an implementation plan.`,
+    `# Phase ${phase.number}: ${phase.name}`,
+    '',
     `Branch: ${branch}`,
     `Plan file: ${planFile}`,
     '',
-    'Phase description (verbatim from the plan):',
-    '---',
-    phase.body.trim(),
-    '---',
+    '## Phase description (verbatim from the plan)',
     '',
-    'Instructions:',
+    phase.body.trim(),
+    '',
+    '## Instructions',
+    '',
     `1. Implement the work described above. Write the code, tests, and any docs the phase calls for.`,
     `2. If the project uses GitHub Actions, ensure your changes pass them.`,
     `3. Commit your changes to the current branch with a clear conventional-commit message.`,
     `4. Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
     `5. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
     `6. Fail forward: if a test fails, fix it before returning. Only return when the code is done and committed.`,
+    `7. Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
     '',
-    'Return ONLY the work summary. No explanation. No narrative.',
+    '## Output format',
+    '',
+    'Write a short markdown summary to the output file (path provided to you in the shell prompt). Include:',
+    '- Files changed (list of paths with one-line description each)',
+    '- Tests run (which test files, pass/fail count)',
+    '- Commit SHA (the conventional-commit message and commit hash)',
+    '- Anything surprising or worth flagging to the orchestrator',
   ].join('\n');
+}
+
+/**
+ * Build the Codex review context body that gets written to a file. Captures
+ * which phase, what changed, what to verify so Codex can run /gstack-review
+ * with full context without us inlining a huge diff.
+ */
+function buildCodexReviewBody(
+  phase: Phase,
+  planFile: string,
+  branch: string,
+  iteration: number,
+  geminiOutputPath: string | null
+): string {
+  return [
+    `# Codex Review — Phase ${phase.number}: ${phase.name} (iter ${iteration})`,
+    '',
+    `Branch: ${branch}`,
+    `Plan file: ${planFile}`,
+    geminiOutputPath ? `Gemini's implementation summary: ${geminiOutputPath}` : '',
+    '',
+    '## Phase description (what was supposed to be built)',
+    '',
+    phase.body.trim(),
+    '',
+    '## Your task',
+    '',
+    `1. Run /gstack-review on the current branch's working tree against its base.`,
+    `2. If iteration > 1, this is a re-review after Codex tried to fix earlier findings — be especially thorough.`,
+    `3. Use --yolo / workspace-write file tools to inspect the actual code; don't ask the orchestrator to inline anything.`,
+    `4. Fix bugs as you find them (workspace-write sandbox is enabled).`,
+    `5. Write your full review report to the output file path (provided in the shell prompt).`,
+    `6. The output file MUST end with a single line: \`GATE PASS\` if no remaining issues, or \`GATE FAIL\` with a list of remaining issues.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function summarizePhase(phaseNumber: string, phaseName: string, marker: string) {
@@ -245,9 +296,21 @@ async function runPhase(args: {
       if (dryRun) {
         result = mockResult({ exitCode: 0, stdout: '[dry-run] Gemini would have implemented' });
       } else {
-        const prompt = buildGeminiPrompt(phase, state.planFile, state.branch);
+        // File-path I/O: write input prompt to disk, pass paths to runGemini.
+        const inputFilePath = path.join(
+          logDir(state.slug),
+          `phase-${phase.number}-gemini-${action.iteration}-input.md`
+        );
+        const outputFilePath = path.join(
+          logDir(state.slug),
+          `phase-${phase.number}-gemini-${action.iteration}-output.md`
+        );
+        fs.writeFileSync(inputFilePath, buildGeminiPromptBody(phase, state.planFile, state.branch));
+        // Pre-create empty output file so a missing-file error is unambiguous.
+        fs.writeFileSync(outputFilePath, '');
         result = await runGemini({
-          prompt,
+          inputFilePath,
+          outputFilePath,
           cwd,
           slug: state.slug,
           phaseNumber: phase.number,
@@ -268,7 +331,34 @@ async function runPhase(args: {
         // the happy path without infinite loops.
         result = mockResult({ exitCode: 0, stdout: '[dry-run] Codex would review. GATE PASS' });
       } else {
+        const inputFilePath = path.join(
+          logDir(state.slug),
+          `phase-${phase.number}-codex-${action.iteration}-input.md`
+        );
+        const outputFilePath = path.join(
+          logDir(state.slug),
+          `phase-${phase.number}-codex-${action.iteration}-output.md`
+        );
+        // Locate Gemini's output from this iteration so Codex can read it.
+        const geminiOutputPath = path.join(
+          logDir(state.slug),
+          `phase-${phase.number}-gemini-${action.iteration}-output.md`
+        );
+        const geminiOutputExists = fs.existsSync(geminiOutputPath);
+        fs.writeFileSync(
+          inputFilePath,
+          buildCodexReviewBody(
+            phase,
+            state.planFile,
+            state.branch,
+            action.iteration,
+            geminiOutputExists ? geminiOutputPath : null
+          )
+        );
+        fs.writeFileSync(outputFilePath, '');
         result = await runCodexReview({
+          inputFilePath,
+          outputFilePath,
           cwd,
           slug: state.slug,
           phaseNumber: phase.number,
