@@ -62,10 +62,17 @@ export function freshState(args: {
     index: p.index,
     number: p.number,
     name: p.name,
-    // Status reflects what we observe on disk: if a phase is already
-    // fully checked, it's `committed`; otherwise `pending`.
+    // Status reflects what we observe on disk:
+    // - both checked         → committed (skip phase)
+    // - impl checked only    → gemini_done (resume at Codex review)
+    // - review checked only  → committed (user manually marked; trust them)
+    // - neither              → pending (run Gemini from scratch)
     status:
       p.implementationDone && p.reviewDone
+        ? 'committed'
+        : p.implementationDone && !p.reviewDone
+        ? 'gemini_done'
+        : !p.implementationDone && p.reviewDone
         ? 'committed'
         : 'pending',
   }));
@@ -76,7 +83,7 @@ export function freshState(args: {
     branch: args.branch,
     startedAt: now,
     lastUpdatedAt: now,
-    currentPhaseIndex: phaseStates.findIndex((s) => s.status !== 'committed'),
+    currentPhaseIndex: Math.max(0, phaseStates.findIndex((s) => s.status !== 'committed')),
     phases: phaseStates,
     completed: phaseStates.every((s) => s.status === 'committed'),
   };
