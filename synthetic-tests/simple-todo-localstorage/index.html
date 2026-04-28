@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple Todo</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fafafa;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent: #2563eb;
+    --danger: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --fg: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #1e293b;
+      --accent: #60a5fa;
+      --danger: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin: 0 0 1.5rem 0;
+  }
+  .add-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  #todo-input {
+    flex: 1;
+    padding: 0.625rem 0.75rem;
+    font-size: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: inherit;
+  }
+  #todo-input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  #add-btn {
+    padding: 0.625rem 1rem;
+    font-size: 1rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 500;
+  }
+  #add-btn:hover { opacity: 0.9; }
+  #add-btn:active { transform: translateY(1px); }
+  #todo-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  #todo-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    background: var(--bg);
+  }
+  #todo-list input[type="checkbox"] {
+    width: 1.125rem;
+    height: 1.125rem;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+  #todo-list label {
+    flex: 1;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    word-break: break-word;
+  }
+  #todo-list li.done label {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+  .delete-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.125rem;
+    line-height: 1;
+    padding: 0.25rem 0.375rem;
+    border-radius: 4px;
+    font-family: inherit;
+  }
+  .delete-btn:hover { color: var(--danger); }
+  .empty-state {
+    color: var(--muted);
+    font-size: 0.875rem;
+    text-align: center;
+    padding: 2rem 0;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Simple Todo</h1>
+  <p class="subtitle">localStorage-backed. Synthetic /build test artifact.</p>
+  <div class="add-row">
+    <input id="todo-input" type="text" placeholder="What needs doing?" aria-label="New todo" autofocus>
+    <button id="add-btn" type="button">Add</button>
+  </div>
+  <ul id="todo-list"></ul>
+</div>
+<script>
+(function () {
+  'use strict';
+  var STORAGE_KEY = 'simple-todo-localstorage';
+  var todos = [];
+
+  function newId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function loadTodos() {
+    var raw = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+    } catch (err) {
+      todos = [];
+      return;
+    }
+    if (raw == null) {
+      todos = [];
+      return;
+    }
+    try {
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        todos = parsed.filter(function (t) {
+          return t && typeof t === 'object' && typeof t.id !== 'undefined' && typeof t.text === 'string';
+        }).map(function (t) {
+          return { id: String(t.id), text: t.text, done: Boolean(t.done) };
+        });
+      } else {
+        todos = [];
+      }
+    } catch (err) {
+      todos = [];
+    }
+  }
+
+  function saveTodos() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+    } catch (err) {
+      // Silent: localStorage may be disabled (private mode, quota). UI still works in-session.
+    }
+  }
+
+  function addTodo(text) {
+    var trimmed = (text || '').trim();
+    if (!trimmed) return;
+    todos.push({ id: newId(), text: trimmed, done: false });
+    saveTodos();
+    render();
+  }
+
+  function toggleTodo(id) {
+    for (var i = 0; i < todos.length; i++) {
+      if (todos[i].id === id) {
+        todos[i].done = !todos[i].done;
+        break;
+      }
+    }
+    saveTodos();
+    render();
+  }
+
+  function deleteTodo(id) {
+    todos = todos.filter(function (t) { return t.id !== id; });
+    saveTodos();
+    render();
+  }
+
+  function render() {
+    var list = document.getElementById('todo-list');
+    list.innerHTML = '';
+    if (todos.length === 0) {
+      var empty = document.createElement('li');
+      empty.className = 'empty-state';
+      empty.textContent = 'Nothing yet. Add your first todo above.';
+      list.appendChild(empty);
+      return;
+    }
+    todos.forEach(function (todo) {
+      var li = document.createElement('li');
+      if (todo.done) li.className = 'done';
+
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'cb-' + todo.id;
+      checkbox.checked = todo.done;
+      checkbox.addEventListener('change', function () { toggleTodo(todo.id); });
+
+      var label = document.createElement('label');
+      label.htmlFor = 'cb-' + todo.id;
+      label.textContent = todo.text;
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'delete-btn';
+      del.setAttribute('aria-label', 'Delete todo');
+      del.textContent = '×';
+      del.addEventListener('click', function () { deleteTodo(todo.id); });
+
+      li.appendChild(checkbox);
+      li.appendChild(label);
+      li.appendChild(del);
+      list.appendChild(li);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    loadTodos();
+    render();
+
+    var input = document.getElementById('todo-input');
+    var addBtn = document.getElementById('add-btn');
+
+    addBtn.addEventListener('click', function () {
+      addTodo(input.value);
+      input.value = '';
+      input.focus();
+    });
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addTodo(input.value);
+        input.value = '';
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
