@@ -20,6 +20,7 @@ bin/gstack-global-discover
 .gbrain/
 .context/
 extension/.auth.json
+.vscode/
 # xterm assets are vendored from npm at build time; not source-of-truth.
 extension/lib/xterm.js
 extension/lib/xterm.css

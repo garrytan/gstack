@@ -9,7 +9,7 @@ gstack skills are Markdown files that Claude Code discovers from a `skills/` dir
 That's what dev mode does. It symlinks your repo into the local `.claude/skills/` directory so Claude Code reads skills straight from your checkout.
 
 ```bash
-git clone https://github.com/garrytan/gstack.git && cd gstack
+git clone https://github.com/MichaelRobertFinger/gstack.git && cd gstack
 bun install                    # install dependencies
 bin/dev-setup                  # activate dev mode
 ```

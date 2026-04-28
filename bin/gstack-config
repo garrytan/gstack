@@ -19,7 +19,7 @@ CONFIG_FILE="$STATE_DIR/config.yaml"
 # Default semantics: DEFAULTS table below is the canonical source. Header text
 # is documentation that must stay in sync with DEFAULTS.
 CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on next skill run.
-# Docs: https://github.com/garrytan/gstack
+# Docs: https://github.com/MichaelRobertFinger/gstack
 #
 # ─── Behavior ────────────────────────────────────────────────────────
 # proactive: true           # Auto-invoke skills when your request matches one.

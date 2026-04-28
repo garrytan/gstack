@@ -143,14 +143,14 @@ describe('config', () => {
     });
 
     test('parses HTTPS remote URLs', () => {
-      const url = 'https://github.com/garrytan/gstack.git';
+      const url = 'https://github.com/MichaelRobertFinger/gstack.git';
       const match = url.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
       expect(match).not.toBeNull();
       expect(`${match![1]}-${match![2]}`).toBe('garrytan-gstack');
     });
 
     test('parses HTTPS remote URLs without .git suffix', () => {
-      const url = 'https://github.com/garrytan/gstack';
+      const url = 'https://github.com/MichaelRobertFinger/gstack';
       const match = url.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
       expect(match).not.toBeNull();
       expect(`${match![1]}-${match![2]}`).toBe('garrytan-gstack');

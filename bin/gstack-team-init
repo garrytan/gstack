@@ -54,11 +54,11 @@ fi
 if [ "$MODE" = "optional" ]; then
   SNIPPET='## gstack (recommended)
 
-This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted workflows.
+This project uses [gstack](https://github.com/MichaelRobertFinger/gstack) for AI-assisted workflows.
 Install it for the best experience:
 
 ```bash
-git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+git clone --depth 1 https://github.com/MichaelRobertFinger/gstack.git ~/.claude/skills/gstack
 cd ~/.claude/skills/gstack && ./setup --team
 ```
 
@@ -78,7 +78,7 @@ If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
 > gstack is required for all AI-assisted work in this repo.
 > Install it:
 > ```bash
-> git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+> git clone --depth 1 https://github.com/MichaelRobertFinger/gstack.git ~/.claude/skills/gstack
 > cd ~/.claude/skills/gstack && ./setup --team
 > ```
 > Then restart your AI coding tool.
@@ -122,7 +122,7 @@ BLOCKED: gstack is not installed globally.
 gstack is required for AI-assisted work in this repo.
 
 Install it:
-  git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+  git clone --depth 1 https://github.com/MichaelRobertFinger/gstack.git ~/.claude/skills/gstack
   cd ~/.claude/skills/gstack && ./setup --team
 
 Then restart your AI coding tool.
@@ -188,5 +188,5 @@ if [ ${#GENERATED[@]} -gt 0 ]; then
 fi
 echo ""
 echo "Each developer then runs:"
-echo "  git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack"
+echo "  git clone --depth 1 https://github.com/MichaelRobertFinger/gstack.git ~/.claude/skills/gstack"
 echo "  cd ~/.claude/skills/gstack && ./setup --team"
