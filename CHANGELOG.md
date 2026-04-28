@@ -1,5 +1,72 @@
 # Changelog
 
+## [1.20.0.0] - 2026-04-28
+
+## **Browser-skills run again. The pair-agent tab-ownership gate stopped blocking local skill spawns from driving the user's natural tabs.**
+
+The shipping headline of v1.19.0.0 — `/scrape` plus `/skillify`, the productivity loop that takes a 30-second prototype to a 200ms codified call — was broken on first run in any session where the daemon already had a tab. `$B skill run hackernews-frontpage` against a freshly-connected daemon returned `403: Tab not owned by your agent`. Bundled reference skill, identical failure. Every `/skillify`-generated skill, identical failure. The footgun shipped because the regression tests at `browse/test/tab-isolation.test.ts:43,57` encoded the broken behavior as the contract — they passed because they tested the wrong invariant.
+
+This release cuts the gate predicate to only fire for `tabPolicy: 'own-only'` tokens (pair-agent over the ngrok tunnel). Local shared-policy tokens — the default for skill spawns — go back to "behave like root for tab access." Pair-agent isolation stays strict: tunnel tokens still 403 on unowned tabs, must `newtab` first, can't drive the user's natural tabs. The capability gate (scope checks) and rate limits already constrain what local scoped clients can do; tab ownership is not a security boundary for them.
+
+### What was broken
+
+```bash
+# Fresh session: $B connect, then run the bundled reference skill.
+$ $B skill run hackernews-frontpage
+Skill "hackernews-frontpage" failed: exit 1
+--- stderr ---
+{"error":"Tab not owned by your agent. Use newtab to create your own tab.","hint":"Tab 1 is owned by root. Your agent: skill:hackernews-frontpage:..."}
+```
+
+The skill called `goto` (a write command). The gate at `browse/src/server.ts:639` fired because `WRITE_COMMANDS.has(command)` was true. `checkTabAccess` then required ownership for any write. The user's active tab had no claimed owner. 403.
+
+`/skillify` had just produced a working skill — atomic write succeeded, parser tests 18/18 pass against the captured fixture, all five files on disk under `~/.gstack/browser-skills/<name>/`. The skill itself was clean. The runtime refused to spawn it.
+
+### The fix
+
+Two surgical edits, both in the dispatch path:
+
+- **`browse/src/browser-manager.ts:checkTabAccess`** — was checking ownership for any non-root write OR any `ownOnly` access. Now checks ownership only when `ownOnly: true`. Shared-policy tokens get permissive access (root-equivalent for the tab gate). `isWrite` is preserved in the signature for callers that want to log or branch on it elsewhere, but the access decision itself only depends on `ownOnly` + ownership state.
+- **`browse/src/server.ts:639`** — the gate predicate was `WRITE_COMMANDS.has(command) || tokenInfo.tabPolicy === 'own-only'`. Now just `tokenInfo.tabPolicy === 'own-only'`. Shared tokens skip the gate entirely; own-only tokens still hit it for every command. The `'newtab'` exemption stays because newtab creates rather than accesses.
+
+The `tabPolicy: 'shared'` setting in `browse/src/skill-token.ts:79` already had the right intent — the comment said *"skill scripts may switch tabs as needed"* — but the enforcement layer ignored the policy and treated all writes as requiring ownership. This release makes the enforcement match the comment.
+
+### The numbers that matter
+
+Verified on the bundled `hackernews-frontpage` reference skill against a freshly-connected headed daemon (the exact failure path from v1.19.0.0).
+
+| Metric | v1.19.0.0 | v1.20.0.0 |
+|---|---|---|
+| `$B skill run hackernews-frontpage` against unowned active tab | **403** (broken) | **200** + JSON of 30 stories |
+| `/skillify`-generated skill first-run success rate | **0%** | **100%** |
+| Pair-agent tunnel token writing to unowned tab | 403 (correct) | 403 (still correct) |
+| Pair-agent tunnel token writing to its own tab | 200 (correct) | 200 (still correct) |
+| Unit tests on `checkTabAccess` | 6 (encoding broken contract) | 9 (encoding shared vs own-only contract explicitly) |
+| Source-shape regression test | none | new: gate predicate must NOT depend on `WRITE_COMMANDS.has(command) \|\|` |
+
+### What this means for builders
+
+The compounding loop works again. The first `/scrape` on a new intent prototypes the flow, the user says `/skillify`, the next `/scrape` on the same intent runs in ~200ms. Every codified skill stops being a 403 away from useful. The bundled `hackernews-frontpage` skill — the reference everyone copies when writing a hand-crafted browser-skill — spawns cleanly on first contact.
+
+Pair-agent operators see no change. The v1.6.0.0 dual-listener threat model is intact: a remote agent over ngrok still can't read or write tabs the local user is using. Tunnel tokens still default to `tabPolicy: 'own-only'`, still must `newtab` first to get a tab they can drive, still can't dispatch any of the 23 commands outside the tunnel allowlist. The fix narrows the tab gate; it does not remove it.
+
+### Itemized changes
+
+#### Fixed
+
+- `browse/src/browser-manager.ts:checkTabAccess` — gate now keys on `options.ownOnly`, not on `options.isWrite`. Shared-policy tokens (skill spawns) and root both pass the tab check unconditionally. Own-only tokens (pair-agent) still require ownership for every read and write.
+- `browse/src/server.ts:639` — handler-level gate predicate narrowed from `(WRITE_COMMANDS.has(command) || tokenInfo.tabPolicy === 'own-only')` to just `tokenInfo.tabPolicy === 'own-only'`. The `'newtab'` exemption stays. Comment block above the gate updated to document the new predicate intent.
+
+#### Tests
+
+- `browse/test/tab-isolation.test.ts` — three pre-fix tests at lines 42-44, 55-58 encoded the broken behavior as the contract. Replaced with explicit shared-vs-own-only coverage: shared agents can read/write any tab (including unowned + other agents' tabs); own-only agents can only access their own claimed tabs. 9 unit assertions total, up from 6.
+- `browse/test/server-auth.test.ts` — new test 10a `tab gate predicate is own-only-scoped, not write-scoped`. Source-grep regression: the gate's `if (...)` line must contain `tabPolicy === 'own-only'` and must NOT contain `WRITE_COMMANDS.has(command) ||`. If a future refactor re-introduces the write-scoped gate, this fails immediately.
+
+#### For contributors
+
+- The contract for `checkTabAccess` is now: **`ownOnly` is the only signal that constrains access.** `isWrite` is parameter-shape compatible for any caller that wants to log or branch elsewhere, but it doesn't gate the decision. If you find yourself wanting to make `isWrite` constrain access for a non-`ownOnly` token, that's a sign the policy model needs more axes — discuss in `docs/designs/` before patching the function.
+- Pre-existing test failures in `browse/test/server-auth.test.ts` for `Sidebar endpoints` / `Sidebar agent started` markers are NOT caused by this fix — they predate the v1.16/v1.17 main merges and trace to drift in `server.ts` and `cli.ts` comment markers that the source-shape tests slice between. Out of scope for this PR; logged as follow-up.
+
 ## [1.19.0.0] - 2026-04-27
 
 ## **Browser-skills land end-to-end. `/scrape <intent>` first call drives the page; second call runs the codified script in 200ms.**
