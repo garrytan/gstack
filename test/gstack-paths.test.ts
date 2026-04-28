@@ -5,8 +5,13 @@ import * as path from 'path';
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-paths');
 
+// Invoke via `bash` rather than executing the shebang-script directly.
+// On Windows, spawnSync(scriptPath, ...) goes through CreateProcess, which
+// doesn't parse `#!/usr/bin/env bash`. Production usage always sources the
+// helper from inside a bash block (`eval "$(~/.claude/skills/gstack/bin/gstack-paths)"`)
+// so bash is always the executor — this matches that contract.
 function run(env: Record<string, string | undefined>): Record<string, string> {
-  const result = spawnSync(BIN, [], {
+  const result = spawnSync('bash', [BIN], {
     env: { PATH: process.env.PATH, ...env } as Record<string, string>,
     encoding: 'utf-8',
   });
@@ -70,7 +75,7 @@ describe('gstack-paths', () => {
   });
 
   test('output is shell-evalable: only KEY=VALUE lines, no extra prose', () => {
-    const result = spawnSync(BIN, [], {
+    const result = spawnSync('bash', [BIN], {
       env: { PATH: process.env.PATH, HOME: '/tmp/h' } as Record<string, string>,
       encoding: 'utf-8',
     });
