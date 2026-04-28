@@ -86,6 +86,21 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /BROWSE_HEADLESS_SKIP|spawn\(\[['"]bun['"],\s*['"]run['"]/, reason: 'spawns the browse server subprocess (Bun-driven path is Windows-broken)' },
 ];
 
+// Explicit known-Windows-incompatible test files that don't fit a regex
+// pattern. Listed here with the precise reason. Prefer adding a pattern above
+// when possible; this list is for environment-/runtime-specific tests where
+// the failure mode is structural rather than detectable via source-file scan.
+const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
+  {
+    file: 'test/host-config.test.ts',
+    reason: 'asserts "claude" binary on PATH (only true when running inside Claude Code, not on bare CI runner)',
+  },
+  {
+    file: 'browse/test/findport.test.ts',
+    reason: 'asserts Bun.serve.stop() is fire-and-forget — Bun behavior differs on Windows for this polyfill',
+  },
+];
+
 export const DEFAULT_SHARD_COUNT = 20;
 export const FREE_TEST_TIMEOUT_MS = 10_000;
 
@@ -154,7 +169,13 @@ export interface CurationResult {
 export function curateWindowsSafe(files: string[], rootDir = ROOT): CurationResult {
   const safe: string[] = [];
   const excluded: Array<{ file: string; reason: string }> = [];
+  const knownBad = new Map(KNOWN_WINDOWS_INCOMPATIBLE.map((e) => [e.file, e.reason]));
   for (const relativePath of files) {
+    const knownReason = knownBad.get(relativePath);
+    if (knownReason) {
+      excluded.push({ file: relativePath, reason: knownReason });
+      continue;
+    }
     const absolute = path.join(rootDir, relativePath);
     const fragility = detectWindowsFragility(absolute);
     if (fragility) {
