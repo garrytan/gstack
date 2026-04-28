@@ -66,14 +66,23 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Tests that spawn a bash shebang script in bin/ via spawnSync. Git Bash on
   // Windows can run `bash /path/to/script` but spawnSync(scriptPath, ...)
   // tries to execute the file directly via CreateProcess, which fails on the
-  // shebang. Catches gstack-question-log.test.ts, gstack-paths.test.ts, etc.
-  { pattern: /path\.join\([^)]*,\s*['"]bin['"]\s*[,)]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
+  // shebang. The pattern matches any path-join with a 'bin' segment as a
+  // separator-bounded literal. Catches both `path.join(ROOT, 'bin', ...)` and
+  // the destructured `join(import.meta.dir, '..', 'bin', ...)` form used in
+  // diff-scope.test.ts.
+  { pattern: /,\s*['"]bin['"]\s*,\s*['"][a-z][\w-]+/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
   // Tests that launch a real Playwright browser. The windows-free-tests CI job
   // runs a curated subset that intentionally does NOT install Chromium —
   // browser bring-up on Windows is a separate concern (see PR #1238). Tests
   // matching `await foo.launch(` need Chromium and fail with "Executable
   // doesn't exist" on the runner.
   { pattern: /await\s+\w+\.launch\(/, reason: 'launches Playwright browser (Chromium not installed in windows-free CI)' },
+  // Tests that spawn the browse server as a subprocess via `bun run server.ts`.
+  // The Bun → server.ts → Playwright path is the same one that doesn't work
+  // on Windows (PR #1238 windows-pty-bun-pty-fix). Tests typically set
+  // BROWSE_HEADLESS_SKIP=1 to skip the browser launch but still need a working
+  // server, which they don't get on Windows.
+  { pattern: /BROWSE_HEADLESS_SKIP|spawn\(\[['"]bun['"],\s*['"]run['"]/, reason: 'spawns the browse server subprocess (Bun-driven path is Windows-broken)' },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;
