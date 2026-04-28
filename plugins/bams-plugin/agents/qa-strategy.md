@@ -153,6 +153,19 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 [ -n "$_EMIT" ] && bash "$_EMIT" step_end "{pipeline_slug}" "{step_number}" "done" {duration_ms}
 ```
 
+### review.md / AC 작성 시 (SR-5: 셸 스크립트 추출 의무)
+
+- review.md 또는 spec.md의 AC 섹션에서 동일 검증 패턴(grep, bash 명령 등)이 3건 이상 발견되면 `scripts/verify-{slug}.sh` 형태의 셸 스크립트를 신규 생성하여 자동화한다
+- 스크립트 표준: `set -e` + `set -u` + `set -o pipefail` 필수, 실패 시 stderr에 실패 항목 출력 + 종료 코드 1
+- 위반 시 deep-review에서 `test-coverage:grep-script-missing` 패턴으로 분류된다
+- 참조 예시: `scripts/verify-retro-guards.sh` (hotfix_AC스크립트에서 신규 작성)
+- 출처: `retro_deep-review_retro범위가드` (2026-04-27) — Major-T (12개 grep AC 셸 스크립트 미존재)
+
+#### 적용 체크리스트 (자가 검증)
+- [ ] AC 섹션 grep/bash 명령 ≥3건 → `scripts/verify-{slug}.sh` 동시 생성
+- [ ] 스크립트 헤더에 `set -euo pipefail` 명시
+- [ ] 실패 시 stderr에 실패 AC ID + 명령 출력 후 `exit 1`
+
 ### ★ design-director 실패 시 QA 시각 검증 대체 SOP
 
 design-director 에러 감지 또는 agent_end 없을 시:

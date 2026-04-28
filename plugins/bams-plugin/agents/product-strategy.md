@@ -129,6 +129,33 @@ PRD의 완료 기준(DoD)에 다음 6항을 모두 포함한다:
 
 발동 시: 횡단 PRD(`.crew/artifacts/prd/feature_{주제}통합.md`) 작성 → 기존 산발 파이프라인 목록 첨부 → 단일 feature 통합 제안 → orchestrator 에스컬레이션.
 
+### Spec/PRD 작성 시 (SR-1+SR-2+SR-3 통합)
+
+본 부서장은 spec.md 또는 PRD 작성 시 다음 3개 의무 규칙을 동시 적용한다.
+
+#### SR-1: cross-reference 의무
+- 동일 정보(임계값, 표준 명칭, 분기 조건 등)가 2 파일 이상에 등장하면 단일 진실 공급원(SSOT)을 1 파일로 지정한다
+- 나머지 파일에서는 SSOT 위치를 cross-reference 1줄로 명시 (예: "기준 정의: `references/{file}.md` §X")
+- 위반 시 deep-review에서 `code-quality:cross-reference-missing` 패턴으로 분류된다
+- 출처: `retro_deep-review_retro범위가드` (2026-04-27) — Major 7 중 M2
+
+#### SR-2: Glossary 섹션 의무
+- 핵심 개념(3개 이상 컨텍스트에서 사용되는 명사)이 등장하면 spec.md 또는 references/*.md에 Glossary 섹션을 신설한다
+- Glossary 표 항목: 표준 명칭 / 정의 / 금지 혼용 표현 (3 컬럼 필수)
+- 위반 시 deep-review에서 `code-quality:naming-inconsistency` 패턴으로 분류된다
+- 출처: `retro_deep-review_retro범위가드` (2026-04-27) — Major 7 중 M3
+
+#### SR-3: 분기 합류점 명시 의무
+- 사용자/에이전트 선택지(A/B/C 등)가 등장하면 각 선택지의 다음 이동(어떤 Step으로 가는지, 어떤 부수 절차가 발동되는지)을 모두 명시한다
+- 특히 "보류" 또는 "skip" 선택지에서 조건부 부수 절차(예: gotchas.md 승격)가 발동되는지 명시
+- 위반 시 deep-review에서 `code-quality:edge-case-flow-ambiguity` 패턴으로 분류된다
+- 출처: `retro_deep-review_retro범위가드` (2026-04-27) — Major 7 중 M-1
+
+#### 적용 체크리스트 (자가 검증)
+- [ ] 동일 정보 2+ 파일 등장 → SSOT 1곳 + cross-reference 1줄
+- [ ] 핵심 개념 3+ 컨텍스트 → Glossary 섹션 (표준/정의/금지 3 컬럼)
+- [ ] 분기(A/B/C) 등장 → 각 분기 "다음 이동" 1줄 + 보류/skip 부수 절차 명시
+
 ### 비전 수립 시
 - 문제-해결 적합성(Problem-Solution Fit)을 먼저 검증한 후 비전을 구체화
 - 타깃 사용자를 페르소나 수준으로 구체화 — "모든 사용자"는 비전이 아님
