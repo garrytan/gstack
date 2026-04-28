@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# rstack-migrate-provenance — rename legacy provenance.json files to research-log.json
+#
+# In v1.1.0, "provenance" was renamed to "research log" for clarity. New runs
+# write `research-log.json`. This one-shot script renames legacy `provenance.json`
+# files under research/results/ so naming is consistent across all runs.
+#
+# Read paths in /report, /discuss, /peer-review keep a fallback to provenance.json
+# so this migration is optional — your past experiments still work without it.
+#
+# Usage:
+#   rstack-migrate-provenance              — migrate under ./research/results/
+#   rstack-migrate-provenance <root>       — migrate under <root>/results/
+#   rstack-migrate-provenance --dry-run    — show what would be renamed, do nothing
+set -euo pipefail
+
+DRY_RUN=0
+ROOT="research"
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run|-n) DRY_RUN=1 ;;
+    --help|-h)
+      grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) ROOT="$arg" ;;
+  esac
+done
+
+RESULTS_DIR="$ROOT/results"
+
+if [ ! -d "$RESULTS_DIR" ]; then
+  echo "No directory at $RESULTS_DIR — nothing to migrate." >&2
+  exit 0
+fi
+
+found=0
+migrated=0
+skipped=0
+
+while IFS= read -r -d '' src; do
+  found=$((found + 1))
+  dst="$(dirname "$src")/research-log.json"
+  if [ -e "$dst" ]; then
+    echo "SKIP  $src — research-log.json already exists at destination" >&2
+    skipped=$((skipped + 1))
+    continue
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "DRY   $src -> $dst"
+  else
+    mv -- "$src" "$dst"
+    echo "MOVED $src -> $dst"
+    migrated=$((migrated + 1))
+  fi
+done < <(find "$RESULTS_DIR" -type f -name 'provenance.json' -print0)
+
+echo
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Dry run: $found legacy provenance.json file(s) would be renamed."
+else
+  echo "Done: $migrated renamed, $skipped skipped (out of $found found)."
+fi
