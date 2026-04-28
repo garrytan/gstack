@@ -1,10 +1,10 @@
 # Changelog
 
-## [1.20.0.0] - 2026-04-27
+## [1.22.0.0] - 2026-04-28
 
 ## **Cross-platform hardening. Mac + Linux full, curated Windows lane added.**
 
-v1.20.0.0 ports the McGluut fork's portability work into upstream and adds a curated Windows test job that actually runs green. `bin/gstack-paths` consolidates state-root resolution behind one helper sourced via `eval "$(...)"` from skill bash blocks; eight skills (`careful`, `freeze`, `guard`, `unfreeze`, `investigate`, `context-save`, `context-restore`, `learn`, `office-hours`, `plan-tune`, `codex`) move off inline `${CLAUDE_PLUGIN_DATA:-...}` chains. `Bun.which()` replaces 75 lines of fork-side PATH-resolution code in a new `browse/src/claude-bin.ts` wrapper, wired through five hardcoded `claude` spawn sites. A new `windows-free-tests` GitHub Actions job runs a curated 103-test subset on `windows-latest` plus targeted resolver tests; `evals.yml` stays Linux-container as it should. `AGENTS.md` and `docs/skills.md` sync to the live skill inventory (40+ skills, was 21); `/debug` → `/investigate`, missing skills added, stale `<5s` `bun test` claim dropped. Hardening direction credited to the McGluut fork.
+v1.22.0.0 ports the McGluut fork's portability work into upstream and adds a curated Windows test job that actually runs green. `bin/gstack-paths` consolidates state-root resolution behind one helper sourced via `eval "$(...)"` from skill bash blocks; eight skills (`careful`, `freeze`, `guard`, `unfreeze`, `investigate`, `context-save`, `context-restore`, `learn`, `office-hours`, `plan-tune`, `codex`) move off inline `${CLAUDE_PLUGIN_DATA:-...}` chains. `Bun.which()` replaces 75 lines of fork-side PATH-resolution code in a new `browse/src/claude-bin.ts` wrapper, wired through five hardcoded `claude` spawn sites. A new `windows-free-tests` GitHub Actions job runs a curated 103-test subset on `windows-latest` plus targeted resolver tests; `evals.yml` stays Linux-container as it should. `AGENTS.md` and `docs/skills.md` sync to the live skill inventory (40+ skills, was 21); `/debug` → `/investigate`, missing skills added, stale `<5s` `bun test` claim dropped. Hardening direction credited to the McGluut fork.
 
 ### The numbers that matter
 
@@ -61,8 +61,8 @@ Branch totals come from `git diff --shortstat origin/main..HEAD` after every lan
 - `test/helpers/agent-sdk-runner.ts`: `resolveClaudeBinary()` now delegates to the shared resolver.
 - `AGENTS.md`: rewrote the skill table from 21 entries to 40+, organized by category (plan reviews, implementation, release, operational, browser, safety). `/debug` → `/investigate`. Stale `<5s` `bun test` claim dropped — there's no realistic universal claim to make about test suite duration with periodic + gate + free tiers all in play.
 - `docs/skills.md`: added 11 missing skills to the inventory table (`/plan-devex-review`, `/devex-review`, `/plan-tune`, `/context-save`, `/context-restore`, `/health`, `/landing-report`, `/benchmark-models`, `/pair-agent`, `/setup-gbrain`, `/make-pdf`).
-- `package.json`: 2 new scripts. `test:free` runs the full free suite via the sharding script. `test:windows` runs the curated Windows-safe subset. Version bump `1.15.0.0` → `1.20.0.0`.
-- `VERSION`: `1.15.0.0` → `1.20.0.0`. Workspace-aware queue: v1.17.0.0 claimed by `garrytan/setup-gbrain-run` (PR #1234), v1.19.0.0 by `garrytan/browserharness` (PR #1233). This branch claims the next available slot.
+- `package.json`: 2 new scripts. `test:free` runs the full free suite via the sharding script. `test:windows` runs the curated Windows-safe subset. Version bump `1.15.0.0` → `1.22.0.0`.
+- `VERSION`: `1.15.0.0` → `1.22.0.0`. Workspace-aware queue at /ship time: v1.16.0.0 claimed by `garrytan/gbrowser-unleashed` (PR #1253), v1.17.0.0 by `garrytan/setup-gbrain-run` (PR #1234), v1.19.0.0 by `garrytan/browserharness` (PR #1233), v1.21.1.0 by `garrytan/pty-plan-mode-e2e` (PR #1255). This branch claims the next available MINOR slot.
 
 #### Fixed
 
@@ -73,7 +73,7 @@ Branch totals come from `git diff --shortstat origin/main..HEAD` after every lan
 
 - **Merge-time version-slot freshness recheck.** Current `bin/gstack-next-version` + `scripts/compare-pr-version.ts` queue protection triggers on PR events touching version files. If another PR lands AFTER our gate fires, our claimed slot can go stale without an automatic recheck. P3 follow-up.
 - **POSIX-bound test surfaces for full Windows parity.** 25 tests are excluded from the curated Windows lane via the `WINDOWS_FRAGILE_PATTERNS` scan in `scripts/test-free-shards.ts`. Concrete examples: `test/ship-version-sync.test.ts:72` hardcodes `/bin/bash`, `test/helpers/providers/claude.ts:22` (now fixed in this release), `package.json:12` build step shells out to `bash`/`chmod`. Porting these is the gap between "curated Windows lane" and "full Windows parity." P4 follow-up.
-- **Native PowerShell setup support.** `setup` is bash + symlink heavy at `setup:404`. v1.20.0.0 documents Git Bash / MSYS as the supported Windows install path in `AGENTS.md`. A native PowerShell port closes the last off-the-shelf-for-Windows gap. P4 follow-up.
+- **Native PowerShell setup support.** `setup` is bash + symlink heavy at `setup:404`. v1.22.0.0 documents Git Bash / MSYS as the supported Windows install path in `AGENTS.md`. A native PowerShell port closes the last off-the-shelf-for-Windows gap. P4 follow-up.
 
 #### For contributors
 
