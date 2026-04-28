@@ -37,6 +37,7 @@ import {
   isPermissionDialogVisible,
   parseNumberedOptions,
   isPlanReadyVisible,
+  TAIL_SCAN_BYTES,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
 
@@ -115,7 +116,14 @@ async function navigateToModeAskUserQuestion(
     // Permission dialog? Grant with "1" but don't count it against nav budget.
     // Classify on the recent tail only — old permission text persists in
     // visibleSince and would re-trigger forever.
-    if (isPermissionDialogVisible(visible.slice(-1500))) {
+    //
+    // Note: runPlanSkillObservation has its own permission-dialog filter that
+    // simply skips classification (since it observes, doesn't drive). This nav
+    // loop drives the PTY directly via launchClaudePty and so owns its own
+    // dialog handling — granting with "1" so the workflow advances. Both
+    // paths share TAIL_SCAN_BYTES as the recent-tail window so tuning stays
+    // in sync.
+    if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
       session.send('1\r');
       await Bun.sleep(1500);
       continue;

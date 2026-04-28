@@ -139,29 +139,52 @@ export function isPlanReadyVisible(visible: string): boolean {
 }
 
 /**
+ * Recent-tail window (in bytes of stripped TTY text) used when classifying
+ * permission dialogs. Old permission text persists in the visibleSince buffer
+ * after the dialog is dismissed, so callers should pass `visible.slice(-TAIL_SCAN_BYTES)`
+ * to avoid re-triggering on stale scrollback. Shared between `runPlanSkillObservation`
+ * and `navigateToModeAskUserQuestion` in the routing test so tuning stays in sync.
+ */
+export const TAIL_SCAN_BYTES = 1500;
+
+/**
  * Detect a Claude Code permission dialog. These render as a numbered
  * option list (so isNumberedOptionListVisible matches them) but they
  * are NOT a skill's AskUserQuestion — they're claude asking the user
  * whether to grant a tool/file permission. Tests that look for skill
  * AskUserQuestions must explicitly skip these.
  *
- * Both English phrases below are stable across recent Claude Code
+ * The English phrases below are stable across recent Claude Code
  * versions. The check is permissive on whitespace because TTY rendering
  * may wrap or reflow text.
+ *
+ * Co-trigger requirement: the bare phrase "Do you want to proceed?" is
+ * generic enough that a skill question could legitimately use it
+ * ("Do you want to proceed with HOLD SCOPE?"). To avoid mis-classifying
+ * skill questions as permission dialogs, this phrase only counts when it
+ * co-occurs with a file-edit context ("Edit to <path>" or "Write to <path>").
+ * The standalone permission signatures (`requested permissions to`,
+ * `allow all edits`, `always allow access to`, `Bash command requires permission`)
+ * remain unconditional.
  */
 export function isPermissionDialogVisible(visible: string): boolean {
-  return (
-    /requested\s+permissions?\s+to/i.test(visible) ||
-    /Do\s+you\s+want\s+to\s+proceed\?/i.test(visible) ||
-    // "Yes / Yes, allow all edits / No" shape rendered by Claude Code for
-    // file-edit permission grants. The middle option's "allow all" phrase
-    // is the unique signature.
-    /\ballow\s+all\s+edits\b/i.test(visible) ||
-    // "Yes, and always allow access to <dir>" shape (workspace trust).
-    /always\s+allow\s+access\s+to/i.test(visible) ||
-    // Bash command permission prompts.
-    /Bash\s+command\s+.*\s+requires\s+permission/i.test(visible)
-  );
+  // Standalone signatures — high specificity, never appear in skill questions.
+  if (/requested\s+permissions?\s+to/i.test(visible)) return true;
+  // "Yes / Yes, allow all edits / No" shape — file-edit permission grants.
+  if (/\ballow\s+all\s+edits\b/i.test(visible)) return true;
+  // "Yes, and always allow access to <dir>" shape — workspace trust.
+  if (/always\s+allow\s+access\s+to/i.test(visible)) return true;
+  // Bash command permission prompts.
+  if (/Bash\s+command\s+.*\s+requires\s+permission/i.test(visible)) return true;
+  // "Do you want to proceed?" only counts as a permission dialog when paired
+  // with a file-edit context. Skill questions can use the bare phrase.
+  if (
+    /Do\s+you\s+want\s+to\s+proceed\?/i.test(visible) &&
+    /(Edit|Write)\s+to\s+\S+/i.test(visible)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Detect any AskUserQuestion-shaped numbered option list with cursor. */
@@ -259,6 +282,69 @@ export function parseNumberedOptions(
     }
   }
   return found;
+}
+
+/**
+ * Pure classifier for the visible TTY buffer. Decides which outcome the
+ * polling loop should return on this tick, or `null` to keep polling.
+ *
+ * Extracted from `runPlanSkillObservation` so the unit suite can exercise
+ * the actual branch order with synthetic input strings — a future contributor
+ * who reorders the branches (e.g., moves the permission short-circuit) gets
+ * caught by the unit tests, not by a stochastic E2E run.
+ *
+ * Live-state branches (process exited, "Unknown command") stay in the runner
+ * since they need the session handle.
+ */
+export type ClassifyResult =
+  | { outcome: 'silent_write'; summary: string }
+  | { outcome: 'plan_ready'; summary: string }
+  | { outcome: 'asked'; summary: string }
+  | null;
+
+const SANCTIONED_WRITE_SUBSTRINGS = [
+  '.claude/plans',
+  '.gstack/',
+  '/.context/',
+  'CHANGELOG.md',
+  'TODOS.md',
+];
+
+export function classifyVisible(visible: string): ClassifyResult {
+  // Silent-write detection: any Write/Edit tool render that targets a path
+  // OUTSIDE the sanctioned dirs, AND no numbered prompt is currently on screen
+  // (a numbered prompt means a permission/AskUserQuestion is gating the write,
+  // not an actual silent write).
+  const writeRe = /⏺\s*(?:Write|Edit)\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = writeRe.exec(visible)) !== null) {
+    const target = m[1] ?? '';
+    const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
+    if (!sanctioned && !isNumberedOptionListVisible(visible)) {
+      return {
+        outcome: 'silent_write',
+        summary: `Write/Edit to ${target} fired before any AskUserQuestion`,
+      };
+    }
+  }
+  if (isPlanReadyVisible(visible)) {
+    return {
+      outcome: 'plan_ready',
+      summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
+    };
+  }
+  if (isNumberedOptionListVisible(visible)) {
+    // Permission dialogs render numbered lists too. Skip them — the
+    // bug we want to catch is "skill question never fired."
+    if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
+      return null;
+    }
+    return {
+      outcome: 'asked',
+      summary: 'skill fired a numbered-option prompt (AskUserQuestion or routing-injection)',
+    };
+  }
+  return null;
 }
 
 /**
@@ -566,12 +652,21 @@ export async function runPlanSkillObservation(opts: {
   cwd?: string;
   /** Total budget for skill to reach a terminal outcome. Default 180000. */
   timeoutMs?: number;
+  /**
+   * Extra env merged into the spawned `claude` process. `launchClaudePty`
+   * already supports this; exposing it here lets per-skill tests isolate
+   * from local config that would mask the regression they're trying to
+   * catch (e.g., `QUESTION_TUNING=true` causing AUTO_DECIDE to skip the
+   * rendered AskUserQuestion list).
+   */
+  env?: Record<string, string>;
 }): Promise<PlanSkillObservation> {
   const startedAt = Date.now();
   const session = await launchClaudePty({
     permissionMode: opts.inPlanMode === false ? null : 'plan',
     cwd: opts.cwd,
     timeoutMs: (opts.timeoutMs ?? 180_000) + 30_000,
+    env: opts.env,
   });
 
   try {
@@ -602,40 +697,10 @@ export async function runPlanSkillObservation(opts: {
           elapsedMs: Date.now() - startedAt,
         };
       }
-      // Silent-write detection: any Write/Edit tool render that targets a
-      // path OUTSIDE ~/.claude/plans, ~/.gstack/, or the active worktree's
-      // .gstack/. Plan files and gbrain artifacts are sanctioned.
-      const writeRe = /⏺\s*(?:Write|Edit)\(([^)]+)\)/g;
-      let m: RegExpExecArray | null;
-      while ((m = writeRe.exec(visible)) !== null) {
-        const target = m[1] ?? '';
-        const sanctioned =
-          target.includes('.claude/plans') ||
-          target.includes('.gstack/') ||
-          target.includes('/.context/') ||
-          target.includes('CHANGELOG.md') ||
-          target.includes('TODOS.md');
-        if (!sanctioned && !isNumberedOptionListVisible(visible)) {
-          return {
-            outcome: 'silent_write',
-            summary: `Write/Edit to ${target} fired before any AskUserQuestion`,
-            evidence: visible.slice(-2000),
-            elapsedMs: Date.now() - startedAt,
-          };
-        }
-      }
-      if (isPlanReadyVisible(visible)) {
+      const classified = classifyVisible(visible);
+      if (classified) {
         return {
-          outcome: 'plan_ready',
-          summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
-          evidence: visible.slice(-2000),
-          elapsedMs: Date.now() - startedAt,
-        };
-      }
-      if (isNumberedOptionListVisible(visible)) {
-        return {
-          outcome: 'asked',
-          summary: 'skill fired a numbered-option prompt (AskUserQuestion or routing-injection)',
+          ...classified,
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
         };
