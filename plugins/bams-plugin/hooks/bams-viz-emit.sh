@@ -98,19 +98,18 @@ _events_file() {
 
 _post_event() {
   local payload="$1"
-  # 1) 서버 POST 시도 (BAMS_SERVER_URL이 설정된 경우)
-  local _server_ok=0
+  # 1) 서버 POST 시도 (BAMS_SERVER_URL이 설정된 경우, 실패 무시)
   if [ -n "${BAMS_SERVER_URL:-}" ]; then
     curl -s --max-time 2 -X POST "${BAMS_SERVER_URL}/api/events" \
       -H "Content-Type: application/json" \
-      -d "$payload" > /dev/null 2>&1 && _server_ok=1 || true
+      -d "$payload" > /dev/null 2>&1 || true
   fi
-  # 2) fallback file write — 서버 POST 실패하거나 BAMS_SERVER_URL 미설정 시
-  if [ "$_server_ok" -eq 0 ]; then
-    local _file
-    _file="$(_events_file "$SLUG")"
-    printf '%s\n' "$payload" >> "$_file" 2>/dev/null || true
-  fi
+  # 2) 항상 file write (이중 기록) — 서버 성공 여부와 무관하게 jsonl 파일 보존
+  # 사유: viz dashboard와 retro/회고가 jsonl 파일에 의존하므로,
+  # 서버 down 시 데이터 손실 방지 + 한글 slug 등 모든 케이스 일관 처리
+  local _file
+  _file="$(_events_file "$SLUG")"
+  printf '%s\n' "$payload" >> "$_file" 2>/dev/null || true
 }
 
 case "$EVENT_TYPE" in
