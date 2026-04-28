@@ -14,7 +14,7 @@
 
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
-import { dirname } from "path";
+import { join, dirname } from "path";
 import { TaskDB } from "./index.ts";
 import type { Task } from "./schema.ts";
 
