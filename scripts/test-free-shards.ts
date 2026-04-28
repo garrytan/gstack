@@ -47,8 +47,11 @@ const PAID_EVAL_TESTS = [
 // matter how the runner shards. Codex's v1.18.0.0 review flagged the first
 // three as concrete examples in the existing free suite (test/ship-version-sync.test.ts:72,
 // test/helpers/providers/claude.ts:22, package.json:12). We scan the test's
-// own content here so the filter stays automatic as new tests land.
+// own content here so the filter stays automatic as new tests land. The
+// "Windows-incompatible APIs" patterns at the bottom were added after the
+// first windows-free-tests CI run surfaced concrete failure modes.
 const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  // Hardcoded POSIX shells / commands.
   { pattern: /['"`]\/bin\/(?:ba)?sh/, reason: 'hardcoded /bin/sh or /bin/bash' },
   { pattern: /spawnSync\(['"]sh['"],|spawn\(['"]sh['"],|exec\(['"]sh /, reason: 'spawn("sh", ...)' },
   { pattern: /['"]bash -c['"]|['"]sh -c['"]/, reason: 'bash -c / sh -c' },
@@ -56,6 +59,10 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /['"]chmod\b/, reason: 'chmod shell command' },
   { pattern: /['"]xargs\b/, reason: 'xargs pipeline' },
   { pattern: /\bwhich claude\b/, reason: 'which claude (use Bun.which)' },
+  // Windows-incompatible APIs.
+  { pattern: /\.mode\s*&\s*0o[0-7]+/, reason: 'POSIX file mode bitmask (mode & 0o600 etc — Windows fakes mode bits)' },
+  { pattern: /\.endsWith\(['"]\//, reason: 'hardcoded forward-slash path assertion (Windows uses \\\\)' },
+  { pattern: /['"]\.\/[a-zA-Z][^"']*['"]\)\s*\.\s*toBe\(true\)/, reason: 'forward-slash path comparison' },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;

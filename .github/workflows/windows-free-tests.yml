@@ -37,6 +37,13 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Configure git identity (required by tests that init temp repos)
+        run: |
+          git config --global user.email "windows-ci@gstack.test"
+          git config --global user.name "Windows CI"
+          git config --global init.defaultBranch main
+        shell: bash
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
