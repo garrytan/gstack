@@ -5,15 +5,25 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)/dist"
 if test -x "$DIR/find-browse"; then
   exec "$DIR/find-browse" "$@"
 fi
+if test -x "$DIR/find-browse.exe"; then
+  exec "$DIR/find-browse.exe" "$@"
+fi
 # Fallback: basic discovery with priority chain
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if test "$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')" = "mingw64_nt" || \
+   test "$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')" = "mingw32_nt" || \
+   test "$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')" = "msys_nt"; then
+  BROWSE_BIN="browse.exe"
+else
+  BROWSE_BIN="browse"
+fi
 for MARKER in .codex .agents .claude; do
-  if [ -n "$ROOT" ] && test -x "$ROOT/$MARKER/skills/gstack/browse/dist/browse"; then
-    echo "$ROOT/$MARKER/skills/gstack/browse/dist/browse"
+  if [ -n "$ROOT" ] && test -x "$ROOT/$MARKER/skills/gstack/browse/dist/$BROWSE_BIN"; then
+    echo "$ROOT/$MARKER/skills/gstack/browse/dist/$BROWSE_BIN"
     exit 0
   fi
-  if test -x "$HOME/$MARKER/skills/gstack/browse/dist/browse"; then
-    echo "$HOME/$MARKER/skills/gstack/browse/dist/browse"
+  if test -x "$HOME/$MARKER/skills/gstack/browse/dist/$BROWSE_BIN"; then
+    echo "$HOME/$MARKER/skills/gstack/browse/dist/$BROWSE_BIN"
     exit 0
   fi
 done

@@ -42,6 +42,11 @@ describe('locateBinary', () => {
     expect(agentsIdx).toBeLessThan(claudeIdx);
   });
 
+  test('Windows discovery uses .exe browse binaries', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../src/find-browse.ts'), 'utf-8');
+    expect(src).toContain("process.platform === 'win32' ? 'browse.exe' : 'browse'");
+  });
+
   test('function signature accepts no arguments', () => {
     // locateBinary should be callable with no arguments
     expect(typeof locateBinary).toBe('function');

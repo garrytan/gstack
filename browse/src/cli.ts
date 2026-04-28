@@ -50,7 +50,7 @@ export function resolveServerScript(
   );
 }
 
-const SERVER_SCRIPT = resolveServerScript();
+const SERVER_SCRIPT = IS_WINDOWS ? null : resolveServerScript();
 
 /**
  * On Windows, resolve the Node.js-compatible server bundle.
@@ -232,7 +232,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
     // macOS/Linux: Bun.spawn + unref works correctly
-    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
+    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT!], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
     });
