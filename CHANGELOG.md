@@ -1,18 +1,22 @@
 # Changelog
 
-## [1.16.0.0] - 2026-04-26
+## [1.19.0.0] - 2026-04-27
 
-## **Browser-skills land. Hand-write a deterministic browser script once, run it forever in 200ms instead of 30s of agent re-exploration.**
+## **Browser-skills land end-to-end. `/scrape <intent>` first call drives the page; second call runs the codified script in 200ms.**
 
-`$B skill run hackernews-frontpage` returns 30 stories as JSON in 200ms. The agent doesn't snapshot, click, navigate, or parse. It runs the bundled script. That's the whole pitch for this release: codify a repeated browser flow once, then lean on the script forever.
+The productivity loop closes in this release. Phase 1 shipped the runtime: deterministic browser scripts that run as standalone Bun processes via `$B skill run`, scoped capability tokens, three-tier storage, and the bundled `hackernews-frontpage` reference. Phase 2a ships the agent-authoring half: `/scrape <intent>` is the single entry point for pulling page data, and `/skillify` codifies the most recent successful prototype into a permanent browser-skill on disk.
 
-This release is the runtime layer. The bundled `hackernews-frontpage` reference skill proves it works end-to-end. Agent authoring (the `/scrape` and `/automate` skills that prototype a flow then offer to skillify it) lands in the next release.
+First `/scrape` on a new intent prototypes the flow with `$B goto`/`$B html`/etc., returns JSON, and suggests `/skillify`. Run `/skillify` and the agent synthesizes `script.ts` + `script.test.ts` + a captured fixture from its own conversation context (final-attempt `$B` calls only, no failed selectors, no chat fragments), stages everything to `~/.gstack/.tmp/skillify-<spawnId>/`, runs the test there, and asks before renaming into the final tier path. Test failure or rejection: `rm -rf` the temp dir, no half-written skill on disk. Next `/scrape` with a matching intent routes via `$B skill list` + `$B skill run <name>`. ~30s prototype becomes ~200ms forever after.
+
+Mutating-flow sibling `/automate` is split out as its own P0 in `TODOS.md` and ships next branch. Scraping is the safer wedge to validate the skillify pattern (failure mode: wrong data); mutating actions need the per-step confirmation gate that `/automate` adds on top.
 
 The architecture replaces the v1.8.0.0 P1 around "self-authoring `$B` commands." That P1 was blocked on Codex's T1 objection, agent-authored TypeScript can't be safely contained inside the daemon. This design sidesteps the entire isolation problem by running skill scripts *outside* the daemon as standalone Bun processes. Each script gets a per-spawn scoped capability token bound to the read+write command surface; the daemon root token never leaves the harness. The trust boundary is at the daemon, not at process-side env scrubbing, which Codex correctly flagged as security theater in the original draft.
 
 ### What you can now do
 
 - **Run a bundled skill:** `$B skill run hackernews-frontpage` returns JSON.
+- **Scrape with one verb:** `/scrape latest hacker news stories`. First call matches the bundled skill via the `triggers:` array and runs in 200ms. New intent? It prototypes via `$B`, returns JSON, and suggests `/skillify`.
+- **Codify a prototype:** `/skillify` walks back through the conversation, finds the last `/scrape` result, synthesizes the script + test + fixture, stages to a temp dir, runs the test, and asks before committing to `~/.gstack/browser-skills/<name>/`.
 - **List what's available:** `$B skill list` walks three tiers (project > global > bundled) and prints the resolved tier inline.
 - **Test a skill against a fixture:** `$B skill test hackernews-frontpage` runs the bundled `script.test.ts` against a captured HTML snapshot, no live network.
 - **Read a skill's contract:** `$B skill show hackernews-frontpage` prints SKILL.md.
@@ -20,35 +24,45 @@ The architecture replaces the v1.8.0.0 P1 around "self-authoring `$B` commands."
 
 ### The numbers that matter
 
-Source: 121 new unit tests across `browse/test/skill-token.test.ts`, `browse-client.test.ts`, `browser-skills-storage.test.ts`, `browser-skill-commands.test.ts`, `browser-skills/hackernews-frontpage/script.test.ts`, plus 7 new bundled-skill assertions in `test/skill-validation.test.ts`. All passing in under two seconds.
+Source: Phase 1 added 121 unit tests across `browse/test/skill-token.test.ts`, `browse-client.test.ts`, `browser-skills-storage.test.ts`, `browser-skill-commands.test.ts`, `browser-skills/hackernews-frontpage/script.test.ts`, plus 7 bundled-skill assertions in `test/skill-validation.test.ts`. Phase 2a adds 34 unit tests for the atomic-write helper (`browse/test/browser-skill-write.test.ts`) and 5 gate-tier E2E scenarios (`test/skill-e2e-skillify.test.ts`). All free-tier tests pass in under two seconds; the gate-tier E2E adds ~$5 to a CI run.
 
 | Surface | Shape |
 |---|---|
+| Latency on a codified intent | ~200ms (vs ~30s prototype on first call) |
 | New `$B` command | `skill` (5 subcommands: list, show, run, test, rm) |
-| New modules | 4 (`browse-client.ts`, `browser-skills.ts`, `browser-skill-commands.ts`, `skill-token.ts`) |
+| New gstack skills | 2 (`/scrape`, `/skillify`); `/automate` deferred to P0 follow-up |
+| New modules | 5 (`browse-client.ts`, `browser-skills.ts`, `browser-skill-commands.ts`, `skill-token.ts`, `browser-skill-write.ts`) |
 | Bundled reference skills | 1 (`hackernews-frontpage`) |
 | Storage tiers | 3 (project > global > bundled, first-wins) |
 | SDK distribution model | sibling-file: each skill ships `_lib/browse-client.ts` (~3KB, byte-identical to canonical) |
 | Daemon-side capability default | scoped session token, `read+write` only (no `eval`/`js`/`cookies`/`storage`) |
 | Process-side env default | scrubbed: drops $HOME, $PATH user-paths, anything matching TOKEN/KEY/SECRET, AWS_*, OPENAI_*, GITHUB_*, etc. |
-| Codex outside-voice findings resolved | 5 of 8 (3 deferred to Phase 2/4 with eyes open; design doc cross-references each) |
+| Atomic-write contract | temp-dir-then-rename via `browse/src/browser-skill-write.ts`. Test fail OR approval reject = `rm -rf` the temp dir. Never a half-written skill on disk. |
+| Codex outside-voice findings resolved | 6 of 8 (synthesis #6 closed by Phase 2a D2; Bun runtime #7 + OS sandbox #1 deferred to Phase 4) |
 
 ### What this means for builders
 
-Phase 1 is the foundation. You can hand-write deterministic Playwright scripts today, drop them into `~/.gstack/browser-skills/<name>/` (or a project-local override), and the runtime executes them with a scoped token bound to browser-driving commands. The bundled `hackernews-frontpage` is the pattern to copy.
+The compounding loop is closed. The first time you ask the agent to scrape a page, it pays the prototype cost. The second time on the same intent (rephrased or not), it runs the codified script in 200ms. Multiply across every recurring data-pull task you have, release-notes scraping, leaderboard checks, dashboard captures, and the time savings compound across sessions.
 
-Phase 2 (next release) is where the productivity gain lives. The agent prototypes a flow via `$B`, you say "skillify it," and the artifacts get written via an approval gate. Open design questions deferred to Phase 2: how to synthesize the script from a lossy activity feed, and how to ship Bun runtime alongside generated skills.
+The agent-authoring contract is locked: `/skillify` extracts only the final-attempt `$B` calls from the conversation (no failed selectors, no chat fragments leak into the on-disk artifact), writes to a temp dir, runs the auto-generated `script.test.ts` there, and only commits on test pass + your approval. If anything fails, the temp dir vanishes, no broken skill ever appears in `$B skill list`.
+
+Mutating flows (form fills, click sequences, multi-step automations) ship next as `/automate` (P0 in `TODOS.md`). Same skillify machinery, different trust profile: per-mutating-step confirmation gate when running non-codified, unattended once committed. We split it from this release because scraping's failure mode is benign (wrong data) and mutation's isn't (unintended writes); the staged rollout lets us validate the skillify pattern with the safer half first.
 
 ### Itemized changes
 
-#### Added
+#### Added — Phase 1 runtime
 
 - `$B skill list|show|run|test|rm <name?>`. Five subcommands. List walks 3 tiers (project > global > bundled) and prints the resolved tier inline so "why did it run that one?" is never a debugging mystery. Run mints a per-spawn scoped capability token, spawns `bun run script.ts -- <args>` with cwd locked to the skill dir, captures stdout (1MB cap) and stderr, and revokes the token on exit.
 - `browse/src/browse-client.ts`. Canonical SDK (~250 LOC). Reads `GSTACK_PORT` + `GSTACK_SKILL_TOKEN` from env first (set by `$B skill run`), falls back to `<project>/.gstack/browse.json` for standalone debug runs. Convenience methods cover the read+write surface: goto, click, fill, text, html, snapshot, links, forms, accessibility, attrs, media, data, scroll, press, type, select, wait, hover, screenshot. Low-level `command(cmd, args)` escape hatch for anything else.
 - `browse/src/browser-skills.ts`. Three-tier storage helpers. `listBrowserSkills()` walks project > global > bundled (first-wins), parses SKILL.md frontmatter, no INDEX.json. `readBrowserSkill(name)` does the same for a single name. `tombstoneBrowserSkill(name, tier)` moves a skill into `.tombstones/<name>-<ts>/` for recoverability.
 - `browse/src/skill-token.ts`. Wraps `token-registry.createToken/revokeToken` with skill-specific clientId encoding (`skill:<name>:<spawn-id>`) and read+write defaults. TTL = spawn timeout + 30s slack.
 - `browser-skills/hackernews-frontpage/`. Bundled reference skill (SKILL.md, script.ts, _lib/browse-client.ts, fixtures/hn-2026-04-26.html, script.test.ts). Smallest interesting browser-skill: scrapes HN front page, returns 30 stories as JSON, no auth, stable HTML.
-- `docs/designs/BROWSER_SKILLS_V1.md`. Design doc capturing the 13 locked decisions, two-axis trust model, full responses to all 8 Codex outside-voice findings, and Phase 2-4 sketches.
+
+#### Added — Phase 2a `/scrape` + `/skillify`
+
+- `scrape/SKILL.md.tmpl` + generated `scrape/SKILL.md`. `/scrape <intent>` is one entry point with three paths: match (intent matches an existing skill's `triggers:` → `$B skill run <name>` in 200ms), prototype (drive `$B` primitives, return JSON, suggest `/skillify`), refusal (mutating intents route to `/automate`). Match decision lives in the agent, not the daemon, no new code in `browse/src/`, no expanded daemon command surface.
+- `skillify/SKILL.md.tmpl` + generated `skillify/SKILL.md`. 11-step flow: provenance guard (walk back ≤10 turns for a bounded `/scrape` result, refuse if cold), name + tier + trigger proposal via `AskUserQuestion`, synthesize `script.ts` from final-attempt `$B` calls only, capture fixture, write `script.test.ts`, copy canonical SDK byte-identical to `_lib/browse-client.ts`, write SKILL.md frontmatter (`source: agent`, `trusted: false`), stage to temp dir, run `$B skill test`, approval gate, atomic rename to final tier path.
+- `browse/src/browser-skill-write.ts`. Atomic-write helper. `stageSkill()` writes files to `~/.gstack/.tmp/skillify-<spawnId>/<name>/` with restrictive perms. `commitSkill()` does an atomic `fs.renameSync` into the final tier path with `realpath`/`lstat` discipline (refuses to follow symlinked staging dirs, refuses to clobber existing skills). `discardStaged()` is the cleanup path for test failures and approval rejections. `rm -rf` is idempotent and bounded to the per-spawn wrapper. `validateSkillName()` enforces lowercase letters/digits/dashes only, no `..` or path-escape characters.
 
 #### Changed
 
@@ -56,13 +70,21 @@ Phase 2 (next release) is where the productivity gain lives. The agent prototype
 - `browse/src/server.ts` threads the local listen port (`LOCAL_LISTEN_PORT`) to meta-command dispatch via `MetaCommandOpts.daemonPort` so `$B skill run` knows which port to point spawned scripts at.
 - `browse/src/meta-commands.ts` dispatches `skill` to `handleSkillCommand`.
 - `test/skill-validation.test.ts` extends to cover bundled browser-skills: each must have SKILL.md + script.ts + _lib/browse-client.ts (byte-identical to canonical) + script.test.ts, with frontmatter satisfying the host/triggers/args contract.
-- `TODOS.md` replaces the original "self-authoring `$B` commands" P1 with three new entries (Phase 2 P1, Phase 3 P2, Phase 4 P2).
+- `test/helpers/touchfiles.ts` registers 5 new gate-tier E2E entries (`scrape-match-path`, `scrape-prototype-path`, `skillify-happy-path`, `skillify-provenance-refusal`, `skillify-approval-reject`) with deps on `scrape/**`, `skillify/**`, `browse/src/browser-skill-write.ts`, plus the Phase 1 runtime modules.
+- `docs/designs/BROWSER_SKILLS_V1.md` adds a Phase 2a sub-section with the four decisions (D1 provenance guard, D2 final-attempt synthesis, D3 atomic write, D4 full test coverage) locked during plan review. Phase table re-organized into 1, 2a, 2b, 3, 4.
+- `TODOS.md` narrows the existing P1 (was `/scrape and /automate`) to just `/scrape + /skillify` and adds a new P0 above `PACING_UPDATES_V0` for the `/automate` follow-up.
+
+#### Tests
+
+- `browse/test/browser-skill-write.test.ts`. 34 assertions covering the D3 atomic-write contract: stage validation, file-path escape rejection, atomic rename, clobber refusal, symlink refusal, idempotent discard, end-to-end happy + failure paths.
+- `test/skill-e2e-skillify.test.ts`. 5 gate-tier E2E scenarios (`claude -p` driven, deterministic against local file:// fixtures): match path routes to bundled skill, prototype path drives `$B` and emits JSON, skillify happy writes complete skill tree, provenance refusal leaves nothing on disk, approval-gate reject removes the temp dir.
 
 #### For contributors
 
 - The browser-skill SKILL.md frontmatter has a hard contract enforced by `parseSkillFile()` and `test/skill-validation.test.ts`. Required: `host` (string), `triggers` (string list), `args` (mapping list). Optional: `trusted` (bool, defaults false), `version`, `source` (`human`/`agent`), `description`.
-- The canonical SDK at `browse/src/browse-client.ts` and the sibling at `browser-skills/hackernews-frontpage/_lib/browse-client.ts` MUST be byte-identical. The skill-validation test fails the build otherwise. When the canonical SDK changes, update every bundled skill's `_lib/` copy.
-- Phase 2 design questions are tracked in `docs/designs/BROWSER_SKILLS_V1.md` ("Phase 2 sketch"). Specifically: synthesis from lossy activity feed, and Bun runtime distribution for user-authored skills landing on machines without Bun.
+- The canonical SDK at `browse/src/browse-client.ts` and the sibling at `browser-skills/hackernews-frontpage/_lib/browse-client.ts` MUST be byte-identical. The skill-validation test fails the build otherwise. When the canonical SDK changes, update every bundled skill's `_lib/` copy. Agent-authored skills via `/skillify` get a freshly-copied SDK at synthesis time, so they're frozen at the version they were authored against (no drift possible).
+- The atomic-write helper enforces "no half-written skills." Always call `stageSkill` → run tests → `commitSkill` (success) OR `discardStaged` (failure). Never write directly to the final tier path. The helper's `validateSkillName` is the only naming gate, keep it tight (lowercase letters/digits/dashes, ≤64 chars, no consecutive dashes, no leading digit).
+- Phase 2b (`/automate`) and Phase 4 (Bun runtime distribution, OS FS sandbox, fixture-staleness detection) are tracked in `docs/designs/BROWSER_SKILLS_V1.md` and `TODOS.md`. The `/automate` skill reuses `/skillify` and `browser-skill-write.ts` as-is; new code is the per-mutating-step confirmation gate.
 
 ## [1.15.0.0] - 2026-04-26
 
