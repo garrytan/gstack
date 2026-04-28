@@ -169,6 +169,18 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
+    // Honor system proxy env vars for users behind a corporate or VPN proxy.
+    // Playwright's chromium.launch() does not auto-read these — must be passed
+    // explicitly via the `proxy` launch option.
+    //   BROWSE_PROXY  — explicit override (e.g. socks5://host:port for remote DNS)
+    //   HTTPS_PROXY   — standard system HTTPS proxy
+    //   HTTP_PROXY    — standard system HTTP proxy
+    // BROWSE_PROXY exists for fakeip/TUN environments where the system HTTP
+    // proxy resolves DNS locally to fake addresses; using socks5:// forces
+    // remote DNS resolution at the proxy, bypassing the fake IP.
+    const proxyServer = process.env.BROWSE_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    const proxyBypass = process.env.NO_PROXY;
+
     this.browser = await chromium.launch({
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
@@ -176,6 +188,7 @@ export class BrowserManager {
       // browsing user-specified URLs has marginal sandbox benefit.
       chromiumSandbox: process.platform !== 'win32',
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
+      ...(proxyServer ? { proxy: { server: proxyServer, ...(proxyBypass ? { bypass: proxyBypass } : {}) } } : {}),
     });
 
     // Chromium crash → exit with clear message
