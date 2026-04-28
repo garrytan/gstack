@@ -33,9 +33,9 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 phase3-quantitative-eval.md에서 C등급 이하(C/D)인 에이전트와,
 phase2-kpt-consolidated.md의 Problem 항목에서 명시적으로 지목된 에이전트를 대상으로 합니다. 두 기준 중 하나라도 해당하면 개선 대상에 포함합니다.
 
-**일반화 가능성 가드 (R4 / NG1 정합, 분류 기준: `references/retro-protocol.md` §3-1 참조)**:
+**일반화 가능성 분류 (R4 / NG1 정합, 분류 기준: `references/retro-protocol.md` §3-0/3-1 참조)**:
 phase2-kpt-consolidated.md에서 **"단일 프로젝트 한정"으로 분류된 Problem만 근거가 되는 개선 후보는 plugin agent 수정 대상에서 제외**합니다. 해당 후보는 `.crew/gotchas.md` 후보 또는 프로젝트 차원 액션 아이템으로 분류하여 Step 8 사용자 승인의 별도 흐름(R9, AC11)에서 처리합니다.
-같은 에이전트가 다중 프로젝트 재현 Problem과 단일 프로젝트 한정 Problem 둘 다에 의해 지목된 경우, 다중 프로젝트 재현 Problem 부분만 plugin agent 수정 대상에 포함합니다.
+같은 에이전트가 다중 프로젝트 재현 가능 Problem과 단일 프로젝트 한정 Problem 둘 다에 의해 지목된 경우, 다중 프로젝트 재현 가능 Problem 부분만 plugin agent 수정 대상에 포함합니다.
 
 **Step 7a: Advisor 호출** — Task tool, subagent_type: **"bams-plugin:pipeline-orchestrator"**, 조언자 모드. 컨텍스트: phase3-quantitative-eval.md, phase2-kpt-consolidated.md, phase3-qualitative-*.md, agents 정의 디렉터리. (agent_start/end: `orchestrator-advisor-step7-{date}`)
 
