@@ -71,7 +71,7 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   //   - path.join(ROOT, 'bin', 'script-name')        — typical
   //   - join(import.meta.dir, '..', 'bin', 'name')   — destructured (diff-scope)
   //   - path.join(ROOT, 'bin')                       — bare BIN constant (brain-sync)
-  { pattern: /,\s*['"]bin['"]\s*[,)]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
+  { pattern: /,\s*['"]bin['"]\s*[,)]|['"]\.?\/?bin\/[a-z][\w-]+['"]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
   // Tests that launch a real Playwright browser. The windows-free-tests CI job
   // runs a curated subset that intentionally does NOT install Chromium —
   // browser bring-up on Windows is a separate concern (see PR #1238). Tests
