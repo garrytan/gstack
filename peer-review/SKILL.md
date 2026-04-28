@@ -1,7 +1,7 @@
 ---
 name: peer-review
 preamble-tier: 2
-version: 1.0.0
+version: 1.1.0
 description: |
   AI-powered critical review of experiment implementation and results. Acts as
   a skeptical reviewer checking methodology, statistics, code quality,
@@ -148,7 +148,7 @@ Replace `OUTCOME` with success/error/abort.
 # /peer-review — Critical Review of Experiments
 
 Adopt the persona of a skeptical peer reviewer. Load the full experiment
-context (hypothesis, code, results, report, provenance) and systematically
+context (hypothesis, code, results, report, research log) and systematically
 evaluate methodology, statistics, code quality, reproducibility, and
 conclusions. Produce a structured review document with severity ratings.
 
@@ -176,7 +176,10 @@ ls research/experiments/<slug>/run_*.py 2>/dev/null || ls research/experiments/<
 _LATEST=$(ls -t research/results/<slug>/ 2>/dev/null | head -1)
 echo "LATEST_RUN: $_LATEST"
 cat "research/results/<slug>/$_LATEST/metrics.json" 2>/dev/null || echo "NO_METRICS"
-cat "research/results/<slug>/$_LATEST/provenance.json" 2>/dev/null || echo "NO_PROVENANCE"
+# Research log — fall back to legacy provenance.json for older runs
+_LOG="research/results/<slug>/$_LATEST/research-log.json"
+[ -f "$_LOG" ] || _LOG="research/results/<slug>/$_LATEST/provenance.json"
+cat "$_LOG" 2>/dev/null || echo "NO_RESEARCH_LOG"
 
 # Baseline (if exists)
 cat research/baselines/<slug>/metrics.json 2>/dev/null || echo "NO_BASELINE"
@@ -186,7 +189,7 @@ cat research/reports/<slug>.md 2>/dev/null || echo "NO_REPORT"
 ```
 
 Read each file found above. If any critical file is missing (hypothesis, code,
-metrics, provenance), note it as a finding under Reproducibility.
+metrics, research log), note it as a finding under Reproducibility.
 
 ### Step 2: Check past learnings
 
@@ -292,26 +295,31 @@ grep -n "global\|mutable\|append" research/experiments/<slug>/run_*.py 2>/dev/nu
 
 ### Step 6: Reproducibility review
 
-Evaluate the provenance bundle:
+Evaluate the research log:
 
 - Is `git_dirty` false? (If true: results may not be reproducible from the SHA)
 - Are all random seeds captured?
 - Are package versions pinned?
-- Can the experiment be re-run from the provenance alone?
+- Can the experiment be re-run from the research log alone?
 - Is there a clear re-run command?
 
 ```bash
+# Read research-log.json, falling back to legacy provenance.json
 python3 -c "
-import json
-with open('research/results/<slug>/$_LATEST/provenance.json') as f:
-    prov = json.load(f)
+import json, os
+base = 'research/results/<slug>/$_LATEST'
+path = os.path.join(base, 'research-log.json')
+if not os.path.exists(path):
+    path = os.path.join(base, 'provenance.json')
+with open(path) as f:
+    log = json.load(f)
 required = ['git_sha', 'git_dirty', 'branch', 'timestamp', 'wall_clock_seconds',
             'packages', 'random_seeds', 'experiment_spec', 'parameters']
-missing = [k for k in required if k not in prov]
+missing = [k for k in required if k not in log]
 print(f'Missing fields: {missing if missing else \"none\"}')
-print(f'Git dirty: {prov.get(\"git_dirty\", \"UNKNOWN\")}')
-print(f'Seeds: {prov.get(\"random_seeds\", \"UNKNOWN\")}')
-print(f'Packages: {len(prov.get(\"packages\", {}))} recorded')
+print(f'Git dirty: {log.get(\"git_dirty\", \"UNKNOWN\")}')
+print(f'Seeds: {log.get(\"random_seeds\", \"UNKNOWN\")}')
+print(f'Packages: {len(log.get(\"packages\", {}))} recorded')
 "
 ```
 
@@ -418,7 +426,7 @@ Write `research/reviews/<slug>.md`:
 ## Commendations
 
 <What was done well. Acknowledge strong methodology, clean code, thorough
-provenance, etc. Even a REJECT should note positive aspects.>
+research log, etc. Even a REJECT should note positive aspects.>
 ```
 
 ### Step 11: Record to learnings

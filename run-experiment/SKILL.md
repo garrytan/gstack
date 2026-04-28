@@ -1,11 +1,11 @@
 ---
 name: run-experiment
 preamble-tier: 2
-version: 1.0.0
+version: 1.1.0
 description: |
   Generate convention-compliant experiment code from a spec, get researcher approval,
-  then execute with full provenance tracking. Two-phase workflow: generate → approve → run.
-  Supports parameter sweeps with automatic result capture and provenance bundles.
+  then execute with full research log tracking. Two-phase workflow: generate → approve → run.
+  Supports parameter sweeps with automatic result capture and research logs.
 allowed-tools:
   - Bash
   - Read
@@ -257,7 +257,7 @@ The generated code MUST:
 
 1. **Follow all project conventions** from CLAUDE.md (imports, naming, structure)
 2. **Accept parameters from command line or config** — not hardcoded
-3. **Include provenance capture** (see spec below)
+3. **Include research log capture** (see spec below)
 4. **Write results to a timestamped directory**
 5. **Be self-contained** — one file that can be run independently
 
@@ -282,8 +282,8 @@ from pathlib import Path
 
 # <project-specific imports per CLAUDE.md conventions>
 
-# --- Provenance ---
-def capture_provenance(spec_path, parameters, seeds, packages):
+# --- Research log ---
+def capture_research_log(spec_path, parameters, seeds, packages):
     return {
         "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip(),
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),
@@ -316,9 +316,9 @@ def main():
     results_dir = Path(f"research/results/<slug>/{timestamp}")
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # Capture provenance
+    # Capture research log
     packages = {}  # <detect installed packages>
-    prov = capture_provenance(
+    log = capture_research_log(
         "research/experiments/<slug>/spec.yaml",
         PARAMETERS, SEEDS, packages
     )
@@ -334,10 +334,10 @@ def main():
     with open(results_dir / "metrics.json", "w") as f:
         json.dump(all_results, f, indent=2)
 
-    # Finalize provenance
-    prov["wall_clock_seconds"] = round(time.time() - start_time, 2)
-    with open(results_dir / "provenance.json", "w") as f:
-        json.dump(prov, f, indent=2)
+    # Finalize research log
+    log["wall_clock_seconds"] = round(time.time() - start_time, 2)
+    with open(results_dir / "research-log.json", "w") as f:
+        json.dump(log, f, indent=2)
 
     print(f"Results saved to: {results_dir}")
 
@@ -355,7 +355,7 @@ logic based on the spec and conventions.
 Print a summary of the generated code to the chat: file path, what it does,
 parameter count, seed count, estimated runtime. Then **call the AskUserQuestion tool**:
 
-- question: "Generated: research/experiments/<slug>/run_<slug>.py. Sweeps <N> parameter combinations x <M> seeds. Estimated runtime: <estimate>. RECOMMENDATION: Run it — the code follows project conventions and provenance is included."
+- question: "Generated: research/experiments/<slug>/run_<slug>.py. Sweeps <N> parameter combinations x <M> seeds. Estimated runtime: <estimate>. RECOMMENDATION: Run it — the code follows project conventions and the research log is included."
 - options: ["Run it", "I want to modify the code first", "Abort"]
 
 If "Run it": Proceed to Phase B.
@@ -392,12 +392,12 @@ After execution completes:
 ls research/results/<slug>/
 # Should contain:
 # <timestamp>/metrics.json
-# <timestamp>/provenance.json
+# <timestamp>/research-log.json
 ```
 
 Verify:
 1. metrics.json exists and is valid JSON
-2. provenance.json exists and has all required fields
+2. research-log.json exists and has all required fields
 3. git_sha matches current HEAD
 
 ### Step B4: Record to learnings
@@ -450,18 +450,19 @@ After completion, tell the researcher:
 Experiment complete:
   Code:       research/experiments/<slug>/run_<slug>.py
   Results:    research/results/<slug>/<timestamp>/metrics.json
-  Provenance: research/results/<slug>/<timestamp>/provenance.json
+  Research log: research/results/<slug>/<timestamp>/research-log.json
   Latest:     research/results/<slug>/latest → <timestamp>
   Duration:   <N> seconds
 
 Next step: /report <slug>
 ```
 
-## Provenance Bundle
+## Research Log
 
-Every experiment run MUST produce a `provenance.json` file alongside results.
-This is non-negotiable. The provenance bundle captures everything needed to
-reproduce the exact run.
+Every experiment run MUST produce a `research-log.json` file alongside results.
+This is non-negotiable. The research log captures everything needed to
+reproduce the exact run — the trace of code, environment, and parameters that
+produced these results.
 
 **Required fields:**
 
@@ -485,15 +486,15 @@ reproduce the exact run.
 }
 ```
 
-**How to generate the provenance bundle:**
+**How to generate the research log:**
 
 ```python
 import json, subprocess, sys, platform, time
 from datetime import datetime, timezone
 from pathlib import Path
 
-def capture_provenance(spec_path, parameters, seeds, packages):
-    prov = {
+def capture_research_log(spec_path, parameters, seeds, packages):
+    log = {
         "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip(),
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),
         "branch": subprocess.check_output(["git", "branch", "--show-current"]).decode().strip(),
@@ -506,9 +507,14 @@ def capture_provenance(spec_path, parameters, seeds, packages):
         "experiment_spec": str(spec_path),
         "parameters": parameters,
     }
-    return prov
+    return log
 ```
 
-The provenance generation code should be included in every generated experiment
+The research log generation code should be included in every generated experiment
 script. After the experiment completes, fill in `wall_clock_seconds` and write
-`provenance.json` to the results directory.
+`research-log.json` to the results directory.
+
+**Legacy compatibility:** Older experiments (pre-rename) wrote `provenance.json`
+instead. When *reading*, fall back to `provenance.json` if `research-log.json`
+does not exist. Always *write* the new name. Run `bin/rstack-migrate-provenance`
+to rename existing files in bulk.

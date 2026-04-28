@@ -1,7 +1,7 @@
 ---
 name: discuss
 preamble-tier: 2
-version: 1.0.0
+version: 1.1.0
 description: |
   Interactive discussion of experiment reports. Load a completed report and
   its backing data, then have a back-and-forth conversation with the researcher.
@@ -147,7 +147,7 @@ Replace `OUTCOME` with success/error/abort.
 
 # /discuss — Interactive Report Discussion
 
-Load a completed experiment report and its backing data (metrics, provenance,
+Load a completed experiment report and its backing data (metrics, research log,
 hypothesis), then engage in an iterative discussion with the researcher.
 Questions get answered with concrete data references. Annotations are saved
 as a persistent discussion log.
@@ -181,7 +181,10 @@ cat research/reports/<slug>.md
 # Latest results
 _LATEST=$(ls -t research/results/<slug>/ 2>/dev/null | head -1)
 cat "research/results/<slug>/$_LATEST/metrics.json" 2>/dev/null || echo "NO_METRICS"
-cat "research/results/<slug>/$_LATEST/provenance.json" 2>/dev/null || echo "NO_PROVENANCE"
+# Research log — fall back to legacy provenance.json for older runs
+_LOG="research/results/<slug>/$_LATEST/research-log.json"
+[ -f "$_LOG" ] || _LOG="research/results/<slug>/$_LATEST/provenance.json"
+cat "$_LOG" 2>/dev/null || echo "NO_RESEARCH_LOG"
 
 # Hypothesis
 cat research/hypotheses/<slug>.md 2>/dev/null || echo "NO_HYPOTHESIS"
@@ -240,7 +243,7 @@ Print a concise summary to the chat:
 - Hypothesis claim (one line)
 - Result verdict (CONFIRMED/REJECTED/INCONCLUSIVE)
 - Key metrics (top 3-5 numbers from metrics.json)
-- Provenance snapshot (git SHA, timestamp, duration)
+- Research log snapshot (git SHA, timestamp, duration)
 
 Then **call the AskUserQuestion tool**:
 - question: "Context loaded for '<slug>'. What would you like to discuss?"
@@ -263,7 +266,7 @@ concrete reference. Format:
 
 or
 
-> **Data ref:** `provenance.json` — git SHA `abc1234`, seeds `[42, 123, 456]`
+> **Data ref:** `research-log.json` — git SHA `abc1234`, seeds `[42, 123, 456]`
 
 Do not give vague answers. If the data does not contain the answer, say so
 explicitly and suggest what additional experiment would produce it.
@@ -331,7 +334,7 @@ Write or append to `research/discussions/<slug>.md`:
 
 **Data refs:**
 - `metrics.json`: <specific reference>
-- `provenance.json`: <specific reference>
+- `research-log.json`: <specific reference>
 
 ---
 

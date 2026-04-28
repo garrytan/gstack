@@ -1,7 +1,7 @@
 ---
 name: report
 preamble-tier: 2
-version: 1.0.0
+version: 1.1.0
 description: |
   Analyze experiment results, compare against baselines, generate plots,
   and produce a structured research report. Connects results back to the
@@ -169,14 +169,18 @@ fi
 
 ## Workflow
 
-### Step 1: Load results and provenance
+### Step 1: Load results and research log
 
 ```bash
 cat research/results/<slug>/<timestamp>/metrics.json
-cat research/results/<slug>/<timestamp>/provenance.json
+# Read research-log.json. Legacy runs wrote provenance.json — fall back to it
+# if the new name doesn't exist.
+_LOG=research/results/<slug>/<timestamp>/research-log.json
+[ -f "$_LOG" ] || _LOG=research/results/<slug>/<timestamp>/provenance.json
+cat "$_LOG"
 ```
 
-Verify provenance is complete. If any required fields are missing, warn the researcher.
+Verify the research log is complete. If any required fields are missing, warn the researcher.
 
 ### Step 2: Load the hypothesis
 
@@ -294,7 +298,7 @@ Write `research/reports/<slug>.md`:
 **Date:** <today>
 **Experiment:** research/experiments/<slug>/spec.yaml
 **Results:** research/results/<slug>/<timestamp>/
-**Provenance:** research/results/<slug>/<timestamp>/provenance.json
+**Research log:** research/results/<slug>/<timestamp>/research-log.json
 
 ## Summary
 
@@ -339,11 +343,11 @@ Write `research/reports/<slug>.md`:
 
 ## Reproducibility
 
-- **Git SHA:** <from provenance>
-- **Branch:** <from provenance>
+- **Git SHA:** <from research log>
+- **Branch:** <from research log>
 - **Duration:** <wall_clock_seconds>s
-- **Seeds:** <from provenance>
-- **Packages:** <from provenance>
+- **Seeds:** <from research log>
+- **Packages:** <from research log>
 
 To reproduce:
 \`\`\`bash
