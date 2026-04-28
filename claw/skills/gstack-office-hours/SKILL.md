@@ -12,6 +12,7 @@ description: |
   through design decisions for something that doesn't exist yet, or is exploring
   a concept before any code is written.
   Use before /plan-ceo-review or /plan-eng-review. (gstack)
+version: 0.15.2.0
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -20,12 +21,12 @@ description: |
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/.hermes/skills/gstack"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/.hermes/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.hermes/skills/gstack"
+GSTACK_ROOT="$HOME/.claw/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.claw/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.claw/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
-_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .hermes/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .claw/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -81,15 +82,15 @@ else
 fi
 $GSTACK_BIN/gstack-timeline-log '{"skill":"office-hours","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
-if [ -f AGENTS.md ] && grep -q "## Skill routing" AGENTS.md 2>/dev/null; then
+if [ -f CLAW.md ] && grep -q "## Skill routing" CLAW.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
 _ROUTING_DECLINED=$($GSTACK_BIN/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
-if [ -d ".hermes/skills/gstack" ] && [ ! -L ".hermes/skills/gstack" ]; then
-  if [ -f ".hermes/skills/gstack/VERSION" ] || [ -d ".hermes/skills/gstack/.git" ]; then
+if [ -d ".claw/skills/gstack" ] && [ ! -L ".claw/skills/gstack" ]; then
+  if [ -f ".claw/skills/gstack/VERSION" ] || [ -d ".claw/skills/gstack/.git" ]; then
     _VENDORED="yes"
   fi
 fi
@@ -100,16 +101,6 @@ _CHECKPOINT_PUSH=$($GSTACK_BIN/gstack-config get checkpoint_push 2>/dev/null || 
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
-if command -v gbrain &>/dev/null; then
-  _BRAIN_JSON=$(gbrain doctor --fast --json 2>/dev/null || echo '{}')
-  _BRAIN_SCORE=$(echo "$_BRAIN_JSON" | grep -o '"health_score":[0-9]*' | cut -d: -f2)
-  _BRAIN_FAILS=$(echo "$_BRAIN_JSON" | grep -o '"status":"fail"' | wc -l | tr -d ' ')
-  _BRAIN_WARNS=$(echo "$_BRAIN_JSON" | grep -o '"status":"warn"' | wc -l | tr -d ' ')
-  echo "BRAIN_HEALTH: ${_BRAIN_SCORE:-unknown} (${_BRAIN_FAILS:-0} failures, ${_BRAIN_WARNS:-0} warnings)"
-  if [ "${_BRAIN_SCORE:-100}" -lt 50 ] 2>/dev/null; then
-    echo "$_BRAIN_JSON" | grep -o '"name":"[^"]*","status":"[^"]*","message":"[^"]*"' || true
-  fi
-fi
 ```
 
 ## Plan Mode Safe Operations
@@ -209,17 +200,17 @@ touch ~/.gstack/.proactive-prompted
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
-Check if a AGENTS.md file exists in the project root. If it does not exist, create it.
+Check if a CLAW.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's AGENTS.md includes skill routing rules.
+> gstack works best when your project's CLAW.md includes skill routing rules.
 
 Options:
-- A) Add routing rules to AGENTS.md (recommended)
+- A) Add routing rules to CLAW.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of AGENTS.md:
+If A: Append this section to the end of CLAW.md:
 
 ```markdown
 
@@ -242,7 +233,7 @@ Key routing rules:
 - Resume context → invoke /context-restore
 ```
 
-Then commit the change: `git add AGENTS.md && git commit -m "chore: add gstack skill routing rules to AGENTS.md"`
+Then commit the change: `git add CLAW.md && git commit -m "chore: add gstack skill routing rules to CLAW.md"`
 
 If B: run `$GSTACK_BIN/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
 
@@ -250,7 +241,7 @@ This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_D
 
 If `VENDORED_GSTACK` is `yes`, warn once via AskUserQuestion unless `~/.gstack/.vendoring-warned-$SLUG` exists:
 
-> This project has gstack vendored in `.hermes/skills/gstack/`. Vendoring is deprecated.
+> This project has gstack vendored in `.claw/skills/gstack/`. Vendoring is deprecated.
 > Migrate to team mode?
 
 Options:
@@ -258,11 +249,11 @@ Options:
 - B) No, I'll handle it myself
 
 If A:
-1. Run `git rm -r .hermes/skills/gstack/`
-2. Run `echo '.hermes/skills/gstack/' >> .gitignore`
+1. Run `git rm -r .claw/skills/gstack/`
+2. Run `echo '.claw/skills/gstack/' >> .gitignore`
 3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
-4. Run `git add .claude/ .gitignore AGENTS.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd ~/.hermes/skills/gstack && ./setup --team`"
+4. Run `git add .claude/ .gitignore CLAW.md && git commit -m "chore: migrate gstack from vendored to team mode"`
+5. Tell the user: "Done. Each developer now runs: `cd ~/.claw/skills/gstack && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -280,11 +271,6 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
-
-If `BRAIN_HEALTH` is shown and the score is below 50, tell the user which checks
-failed (shown in the output) and suggest: "Run \`gbrain doctor\` for full diagnostics."
-If the output is not valid JSON or health_score is missing, treat GBrain as unavailable
-and proceed without brain features this session.
 
 ## AskUserQuestion Format
 
@@ -380,7 +366,7 @@ else
 fi
 ```
 
-If output shows `BRAIN_SYNC: brain repo detected`, offer `gstack-brain-restore` via AskUserQuestion; otherwise continue.
+
 
 Privacy stop-gate: if output shows `BRAIN_SYNC: off`, `gbrain_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
 
@@ -673,14 +659,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.hermes/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claw/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.hermes/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.hermes/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x ~/.claw/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.claw/skills/gstack/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -690,7 +676,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.hermes/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
+In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claw/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
@@ -699,7 +685,7 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.hermes/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.hermes/skills/gstack/browse/dist/browse"
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
 [ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
@@ -738,21 +724,7 @@ You are a **YC office hours partner**. Your job is to ensure the problem is unde
 
 ---
 
-## Brain Context Load
 
-Before starting this skill, search your brain for relevant context:
-
-1. Extract 2-4 keywords from the user's request (nouns, error names, file paths, technical terms).
-   Search GBrain: `gbrain search "keyword1 keyword2"`
-   Example: for "the login page is broken after deploy", search `gbrain search "login broken deploy"`
-   Search returns lines like: `[slug] Title (score: 0.85) - first line of content...`
-2. If few results, broaden to the single most specific keyword and search again.
-3. For each result page, read it: `gbrain get_page "<page_slug>"`
-   Read the top 3 pages for context.
-4. Use this brain context to inform your analysis.
-
-If GBrain is not available or returns no results, proceed without brain context.
-Any non-zero exit code from gbrain commands should be treated as a transient failure.
 
 ## Phase 1: Context Gathering
 
@@ -762,7 +734,7 @@ Understand the project and the area the user wants to change.
 eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)"
 ```
 
-1. Read `AGENTS.md`, `TODOS.md` (if they exist).
+1. Read `CLAW.md`, `TODOS.md` (if they exist).
 2. Run `git log --oneline -30` and `git diff origin/main --stat 2>/dev/null` to understand recent context.
 3. Use Grep/Glob to map the codebase areas most relevant to the user's request.
 4. **List existing design docs for this project:**
@@ -1168,7 +1140,7 @@ Present via AskUserQuestion. Do NOT proceed without user approval of the approac
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.hermes/skills/gstack/design/dist/design" ] && D="$_ROOT/.hermes/skills/gstack/design/dist/design"
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/design/dist/design" ] && D="$_ROOT/.claw/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME$GSTACK_DESIGN/design"
 [ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
 ```
@@ -1183,7 +1155,7 @@ Generating visual mockups of the proposed design... (say "skip" if you don't nee
 **Step 1: Set up the design directory**
 
 ```bash
-eval "$(~/.hermes/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claw/skills/gstack/bin/gstack-slug 2>/dev/null)"
 _DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/mockup-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
@@ -1581,28 +1553,7 @@ Present the reviewed design doc to the user via AskUserQuestion:
 - B) Revise — specify which sections need changes (loop back to revise those sections)
 - C) Start over — return to Phase 2
 
-## Save Results to Brain
 
-After completing this skill, persist the results to your brain for future reference:
-
-Save the design document as a brain page:
-```bash
-gbrain put_page --title "Office Hours: <project name>" --tags "design-doc,<project-slug>" <<'EOF'
-<design doc content in markdown>
-EOF
-```
-
-After saving the page, extract and enrich mentioned entities: for each actual person name or company/organization name found in the output, `gbrain search "<entity name>"` to check if a page exists. If not, create a stub page:
-```bash
-gbrain put_page --title "<Person or Company Name>" --tags "entity,person" --content "Stub page. Mentioned in <skill name> output."
-```
-Only extract actual person names and company/organization names. Skip product names, section headings, technical terms, and file paths.
-
-Throttle errors appear as: exit code 1 with stderr containing "throttle", "rate limit", "capacity", or "busy". If GBrain returns a throttle or rate-limit error on any save operation, defer the save and move on. The brain is busy — the content is not lost, just not persisted this run. Any other non-zero exit code should also be treated as a transient failure.
-
-Add backlinks to related brain pages if they exist. If GBrain is not available, skip this step.
-
-After brain operations complete, note in your completion output: how many pages were found in the initial search, how many entities were enriched, and whether any operations were throttled. This helps the user see brain utilization over time.
 
 ---
 
@@ -1615,7 +1566,7 @@ over time.
 ### Step 1: Read Builder Profile
 
 ```bash
-PROFILE=$(~/.hermes/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
+PROFILE=$(~/.claw/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
 TIER: introduction"
 SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
 SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')

@@ -1,10 +1,12 @@
 ---
-name: gstack
+name: browse
 description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate pages, interact with
-  elements, verify state, diff before/after, take annotated screenshots, test responsive
-  layouts, forms, uploads, dialogs, and capture bug evidence. Use when asked to open or
-  test a site, verify a deployment, dogfood a user flow, or file a bug with screenshots. (gstack)
+  Fast headless browser for QA testing and site dogfooding. Navigate any URL, interact with
+  elements, verify page state, diff before/after actions, take annotated screenshots, check
+  responsive layouts, test forms and uploads, handle dialogs, and assert element states.
+  ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
+  user flow, or file a bug with evidence. Use when asked to "open in browser", "test the
+  site", "take a screenshot", or "dogfood this". (gstack)
 version: 0.15.2.0
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -14,12 +16,12 @@ version: 0.15.2.0
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/.openclaw/skills/gstack"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/.openclaw/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.openclaw/skills/gstack"
+GSTACK_ROOT="$HOME/.claw/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.claw/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.claw/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
-_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .openclaw/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .claw/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -51,7 +53,7 @@ _QUESTION_TUNING=$($GSTACK_BIN/gstack-config get question_tuning 2>/dev/null || 
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"gstack","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"browse","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -73,17 +75,17 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-$GSTACK_BIN/gstack-timeline-log '{"skill":"gstack","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+$GSTACK_BIN/gstack-timeline-log '{"skill":"browse","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
-if [ -f AGENTS.md ] && grep -q "## Skill routing" AGENTS.md 2>/dev/null; then
+if [ -f CLAW.md ] && grep -q "## Skill routing" CLAW.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
 _ROUTING_DECLINED=$($GSTACK_BIN/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
-if [ -d ".openclaw/skills/gstack" ] && [ ! -L ".openclaw/skills/gstack" ]; then
-  if [ -f ".openclaw/skills/gstack/VERSION" ] || [ -d ".openclaw/skills/gstack/.git" ]; then
+if [ -d ".claw/skills/gstack" ] && [ ! -L ".claw/skills/gstack" ]; then
+  if [ -f ".claw/skills/gstack/VERSION" ] || [ -d ".claw/skills/gstack/.git" ]; then
     _VENDORED="yes"
   fi
 fi
@@ -193,17 +195,17 @@ touch ~/.gstack/.proactive-prompted
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
-Check if a AGENTS.md file exists in the project root. If it does not exist, create it.
+Check if a CLAW.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's AGENTS.md includes skill routing rules.
+> gstack works best when your project's CLAW.md includes skill routing rules.
 
 Options:
-- A) Add routing rules to AGENTS.md (recommended)
+- A) Add routing rules to CLAW.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of AGENTS.md:
+If A: Append this section to the end of CLAW.md:
 
 ```markdown
 
@@ -226,7 +228,7 @@ Key routing rules:
 - Resume context → invoke /context-restore
 ```
 
-Then commit the change: `git add AGENTS.md && git commit -m "chore: add gstack skill routing rules to AGENTS.md"`
+Then commit the change: `git add CLAW.md && git commit -m "chore: add gstack skill routing rules to CLAW.md"`
 
 If B: run `$GSTACK_BIN/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
 
@@ -234,7 +236,7 @@ This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_D
 
 If `VENDORED_GSTACK` is `yes`, warn once via AskUserQuestion unless `~/.gstack/.vendoring-warned-$SLUG` exists:
 
-> This project has gstack vendored in `.openclaw/skills/gstack/`. Vendoring is deprecated.
+> This project has gstack vendored in `.claw/skills/gstack/`. Vendoring is deprecated.
 > Migrate to team mode?
 
 Options:
@@ -242,11 +244,11 @@ Options:
 - B) No, I'll handle it myself
 
 If A:
-1. Run `git rm -r .openclaw/skills/gstack/`
-2. Run `echo '.openclaw/skills/gstack/' >> .gitignore`
+1. Run `git rm -r .claw/skills/gstack/`
+2. Run `echo '.claw/skills/gstack/' >> .gitignore`
 3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
-4. Run `git add .claude/ .gitignore AGENTS.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd ~/.openclaw/skills/gstack && ./setup --team`"
+4. Run `git add .claude/ .gitignore CLAW.md && git commit -m "chore: migrate gstack from vendored to team mode"`
+5. Tell the user: "Done. Each developer now runs: `cd ~/.claw/skills/gstack && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -399,14 +401,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.openclaw/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claw/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.openclaw/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.openclaw/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x ~/.claw/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.claw/skills/gstack/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -416,74 +418,21 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.openclaw/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
+In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claw/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
-If `PROACTIVE` is `false`: do NOT proactively invoke or suggest other gstack skills during
-this session. Only run skills the user explicitly invokes. This preference persists across
-sessions via `gstack-config`.
+# browse: QA Testing & Dogfooding
 
-If `PROACTIVE` is `true` (default): **invoke the Skill tool** when the user's request
-matches a skill's purpose. Do NOT answer directly when a skill exists for the task.
-Use the Skill tool to invoke it. The skill has specialized workflows, checklists, and
-quality gates that produce better results than answering inline.
-
-**Routing rules — when you see these patterns, INVOKE the skill via the Skill tool:**
-- User describes a new idea, asks "is this worth building", brainstorms, pitches a concept → invoke `/office-hours`
-- User asks about strategy, scope, ambition, "think bigger", "what should we build" → invoke `/plan-ceo-review`
-- User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/plan-eng-review`
-- User asks about design system, brand, visual identity, "how should this look" → invoke `/design-consultation`
-- User asks to review design of a plan → invoke `/plan-design-review`
-- User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
-- User wants all reviews done automatically, "review everything" → invoke `/autoplan`
-- User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`
-- User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
-- User asks to just report bugs without fixing → invoke `/qa-only`
-- User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
-- User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
-- User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
-- User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
-- User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
-- User asks to configure deployment for the project → invoke `/setup-deploy`
-- User asks to monitor prod after shipping, post-deploy checks → invoke `/canary`
-- User asks to update docs after shipping → invoke `/document-release`
-- User asks for a weekly retro, what did we ship, "how'd we do" → invoke `/retro`
-- User asks for a second opinion, codex review → invoke `/codex`
-- User asks for safety mode, careful mode → invoke `/careful` or `/guard`
-- User asks to restrict edits to a directory → invoke `/freeze` or `/unfreeze`
-- User asks to upgrade gstack → invoke `/gstack-upgrade`
-- User asks to save progress, checkpoint, "save my work" → invoke `/context-save`
-- User asks to resume, restore, "where was I" → invoke `/context-restore`
-- User asks about security, OWASP, vulnerabilities, "is this secure" → invoke `/cso`
-- User asks to make a PDF, document, publication → invoke `/make-pdf`
-- User asks to launch a real browser for QA, "open the browser" → invoke `/open-gstack-browser`
-- User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies`
-- User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
-- User asks what gstack has learned, "show learnings" → invoke `/learn`
-- User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
-- User asks for code quality dashboard, "health check" → invoke `/health`
-
-**When in doubt, invoke the skill.** A false positive (invoking a skill that wasn't
-needed) is cheaper than a false negative (answering ad-hoc when a structured workflow
-exists). The skill provides multi-step workflows, checklists, and quality gates that
-always produce better results than an ad-hoc answer. If no skill matches, answer
-directly as usual.
-
-If the user opts out of suggestions, run `gstack-config set proactive false`.
-If they opt back in, run `gstack-config set proactive true`.
-
-# gstack browse: QA Testing & Dogfooding
-
-Persistent headless Chromium. First call auto-starts (~3s), then ~100-200ms per command.
-Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, sessions).
+Persistent headless Chromium. First call auto-starts (~3s), then ~100ms per command.
+State persists between calls (cookies, tabs, login sessions).
 
 ## SETUP (run this check BEFORE any browse command)
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.openclaw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.openclaw/skills/gstack/browse/dist/browse"
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
 [ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
@@ -514,217 +463,169 @@ If `NEEDS_SETUP`:
    fi
    ```
 
-## IMPORTANT
+## Core QA Patterns
 
-- Use the compiled binary via Bash: `$B <command>`
-- NEVER use `mcp__claude-in-chrome__*` tools. They are slow and unreliable.
-- Browser persists between calls — cookies, login sessions, and tabs carry over.
-- Dialogs (alert/confirm/prompt) are auto-accepted by default — no browser lockup.
-- **Show screenshots:** After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
-
-## QA Workflows
-
-> **Credential safety:** Use environment variables for test credentials.
-> Set them before running: `export TEST_EMAIL="..." TEST_PASSWORD="..."`
-
-### Test a user flow (login, signup, checkout, etc.)
-
-```bash
-# 1. Go to the page
-$B goto https://app.example.com/login
-
-# 2. See what's interactive
-$B snapshot -i
-
-# 3. Fill the form using refs
-$B fill @e3 "$TEST_EMAIL"
-$B fill @e4 "$TEST_PASSWORD"
-$B click @e5
-
-# 4. Verify it worked
-$B snapshot -D              # diff shows what changed after clicking
-$B is visible ".dashboard"  # assert the dashboard appeared
-$B screenshot /tmp/after-login.png
-```
-
-### Verify a deployment / check prod
-
+### 1. Verify a page loads correctly
 ```bash
 $B goto https://yourapp.com
-$B text                          # read the page — does it load?
-$B console                       # any JS errors?
-$B network                       # any failed requests?
-$B js "document.title"           # correct title?
-$B is visible ".hero-section"    # key elements present?
-$B screenshot /tmp/prod-check.png
+$B text                          # content loads?
+$B console                       # JS errors?
+$B network                       # failed requests?
+$B is visible ".main-content"    # key elements present?
 ```
 
-### Dogfood a feature end-to-end
-
+### 2. Test a user flow
 ```bash
-# Navigate to the feature
-$B goto https://app.example.com/new-feature
+$B goto https://app.com/login
+$B snapshot -i                   # see all interactive elements
+$B fill @e3 "user@test.com"
+$B fill @e4 "password"
+$B click @e5                     # submit
+$B snapshot -D                   # diff: what changed after submit?
+$B is visible ".dashboard"       # success state present?
+```
 
-# Take annotated screenshot — shows every interactive element with labels
-$B snapshot -i -a -o /tmp/feature-annotated.png
+### 3. Verify an action worked
+```bash
+$B snapshot                      # baseline
+$B click @e3                     # do something
+$B snapshot -D                   # unified diff shows exactly what changed
+```
 
-# Find ALL clickable things (including divs with cursor:pointer)
-$B snapshot -C
+### 4. Visual evidence for bug reports
+```bash
+$B snapshot -i -a -o /tmp/annotated.png   # labeled screenshot
+$B screenshot /tmp/bug.png                # plain screenshot
+$B console                                # error log
+```
 
-# Walk through the flow
-$B snapshot -i          # baseline
-$B click @e3            # interact
-$B snapshot -D          # what changed? (unified diff)
+### 5. Find all clickable elements (including non-ARIA)
+```bash
+$B snapshot -C                   # finds divs with cursor:pointer, onclick, tabindex
+$B click @c1                     # interact with them
+```
 
-# Check element states
-$B is visible ".success-toast"
-$B is enabled "#next-step-btn"
+### 6. Assert element states
+```bash
+$B is visible ".modal"
+$B is enabled "#submit-btn"
+$B is disabled "#submit-btn"
 $B is checked "#agree-checkbox"
-
-# Check console for errors after interactions
-$B console
+$B is editable "#name-field"
+$B is focused "#search-input"
+$B js "document.body.textContent.includes('Success')"
 ```
 
-### Test responsive layouts
-
+### 7. Test responsive layouts
 ```bash
-# Quick: 3 screenshots at mobile/tablet/desktop
-$B goto https://yourapp.com
-$B responsive /tmp/layout
-
-# Manual: specific viewport
-$B viewport 375x812     # iPhone
+$B responsive /tmp/layout        # mobile + tablet + desktop screenshots
+$B viewport 375x812              # or set specific viewport
 $B screenshot /tmp/mobile.png
-$B viewport 1440x900    # Desktop
-$B screenshot /tmp/desktop.png
-
-# Element screenshot (crop to specific element)
-$B screenshot "#hero-banner" /tmp/hero.png
-$B snapshot -i
-$B screenshot @e3 /tmp/button.png
-
-# Region crop
-$B screenshot --clip 0,0,800,600 /tmp/above-fold.png
-
-# Viewport only (no scroll)
-$B screenshot --viewport /tmp/viewport.png
 ```
 
-### Test file upload
-
+### 8. Test file uploads
 ```bash
-$B goto https://app.example.com/upload
-$B snapshot -i
-$B upload @e3 /path/to/test-file.pdf
+$B upload "#file-input" /path/to/file.pdf
 $B is visible ".upload-success"
-$B screenshot /tmp/upload-result.png
 ```
 
-### Test forms with validation
-
+### 9. Test dialogs
 ```bash
-$B goto https://app.example.com/form
-$B snapshot -i
-
-# Submit empty — check validation errors appear
-$B click @e10                        # submit button
-$B snapshot -D                       # diff shows error messages appeared
-$B is visible ".error-message"
-
-# Fill and resubmit
-$B fill @e3 "valid input"
-$B click @e10
-$B snapshot -D                       # diff shows errors gone, success state
+$B dialog-accept "yes"           # set up handler
+$B click "#delete-button"        # trigger dialog
+$B dialog                        # see what appeared
+$B snapshot -D                   # verify deletion happened
 ```
 
-### Test dialogs (delete confirmations, prompts)
-
-```bash
-# Set up dialog handling BEFORE triggering
-$B dialog-accept              # will auto-accept next alert/confirm
-$B click "#delete-button"     # triggers confirmation dialog
-$B dialog                     # see what dialog appeared
-$B snapshot -D                # verify the item was deleted
-
-# For prompts that need input
-$B dialog-accept "my answer"  # accept with text
-$B click "#rename-button"     # triggers prompt
-```
-
-### Test authenticated pages (import real browser cookies)
-
-```bash
-# Import cookies from your real browser (opens interactive picker)
-$B cookie-import-browser
-
-# Or import a specific domain directly
-$B cookie-import-browser comet --domain .github.com
-
-# Now test authenticated pages
-$B goto https://github.com/settings/profile
-$B snapshot -i
-$B screenshot /tmp/github-profile.png
-```
-
-> **Cookie safety:** `cookie-import-browser` transfers real session data.
-> Only import cookies from browsers you control.
-
-### Compare two pages / environments
-
+### 10. Compare environments
 ```bash
 $B diff https://staging.app.com https://prod.app.com
 ```
 
-### Multi-step chain (efficient for long flows)
+### 11. Show screenshots to the user
+After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
 
+### 12. Render local HTML (no HTTP server needed)
+Two paths, pick the cleaner one:
 ```bash
-echo '[
-  ["goto","https://app.example.com"],
-  ["snapshot","-i"],
-  ["fill","@e3","$TEST_EMAIL"],
-  ["fill","@e4","$TEST_PASSWORD"],
-  ["click","@e5"],
-  ["snapshot","-D"],
-  ["screenshot","/tmp/result.png"]
-]' | $B chain
+# HTML file on disk → goto file:// (absolute, or cwd-relative)
+$B goto file:///tmp/report.html
+$B goto file://./docs/page.html        # cwd-relative
+$B goto file://~/Documents/page.html   # home-relative
+
+# HTML generated in memory → load-html reads the file into setContent
+echo '<div class="tweet">hello</div>' > /tmp/tweet.html
+$B load-html /tmp/tweet.html
 ```
 
-## Quick Assertion Patterns
+`goto file://...` is usually cleaner (URL is saved in state, relative asset URLs resolve against the file's dir, scale changes replay naturally). `load-html` uses `page.setContent()` — URL stays `about:blank`, but the content survives `viewport --scale` via in-memory replay. Both are scoped to files under cwd or `$TMPDIR`.
+
+### 13. Retina screenshots (deviceScaleFactor)
+```bash
+$B viewport 480x600 --scale 2       # 2x deviceScaleFactor
+$B load-html /tmp/tweet.html        # or: $B goto file://./tweet.html
+$B screenshot /tmp/out.png --selector .tweet-card
+# → /tmp/out.png is 2x the pixel dimensions of the element
+```
+Scale must be 1-3 (gstack policy cap). Changing `--scale` recreates the browser context; refs from `snapshot` are invalidated (rerun `snapshot`), but `load-html` content is replayed automatically. Not supported in headed mode.
+
+## Puppeteer → browse cheatsheet
+
+Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:
+
+| Puppeteer | browse |
+|---|---|
+| `await page.goto(url)` | `$B goto <url>` |
+| `await page.setContent(html)` | `$B load-html <file>` (or `$B goto file://<abs>`) |
+| `await page.setViewport({width, height})` | `$B viewport WxH` |
+| `await page.setViewport({width, height, deviceScaleFactor: 2})` | `$B viewport WxH --scale 2` |
+| `await (await page.$('.x')).screenshot({path})` | `$B screenshot <path> --selector .x` |
+| `await page.screenshot({fullPage: true, path})` | `$B screenshot <path>` (full page default) |
+| `await page.screenshot({clip: {x, y, w, h}, path})` | `$B screenshot <path> --clip x,y,w,h` |
+
+Worked example (the tweet-renderer flow — Puppeteer → browse):
 
 ```bash
-# Element exists and is visible
-$B is visible ".modal"
-
-# Button is enabled/disabled
-$B is enabled "#submit-btn"
-$B is disabled "#submit-btn"
-
-# Checkbox state
-$B is checked "#agree"
-
-# Input is editable
-$B is editable "#name-field"
-
-# Element has focus
-$B is focused "#search-input"
-
-# Page contains text
-$B js "document.body.textContent.includes('Success')"
-
-# Element count
-$B js "document.querySelectorAll('.list-item').length"
-
-# Specific attribute value
-$B attrs "#logo"    # returns all attributes as JSON
-
-# CSS property
-$B css ".button" "background-color"
+# Generate HTML in memory, render at 2x scale, screenshot the tweet card.
+echo '<div class="tweet-card" style="width:400px;height:200px;background:#1da1f2;color:white;padding:20px">hello</div>' > /tmp/tweet.html
+$B viewport 480x600 --scale 2
+$B load-html /tmp/tweet.html
+$B screenshot /tmp/out.png --selector .tweet-card
+# /tmp/out.png is 800x400 px, crisp (2x deviceScaleFactor).
 ```
 
-## Snapshot System
+Aliases: typing `setcontent` or `set-content` routes to `load-html` automatically. Typing a typo (`load-htm`) returns `Did you mean 'load-html'?`.
+
+## User Handoff
+
+When you hit something you can't handle in headless mode (CAPTCHA, complex auth, multi-factor
+login), hand off to the user:
+
+```bash
+# 1. Open a visible Chrome at the current page
+$B handoff "Stuck on CAPTCHA at login page"
+
+# 2. Tell the user what happened (via AskUserQuestion)
+#    "I've opened Chrome at the login page. Please solve the CAPTCHA
+#     and let me know when you're done."
+
+# 3. When user says "done", re-snapshot and continue
+$B resume
+```
+
+**When to use handoff:**
+- CAPTCHAs or bot detection
+- Multi-factor authentication (SMS, authenticator app)
+- OAuth flows that require user interaction
+- Complex interactions the AI can't handle after 3 attempts
+
+The browser preserves all state (cookies, localStorage, tabs) across the handoff.
+After `resume`, you get a fresh snapshot of wherever the user left off.
+
+## Snapshot Flags
 
 The snapshot is your primary tool for understanding and interacting with pages.
-`$B` is the browse binary (resolved from `$_ROOT/.openclaw/skills/gstack/browse/dist/browse` or `~/.openclaw/skills/gstack/browse/dist/browse`).
+`$B` is the browse binary (resolved from `$_ROOT/.claw/skills/gstack/browse/dist/browse` or `~/.claw/skills/gstack/browse/dist/browse`).
 
 **Syntax:** `$B snapshot [flags]`
 
@@ -768,7 +669,31 @@ $B click @c1       # cursor-interactive ref (from -C)
 
 Refs are invalidated on navigation — run `snapshot` again after `goto`.
 
-## Command Reference
+## CSS Inspector & Style Modification
+
+### Inspect element CSS
+```bash
+$B inspect .header              # full CSS cascade for selector
+$B inspect                      # latest picked element from sidebar
+$B inspect --all                # include user-agent stylesheet rules
+$B inspect --history            # show modification history
+```
+
+### Modify styles live
+```bash
+$B style .header background-color #1a1a1a   # modify CSS property
+$B style --undo                              # revert last change
+$B style --undo 2                            # revert specific change
+```
+
+### Clean screenshots
+```bash
+$B cleanup --all                 # remove ads, cookies, sticky, social
+$B cleanup --ads --cookies       # selective cleanup
+$B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero.png
+```
+
+## Full Command List
 
 ### Navigation
 | Command | Description |
@@ -890,14 +815,3 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `state save|load <name>` | Save/load browser state (cookies + URLs) |
 | `status` | Health check |
 | `stop` | Shutdown server |
-
-## Tips
-
-1. **Navigate once, query many times.** `goto` loads the page; then `text`, `js`, `screenshot` all hit the loaded page instantly.
-2. **Use `snapshot -i` first.** See all interactive elements, then click/fill by ref. No CSS selector guessing.
-3. **Use `snapshot -D` to verify.** Baseline → action → diff. See exactly what changed.
-4. **Use `is` for assertions.** `is visible .modal` is faster and more reliable than parsing page text.
-5. **Use `snapshot -a` for evidence.** Annotated screenshots are great for bug reports.
-6. **Use `snapshot -C` for tricky UIs.** Finds clickable divs that the accessibility tree misses.
-7. **Check `console` after actions.** Catch JS errors that don't surface visually.
-8. **Use `chain` for long flows.** Single command, no per-step CLI overhead.

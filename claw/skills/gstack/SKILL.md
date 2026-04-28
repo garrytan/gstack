@@ -14,12 +14,12 @@ version: 0.15.2.0
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/.openclaw/skills/gstack"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/.openclaw/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.openclaw/skills/gstack"
+GSTACK_ROOT="$HOME/.claw/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.claw/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.claw/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
-_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .openclaw/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .claw/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -75,15 +75,15 @@ else
 fi
 $GSTACK_BIN/gstack-timeline-log '{"skill":"gstack","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
-if [ -f AGENTS.md ] && grep -q "## Skill routing" AGENTS.md 2>/dev/null; then
+if [ -f CLAW.md ] && grep -q "## Skill routing" CLAW.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
 _ROUTING_DECLINED=$($GSTACK_BIN/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
-if [ -d ".openclaw/skills/gstack" ] && [ ! -L ".openclaw/skills/gstack" ]; then
-  if [ -f ".openclaw/skills/gstack/VERSION" ] || [ -d ".openclaw/skills/gstack/.git" ]; then
+if [ -d ".claw/skills/gstack" ] && [ ! -L ".claw/skills/gstack" ]; then
+  if [ -f ".claw/skills/gstack/VERSION" ] || [ -d ".claw/skills/gstack/.git" ]; then
     _VENDORED="yes"
   fi
 fi
@@ -193,17 +193,17 @@ touch ~/.gstack/.proactive-prompted
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
-Check if a AGENTS.md file exists in the project root. If it does not exist, create it.
+Check if a CLAW.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's AGENTS.md includes skill routing rules.
+> gstack works best when your project's CLAW.md includes skill routing rules.
 
 Options:
-- A) Add routing rules to AGENTS.md (recommended)
+- A) Add routing rules to CLAW.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of AGENTS.md:
+If A: Append this section to the end of CLAW.md:
 
 ```markdown
 
@@ -226,7 +226,7 @@ Key routing rules:
 - Resume context → invoke /context-restore
 ```
 
-Then commit the change: `git add AGENTS.md && git commit -m "chore: add gstack skill routing rules to AGENTS.md"`
+Then commit the change: `git add CLAW.md && git commit -m "chore: add gstack skill routing rules to CLAW.md"`
 
 If B: run `$GSTACK_BIN/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
 
@@ -234,7 +234,7 @@ This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_D
 
 If `VENDORED_GSTACK` is `yes`, warn once via AskUserQuestion unless `~/.gstack/.vendoring-warned-$SLUG` exists:
 
-> This project has gstack vendored in `.openclaw/skills/gstack/`. Vendoring is deprecated.
+> This project has gstack vendored in `.claw/skills/gstack/`. Vendoring is deprecated.
 > Migrate to team mode?
 
 Options:
@@ -242,11 +242,11 @@ Options:
 - B) No, I'll handle it myself
 
 If A:
-1. Run `git rm -r .openclaw/skills/gstack/`
-2. Run `echo '.openclaw/skills/gstack/' >> .gitignore`
+1. Run `git rm -r .claw/skills/gstack/`
+2. Run `echo '.claw/skills/gstack/' >> .gitignore`
 3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
-4. Run `git add .claude/ .gitignore AGENTS.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd ~/.openclaw/skills/gstack && ./setup --team`"
+4. Run `git add .claude/ .gitignore CLAW.md && git commit -m "chore: migrate gstack from vendored to team mode"`
+5. Tell the user: "Done. Each developer now runs: `cd ~/.claw/skills/gstack && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -399,14 +399,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.openclaw/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claw/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.openclaw/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.openclaw/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x ~/.claw/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.claw/skills/gstack/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -416,7 +416,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.openclaw/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
+In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claw/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
@@ -483,7 +483,7 @@ Auto-shuts down after 30 min idle. State persists between calls (cookies, tabs, 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.openclaw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.openclaw/skills/gstack/browse/dist/browse"
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
 [ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
@@ -724,7 +724,7 @@ $B css ".button" "background-color"
 ## Snapshot System
 
 The snapshot is your primary tool for understanding and interacting with pages.
-`$B` is the browse binary (resolved from `$_ROOT/.openclaw/skills/gstack/browse/dist/browse` or `~/.openclaw/skills/gstack/browse/dist/browse`).
+`$B` is the browse binary (resolved from `$_ROOT/.claw/skills/gstack/browse/dist/browse` or `~/.claw/skills/gstack/browse/dist/browse`).
 
 **Syntax:** `$B snapshot [flags]`
 

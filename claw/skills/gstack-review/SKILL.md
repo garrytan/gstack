@@ -5,6 +5,7 @@ description: |
   boundary violations, conditional side effects, and other structural issues. Use when
   asked to "review this PR", "code review", "pre-landing review", or "check my diff".
   Proactively suggest when the user is about to merge or land code changes. (gstack)
+version: 0.15.2.0
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -13,12 +14,12 @@ description: |
 
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/.hermes/skills/gstack"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/.hermes/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.hermes/skills/gstack"
+GSTACK_ROOT="$HOME/.claw/skills/gstack"
+[ -n "$_ROOT" ] && [ -d "$_ROOT/.claw/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.claw/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
-_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .hermes/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .claw/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -74,15 +75,15 @@ else
 fi
 $GSTACK_BIN/gstack-timeline-log '{"skill":"review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
-if [ -f AGENTS.md ] && grep -q "## Skill routing" AGENTS.md 2>/dev/null; then
+if [ -f CLAW.md ] && grep -q "## Skill routing" CLAW.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
 _ROUTING_DECLINED=$($GSTACK_BIN/gstack-config get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
-if [ -d ".hermes/skills/gstack" ] && [ ! -L ".hermes/skills/gstack" ]; then
-  if [ -f ".hermes/skills/gstack/VERSION" ] || [ -d ".hermes/skills/gstack/.git" ]; then
+if [ -d ".claw/skills/gstack" ] && [ ! -L ".claw/skills/gstack" ]; then
+  if [ -f ".claw/skills/gstack/VERSION" ] || [ -d ".claw/skills/gstack/.git" ]; then
     _VENDORED="yes"
   fi
 fi
@@ -93,16 +94,6 @@ _CHECKPOINT_PUSH=$($GSTACK_BIN/gstack-config get checkpoint_push 2>/dev/null || 
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
-if command -v gbrain &>/dev/null; then
-  _BRAIN_JSON=$(gbrain doctor --fast --json 2>/dev/null || echo '{}')
-  _BRAIN_SCORE=$(echo "$_BRAIN_JSON" | grep -o '"health_score":[0-9]*' | cut -d: -f2)
-  _BRAIN_FAILS=$(echo "$_BRAIN_JSON" | grep -o '"status":"fail"' | wc -l | tr -d ' ')
-  _BRAIN_WARNS=$(echo "$_BRAIN_JSON" | grep -o '"status":"warn"' | wc -l | tr -d ' ')
-  echo "BRAIN_HEALTH: ${_BRAIN_SCORE:-unknown} (${_BRAIN_FAILS:-0} failures, ${_BRAIN_WARNS:-0} warnings)"
-  if [ "${_BRAIN_SCORE:-100}" -lt 50 ] 2>/dev/null; then
-    echo "$_BRAIN_JSON" | grep -o '"name":"[^"]*","status":"[^"]*","message":"[^"]*"' || true
-  fi
-fi
 ```
 
 ## Plan Mode Safe Operations
@@ -202,17 +193,17 @@ touch ~/.gstack/.proactive-prompted
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
-Check if a AGENTS.md file exists in the project root. If it does not exist, create it.
+Check if a CLAW.md file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's AGENTS.md includes skill routing rules.
+> gstack works best when your project's CLAW.md includes skill routing rules.
 
 Options:
-- A) Add routing rules to AGENTS.md (recommended)
+- A) Add routing rules to CLAW.md (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of AGENTS.md:
+If A: Append this section to the end of CLAW.md:
 
 ```markdown
 
@@ -235,7 +226,7 @@ Key routing rules:
 - Resume context → invoke /context-restore
 ```
 
-Then commit the change: `git add AGENTS.md && git commit -m "chore: add gstack skill routing rules to AGENTS.md"`
+Then commit the change: `git add CLAW.md && git commit -m "chore: add gstack skill routing rules to CLAW.md"`
 
 If B: run `$GSTACK_BIN/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
 
@@ -243,7 +234,7 @@ This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_D
 
 If `VENDORED_GSTACK` is `yes`, warn once via AskUserQuestion unless `~/.gstack/.vendoring-warned-$SLUG` exists:
 
-> This project has gstack vendored in `.hermes/skills/gstack/`. Vendoring is deprecated.
+> This project has gstack vendored in `.claw/skills/gstack/`. Vendoring is deprecated.
 > Migrate to team mode?
 
 Options:
@@ -251,11 +242,11 @@ Options:
 - B) No, I'll handle it myself
 
 If A:
-1. Run `git rm -r .hermes/skills/gstack/`
-2. Run `echo '.hermes/skills/gstack/' >> .gitignore`
+1. Run `git rm -r .claw/skills/gstack/`
+2. Run `echo '.claw/skills/gstack/' >> .gitignore`
 3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
-4. Run `git add .claude/ .gitignore AGENTS.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd ~/.hermes/skills/gstack && ./setup --team`"
+4. Run `git add .claude/ .gitignore CLAW.md && git commit -m "chore: migrate gstack from vendored to team mode"`
+5. Tell the user: "Done. Each developer now runs: `cd ~/.claw/skills/gstack && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -273,11 +264,6 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
-
-If `BRAIN_HEALTH` is shown and the score is below 50, tell the user which checks
-failed (shown in the output) and suggest: "Run \`gbrain doctor\` for full diagnostics."
-If the output is not valid JSON or health_score is missing, treat GBrain as unavailable
-and proceed without brain features this session.
 
 ## AskUserQuestion Format
 
@@ -373,7 +359,7 @@ else
 fi
 ```
 
-If output shows `BRAIN_SYNC: brain repo detected`, offer `gstack-brain-restore` via AskUserQuestion; otherwise continue.
+
 
 Privacy stop-gate: if output shows `BRAIN_SYNC: off`, `gbrain_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
 
@@ -666,14 +652,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.hermes/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claw/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.hermes/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.hermes/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x ~/.claw/skills/gstack/bin/gstack-telemetry-log ]; then
+  ~/.claw/skills/gstack/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -683,7 +669,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.hermes/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
+In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claw/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
@@ -908,7 +894,7 @@ IMPACT: {HIGH|MEDIUM|LOW} — {what breaks or degrades if this stays undelivered
 **Only for discrepancies sourced from plan files** (not commit messages or TODOS.md), log a learning so future sessions know this pattern occurred:
 
 ```bash
-~/.hermes/skills/gstack/bin/gstack-learnings-log '{
+~/.claw/skills/gstack/bin/gstack-learnings-log '{
   "type": "pitfall",
   "key": "plan-delivery-gap-KEBAB_SUMMARY",
   "insight": "Planned X but delivered Y because Z",
@@ -950,7 +936,7 @@ Plan items: N DONE, M PARTIAL, K NOT DONE
 
 ## Step 2: Read the checklist
 
-Read `.hermes/skills/review/checklist.md`.
+Read `.claw/skills/review/checklist.md`.
 
 **If the file cannot be read, STOP and report the error.** Do not proceed without the checklist.
 
@@ -958,7 +944,7 @@ Read `.hermes/skills/review/checklist.md`.
 
 ## Step 2.5: Check for Greptile review comments
 
-Read `.hermes/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
+Read `.claw/skills/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps.
 
 **If no PR exists, `gh` fails, API returns an error, or there are zero Greptile comments:** Skip this step silently. Greptile integration is additive — the review works without it.
 
@@ -1109,7 +1095,7 @@ higher confidence.
 Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
 
 ```bash
-~/.hermes/skills/gstack/bin/gstack-review-read
+~/.claw/skills/gstack/bin/gstack-review-read
 ```
 
 Parse the output: only lines BEFORE `---CONFIG---` are JSONL entries (the output also contains `---CONFIG---` and `---HEAD---` footer sections that are not JSONL — ignore those).
@@ -1240,7 +1226,7 @@ If TODOS.md doesn't exist, skip this step silently.
 
 ## Step 5.6: Documentation staleness check
 
-Cross-reference the diff against documentation files. For each `.md` file in the repo root (README.md, ARCHITECTURE.md, CONTRIBUTING.md, AGENTS.md, etc.):
+Cross-reference the diff against documentation files. For each `.md` file in the repo root (README.md, ARCHITECTURE.md, CONTRIBUTING.md, CLAW.md, etc.):
 
 1. Check if code changes in the diff affect features, components, or workflows described in that doc file.
 2. If the doc file was NOT updated in this branch but the code it describes WAS changed, flag it as an INFORMATIONAL finding:
@@ -1262,7 +1248,7 @@ recognize that Eng Review was run on this branch.
 Run:
 
 ```bash
-~/.hermes/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"COMMIT"}'
+~/.claw/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"COMMIT"}'
 ```
 
 Substitute:
