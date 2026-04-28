@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.17.0.1] - 2026-04-28
+
+## **Codex installs can find the runtime tools again.**
+
+Codex-host skill docs now treat `GSTACK_BROWSE`, `GSTACK_DESIGN`, and `GSTACK_MAKE_PDF` as absolute runtime roots instead of prefixing them with `$HOME`. The old generated fallback produced paths like `/Users/name/Users/name/gstack/...`, which made installed skills report false `NEEDS_SETUP`, `DESIGN_NOT_AVAILABLE`, or `MAKE_PDF_NOT_AVAILABLE` even when the binaries existed.
+
+`./setup --host codex` also links `design/dist` and `make-pdf/dist` into both the repo-local sidecar and `~/.codex/skills/gstack`, matching what generated preambles already export. Office Hours, browse, design, and make-pdf now resolve from a fresh Codex setup without hand-fixing symlinks.
+
+### Verification
+
+- `./setup --host codex`
+- `bun test test/host-config.test.ts test/gen-skill-docs.test.ts`
+- `bun run test`
+
 ## [1.17.0.0] - 2026-04-26
 
 ## **Your gstack memory now actually lives in gbrain.**

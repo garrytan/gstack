@@ -100,13 +100,15 @@ export function generateSnapshotFlags(_ctx: TemplateContext): string {
 }
 
 export function generateBrowseSetup(ctx: TemplateContext): string {
+  const browseFallback = `${ctx.paths.browseDir.replace(/^~/, '$HOME')}/browse`;
+
   return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+[ -z "$B" ] && B="${browseFallback}"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
