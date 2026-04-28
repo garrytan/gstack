@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.17.0.0] - 2026-04-26
+
+## **Your gstack memory now actually lives in gbrain.**
+
+For everyone who ran `/setup-gbrain` in the last month and noticed `gbrain search` couldn't find their CEO plans, learnings, or retros: that's because Step 7 wrote a placeholder `consumers.json` with `status: "pending"` and called it done. The HTTP endpoint that placeholder pointed at was never built on the gbrain side. This release scraps that approach and uses the gbrain v0.18.0 federation surface (`gbrain sources` + `gbrain sync`) instead.
+
+After upgrading, `/setup-gbrain` adds a `git worktree` of your brain repo, registers it as a federated source on your gbrain (Supabase or PGLite), and runs an initial sync. Subsequent gstack skill end-of-run cycles also run `gbrain sync` so new artifacts land in the index automatically. Local-Mac only. No cloud agent required. `/gstack-upgrade` runs a one-shot migration for existing users.
+
+### Verify after upgrade
+
+```bash
+gbrain sources list --json | jq '.sources[] | {id, page_count, federated}'
+# Expect: two entries, your default brain plus a "gstack-brain-{user}"
+# entry, both federated=true.
+
+gbrain search "ethos" --source gstack-brain-{user} | head -5
+# Expect: hits from your gstack repo content (readme, ethos, designs, etc).
+```
+
+### What shipped
+
+`bin/gstack-gbrain-source-wireup` is the new helper. It derives a per-user source id from `~/.gstack/.git`'s origin URL (with multi-fallback to `~/.gstack-brain-remote.txt` and a `--source-id` flag), creates a detached `git worktree` at `~/.gstack-brain-worktree/`, registers it as a federated source on gbrain, runs initial backfill, and supports `--strict` (Step 7 strictness), `--uninstall` (full teardown including future-launchd plist), and `--probe` (read-only state inspection). All idempotent. The helper depends on `jq` (transitive via `gstack-gbrain-detect`).
+
+The helper locks the database URL at startup (precedence: `--database-url` flag > `GBRAIN_DATABASE_URL`/`DATABASE_URL` env > read once from `~/.gbrain/config.json`) and exports it as `GBRAIN_DATABASE_URL` for every child `gbrain` invocation. This means external rewrites of `~/.gbrain/config.json` mid-sync (e.g., a concurrent `gbrain init --non-interactive` running in another workspace) cannot redirect the wireup at a different brain. Per gbrain's `loadConfig()`, env-var URLs override the file. Step 7 of `/setup-gbrain` reads the URL out of `config.json` once and passes it explicitly via `--database-url`, so the wireup is robust against config flips during the seconds-to-minutes sync window.
+
+`/setup-gbrain` Step 7 now invokes the helper with `--strict` after `gstack-brain-init`. `/gstack-upgrade` invokes the helper without `--strict` via `gstack-upgrade/migrations/v1.12.3.0.sh` so missing/old gbrain is a benign skip during batch upgrade. `bin/gstack-brain-restore` invokes the helper after the initial clone so a 2nd Mac gets the wireup automatically. `bin/gstack-brain-uninstall` invokes `--uninstall` plus removes legacy `consumers.json`.
+
+`bin/gstack-brain-init` drops 60 lines of dead consumer-registration code (the HTTP POST block, the `consumers.json` writer, the chore commit). `bin/gstack-brain-restore` drops the 18-line `consumers.json` token-rehydration block (the only consumer that used it never had real tokens). `bin/gstack-brain-consumer` is marked deprecated in its header docstring; removal in v1.18.0.0 after one cycle of grace.
+
+`test/gstack-gbrain-source-wireup.test.ts` is new: 13 unit tests with a fake `gbrain` binary on `$PATH` covering fresh-state registration, idempotent re-runs, drift recovery (gbrain has no `sources update`, only `remove + add`), `--strict` failure modes, source-id fallback chain (`.git` → remote-file → flag), `--probe` non-mutation, sync errors, and `--uninstall`.
+
+### The numbers that matter
+
+These are reproducible on any machine after upgrade. Run the verify commands above to see your own delta.
+
+| Metric | Before (v1.16.0.0) | After (v1.17.0.0) |
+|---|---|---|
+| `gbrain sources list` size | 1 (default `/data/brain`) | 2 (default + `gstack-brain-{user}`) |
+| `consumers.json` status | `"pending"`, ingest_url `""` | file deleted from new installs |
+| Manual steps to wire up | 4 (clone + sources add + sync + cron) | 0, automatic in Step 7 |
+| Helper test coverage | 0 unit tests | 13 unit tests (`bun test test/gstack-gbrain-source-wireup.test.ts`) |
+| `bin/gstack-brain-init` size | 363 lines | 300 lines (60 lines of dead code removed) |
+
+Local Mac is the producer of artifacts and the worktree advances automatically with `~/.gstack/`'s commits. Cross-machine sync runs through GitHub via the existing `gstack-brain-sync --once` push hook. No new cron infrastructure needed today; when gbrain v0.21 code-graph features ship, the helper's `--enable-cron` flag is a clean extension.
+
+### What this means for builders
+
+Your gstack memory is searchable now. Run a CEO plan review or office-hours session, sync runs at skill-end automatically, and `gbrain search` finds the plan content from any gbrain client (this Claude Code session, future Macs, optional cloud agents like OpenClaw). One source of truth across machines. The placeholder is dead.
+
+### For contributors
+
+- `bin/gstack-brain-consumer` is deprecated in this release; removal in v1.18.0.0.
+- The `gbrain_url` and `gbrain_token` config keys are now no-ops. They remain readable for one cycle for back-compat, removed in v1.18.0.0.
+- Three pre-existing test failures on this branch (`gstack-config gbrain keys > GSTACK_HOME overrides real config dir`, `no compiled binaries in git > git tracks no files larger than 2MB`, `Opus 4.7 overlay — pacing directive`) were verified to fail on the base branch too. Out of scope for this PR; flagged for a follow-up.
+
 ## [1.16.0.0] - 2026-04-28
 
 ## **Paired-agent tunnel allowlist now matches what the docs already promised. Catch-22 resolved, gate is unit-testable.**
@@ -46,8 +101,6 @@ Three things change immediately. **First**, paired agents can actually open and 
 
 - The plan was reviewed under `/plan-eng-review` plus 2 sequential codex outside-voice passes during plan mode. Round-1 codex caught a doc-target mistake (we were going to update `SIDEBAR_MESSAGE_FLOW.md` instead of `REMOTE_BROWSER_ACCESS.md`) and a wrong-layer test design. Round-2 codex caught that the round-1 correction was still wrong (the chosen test harness only binds the local listener) AND that the docs promised 6 more commands than the allowlist had. All 6 of 7 substantive findings landed in the implementation; the 7th (a pre-existing `/pair-agent` `/health` probe mismatch at `cli.ts:656-668`) is logged as out of scope.
 - One known accepted risk: `tabs` over the tunnel returns metadata for ALL tabs in the browser, not just tabs the agent owns. The user authored the trust relationship when they paired the agent, the agent already can't read CONTENT of unowned tabs (write commands blocked, the active tab can't be switched without a `tab <id>` command that's NOT in the allowlist), and tab IDs already leak via the 403 `hint` field on disallowed `goto`. Codex noted that tightening this requires touching the ownership gate itself (the gate falls back to `getActiveTabId()` BEFORE dispatch in `server.ts:603-614`), which is materially out of scope for a catch-22 fix. Logged in the plan failure-mode table as accepted.
-
-
 
 ## [1.15.0.0] - 2026-04-26
 

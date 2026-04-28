@@ -986,7 +986,7 @@ For `/setup-gbrain --repo` invocations, execute ONLY Step 6 and exit.
 
 ---
 
-## Step 7: Offer gstack-brain-sync
+## Step 7: Offer gstack-brain-sync + wire it into gbrain
 
 Separate AskUserQuestion: "Also sync your gstack session memory (learnings,
 plans, retros) to a private git repo that gbrain can index across machines?"
@@ -1003,6 +1003,37 @@ If yes:
 ~/.claude/skills/gstack/bin/gstack-config set gbrain_sync_mode artifacts-only
 # or "full" if user picked yes-full
 ```
+
+Then wire the brain repo into gbrain so its content is searchable from any
+gbrain client (this Claude Code session, future Macs, optional cloud agents).
+The helper creates a `git worktree` of `~/.gstack/`, registers it as a
+federated source on the user's gbrain (Supabase or PGLite), and runs an
+initial `gbrain sync`. Local-Mac only. No cloud agent required. Subsequent
+skill runs trigger incremental sync via the existing skill-end push hook.
+
+Capture the database URL out of `~/.gbrain/config.json` first and pass it
+explicitly so the wireup is robust against any other process rewriting
+`~/.gbrain/config.json` mid-sync (e.g., concurrent `gbrain init` runs
+elsewhere on the machine):
+
+```bash
+GBRAIN_URL=$(python3 -c "
+import json, os, sys
+try:
+    c = json.load(open(os.path.expanduser('~/.gbrain/config.json')))
+    print(c.get('database_url', ''))
+except Exception:
+    pass
+")
+~/.claude/skills/gstack/bin/gstack-gbrain-source-wireup --strict \
+  ${GBRAIN_URL:+--database-url "$GBRAIN_URL"}
+```
+
+`--strict` exits non-zero on missing prereqs (gbrain not installed, < 0.18.0,
+or no `~/.gstack/.git` yet) so the user sees the failure rather than silently
+ending up with an unwired brain. On non-zero exit, surface the helper's
+output and STOP per skill rules — search-across-machines won't work until
+the prereq is fixed.
 
 ---
 
