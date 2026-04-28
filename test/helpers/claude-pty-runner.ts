@@ -376,6 +376,218 @@ export function classifyVisible(visible: string): ClassifyResult {
   return null;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Per-finding AskUserQuestion count primitives (used by runPlanSkillCounting).
+//
+// These are pure helpers extracted up-front so the unit suite can exercise
+// them deterministically before the live-PTY counter runs them. Each one is
+// independently unit-testable against synthetic visible-buffer strings.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Captured identity of an AskUserQuestion — the rendered question text plus
+ * its numbered options. Used by `runPlanSkillCounting` to dedupe redrawn
+ * prompts and to feed `Step0BoundaryPredicate` callers.
+ *
+ * `signature` is the stable hash. Two AUQs with identical prompt + options
+ * produce the same signature; differences in either field produce different
+ * signatures. Critically: two AUQs with shared option labels (e.g. the
+ * generic "A) Add to plan / B) Defer / C) Build now" menu) but different
+ * question text get DIFFERENT signatures because the prompt is in the hash.
+ */
+export interface AskUserQuestionFingerprint {
+  /** Stable hash combining normalized prompt text + options signature. */
+  signature: string;
+  /** First 240 chars of the rendered question prompt (post-normalization). */
+  promptSnippet: string;
+  /** Captured option labels, in index order. */
+  options: Array<{ index: number; label: string }>;
+  /** Wall-clock when first observed (ms since the helper started polling). */
+  observedAtMs: number;
+  /** True if observed BEFORE the Step-0 boundary fired. */
+  preReview: boolean;
+}
+
+/**
+ * Predicate fired against the AUQ we just answered (not the visible buffer).
+ * Returns true if this AUQ's fingerprint marks the LAST Step-0 question for
+ * its skill — all subsequent AUQs are review-phase findings.
+ *
+ * Event-based by design: matching against an answered AUQ's fingerprint
+ * (prompt + options) is deterministic, whereas matching against later
+ * rendered content (section headers, summary text) races with the agent's
+ * output cadence. See plan §D14 for the rationale.
+ */
+export type Step0BoundaryPredicate = (
+  answeredFingerprint: AskUserQuestionFingerprint,
+) => boolean;
+
+/**
+ * Parse the rendered question prompt out of a visible TTY buffer. The prompt
+ * is the 1–3 lines of text immediately ABOVE the latest `❯ 1.` cursor line —
+ * not part of the option list, not the permission-dialog header.
+ *
+ * Returns the prompt normalized to a single-spaced 240-char snippet (strip
+ * ANSI residue, collapse internal whitespace, trim) — short enough to use as
+ * a hash key, long enough to disambiguate distinct questions.
+ *
+ * Returns "" when no prompt could be parsed (cursor not yet rendered, or
+ * cursor is at the top of the buffer with no preceding text). Callers that
+ * use the empty string as a fingerprint input should treat empty-prompt
+ * AUQs as "wait one more poll" rather than fingerprinting them — otherwise
+ * the same options + empty prompt across two distinct questions collide.
+ */
+export function parseQuestionPrompt(visible: string): string {
+  // Tail-only — older prompts higher in the buffer are stale.
+  const tail = visible.length > 4096 ? visible.slice(-4096) : visible;
+  const lines = tail.split('\n');
+
+  // Find the latest `❯ 1.` cursor line (matching parseNumberedOptions).
+  let cursorLineIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*❯\s*1\./.test(lines[i] ?? '')) {
+      cursorLineIdx = i;
+      break;
+    }
+  }
+  if (cursorLineIdx < 0) return '';
+
+  // Walk up at most 6 lines collecting prompt text. Stop at:
+  //   - a blank line preceded by another blank line (paragraph break)
+  //   - top of buffer
+  //   - a line that itself starts with `N.` (we're inside an option list)
+  const promptLines: string[] = [];
+  let blankRun = 0;
+  for (let i = cursorLineIdx - 1; i >= 0 && promptLines.length < 6; i--) {
+    const raw = lines[i] ?? '';
+    const trimmed = raw.trim();
+    if (trimmed === '') {
+      blankRun += 1;
+      if (blankRun >= 2 && promptLines.length > 0) break;
+      continue;
+    }
+    blankRun = 0;
+    // Stop if we hit what looks like a previous numbered list.
+    if (/^[\s❯]*[1-9]\.\s+\S/.test(raw)) break;
+    promptLines.unshift(trimmed);
+  }
+
+  const joined = promptLines.join(' ').replace(/\s+/g, ' ').trim();
+  return joined.slice(0, 240);
+}
+
+/**
+ * Stable hash for an AskUserQuestion's identity — combines normalized prompt
+ * text with the options signature so two distinct questions with shared menu
+ * labels (the generic A/B/C TODO-proposal menu, for instance) get different
+ * fingerprints.
+ *
+ * Uses Bun's fast non-crypto hash since these strings are short and we only
+ * need collision resistance against accidental TTY redraws, not adversaries.
+ * Hex-encoded for diagnostic dumps.
+ */
+export function auqFingerprint(
+  promptSnippet: string,
+  opts: Array<{ index: number; label: string }>,
+): string {
+  const normalized = promptSnippet.replace(/\s+/g, ' ').trim();
+  const sig = optionsSignature(opts);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (Bun as any).hash(normalized + '||' + sig).toString(16);
+}
+
+/**
+ * Detects when a plan-* skill has reached its Completion Summary / Review
+ * Report — a terminal signal complementary to plan-mode's "Ready to execute"
+ * confirmation. Each plan-review skill writes one of these phrasings near
+ * the end of its run; matching any one is enough to stop counting.
+ *
+ * Best-effort: this is a content marker, not a deterministic event. Hard
+ * ceiling (`reviewCountCeiling` in `runPlanSkillCounting`) is the reliable
+ * stop signal; this regex is the "we're done, go gracefully" hint.
+ */
+export const COMPLETION_SUMMARY_RE =
+  /(GSTACK REVIEW REPORT|## Completion [Ss]ummary|Status:\s*(clean|issues_open)|^VERDICT:)/m;
+
+/**
+ * Result of asserting that a plan file ends with `## GSTACK REVIEW REPORT`
+ * as its last `## ` heading. `ok` is true iff the report is present AND no
+ * other `## ` heading appears after it. Diagnostic fields are populated only
+ * on failure to keep the success path cheap.
+ */
+export interface ReviewReportAtBottomResult {
+  ok: boolean;
+  reason?: string;
+  trailingHeadings?: string[];
+}
+
+/**
+ * Assert that `## GSTACK REVIEW REPORT` is the last `## ` heading in a plan
+ * file's content. Pure string operation — no filesystem access. Used by the
+ * finding-count E2E tests as a second assertion on each test's produced plan.
+ *
+ * The plan-mode skill template mandates the agent move/append the review
+ * report so it's always the last `##` section. A regression where the agent
+ * appends additional sections after the report (or skips it entirely) ships
+ * silently today; this assertion catches both.
+ */
+export function assertReviewReportAtBottom(
+  content: string,
+): ReviewReportAtBottomResult {
+  const re = /^## GSTACK REVIEW REPORT\s*$/m;
+  const match = re.exec(content);
+  if (!match) {
+    return { ok: false, reason: 'no GSTACK REVIEW REPORT section' };
+  }
+  const after = content.slice(match.index + match[0].length);
+  // Match any `## ` heading after the report. Reject `## ` followed by
+  // newline-only (trailing-whitespace ## headers) to avoid false positives.
+  const trailingHeadings = Array.from(
+    after.matchAll(/^## \S.*$/gm),
+  ).map((m) => m[0]);
+  if (trailingHeadings.length > 0) {
+    return {
+      ok: false,
+      reason: 'trailing ## heading(s) after GSTACK REVIEW REPORT',
+      trailingHeadings,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Per-skill Step-0 boundary predicates. Each fires `true` when the answered
+ * AUQ's fingerprint matches the LAST question of that skill's Step 0 phase.
+ *
+ * - `ceoStep0Boundary`: matches the mode-pick AUQ (options match `MODE_RE`).
+ * - `engStep0Boundary`: matches the cross-project-learnings or scope-reduction
+ *   AUQ that closes plan-eng-review's preamble.
+ * - `designStep0Boundary`: matches plan-design-review's first dimension /
+ *   posture AUQ.
+ * - `devexStep0Boundary`: matches plan-devex-review's persona-selection AUQ.
+ *
+ * Predicates live alongside the helper so the unit suite can exercise each
+ * against synthetic fingerprints (positive AND negative cases). Skill test
+ * files import them directly.
+ */
+export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  fp.options.some((o) => MODE_RE.test(o.label));
+
+export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  /scope reduction recommendation|cross[\s-]?project learnings/i.test(
+    fp.promptSnippet,
+  );
+
+export const designStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  /design system|design posture|design score|first dimension/i.test(
+    fp.promptSnippet,
+  );
+
+export const devexStep0Boundary: Step0BoundaryPredicate = (fp) =>
+  /developer persona|target persona|persona selection|TTHW target/i.test(
+    fp.promptSnippet,
+  );
+
 /**
  * Spawn `claude --permission-mode plan` in a real PTY and return a session
  * handle. Caller is responsible for `await session.close()` to release the

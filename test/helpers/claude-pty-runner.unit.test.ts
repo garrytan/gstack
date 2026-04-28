@@ -30,7 +30,17 @@ import {
   parseNumberedOptions,
   classifyVisible,
   TAIL_SCAN_BYTES,
+  optionsSignature,
+  parseQuestionPrompt,
+  auqFingerprint,
+  COMPLETION_SUMMARY_RE,
+  assertReviewReportAtBottom,
+  ceoStep0Boundary,
+  engStep0Boundary,
+  designStep0Boundary,
+  devexStep0Boundary,
   type ClaudePtyOptions,
+  type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
 
 describe('isPermissionDialogVisible', () => {
@@ -316,5 +326,335 @@ describe('runPlanSkillObservation env passthrough surface', () => {
       env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
     };
     expect(opts.env).toEqual({ QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Per-finding count primitives — Section 3 unit tests #1–#5, #7, #12.
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('optionsSignature', () => {
+  test('returns a "|"-joined `index:label` string for a clean list', () => {
+    const sig = optionsSignature([
+      { index: 1, label: 'HOLD SCOPE' },
+      { index: 2, label: 'SCOPE EXPANSION' },
+    ]);
+    expect(sig).toBe('1:HOLD SCOPE|2:SCOPE EXPANSION');
+  });
+
+  test('order-independent: shuffled inputs produce the same signature', () => {
+    // parseNumberedOptions already returns sorted, but defensive sort means
+    // a future caller that hands us shuffled input still produces a stable
+    // dedupe signature.
+    const a = optionsSignature([
+      { index: 2, label: 'B' },
+      { index: 1, label: 'A' },
+      { index: 3, label: 'C' },
+    ]);
+    const b = optionsSignature([
+      { index: 1, label: 'A' },
+      { index: 2, label: 'B' },
+      { index: 3, label: 'C' },
+    ]);
+    expect(a).toBe(b);
+  });
+
+  test('empty list returns empty string', () => {
+    expect(optionsSignature([])).toBe('');
+  });
+
+  test('single-item list returns just that entry', () => {
+    expect(optionsSignature([{ index: 1, label: 'Only' }])).toBe('1:Only');
+  });
+});
+
+describe('parseQuestionPrompt', () => {
+  test('captures 1-line prompt above the cursor', () => {
+    const visible = `
+      D1 — Pick a mode
+
+      ❯ 1. HOLD SCOPE
+        2. SCOPE EXPANSION
+    `;
+    const prompt = parseQuestionPrompt(visible);
+    expect(prompt).toBe('D1 — Pick a mode');
+  });
+
+  test('captures multi-line prompt above the cursor', () => {
+    const visible = `
+      D2 — Approach selection
+
+      Which architecture should we follow?
+
+      ❯ 1. Bypass existing helper
+        2. Reuse existing helper
+    `;
+    const prompt = parseQuestionPrompt(visible);
+    // Multi-line prompts get joined with single spaces.
+    expect(prompt).toContain('D2 — Approach selection');
+    expect(prompt).toContain('Which architecture should we follow?');
+  });
+
+  test('returns "" when no cursor is rendered', () => {
+    expect(parseQuestionPrompt('Just some prose.\nNo cursor.')).toBe('');
+  });
+
+  test('truncates to 240 chars', () => {
+    const longPrompt = 'A'.repeat(500);
+    const visible = `${longPrompt}\n\n      ❯ 1. yes\n        2. no`;
+    expect(parseQuestionPrompt(visible).length).toBeLessThanOrEqual(240);
+  });
+
+  test('does not pull text from a previous numbered list above', () => {
+    const visible = `
+      ❯ 1. previous answered question
+        2. previous option two
+
+      D2 — A new question text
+
+      ❯ 1. fresh option A
+        2. fresh option B
+    `;
+    const prompt = parseQuestionPrompt(visible);
+    // Stops at the previous numbered-list line; should NOT contain "previous answered question".
+    expect(prompt).toContain('D2 — A new question text');
+    expect(prompt).not.toContain('previous answered question');
+  });
+
+  test('normalizes whitespace (collapses runs of spaces and tabs)', () => {
+    const visible = `D1   —    Spaced     out
+
+      ❯ 1. yes
+        2. no`;
+    expect(parseQuestionPrompt(visible)).toBe('D1 — Spaced out');
+  });
+});
+
+describe('auqFingerprint', () => {
+  test('returns the same fingerprint for identical inputs', () => {
+    const opts = [
+      { index: 1, label: 'A' },
+      { index: 2, label: 'B' },
+    ];
+    expect(auqFingerprint('hello', opts)).toBe(auqFingerprint('hello', opts));
+  });
+
+  test('different prompts with shared option labels produce DIFFERENT fingerprints', () => {
+    // The collision regression Codex F1 caught: option-label-only fingerprints
+    // collapsed multiple distinct findings into one when they shared menu shape.
+    const sharedOpts = [
+      { index: 1, label: 'Add to plan' },
+      { index: 2, label: 'Defer' },
+      { index: 3, label: 'Build now' },
+    ];
+    const fpFinding1 = auqFingerprint('D5 — Architecture: bypass helper?', sharedOpts);
+    const fpFinding2 = auqFingerprint('D6 — Tests: zero coverage?', sharedOpts);
+    expect(fpFinding1).not.toBe(fpFinding2);
+  });
+
+  test('same prompt with different options produces DIFFERENT fingerprints', () => {
+    const prompt = 'D1 — Pick a mode';
+    const fpA = auqFingerprint(prompt, [
+      { index: 1, label: 'HOLD SCOPE' },
+      { index: 2, label: 'SCOPE EXPANSION' },
+    ]);
+    const fpB = auqFingerprint(prompt, [
+      { index: 1, label: 'HOLD SCOPE' },
+      { index: 2, label: 'SCOPE REDUCTION' },
+    ]);
+    expect(fpA).not.toBe(fpB);
+  });
+
+  test('whitespace-only differences in prompt do NOT change the fingerprint', () => {
+    // Same content, different rendering whitespace (TTY redraw artifact)
+    // must produce the same fingerprint so dedupe survives reflow.
+    const opts = [{ index: 1, label: 'A' }, { index: 2, label: 'B' }];
+    const fpA = auqFingerprint('Pick   a     mode', opts);
+    const fpB = auqFingerprint('Pick a mode', opts);
+    expect(fpA).toBe(fpB);
+  });
+
+  test('empty prompt + same options collide (caller must guard against this)', () => {
+    // Documents the contract: empty-prompt fingerprints WILL collide if the
+    // caller fingerprints them. runPlanSkillCounting must skip empty-prompt
+    // AUQs and re-poll instead.
+    const opts = [{ index: 1, label: 'A' }];
+    expect(auqFingerprint('', opts)).toBe(auqFingerprint('', opts));
+  });
+});
+
+describe('COMPLETION_SUMMARY_RE', () => {
+  test('matches GSTACK REVIEW REPORT heading', () => {
+    expect(COMPLETION_SUMMARY_RE.test('## GSTACK REVIEW REPORT')).toBe(true);
+  });
+
+  test('matches Completion Summary heading (ceo + eng)', () => {
+    expect(COMPLETION_SUMMARY_RE.test('## Completion Summary')).toBe(true);
+    expect(COMPLETION_SUMMARY_RE.test('## Completion summary')).toBe(true);
+  });
+
+  test('matches Status: clean (CEO review-log shape)', () => {
+    expect(COMPLETION_SUMMARY_RE.test('Status: clean')).toBe(true);
+    expect(COMPLETION_SUMMARY_RE.test('Status: issues_open')).toBe(true);
+  });
+
+  test('matches VERDICT: line', () => {
+    expect(COMPLETION_SUMMARY_RE.test('VERDICT: CLEARED — Eng Review passed')).toBe(true);
+  });
+
+  test('does NOT match prose mentions of "verdict" mid-line', () => {
+    // VERDICT must be at the start of a line to count.
+    expect(COMPLETION_SUMMARY_RE.test('the final verdict: undecided')).toBe(false);
+  });
+});
+
+describe('assertReviewReportAtBottom', () => {
+  test('passes when REVIEW REPORT is the only/last ## heading', () => {
+    const content = `# Plan
+
+## Context
+stuff
+
+## Approach
+more stuff
+
+## GSTACK REVIEW REPORT
+
+| col | col |
+`;
+    const r = assertReviewReportAtBottom(content);
+    expect(r.ok).toBe(true);
+  });
+
+  test('fails when REVIEW REPORT is missing', () => {
+    const content = `# Plan
+
+## Context
+stuff
+`;
+    const r = assertReviewReportAtBottom(content);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/no GSTACK REVIEW REPORT/);
+  });
+
+  test('fails when REVIEW REPORT exists but a ## heading follows it', () => {
+    const content = `# Plan
+
+## GSTACK REVIEW REPORT
+
+| col | col |
+
+## Late Section
+oops
+`;
+    const r = assertReviewReportAtBottom(content);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/trailing ## heading/);
+    expect(r.trailingHeadings).toEqual(['## Late Section']);
+  });
+
+  test('passes when only ### subheadings follow REVIEW REPORT (deeper nesting allowed)', () => {
+    const content = `## GSTACK REVIEW REPORT
+
+### Cross-model tension
+- F1: resolved
+- F2: resolved
+`;
+    const r = assertReviewReportAtBottom(content);
+    expect(r.ok).toBe(true);
+  });
+
+  test('fails with multiple trailing ## headings reported', () => {
+    const content = `## GSTACK REVIEW REPORT
+
+## First trailing
+
+## Second trailing
+`;
+    const r = assertReviewReportAtBottom(content);
+    expect(r.ok).toBe(false);
+    expect(r.trailingHeadings).toHaveLength(2);
+  });
+});
+
+describe('Step0BoundaryPredicate per-skill', () => {
+  // Helper to build a synthetic fingerprint for predicate tests.
+  function fp(promptSnippet: string, optionLabels: string[]): AskUserQuestionFingerprint {
+    const options = optionLabels.map((label, i) => ({ index: i + 1, label }));
+    return {
+      signature: auqFingerprint(promptSnippet, options),
+      promptSnippet,
+      options,
+      observedAtMs: 0,
+      preReview: true,
+    };
+  }
+
+  describe('ceoStep0Boundary', () => {
+    test('FIRES on Step 0F mode-pick AUQ (HOLD SCOPE in options)', () => {
+      const f = fp('Pick a mode', ['HOLD SCOPE', 'SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'SCOPE REDUCTION']);
+      expect(ceoStep0Boundary(f)).toBe(true);
+    });
+
+    test('does NOT fire on premise challenge AUQs', () => {
+      const f = fp('D1 — Premise check: is this the right problem?', ['Yes', 'No', 'Other']);
+      expect(ceoStep0Boundary(f)).toBe(false);
+    });
+
+    test('does NOT fire on review-section AUQs', () => {
+      const f = fp('Architecture: bypass helper?', ['Reuse existing', 'Roll new', 'Defer']);
+      expect(ceoStep0Boundary(f)).toBe(false);
+    });
+  });
+
+  describe('engStep0Boundary', () => {
+    test('FIRES on cross-project learnings prompt', () => {
+      const f = fp('Enable cross-project learnings on this machine?', ['Yes', 'No']);
+      expect(engStep0Boundary(f)).toBe(true);
+    });
+
+    test('FIRES on scope reduction recommendation', () => {
+      const f = fp('Scope reduction recommendation: cut to MVP?', ['Reduce', 'Proceed', 'Modify']);
+      expect(engStep0Boundary(f)).toBe(true);
+    });
+
+    test('does NOT fire on review-section AUQs', () => {
+      const f = fp('Architecture: shared mutable state?', ['Refactor', 'Defer', 'Skip']);
+      expect(engStep0Boundary(f)).toBe(false);
+    });
+  });
+
+  describe('designStep0Boundary', () => {
+    test('FIRES on design system / posture mention', () => {
+      const f = fp('Pick a design posture for this review', ['Polish', 'Triage', 'Expansion']);
+      expect(designStep0Boundary(f)).toBe(true);
+    });
+
+    test('FIRES on first-dimension prompt', () => {
+      const f = fp('First dimension: visual hierarchy. Score?', ['7', '8', '9']);
+      expect(designStep0Boundary(f)).toBe(true);
+    });
+
+    test('does NOT fire on later dimension AUQs', () => {
+      const f = fp('Spacing dimension score?', ['7', '8', '9']);
+      expect(designStep0Boundary(f)).toBe(false);
+    });
+  });
+
+  describe('devexStep0Boundary', () => {
+    test('FIRES on developer persona selection', () => {
+      const f = fp('Pick the target persona for this review', ['Senior backend', 'Junior frontend', 'Other']);
+      expect(devexStep0Boundary(f)).toBe(true);
+    });
+
+    test('FIRES on TTHW target prompt', () => {
+      const f = fp('What is the TTHW target for first run?', ['<5 min', '<15 min', '<30 min']);
+      expect(devexStep0Boundary(f)).toBe(true);
+    });
+
+    test('does NOT fire on review-section AUQs', () => {
+      const f = fp('Friction point: 5-min CI wait. Address?', ['Now', 'Defer', 'Skip']);
+      expect(devexStep0Boundary(f)).toBe(false);
+    });
   });
 });
