@@ -108,13 +108,66 @@ Hit Ctrl-C mid-run? Run the same command again — the orchestrator picks up at 
 
 To force a fresh start: `gstack-build ... --no-resume` or `rm ~/.gstack/build-state/<slug>.json`.
 
+## Dual Implementor Mode (`--dual-impl`)
+
+Tournament selection: Gemini and GPT-Codex implement each TDD phase **in parallel**, in **isolated git worktrees**, and Claude Opus picks the winner. The winning commits are cherry-picked back onto the main branch and the existing TDD pipeline (test+fix loop → Codex review) takes over from there.
+
+**Legacy 2-checkbox plans don't trigger dual-impl** — dual-impl only fires after `tests_red`, which requires a `**Test Specification` checkbox. Setting `--dual-impl` on a legacy plan is silently a no-op for that phase; you'll see normal single-Gemini behavior.
+
+**Required CLIs**: `gemini`, `codex`, and `claude` must all be on `PATH` (or set `GEMINI_BIN` / `CODEX_BIN` / `CLAUDE_BIN`). The orchestrator does not preflight check these — if Codex is missing, `runCodexImpl` will exit non-zero and you'll see one half of the tournament fail. Effectively the phase falls back to "gemini auto-wins via test results" or fails outright if both halves break. Install all three before running.
+
+This eliminates single-model blind spots — if Gemini takes a structurally wrong approach, Codex's independent attempt usually doesn't, and the judge sees both diffs side-by-side.
+
+```bash
+gstack-build plans/...md --dual-impl
+```
+
+### Per-phase loop (when `--dual-impl` is active)
+
+```
+1. Test Specification  — Gemini writes failing tests (Red)            [unchanged]
+2. Verify Red          — confirm tests fail                            [unchanged]
+3. Dual Impl           — createWorktrees, then Promise.all of:
+                           - runGemini  in /tmp/gstack-dual-<slug>-pN-<ts>/gemini
+                           - runCodexImpl in /tmp/gstack-dual-<slug>-pN-<ts>/codex
+                         Each commits to its own branch.
+4. Dual Tests          — Promise.all of runTests on both worktrees
+                           → both pass: judge decides
+                           → one passes: auto-select the passing one
+                           → both fail: auto-select fewer-failures winner
+                           → both timed out / no signal: fail closed
+5. Judge Opus          — Claude Opus reads both diffs + test results,
+                         emits "WINNER: gemini|codex" + REASONING
+6. Apply Winner        — cherry-pick winning branch's commits onto main cwd
+                         (patch fallback if cherry-pick conflicts)
+7. — handoff —         — phase rejoins gemini_done; existing TDD loop runs
+8. Test+Fix Loop       — adopted code is verified again on main cwd
+9. Codex Review        — final review on main cwd
+```
+
+### Worktree isolation
+
+Each phase creates a fresh pair under `os.tmpdir()/gstack-dual-<slug>-p<N>-<timestamp>/`. Branches are named `gstack-dual-p<N>-{gemini|codex}-<timestamp>`. Worktrees are torn down after a successful `Apply Winner`; on apply failure they are **preserved** for forensic recovery (the error message lists the paths and a manual cleanup command).
+
+### Auto-select vs Judge
+
+- **Both passed tests** → Opus judge runs.
+- **One passed, one failed** → auto-select the passing one (`selectedBy='auto'`).
+- **Both failed** → auto-select fewer-failures winner via `parseFailureCount` (priority: explicit summary line like "3 failed", then ✗/FAIL marker counts).
+- **Both timed out OR both had no parseable failure count** → fail-closed; phase status `failed`, you resume manually.
+- **Judge output malformed (no anchored `WINNER:` line)** → fail-closed; worktrees are torn down.
+
+### Backward compat
+
+`--dual-impl` is a runtime-only flag. Plans don't need any per-phase frontmatter — when the flag is set, every parsed phase gets `dualImpl=true`. Legacy 2-checkbox plans still work; dual-impl only fires after `tests_red`, so test-spec-less phases skip it silently.
+
 ## Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_BIN` | `gemini` | Path to Gemini CLI. |
 | `CODEX_BIN` | `codex` | Path to Codex CLI. |
-| `CLAUDE_BIN` | `claude` | Path to Claude Code (for the ship step). |
+| `CLAUDE_BIN` | `claude` | Path to Claude Code (for the ship step + Opus judge). |
 | `GBRAIN_BIN` | `gbrain` | Path to gbrain CLI (optional). |
 | `GSTACK_BUILD_GEMINI_TIMEOUT` | `600000` | Per-Gemini-call timeout in ms (10 min). |
 | `GSTACK_BUILD_CODEX_TIMEOUT` | `900000` | Per-Codex-iteration timeout in ms (15 min). |
@@ -123,6 +176,9 @@ To force a fresh start: `gstack-build ... --no-resume` or `rm ~/.gstack/build-st
 | `GSTACK_BUILD_TEST_TIMEOUT` | `300000` | Per-test-run timeout in ms (5 min). |
 | `GSTACK_BUILD_TEST_MAX_ITER` | `5` | Hard cap on Gemini fix iterations when tests fail post-impl. |
 | `GSTACK_BUILD_RED_MAX_ITER` | `3` | Hard cap on Gemini re-spec iterations when tests pass trivially (VERIFY_RED). |
+| `GSTACK_BUILD_JUDGE_TIMEOUT` | `600000` | Per-Opus-judge-call timeout in ms (10 min). Dual-impl only. |
+| `GSTACK_BUILD_JUDGE_MODEL` | `claude-opus-4-7` | Model passed to `claude --model` for the judge. Dual-impl only. |
+| `GSTACK_BUILD_CODEX_IMPL_SANDBOX` | `workspace-write` | Sandbox mode for `runCodexImpl`. Set to `danger-full-access` to opt in to looser sandboxing (worktrees share .git/remotes — be aware). |
 
 ## File layout
 
@@ -186,4 +242,4 @@ cd ~/.claude/skills/gstack
 bun test build/orchestrator/__tests__/
 ```
 
-105 tests across 9 files cover: parser edge cases, state persistence atomicity, lock contention, every phase-runner TDD state transition, plan mutator atomicity, ANSI-stripping verdict parser, gbrain frontmatter strip, detectTestCmd detection, buildGeminiTestSpecPrompt prompt structure, and dry-run TDD integration.
+147 tests across 10 files cover: parser edge cases (incl. dual-impl opt stamping), state persistence atomicity, lock contention, every phase-runner state transition (TDD + dual-impl tournament), plan mutator atomicity, ANSI-stripping verdict parser, gbrain frontmatter strip, detectTestCmd detection, prompt-builder shapes (test-spec, dual-impl, judge), worktree primitives (createWorktrees / applyWinner / teardownWorktrees against a real temp git repo), parseFailureCount + parseJudgeVerdict + buildCodexImplArgv, fail-closed paths, and dry-run integration for both single-impl TDD and `--dual-impl` modes.

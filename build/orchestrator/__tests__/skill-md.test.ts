@@ -7,7 +7,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const content = fs.readFileSync(tmplPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.14.0')).toBe(true);
+  expect(content.includes('version: 1.15.0')).toBe(true);
   expect(content.includes('Verify Red')).toBe(true);
   expect(content.includes('Test Specification (Gemini Sub-agent)')).toBe(true);
   expect(content.includes('gemini-testspec-input')).toBe(true);
@@ -22,6 +22,6 @@ test("generated SKILL.md reflects TDD changes", () => {
   const content = fs.readFileSync(skillPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('1.14.0')).toBe(true);
+  expect(content.includes('1.15.0')).toBe(true);
   expect(content.includes('Verify Red')).toBe(true);
 });

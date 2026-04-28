@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.14.0
+version: 1.15.0
 description: |
   Autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -686,7 +686,7 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 # /build — Autonomous Execution Loop
 
 You are the Execution Agent. The planning phase is over. Your job is to read the approved implementation plan and execute it autonomously in phases.
-**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.14.0").**
+**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.15.0").**
 
 **LLM-driven loop vs. code-driven CLI** — for short plans (1-3 phases), proceed with this skill: you are the orchestrator. For long multi-week plans (5+ phases), the LLM-driven loop is unreliable: it stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." For those, recommend the standalone CLI: `gstack-build <plan-file>`. The CLI drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. See `~/.claude/skills/gstack/build/orchestrator/README.md` for usage.
 

@@ -258,7 +258,7 @@ through `POST /pty-session` only.
 **Transport-layer security** (v1.6.0.0+). When `pair-agent` starts an ngrok tunnel,
 the daemon binds two HTTP listeners: a local listener (127.0.0.1, full command
 surface, never forwarded) and a tunnel listener (locked allowlist: `/connect`,
-`/command` with a scoped token + 17-command browser-driving allowlist,
+`/command` with a scoped token + 26-command browser-driving allowlist,
 `/sidebar-chat`). ngrok forwards only the tunnel port. Root tokens over the tunnel
 return 403. SSE endpoints use a 30-minute HttpOnly `gstack_sse` cookie minted via
 `POST /sse-session` (never valid against `/command`). Tunnel-surface rejections go

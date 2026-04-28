@@ -20,7 +20,14 @@ export type PhaseStatus =
   | 'codex_running'
   | 'review_clean'
   | 'committed'
-  | 'failed';
+  | 'failed'
+  // Dual-implementor states (--dual-impl flag)
+  | 'dual_impl_running'
+  | 'dual_impl_done'
+  | 'dual_tests_running'
+  | 'dual_judge_pending'
+  | 'dual_judge_running'
+  | 'dual_winner_pending';
 
 export interface Phase {
   /** Zero-based index in the order phases appear in the plan file. */
@@ -43,6 +50,36 @@ export interface Phase {
   reviewCheckboxLine: number;
   /** Line number (1-based) of the `[ ] **Test Specification` checkbox in the plan file. -1 if not present (legacy plan). */
   testSpecCheckboxLine: number;
+  /** True when --dual-impl CLI flag is active; stamped by the CLI after parse. */
+  dualImpl: boolean;
+}
+
+export interface DualImplTestResult {
+  worktreePath: string;
+  testExitCode: number | null;
+  testLogPath: string;
+  timedOut: boolean;
+  /** Parsed count of failing test cases from test output. */
+  failureCount?: number;
+}
+
+export interface DualImplState {
+  geminiWorktreePath: string;
+  codexWorktreePath: string;
+  geminiBranch: string;
+  codexBranch: string;
+  baseCommit: string;
+  codexImpl?: SubAgentInvocation;
+  geminiTestResult?: DualImplTestResult;
+  codexTestResult?: DualImplTestResult;
+  judgeLogPath?: string;
+  judgeVerdict?: 'gemini' | 'codex';
+  judgeReasoning?: string;
+  selectedImplementor?: 'gemini' | 'codex';
+  /** 'judge' = Opus decided; 'auto' = one passed/fewer failures; winner was obvious */
+  selectedBy?: 'judge' | 'auto';
+  /** ISO timestamp when worktrees were torn down. */
+  worktreesTornDownAt?: string;
 }
 
 export interface SubAgentInvocation {
@@ -81,6 +118,8 @@ export interface PhaseState {
     outputLogPaths: string[];
   };
   codexReview?: CodexReviewState;
+  /** Dual-implementor tournament state (populated when --dual-impl is active). */
+  dualImpl?: DualImplState;
   committedAt?: string;
   error?: string;
 }

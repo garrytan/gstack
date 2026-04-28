@@ -1,14 +1,19 @@
 #!/usr/bin/env bun
-// compare-pr-version — CI gate helper. Compares the util's next-slot output
-// against the PR's branch VERSION. Exits 0 (pass), 1 (confirmed collision),
-// or 2 (util was offline — fail-open per user decision, exit 0 with warning).
+// compare-pr-version — CI gate helper. Validates the PR's branch VERSION
+// against the queue of other open PRs' claimed versions. Exits 0 (pass)
+// or 1 (confirmed collision).
 //
 // Input:
 //   argv[2] — path to next.json (the util's JSON output)
 //   argv[3] — optional PR number for log lines
 //
 // Design note: fail-open on util error. A gstack bug must never freeze the
-// merge queue. Confirmed collisions (util OK, PR version < next slot) DO block.
+// merge queue. The gate enforces ONE rule: this PR must not claim the same
+// version as another open PR. Lower-than-the-util's-suggestion is fine if
+// the slot is unclaimed — that preserves monotonic version ordering on main
+// when this PR lands ahead of higher-numbered queued PRs. The util's output
+// is informational (the *recommended* slot for fresh /ship runs); the gate
+// only blocks actual collisions.
 
 import { readFileSync } from "node:fs";
 
@@ -58,25 +63,44 @@ if (!pPR || !pNext) {
 }
 
 const tag = prNumber ? `PR #${prNumber}` : "this PR";
+const claimed = (parsed.claimed ?? []) as Array<{ pr: number; branch: string; version: string; url?: string }>;
 
 // Emit a GitHub step summary (always helpful, even on pass).
-const claimedList = (parsed.claimed ?? [])
-  .map((c: any) => `  #${c.pr} ${c.branch} → v${c.version}`)
+const claimedList = claimed
+  .map((c) => `  #${c.pr} ${c.branch} → v${c.version}`)
   .join("\n");
 
 console.log(`::group::Version gate (${tag})`);
-console.log(`  PR VERSION:  v${prVersion}`);
-console.log(`  Next slot:   v${nextSlot}`);
-console.log(`  Queue (${(parsed.claimed ?? []).length} open PRs claiming versions):`);
+console.log(`  PR VERSION:    v${prVersion}`);
+console.log(`  Suggested:     v${nextSlot} (util's next-slot recommendation)`);
+console.log(`  Queue (${claimed.length} open PRs claiming versions):`);
 if (claimedList) console.log(claimedList);
 console.log("::endgroup::");
 
-if (cmp(pPR, pNext) >= 0) {
-  console.log(`✓ ${tag} claims v${prVersion} — slot is free (next would be v${nextSlot}).`);
-  process.exit(0);
+// Hard rule 1: this PR's VERSION must be strictly greater than the base
+// version, otherwise we're not actually bumping.
+const pBase = parseV((parsed.base_version ?? "").trim());
+if (pBase && cmp(pPR, pBase) <= 0) {
+  console.log(`::error::VERSION not bumped: ${tag} claims v${prVersion} but base is v${parsed.base_version}.`);
+  process.exit(1);
 }
 
-// Confirmed collision: PR version is stale.
-console.log(`::error::VERSION drift: ${tag} claims v${prVersion} but the queue has moved — next free slot is v${nextSlot}.`);
-console.log(`::error::Rerun /ship from the feature branch to reconcile. /ship's ALREADY_BUMPED branch handles this atomically (VERSION, package.json, CHANGELOG, PR title).`);
-process.exit(1);
+// Hard rule 2: no collision with another open PR's claimed VERSION.
+const collision = claimed.find((c) => c.version.trim() === prVersion);
+if (collision) {
+  console.log(`::error::VERSION collision: ${tag} claims v${prVersion} but #${collision.pr} (${collision.branch}) already claims the same slot.`);
+  console.log(`::error::Rerun /ship to pick a different slot, or coordinate with #${collision.pr} on landing order.`);
+  process.exit(1);
+}
+
+// Optional informational note: PR version is below the util's suggested next
+// slot. This is allowed — the suggested slot is a recommendation for /ship's
+// next run, but landing at a lower-but-unclaimed slot first preserves
+// monotonic ordering on main when this PR merges ahead of higher-numbered
+// queued PRs.
+if (cmp(pPR, pNext) < 0) {
+  console.log(`::notice::${tag} claims v${prVersion}, below util's suggestion v${nextSlot}. Slot is unclaimed; gate passes. If this PR lands ahead of queued PRs at higher slots, version ordering on main remains monotonic.`);
+}
+
+console.log(`✓ ${tag} claims v${prVersion} — slot is free.`);
+process.exit(0);

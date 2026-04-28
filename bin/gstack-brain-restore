@@ -19,7 +19,8 @@
 #   3. rsync-copy tracked files into ~/.gstack/ with skip-if-same-hash
 #   4. Move staging's .git into ~/.gstack/.git
 #   5. Register local git config merge drivers (they don't clone from remote)
-#   6. Rehydrate consumers.json endpoints; prompt for tokens
+#   6. Wire the cloned brain into gbrain via gstack-gbrain-source-wireup
+#      (best-effort; restore continues even if gbrain wireup fails)
 #
 # Env:
 #   GSTACK_HOME — override ~/.gstack
@@ -195,31 +196,18 @@ sys.exit(0)
 HOOK_EOF
 chmod +x "$HOOK"
 
-# ---- rehydrate consumers, prompt for tokens ----
-if [ -f "$GSTACK_HOME/consumers.json" ]; then
-  echo ""
-  echo "Consumer registry restored. Tokens are machine-local and NOT synced."
-  echo "Run these for each consumer to re-enter tokens:"
-  python3 - "$GSTACK_HOME/consumers.json" <<'PYEOF'
-import sys, json
-try:
-    with open(sys.argv[1]) as f:
-        data = json.load(f)
-except Exception:
-    sys.exit(0)
-for c in data.get("consumers", []):
-    name = c.get("name", "")
-    token_ref = c.get("token_ref", f"{name}_token")
-    print(f"  gstack-config set {token_ref} <your-token>")
-PYEOF
-fi
-
 # ---- write remote helper file if missing ----
 if [ ! -f "$REMOTE_FILE" ]; then
   echo "$REMOTE_URL" > "$REMOTE_FILE"
   chmod 600 "$REMOTE_FILE"
   echo ""
   echo "Wrote $REMOTE_FILE for future skill-run auto-detection."
+fi
+
+# ---- wire the cloned brain into gbrain (best-effort) ----
+WIREUP_BIN="$SCRIPT_DIR/gstack-gbrain-source-wireup"
+if [ -x "$WIREUP_BIN" ]; then
+  "$WIREUP_BIN" || >&2 echo "WARNING: gbrain wireup failed; run $WIREUP_BIN manually after fixing prereqs"
 fi
 
 cat <<EOF

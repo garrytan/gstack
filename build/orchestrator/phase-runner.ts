@@ -16,7 +16,7 @@
  * we can unit-test every branch with a few lines and a mock result.
  */
 
-import type { PhaseState, Phase } from './types';
+import type { PhaseState, Phase, DualImplTestResult } from './types';
 import type { SubAgentResult, Verdict } from './sub-agents';
 import { parseVerdict } from './sub-agents';
 
@@ -40,7 +40,12 @@ export type Action =
   | { type: 'RUN_GEMINI_TEST_SPEC'; phaseIndex: number; iteration: number }
   | { type: 'VERIFY_RED'; phaseIndex: number }
   | { type: 'RUN_TESTS'; phaseIndex: number; iteration: number }
-  | { type: 'RUN_GEMINI_FIX'; phaseIndex: number; iteration: number };
+  | { type: 'RUN_GEMINI_FIX'; phaseIndex: number; iteration: number }
+  // Dual-implementor actions (--dual-impl flag)
+  | { type: 'RUN_DUAL_IMPL'; phaseIndex: number; iteration: number }
+  | { type: 'RUN_DUAL_TESTS'; phaseIndex: number }
+  | { type: 'RUN_JUDGE_OPUS'; phaseIndex: number }
+  | { type: 'APPLY_WINNER'; phaseIndex: number; winner: 'gemini' | 'codex' };
 
 /**
  * Given a phase's runtime state, decide what to do next.
@@ -92,6 +97,9 @@ export function decideNextAction(
       return { type: 'VERIFY_RED', phaseIndex: phaseState.index };
 
     case 'tests_red':
+      if (phase?.dualImpl) {
+        return { type: 'RUN_DUAL_IMPL', phaseIndex: phaseState.index, iteration: 1 };
+      }
       return {
         type: 'RUN_GEMINI',
         phaseIndex: phaseState.index,
@@ -164,6 +172,32 @@ export function decideNextAction(
         reason: phaseState.error || 'phase previously failed',
       };
 
+    // Dual-implementor states
+    case 'dual_impl_running':
+      return { type: 'RUN_DUAL_IMPL', phaseIndex: phaseState.index, iteration: 1 };
+
+    case 'dual_impl_done':
+      return { type: 'RUN_DUAL_TESTS', phaseIndex: phaseState.index };
+
+    case 'dual_tests_running':
+      return { type: 'RUN_DUAL_TESTS', phaseIndex: phaseState.index };
+
+    case 'dual_judge_pending':
+    case 'dual_judge_running':
+      return { type: 'RUN_JUDGE_OPUS', phaseIndex: phaseState.index };
+
+    case 'dual_winner_pending': {
+      const winner = phaseState.dualImpl?.selectedImplementor;
+      if (!winner) {
+        return {
+          type: 'FAIL',
+          phaseIndex: phaseState.index,
+          reason: 'dual_winner_pending without selectedImplementor — state corrupted',
+        };
+      }
+      return { type: 'APPLY_WINNER', phaseIndex: phaseState.index, winner };
+    }
+
     default: {
       // Exhaustiveness check — TypeScript flags new statuses here.
       const _never: never = phaseState.status;
@@ -178,13 +212,35 @@ export function decideNextAction(
 }
 
 /**
+ * Extra data for dual-implementor actions that can't fit in a single SubAgentResult.
+ * All fields are optional — only relevant ones need to be populated per action type.
+ */
+export interface ApplyResultExtra {
+  /** RUN_DUAL_IMPL: worktree paths + branches set up by createWorktrees() */
+  dualImplInit?: {
+    geminiWorktreePath: string;
+    codexWorktreePath: string;
+    geminiBranch: string;
+    codexBranch: string;
+    baseCommit: string;
+  };
+  /** RUN_DUAL_TESTS: individual test outcomes for each worktree */
+  geminiTestResult?: DualImplTestResult;
+  codexTestResult?: DualImplTestResult;
+  /** RUN_JUDGE_OPUS: Opus judge decision */
+  judgeVerdict?: 'gemini' | 'codex';
+  judgeReasoning?: string;
+}
+
+/**
  * Apply a sub-agent result to the phase state. Returns a NEW PhaseState
  * (does not mutate the input).
  */
 export function applyResult(
   phaseState: PhaseState,
   action: Action,
-  result: SubAgentResult
+  result: SubAgentResult,
+  extra?: ApplyResultExtra
 ): PhaseState {
   const next: PhaseState = { ...phaseState };
 
@@ -316,6 +372,119 @@ export function applyResult(
       return next;
     }
     // After a successful fix, re-run tests (route back through gemini_done → RUN_TESTS).
+    next.status = 'gemini_done';
+    return next;
+  }
+
+  if (action.type === 'RUN_DUAL_IMPL') {
+    if (result.timedOut || result.exitCode !== 0) {
+      next.status = 'failed';
+      next.error = `Dual implementation failed: exit ${result.exitCode}`;
+      return next;
+    }
+    if (!extra?.dualImplInit) {
+      next.status = 'failed';
+      next.error = 'RUN_DUAL_IMPL requires dualImplInit (worktree paths/branches/baseCommit) in extra';
+      return next;
+    }
+    next.dualImpl = { ...(phaseState.dualImpl ?? {}), ...extra.dualImplInit };
+    next.status = 'dual_impl_done';
+    return next;
+  }
+
+  if (action.type === 'RUN_DUAL_TESTS') {
+    const g = extra?.geminiTestResult;
+    const c = extra?.codexTestResult;
+    if (!g || !c) {
+      next.status = 'failed';
+      next.error = 'RUN_DUAL_TESTS requires geminiTestResult and codexTestResult in extra';
+      return next;
+    }
+    // Both timing out is treated as a hard failure — no test evidence to pick a winner.
+    if (g.timedOut && c.timedOut) {
+      next.dualImpl = {
+        ...(phaseState.dualImpl as any),
+        geminiTestResult: g,
+        codexTestResult: c,
+      };
+      next.status = 'failed';
+      next.error = 'Both dual-impl test runs timed out — cannot select a winner';
+      return next;
+    }
+
+    const gPass = g.testExitCode === 0 && !g.timedOut;
+    const cPass = c.testExitCode === 0 && !c.timedOut;
+
+    let selectedImplementor: 'gemini' | 'codex' | undefined;
+    let nextStatus: PhaseState['status'];
+    if (gPass && cPass) {
+      nextStatus = 'dual_judge_pending';
+    } else if (gPass) {
+      selectedImplementor = 'gemini';
+      nextStatus = 'dual_winner_pending';
+    } else if (cPass) {
+      selectedImplementor = 'codex';
+      nextStatus = 'dual_winner_pending';
+    } else {
+      // Both failed (no timeouts). If failureCount is missing on both, fail closed —
+      // we have no signal to choose a winner.
+      if (g.failureCount == null && c.failureCount == null) {
+        next.dualImpl = {
+          ...(phaseState.dualImpl as any),
+          geminiTestResult: g,
+          codexTestResult: c,
+        };
+        next.status = 'failed';
+        next.error = 'Both dual-impl test runs failed and failureCount is missing on both — cannot select winner';
+        return next;
+      }
+      const gFails = g.failureCount ?? Number.MAX_SAFE_INTEGER;
+      const cFails = c.failureCount ?? Number.MAX_SAFE_INTEGER;
+      selectedImplementor = cFails < gFails ? 'codex' : 'gemini';
+      nextStatus = 'dual_winner_pending';
+    }
+
+    next.dualImpl = {
+      ...(phaseState.dualImpl as any),
+      geminiTestResult: g,
+      codexTestResult: c,
+      ...(selectedImplementor && { selectedImplementor, selectedBy: 'auto' as const }),
+    };
+    next.status = nextStatus;
+    return next;
+  }
+
+  if (action.type === 'RUN_JUDGE_OPUS') {
+    if (result.timedOut || result.exitCode !== 0) {
+      next.status = 'failed';
+      next.error = `Judge Opus failed: exit ${result.exitCode}`;
+      return next;
+    }
+    const verdict = extra?.judgeVerdict;
+    if (!verdict) {
+      next.status = 'failed';
+      next.error = 'RUN_JUDGE_OPUS requires judgeVerdict in extra';
+      return next;
+    }
+    next.dualImpl = {
+      ...(phaseState.dualImpl as any),
+      judgeVerdict: verdict,
+      judgeReasoning: extra?.judgeReasoning,
+      judgeLogPath: result.logPath,
+      selectedImplementor: verdict,
+      selectedBy: 'judge',
+    };
+    next.status = 'dual_winner_pending';
+    return next;
+  }
+
+  if (action.type === 'APPLY_WINNER') {
+    // The CLI runs applyWinner() + teardownWorktrees() before calling this.
+    // We just transition state — the cherry-pick + teardown have happened.
+    next.dualImpl = {
+      ...(phaseState.dualImpl as any),
+      worktreesTornDownAt: new Date().toISOString(),
+    };
     next.status = 'gemini_done';
     return next;
   }

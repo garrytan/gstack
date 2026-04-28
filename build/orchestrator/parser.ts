@@ -31,7 +31,12 @@ export interface ParseResult {
   warnings: string[];
 }
 
-export function parsePlan(content: string): ParseResult {
+export interface ParseOpts {
+  /** When true, stamps dualImpl=true on all phases (set by --dual-impl CLI flag). */
+  dualImpl?: boolean;
+}
+
+export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
   // Strip BOM.
   if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
   const lines = content.split(/\r?\n/);
@@ -76,6 +81,7 @@ export function parsePlan(content: string): ParseResult {
         testSpecCheckboxLine: p.testSpecCheckboxLine,
         implementationCheckboxLine: p.implementationCheckboxLine,
         reviewCheckboxLine: p.reviewCheckboxLine,
+        dualImpl: !!opts.dualImpl,
       });
     }
   };

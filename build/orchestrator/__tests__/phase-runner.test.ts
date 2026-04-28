@@ -6,7 +6,7 @@ import {
   findNextPhaseIndex,
   DEFAULT_MAX_CODEX_ITERATIONS,
 } from '../phase-runner';
-import type { PhaseState, Phase } from '../types';
+import type { PhaseState, Phase, DualImplState, DualImplTestResult } from '../types';
 import type { SubAgentResult } from '../sub-agents';
 
 function basePhase(overrides: Partial<PhaseState> = {}): PhaseState {
@@ -287,12 +287,14 @@ describe('TDD state machine transitions', () => {
     testSpecDone: false, testSpecCheckboxLine: 3,
     implementationDone: false, implementationCheckboxLine: 4,
     reviewDone: false, reviewCheckboxLine: 5,
+    dualImpl: false,
   };
   const legacyPhase: Phase = {
     index: 0, number: '1', name: 'Legacy', body: 'content',
     testSpecDone: true, testSpecCheckboxLine: -1,
     implementationDone: false, implementationCheckboxLine: 4,
     reviewDone: false, reviewCheckboxLine: 5,
+    dualImpl: false,
   };
 
   it('pending with testSpecDone=false → RUN_GEMINI_TEST_SPEC', () => {
@@ -348,5 +350,180 @@ describe('TDD state machine transitions', () => {
     const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'tests_green' as any };
     const action = decideNextAction(state, 5, tddPhase);
     expect(action.type).toBe('RUN_CODEX_REVIEW');
+  });
+});
+
+describe('Dual-implementor state machine transitions', () => {
+  const dualPhase: Phase = {
+    index: 0, number: '1', name: 'Dual', body: 'content',
+    testSpecDone: false, testSpecCheckboxLine: 3,
+    implementationDone: false, implementationCheckboxLine: 4,
+    reviewDone: false, reviewCheckboxLine: 5,
+    dualImpl: true,
+  };
+  const singlePhase: Phase = { ...dualPhase, dualImpl: false };
+
+  function minDualImpl(): DualImplState {
+    return {
+      geminiWorktreePath: '/tmp/g',
+      codexWorktreePath: '/tmp/c',
+      geminiBranch: 'g-branch',
+      codexBranch: 'c-branch',
+      baseCommit: 'abc123',
+    };
+  }
+
+  function passResult(failureCount = 0): DualImplTestResult {
+    return { worktreePath: '/tmp/x', testExitCode: 0, testLogPath: 'x.log', timedOut: false, failureCount };
+  }
+  function failResult(failureCount = 3): DualImplTestResult {
+    return { worktreePath: '/tmp/x', testExitCode: 1, testLogPath: 'x.log', timedOut: false, failureCount };
+  }
+
+  // (a)
+  it('(a) tests_red + dualImpl=true → RUN_DUAL_IMPL', () => {
+    const state = basePhase({ status: 'tests_red' as any });
+    const action = decideNextAction(state, 5, dualPhase);
+    expect(action.type).toBe('RUN_DUAL_IMPL');
+  });
+
+  // (b)
+  it('(b) dual_impl_done → RUN_DUAL_TESTS', () => {
+    const state = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
+    const action = decideNextAction(state);
+    expect(action.type).toBe('RUN_DUAL_TESTS');
+  });
+
+  // (c): both pass → dual_judge_pending → RUN_JUDGE_OPUS
+  it('(c) both tests pass → dual_judge_pending + decideNextAction → RUN_JUDGE_OPUS', () => {
+    const initial = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_DUAL_TESTS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      { geminiTestResult: passResult(), codexTestResult: passResult() }
+    );
+    expect(next.status).toBe('dual_judge_pending');
+    expect(decideNextAction(next).type).toBe('RUN_JUDGE_OPUS');
+  });
+
+  // (d): one passes → auto-select + APPLY_WINNER
+  it('(d) gemini passes, codex fails → dual_winner_pending selectedBy=auto + APPLY_WINNER', () => {
+    const initial = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_DUAL_TESTS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      { geminiTestResult: passResult(), codexTestResult: failResult(3) }
+    );
+    expect(next.status).toBe('dual_winner_pending');
+    expect(next.dualImpl?.selectedImplementor).toBe('gemini');
+    expect(next.dualImpl?.selectedBy).toBe('auto');
+    const action = decideNextAction(next);
+    expect(action.type).toBe('APPLY_WINNER');
+    if (action.type === 'APPLY_WINNER') expect(action.winner).toBe('gemini');
+  });
+
+  // (e): both fail → auto-select fewer-failures
+  it('(e) both fail → auto-select fewer-failures winner (codex has 2 < gemini 5)', () => {
+    const initial = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_DUAL_TESTS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      { geminiTestResult: failResult(5), codexTestResult: failResult(2) }
+    );
+    expect(next.status).toBe('dual_winner_pending');
+    expect(next.dualImpl?.selectedImplementor).toBe('codex');
+    expect(next.dualImpl?.selectedBy).toBe('auto');
+  });
+
+  // (f): judge complete → dual_winner_pending with judge verdict
+  it('(f) RUN_JUDGE_OPUS result → dual_winner_pending with judge verdict + APPLY_WINNER', () => {
+    const initial = basePhase({ status: 'dual_judge_running' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_JUDGE_OPUS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      { judgeVerdict: 'codex', judgeReasoning: 'Codex solution is cleaner' }
+    );
+    expect(next.status).toBe('dual_winner_pending');
+    expect(next.dualImpl?.selectedImplementor).toBe('codex');
+    expect(next.dualImpl?.selectedBy).toBe('judge');
+    expect(next.dualImpl?.judgeReasoning).toBe('Codex solution is cleaner');
+    expect(decideNextAction(next).type).toBe('APPLY_WINNER');
+  });
+
+  // (g): APPLY_WINNER done → gemini_done (handoff to existing pipeline)
+  it('(g) APPLY_WINNER applied → gemini_done', () => {
+    const initial = basePhase({
+      status: 'dual_winner_pending' as any,
+      dualImpl: { ...minDualImpl(), selectedImplementor: 'gemini', selectedBy: 'auto' },
+    });
+    const next = applyResult(
+      initial,
+      { type: 'APPLY_WINNER', phaseIndex: 0, winner: 'gemini' } as any,
+      geminiSuccess()
+    );
+    expect(next.status).toBe('gemini_done');
+  });
+
+  // (h): tests_red + dualImpl=false → RUN_GEMINI (single-impl path unchanged)
+  it('(h) tests_red + dualImpl=false → RUN_GEMINI (unchanged single-impl path)', () => {
+    const state = basePhase({ status: 'tests_red' as any });
+    const action = decideNextAction(state, 5, singlePhase);
+    expect(action.type).toBe('RUN_GEMINI');
+  });
+
+  // Fail-closed: dual_winner_pending without selectedImplementor → FAIL
+  it('dual_winner_pending without selectedImplementor → FAIL (fail-closed)', () => {
+    const state = basePhase({ status: 'dual_winner_pending' as any, dualImpl: minDualImpl() });
+    const action = decideNextAction(state);
+    expect(action.type).toBe('FAIL');
+  });
+
+  // Fail-closed: RUN_DUAL_IMPL without dualImplInit → status failed
+  it('RUN_DUAL_IMPL without dualImplInit in extra → status failed', () => {
+    const initial = basePhase({ status: 'dual_impl_running' as any });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_DUAL_IMPL', phaseIndex: 0, iteration: 1 } as any,
+      geminiSuccess()
+      // no extra
+    );
+    expect(next.status).toBe('failed');
+    expect(next.error).toMatch(/dualImplInit/);
+  });
+
+  // Fail-closed: both timed out → status failed (no auto-select)
+  it('RUN_DUAL_TESTS with both timed out → status failed', () => {
+    const initial = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_DUAL_TESTS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      {
+        geminiTestResult: { worktreePath: '/g', testExitCode: null, testLogPath: 'g.log', timedOut: true },
+        codexTestResult: { worktreePath: '/c', testExitCode: null, testLogPath: 'c.log', timedOut: true },
+      }
+    );
+    expect(next.status).toBe('failed');
+    expect(next.error).toMatch(/timed out/);
+  });
+
+  // Fail-closed: both fail with no failureCount → status failed
+  it('RUN_DUAL_TESTS both fail with missing failureCount on both → status failed', () => {
+    const initial = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_DUAL_TESTS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      {
+        geminiTestResult: { worktreePath: '/g', testExitCode: 1, testLogPath: 'g.log', timedOut: false },
+        codexTestResult: { worktreePath: '/c', testExitCode: 1, testLogPath: 'c.log', timedOut: false },
+      }
+    );
+    expect(next.status).toBe('failed');
+    expect(next.error).toMatch(/failureCount/);
   });
 });

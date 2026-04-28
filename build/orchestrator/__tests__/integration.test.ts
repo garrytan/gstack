@@ -63,3 +63,42 @@ test("dry-run TDD plan announces Test Specification and Verify Red for each phas
   // Dry-run must complete successfully
   expect(result.status).toBe(0);
 });
+
+test("dry-run with --dual-impl announces Dual Impl, Judge Opus, and Apply Winner", () => {
+  const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+  const result = spawnSync(
+    "bun",
+    [
+      "run",
+      cliPath,
+      planFile,
+      "--dry-run",
+      "--dual-impl",
+      "--test-cmd",
+      "bun test",
+      "--no-gbrain",
+      "--no-resume", // ensure fresh state for this run
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: tmpDir,
+        GSTACK_HOME: path.join(tmpDir, ".gstack-dual"),
+      },
+      encoding: "utf8",
+      timeout: 30_000,
+    }
+  );
+
+  const out = result.stdout + result.stderr;
+
+  expect(out).toContain("Dual Impl");
+  expect(out).toContain("Dual Tests");
+  expect(out).toContain("Judge Opus");
+  expect(out).toContain("Apply Winner");
+  // TDD steps still run after dual-impl hands off to gemini_done.
+  expect(out).toContain("Test Specification");
+  expect(out).toContain("Verify Red");
+  // Dry-run must complete successfully.
+  expect(result.status).toBe(0);
+});

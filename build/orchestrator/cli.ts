@@ -52,12 +52,28 @@ import {
   DEFAULT_MAX_TEST_ITERATIONS,
   type Action,
 } from './phase-runner';
-import { runGemini, runCodexReview, detectTestCmd, runGeminiTestSpec, runTests, type SubAgentResult } from './sub-agents';
+import {
+  runGemini,
+  runCodexReview,
+  detectTestCmd,
+  runGeminiTestSpec,
+  runTests,
+  runCodexImpl,
+  runJudgeOpus,
+  parseFailureCount,
+  parseJudgeVerdict,
+  type SubAgentResult,
+} from './sub-agents';
 import { flipPhaseCheckboxes, flipTestSpecCheckbox } from './plan-mutator';
 import { shipAndDeploy } from './ship';
-import type { BuildState, Phase } from './types';
+import {
+  createWorktrees,
+  applyWinner,
+  teardownWorktrees,
+} from './worktree';
+import type { BuildState, Phase, DualImplTestResult } from './types';
 
-interface Args {
+export interface Args {
   planFile: string;
   printOnly: boolean;
   dryRun: boolean;
@@ -66,9 +82,11 @@ interface Args {
   skipShip: boolean;
   maxCodexIter: number;
   testCmd?: string;
+  /** When true, every phase implements via Gemini+Codex tournament with Opus judge. */
+  dualImpl: boolean;
 }
 
-function parseArgs(argv: string[]): Args {
+export function parseArgs(argv: string[]): Args {
   const args: Args = {
     planFile: '',
     printOnly: false,
@@ -77,6 +95,7 @@ function parseArgs(argv: string[]): Args {
     noGbrain: false,
     skipShip: false,
     maxCodexIter: DEFAULT_MAX_CODEX_ITERATIONS,
+    dualImpl: false,
   };
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -86,6 +105,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--no-resume' || a === '--restart') args.noResume = true;
     else if (a === '--no-gbrain') args.noGbrain = true;
     else if (a === '--skip-ship') args.skipShip = true;
+    else if (a === '--dual-impl') args.dualImpl = true;
     else if (a === '--test-cmd') {
       const next = argv[++i];
       if (!next) { console.error('--test-cmd requires a value'); process.exit(2); }
@@ -116,8 +136,7 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
-function printHelp() {
-  console.log(`gstack-build — code-driven phase orchestrator
+export const HELP_TEXT = `gstack-build — code-driven phase orchestrator
 
 Usage:
   gstack-build <plan-file> [flags]
@@ -128,6 +147,9 @@ Flags:
   --no-resume          Ignore existing state, start fresh.
   --no-gbrain          Skip gbrain mirror; local JSON only.
   --skip-ship          Skip the final /ship + /land-and-deploy step.
+  --dual-impl          Tournament mode: Gemini and Codex implement in parallel
+                       (isolated git worktrees), Opus judges and the winner
+                       is cherry-picked back. Existing TDD pipeline runs after.
   --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
   --max-codex-iter N   Cap recursive Codex iterations (default 5).
   -h, --help           Show this help.
@@ -139,7 +161,10 @@ Plan file format: standard /build implementation plan with:
 
 State files: ~/.gstack/build-state/<slug>/
 Activity log: ~/.gstack/analytics/build-runs.jsonl
-`);
+`;
+
+function printHelp() {
+  console.log(HELP_TEXT);
 }
 
 function printPhaseTable(phases: Phase[]) {
@@ -270,6 +295,88 @@ export function buildGeminiTestSpecPrompt(phase: Phase, planFile: string): strin
   ].join('\n');
 }
 
+export function buildCodexImplPromptBody(phase: Phase, planFile: string): string {
+  return [
+    `# Phase ${phase.number}: ${phase.name} — Codex Implementation (dual-impl tournament)`,
+    ``,
+    `Plan file: ${planFile}`,
+    ``,
+    `## Phase description (verbatim from the plan)`,
+    ``,
+    phase.body.trim(),
+    ``,
+    `## Instructions`,
+    ``,
+    `You are competing against Gemini in a tournament. Both of you are implementing this phase`,
+    `independently in isolated git worktrees. After both finish, an Opus judge will pick the better`,
+    `implementation.`,
+    ``,
+    `1. Implement the changes to make all failing tests pass.`,
+    `2. Do NOT change test assertions — only make tests pass.`,
+    `3. Write minimal correct code. Avoid over-engineering.`,
+    `4. Commit your changes to the current branch with a clear conventional-commit message.`,
+    `5. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
+    `6. Write your output summary to the output file path (provided in the shell prompt).`,
+  ].join('\n');
+}
+
+export function buildJudgePrompt(opts: {
+  phase: Phase;
+  geminiDiff: string;
+  codexDiff: string;
+  geminiTestResult: DualImplTestResult;
+  codexTestResult: DualImplTestResult;
+}): string {
+  const { phase, geminiDiff, codexDiff, geminiTestResult, codexTestResult } = opts;
+  const trim = (s: string, max = 5000) =>
+    s.length <= max ? s : s.slice(0, max) + `\n\n[...truncated ${s.length - max} bytes]`;
+
+  const fmtTest = (r: DualImplTestResult) =>
+    `Exit code: ${r.testExitCode === null ? 'killed' : r.testExitCode} | ` +
+    `Failures: ${r.failureCount ?? 'unknown'}` +
+    (r.timedOut ? ' | TIMED OUT' : '');
+
+  return [
+    `You are a code quality judge. Two implementations of the same task were produced`,
+    `independently. Compare them and pick the better one.`,
+    ``,
+    `## Task: Phase ${phase.number} — ${phase.name}`,
+    ``,
+    phase.body.trim(),
+    ``,
+    `## Gemini implementation (diff from base)`,
+    ``,
+    '```diff',
+    trim(geminiDiff),
+    '```',
+    ``,
+    `## Gemini test result`,
+    fmtTest(geminiTestResult),
+    ``,
+    `## Codex implementation (diff from base)`,
+    ``,
+    '```diff',
+    trim(codexDiff),
+    '```',
+    ``,
+    `## Codex test result`,
+    fmtTest(codexTestResult),
+    ``,
+    `## Your verdict`,
+    ``,
+    `Pick the implementation that: (1) passes more tests, (2) is cleaner and more correct,`,
+    `(3) introduces fewer unnecessary changes, (4) is easier to maintain.`,
+    ``,
+    `Respond EXACTLY in this format on its own lines:`,
+    ``,
+    `WINNER: gemini`,
+    `REASONING: <one paragraph, concrete reasons>`,
+    ``,
+    `Replace 'gemini' with 'codex' if Codex wins. Use lowercase. The WINNER line must`,
+    `be at the start of its line — do not embed it in prose.`,
+  ].join('\n');
+}
+
 export function buildGeminiFixPrompt(phase: Phase, planFile: string): string {
   return [
     `# Phase ${phase.number}: ${phase.name} — Fix Failing Tests`,
@@ -286,6 +393,32 @@ export function buildGeminiFixPrompt(phase: Phase, planFile: string): string {
 
 function summarizePhase(phaseNumber: string, phaseName: string, marker: string) {
   console.log(`\n[${marker}] Phase ${phaseNumber}: ${phaseName}`);
+}
+
+/**
+ * Read `git diff baseCommit..HEAD` from a worktree.
+ * Returns null on git failure — caller MUST fail-closed (Phase 4 review HIGH:
+ * silent empty diff would let the judge see no evidence and pick arbitrarily).
+ */
+function readWorktreeDiff(worktreePath: string, baseCommit: string): string | null {
+  const r = spawnSync('git', ['diff', `${baseCommit}..HEAD`], {
+    cwd: worktreePath,
+    encoding: 'utf8',
+    maxBuffer: 50 * 1024 * 1024,
+  });
+  if (r.status !== 0) return null;
+  return r.stdout || '';
+}
+
+/** Count commits in a worktree since base. Returns null on git failure. */
+function countCommitsSinceBase(worktreePath: string, baseCommit: string): number | null {
+  const r = spawnSync('git', ['rev-list', '--count', `${baseCommit}..HEAD`], {
+    cwd: worktreePath,
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) return null;
+  const n = Number((r.stdout || '').trim());
+  return Number.isFinite(n) ? n : null;
 }
 
 async function runPhase(args: {
@@ -505,6 +638,372 @@ async function runPhase(args: {
       continue;
     }
 
+    // -----------------------------------------------------------------
+    // Dual-implementor (--dual-impl) action handlers
+    // -----------------------------------------------------------------
+
+    if (action.type === 'RUN_DUAL_IMPL') {
+      console.log(`  → Dual Impl: spawning Gemini + Codex in parallel worktrees (iter ${action.iteration})`);
+      let result: SubAgentResult;
+      if (dryRun) {
+        result = mockResult({ exitCode: 0, stdout: '[dry-run] Dual Impl would spawn both' });
+        phaseState = applyResult(phaseState, action, result, {
+          dualImplInit: {
+            geminiWorktreePath: '/tmp/dryrun-gemini',
+            codexWorktreePath: '/tmp/dryrun-codex',
+            geminiBranch: 'dryrun-gemini',
+            codexBranch: 'dryrun-codex',
+            baseCommit: 'dryrun-base',
+          },
+        });
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      // Real path: create worktrees, run both impls in parallel.
+      let pair;
+      try {
+        pair = createWorktrees({ cwd, slug: state.slug, phaseNumber: phase.number });
+      } catch (err) {
+        const msg = `Failed to create dual-impl worktrees: ${(err as Error).message}`;
+        phaseState = applyResult(phaseState, action, mockResult({ exitCode: 1, stderr: msg }));
+        phaseState.error = msg;
+        phaseState.status = 'failed';
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      // Wrap everything post-createWorktrees in try/catch so an unexpected
+      // error (failed writeFileSync, unexpected reject from Promise.all,
+      // commit-validation throw) doesn't leak the worktrees. (Phase 4 review,
+      // MEDIUM: cleanup guard.)
+      const dualState = {
+        geminiWorktreePath: pair.geminiWorktreePath,
+        codexWorktreePath: pair.codexWorktreePath,
+        geminiBranch: pair.geminiBranch,
+        codexBranch: pair.codexBranch,
+        baseCommit: pair.baseCommit,
+      };
+      let dualImplOk = false;
+      try {
+        const implPromptBody = buildGeminiPromptBody(phase, state.planFile, state.branch);
+        const codexPromptBody = buildCodexImplPromptBody(phase, state.planFile);
+
+        const slug = state.slug;
+        const phaseN = phase.number;
+        const it = action.iteration;
+
+        const geminiInputPath = path.join(logDir(slug), `phase-${phaseN}-dual-gemini-${it}-input.md`);
+        const geminiOutputPath = path.join(logDir(slug), `phase-${phaseN}-dual-gemini-${it}-output.md`);
+        const codexInputPath = path.join(logDir(slug), `phase-${phaseN}-dual-codex-${it}-input.md`);
+        const codexOutputPath = path.join(logDir(slug), `phase-${phaseN}-dual-codex-${it}-output.md`);
+
+        fs.writeFileSync(geminiInputPath, implPromptBody);
+        fs.writeFileSync(geminiOutputPath, '');
+        fs.writeFileSync(codexInputPath, codexPromptBody);
+        fs.writeFileSync(codexOutputPath, '');
+
+        // Run both in parallel — the only way to make tournament selection meaningful.
+        const [gRes, cRes] = await Promise.all([
+          runGemini({
+            inputFilePath: geminiInputPath,
+            outputFilePath: geminiOutputPath,
+            cwd: pair.geminiWorktreePath,
+            slug,
+            phaseNumber: phaseN,
+            iteration: it,
+            logPrefix: 'dual-gemini',
+          }),
+          runCodexImpl({
+            inputFilePath: codexInputPath,
+            outputFilePath: codexOutputPath,
+            cwd: pair.codexWorktreePath,
+            slug,
+            phaseNumber: phaseN,
+            iteration: it,
+          }),
+        ]);
+
+        // Validate each implementor produced committed work — uncommitted edits
+        // would pass tests but applyWinner would have nothing to cherry-pick.
+        // (Phase 4 review, HIGH; refined Phase 5 /codex review P2.)
+        const gCommits = countCommitsSinceBase(pair.geminiWorktreePath, pair.baseCommit);
+        const cCommits = countCommitsSinceBase(pair.codexWorktreePath, pair.baseCommit);
+        const gCommitted = (gCommits ?? 0) > 0;
+        const cCommitted = (cCommits ?? 0) > 0;
+
+        // Catastrophic = timeout, OR both have non-zero exit, OR neither committed.
+        const eitherTimedOut = gRes.timedOut || cRes.timedOut;
+        const bothExitNonZero = gRes.exitCode !== 0 && cRes.exitCode !== 0;
+        const neitherCommitted = !gCommitted && !cCommitted;
+
+        if (eitherTimedOut || bothExitNonZero || neitherCommitted) {
+          phaseState.status = 'failed';
+          phaseState.error =
+            `Dual implementation failed: ` +
+            `gemini exit=${gRes.exitCode} timedOut=${gRes.timedOut} commits=${gCommits}; ` +
+            `codex exit=${cRes.exitCode} timedOut=${cRes.timedOut} commits=${cCommits}`;
+          state.phases[phase.index] = phaseState;
+          saveState(state, { noGbrain, log: console.warn });
+          // dualImplOk stays false → finally block will tear down.
+          continue;
+        }
+
+        // Synthetic success result for applyResult's exit-code check.
+        const synthetic = mockResult({
+          exitCode: 0,
+          stdout: `gemini ok (${gCommits} commits)\ncodex ok (${cCommits} commits)`,
+          logPath: gRes.logPath,
+        });
+        phaseState = applyResult(phaseState, action, synthetic, { dualImplInit: dualState });
+
+        // /codex review P2 — if exactly one side committed, the other is ineligible
+        // (tests would pass on uncommitted edits but applyWinner can't cherry-pick).
+        // Skip RUN_DUAL_TESTS + RUN_JUDGE_OPUS entirely; auto-select the committed side.
+        if (gCommitted && !cCommitted) {
+          console.log(`  ⚠ Codex did not commit (gemini=${gCommits} commits, codex=0) — auto-selecting gemini, skipping tests + judge`);
+          phaseState.dualImpl = {
+            ...(phaseState.dualImpl as any),
+            selectedImplementor: 'gemini',
+            selectedBy: 'auto',
+          };
+          phaseState.status = 'dual_winner_pending';
+        } else if (!gCommitted && cCommitted) {
+          console.log(`  ⚠ Gemini did not commit (gemini=0, codex=${cCommits} commits) — auto-selecting codex, skipping tests + judge`);
+          phaseState.dualImpl = {
+            ...(phaseState.dualImpl as any),
+            selectedImplementor: 'codex',
+            selectedBy: 'auto',
+          };
+          phaseState.status = 'dual_winner_pending';
+        }
+        // else: both committed — normal flow → dual_impl_done → RUN_DUAL_TESTS
+
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        dualImplOk = true; // suppress finally teardown; downstream phases own cleanup
+      } catch (err) {
+        const msg = `Dual implementation crashed unexpectedly: ${(err as Error).message}`;
+        phaseState.status = 'failed';
+        phaseState.error = msg;
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+      } finally {
+        if (!dualImplOk) {
+          try {
+            teardownWorktrees({ cwd, dualImpl: dualState });
+          } catch (err) {
+            console.warn(`  ⚠ worktree teardown raised: ${(err as Error).message}`);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (action.type === 'RUN_DUAL_TESTS') {
+      console.log(`  → Dual Tests: running tests on both worktrees in parallel`);
+      const dual = phaseState.dualImpl;
+      if (!dual) {
+        phaseState.status = 'failed';
+        phaseState.error = 'RUN_DUAL_TESTS reached without dualImpl state — orchestrator bug';
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      let geminiTR: DualImplTestResult;
+      let codexTR: DualImplTestResult;
+
+      if (dryRun) {
+        geminiTR = { worktreePath: dual.geminiWorktreePath, testExitCode: 0, testLogPath: 'dryrun', timedOut: false, failureCount: 0 };
+        codexTR  = { worktreePath: dual.codexWorktreePath,  testExitCode: 0, testLogPath: 'dryrun', timedOut: false, failureCount: 0 };
+      } else {
+        const testCmd = args.testCmd ?? detectTestCmd(cwd);
+        if (!testCmd) {
+          // No test cmd: assume both green so judge runs.
+          console.warn('  ⚠ no test command detected for dual-tests; assuming both green');
+          geminiTR = { worktreePath: dual.geminiWorktreePath, testExitCode: 0, testLogPath: 'no-test-cmd', timedOut: false, failureCount: 0 };
+          codexTR  = { worktreePath: dual.codexWorktreePath,  testExitCode: 0, testLogPath: 'no-test-cmd', timedOut: false, failureCount: 0 };
+        } else {
+          const [g, c] = await Promise.all([
+            runTests({ testCmd, cwd: dual.geminiWorktreePath, slug: state.slug, phaseNumber: phase.number, iteration: 1, logSuffix: 'gemini' }),
+            runTests({ testCmd, cwd: dual.codexWorktreePath,  slug: state.slug, phaseNumber: phase.number, iteration: 1, logSuffix: 'codex'  }),
+          ]);
+          geminiTR = {
+            worktreePath: dual.geminiWorktreePath,
+            testExitCode: g.exitCode,
+            testLogPath: g.logPath,
+            timedOut: g.timedOut,
+            failureCount: parseFailureCount(g.stdout + '\n' + g.stderr),
+          };
+          codexTR = {
+            worktreePath: dual.codexWorktreePath,
+            testExitCode: c.exitCode,
+            testLogPath: c.logPath,
+            timedOut: c.timedOut,
+            failureCount: parseFailureCount(c.stdout + '\n' + c.stderr),
+          };
+        }
+      }
+
+      const synthetic = mockResult({ exitCode: 0, stdout: `g=${geminiTR.testExitCode} c=${codexTR.testExitCode}` });
+      phaseState = applyResult(phaseState, action, synthetic, {
+        geminiTestResult: geminiTR,
+        codexTestResult: codexTR,
+      });
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
+    if (action.type === 'RUN_JUDGE_OPUS') {
+      console.log(`  → Judge Opus: deciding between Gemini and Codex`);
+      const dual = phaseState.dualImpl;
+      if (!dual || !dual.geminiTestResult || !dual.codexTestResult) {
+        phaseState.status = 'failed';
+        phaseState.error = 'RUN_JUDGE_OPUS reached without dual test results — orchestrator bug';
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      let verdict: 'gemini' | 'codex' | null;
+      let reasoning: string;
+      let logPath = 'dryrun';
+
+      if (dryRun) {
+        verdict = 'gemini';
+        reasoning = '[dry-run] judge would pick gemini';
+      } else {
+        const geminiDiff = readWorktreeDiff(dual.geminiWorktreePath, dual.baseCommit);
+        const codexDiff = readWorktreeDiff(dual.codexWorktreePath, dual.baseCommit);
+
+        // Fail-closed if either diff couldn't be read — judge would see empty
+        // evidence and pick arbitrarily. (Phase 4 review, HIGH.)
+        if (geminiDiff === null || codexDiff === null) {
+          teardownWorktrees({ cwd, dualImpl: dual });
+          phaseState.status = 'failed';
+          phaseState.error =
+            `Failed to read worktree diff before judge: ` +
+            `gemini=${geminiDiff === null ? 'failed' : 'ok'}, ` +
+            `codex=${codexDiff === null ? 'failed' : 'ok'}`;
+          state.phases[phase.index] = phaseState;
+          saveState(state, { noGbrain, log: console.warn });
+          continue;
+        }
+
+        const inputPath = path.join(logDir(state.slug), `phase-${phase.number}-judge-input.md`);
+        const outputPath = path.join(logDir(state.slug), `phase-${phase.number}-judge-output.md`);
+        fs.writeFileSync(
+          inputPath,
+          buildJudgePrompt({
+            phase,
+            geminiDiff,
+            codexDiff,
+            geminiTestResult: dual.geminiTestResult,
+            codexTestResult: dual.codexTestResult,
+          })
+        );
+        fs.writeFileSync(outputPath, '');
+
+        const judgeRes = await runJudgeOpus({
+          inputFilePath: inputPath,
+          outputFilePath: outputPath,
+          cwd,
+          slug: state.slug,
+          phaseNumber: phase.number,
+        });
+        logPath = judgeRes.logPath;
+        const parsed = parseJudgeVerdict(judgeRes.stdout);
+        verdict = parsed.verdict;
+        reasoning = parsed.reasoning;
+
+        if (judgeRes.timedOut || judgeRes.exitCode !== 0) {
+          // Tear down worktrees and fail closed.
+          teardownWorktrees({ cwd, dualImpl: dual });
+          phaseState.status = 'failed';
+          phaseState.error = `Judge Opus failed: exit=${judgeRes.exitCode} timedOut=${judgeRes.timedOut}`;
+          state.phases[phase.index] = phaseState;
+          saveState(state, { noGbrain, log: console.warn });
+          continue;
+        }
+      }
+
+      if (verdict === null) {
+        // Malformed judge output — fail closed (Phase 3 review).
+        teardownWorktrees({ cwd, dualImpl: dual });
+        phaseState.status = 'failed';
+        phaseState.error = `Judge Opus output was malformed (no anchored WINNER line); reasoning: ${reasoning}`;
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      const synthetic = mockResult({ exitCode: 0, stdout: `WINNER: ${verdict}`, logPath });
+      phaseState = applyResult(phaseState, action, synthetic, {
+        judgeVerdict: verdict,
+        judgeReasoning: reasoning,
+      });
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
+    if (action.type === 'APPLY_WINNER') {
+      console.log(`  → Apply Winner: ${action.winner} (cherry-picking onto main cwd)`);
+      const dual = phaseState.dualImpl;
+      if (!dual) {
+        phaseState.status = 'failed';
+        phaseState.error = 'APPLY_WINNER reached without dualImpl state — orchestrator bug';
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      let applyOk = true;
+      let applyError: string | undefined;
+
+      if (!dryRun) {
+        const r = applyWinner({ cwd, winner: action.winner, dualImpl: dual });
+        applyOk = r.ok;
+        applyError = r.error;
+      }
+
+      if (!applyOk) {
+        // PRESERVE worktrees on apply failure — they hold the only copy of the
+        // winner's code. Surface paths/branches so the user can inspect, manually
+        // recover, or replay. (Phase 4 review, MEDIUM: don't destroy recovery
+        // artifact.)
+        phaseState.status = 'failed';
+        phaseState.error =
+          `applyWinner(${action.winner}) failed: ${applyError ?? 'unknown'}\n` +
+          `  Worktrees PRESERVED for recovery:\n` +
+          `    gemini: ${dual.geminiWorktreePath} (branch ${dual.geminiBranch})\n` +
+          `    codex:  ${dual.codexWorktreePath} (branch ${dual.codexBranch})\n` +
+          `  Inspect, fix, then re-run. Manual cleanup when done:\n` +
+          `    git worktree remove --force ${dual.geminiWorktreePath} && git branch -D ${dual.geminiBranch}\n` +
+          `    git worktree remove --force ${dual.codexWorktreePath} && git branch -D ${dual.codexBranch}`;
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+
+      // Apply succeeded — NOW we can safely tear down both worktrees.
+      try {
+        if (!dryRun) teardownWorktrees({ cwd, dualImpl: dual });
+      } catch (err) {
+        console.warn(`  ⚠ worktree teardown raised: ${(err as Error).message}`);
+      }
+
+      const synthetic = mockResult({ exitCode: 0, stdout: `applied ${action.winner}` });
+      phaseState = applyResult(phaseState, action, synthetic);
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
     // Exhaustive switch — should never reach here.
     const _never: never = action;
     void _never;
@@ -534,7 +1033,7 @@ async function main() {
   }
 
   const content = fs.readFileSync(args.planFile, 'utf8');
-  const { phases, warnings } = parsePlan(content);
+  const { phases, warnings } = parsePlan(content, { dualImpl: args.dualImpl });
 
   console.log(`Plan: ${args.planFile}`);
   console.log(`Phases parsed: ${phases.length}`);

@@ -122,6 +122,31 @@ Some trailing notes.
     expect(phases[0].body).not.toContain('### Phase 2');
   });
 
+  describe('dualImpl opt stamping', () => {
+    it('stamps dualImpl=true on all phases when passed via opts', () => {
+      const md = `### Phase 1: Foo
+- [ ] **Implementation (Gemini Sub-agent)**: do foo
+- [ ] **Review & QA (Codex Sub-agent)**: review foo
+
+### Phase 2: Bar
+- [ ] **Implementation (Gemini Sub-agent)**: do bar
+- [ ] **Review & QA (Codex Sub-agent)**: review bar
+`;
+      const { phases } = parsePlan(md, { dualImpl: true });
+      expect(phases[0].dualImpl).toBe(true);
+      expect(phases[1].dualImpl).toBe(true);
+    });
+
+    it('dualImpl defaults to false when opts not passed', () => {
+      const md = `### Phase 1: Foo
+- [ ] **Implementation (Gemini Sub-agent)**: do foo
+- [ ] **Review & QA (Codex Sub-agent)**: review foo
+`;
+      const { phases } = parsePlan(md);
+      expect(phases[0].dualImpl).toBe(false);
+    });
+  });
+
   describe('TDD checkbox parsing', () => {
     it('Test A: Parse a 3-checkbox TDD phase', () => {
       const md = `### Phase 1: Foo

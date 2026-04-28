@@ -108,12 +108,30 @@ const TUNNEL_PATHS = new Set<string>([
  * extension-inspector state. This allowlist maps to the eng-review decision
  * logged in the CEO plan for sec-wave v1.6.0.0.
  */
-const TUNNEL_COMMANDS = new Set<string>([
+export const TUNNEL_COMMANDS = new Set<string>([
+  // Original 17
   'goto', 'click', 'text', 'screenshot',
   'html', 'links', 'forms', 'accessibility',
   'attrs', 'media', 'data',
   'scroll', 'press', 'type', 'select', 'wait', 'eval',
+  // Tab + navigation primitives operator docs and CLI hints already promised
+  'newtab', 'tabs', 'back', 'forward', 'reload',
+  // Read/inspect/write operators paired agents need to be useful
+  'snapshot', 'fill', 'url', 'closetab',
 ]);
+
+/**
+ * Pure gate: returns true iff the command is reachable over the tunnel surface.
+ * Extracted from the inline /command handler so the gate logic is unit-testable
+ * without standing up an HTTP listener. Behavior is identical to the inline
+ * check; the function canonicalizes the command (so aliases hit the same set)
+ * and returns false for null/undefined input.
+ */
+export function canDispatchOverTunnel(command: string | undefined | null): boolean {
+  if (typeof command !== 'string' || command.length === 0) return false;
+  const cmd = canonicalizeCommand(command);
+  return TUNNEL_COMMANDS.has(cmd);
+}
 
 /**
  * Read ngrok authtoken from env var, ~/.gstack/ngrok.env, or ngrok's native
@@ -1772,8 +1790,7 @@ async function start() {
         // Paired remote agents drive the browser but cannot configure the
         // daemon, launch new browsers, import cookies, or rotate tokens.
         if (surface === 'tunnel') {
-          const cmd = canonicalizeCommand(body?.command);
-          if (!cmd || !TUNNEL_COMMANDS.has(cmd)) {
+          if (!canDispatchOverTunnel(body?.command)) {
             logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
             return new Response(JSON.stringify({
               error: `Command '${body?.command}' is not allowed over the tunnel surface`,
@@ -2059,6 +2076,29 @@ async function start() {
         try { if (boundTunnel) boundTunnel.stop(true); } catch {}
         tunnelListener = null;
       }
+    }
+  } else if (process.env.BROWSE_TUNNEL_LOCAL_ONLY === '1') {
+    // Test-only: bind the dual-listener tunnel surface on 127.0.0.1 with NO
+    // ngrok forwarding. Lets paid evals exercise the surface==='tunnel' gate
+    // without an ngrok authtoken or live network. Production tunneling still
+    // requires BROWSE_TUNNEL=1 + a valid authtoken above.
+    try {
+      const boundTunnel = Bun.serve({
+        port: 0,
+        hostname: '127.0.0.1',
+        fetch: makeFetchHandler('tunnel'),
+      });
+      tunnelServer = boundTunnel;
+      tunnelActive = true;
+      const tunnelPort = boundTunnel.port;
+      console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
+      const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
+      stateContent.tunnelLocalPort = tunnelPort;
+      const tmpState = config.stateFile + '.tmp';
+      fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+      fs.renameSync(tmpState, config.stateFile);
+    } catch (err: any) {
+      console.error(`[browse] BROWSE_TUNNEL_LOCAL_ONLY=1 listener bind failed: ${err.message}`);
     }
   }
 }

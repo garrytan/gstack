@@ -2,10 +2,47 @@
 
 ## [Unreleased]
 
-> Fork-only changes ahead of `garrytan/gstack:main` (currently at v1.15.0.0).
+> Fork-only changes ahead of `garrytan/gstack:main` (currently at v1.17.0.0).
 > Version on this fork is held at v1.15.0.0 to avoid collision when upstream
 > next bumps. When syncing from upstream after their next release, give this
 > entry a real version + date.
+
+## **Dual implementor mode for `gstack-build` — Gemini + Codex tournament with Opus judge (build skill v1.15.0)**
+
+`gstack-build --dual-impl` runs every phase as a tournament: Gemini and GPT-Codex each implement the same task in their own isolated git worktree, in parallel; tests run on both worktrees in parallel; Claude Opus judges the diffs and picks a winner; the winning commits are cherry-picked back onto the main branch and the existing TDD pipeline (test+fix loop → Codex review) takes over from there. This eliminates single-model blind spots — if one implementor takes a structurally wrong approach, the other usually doesn't, and the judge sees both side-by-side.
+
+### Added
+- `--dual-impl` CLI flag (opt-in). When set, every phase parsed gets `dualImpl=true` (no per-plan frontmatter needed).
+- `build/orchestrator/worktree.ts` — `createWorktrees`, `applyWinner` (cherry-pick + patch fallback), `teardownWorktrees` (idempotent). Worktree paths use `os.tmpdir()` and timestamped branch names. 50MB maxBuffer on every git invocation.
+- New `PhaseStatus` values: `dual_impl_running`, `dual_impl_done`, `dual_tests_running`, `dual_judge_pending`, `dual_judge_running`, `dual_winner_pending`.
+- New `Action` types: `RUN_DUAL_IMPL`, `RUN_DUAL_TESTS`, `RUN_JUDGE_OPUS`, `APPLY_WINNER`.
+- `DualImplState` + `DualImplTestResult` interfaces on `PhaseState`.
+- `ApplyResultExtra` optional 4th parameter to `applyResult` for dual-impl data (worktree init, test results, judge verdict).
+- `sub-agents.ts`: `runCodexImpl`, `runJudgeOpus`, `parseFailureCount`, `parseJudgeVerdict`, `buildCodexImplArgv`. Codex sandbox defaults to `workspace-write`; override via `GSTACK_BUILD_CODEX_IMPL_SANDBOX`. Judge model overridable via `GSTACK_BUILD_JUDGE_MODEL`.
+- `cli.ts`: `buildCodexImplPromptBody`, `buildJudgePrompt`, `readWorktreeDiff`, `countCommitsSinceBase`. Four runPhase handlers for the new actions, with parallel `Promise.all` dispatch for both impl and test phases.
+- New env vars: `GSTACK_BUILD_JUDGE_TIMEOUT` (600000ms), `GSTACK_BUILD_JUDGE_MODEL` (`claude-opus-4-7`), `GSTACK_BUILD_CODEX_IMPL_SANDBOX` (`workspace-write`).
+- README "Dual Implementor Mode" section with auto-select rules, worktree isolation, and recovery semantics.
+- Integration test: dry-run a 2-phase plan with `--dual-impl` and assert "Dual Impl", "Dual Tests", "Judge Opus", "Apply Winner" all appear.
+
+### Fail-closed paths (state machine)
+- `dual_winner_pending` without `selectedImplementor` → FAIL (state corruption protection).
+- `RUN_DUAL_IMPL` without `dualImplInit` extra → status=failed.
+- Both dual-impl test runs timed out → status=failed (no test evidence to pick a winner).
+- Both failed AND both have no parseable failure count → status=failed.
+- `parseJudgeVerdict` returns `verdict: null` when WINNER line is missing or not anchored at start of line; CLI handler treats null as hard failure.
+- `readWorktreeDiff` returns `null` on git failure; judge handler fails closed if either diff is null.
+- `RUN_DUAL_IMPL` validates each implementor produced committed work via `countCommitsSinceBase`; "neither committed" fails the phase early (uncommitted edits would pass tests but applyWinner would have nothing to cherry-pick).
+
+### Recovery semantics
+- `RUN_DUAL_IMPL` post-create work is wrapped in try/catch/finally — any error tears down worktrees so they don't leak.
+- `APPLY_WINNER` PRESERVES worktrees on cherry-pick failure (the only copy of the winner's code) and surfaces paths/branches + manual cleanup commands in the error message. Teardown only on successful apply.
+- All dual-impl state persists in `BuildState`, so resuming after Ctrl-C or crash works end-to-end.
+
+### Changed
+- `build/SKILL.md.tmpl` (and regenerated `build/SKILL.md`) bumped to v1.15.0.
+- `parsePlan(content, opts)` accepts `{ dualImpl?: boolean }` and stamps `dualImpl: true` on every emitted Phase when set.
+- `WorktreePair` field names align with `DualImplState` (`geminiWorktreePath`/`codexWorktreePath`) so callers can spread directly.
+- 147 tests pass (was 105 in v1.14.0); 42 new tests cover types, worktree primitives, dual-impl state transitions, fail-closed paths, sub-agent invocation shape, and end-to-end dry-run.
 
 ## **TDD integration for `gstack-build` — Red→Green enforced by state machine (build skill v1.14.0)**
 
@@ -31,8 +68,6 @@
 ### Backward compat
 - Legacy 2-checkbox plans: parser sets `testSpecDone=true`; orchestrator skips TDD steps entirely. Old plans run unchanged.
 
----
-
 ## **`gstack-build` ships. Code-driven phase orchestrator for /build skill.**
 
 The `/build` skill's per-phase loop is unreliable on long plans: the orchestrator LLM stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." This release ships `gstack-build`, a standalone CLI that drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. Code = state machine + persistence + retry. LLM = per-phase brain with a clean context window.
@@ -57,6 +92,110 @@ The `/build` skill's per-phase loop is unreliable on long plans: the orchestrato
 
 ### Why this matters
 The new orchestrator decouples build progress from "Claude Code is open and not compacted." Run `gstack-build plans/<slug>-impl-plan-<date>.md` and walk away — state files in `~/.gstack/build-state/` document every step for forensics, and `--no-resume` / `--skip-ship` / `--dry-run` flags cover the common operating modes.
+
+---
+
+## [1.17.0.0] - 2026-04-26
+
+## **Your gstack memory now actually lives in gbrain.**
+
+For everyone who ran `/setup-gbrain` in the last month and noticed `gbrain search` couldn't find their CEO plans, learnings, or retros: that's because Step 7 wrote a placeholder `consumers.json` with `status: "pending"` and called it done. The HTTP endpoint that placeholder pointed at was never built on the gbrain side. This release scraps that approach and uses the gbrain v0.18.0 federation surface (`gbrain sources` + `gbrain sync`) instead.
+
+After upgrading, `/setup-gbrain` adds a `git worktree` of your brain repo, registers it as a federated source on your gbrain (Supabase or PGLite), and runs an initial sync. Subsequent gstack skill end-of-run cycles also run `gbrain sync` so new artifacts land in the index automatically. Local-Mac only. No cloud agent required. `/gstack-upgrade` runs a one-shot migration for existing users.
+
+### Verify after upgrade
+
+```bash
+gbrain sources list --json | jq '.sources[] | {id, page_count, federated}'
+# Expect: two entries, your default brain plus a "gstack-brain-{user}"
+# entry, both federated=true.
+
+gbrain search "ethos" --source gstack-brain-{user} | head -5
+# Expect: hits from your gstack repo content (readme, ethos, designs, etc).
+```
+
+### What shipped
+
+`bin/gstack-gbrain-source-wireup` is the new helper. It derives a per-user source id from `~/.gstack/.git`'s origin URL (with multi-fallback to `~/.gstack-brain-remote.txt` and a `--source-id` flag), creates a detached `git worktree` at `~/.gstack-brain-worktree/`, registers it as a federated source on gbrain, runs initial backfill, and supports `--strict` (Step 7 strictness), `--uninstall` (full teardown including future-launchd plist), and `--probe` (read-only state inspection). All idempotent. The helper depends on `jq` (transitive via `gstack-gbrain-detect`).
+
+The helper locks the database URL at startup (precedence: `--database-url` flag > `GBRAIN_DATABASE_URL`/`DATABASE_URL` env > read once from `~/.gbrain/config.json`) and exports it as `GBRAIN_DATABASE_URL` for every child `gbrain` invocation. This means external rewrites of `~/.gbrain/config.json` mid-sync (e.g., a concurrent `gbrain init --non-interactive` running in another workspace) cannot redirect the wireup at a different brain. Per gbrain's `loadConfig()`, env-var URLs override the file. Step 7 of `/setup-gbrain` reads the URL out of `config.json` once and passes it explicitly via `--database-url`, so the wireup is robust against config flips during the seconds-to-minutes sync window.
+
+`/setup-gbrain` Step 7 now invokes the helper with `--strict` after `gstack-brain-init`. `/gstack-upgrade` invokes the helper without `--strict` via `gstack-upgrade/migrations/v1.12.3.0.sh` so missing/old gbrain is a benign skip during batch upgrade. `bin/gstack-brain-restore` invokes the helper after the initial clone so a 2nd Mac gets the wireup automatically. `bin/gstack-brain-uninstall` invokes `--uninstall` plus removes legacy `consumers.json`.
+
+`bin/gstack-brain-init` drops 60 lines of dead consumer-registration code (the HTTP POST block, the `consumers.json` writer, the chore commit). `bin/gstack-brain-restore` drops the 18-line `consumers.json` token-rehydration block (the only consumer that used it never had real tokens). `bin/gstack-brain-consumer` is marked deprecated in its header docstring; removal in v1.18.0.0 after one cycle of grace.
+
+`test/gstack-gbrain-source-wireup.test.ts` is new: 13 unit tests with a fake `gbrain` binary on `$PATH` covering fresh-state registration, idempotent re-runs, drift recovery (gbrain has no `sources update`, only `remove + add`), `--strict` failure modes, source-id fallback chain (`.git` → remote-file → flag), `--probe` non-mutation, sync errors, and `--uninstall`.
+
+### The numbers that matter
+
+These are reproducible on any machine after upgrade. Run the verify commands above to see your own delta.
+
+| Metric | Before (v1.16.0.0) | After (v1.17.0.0) |
+|---|---|---|
+| `gbrain sources list` size | 1 (default `/data/brain`) | 2 (default + `gstack-brain-{user}`) |
+| `consumers.json` status | `"pending"`, ingest_url `""` | file deleted from new installs |
+| Manual steps to wire up | 4 (clone + sources add + sync + cron) | 0, automatic in Step 7 |
+| Helper test coverage | 0 unit tests | 13 unit tests (`bun test test/gstack-gbrain-source-wireup.test.ts`) |
+| `bin/gstack-brain-init` size | 363 lines | 300 lines (60 lines of dead code removed) |
+
+Local Mac is the producer of artifacts and the worktree advances automatically with `~/.gstack/`'s commits. Cross-machine sync runs through GitHub via the existing `gstack-brain-sync --once` push hook. No new cron infrastructure needed today; when gbrain v0.21 code-graph features ship, the helper's `--enable-cron` flag is a clean extension.
+
+### What this means for builders
+
+Your gstack memory is searchable now. Run a CEO plan review or office-hours session, sync runs at skill-end automatically, and `gbrain search` finds the plan content from any gbrain client (this Claude Code session, future Macs, optional cloud agents like OpenClaw). One source of truth across machines. The placeholder is dead.
+
+### For contributors
+
+- `bin/gstack-brain-consumer` is deprecated in this release; removal in v1.18.0.0.
+- The `gbrain_url` and `gbrain_token` config keys are now no-ops. They remain readable for one cycle for back-compat, removed in v1.18.0.0.
+- Three pre-existing test failures on this branch (`gstack-config gbrain keys > GSTACK_HOME overrides real config dir`, `no compiled binaries in git > git tracks no files larger than 2MB`, `Opus 4.7 overlay — pacing directive`) were verified to fail on the base branch too. Out of scope for this PR; flagged for a follow-up.
+
+## [1.16.0.0] - 2026-04-28
+
+## **Paired-agent tunnel allowlist now matches what the docs already promised. Catch-22 resolved, gate is unit-testable.**
+
+The visible bug: a paired remote agent over the ngrok tunnel hit 403s on `newtab`, `tabs`, `goto-on-existing-tab`, and a chain of other commands the operator docs claimed worked. The hidden bug: the v1.6.0.0 `TUNNEL_COMMANDS` allowlist was set at 17 entries while `docs/REMOTE_BROWSER_ACCESS.md`, `browse/src/cli.ts:546-586`, and the operator-facing instruction blocks all documented 26. The shipped allowlist drifted from the design intent silently for releases. This release closes the gap: 9 commands added (`newtab`, `tabs`, `back`, `forward`, `reload`, `snapshot`, `fill`, `url`, `closetab`), each bounded by the existing per-tab ownership check at `server.ts:613-624`. Scoped tokens default to `tabPolicy: 'own-only'`, so a paired agent still can't navigate, fill, or close on tabs it doesn't own — same isolation as before, just covering more verbs.
+
+### The numbers that matter
+
+Branch totals come from `git diff --shortstat origin/main..HEAD`. Test counts come from `bun test browse/test/dual-listener.test.ts browse/test/tunnel-gate-unit.test.ts browse/test/pair-agent-tunnel-eval.test.ts browse/test/pair-agent-e2e.test.ts` against the merged tree.
+
+| Metric | Δ |
+|---|---|
+| Tunnel allowlist size | **17 → 26 commands** (+53%) |
+| Catch-22 resolution | `newtab` → `goto` → `back` chain works for the first time |
+| Gate testability | inline regex check → **pure exported `canDispatchOverTunnel()`** function |
+| New unit-test coverage | **53 expects** in `tunnel-gate-unit.test.ts` (allowed, blocked, null/undefined/non-string, alias canonicalization) |
+| New behavioral coverage | **4 tests** in `pair-agent-tunnel-eval.test.ts` running BOTH listeners locally (no ngrok) |
+| Source-level guard | exact-set equality against the 26-command literal + ownership-exemption regex |
+| All free tests | **69 pass / 0 fail** on the four touched test files |
+| Codex review passes | **2 outside-voice rounds** during plan mode, 6 of 7 findings incorporated |
+
+### What this means for users running paired agents
+
+Three things change immediately. **First**, paired agents can actually open and drive their own tab without hitting the catch-22 the prior allowlist created. `newtab` succeeds (the ownership-exemption at `server.ts:613` was always there, but the allowlist gated the entry); `goto`, `back`, `forward`, `reload`, `fill`, `closetab` all work on the just-created tab; `snapshot`, `url`, `tabs` give the agent the read-side surface needed to be useful. **Second**, the tunnel-surface gate is unit-testable now — `canDispatchOverTunnel(command)` is pure, exported from `browse/src/server.ts`, and covered by 53 expects. A future refactor that decouples the allowlist literal from the gate logic fails a free test in milliseconds. **Third**, `pair-agent-tunnel-eval.test.ts` exercises the gate end-to-end with BOTH the local and tunnel listeners bound on 127.0.0.1 (no ngrok required) so the routing decision — "this request hit the tunnel listener, run the gate; this one hit the local listener, skip the gate" — is asserted on every PR. The new `BROWSE_TUNNEL_LOCAL_ONLY=1` env var binds the second listener locally without invoking ngrok, gated to no-op outside test mode. Production tunnel still requires `BROWSE_TUNNEL=1` + a valid `NGROK_AUTHTOKEN`.
+
+### Itemized changes
+
+#### Added
+
+- 9 new commands in `browse/src/server.ts:111-120` `TUNNEL_COMMANDS` set: `newtab`, `tabs`, `back`, `forward`, `reload`, `snapshot`, `fill`, `url`, `closetab`. The set is now exported so tests can reference the literal directly.
+- `canDispatchOverTunnel(command: string | undefined | null): boolean` in `browse/src/server.ts` — pure exported function. Handles non-string input, runs `canonicalizeCommand` for alias resolution, returns `TUNNEL_COMMANDS.has(canonical)`.
+- `BROWSE_TUNNEL_LOCAL_ONLY=1` env var in `browse/src/server.ts:2080-2104`. Test-only sibling branch to `BROWSE_TUNNEL=1` that binds the second `Bun.serve` listener via `makeFetchHandler('tunnel')` without invoking ngrok. Persists `tunnelLocalPort` to the state file for the eval to read.
+- `browse/test/tunnel-gate-unit.test.ts`: 53 expects covering all 26 allowed commands, 20 blocked commands (pair, unpair, cookies, setup, launch, restart, stop, tunnel-start, token-mint, etc.), null/undefined/empty/non-string defensive handling, and alias canonicalization (e.g. `set-content` resolves to `load-html` and is correctly rejected since `load-html` isn't tunnel-allowed).
+- `browse/test/pair-agent-tunnel-eval.test.ts`: 4 behavioral tests that spawn the daemon under `BROWSE_HEADLESS_SKIP=1 BROWSE_TUNNEL_LOCAL_ONLY=1`, bind both listeners on 127.0.0.1, mint a scoped token via the existing `/pair` → `/connect` ceremony, and assert: (1) `newtab` over the tunnel passes the gate; (2) `pair` over the tunnel 403s with `disallowed_command:pair` AND writes a fresh denial-log entry to `~/.gstack/security/attempts.jsonl`; (3) `pair` over the local listener does NOT trigger the tunnel gate; (4) regression test for the catch-22 — `newtab` followed by `goto` on the resulting tab does not 403 with `Tab not owned by your agent`.
+
+#### Changed
+
+- `browse/test/dual-listener.test.ts`: must-include + must-exclude assertions replaced with one exact-set-equality test against the 26-command literal. The intersection-only style of the prior tests let new commands sneak into the source without a corresponding test update — the bidirectional check catches it both ways. Added a regex assertion that the `command !== 'newtab'` ownership-exemption clause at `server.ts:613` still exists (catches refactors that re-introduce the catch-22 from the other side).
+- `browse/test/dual-listener.test.ts`: `/command` handler test updated to assert the inline `TUNNEL_COMMANDS.has(cmd)` check is now `canDispatchOverTunnel(body?.command)` — proves the gate is delegated to the pure function and not duplicated.
+- `docs/REMOTE_BROWSER_ACCESS.md:35,168`: bumped "17-command allowlist" to "26-command allowlist". Corrected the denied-commands list (removed `eval`, which IS in the allowlist; the prior doc was wrong).
+- `CLAUDE.md`: bumped the transport-layer security section's "17-command browser-driving allowlist" reference to "26-command".
+
+#### For contributors
+
+- The plan was reviewed under `/plan-eng-review` plus 2 sequential codex outside-voice passes during plan mode. Round-1 codex caught a doc-target mistake (we were going to update `SIDEBAR_MESSAGE_FLOW.md` instead of `REMOTE_BROWSER_ACCESS.md`) and a wrong-layer test design. Round-2 codex caught that the round-1 correction was still wrong (the chosen test harness only binds the local listener) AND that the docs promised 6 more commands than the allowlist had. All 6 of 7 substantive findings landed in the implementation; the 7th (a pre-existing `/pair-agent` `/health` probe mismatch at `cli.ts:656-668`) is logged as out of scope.
+- One known accepted risk: `tabs` over the tunnel returns metadata for ALL tabs in the browser, not just tabs the agent owns. The user authored the trust relationship when they paired the agent, the agent already can't read CONTENT of unowned tabs (write commands blocked, the active tab can't be switched without a `tab <id>` command that's NOT in the allowlist), and tab IDs already leak via the 403 `hint` field on disallowed `goto`. Codex noted that tightening this requires touching the ownership gate itself (the gate falls back to `getActiveTabId()` BEFORE dispatch in `server.ts:603-614`), which is materially out of scope for a catch-22 fix. Logged in the plan failure-mode table as accepted.
 
 ## [1.15.0.0] - 2026-04-26
 

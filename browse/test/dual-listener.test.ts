@@ -70,17 +70,37 @@ describe('Tunnel path allowlist', () => {
 });
 
 describe('Tunnel command allowlist', () => {
-  test('TUNNEL_COMMANDS is a closed set of browser-driving commands only', () => {
+  // The full closed set of commands reachable over the tunnel surface. Adding
+  // or removing a command here means changing the literal in server.ts AND
+  // updating this list — that double-edit is the point. A single-source
+  // "include the items in the source" assertion would silently widen the
+  // surface during a refactor that adds a command to server.ts without test
+  // review. The exact-set match catches it.
+  const EXPECTED_TUNNEL_COMMANDS = new Set([
+    // Original 17
+    'goto', 'click', 'text', 'screenshot',
+    'html', 'links', 'forms', 'accessibility',
+    'attrs', 'media', 'data',
+    'scroll', 'press', 'type', 'select', 'wait', 'eval',
+    // Tab + navigation primitives operator docs and CLI hints already promised
+    'newtab', 'tabs', 'back', 'forward', 'reload',
+    // Read/inspect/write operators paired agents need to be useful
+    'snapshot', 'fill', 'url', 'closetab',
+  ]);
+
+  test('TUNNEL_COMMANDS literal matches the closed allowlist exactly (catches additions/removals without test update)', () => {
     const cmds = extractSetContents(SERVER_SRC, 'TUNNEL_COMMANDS');
-    // Must include the core browser-driving commands
-    const required = [
-      'goto', 'click', 'text', 'screenshot', 'html', 'links',
-      'forms', 'accessibility', 'attrs', 'media', 'data',
-      'scroll', 'press', 'type', 'select', 'wait', 'eval',
-    ];
-    for (const c of required) {
+    // Both directions: anything in the source must be expected, and anything
+    // expected must be in the source. The intersection-only style of the old
+    // must-include / must-exclude tests let new commands sneak into the source
+    // without a corresponding test update.
+    for (const c of cmds) {
+      expect(EXPECTED_TUNNEL_COMMANDS.has(c)).toBe(true);
+    }
+    for (const c of EXPECTED_TUNNEL_COMMANDS) {
       expect(cmds.has(c)).toBe(true);
     }
+    expect(cmds.size).toBe(EXPECTED_TUNNEL_COMMANDS.size);
   });
 
   test('TUNNEL_COMMANDS does NOT include daemon-configuration or bootstrap commands', () => {
@@ -89,11 +109,20 @@ describe('Tunnel command allowlist', () => {
       'launch', 'launch-browser', 'connect', 'disconnect',
       'restart', 'stop', 'tunnel-start', 'tunnel-stop',
       'token-mint', 'token-revoke', 'cookie-picker', 'cookie-import',
-      'inspector-pick',
+      'inspector-pick', 'pair', 'unpair', 'cookies', 'setup',
     ];
     for (const c of forbidden) {
       expect(cmds.has(c)).toBe(false);
     }
+  });
+
+  test('newtab ownership exemption preserved (catches refactors that re-introduce the catch-22)', () => {
+    // The /command handler must skip the per-tab ownership check when the
+    // command is `newtab`, otherwise paired agents have no way to create their
+    // own tab — every other write command requires an owned tab, and you can't
+    // own a tab you haven't created. The string `command !== 'newtab'` is the
+    // contract that breaks the catch-22.
+    expect(SERVER_SRC).toMatch(/command\s*!==\s*['"]newtab['"]/);
   });
 });
 
@@ -176,14 +205,14 @@ describe('GET /connect alive probe', () => {
 });
 
 describe('/command tunnel command allowlist', () => {
-  test('/command handler checks TUNNEL_COMMANDS when surface is tunnel', () => {
+  test('/command handler delegates to canDispatchOverTunnel when surface is tunnel', () => {
     const commandBlock = sliceBetween(
       SERVER_SRC,
       "url.pathname === '/command' && req.method === 'POST'",
       'return handleCommand(body, tokenInfo)'
     );
     expect(commandBlock).toContain("surface === 'tunnel'");
-    expect(commandBlock).toContain('TUNNEL_COMMANDS.has');
+    expect(commandBlock).toContain('canDispatchOverTunnel(body?.command)');
     expect(commandBlock).toContain('disallowed_command');
     expect(commandBlock).toContain('is not allowed over the tunnel surface');
     expect(commandBlock).toContain('status: 403');

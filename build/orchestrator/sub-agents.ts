@@ -214,6 +214,15 @@ export async function runGemini(opts: {
 function mergeOutputFile(result: SubAgentResult, outputFilePath: string): SubAgentResult {
   try {
     const fileContent = fs.readFileSync(outputFilePath, 'utf8');
+    if (fileContent.trim() === '') {
+      // Sub-agent left the output file empty (e.g. Codex applied edits inline but
+      // skipped writing the report). Preserve captured streams so parseVerdict can
+      // still find GATE PASS / GATE FAIL — Codex writes its verdict to stderr.
+      return {
+        ...result,
+        stdout: [result.stdout, result.stderr].filter(Boolean).join('\n'),
+      };
+    }
     return {
       ...result,
       stderr: result.stderr + (result.stdout ? `\n# original stdout:\n${result.stdout}` : ''),
@@ -456,15 +465,18 @@ export async function runTests(opts: {
   slug: string;
   phaseNumber: string;
   iteration: number;
+  /** Optional suffix to disambiguate parallel runs (dual-impl: 'gemini' / 'codex'). */
+  logSuffix?: string;
 }): Promise<SubAgentResult> {
   ensureLogDir(opts.slug);
   const parts = opts.testCmd.trim().split(/\s+/);
   const bin = parts[0];
   const argv = parts.slice(1);
 
+  const suffix = opts.logSuffix ? `-${opts.logSuffix}` : '';
   const logPath = path.join(
     logDir(opts.slug),
-    `phase-${opts.phaseNumber}-tests-${opts.iteration}.log`
+    `phase-${opts.phaseNumber}-tests-${opts.iteration}${suffix}.log`
   );
 
   return spawnCaptured({
@@ -475,4 +487,244 @@ export async function runTests(opts: {
     logPath,
     closeStdin: true,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Dual-implementor (--dual-impl) sub-agents
+// ---------------------------------------------------------------------------
+
+/**
+ * Count failing test cases in a test runner's stdout.
+ *
+ * Returns `undefined` when no signal is detectable — phase-runner uses
+ * undefined as "no signal" and falls back to fail-closed if BOTH impls
+ * lack a count. Returning 0 here was misleading: a compile-error or
+ * "no tests ran" output would beat a real "1 test failed" output in
+ * tie-breaking. (Codex Phase 3 review, MEDIUM.)
+ *
+ * Tries multiple signals in priority order:
+ *   1. Explicit summary line: `N failed`, `N fail` (bun, jest, vitest, pytest)
+ *   2. ✗ marker count (bun-style)
+ *   3. ^FAIL line count (jest/pytest-style)
+ */
+export function parseFailureCount(output: string): number | undefined {
+  if (!output) return undefined;
+  const clean = stripAnsi(output);
+
+  // Priority 1: pytest summary like "===== 2 failed in 0.10s =====" or "===== 2 failed, 3 passed".
+  // Pytest decorates with `=` and `_` chars before/around the summary line.
+  const pytestMatch = clean.match(/^=+\s*(\d+)\s+failed\b/im);
+  if (pytestMatch) return Number(pytestMatch[1]);
+
+  // Priority 2: bun/jest/vitest/cargo summary at start of line, like "3 failed" / "3 fail".
+  // Anchored to ^\s* so it doesn't match "✗ test 1 failed" mid-line.
+  const summaryMatch = clean.match(/^\s*(\d+)\s+fail(?:ed|ing)?\b/im);
+  if (summaryMatch) return Number(summaryMatch[1]);
+
+  // Priority 3: per-test marker counts as fallback.
+  // ✗ (bun-style), FAIL or FAILED at start of line (jest=FAIL, pytest=FAILED).
+  const cross = (clean.match(/✗/g) || []).length;
+  const fail = (clean.match(/^FAIL(?:ED)?\b/gm) || []).length;
+  const markerMax = Math.max(cross, fail);
+  return markerMax > 0 ? markerMax : undefined;
+}
+
+/**
+ * Parse the Opus tournament judge's output for a verdict + reasoning.
+ *
+ * Expected format (anchored to start-of-line; case-insensitive on the value):
+ *   WINNER: gemini|codex
+ *   REASONING: <one paragraph>
+ *
+ * Returns `verdict: null` when no anchored WINNER line is found. Caller
+ * (Phase 4 CLI handler) MUST treat null as a hard failure — passing a fake
+ * verdict here would defeat the fail-closed semantics in phase-runner where
+ * dual_winner_pending without selectedImplementor → FAIL.
+ *
+ * (Codex Phase 3 review, HIGH — silent fallback to gemini was the original
+ * defect; null surfaces it instead.)
+ */
+export function parseJudgeVerdict(output: string): {
+  verdict: 'gemini' | 'codex' | null;
+  reasoning: string;
+} {
+  const clean = stripAnsi(output || '');
+  // Anchored: WINNER must be at start of line. Avoids false matches like
+  // "I think the WINNER: gemini is better" embedded in narrative prose.
+  const winnerMatch = clean.match(/^\s*WINNER:\s*(gemini|codex)\b/im);
+  if (!winnerMatch) {
+    return {
+      verdict: null,
+      reasoning: 'no anchored WINNER line found in judge output — caller must fail-closed',
+    };
+  }
+  const verdict = winnerMatch[1].toLowerCase() as 'gemini' | 'codex';
+
+  // REASONING runs from the anchored marker to end of input; trim whitespace.
+  // Single multi-paragraph reasoning is fine — Opus prompt template asks for
+  // one paragraph, but we accept anything until EOS.
+  const reasoningMatch = clean.match(/^\s*REASONING:\s*([\s\S]*)$/im);
+  const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
+  return { verdict, reasoning };
+}
+
+/**
+ * Build the argv that runCodexImpl passes to the codex CLI. Extracted as a pure
+ * helper so tests can verify the invocation shape without spawning the binary.
+ *
+ * Sandbox defaults to `workspace-write` — `danger-full-access` was unsafe
+ * because linked git worktrees share the .git dir, remotes, and credentials
+ * with the main cwd, so a destructive command in Codex (e.g. `git push --delete
+ * origin main`) would damage the parent repo. Override via GSTACK_BUILD_CODEX_IMPL_SANDBOX
+ * for environments where that risk is accepted. (Codex Phase 3 review, HIGH.)
+ */
+export function buildCodexImplArgv(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access';
+}): string[] {
+  const codexPrompt = [
+    `Read implementation instructions at ${opts.inputFilePath}.`,
+    `Implement the changes autonomously using your edit tools.`,
+    `Do NOT change test assertions — only make tests pass.`,
+    `When done, write your output summary (files changed, tests run, what's verified) to ${opts.outputFilePath}.`,
+    `Return ONLY the output file path. No narrative.`,
+  ].join(' ');
+
+  const sandbox =
+    opts.sandbox ||
+    (process.env.GSTACK_BUILD_CODEX_IMPL_SANDBOX as
+      | 'read-only'
+      | 'workspace-write'
+      | 'danger-full-access'
+      | undefined) ||
+    'workspace-write';
+
+  return [
+    'exec',
+    codexPrompt,
+    '-s',
+    sandbox,
+    '-c',
+    'model_reasoning_effort="high"',
+    '-C',
+    opts.cwd,
+  ];
+}
+
+/**
+ * Run the Codex implementation pass for one half of a dual-impl tournament.
+ * Mirrors runGemini's structure: file-path I/O, captured output, single retry
+ * on timeout. Each call expects to be running in an isolated git worktree so
+ * danger-full-access is safe (changes can't leak to main cwd).
+ */
+export async function runCodexImpl(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  /** The worktree cwd Codex should operate in (e.g. /tmp/gstack-dual-.../codex). */
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+  const argv = buildCodexImplArgv(opts);
+
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-codex-impl-${opts.iteration}.log`
+  );
+
+  let result = await spawnCaptured({
+    bin: CODEX_BIN,
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: CODEX_TIMEOUT_MS,
+    logPath,
+    closeStdin: true,
+  });
+
+  if (result.timedOut) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-codex-impl-${opts.iteration}-retry.log`
+    );
+    const retryResult = await spawnCaptured({
+      bin: CODEX_BIN,
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: CODEX_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: true,
+    });
+    retryResult.retries = 1;
+    return mergeOutputFile(retryResult, opts.outputFilePath);
+  }
+  return mergeOutputFile(result, opts.outputFilePath);
+}
+
+const JUDGE_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_JUDGE_TIMEOUT) || 10 * 60_000;
+const JUDGE_MODEL = process.env.GSTACK_BUILD_JUDGE_MODEL || 'claude-opus-4-7';
+
+/**
+ * Run Claude Opus as the tournament judge. Caller writes the full judge prompt
+ * (task + tests + both diffs + both test results) to inputFilePath BEFORE calling.
+ * Opus reads it, picks a winner, writes verdict to outputFilePath.
+ *
+ * Caller should call parseJudgeVerdict on the returned result.stdout to extract
+ * { verdict, reasoning }.
+ */
+export async function runJudgeOpus(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  /** Main cwd (judge is read-only — doesn't matter much, but stay in main). */
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+
+  const shellPrompt = [
+    `Read judge prompt at ${opts.inputFilePath}.`,
+    `Pick the better of the two implementations described inside.`,
+    `Write your verdict to ${opts.outputFilePath} in this exact format:`,
+    `WINNER: gemini|codex`,
+    `REASONING: <one paragraph, concrete reasons>`,
+    `Return ONLY the output file path. No narrative.`,
+  ].join(' ');
+
+  const argv = ['--model', JUDGE_MODEL, '-p', shellPrompt];
+
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-judge-opus.log`
+  );
+
+  let result = await spawnCaptured({
+    bin: CLAUDE_BIN,
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: JUDGE_TIMEOUT_MS,
+    logPath,
+    closeStdin: false,
+  });
+
+  if (result.timedOut) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-judge-opus-retry.log`
+    );
+    const retryResult = await spawnCaptured({
+      bin: CLAUDE_BIN,
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: JUDGE_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: false,
+    });
+    retryResult.retries = 1;
+    return mergeOutputFile(retryResult, opts.outputFilePath);
+  }
+  return mergeOutputFile(result, opts.outputFilePath);
 }
