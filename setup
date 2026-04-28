@@ -540,7 +540,7 @@ create_agents_sidecar() {
   mkdir -p "$agents_gstack"
 
   # Sidecar directories that skills reference at runtime
-  for asset in bin browse review qa; do
+  for asset in bin browse design make-pdf review qa; do
     local src="$SOURCE_GSTACK_DIR/$asset"
     local dst="$agents_gstack/$asset"
     if [ -d "$src" ] || [ -f "$src" ]; then
@@ -579,7 +579,7 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/design" "$codex_gstack/make-pdf" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -592,6 +592,12 @@ create_codex_runtime_root() {
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
     ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    ln -snf "$gstack_dir/design/dist" "$codex_gstack/design/dist"
+  fi
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    ln -snf "$gstack_dir/make-pdf/dist" "$codex_gstack/make-pdf/dist"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
