@@ -84,7 +84,7 @@ export interface Args {
   testCmd?: string;
   /** When true, every phase implements via Gemini+Codex tournament with Opus judge. */
   dualImpl: boolean;
-  /** Model for Gemini (Implementor A). Default: gemini-3.1-pro (thinking built-in). */
+  /** Model for Gemini (Implementor A). Default: gemini-3.1-pro-preview (thinking built-in). */
   geminiModel: string;
   /** Model for Codex (Implementor B, dual-impl). Default: gpt-5.3-codex-spark. */
   codexModel: string;
@@ -102,7 +102,7 @@ export function parseArgs(argv: string[]): Args {
     skipShip: false,
     maxCodexIter: DEFAULT_MAX_CODEX_ITERATIONS,
     dualImpl: false,
-    geminiModel: 'gemini-3.1-pro',
+    geminiModel: 'gemini-3.1-pro-preview',
     codexModel: 'gpt-5.3-codex-spark',
     codexReviewModel: 'gpt-5.5',
   };
@@ -171,7 +171,7 @@ Flags:
   --dual-impl          Tournament mode: Gemini and Codex implement in parallel
                        (isolated git worktrees), Opus judges and the winner
                        is cherry-picked back. Existing TDD pipeline runs after.
-  --gemini-model <m>   Model for Gemini (Implementor A). Default: gemini-3.1-pro.
+  --gemini-model <m>   Model for Gemini (Implementor A). Default: gemini-3.1-pro-preview.
   --codex-model <m>    Model for Codex Implementor B (dual-impl). Default: gpt-5.3-codex-spark.
   --codex-review-model <m>
                        Model for Codex review pass. Default: gpt-5.5.

@@ -81,7 +81,7 @@ describe('--gemini-model / --codex-model flag wiring', () => {
 
   it('parseArgs default → model defaults are baked in (no flags needed)', () => {
     const args = parseArgs(['plan.md']);
-    expect(args.geminiModel).toBe('gemini-3.1-pro');
+    expect(args.geminiModel).toBe('gemini-3.1-pro-preview');
     expect(args.codexModel).toBe('gpt-5.3-codex-spark');
     expect(args.codexReviewModel).toBe('gpt-5.5');
   });
@@ -110,7 +110,7 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   it('parseArgs model flags combine correctly with --dual-impl', () => {
     const args = parseArgs(['plan.md', '--dual-impl']);
     expect(args.dualImpl).toBe(true);
-    expect(args.geminiModel).toBe('gemini-3.1-pro');
+    expect(args.geminiModel).toBe('gemini-3.1-pro-preview');
     expect(args.codexModel).toBe('gpt-5.3-codex-spark');
     expect(args.codexReviewModel).toBe('gpt-5.5');
   });
