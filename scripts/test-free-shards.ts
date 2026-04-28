@@ -66,11 +66,12 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Tests that spawn a bash shebang script in bin/ via spawnSync. Git Bash on
   // Windows can run `bash /path/to/script` but spawnSync(scriptPath, ...)
   // tries to execute the file directly via CreateProcess, which fails on the
-  // shebang. The pattern matches any path-join with a 'bin' segment as a
-  // separator-bounded literal. Catches both `path.join(ROOT, 'bin', ...)` and
-  // the destructured `join(import.meta.dir, '..', 'bin', ...)` form used in
-  // diff-scope.test.ts.
-  { pattern: /,\s*['"]bin['"]\s*,\s*['"][a-z][\w-]+/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
+  // shebang. The pattern matches `, 'bin'` as a path-join argument (closing
+  // OR followed by another segment), which catches:
+  //   - path.join(ROOT, 'bin', 'script-name')        — typical
+  //   - join(import.meta.dir, '..', 'bin', 'name')   — destructured (diff-scope)
+  //   - path.join(ROOT, 'bin')                       — bare BIN constant (brain-sync)
+  { pattern: /,\s*['"]bin['"]\s*[,)]/, reason: 'spawns bin/ shebang script (Windows CreateProcess does not parse shebangs)' },
   // Tests that launch a real Playwright browser. The windows-free-tests CI job
   // runs a curated subset that intentionally does NOT install Chromium —
   // browser bring-up on Windows is a separate concern (see PR #1238). Tests
