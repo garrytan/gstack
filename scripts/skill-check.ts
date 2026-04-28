@@ -9,7 +9,9 @@
  */
 
 import { validateSkill } from '../test/helpers/skill-parser';
+import { ALL_HOST_CONFIGS, getExternalHosts, getHostConfig } from '../hosts/index';
 import { discoverTemplates, discoverSkillFiles } from './discover-skills';
+import { collectSkillContextBudget, evaluateSkillContextBudget, formatBytes } from './skill-context-budget';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -64,12 +66,24 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const CLAUDE_SKIPPED_SKILL_DIRS = new Set(getHostConfig('claude').generation.skipSkills ?? []);
+
+function templateSkillDir(tmpl: string): string {
+  const dir = path.dirname(tmpl);
+  return dir === '.' ? '' : dir;
+}
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
+  const skippedForClaude = CLAUDE_SKIPPED_SKILL_DIRS.has(templateSkillDir(tmpl));
+
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
+    continue;
+  }
+  if (skippedForClaude) {
+    console.log(`  -  ${tmpl.padEnd(30)} — skipped for Claude host`);
     continue;
   }
   if (!fs.existsSync(outPath)) {
@@ -88,9 +102,51 @@ for (const file of SKILL_FILES) {
   }
 }
 
-// ─── External Host Skills (config-driven) ───────────────────
+// ─── Context Budget ─────────────────────────────────────────
 
-import { getExternalHosts } from '../hosts/index';
+console.log('\n  Context Budget:');
+const budgetReport = collectSkillContextBudget(ROOT);
+const budgetEvaluation = evaluateSkillContextBudget(budgetReport);
+
+console.log(
+  `  Visible: ${budgetReport.visibleSkills.length} skills, ` +
+  `${formatBytes(budgetReport.totals.visibleBytes)} ` +
+  `(~${budgetReport.totals.visibleApproxTokens} tokens)`,
+);
+console.log(
+  `  Discovery: ${budgetReport.totals.visibleDescriptionChars} description chars, ` +
+  `${budgetReport.eagerCatalog.chars} catalog chars`,
+);
+console.log(
+  `  Hidden host outputs: ${budgetReport.hiddenHostSkills.length} skills, ` +
+  `${formatBytes(budgetReport.totals.hiddenHostBytes)}`,
+);
+
+for (const error of budgetEvaluation.errors) {
+  hasErrors = true;
+  console.log(`  \u274c ${error.path ?? error.code} — ${error.message}`);
+}
+
+const hiddenHostWarningCount = budgetEvaluation.warnings.filter(warning => warning.path?.startsWith('.')).length;
+const budgetWarnings = budgetEvaluation.warnings.filter(warning => !warning.path?.startsWith('.'));
+const warningPreview = budgetWarnings.slice(0, 8);
+for (const warning of warningPreview) {
+  console.log(`  \u26a0\ufe0f  ${warning.path ?? warning.code} — ${warning.message}`);
+}
+if (hiddenHostWarningCount > 0) {
+  console.log(
+    `  \u26a0\ufe0f  ${budgetReport.hiddenHostSkills.length} hidden host generated skill file(s) present ` +
+    `(${hiddenHostWarningCount} warning(s)); run: bun run skill:budget`,
+  );
+}
+if (budgetWarnings.length > warningPreview.length) {
+  console.log(`  \u26a0\ufe0f  ${budgetWarnings.length - warningPreview.length} more budget warning(s); run: bun run skill:budget`);
+}
+if (budgetEvaluation.errors.length === 0) {
+  console.log('  \u2705 Hard budget checks pass');
+}
+
+// ─── External Host Skills (config-driven) ───────────────────
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -129,8 +185,6 @@ for (const hostConfig of getExternalHosts()) {
 }
 
 // ─── Freshness (config-driven) ──────────────────────────────
-
-import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 for (const hostConfig of ALL_HOST_CONFIGS) {
   const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;

@@ -1417,9 +1417,8 @@ describe('Codex skill', () => {
 // --- Trigger phrase validation ---
 
 describe('Skill trigger phrases', () => {
-  // Skills that must have "Use when" trigger phrases in their description.
-  // Excluded: root gstack (browser tool), gstack-upgrade (gstack-specific),
-  // humanizer (text tool)
+  // Skills that must have compact routing metadata. Long "Use when" prose moved
+  // out of descriptions so eager skill catalogs stay small.
   const SKILLS_REQUIRING_TRIGGERS = [
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
@@ -1428,18 +1427,19 @@ describe('Skill trigger phrases', () => {
   ];
 
   for (const skill of SKILLS_REQUIRING_TRIGGERS) {
-    test(`${skill}/SKILL.md has "Use when" trigger phrases`, () => {
+    test(`${skill}/SKILL.md has trigger metadata outside the description`, () => {
       const skillPath = path.join(ROOT, skill, 'SKILL.md');
       if (!fs.existsSync(skillPath)) return;
       const content = fs.readFileSync(skillPath, 'utf-8');
-      // Extract description from frontmatter
       const frontmatterEnd = content.indexOf('---', 4);
       const frontmatter = content.slice(0, frontmatterEnd);
-      expect(frontmatter).toMatch(/Use when/i);
+      expect(frontmatter).toMatch(/^triggers:\n(?:\s+-\s+.+\n?)+/m);
+      expect(frontmatter).not.toMatch(/Use when/i);
     });
   }
 
-  // Skills with proactive triggers should have "Proactively suggest" in description
+  // Proactive routing also lives in explicit trigger metadata, not long
+  // frontmatter descriptions.
   const SKILLS_REQUIRING_PROACTIVE = [
     'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
@@ -1447,13 +1447,14 @@ describe('Skill trigger phrases', () => {
   ];
 
   for (const skill of SKILLS_REQUIRING_PROACTIVE) {
-    test(`${skill}/SKILL.md has proactive routing phrase`, () => {
+    test(`${skill}/SKILL.md keeps proactive routing out of description prose`, () => {
       const skillPath = path.join(ROOT, skill, 'SKILL.md');
       if (!fs.existsSync(skillPath)) return;
       const content = fs.readFileSync(skillPath, 'utf-8');
       const frontmatterEnd = content.indexOf('---', 4);
       const frontmatter = content.slice(0, frontmatterEnd);
-      expect(frontmatter).toMatch(/Proactively (suggest|invoke)/i);
+      expect(frontmatter).toMatch(/^triggers:\n(?:\s+-\s+.+\n?)+/m);
+      expect(frontmatter).not.toMatch(/Proactively (suggest|invoke)/i);
     });
   }
 });
