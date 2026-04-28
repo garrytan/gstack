@@ -1231,16 +1231,34 @@ async function main() {
       console.log(`\nresuming state from ${loaded.lastUpdatedAt}`);
       state = loaded;
       // Warn if CLI models differ from what the original run used.
+      // After warning, update state to reflect CLI values so future saveState is accurate.
+      let modelMismatch = false;
       if (loaded.geminiModel && loaded.geminiModel !== args.geminiModel) {
         console.warn(`[warn] --gemini-model ${args.geminiModel} differs from resumed state (${loaded.geminiModel}); using CLI value`);
+        modelMismatch = true;
       } else if (!loaded.geminiModel && args.geminiModel !== 'gemini-3.1-pro-preview') {
         console.warn(`[warn] --gemini-model ${args.geminiModel} may differ from original run (state predates model tracking)`);
+        modelMismatch = true;
       }
       if (loaded.codexModel && loaded.codexModel !== args.codexModel) {
         console.warn(`[warn] --codex-model ${args.codexModel} differs from resumed state (${loaded.codexModel}); using CLI value`);
+        modelMismatch = true;
+      } else if (!loaded.codexModel && args.codexModel !== 'gpt-5.3-codex-spark') {
+        console.warn(`[warn] --codex-model ${args.codexModel} may differ from original run (state predates model tracking)`);
+        modelMismatch = true;
       }
       if (loaded.codexReviewModel && loaded.codexReviewModel !== args.codexReviewModel) {
         console.warn(`[warn] --codex-review-model ${args.codexReviewModel} differs from resumed state (${loaded.codexReviewModel}); using CLI value`);
+        modelMismatch = true;
+      } else if (!loaded.codexReviewModel && args.codexReviewModel !== 'gpt-5.5') {
+        console.warn(`[warn] --codex-review-model ${args.codexReviewModel} may differ from original run (state predates model tracking)`);
+        modelMismatch = true;
+      }
+      if (modelMismatch) {
+        // Update state fields so subsequent saveState persists the CLI values, not stale ones.
+        state.geminiModel = args.geminiModel;
+        state.codexModel = args.codexModel;
+        state.codexReviewModel = args.codexReviewModel;
       }
     } else {
       state = freshState({

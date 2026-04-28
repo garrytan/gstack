@@ -109,16 +109,6 @@ function spawnCaptured(args: {
       }
     );
 
-    // Detect timeout — Node's execFile sets err.signal='SIGTERM' when timeout
-    // fires, so we shadow that detection with our own flag for clarity.
-    if (args.timeoutMs > 0) {
-      const t = setTimeout(() => {
-        timedOut = true;
-        child.kill('SIGTERM');
-      }, args.timeoutMs + 1000); // run slightly after Node's own timer fires
-      child.once('exit', () => clearTimeout(t));
-    }
-
     if (args.closeStdin) child.stdin?.end();
   });
 }
