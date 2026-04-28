@@ -24,12 +24,23 @@ import { parseVerdict } from './sub-agents';
 export const DEFAULT_MAX_CODEX_ITERATIONS =
   Number(process.env.GSTACK_BUILD_CODEX_MAX_ITER) || 5;
 
+/** Maximum times Gemini may re-write tests when VERIFY_RED shows tests pass trivially. */
+export const DEFAULT_MAX_RED_SPEC_ITERATIONS =
+  Number(process.env.GSTACK_BUILD_RED_MAX_ITER) || 3;
+
+export const DEFAULT_MAX_TEST_ITERATIONS =
+  Number(process.env.GSTACK_BUILD_TEST_MAX_ITER) || 5;
+
 export type Action =
   | { type: 'RUN_GEMINI'; phaseIndex: number; iteration: number }
   | { type: 'RUN_CODEX_REVIEW'; phaseIndex: number; iteration: number }
   | { type: 'MARK_COMPLETE'; phaseIndex: number }
   | { type: 'FAIL'; phaseIndex: number; reason: string }
-  | { type: 'DONE'; phaseIndex: number };
+  | { type: 'DONE'; phaseIndex: number }
+  | { type: 'RUN_GEMINI_TEST_SPEC'; phaseIndex: number; iteration: number }
+  | { type: 'VERIFY_RED'; phaseIndex: number }
+  | { type: 'RUN_TESTS'; phaseIndex: number; iteration: number }
+  | { type: 'RUN_GEMINI_FIX'; phaseIndex: number; iteration: number };
 
 /**
  * Given a phase's runtime state, decide what to do next.
@@ -44,10 +55,16 @@ export type Action =
  */
 export function decideNextAction(
   phaseState: PhaseState,
-  maxCodexIterations: number = DEFAULT_MAX_CODEX_ITERATIONS
+  maxCodexIterations: number = DEFAULT_MAX_CODEX_ITERATIONS,
+  phase?: Phase,
+  maxTestIterations: number = DEFAULT_MAX_TEST_ITERATIONS,
+  maxRedSpecIterations: number = DEFAULT_MAX_RED_SPEC_ITERATIONS
 ): Action {
   switch (phaseState.status) {
     case 'pending':
+      if (phase && !phase.testSpecDone) {
+        return { type: 'RUN_GEMINI_TEST_SPEC', phaseIndex: phaseState.index, iteration: 1 };
+      }
       return {
         type: 'RUN_GEMINI',
         phaseIndex: phaseState.index,
@@ -64,7 +81,52 @@ export function decideNextAction(
         iteration: 1,
       };
 
+    case 'test_spec_running':
+      return {
+        type: 'RUN_GEMINI_TEST_SPEC',
+        phaseIndex: phaseState.index,
+        iteration: (phaseState.redSpecAttempts ?? 0) + 1,
+      };
+
+    case 'test_spec_done':
+      return { type: 'VERIFY_RED', phaseIndex: phaseState.index };
+
+    case 'tests_red':
+      return {
+        type: 'RUN_GEMINI',
+        phaseIndex: phaseState.index,
+        iteration: (phaseState.gemini?.retries ?? 0) + 1,
+      };
+
     case 'gemini_done':
+      // For TDD phases (testSpecDone was false), run tests after implementation.
+      // For legacy phases (testSpecDone=true), go straight to Codex review.
+      if (phase && !phase.testSpecDone) {
+        return {
+          type: 'RUN_TESTS',
+          phaseIndex: phaseState.index,
+          iteration: (phaseState.testRun?.iterations ?? 0) + 1,
+        };
+      }
+      return {
+        type: 'RUN_CODEX_REVIEW',
+        phaseIndex: phaseState.index,
+        iteration: (phaseState.codexReview?.iterations ?? 0) + 1,
+      };
+
+    case 'test_fix_running': {
+      const nextIter = (phaseState.testFix?.iterations ?? 0) + 1;
+      if (nextIter > maxTestIterations) {
+        return {
+          type: 'FAIL',
+          phaseIndex: phaseState.index,
+          reason: `Tests still failing after ${maxTestIterations} fix iterations`,
+        };
+      }
+      return { type: 'RUN_GEMINI_FIX', phaseIndex: phaseState.index, iteration: nextIter };
+    }
+
+    case 'tests_green':
       return {
         type: 'RUN_CODEX_REVIEW',
         phaseIndex: phaseState.index,
@@ -182,6 +244,79 @@ export function applyResult(
     next.status = 'failed';
     next.error =
       'Codex output did not contain GATE PASS or GATE FAIL — cannot determine review outcome';
+    return next;
+  }
+
+  if (action.type === 'RUN_GEMINI_TEST_SPEC') {
+    next.geminiTestSpec = {
+      startedAt: phaseState.geminiTestSpec?.startedAt ?? new Date(Date.now() - result.durationMs).toISOString(),
+      completedAt: new Date().toISOString(),
+      outputLogPath: result.logPath,
+      retries: result.retries,
+      exitCode: result.exitCode ?? undefined,
+    };
+    if (result.timedOut || result.exitCode !== 0) {
+      next.status = 'failed';
+      next.error = `Gemini test-spec step failed: exit ${result.exitCode}`;
+      return next;
+    }
+    next.status = 'test_spec_done';
+    return next;
+  }
+
+  if (action.type === 'VERIFY_RED') {
+    if (result.timedOut) {
+      next.status = 'failed';
+      next.error = 'Test verification timed out';
+      return next;
+    }
+    if (result.exitCode !== 0) {
+      // Tests fail as expected → Red phase confirmed. Proceed to implementation.
+      next.redSpecAttempts = 0;
+      next.status = 'tests_red';
+      return next;
+    }
+    // Tests trivially pass before implementation → need harder tests.
+    const attempts = (phaseState.redSpecAttempts ?? 0) + 1;
+    next.redSpecAttempts = attempts;
+    if (attempts >= DEFAULT_MAX_RED_SPEC_ITERATIONS) {
+      next.status = 'failed';
+      next.error = `Gemini could not produce failing tests after ${attempts} attempts (GSTACK_BUILD_RED_MAX_ITER)`;
+      return next;
+    }
+    next.status = 'test_spec_running';
+    return next;
+  }
+
+  if (action.type === 'RUN_TESTS') {
+    const prevIter = phaseState.testRun?.iterations ?? 0;
+    next.testRun = {
+      iterations: prevIter + 1,
+      finalStatus: result.timedOut ? 'timeout' : result.exitCode === 0 ? 'green' : 'red',
+    };
+    if (result.timedOut) {
+      next.status = 'failed';
+      next.error = 'Test run timed out';
+      return next;
+    }
+    next.status = result.exitCode === 0 ? 'tests_green' : 'test_fix_running';
+    return next;
+  }
+
+  if (action.type === 'RUN_GEMINI_FIX') {
+    const prevIter = phaseState.testFix?.iterations ?? 0;
+    const prevPaths = phaseState.testFix?.outputLogPaths ?? [];
+    next.testFix = {
+      iterations: prevIter + 1,
+      outputLogPaths: [...prevPaths, result.logPath],
+    };
+    if (result.timedOut || result.exitCode !== 0) {
+      next.status = 'failed';
+      next.error = `Gemini fix step failed: exit ${result.exitCode}`;
+      return next;
+    }
+    // After a successful fix, re-run tests (route back through gemini_done → RUN_TESTS).
+    next.status = 'gemini_done';
     return next;
   }
 

@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { BuildState, Phase, PhaseState } from './types';
 import { isGbrainAvailable, gbrainPut, gbrainGet } from './gbrain';
+import { isPhaseComplete } from './parser';
 
 export interface PersistOptions {
   /** Skip gbrain entirely. Useful for tests and the --no-gbrain CLI flag. */
@@ -71,12 +72,12 @@ export function freshState(args: {
     number: p.number,
     name: p.name,
     // Status reflects what we observe on disk:
-    // - both checked         → committed (skip phase)
-    // - impl checked only    → gemini_done (resume at Codex review)
-    // - review checked only  → committed (user manually marked; trust them)
-    // - neither              → pending (run Gemini from scratch)
+    // - all three checked (testSpec+impl+review) → committed (skip phase)
+    // - impl checked only                         → gemini_done (resume at Codex review)
+    // - review checked only (user manually)       → committed (trust them; legacy compat)
+    // - neither / testSpec unchecked              → pending (run from scratch)
     status:
-      p.implementationDone && p.reviewDone
+      isPhaseComplete(p)
         ? 'committed'
         : p.implementationDone && !p.reviewDone
         ? 'gemini_done'

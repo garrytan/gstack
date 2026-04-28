@@ -10,8 +10,13 @@
 
 export type PhaseStatus =
   | 'pending'
+  | 'test_spec_running'
+  | 'test_spec_done'
+  | 'tests_red'
   | 'gemini_running'
   | 'gemini_done'
+  | 'test_fix_running'
+  | 'tests_green'
   | 'codex_running'
   | 'review_clean'
   | 'committed'
@@ -28,12 +33,16 @@ export interface Phase {
   implementationDone: boolean;
   /** True if `[x] **Review` appears in the parsed plan. */
   reviewDone: boolean;
+  /** True if `[x] **Test Specification` appears in the parsed plan, or if the phase has no test spec checkbox (legacy plan backward compat). */
+  testSpecDone: boolean;
   /** Free-form body between the phase heading and the next phase. Used as Gemini context. */
   body: string;
   /** Line number (1-based) of the `[ ] **Implementation` checkbox in the plan file. */
   implementationCheckboxLine: number;
   /** Line number (1-based) of the `[ ] **Review` checkbox in the plan file. */
   reviewCheckboxLine: number;
+  /** Line number (1-based) of the `[ ] **Test Specification` checkbox in the plan file. -1 if not present (legacy plan). */
+  testSpecCheckboxLine: number;
 }
 
 export interface SubAgentInvocation {
@@ -57,6 +66,20 @@ export interface PhaseState {
   name: string;
   status: PhaseStatus;
   gemini?: SubAgentInvocation;
+  /** Invocation record for the test-specification Gemini call. */
+  geminiTestSpec?: SubAgentInvocation;
+  /** Number of times VERIFY_RED returned exit==0 (tests too easy). Capped by GSTACK_BUILD_RED_MAX_ITER. */
+  redSpecAttempts?: number;
+  /** State of the post-testspec / post-impl test runs. */
+  testRun?: {
+    iterations: number;
+    finalStatus: 'red' | 'green' | 'timeout';
+  };
+  /** State of the recursive Gemini fix calls when tests fail post-impl. */
+  testFix?: {
+    iterations: number;
+    outputLogPaths: string[];
+  };
   codexReview?: CodexReviewState;
   committedAt?: string;
   error?: string;

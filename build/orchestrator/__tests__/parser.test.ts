@@ -121,6 +121,42 @@ Some trailing notes.
     expect(phases[0].body).toContain('Some trailing notes.');
     expect(phases[0].body).not.toContain('### Phase 2');
   });
+
+  describe('TDD checkbox parsing', () => {
+    it('Test A: Parse a 3-checkbox TDD phase', () => {
+      const md = `### Phase 1: Foo
+- [ ] **Test Specification (Gemini Sub-agent)**: Write tests.
+- [ ] **Implementation (Gemini Sub-agent)**: Implement.
+- [ ] **Review & QA (Codex Sub-agent)**: Review.
+`;
+      const { phases } = parsePlan(md);
+      expect(phases[0].testSpecDone).toBe(false);
+      expect(phases[0].testSpecCheckboxLine).toBeGreaterThan(0);
+      expect(phases[0].implementationDone).toBe(false);
+      expect(phases[0].reviewDone).toBe(false);
+    });
+
+    it('Test B: Legacy 2-checkbox phase -> backward compat', () => {
+      const md = `### Phase 1: Bar
+- [ ] **Implementation (Gemini Sub-agent)**: Implement.
+- [ ] **Review & QA (Codex Sub-agent)**: Review.
+`;
+      const { phases } = parsePlan(md);
+      expect(phases[0].testSpecDone).toBe(true);
+      expect(phases[0].testSpecCheckboxLine).toBe(-1);
+    });
+
+    it('Test C: testSpecDone=true when checkbox is [x]', () => {
+      const md = `### Phase 1: Baz
+- [x] **Test Specification (Gemini Sub-agent)**: Write tests.
+- [ ] **Implementation (Gemini Sub-agent)**: Implement.
+- [ ] **Review & QA (Codex Sub-agent)**: Review.
+`;
+      const { phases } = parsePlan(md);
+      expect(phases[0].testSpecDone).toBe(true);
+      expect(phases[0].implementationDone).toBe(false);
+    });
+  });
 });
 
 describe('isPhaseComplete + findNextPhase', () => {

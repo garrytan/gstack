@@ -22,6 +22,7 @@ import type { Phase } from './types';
 const PHASE_HEADING = /^###\s+Phase\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/;
 const IMPL_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Implementation\b/;
 const REVIEW_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/;
+const TESTSPEC_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Test Specification/i;
 const FENCE = /^```/;
 
 export interface ParseResult {
@@ -55,15 +56,24 @@ export function parsePlan(content: string): ParseResult {
         `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing a Review checkbox`
       );
     }
-    // Only emit phases with both checkboxes — the orchestrator can't run a half-shaped phase.
+
+    // Test specification checkbox is optional for legacy plans
+    if (p.testSpecCheckboxLine == null) {
+      p.testSpecCheckboxLine = -1;
+      p.testSpecDone = true;
+    }
+
+    // Only emit phases with both core checkboxes — the orchestrator can't run a half-shaped phase.
     if (p.implementationCheckboxLine != null && p.reviewCheckboxLine != null) {
       phases.push({
         index: phases.length,
         number: p.number!,
         name: p.name!,
+        testSpecDone: !!p.testSpecDone,
         implementationDone: !!p.implementationDone,
         reviewDone: !!p.reviewDone,
         body: p.bodyLines.join('\n'),
+        testSpecCheckboxLine: p.testSpecCheckboxLine,
         implementationCheckboxLine: p.implementationCheckboxLine,
         reviewCheckboxLine: p.reviewCheckboxLine,
       });
@@ -102,6 +112,13 @@ export function parsePlan(content: string): ParseResult {
     if (!currentPhase) continue;
 
     // We're inside a phase body. Look for checkboxes.
+    const testSpecMatch = line.match(TESTSPEC_CHECKBOX);
+    if (testSpecMatch) {
+      currentPhase.testSpecCheckboxLine = i + 1; // 1-based
+      currentPhase.testSpecDone = testSpecMatch[1].toLowerCase() === 'x';
+      currentPhase.bodyLines.push(line);
+      continue;
+    }
     const implMatch = line.match(IMPL_CHECKBOX);
     if (implMatch) {
       currentPhase.implementationCheckboxLine = i + 1; // 1-based
@@ -130,7 +147,7 @@ export function parsePlan(content: string): ParseResult {
  * Returns true when both checkboxes are checked.
  */
 export function isPhaseComplete(phase: Phase): boolean {
-  return phase.implementationDone && phase.reviewDone;
+  return phase.testSpecDone && phase.implementationDone && phase.reviewDone;
 }
 
 /**

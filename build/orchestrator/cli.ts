@@ -15,6 +15,7 @@
  *   --no-resume     Ignore existing state, start fresh.
  *   --no-gbrain     Skip gbrain mirror; local JSON only.
  *   --skip-ship     Skip the final /ship + /land-and-deploy step.
+ *   --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
  *   --max-codex-iter N   Override GSTACK_BUILD_CODEX_MAX_ITER (default 5).
  *   -h, --help      This help.
  *
@@ -48,10 +49,11 @@ import {
   markCommitted,
   findNextPhaseIndex,
   DEFAULT_MAX_CODEX_ITERATIONS,
+  DEFAULT_MAX_TEST_ITERATIONS,
   type Action,
 } from './phase-runner';
-import { runGemini, runCodexReview, type SubAgentResult } from './sub-agents';
-import { flipPhaseCheckboxes } from './plan-mutator';
+import { runGemini, runCodexReview, detectTestCmd, runGeminiTestSpec, runTests, type SubAgentResult } from './sub-agents';
+import { flipPhaseCheckboxes, flipTestSpecCheckbox } from './plan-mutator';
 import { shipAndDeploy } from './ship';
 import type { BuildState, Phase } from './types';
 
@@ -63,6 +65,7 @@ interface Args {
   noGbrain: boolean;
   skipShip: boolean;
   maxCodexIter: number;
+  testCmd?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -83,7 +86,11 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--no-resume' || a === '--restart') args.noResume = true;
     else if (a === '--no-gbrain') args.noGbrain = true;
     else if (a === '--skip-ship') args.skipShip = true;
-    else if (a === '--max-codex-iter') {
+    else if (a === '--test-cmd') {
+      const next = argv[++i];
+      if (!next) { console.error('--test-cmd requires a value'); process.exit(2); }
+      args.testCmd = next;
+    } else if (a === '--max-codex-iter') {
       const next = argv[++i];
       const n = Number(next);
       if (!Number.isFinite(n) || n < 1) {
@@ -121,6 +128,7 @@ Flags:
   --no-resume          Ignore existing state, start fresh.
   --no-gbrain          Skip gbrain mirror; local JSON only.
   --skip-ship          Skip the final /ship + /land-and-deploy step.
+  --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
   --max-codex-iter N   Cap recursive Codex iterations (default 5).
   -h, --help           Show this help.
 
@@ -186,13 +194,13 @@ function buildGeminiPromptBody(phase: Phase, planFile: string, branch: string): 
     '',
     '## Instructions',
     '',
-    `1. Implement the work described above. Write the code, tests, and any docs the phase calls for.`,
-    `2. If the project uses GitHub Actions, ensure your changes pass them.`,
-    `3. Commit your changes to the current branch with a clear conventional-commit message.`,
-    `4. Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
-    `5. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
-    `6. Fail forward: if a test fails, fix it before returning. Only return when the code is done and committed.`,
-    `7. Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
+    `1. Make all failing tests pass with minimal correct code. Do NOT change test assertions.\n2. If there are no existing failing tests, implement the work described above.`,
+    `3. If the project uses GitHub Actions, ensure your changes pass them.`,
+    `4. Commit your changes to the current branch with a clear conventional-commit message.`,
+    `5. Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
+    `6. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
+    `7. Fail forward: if a test fails, fix it before returning. Only return when the code is done and committed.`,
+    `8. Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
     '',
     '## Output format',
     '',
@@ -240,6 +248,42 @@ function buildCodexReviewBody(
     .join('\n');
 }
 
+
+export function buildGeminiTestSpecPrompt(phase: Phase, planFile: string): string {
+  return [
+    `# Phase ${phase.number}: ${phase.name} — Test Specification`,
+    ``,
+    `Plan file: ${planFile}`,
+    ``,
+    `## Phase description (verbatim from the plan)`,
+    ``,
+    phase.body.trim(),
+    ``,
+    `## Instructions`,
+    ``,
+    `1. Write failing tests that cover the behavior described above.`,
+    `   Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
+    `2. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
+    `3. Cover: happy path + key edge cases using the project's existing test framework.`,
+    `4. Commit the failing tests to the current branch.`,
+    `5. Write your output summary to the output file path (provided in shell prompt).`
+  ].join('\n');
+}
+
+export function buildGeminiFixPrompt(phase: Phase, planFile: string): string {
+  return [
+    `# Phase ${phase.number}: ${phase.name} — Fix Failing Tests`,
+    ``,
+    `Plan file: ${planFile}`,
+    ``,
+    `## Instructions`,
+    ``,
+    `Tests are failing after implementation — fix the code to make them pass, do NOT change test assertions.`,
+    ``,
+    `Write your output summary to the output file path (provided in shell prompt).`
+  ].join('\n');
+}
+
 function summarizePhase(phaseNumber: string, phaseName: string, marker: string) {
   console.log(`\n[${marker}] Phase ${phaseNumber}: ${phaseName}`);
 }
@@ -251,12 +295,13 @@ async function runPhase(args: {
   noGbrain: boolean;
   dryRun: boolean;
   maxCodexIter: number;
+  testCmd?: string;
 }): Promise<'done' | 'failed'> {
   const { state, phase, cwd, noGbrain, dryRun, maxCodexIter } = args;
   let phaseState = state.phases[phase.index];
 
   while (true) {
-    const action: Action = decideNextAction(phaseState, maxCodexIter);
+    const action: Action = decideNextAction(phaseState, maxCodexIter, phase, DEFAULT_MAX_TEST_ITERATIONS);
 
     if (action.type === 'DONE') return 'done';
     if (action.type === 'FAIL') {
@@ -269,6 +314,18 @@ async function runPhase(args: {
 
     if (action.type === 'MARK_COMPLETE') {
       if (!dryRun) {
+        // Flip test-spec checkbox only if the test-spec step actually ran (Phase 4+).
+        // Without the real TDD handlers wired, geminiTestSpec is never set, so we skip.
+        if (phase.testSpecCheckboxLine !== -1 && phaseState.geminiTestSpec) {
+          const specFlip = flipTestSpecCheckbox(state.planFile, phase);
+          if (specFlip.error) {
+            state.failedAtPhase = phase.index;
+            state.failureReason = `plan test-spec checkbox flip failed: ${specFlip.error}`;
+            saveState(state, { noGbrain, log: console.warn });
+            console.error(`✗ Phase ${phase.number}: ${state.failureReason}`);
+            return 'failed';
+          }
+        }
         const flips = flipPhaseCheckboxes({
           planFile: state.planFile,
           implementationLine: phase.implementationCheckboxLine,
@@ -364,6 +421,83 @@ async function runPhase(args: {
           phaseNumber: phase.number,
           iteration: action.iteration,
         });
+      }
+      phaseState = applyResult(phaseState, action, result);
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
+    if (action.type === 'RUN_GEMINI_TEST_SPEC') {
+      console.log(`  → Test Specification: Phase ${phase.number} (iter ${action.iteration})`);
+      let result: SubAgentResult;
+      if (dryRun) {
+        result = mockResult({ exitCode: 0, stdout: '[dry-run] Gemini would write test spec' });
+      } else {
+        const inputFilePath = path.join(logDir(state.slug), `phase-${phase.number}-gemini-testspec-${action.iteration}-input.md`);
+        const outputFilePath = path.join(logDir(state.slug), `phase-${phase.number}-gemini-testspec-${action.iteration}-output.md`);
+        fs.writeFileSync(inputFilePath, buildGeminiTestSpecPrompt(phase, state.planFile));
+        fs.writeFileSync(outputFilePath, '');
+        result = await runGeminiTestSpec({ inputFilePath, outputFilePath, cwd, slug: state.slug, phaseNumber: phase.number, iteration: action.iteration });
+      }
+      phaseState = applyResult(phaseState, action, result);
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
+    if (action.type === 'VERIFY_RED') {
+      console.log(`  → Verify Red: running tests to confirm they fail`);
+      let result: SubAgentResult;
+      if (dryRun) {
+        result = mockResult({ exitCode: 1, stdout: '[dry-run] tests would fail (Red)' });
+      } else {
+        const testCmd = args.testCmd ?? detectTestCmd(cwd);
+        if (!testCmd) {
+          console.warn('  ⚠ no test command detected; assuming Red for VERIFY_RED');
+          result = mockResult({ exitCode: 1, stdout: 'no test command detected; assuming Red' });
+        } else {
+          result = await runTests({ testCmd, cwd, slug: state.slug, phaseNumber: phase.number, iteration: 1 });
+        }
+      }
+      phaseState = applyResult(phaseState, action, result);
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
+    if (action.type === 'RUN_TESTS') {
+      console.log(`  → Tests: iter ${action.iteration}`);
+      let result: SubAgentResult;
+      if (dryRun) {
+        result = mockResult({ exitCode: 0, stdout: '[dry-run] tests would pass (Green)' });
+      } else {
+        const testCmd = args.testCmd ?? detectTestCmd(cwd);
+        if (!testCmd) {
+          // No test cmd: skip test verification, treat as green.
+          console.warn('  ⚠ no test command detected; skipping test verification');
+          result = mockResult({ exitCode: 0, stdout: 'no test command; skipped' });
+        } else {
+          result = await runTests({ testCmd, cwd, slug: state.slug, phaseNumber: phase.number, iteration: action.iteration });
+        }
+      }
+      phaseState = applyResult(phaseState, action, result);
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+      continue;
+    }
+
+    if (action.type === 'RUN_GEMINI_FIX') {
+      console.log(`  → Gemini: fixing failing tests, iter ${action.iteration}`);
+      let result: SubAgentResult;
+      if (dryRun) {
+        result = mockResult({ exitCode: 0, stdout: '[dry-run] Gemini would fix tests' });
+      } else {
+        const inputFilePath = path.join(logDir(state.slug), `phase-${phase.number}-gemini-fix-${action.iteration}-input.md`);
+        const outputFilePath = path.join(logDir(state.slug), `phase-${phase.number}-gemini-fix-${action.iteration}-output.md`);
+        fs.writeFileSync(inputFilePath, buildGeminiFixPrompt(phase, state.planFile));
+        fs.writeFileSync(outputFilePath, '');
+        result = await runGemini({ inputFilePath, outputFilePath, cwd, slug: state.slug, phaseNumber: phase.number, iteration: action.iteration, logPrefix: 'gemini-fix' });
       }
       phaseState = applyResult(phaseState, action, result);
       state.phases[phase.index] = phaseState;
@@ -500,6 +634,7 @@ async function main() {
         noGbrain: args.noGbrain,
         dryRun: args.dryRun,
         maxCodexIter: args.maxCodexIter,
+        testCmd: args.testCmd,
       });
 
       if (outcome === 'failed') {
@@ -548,7 +683,9 @@ function getCurrentBranch(): string {
   }
 }
 
-main().catch((err) => {
-  console.error('fatal:', err);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error('fatal:', err);
+    process.exit(1);
+  });
+}

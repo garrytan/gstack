@@ -7,6 +7,32 @@
 > next bumps. When syncing from upstream after their next release, give this
 > entry a real version + date.
 
+## **TDD integration for `gstack-build` — Red→Green enforced by state machine (build skill v1.14.0)**
+
+`gstack-build` previously ran a 2-step loop per phase (Gemini implements → Codex reviews). Tests were optional and written ad-hoc. This adds TDD as a structural constraint: failing tests must be written before implementation begins, and tests must pass before Codex review runs. The state machine enforces the sequence — skipping is not possible.
+
+### Added
+- **3-checkbox TDD plan format** per phase: `**Test Specification (Gemini Sub-agent)**` → `**Implementation**` → `**Review & QA**`.
+- **7-step TDD loop** per phase: (1) Gemini writes failing tests, (2) VERIFY_RED confirms tests fail, (3) Gemini implements, (4) recursive test+fix loop until green, (5) Codex review, (6) flip all 3 checkboxes, (7) context save.
+- `detectTestCmd(cwd)` auto-detects test runner from `package.json`, `pytest.ini`, `pyproject.toml`, `go.mod`, `Cargo.toml`. `--test-cmd` flag overrides.
+- `runTests()` — spawns the test command with closed stdin, `GSTACK_BUILD_TEST_TIMEOUT` (default 5 min), no retry.
+- `runGeminiTestSpec()` — mirrors `runGemini`, writes logs to `phase-N-gemini-testspec-N.log`.
+- New env vars: `GSTACK_BUILD_TEST_TIMEOUT` (300000ms), `GSTACK_BUILD_TEST_MAX_ITER` (5), `GSTACK_BUILD_RED_MAX_ITER` (3).
+- `flipTestSpecCheckbox()` in `plan-mutator.ts` for atomic test-spec checkbox flip.
+- New `PhaseStatus` values: `test_spec_running`, `test_spec_done`, `tests_red`, `test_fix_running`, `tests_green`.
+- Dry-run integration test covering the full 7-step TDD flow across 2 phases.
+
+### Changed
+- `build/SKILL.md.tmpl` (and regenerated `build/SKILL.md`) bumped to v1.14.0 with TDD loop documentation.
+- `runGemini` accepts optional `logPrefix` — fix iterations now log to `phase-N-gemini-fix-N.log` (not `phase-N-gemini-N.log`), preventing collision with implementation logs.
+- `decideNextAction` signature extended with `phase?`, `maxTestIterations`, `maxRedSpecIterations`.
+- 105 unit tests (was 76 before `gstack-build` shipped, 104 before this change).
+
+### Backward compat
+- Legacy 2-checkbox plans: parser sets `testSpecDone=true`; orchestrator skips TDD steps entirely. Old plans run unchanged.
+
+---
+
 ## **`gstack-build` ships. Code-driven phase orchestrator for /build skill.**
 
 The `/build` skill's per-phase loop is unreliable on long plans: the orchestrator LLM stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." This release ships `gstack-build`, a standalone CLI that drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. Code = state machine + persistence + retry. LLM = per-phase brain with a clean context window.

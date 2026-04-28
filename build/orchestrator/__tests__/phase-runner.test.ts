@@ -6,7 +6,7 @@ import {
   findNextPhaseIndex,
   DEFAULT_MAX_CODEX_ITERATIONS,
 } from '../phase-runner';
-import type { PhaseState } from '../types';
+import type { PhaseState, Phase } from '../types';
 import type { SubAgentResult } from '../sub-agents';
 
 function basePhase(overrides: Partial<PhaseState> = {}): PhaseState {
@@ -64,10 +64,15 @@ describe('decideNextAction', () => {
     expect(action.type).toBe('RUN_GEMINI');
   });
 
-  it('gemini_done → RUN_CODEX_REVIEW iter 1', () => {
-    const action = decideNextAction(basePhase({ status: 'gemini_done' }));
+  it('gemini_done (TDD phase) → RUN_TESTS iter 1', () => {
+    const action = decideNextAction(basePhase({ status: 'gemini_done' }), 5, { testSpecDone: false } as any);
+    expect(action.type).toBe('RUN_TESTS');
+    if (action.type === 'RUN_TESTS') expect(action.iteration).toBe(1);
+  });
+
+  it('gemini_done (legacy phase, testSpecDone=true) → RUN_CODEX_REVIEW', () => {
+    const action = decideNextAction(basePhase({ status: 'gemini_done' }), 5, { testSpecDone: true } as any);
     expect(action.type).toBe('RUN_CODEX_REVIEW');
-    if (action.type === 'RUN_CODEX_REVIEW') expect(action.iteration).toBe(1);
   });
 
   it('codex_running with iters < max → RUN_CODEX_REVIEW iter+1', () => {
@@ -112,7 +117,7 @@ describe('applyResult — Gemini', () => {
   it('successful Gemini → status gemini_done', () => {
     const initial = basePhase({ status: 'pending' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, geminiSuccess());
+    const next = applyResult(initial, action as any, geminiSuccess());
     expect(next.status).toBe('gemini_done');
     expect(next.gemini?.exitCode).toBe(0);
     expect(next.gemini?.outputLogPath).toBe('/tmp/gemini.log');
@@ -121,7 +126,7 @@ describe('applyResult — Gemini', () => {
   it('timed-out Gemini → status failed', () => {
     const initial = basePhase({ status: 'pending' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, geminiTimeout());
+    const next = applyResult(initial, action as any, geminiTimeout());
     expect(next.status).toBe('failed');
     expect(next.error).toMatch(/timed out/i);
   });
@@ -129,7 +134,7 @@ describe('applyResult — Gemini', () => {
   it('non-zero Gemini exit → status failed', () => {
     const initial = basePhase({ status: 'pending' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, geminiFailure());
+    const next = applyResult(initial, action as any, geminiFailure());
     expect(next.status).toBe('failed');
     expect(next.error).toMatch(/exited 1/);
   });
@@ -138,73 +143,73 @@ describe('applyResult — Gemini', () => {
     const initial = basePhase({ status: 'pending' });
     const action = decideNextAction(initial);
     const before = JSON.stringify(initial);
-    applyResult(initial, action, geminiSuccess());
+    applyResult(initial, action as any, geminiSuccess());
     expect(JSON.stringify(initial)).toBe(before);
   });
 });
 
 describe('applyResult — Codex review', () => {
   it('GATE PASS → review_clean and bumps iterations to 1', () => {
-    const initial = basePhase({ status: 'gemini_done' });
+    const initial = basePhase({ status: 'tests_green' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, codexPass());
+    const next = applyResult(initial, action as any, codexPass());
     expect(next.status).toBe('review_clean');
     expect(next.codexReview?.iterations).toBe(1);
     expect(next.codexReview?.finalVerdict).toBe('GATE PASS');
   });
 
   it('GATE FAIL on first iter → codex_running, iterations=1', () => {
-    const initial = basePhase({ status: 'gemini_done' });
+    const initial = basePhase({ status: 'tests_green' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, codexFail());
+    const next = applyResult(initial, action as any, codexFail());
     expect(next.status).toBe('codex_running');
     expect(next.codexReview?.iterations).toBe(1);
     expect(next.codexReview?.finalVerdict).toBe('GATE FAIL');
   });
 
   it('successive GATE FAIL passes accumulate iterations', () => {
-    let s = basePhase({ status: 'gemini_done' });
+    let s = basePhase({ status: 'tests_green' });
     for (let i = 1; i <= 3; i++) {
       const action = decideNextAction(s);
-      s = applyResult(s, action, codexFail());
+      s = applyResult(s, action as any, codexFail());
       expect(s.codexReview?.iterations).toBe(i);
       expect(s.status).toBe('codex_running');
     }
   });
 
   it('GATE PASS after multiple fails → review_clean, log paths preserved', () => {
-    let s = basePhase({ status: 'gemini_done' });
+    let s = basePhase({ status: 'tests_green' });
     let action = decideNextAction(s);
-    s = applyResult(s, action, codexFail());
+    s = applyResult(s, action as any, codexFail());
     action = decideNextAction(s);
-    s = applyResult(s, action, codexFail());
+    s = applyResult(s, action as any, codexFail());
     action = decideNextAction(s);
-    s = applyResult(s, action, codexPass());
+    s = applyResult(s, action as any, codexPass());
     expect(s.status).toBe('review_clean');
     expect(s.codexReview?.iterations).toBe(3);
     expect(s.codexReview?.outputLogPaths).toHaveLength(3);
   });
 
   it('Codex timeout → status failed, finalVerdict TIMEOUT', () => {
-    const initial = basePhase({ status: 'gemini_done' });
+    const initial = basePhase({ status: 'tests_green' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, codexTimeout());
+    const next = applyResult(initial, action as any, codexTimeout());
     expect(next.status).toBe('failed');
     expect(next.codexReview?.finalVerdict).toBe('TIMEOUT');
   });
 
   it('Codex non-zero exit → status failed', () => {
-    const initial = basePhase({ status: 'gemini_done' });
+    const initial = basePhase({ status: 'tests_green' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, { ...codexPass(), exitCode: 5, stdout: '' });
+    const next = applyResult(initial, action as any, { ...codexPass(), exitCode: 5, stdout: '' });
     expect(next.status).toBe('failed');
     expect(next.error).toMatch(/exited 5/);
   });
 
   it('verdict unclear → status failed (cannot determine outcome)', () => {
-    const initial = basePhase({ status: 'gemini_done' });
+    const initial = basePhase({ status: 'tests_green' });
     const action = decideNextAction(initial);
-    const next = applyResult(initial, action, codexUnclear());
+    const next = applyResult(initial, action as any, codexUnclear());
     expect(next.status).toBe('failed');
     expect(next.error).toMatch(/GATE PASS or GATE FAIL/);
   });
@@ -247,24 +252,101 @@ describe('findNextPhaseIndex', () => {
 });
 
 describe('end-to-end happy path through the state machine', () => {
-  it('pending → gemini_done → review_clean → committed', () => {
+  it('pending → gemini_done → tests_green → review_clean → committed', () => {
     let s = basePhase({ status: 'pending' });
-    let a = decideNextAction(s);
-    expect(a.type).toBe('RUN_GEMINI');
-    s = applyResult(s, a, geminiSuccess());
-    expect(s.status).toBe('gemini_done');
+    // TDD phase: testSpecDone=false means test spec is needed, but we start from gemini_done
+    // to test the post-impl path; use testSpecDone=false so gemini_done routes to RUN_TESTS.
+    let a = decideNextAction(s as any, 5, { testSpecDone: false } as any);
+    expect(a.type).toBe('RUN_GEMINI_TEST_SPEC');
+    // Simulate already having gone through test-spec + verify-red + impl: jump to gemini_done.
+    s = { ...basePhase({ status: 'gemini_done' }) };
 
-    a = decideNextAction(s);
+    a = decideNextAction(s as any, 5, { testSpecDone: false } as any);
+    expect(a.type).toBe('RUN_TESTS');
+    s = applyResult(s, a as any, { stdout: '', stderr: '', exitCode: 0, timedOut: false, logPath: '', durationMs: 100, retries: 0 });
+    expect(s.status).toBe('tests_green');
+
+    a = decideNextAction(s as any, 5, { testSpecDone: true } as any);
     expect(a.type).toBe('RUN_CODEX_REVIEW');
-    s = applyResult(s, a, codexPass());
+    s = applyResult(s, a as any, codexPass());
     expect(s.status).toBe('review_clean');
 
-    a = decideNextAction(s);
+    a = decideNextAction(s as any, 5, { testSpecDone: true } as any);
     expect(a.type).toBe('MARK_COMPLETE');
     s = markCommitted(s);
     expect(s.status).toBe('committed');
 
-    a = decideNextAction(s);
+    a = decideNextAction(s as any, 5, { testSpecDone: true } as any);
     expect(a.type).toBe('DONE');
+  });
+});
+
+describe('TDD state machine transitions', () => {
+  const tddPhase: Phase = {
+    index: 0, number: '1', name: 'TDD Test', body: 'test content',
+    testSpecDone: false, testSpecCheckboxLine: 3,
+    implementationDone: false, implementationCheckboxLine: 4,
+    reviewDone: false, reviewCheckboxLine: 5,
+  };
+  const legacyPhase: Phase = {
+    index: 0, number: '1', name: 'Legacy', body: 'content',
+    testSpecDone: true, testSpecCheckboxLine: -1,
+    implementationDone: false, implementationCheckboxLine: 4,
+    reviewDone: false, reviewCheckboxLine: 5,
+  };
+
+  it('pending with testSpecDone=false → RUN_GEMINI_TEST_SPEC', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'pending' as any };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('RUN_GEMINI_TEST_SPEC');
+  });
+
+  it('pending with legacy phase (testSpecDone=true) → RUN_GEMINI', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'Legacy', status: 'pending' as any };
+    const action = decideNextAction(state, 5, legacyPhase);
+    expect(action.type).toBe('RUN_GEMINI');
+  });
+
+  it('test_spec_done → VERIFY_RED', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'test_spec_done' as any };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('VERIFY_RED');
+  });
+
+  it('tests_red → RUN_GEMINI', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'tests_red' as any };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('RUN_GEMINI');
+  });
+
+  it('gemini_done → RUN_TESTS', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'gemini_done' as any, gemini: { retries: 0 } as any };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('RUN_TESTS');
+  });
+
+  it('test_fix_running with fail result cycles → RUN_GEMINI_FIX', () => {
+    const state: PhaseState = {
+      index: 0, number: '1', name: 'TDD', status: 'test_fix_running' as any,
+      testFix: { iterations: 2, outputLogPaths: ['a.log', 'b.log'] } as any
+    };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('RUN_GEMINI_FIX');
+    expect((action as any).iteration).toBe(3);
+  });
+
+  it('test_fix_running at max iterations → FAIL', () => {
+    const state: PhaseState = {
+      index: 0, number: '1', name: 'TDD', status: 'test_fix_running' as any,
+      testFix: { iterations: 5, outputLogPaths: ['a','b','c','d','e'] } as any
+    };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('FAIL');
+  });
+
+  it('tests_green → RUN_CODEX_REVIEW', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'tests_green' as any };
+    const action = decideNextAction(state, 5, tddPhase);
+    expect(action.type).toBe('RUN_CODEX_REVIEW');
   });
 });

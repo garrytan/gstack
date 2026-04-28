@@ -17,6 +17,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { Phase } from './types';
 
 export interface FlipResult {
   /** True if the line was found unchecked and flipped. */
@@ -135,4 +136,19 @@ export function _testWritePlan(content: string): string {
   const p = path.join(dir, 'plan.md');
   fs.writeFileSync(p, content);
   return p;
+}
+
+/**
+ * Flip the Test Specification checkbox for a phase from [ ] to [x].
+ * Uses the same atomic write-to-temp-and-rename pattern.
+ */
+export function flipTestSpecCheckbox(planFile: string, phase: Phase): FlipResult {
+  if (phase.testSpecCheckboxLine > 0) {
+    return flipCheckbox({
+      planFile,
+      lineNumber: phase.testSpecCheckboxLine,
+      expectedMarker: '**Test Specification',
+    });
+  }
+  return { flipped: false, alreadyChecked: true };
 }

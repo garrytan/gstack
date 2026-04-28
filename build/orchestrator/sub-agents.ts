@@ -150,6 +150,7 @@ export async function runGemini(opts: {
   phaseNumber: string;
   iteration: number;
   model?: string;
+  logPrefix?: string;
 }): Promise<SubAgentResult> {
   ensureLogDir(opts.slug);
 
@@ -164,9 +165,10 @@ export async function runGemini(opts: {
   if (opts.model) argv.push('-m', opts.model);
   argv.push('--yolo');
 
+  const prefix = opts.logPrefix ?? 'gemini';
   const logPath = path.join(
     logDir(opts.slug),
-    `phase-${opts.phaseNumber}-gemini-${opts.iteration}.log`
+    `phase-${opts.phaseNumber}-${prefix}-${opts.iteration}.log`
   );
 
   let result = await spawnCaptured({
@@ -372,4 +374,105 @@ export function parseVerdict(stdout: string): Verdict {
   if (passIdx < 0 && failIdx < 0) return 'unclear';
   if (passIdx > failIdx) return 'pass';
   return 'fail';
+}
+
+export function detectTestCmd(cwd: string): string | null {
+  if (fs.existsSync(path.join(cwd, 'package.json'))) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+      if (pkg.scripts && pkg.scripts.test) return pkg.scripts.test;
+    } catch {
+      console.warn('  ⚠ package.json is not valid JSON; skipping npm/bun test detection');
+    }
+  }
+  if (fs.existsSync(path.join(cwd, 'pytest.ini'))) return 'pytest';
+  if (fs.existsSync(path.join(cwd, 'pyproject.toml'))) {
+    const toml = fs.readFileSync(path.join(cwd, 'pyproject.toml'), 'utf8');
+    if (toml.includes('[tool.pytest.ini_options]')) return 'pytest';
+  }
+  if (fs.existsSync(path.join(cwd, 'go.mod'))) return 'go test ./...';
+  if (fs.existsSync(path.join(cwd, 'Cargo.toml'))) return 'cargo test';
+  return null;
+}
+
+export async function runGeminiTestSpec(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+  model?: string;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+
+  const shellPrompt = [
+    `Read instructions at ${opts.inputFilePath}.`,
+    `Do the work autonomously using your --yolo file tools.`,
+    `When done, write your output summary (what files changed, what tests pass, what was committed) to ${opts.outputFilePath}.`,
+    `Return ONLY the output file path. No narrative.`,
+  ].join(' ');
+
+  const argv = ['-p', shellPrompt];
+  if (opts.model) argv.push('-m', opts.model);
+  argv.push('--yolo');
+
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-gemini-testspec-${opts.iteration}.log`
+  );
+
+  let result = await spawnCaptured({
+    bin: GEMINI_BIN,
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: GEMINI_TIMEOUT_MS,
+    logPath,
+    closeStdin: false,
+  });
+
+  if (result.timedOut) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-gemini-testspec-${opts.iteration}-retry.log`
+    );
+    const retryResult = await spawnCaptured({
+      bin: GEMINI_BIN,
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: GEMINI_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: false,
+    });
+    retryResult.retries = 1;
+    return mergeOutputFile(retryResult, opts.outputFilePath);
+  }
+  return mergeOutputFile(result, opts.outputFilePath);
+}
+
+export async function runTests(opts: {
+  testCmd: string;
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+  const parts = opts.testCmd.trim().split(/\s+/);
+  const bin = parts[0];
+  const argv = parts.slice(1);
+
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-tests-${opts.iteration}.log`
+  );
+
+  return spawnCaptured({
+    bin,
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: Number(process.env.GSTACK_BUILD_TEST_TIMEOUT) || 5 * 60_000,
+    logPath,
+    closeStdin: true,
+  });
 }

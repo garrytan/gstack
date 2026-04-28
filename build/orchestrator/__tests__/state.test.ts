@@ -36,9 +36,11 @@ const phases: Phase[] = [
     index: 0,
     number: '1',
     name: 'Foo',
+    testSpecDone: true,
     implementationDone: false,
     reviewDone: false,
     body: '',
+    testSpecCheckboxLine: -1,
     implementationCheckboxLine: 5,
     reviewCheckboxLine: 6,
   },
@@ -46,9 +48,11 @@ const phases: Phase[] = [
     index: 1,
     number: '2',
     name: 'Bar',
+    testSpecDone: true,
     implementationDone: true,
     reviewDone: true,
     body: '',
+    testSpecCheckboxLine: -1,
     implementationCheckboxLine: 10,
     reviewCheckboxLine: 11,
   },
@@ -83,6 +87,18 @@ describe('freshState', () => {
     }));
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases: allDone });
     expect(s.completed).toBe(true);
+  });
+
+  it('does NOT mark a phase committed when testSpecDone=false even if impl+review are checked', () => {
+    const tddPhase: Phase[] = [{
+      index: 0, number: '1', name: 'TDD', body: '',
+      testSpecDone: false, testSpecCheckboxLine: 5,
+      implementationDone: true, reviewDone: true,
+      implementationCheckboxLine: 6, reviewCheckboxLine: 7,
+    }];
+    const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases: tddPhase });
+    expect(s.phases[0].status).toBe('pending');
+    expect(s.completed).toBe(false);
   });
 });
 

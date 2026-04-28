@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { flipCheckbox, flipPhaseCheckboxes, _testWritePlan } from '../plan-mutator';
+import { flipCheckbox, flipPhaseCheckboxes, _testWritePlan, flipTestSpecCheckbox } from '../plan-mutator';
 
 describe('flipCheckbox', () => {
   it('flips [ ] to [x] on the target line', () => {
@@ -147,5 +147,31 @@ not a checkbox
     expect(r.implementation.flipped).toBe(true);
     expect(r.review.error).toBeDefined();
     fs.rmSync(path.dirname(p), { recursive: true });
+  });
+});
+describe('flipTestSpecCheckbox', () => {
+  it('flipTestSpecCheckbox flips only the test-spec line', () => {
+    const md = `### Phase 1: Test
+- [ ] **Test Specification (Gemini Sub-agent)**: Tests.
+- [ ] **Implementation (Gemini Sub-agent)**: Impl.
+- [ ] **Review & QA (Codex Sub-agent)**: Review.
+`;
+    const p = _testWritePlan(md);
+    const phase = {
+      testSpecCheckboxLine: 2
+    };
+    const result = flipTestSpecCheckbox(p, phase as any);
+    expect(result.flipped).toBe(true);
+    const after = fs.readFileSync(p, 'utf8').split(/\r?\n/);
+    expect(after[1]).toContain('[x] **Test Specification');
+    expect(after[2]).toContain('[ ] **Implementation');
+    expect(after[3]).toContain('[ ] **Review');
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it('flipTestSpecCheckbox returns alreadyChecked for legacy plans', () => {
+    const result = flipTestSpecCheckbox('/fake/plan.md', { testSpecCheckboxLine: -1 } as any);
+    expect(result.flipped).toBe(false);
+    expect(result.alreadyChecked).toBe(true);
   });
 });

@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'bun:test';
-import { parseVerdict, stripAnsi } from '../sub-agents';
+import { describe, it, expect, afterEach } from 'bun:test';
+import { parseVerdict, stripAnsi, detectTestCmd } from '../sub-agents';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 describe('stripAnsi', () => {
   it('removes ANSI color codes', () => {
@@ -34,5 +37,56 @@ describe('parseVerdict', () => {
   it('case-sensitive (lowercase gate pass does NOT match)', () => {
     // Per the convention in real plans — Codex emits the keyword in caps.
     expect(parseVerdict('gate pass')).toBe('unclear');
+  });
+});
+
+describe('detectTestCmd', () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir && fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns "bun test" when package.json has "test": "bun test"', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ scripts: { test: 'bun test' } }));
+    expect(detectTestCmd(tmpDir)).toBe('bun test');
+  });
+
+  it('returns "npm test" when package.json has "test": "npm test"', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ scripts: { test: 'npm test' } }));
+    expect(detectTestCmd(tmpDir)).toBe('npm test');
+  });
+
+  it('returns "pytest" when pytest.ini exists', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    fs.writeFileSync(path.join(tmpDir, 'pytest.ini'), '[pytest]');
+    expect(detectTestCmd(tmpDir)).toBe('pytest');
+  });
+
+  it('returns "pytest" when pyproject.toml has [tool.pytest.ini_options]', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    fs.writeFileSync(path.join(tmpDir, 'pyproject.toml'), '[tool.pytest.ini_options]\n');
+    expect(detectTestCmd(tmpDir)).toBe('pytest');
+  });
+
+  it('returns "go test ./..." when go.mod exists', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    fs.writeFileSync(path.join(tmpDir, 'go.mod'), 'module test\n');
+    expect(detectTestCmd(tmpDir)).toBe('go test ./...');
+  });
+
+  it('returns "cargo test" when Cargo.toml exists', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    fs.writeFileSync(path.join(tmpDir, 'Cargo.toml'), '[package]\n');
+    expect(detectTestCmd(tmpDir)).toBe('cargo test');
+  });
+
+  it('returns null when no known files exist', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-test-'));
+    expect(detectTestCmd(tmpDir)).toBeNull();
   });
 });

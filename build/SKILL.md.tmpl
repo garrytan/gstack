@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.13.0
+version: 1.14.0
 description: |
   Autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -29,7 +29,7 @@ triggers:
 # /build — Autonomous Execution Loop
 
 You are the Execution Agent. The planning phase is over. Your job is to read the approved implementation plan and execute it autonomously in phases.
-**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.13.0").**
+**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.14.0").**
 
 **LLM-driven loop vs. code-driven CLI** — for short plans (1-3 phases), proceed with this skill: you are the orchestrator. For long multi-week plans (5+ phases), the LLM-driven loop is unreliable: it stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." For those, recommend the standalone CLI: `gstack-build <plan-file>`. The CLI drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. See `~/.claude/skills/gstack/build/orchestrator/README.md` for usage.
 
@@ -89,7 +89,8 @@ When more than one candidate is found across priorities, prefer the most recent 
    - **CRITICAL**: For *every* phase in the checklist, you MUST explicitly include sub-checkboxes for the execution loop. This acts as your strict state machine. Format every phase exactly like this:
      ```markdown
      ### Phase X: [Phase Name]
-     - [ ] **Implementation (Gemini Sub-agent)**: [Specific coding tasks to be done...]
+     - [ ] **Test Specification (Gemini Sub-agent)**: Write failing tests covering the behavior described below. Tests MUST fail before implementation begins. Cover happy path + key edge cases using the project's existing test framework. Do NOT write any implementation code yet.
+     - [ ] **Implementation (Gemini Sub-agent)**: Make all failing tests pass with minimal correct code. Do NOT change test assertions.
      - [ ] **Review & QA (Codex Sub-agent)**: Run `codex /gstack-review` and (if UI changed) `codex /gstack-qa` to execute the full multi-pass review checklist and fix bugs.
      ```
    - A dedicated test plan strategy for verifying the behavior.
@@ -104,29 +105,46 @@ For each phase in your living plan checklist that is marked as `[ ]` (if in Reex
 **File-path I/O is mandatory for ALL sub-agent calls.** Never paste large content inline. Write inputs to disk, ask the model to write outputs to disk, then read the output files. This rule applies universally — small or large tasks. The `--yolo` (Gemini) and `-s workspace-write` (Codex) modes make file I/O reliable; the older "model hangs when told to read files" failure was a non-yolo / read-only-sandbox problem and no longer applies.
 
 **Per-phase file layout (consistent paths):**
+- Test-spec input: `/tmp/build-<phase-N>-gemini-testspec-input-<iter>.md`
+- Test-spec output: `/tmp/build-<phase-N>-gemini-testspec-output-<iter>.md`
 - Input prompt: `/tmp/build-<phase-N>-gemini-input-<iter>.md`
 - Output summary: `/tmp/build-<phase-N>-gemini-output-<iter>.md`
+- Test-fix input: `/tmp/build-<phase-N>-gemini-fix-input-<iter>.md`
+- Test-fix output: `/tmp/build-<phase-N>-gemini-fix-output-<iter>.md`
 - Codex review input: `/tmp/build-<phase-N>-codex-input-<iter>.md`
 - Codex review output: `/tmp/build-<phase-N>-codex-output-<iter>.md`
 
-1. **Spawn Gemini Execution Sub-Agent (file-path I/O)**: You MUST spawn the execution sub-agent using the **Gemini** model via the `mcp__llm-bridge__ask_gemini` MCP tool. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
+1. **Spawn Gemini Test Specification Sub-Agent (file-path I/O)**: Before any implementation, spawn Gemini to write failing tests.
+   - Write the test-spec input prompt to `/tmp/build-<phase-N>-gemini-testspec-input-<iter>.md`. Include: the phase goal, what behavior the tests must cover (happy path + edge cases), the project's existing test framework (detect from package.json/pytest.ini/etc.), the constraint "tests MUST fail before implementation — do NOT write any implementation code."
+   - The MCP call's `prompt` field stays short: `"Read instructions at <input-path>. Write failing tests only. Write output summary to <output-path>. Return ONLY the path."`
+   - After the MCP call, read `<output-path>` to confirm tests were written.
+2. **Run Tests — Verify Red (MANDATORY)**: After Gemini writes tests, run them to confirm they fail.
+   - Use the Bash tool to run the project's test command (auto-detect: check `package.json scripts.test`, `pytest.ini`, `go.mod`, `Cargo.toml` in order; or use the test command the user provided). Example: `cd <project-dir> && bun test <test-file-path>` or `pytest <test-path>`.
+   - **If tests PASS before implementation**: The tests are too weak. Write a new test-spec input file describing the problem ("tests passed before implementation — rewrite with stricter assertions") and re-spawn Gemini. Re-run until tests fail. Cap this at `GSTACK_BUILD_RED_MAX_ITER` (default 3) re-prompts. If Gemini cannot produce failing tests after 3 attempts, STOP and surface the error to the user.
+   - **If tests FAIL as expected**: Proceed to implementation (step 3).
+3. **Spawn Gemini Execution Sub-Agent (file-path I/O)**: You MUST spawn the execution sub-agent using the **Gemini** model via the `mcp__llm-bridge__ask_gemini` MCP tool. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
    - **Write the input prompt to a file first.** Use the `Write` tool to put the full instruction body — goal, phase checklist, code references, constraints, success criteria — into `/tmp/build-<phase-N>-gemini-input-<iter>.md`. The MCP prompt body itself stays short: it just says "Read `<input-path>`. Do the work. Write your output summary to `<output-path>`." Do NOT inline the phase context in the MCP call.
    - **Reference existing code by file path, not by inlined content.** Tell Gemini: "Read the existing code at `path/to/file.ts` if you need it." With `--yolo` mode, Gemini's file-read tools work reliably. Inlining hundreds of lines of code wastes tokens and the model often returns truncated.
    - **The input file** must include: the exact goal, phase checklist from the living plan, instructions to build and verify, instructions to make GitHub Actions checks green, instruction to commit to the current branch, instruction to fail forward and only return when the code is written, and "Do NOT use raw `git` commands or `gh` CLI to ship. Do NOT skip steps or hallucinate your own review process. Do NOT instruct Gemini to run /review or /ship."
    - **The MCP call's `prompt` field** must be short and only say: "Read the instructions at `<input-path>`. Do the work autonomously with --yolo file tools. When done, write your output summary (what files changed, what tests pass, what's committed) to `<output-path>`. Return ONLY the path to your output file. No narrative."
    - **After the MCP call returns**, use the `Read` tool to read `<output-path>` for Gemini's actual work summary. Treat the MCP return value as a status indicator, not the work product.
    - **File batching**: Gemini handles ≤2 file references per call reliably. If a phase touches 3+ files, split into parallel sub-calls. Each sub-call still uses the file-path I/O pattern.
-2. **Wait for Gemini Completion**: The MCP tool call will execute synchronously. Let it block until it finishes. **NEVER skip the sub-agent to do the work yourself.** Read the output file before proceeding.
-3. **Spawn Codex Review Sub-Agent (RECURSIVE — loop until clean, file-path I/O)**: After Gemini finishes writing the code, you MUST use the `Bash` tool to run `codex exec /gstack-review` with file-path I/O.
+4. **Wait for Gemini Completion**: The MCP tool call will execute synchronously. Let it block until it finishes. **NEVER skip the sub-agent to do the work yourself.** Read the output file before proceeding.
+5. **Recursive Test+Fix Loop (MANDATORY — loop until green)**: After Gemini finishes implementation, run tests recursively until they all pass.
+   - Run the project's test command: `cd <project-dir> && <test-cmd>`.
+   - If tests **PASS** (exit 0): proceed to Codex review (step 6).
+   - If tests **FAIL**: write a new Gemini input file at `/tmp/build-<phase-N>-gemini-fix-input-<iter>.md` describing which tests failed and what the error output was. Re-spawn Gemini with the fix prompt, require it to write its output summary to `/tmp/build-<phase-N>-gemini-fix-output-<iter>.md`, then read that output file before re-running tests. Repeat up to 5 times (`GSTACK_BUILD_TEST_MAX_ITER`, default 5).
+   - If still failing after 5 iterations: STOP, surface the failure to the user, and exit. Do NOT advance to Codex review with failing tests.
+6. **Spawn Codex Review Sub-Agent (RECURSIVE — loop until clean, file-path I/O)**: After Gemini finishes writing the code, you MUST use the `Bash` tool to run `codex exec /gstack-review` with file-path I/O.
    - **Write the review request to a file.** Put the goal of this review iteration (which phase, what changed, what to verify) into `/tmp/build-<phase-N>-codex-input-<iter>.md`. The codex CLI invocation prompt stays short.
    - **Invocation pattern**: `codex exec "Read instructions at /tmp/build-<phase-N>-codex-input-<iter>.md. Run /gstack-review. Write your full review report to /tmp/build-<phase-N>-codex-output-<iter>.md including a final 'GATE PASS' or 'GATE FAIL' line." -s workspace-write -c model_reasoning_effort="high"`. Use `workspace-write` so Codex can fix bugs as it reviews. Do NOT inline the diff or instructions.
    - If the implementation included UI, visual, or frontend behavior changes, you MUST also run `codex exec /gstack-qa` with the same file-path pattern after the review completes.
    - **CRITICAL**: Do NOT run `claude -p /review`, `claude -p /qa`, or `claude --model sonnet`. You MUST use `codex exec /gstack-review` and `codex exec /gstack-qa` to offload the review process completely to the Codex orchestrator.
    - **After each Codex iteration**, use the `Read` tool to read the output file. Look for the `GATE PASS` / `GATE FAIL` keyword on its own line. Do NOT parse stdout for the verdict — stdout is for status only; the file is the source of truth for the work product.
-   - **RECURSIVE LOOP REQUIREMENT**: If the output file's verdict is `GATE FAIL`, write a new input file (`/tmp/build-<phase-N>-codex-input-<iter+1>.md`) describing the issues to fix, re-spawn Codex with a new output path, and re-check. Repeat the review→fix→review cycle until Codex writes `GATE PASS`. Do NOT advance to step 5 (Update Living Plan) with open review findings. A single review pass is NOT sufficient — past sessions have left issues unaddressed by stopping after one pass.
-4. **Wait for Codex Completion**: Run the Codex process synchronously in the foreground. Wait for the Bash tool to return. Apply the recursive loop in step 3 until the review is fully clean.
-5. **Update Living Plan (MANDATORY — never skip)**: After both Gemini implementation and the recursive Codex review have completed cleanly, you MUST immediately use the `Edit` tool to modify the living plan and check off the specific sub-checkboxes for this phase (change `[ ] **Implementation...` to `[x]` and `[ ] **Review...` to `[x]`). This step runs unconditionally after every phase, regardless of how trivial the phase felt — past sessions have forgotten this step under context pressure and progress tracking has drifted. Treat this as a hard requirement, not a nice-to-have. Verify there are zero remaining issues from the review before checking the box.
-6. **Context save at phase boundary**: After each phase completes (both implementation and review checked), run `claude --model sonnet -p /context-save` via the `Bash` tool. This ensures progress survives a context window compaction mid-session.
+   - **RECURSIVE LOOP REQUIREMENT**: If the output file's verdict is `GATE FAIL`, write a new input file (`/tmp/build-<phase-N>-codex-input-<iter+1>.md`) describing the issues to fix, re-spawn Codex with a new output path, and re-check. Repeat the review→fix→review cycle until Codex writes `GATE PASS`. Do NOT advance to step 8 (Update Living Plan) with open review findings. A single review pass is NOT sufficient — past sessions have left issues unaddressed by stopping after one pass.
+7. **Wait for Codex Completion**: Run the Codex process synchronously in the foreground. Wait for the Bash tool to return. Apply the recursive loop in step 6 until the review is fully clean.
+8. **Update Living Plan (MANDATORY — never skip)**: After both Gemini implementation and the recursive Codex review have completed cleanly, you MUST immediately use the `Edit` tool to modify the living plan and check off the specific sub-checkboxes for this phase (change `[ ] **Test Specification...` to `[x]`, `[ ] **Implementation...` to `[x]`, and `[ ] **Review...` to `[x]`). This step runs unconditionally after every phase, regardless of how trivial the phase felt — past sessions have forgotten this step under context pressure and progress tracking has drifted. Treat this as a hard requirement, not a nice-to-have. Verify there are zero remaining issues from the review before checking the box.
+9. **Context save at phase boundary**: After each phase completes (all three sub-checkboxes — Test Specification, Implementation, and Review — checked), run `claude --model sonnet -p /context-save` via the `Bash` tool. This ensures progress survives a context window compaction mid-session.
 
 Do NOT stop to ask the user for permission between phases unless a sub-agent fails catastrophically or hits a safety constraint. Keep the loop going.
 
