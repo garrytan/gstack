@@ -62,7 +62,8 @@ Parse the user's input:
 
 ```bash
 {{SLUG_SETUP}}
-CHECKPOINT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/checkpoints"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+CHECKPOINT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/checkpoints"
 if [ ! -d "$CHECKPOINT_DIR" ]; then
   echo "NO_CHECKPOINTS"
 else

@@ -701,7 +701,8 @@ Parse the user's input:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
-CHECKPOINT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/checkpoints"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+CHECKPOINT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/checkpoints"
 if [ ! -d "$CHECKPOINT_DIR" ]; then
   echo "NO_CHECKPOINTS"
 else
