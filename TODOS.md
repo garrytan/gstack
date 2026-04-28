@@ -1378,3 +1378,19 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 ### Auto-upgrade mode + smart update check
 - Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
 **Completed:** v0.3.8
+
+## Phase B1 candidate: /build --dry-run mode
+
+**What:** `/build --dry-run "<seed>"` runs the chain without actual code generation, surfacing what each stage would produce. ~$0.50 cost.
+
+**Why:** Pre-spend transparency before kicking off a $20-50 run. Helps users decide whether to run.
+
+**Pros:** Builds adoption confidence. Catches cost surprises. Allows external users to "try before they buy."
+
+**Cons:** Implementation cost (~2 hours CC). Not load-bearing for Phase A (single-user Bilal).
+
+**Context:** Considered during /plan-ceo-review SELECTIVE EXPANSION cherry-pick. Deferred because Phase A is single-user; Bilal will know what to expect after first real run. Promote when Phase B1 starts adding external users.
+
+**Effort:** S (CC: ~2 hours)
+**Priority:** P2
+**Depends on:** Phase A complete (/build skill exists to add --dry-run flag to)
