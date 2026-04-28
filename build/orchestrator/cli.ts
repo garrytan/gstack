@@ -117,19 +117,19 @@ export function parseArgs(argv: string[]): Args {
     else if (a === '--dual-impl') args.dualImpl = true;
     else if (a === '--gemini-model') {
       const next = argv[++i];
-      if (!next) { console.error('--gemini-model requires a value'); process.exit(2); }
+      if (!next || next.startsWith('--')) { console.error('--gemini-model requires a value'); process.exit(2); }
       args.geminiModel = next;
     } else if (a === '--codex-model') {
       const next = argv[++i];
-      if (!next) { console.error('--codex-model requires a value'); process.exit(2); }
+      if (!next || next.startsWith('--')) { console.error('--codex-model requires a value'); process.exit(2); }
       args.codexModel = next;
     } else if (a === '--codex-review-model') {
       const next = argv[++i];
-      if (!next) { console.error('--codex-review-model requires a value'); process.exit(2); }
+      if (!next || next.startsWith('--')) { console.error('--codex-review-model requires a value'); process.exit(2); }
       args.codexReviewModel = next;
     } else if (a === '--test-cmd') {
       const next = argv[++i];
-      if (!next) { console.error('--test-cmd requires a value'); process.exit(2); }
+      if (!next || next.startsWith('--')) { console.error('--test-cmd requires a value'); process.exit(2); }
       args.testCmd = next;
     } else if (a === '--max-codex-iter') {
       const next = argv[++i];
