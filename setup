@@ -69,7 +69,7 @@ fi
 echo ""
 echo "Available skills:"
 echo "  /hypothesis      — structure research ideas into experiment specs"
-echo "  /run-experiment  — generate code, review, execute with provenance"
+echo "  /run-experiment  — generate code, review, execute with research log"
 echo "  /report          — analyze results, compare baselines, generate plots"
 echo ""
 if [ "$LOCAL_INSTALL" -eq 1 ]; then

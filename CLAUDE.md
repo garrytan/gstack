@@ -50,7 +50,7 @@ research-stack/
 research-stack provides 5 skills for the hypothesis-experiment-report cycle:
 
 1. `/hypothesis` — structure a research idea into a testable hypothesis + experiment spec
-2. `/run-experiment` — generate and execute experiment code with provenance tracking
+2. `/run-experiment` — generate and execute experiment code with research log tracking
 3. `/report` — analyze results and produce a structured research report
 4. `/discuss` — interactive discussion threads on experiment findings
 5. `/peer-review` — critical review of methodology, statistics, and conclusions

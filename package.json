@@ -1,7 +1,7 @@
 {
   "name": "research-stack",
-  "version": "1.0.0",
-  "description": "Research computation skills for Claude Code — hypothesis, experiment, report workflow with convention enforcement and provenance tracking.",
+  "version": "1.1.0",
+  "description": "Research computation skills for Claude Code — hypothesis, experiment, report workflow with convention enforcement and research log tracking.",
   "license": "MIT",
   "type": "module",
   "scripts": {

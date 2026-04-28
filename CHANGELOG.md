@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.0 — Rename "provenance" to "research log"
+
+### What's new
+
+- **Clearer terminology.** The reproducibility record produced by every experiment
+  run is now called the **research log** instead of "provenance bundle". This
+  better matches what the file actually captures: the trace of code, environment,
+  and parameters that led to a given result. The file written next to results
+  is now `research-log.json` (was `provenance.json`).
+- **Backward compatible reads.** `/report`, `/discuss`, and `/peer-review` read
+  `research-log.json` first and fall back to `provenance.json` if it does not
+  exist. Past experiments keep working without manual changes.
+- **Migration script.** Run `bin/rstack-migrate-provenance` (or
+  `--dry-run` first) to rename existing `provenance.json` files in bulk under
+  `research/results/`. Optional — only needed if you want consistent naming
+  across old and new runs.
+
+### Internal
+
+- `generateProvenanceSpec` → `generateResearchLogSpec`,
+  template variable `{{PROVENANCE_SPEC}}` → `{{RESEARCH_LOG_SPEC}}`,
+  Python helper `capture_provenance` → `capture_research_log`.
+
 ## 1.0.0 — Public Release
 
 ### What's new
