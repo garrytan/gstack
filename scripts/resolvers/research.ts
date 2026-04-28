@@ -75,12 +75,13 @@ If the researcher approves, append the conventions section to CLAUDE.md using th
 Then continue with the original skill workflow using the newly written conventions.`;
 }
 
-export function generateProvenanceSpec(_ctx: TemplateContext): string {
-  return `## Provenance Bundle
+export function generateResearchLogSpec(_ctx: TemplateContext): string {
+  return `## Research Log
 
-Every experiment run MUST produce a \`provenance.json\` file alongside results.
-This is non-negotiable. The provenance bundle captures everything needed to
-reproduce the exact run.
+Every experiment run MUST produce a \`research-log.json\` file alongside results.
+This is non-negotiable. The research log captures everything needed to
+reproduce the exact run — the trace of code, environment, and parameters that
+produced these results.
 
 **Required fields:**
 
@@ -104,15 +105,15 @@ reproduce the exact run.
 }
 \`\`\`
 
-**How to generate the provenance bundle:**
+**How to generate the research log:**
 
 \`\`\`python
 import json, subprocess, sys, platform, time
 from datetime import datetime, timezone
 from pathlib import Path
 
-def capture_provenance(spec_path, parameters, seeds, packages):
-    prov = {
+def capture_research_log(spec_path, parameters, seeds, packages):
+    log = {
         "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip(),
         "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),
         "branch": subprocess.check_output(["git", "branch", "--show-current"]).decode().strip(),
@@ -125,12 +126,17 @@ def capture_provenance(spec_path, parameters, seeds, packages):
         "experiment_spec": str(spec_path),
         "parameters": parameters,
     }
-    return prov
+    return log
 \`\`\`
 
-The provenance generation code should be included in every generated experiment
+The research log generation code should be included in every generated experiment
 script. After the experiment completes, fill in \`wall_clock_seconds\` and write
-\`provenance.json\` to the results directory.`;
+\`research-log.json\` to the results directory.
+
+**Legacy compatibility:** Older experiments (pre-rename) wrote \`provenance.json\`
+instead. When *reading*, fall back to \`provenance.json\` if \`research-log.json\`
+does not exist. Always *write* the new name. Run \`bin/rstack-migrate-provenance\`
+to rename existing files in bulk.`;
 }
 
 export function generateExperimentStructure(_ctx: TemplateContext): string {
@@ -146,7 +152,7 @@ research/
     run_<slug>.py                   # Generated experiment code
   results/<slug>/<timestamp>/
     metrics.json                    # Raw experiment results
-    provenance.json                 # Reproducibility bundle (see Provenance spec)
+    research-log.json               # Reproducibility record (see Research Log spec)
     plots/                          # Generated visualizations
   baselines/<slug>/
     metrics.json                    # Baseline results for comparison

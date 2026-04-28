@@ -8,7 +8,7 @@ import type { ResolverFn } from './types';
 import { generatePreamble } from './preamble';
 import { generateSlugEval } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
-import { generateResearchConventions, generateProvenanceSpec, generateExperimentStructure } from './research';
+import { generateResearchConventions, generateResearchLogSpec, generateExperimentStructure } from './research';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -20,6 +20,6 @@ export const RESOLVERS: Record<string, ResolverFn> = {
 
   // Research
   RESEARCH_CONVENTIONS: generateResearchConventions,
-  PROVENANCE_SPEC: generateProvenanceSpec,
+  RESEARCH_LOG_SPEC: generateResearchLogSpec,
   EXPERIMENT_STRUCTURE: generateExperimentStructure,
 };
