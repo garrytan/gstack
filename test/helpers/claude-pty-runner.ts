@@ -958,3 +958,265 @@ export async function runPlanSkillObservation(opts: {
     await session.close();
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// runPlanSkillCounting — drives a plan-* skill end-to-end through Step 0 then
+// counts distinct review-phase AskUserQuestion fingerprints. The actual
+// product asserted by the per-finding-count tests.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Result of a `runPlanSkillCounting` run. Includes both the count summary
+ * (`step0Count`, `reviewCount`) and the full fingerprint list for diagnostic
+ * dumps when an assertion fails.
+ */
+export interface PlanSkillCountObservation {
+  outcome:
+    | 'plan_ready'
+    | 'completion_summary'
+    | 'ceiling_reached'
+    | 'silent_write'
+    | 'exited'
+    | 'timeout';
+  summary: string;
+  /** Visible terminal text at terminal time (last 3KB). */
+  evidence: string;
+  /** Wall time (ms) until the outcome was decided. */
+  elapsedMs: number;
+  /** All distinct AskUserQuestions observed, in observation order. */
+  fingerprints: AskUserQuestionFingerprint[];
+  /** Count of fingerprints with `preReview === true`. */
+  step0Count: number;
+  /** Count of fingerprints with `preReview === false`. */
+  reviewCount: number;
+}
+
+/**
+ * Drive a plan-* skill in plan mode and count distinct review-phase
+ * AskUserQuestions until a terminal signal fires.
+ *
+ * Flow:
+ *   1. Boot PTY in plan mode (8s grace + auto-trust dialog).
+ *   2. Send `slashCommand` alone. Sleep ~3s.
+ *   3. Send `followUpPrompt` as a chat message — this is the plan content
+ *      the skill reviews. Slash commands with trailing args are rejected by
+ *      Claude Code unless the skill defines them, so the plan goes as a
+ *      follow-up message (the proven pattern at
+ *      skill-e2e-plan-design-with-ui.test.ts:57-71).
+ *   4. Poll loop:
+ *      - Skip permission dialogs (auto-grant with `defaultPick`).
+ *      - On a new numbered-option list, parse prompt + options, build
+ *        fingerprint via `auqFingerprint`. Empty-prompt parses are skipped
+ *        and re-polled (avoids the empty-prompt collision documented in
+ *        the auqFingerprint contract).
+ *      - First time we see a fingerprint: push it, classify as Step 0 or
+ *        review-phase based on `boundaryFired`, press `defaultPick` to
+ *        advance.
+ *      - After pressing, evaluate `isLastStep0AUQ(fingerprint)`. If true,
+ *        all subsequent AUQs are review-phase.
+ *      - Hard ceiling: if `reviewCount >= reviewCountCeiling`, return
+ *        `ceiling_reached`. This bounds runaway counts; tests should set
+ *        the ceiling above their assertion CEILING.
+ *      - Soft terminals: `COMPLETION_SUMMARY_RE` match → `completion_summary`;
+ *        plan-ready confirmation → `plan_ready`; silent write outside
+ *        sanctioned dirs → `silent_write`; process exited → `exited`;
+ *        wall clock exceeded → `timeout`.
+ *
+ * Boundary detection (D14): event-based, fired against the answered AUQ's
+ * fingerprint, not against later rendered content. This avoids the race
+ * where Step-0-final and Section-1-first AUQs straddle a section header
+ * regex match.
+ *
+ * Fingerprint composition (D9): `auqFingerprint(prompt, options)` mixes
+ * normalized prompt text with the options signature so distinct findings
+ * with shared menu structure (the generic A/B/C TODO menu) get distinct
+ * fingerprints.
+ */
+export async function runPlanSkillCounting(opts: {
+  /** Skill name, e.g. 'plan-ceo-review'. Used for diagnostic strings only. */
+  skillName: string;
+  /** Slash command to send alone, e.g. '/plan-ceo-review'. No trailing args. */
+  slashCommand: string;
+  /** Plan content sent as a follow-up message ~3s after the slash command. */
+  followUpPrompt: string;
+  /** Per-skill predicate: which answered AUQ is the last Step-0 question. */
+  isLastStep0AUQ: Step0BoundaryPredicate;
+  /** Hard cap on review-phase count; helper returns when reached. Should be
+   *  set ABOVE the test's assertion ceiling so the test sees the cap as a
+   *  failure rather than a silent stop. */
+  reviewCountCeiling: number;
+  /** Numbered option to press by default. Defaults to 1 (recommended). */
+  defaultPick?: number;
+  /** Working directory. Default process.cwd() (repo cwd holds skill registry). */
+  cwd?: string;
+  /** Total budget for skill to reach a terminal outcome. Default 1_500_000 (25 min). */
+  timeoutMs?: number;
+  /** Extra env merged into the spawned `claude` process. */
+  env?: Record<string, string>;
+}): Promise<PlanSkillCountObservation> {
+  const startedAt = Date.now();
+  const defaultPick = opts.defaultPick ?? 1;
+  const timeoutMs = opts.timeoutMs ?? 1_500_000;
+
+  const session = await launchClaudePty({
+    permissionMode: 'plan',
+    cwd: opts.cwd,
+    timeoutMs: timeoutMs + 60_000,
+    env: opts.env,
+  });
+
+  const fingerprints: AskUserQuestionFingerprint[] = [];
+  const seen = new Set<string>();
+  let boundaryFired = false;
+  let step0Count = 0;
+  let reviewCount = 0;
+  let lastSig = '';
+
+  function snapshot(
+    outcome: PlanSkillCountObservation['outcome'],
+    summary: string,
+    visible: string,
+  ): PlanSkillCountObservation {
+    return {
+      outcome,
+      summary,
+      evidence: visible.slice(-3000),
+      elapsedMs: Date.now() - startedAt,
+      fingerprints,
+      step0Count,
+      reviewCount,
+    };
+  }
+
+  try {
+    await Bun.sleep(8000); // boot grace + auto-trust handler window
+    const since = session.mark();
+    session.send(`${opts.slashCommand}\r`);
+    await Bun.sleep(3000);
+    session.send(`${opts.followUpPrompt}\r`);
+
+    const budgetStart = Date.now();
+    while (Date.now() - budgetStart < timeoutMs) {
+      await Bun.sleep(2000);
+      const visible = session.visibleSince(since);
+
+      // Process exited?
+      if (session.exited()) {
+        return snapshot(
+          'exited',
+          `claude exited (code=${session.exitCode()}) during counting (step0=${step0Count}, review=${reviewCount})`,
+          visible,
+        );
+      }
+      if (visible.includes('Unknown command:')) {
+        return snapshot(
+          'exited',
+          `claude rejected ${opts.slashCommand} as unknown command (skill not registered in this cwd)`,
+          visible,
+        );
+      }
+
+      // Silent write detection — only fires if no numbered prompt is on
+      // screen (otherwise the write is gated by a permission/AUQ).
+      const writeRe = /⏺\s*(?:Write|Edit)\(([^)]+)\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = writeRe.exec(visible)) !== null) {
+        const target = m[1] ?? '';
+        const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) =>
+          target.includes(s),
+        );
+        if (!sanctioned && !isNumberedOptionListVisible(visible)) {
+          return snapshot(
+            'silent_write',
+            `Write/Edit to ${target} fired before any AskUserQuestion`,
+            visible,
+          );
+        }
+      }
+
+      // Soft terminal signals — check before AUQ processing so a final
+      // completion-summary doesn't get misclassified as a bonus AUQ.
+      if (COMPLETION_SUMMARY_RE.test(visible)) {
+        return snapshot(
+          'completion_summary',
+          `skill emitted completion summary / verdict / status line (step0=${step0Count}, review=${reviewCount})`,
+          visible,
+        );
+      }
+      if (isPlanReadyVisible(visible)) {
+        return snapshot(
+          'plan_ready',
+          `skill emitted plan-mode "Ready to execute" confirmation (step0=${step0Count}, review=${reviewCount})`,
+          visible,
+        );
+      }
+
+      // Numbered option list?
+      if (!isNumberedOptionListVisible(visible)) continue;
+
+      // Permission dialog? Auto-grant with defaultPick. Only act on the
+      // recent tail to avoid re-triggering on stale dialogs in scrollback.
+      if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
+        session.send(`${defaultPick}\r`);
+        await Bun.sleep(1500);
+        continue;
+      }
+
+      // Parse the active AUQ. Skip same-redraw and empty-prompt cases.
+      const options = parseNumberedOptions(visible);
+      if (options.length < 2) continue;
+      const sig = optionsSignature(options);
+      if (sig === lastSig) continue;
+      const promptSnippet = parseQuestionPrompt(visible);
+      if (promptSnippet === '') continue; // not yet rendered, poll again
+      lastSig = sig;
+
+      const fingerprintHash = auqFingerprint(promptSnippet, options);
+      if (seen.has(fingerprintHash)) {
+        // Same content, already counted (TTY redrew with whitespace diff).
+        continue;
+      }
+      seen.add(fingerprintHash);
+
+      const fp: AskUserQuestionFingerprint = {
+        signature: fingerprintHash,
+        promptSnippet,
+        options,
+        observedAtMs: Date.now() - startedAt,
+        preReview: !boundaryFired,
+      };
+      fingerprints.push(fp);
+      if (boundaryFired) reviewCount += 1;
+      else step0Count += 1;
+
+      // Press to advance.
+      session.send(`${defaultPick}\r`);
+
+      // Evaluate boundary AFTER pressing — if THIS AUQ was the last Step 0
+      // question, all subsequent AUQs go to reviewCount.
+      if (!boundaryFired && opts.isLastStep0AUQ(fp)) {
+        boundaryFired = true;
+      }
+
+      // Hard ceiling — runaway protection.
+      if (reviewCount >= opts.reviewCountCeiling) {
+        return snapshot(
+          'ceiling_reached',
+          `review-phase AUQ count reached ceiling (${opts.reviewCountCeiling})`,
+          session.visibleSince(since),
+        );
+      }
+
+      // Give the agent a beat to advance to the next state.
+      await Bun.sleep(2000);
+    }
+
+    return snapshot(
+      'timeout',
+      `no terminal outcome within ${timeoutMs}ms (step0=${step0Count}, review=${reviewCount})`,
+      session.visibleSince(since),
+    );
+  } finally {
+    await session.close();
+  }
+}
