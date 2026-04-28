@@ -97,11 +97,20 @@ describe('gstack-config gbrain keys', () => {
   });
 
   test('GSTACK_HOME overrides real config dir', () => {
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
-    // Real ~/.gstack/config.yaml must NOT have been touched.
+    // Real ~/.gstack/config.yaml must not change, regardless of what it
+    // already contains on the developer's machine.
     const realConfig = path.join(os.homedir(), '.gstack', 'config.yaml');
-    const real = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : '';
-    expect(real).not.toContain('gbrain_sync_mode: full');
+    const before = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : null;
+
+    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+
+    // The override actually took effect — temp config got the new value.
+    const tempConfig = fs.readFileSync(path.join(tmpHome, 'config.yaml'), 'utf-8');
+    expect(tempConfig).toContain('gbrain_sync_mode: full');
+
+    // Real ~/.gstack/config.yaml must not be touched.
+    const after = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : null;
+    expect(after).toBe(before);
   });
 });
 

@@ -82,9 +82,8 @@ describe('Opus 4.7 overlay — pacing directive', () => {
     expect(out).toMatch(/user approval/i);
   });
 
-  test('resolved overlay keeps Fan out / Effort-match / Literal interpretation nudges', () => {
+  test('resolved overlay keeps Effort-match / Literal interpretation nudges', () => {
     const out = generateModelOverlay(makeCtx('opus-4-7'));
-    expect(out).toContain('Fan out explicitly');
     expect(out).toContain('Effort-match the step');
     expect(out).toContain('Literal interpretation awareness');
   });

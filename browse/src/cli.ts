@@ -853,7 +853,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // Delete stale state file
     safeUnlinkQuiet(config.stateFile);
 
-    console.log('Launching headed Chromium with extension + sidebar agent...');
+    console.log('Launching headed Chromium with extension + terminal agent...');
     try {
       // Start server in headed mode with extension auto-loaded
       // Use a well-known port so the Chrome extension auto-connects
@@ -882,56 +882,41 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       const status = await resp.text();
       console.log(`Connected to real Chrome\n${status}`);
 
-      // Auto-start sidebar agent
-      // __dirname is inside $bunfs in compiled binaries — resolve from execPath instead
-      let agentScript = path.resolve(__dirname, 'sidebar-agent.ts');
-      if (!fs.existsSync(agentScript)) {
-        agentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'sidebar-agent.ts');
+      // sidebar-agent.ts spawn was here. Ripped alongside the chat queue —
+      // the Terminal pane runs an interactive PTY now, no more one-shot
+      // claude -p subprocesses to multiplex.
+
+      // Auto-start terminal agent (non-compiled bun process). Owns the PTY
+      // WebSocket for the sidebar Terminal pane.
+      let termAgentScript = path.resolve(__dirname, 'terminal-agent.ts');
+      if (!fs.existsSync(termAgentScript)) {
+        termAgentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'terminal-agent.ts');
       }
       try {
-        if (!fs.existsSync(agentScript)) {
-          throw new Error(`sidebar-agent.ts not found at ${agentScript}`);
+        if (fs.existsSync(termAgentScript)) {
+          // Kill old terminal-agents so a stale port file can't trick the
+          // server into routing /pty-session at a dead listener.
+          try {
+            const { spawnSync } = require('child_process');
+            spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+          } catch (err: any) {
+            if (err?.code !== 'ENOENT') throw err;
+          }
+          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
+            cwd: config.projectDir,
+            env: {
+              ...process.env,
+              BROWSE_STATE_FILE: config.stateFile,
+              BROWSE_SERVER_PORT: String(newState.port),
+            },
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
+          termProc.unref();
+          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
         }
-        // Clear old agent queue
-        const agentQueue = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
-        try {
-          fs.mkdirSync(path.dirname(agentQueue), { recursive: true, mode: 0o700 });
-          fs.writeFileSync(agentQueue, '', { mode: 0o600 });
-        } catch (err: any) {
-          if (err?.code !== 'EACCES') throw err;
-        }
-
-        // Resolve browse binary path the same way — execPath-relative
-        let browseBin = path.resolve(__dirname, '..', 'dist', 'browse');
-        if (!fs.existsSync(browseBin)) {
-          browseBin = process.execPath; // the compiled binary itself
-        }
-
-        // Kill any existing sidebar-agent processes before starting a new one.
-        // Old agents have stale auth tokens and will silently fail to relay events,
-        // causing the server to mark the agent as "hung".
-        try {
-          const { spawnSync } = require('child_process');
-          spawnSync('pkill', ['-f', 'sidebar-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-        } catch (err: any) {
-          if (err?.code !== 'ENOENT') throw err;
-        }
-
-        const agentProc = Bun.spawn(['bun', 'run', agentScript], {
-          cwd: config.projectDir,
-          env: {
-            ...process.env,
-            BROWSE_BIN: browseBin,
-            BROWSE_STATE_FILE: config.stateFile,
-            BROWSE_SERVER_PORT: String(newState.port),
-          },
-          stdio: ['ignore', 'ignore', 'ignore'],
-        });
-        agentProc.unref();
-        console.log(`[browse] Sidebar agent started (PID: ${agentProc.pid})`);
       } catch (err: any) {
-        console.error(`[browse] Sidebar agent failed to start: ${err.message}`);
-        console.error(`[browse] Run manually: bun run ${agentScript}`);
+        // Non-fatal: chat still works without the terminal agent.
+        console.error(`[browse] Terminal agent failed to start: ${err.message}`);
       }
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);

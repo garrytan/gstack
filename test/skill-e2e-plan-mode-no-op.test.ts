@@ -1,47 +1,48 @@
 /**
- * Plan-mode-info no-op regression (gate tier, paid).
+ * Plan-mode-info no-op regression (gate tier, paid, real-PTY).
  *
- * Asserts: when /plan-ceo-review is invoked WITHOUT the plan-mode distinctive
- * phrase in the system reminder, the plan-mode-info preamble section is a
- * no-op. The skill should proceed to its normal Step 0 flow with no
- * AskUserQuestion echoing or referencing the plan-mode reminder text.
+ * Asserts: when /plan-ceo-review is invoked OUTSIDE plan mode (no
+ * --permission-mode plan flag, no plan-mode reminder injected), the skill
+ * still reaches a terminal outcome ('asked' or 'plan_ready'). This is the
+ * negative coverage to the per-skill plan-mode smokes — if the
+ * plan-mode-info preamble section ever starts misfiring for non-plan-mode
+ * sessions (e.g., gating questions on a phrase that isn't there), this
+ * test catches it.
  *
- * This guardrails the "outside plan mode, this block doesn't interfere"
- * case — a different coverage case from the per-skill in-plan-mode smokes.
- * If the plan-mode-info section ever starts misfiring for non-plan-mode
- * sessions, this test catches it.
- *
- * Cost: ~$0.50 per run. Gated: EVALS=1 EVALS_TIER=gate.
+ * Why this matters: outside plan mode, claude doesn't render a native
+ * confirmation UI. The skill must drive its own AskUserQuestion. Same
+ * runner, same outcome contract — just `inPlanMode: false`.
  */
 
 import { describe, test, expect } from 'bun:test';
-import {
-  runPlanModeSkillTest,
-  PLAN_MODE_REMINDER,
-} from './helpers/plan-mode-helpers';
+import { runPlanSkillObservation } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
 
 describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
-  test('no AskUserQuestion echoes the plan-mode reminder when absent', async () => {
-    const result = await runPlanModeSkillTest({
+  test('skill reaches a terminal outcome outside plan mode', async () => {
+    const obs = await runPlanSkillObservation({
       skillName: 'plan-ceo-review',
-      firstAnswerSubstring: 'HOLD',
-      omitPlanModeReminder: true,
-      maxTurns: 3,
+      inPlanMode: false,
+      timeoutMs: 300_000,
     });
 
-    // Skill should still hit Step 0 normally outside plan mode.
-    expect(result.askUserQuestions.length).toBeGreaterThanOrEqual(1);
-
-    // No AskUserQuestion should echo the plan-mode distinctive phrase.
-    // If one does, the plan-mode-info section is leaking outside plan mode.
-    for (const aq of result.askUserQuestions) {
-      const questions = aq.input.questions as Array<{ question: string }>;
-      for (const q of questions) {
-        expect(q.question).not.toContain(PLAN_MODE_REMINDER);
-      }
+    if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
+      throw new Error(
+        `plan-mode no-op regression FAILED: outcome=${obs.outcome}\n` +
+          `summary: ${obs.summary}\n` +
+          `elapsed: ${obs.elapsedMs}ms\n` +
+          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+      );
     }
-  }, 120_000);
+    expect(['asked', 'plan_ready']).toContain(obs.outcome);
+
+    // Negative regression: the rendered output must NOT echo the plan-mode
+    // distinctive reminder phrase. If it does, the plan-mode preamble
+    // section is leaking outside plan mode.
+    const PLAN_MODE_REMINDER =
+      'Plan mode is active. The user indicated that they do not want you to execute yet';
+    expect(obs.evidence).not.toContain(PLAN_MODE_REMINDER);
+  }, 360_000);
 });

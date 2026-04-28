@@ -30,7 +30,7 @@ export const WRITE_COMMANDS = new Set([
 ]);
 
 export const META_COMMANDS = new Set([
-  'tabs', 'tab', 'newtab', 'closetab',
+  'tabs', 'tab', 'tab-each', 'newtab', 'closetab',
   'status', 'stop', 'restart',
   'screenshot', 'pdf', 'responsive',
   'chain', 'diff',
@@ -144,6 +144,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'tab':     { category: 'Tabs', description: 'Switch to tab', usage: 'tab <id>' },
   'newtab':  { category: 'Tabs', description: 'Open new tab. With --json, returns {"tabId":N,"url":...} for programmatic use (make-pdf).', usage: 'newtab [url] [--json]' },
   'closetab':{ category: 'Tabs', description: 'Close tab', usage: 'closetab [id]' },
+  'tab-each':{ category: 'Tabs', description: 'Run a command on every open tab. Returns JSON with per-tab results.', usage: 'tab-each <command> [args...]' },
   // Server
   'status':  { category: 'Server', description: 'Health check' },
   'stop':    { category: 'Server', description: 'Shutdown server' },

@@ -3,18 +3,9 @@
 export function generateContextHealth(): string {
   return `## Context Health (soft directive)
 
-During long-running skill sessions, periodically write a brief \`[PROGRESS]\` summary
-(2-3 sentences: what's done, what's next, any surprises). Example:
+During long-running skill sessions, periodically write a brief \`[PROGRESS]\` summary: done, next, surprises.
 
-\`[PROGRESS] Found 3 auth bugs. Fixed 2. Remaining: session expiry race in auth.ts:147. Next: write regression test.\`
-
-If you notice you're going in circles — repeating the same diagnostic, re-reading the
-same file, or trying variants of a failed fix — STOP and reassess. Consider escalating
-or calling /context-save to save progress and start fresh.
-
-This is a soft nudge, not a measurable feature. No thresholds, no enforcement. The
-goal is self-awareness during long sessions. If the session stays short, skip it.
-Progress summaries must NEVER mutate git state — they are reporting, not committing.`;
+If you are looping on the same diagnostic, same file, or failed fix variants, STOP and reassess. Consider escalation or /context-save. Progress summaries must NEVER mutate git state.`;
 }
 
 // Preamble Composition (tier → sections)

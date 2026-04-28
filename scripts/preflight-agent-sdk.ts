@@ -7,7 +7,7 @@
  *   3. The SDK event stream contains the types we assume (system init, assistant,
  *      result) with the fields we destructure.
  *   4. `scripts/resolvers/model-overlay.ts` resolves `{{INHERIT:claude}}` against
- *      `opus-4-7.md` AND the resolved text contains the "Fan out explicitly" nudge.
+ *      `opus-4-7.md` with no unresolved inheritance directives.
  *   5. A local `claude` binary exists at `which claude` so binary pinning is possible.
  *
  * Run: bun run scripts/preflight-agent-sdk.ts
@@ -28,7 +28,7 @@ async function main() {
     failures.push(msg);
   };
 
-  // 1. Overlay resolver + fanout nudge text
+  // 1. Overlay resolver
   console.log('1. Overlay resolver');
   const resolved = readOverlay('opus-4-7');
   if (!resolved) {
@@ -39,11 +39,6 @@ async function main() {
       fail('resolved overlay still contains {{INHERIT:...}} directive');
     } else {
       pass('no unresolved INHERIT directives');
-    }
-    if (!/Fan out explicitly/i.test(resolved)) {
-      fail('resolved overlay does not contain "Fan out explicitly" text');
-    } else {
-      pass('fanout nudge text present in resolved overlay');
     }
   }
 

@@ -285,6 +285,108 @@ export async function handleMetaCommand(
       return `Closed tab${id ? ` ${id}` : ''}`;
     }
 
+    case 'tab-each': {
+      // Fan out a single command across every open tab. Returns a JSON
+      // object: { results: [{tabId, url, title, status, output}], total }.
+      // Restores the originally active tab when done so the user's view
+      // doesn't shift under them.
+      //
+      // Usage: $B tab-each <command> [args...]
+      //   $B tab-each snapshot -i      → snapshot every tab
+      //   $B tab-each text             → grab clean text from every tab
+      //   $B tab-each goto https://x.y → load the same URL in every tab
+      if (args.length === 0) {
+        throw new Error(
+          'Usage: browse tab-each <command> [args...]\n' +
+          'Example: browse tab-each snapshot -i'
+        );
+      }
+
+      const innerRaw = args[0];
+      const innerName = canonicalizeCommand(innerRaw);
+      const innerArgs = args.slice(1);
+
+      // Scope check the inner command before fanning out, so a single
+      // permission failure aborts the whole batch instead of partially
+      // mutating tabs.
+      if (tokenInfo && tokenInfo.clientId !== 'root' && !checkScope(tokenInfo, innerName)) {
+        throw new Error(
+          `tab-each rejected: subcommand "${innerRaw}" not allowed by your token scope (${tokenInfo.scopes.join(', ')}).`
+        );
+      }
+
+      const tabs = await bm.getTabListWithTitles();
+      const originalActive = tabs.find(t => t.active)?.id ?? bm.getActiveTabId();
+
+      const executeCmd = opts?.executeCommand;
+      const results: Array<{
+        tabId: number;
+        url: string;
+        title: string;
+        status: number;
+        output: string;
+      }> = [];
+
+      try {
+        for (const tab of tabs) {
+          // Skip chrome:// internal pages — they aren't useful targets and
+          // many commands fail outright on them.
+          if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+            results.push({
+              tabId: tab.id,
+              url: tab.url,
+              title: tab.title || '',
+              status: 0,
+              output: 'skipped: internal page',
+            });
+            continue;
+          }
+          // Switch to the tab. Don't pull focus away — we're a background
+          // operation; the user shouldn't see the OS window jump.
+          bm.switchTab(tab.id, { bringToFront: false });
+
+          let status = 0;
+          let output = '';
+          if (executeCmd) {
+            const r = await executeCmd(
+              { command: innerName, args: innerArgs, tabId: tab.id },
+              tokenInfo,
+            );
+            status = r.status;
+            output = r.result;
+            if (status !== 200) {
+              try { output = JSON.parse(output).error || output; } catch (err: any) { if (!(err instanceof SyntaxError)) throw err; }
+            }
+          } else {
+            // Fallback path (CLI / test harness without a server context).
+            // We don't recurse through read/write/meta directly here because
+            // tab-each is only meaningful with the live server; surface a
+            // clear error.
+            status = 500;
+            output = 'tab-each requires the browse server (no executeCommand context)';
+          }
+
+          results.push({
+            tabId: tab.id,
+            url: tab.url,
+            title: tab.title || '',
+            status,
+            output,
+          });
+        }
+      } finally {
+        // Restore the original active tab so the user's view is unchanged.
+        try { bm.switchTab(originalActive, { bringToFront: false }); } catch {}
+      }
+
+      return JSON.stringify({
+        command: innerName,
+        args: innerArgs,
+        total: results.length,
+        results,
+      }, null, 2);
+    }
+
     // ─── Server Control ────────────────────────────────
     case 'status': {
       const page = bm.getPage();

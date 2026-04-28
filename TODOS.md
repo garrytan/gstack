@@ -1,39 +1,58 @@
 # TODOS
 
+## Sidebar Terminal (cc-pty-import follow-ups)
+
+### v1.1: PTY session survives sidebar reload
+
+**What:** Today the Terminal tab's PTY dies with the WebSocket — sidebar
+reload, side-panel close, even a quick navigate-away in another tab close
+the session. v1.1 should key the PTY on a tab/session id so a reload
+reattaches to the existing claude process and you keep `/resume` history.
+
+**Why:** Mid-task resilience. When you've been pair-programming with claude
+for 20 minutes and an accidental Cmd-R blows it away, the cost is real.
+
+**Pros:** Better UX, fewer interrupted sessions. **Cons:** Session-tracking
+state, ghost-process risk, lifecycle bugs (when DOES the PTY actually go
+away?). v1 chose the simple "PTY dies with WS" model deliberately.
+
+**Context:** /plan-eng-review Issue 1C decision (cc-pty-import branch,
+2026-04-25). v1 ships with phoenix's lifecycle. **Depends on:**
+cc-pty-import landed.
+
+**Priority:** P2 (nice-to-have).
+**Effort:** M. Likely needs a per-tab session map keyed by chrome.tabs.id
+plus a TTL so abandoned PTYs eventually exit.
+
+---
+
+### v1.1+: Audit `/health` token distribution
+
+**What:** Codex's outside-voice review on cc-pty-import flagged that
+`/health` already surfaces `AUTH_TOKEN` to any localhost caller in headed
+mode (`server.ts:1657`). That's a pre-existing soft leak — anything
+running on localhost gets the root token by hitting `/health`.
+
+**Why:** cc-pty-import sidesteps it by NOT putting the PTY token there
+(uses an HttpOnly cookie path instead). But the underlying leak is still
+shippable surface. A second extension or a localhost web app could
+currently scrape `AUTH_TOKEN` and hit any browse-server endpoint.
+
+**Pros:** Closes a real privilege-escalation path on multi-extension
+machines. **Cons:** Either we tighten the gate (Origin must be OUR
+extension id, not just any chrome-extension://) or we move bootstrap
+discovery off `/health` entirely. Either has migration cost for tests
+and the existing extension.
+
+**Context:** codex finding #2 on cc-pty-import plan-eng review. Not in
+scope of that PR; deliberately deferred to keep PTY-import small.
+
+**Priority:** P2.
+**Effort:** M.
+
+---
+
 ## Testing
-
-### Pre-existing test failures surfaced during v1.12.0.0 ship
-
-**What:** Two remaining test failures on bare main that have been shipping as-is for multiple versions. (The bearer-json secret-scan regression flagged here originally was a real leak path and has been fixed in this PR — see Completed section below.)
-
-1. `gstack-config gbrain keys > GSTACK_HOME overrides real config dir` (`test/brain-sync.test.ts:104`) — the GSTACK_HOME env override leaks into the real `~/.gstack/config.yaml`. Test asserts real config does NOT contain `gbrain_sync_mode: full` but it does. Either the test environment isn't isolated correctly or `bin/gstack-config` is writing to both locations.
-2. `Opus 4.7 overlay — pacing directive > keeps Fan out / Effort-match / Literal interpretation nudges` (`test/model-overlay-opus-4-7.test.ts:87`) — v1.10.1.0 (#1166) removed the "Fan out explicitly" nudge from the overlay but the assertion was never updated. Either the nudge should come back (intentional removal reverted) or the test should be updated to match the new expected content.
-
-**Why:** Both have been green-washing through recent `/ship` runs via "pre-existing test failures skipped: <name>." #1 signals a real config isolation bug; #2 is a stale assertion since the overlay intentionally removed that nudge.
-
-**Priority:** P0 (both)
-
-**Effort:** S each. #1 likely a test harness fix in `test/brain-sync.test.ts`'s setup hook. #2 is a one-line test update OR a revert of #1166.
-
----
-
-### `security-bench-haiku-responses.json` is 27MB, violates the 2MB tracked-file gate
-
-**What:** `browse/test/fixtures/security-bench-haiku-responses.json` landed on main at v1.6.4.0 (PR #1135) at 27MB. The `no compiled binaries in git > git tracks no files larger than 2MB` gate in `test/skill-validation.test.ts:1623` fails on main and on every feature branch that merges main afterward.
-
-**Why:** The fixture is a legitimate CI replay corpus (real Haiku responses from the 500-case BrowseSafe-Bench) used to verify the ensemble classifier deterministically. But 13x over the 2MB limit means it will keep failing the validation test for every future ship.
-
-**Pros:** Removes a pre-existing failure that wastes a triage slot in every /ship run.
-
-**Cons:** Moving to git-lfs adds a dependency. Splitting into chunks risks breaking the bench test. External hosting adds a CI fetch step.
-
-**Context:** Noticed during workspace-aware-ship /ship on 2026-04-23 when the post-merge test suite flagged this single failure. Introduced on main in PR #1135 (`v1.6.4.0: cut Haiku classifier FP from 44% to 23%`), commit d75402bb. Two reasonable paths: (a) split into multiple ≤2MB chunks and load them in the bench test, (b) move to git-lfs.
-
-**Effort:** M (human: ~2-3h / CC: ~20 min)
-**Priority:** P1 (not blocking ship, but every future /ship triages the same failure)
-**Depends on:** nothing
-
----
 
 ## P1: Structural STOP-Ask forcing function across all skills
 
@@ -1302,6 +1321,36 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
 ## Completed
+
+### Slim preamble + real-PTY plan-mode E2E harness (v1.13.1.0)
+
+- Compressed 18 preamble resolvers; total `SKILL.md` corpus dropped from 3.08 MB to 2.30 MB across 47 outputs (-25.5%, ~196K tokens saved).
+- Built `test/helpers/claude-pty-runner.ts` — real-PTY harness using `Bun.spawn({terminal:})` (Bun 1.3.10+ has built-in PTY, no `node-pty` needed).
+- Rewrote 5 plan-mode E2E tests (`plan-ceo`, `plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`); all 5 pass for the first time ever (790s sequential).
+- Same tests were 0/5 on `origin/main`, on v1.0.0.0, and on this branch with the SDK harness — the SDK couldn't observe Claude's plan-mode confirmation UI.
+- Side fixes folded in: `scripts/skill-check.ts` sidecar-symlink helper, `test/skill-validation.test.ts` exemption for `browse/test/fixtures/security-bench-haiku-responses.json` (resolves the size-warning noise from main's warn-only conversion).
+
+**Completed:** v1.13.1.0 (2026-04-25)
+
+---
+
+### Pre-existing test failures surfaced during v1.12.0.0 ship — RESOLVED
+
+- `test/brain-sync.test.ts` GSTACK_HOME isolation fixed on main in v1.13.0.0.
+- `test/model-overlay-opus-4-7.test.ts` updated on main to match the new overlay content (the v1.10.1.0 removal of "Fan out explicitly" was correct — measured −60pp fanout vs baseline).
+
+**Completed:** v1.13.0.0 (2026-04-25, on main)
+
+---
+
+### `security-bench-haiku-responses.json` size gate — RESOLVED
+
+- Main converted the 2 MB tracked-file gate to warn-only in v1.13.0.0.
+- v1.13.1.0 added a `knownLargeFixtures` exemption to suppress the warning for this specific intentional fixture.
+
+**Completed:** v1.13.1.0 (2026-04-25)
+
+---
 
 ### Bearer-token secret-scan regression fixed + E2E coverage added for privacy gate + gh auto-create (v1.12.0.0)
 

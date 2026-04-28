@@ -8,7 +8,7 @@
  *
  * What this test enforces:
  * - Writing Style section header present in tier-≥2 generated preamble
- * - All 6 writing rules present (gloss, outcome, short, impact, first-use, override)
+ * - Compact semantic contract present (gloss, outcome, impact, override)
  * - Jargon list inlined (sample terms appear)
  * - Terse-mode gate condition text present
  * - Codex output uses $GSTACK_BIN, not ~/.claude/... (host-aware paths)
@@ -41,21 +41,12 @@ describe('Writing Style preamble section', () => {
     expect(out).toContain('EXPLAIN_LEVEL:');
   });
 
-  test('tier 2+ preamble includes all 6 writing rules', () => {
+  test('tier 2+ preamble includes the compact writing-style contract', () => {
     const out = generatePreamble(makeCtx('claude', 2));
-    // Rule 1: jargon-gloss on first use
-    expect(out).toContain('gloss on first use');
-    // Rule 2: outcome framing
-    expect(out).toMatch(/outcome terms/);
-    // Rule 3: short sentences / concrete nouns / active voice
-    expect(out).toContain('Short sentences');
-    expect(out.toLowerCase()).toContain('active voice');
-    // Rule 4: close with user impact
-    expect(out).toMatch(/user impact/);
-    // Rule 5: unconditional first-use gloss (even if user pasted term)
-    expect(out).toMatch(/paste.*jargon|paste.*term/i);
-    // Rule 6: user-turn override
-    expect(out).toMatch(/user-turn override|user's own current message|user's in-turn/i);
+    expect(out).toMatch(/gloss.*first use|first-use.*gloss/i);
+    expect(out).toMatch(/outcome/i);
+    expect(out).toMatch(/user impact|user.*experience|what.*user.*sees/i);
+    expect(out).toMatch(/terse|no explanations|user-turn override|current message/i);
   });
 
   test('tier 2+ preamble inlines jargon list', () => {

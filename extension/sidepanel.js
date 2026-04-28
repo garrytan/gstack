@@ -1,9 +1,13 @@
 /**
  * gstack browse — Side Panel
  *
- * Chat tab: two-way messaging with Claude Code via file queue.
- * Debug tabs: activity feed (SSE) + refs (REST).
- * Polls /sidebar-chat for new messages every 1s.
+ * Terminal pane (default): live claude PTY via xterm.js, driven by
+ * sidepanel-terminal.js. The chat queue + sidebar-agent.ts were ripped
+ * in favor of the interactive REPL — no more one-shot claude -p.
+ *
+ * Debug tabs (behind the `debug` toggle): activity feed (SSE) + refs +
+ * inspector. Quick-actions toolbar (Cleanup / Screenshot / Cookies)
+ * lives at the top of the Terminal pane.
  */
 
 const NAV_COMMANDS = new Set(['goto', 'back', 'forward', 'reload']);
@@ -14,14 +18,7 @@ let lastId = 0;
 let eventSource = null;
 let serverUrl = null;
 let serverToken = null;
-let chatLineCount = 0;
-let chatPollInterval = null;
 let connState = 'disconnected'; // disconnected | connected | reconnecting | dead
-let lastOptimisticMsg = null; // track optimistically rendered user msg to avoid dupes
-let sidebarActiveTabId = null; // which browser tab's chat we're showing
-const chatLineCountByTab = {}; // tabId -> last seen chatLineCount
-const chatDomByTab = {}; // tabId -> saved DocumentFragment (never serialized HTML)
-let pollInProgress = false; // reentrancy guard — prevents concurrent/recursive pollChat calls
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 const MAX_RECONNECT_ATTEMPTS = 30; // 30 * 2s = 60s before showing "dead"
@@ -85,807 +82,12 @@ function startReconnect() {
   }, 2000);
 }
 
-// ─── Chat ───────────────────────────────────────────────────────
 
-const chatMessages = document.getElementById('chat-messages');
-const commandInput = document.getElementById('command-input');
-const sendBtn = document.getElementById('send-btn');
-const commandHistory = [];
-let historyIndex = -1;
-
-function formatChatTime(ts) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-}
-
-// Current streaming state
-let agentContainer = null; // The container for the current agent response
-let agentTextEl = null;    // The text accumulator element
-let agentText = '';        // Accumulated text
-
-// Dedup: track which entry IDs have already been rendered to prevent
-// repeat rendering on reconnect or tab switch (server replays from disk)
-const renderedEntryIds = new Set();
-
-// Security banner (variant A from /plan-design-review 2026-04-19).
-// Renders on security_event — canary leaks, ML classifier BLOCK verdicts.
-// Defense-in-depth trust UX — user sees WHICH layer fired at WHAT confidence.
-const SECURITY_LAYER_LABELS = {
-  testsavant_content: 'Content ML',
-  transcript_classifier: 'Transcript ML',
-  aria_regex: 'ARIA pattern',
-  canary: 'Canary leak',
-};
-
-function showSecurityBanner(event) {
-  const banner = document.getElementById('security-banner');
-  if (!banner) return;
-
-  const title = document.getElementById('security-banner-title');
-  const subtitle = document.getElementById('security-banner-subtitle');
-  const layersEl = document.getElementById('security-banner-layers');
-  const expandBtn = document.getElementById('security-banner-expand');
-  const details = document.getElementById('security-banner-details');
-  const chevron = banner.querySelector('.security-banner-chevron');
-  const suspectLabel = document.getElementById('security-banner-suspect-label');
-  const suspectEl = document.getElementById('security-banner-suspect');
-  const actions = document.getElementById('security-banner-actions');
-  const btnAllow = document.getElementById('security-banner-btn-allow');
-  const btnBlock = document.getElementById('security-banner-btn-block');
-
-  // Reviewable path: the agent paused and is waiting for our decision.
-  // Title + subtitle change to framing-as-review, action buttons appear,
-  // suspected-text excerpt shows in the expandable details.
-  const reviewable = !!event.reviewable;
-  const tabId = Number(event.tabId);
-
-  // Title + subtitle
-  if (title) title.textContent = reviewable ? 'Review suspected injection' : 'Session terminated';
-  if (subtitle) {
-    const fromDomain = event.domain ? ` from ${event.domain}` : '';
-    const toolLabel = event.tool ? ` in ${event.tool} output` : '';
-    subtitle.textContent = reviewable
-      ? `possible prompt injection${toolLabel}${fromDomain} — allow to continue, block to end session`
-      : `— prompt injection detected${fromDomain}`;
-  }
-
-  // Suspected text excerpt (reviewable only)
-  if (suspectEl && suspectLabel) {
-    if (reviewable && typeof event.suspected_text === 'string' && event.suspected_text.length > 0) {
-      suspectEl.textContent = event.suspected_text;
-      suspectEl.hidden = false;
-      suspectLabel.hidden = false;
-    } else {
-      suspectEl.textContent = '';
-      suspectEl.hidden = true;
-      suspectLabel.hidden = true;
-    }
-  }
-
-  // Action buttons — wire fresh handlers each render so we capture the
-  // current tabId. Remove previous listeners by cloning the node.
-  if (actions && btnAllow && btnBlock) {
-    actions.hidden = !reviewable;
-    if (reviewable) {
-      const freshAllow = btnAllow.cloneNode(true);
-      const freshBlock = btnBlock.cloneNode(true);
-      btnAllow.parentNode.replaceChild(freshAllow, btnAllow);
-      btnBlock.parentNode.replaceChild(freshBlock, btnBlock);
-      freshAllow.addEventListener('click', () => postSecurityDecision(tabId, 'allow'));
-      freshBlock.addEventListener('click', () => postSecurityDecision(tabId, 'block'));
-    }
-  }
-
-  // Layer signals list (mono scores)
-  if (layersEl) {
-    layersEl.innerHTML = '';
-    const rows = [];
-    // If we got a primary layer + confidence, show that first
-    if (event.layer) {
-      rows.push({ layer: event.layer, confidence: event.confidence ?? 1.0 });
-    }
-    // Any additional signals the agent sent
-    if (Array.isArray(event.signals)) {
-      for (const s of event.signals) {
-        if (s.layer && !rows.some(r => r.layer === s.layer)) {
-          rows.push({ layer: s.layer, confidence: s.confidence ?? 0 });
-        }
-      }
-    }
-    for (const row of rows) {
-      const label = SECURITY_LAYER_LABELS[row.layer] || row.layer;
-      const score = Number(row.confidence).toFixed(2);
-      const div = document.createElement('div');
-      div.className = 'security-banner-layer';
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'security-banner-layer-name';
-      nameSpan.textContent = label;
-      const scoreSpan = document.createElement('span');
-      scoreSpan.className = 'security-banner-layer-score';
-      scoreSpan.textContent = score;
-      div.appendChild(nameSpan);
-      div.appendChild(scoreSpan);
-      layersEl.appendChild(div);
-    }
-  }
-
-  // Reset expand state on each render. For reviewable banners, auto-expand
-  // so the user sees the suspected text without an extra click — they need
-  // that context to decide.
-  if (expandBtn && details) {
-    expandBtn.setAttribute('aria-expanded', reviewable ? 'true' : 'false');
-    details.hidden = !reviewable;
-    if (chevron) chevron.style.transform = reviewable ? 'rotate(180deg)' : 'rotate(0deg)';
-  }
-
-  banner.style.display = 'block';
-}
-
-function hideSecurityBanner() {
-  const banner = document.getElementById('security-banner');
-  if (banner) banner.style.display = 'none';
-}
-
-/**
- * Send the user's decision on a reviewable BLOCK event to the server.
- * Server writes a per-tab decision file that sidebar-agent polls.
- */
-async function postSecurityDecision(tabId, decision) {
-  if (!serverUrl || !Number.isFinite(tabId)) {
-    hideSecurityBanner();
-    return;
-  }
-  try {
-    await fetch(`${serverUrl}/security-decision`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
-      },
-      body: JSON.stringify({ tabId, decision, reason: 'user' }),
-    });
-  } catch (err) {
-    console.error('[sidepanel] postSecurityDecision failed', err);
-  }
-  // Hide the banner optimistically. If the user chose "allow", the session
-  // continues. If "block", sidebar-agent will kill and emit agent_error,
-  // which shows up in chat regardless.
-  hideSecurityBanner();
-}
-
-// Shield icon state update — consumes /health.security.status.
-// status ∈ { 'protected', 'degraded', 'inactive' }.
-// 'protected' = all layers ok. 'degraded' = at least one ML layer off or failed
-//   (sidebar still defended by canary + architectural controls).
-// 'inactive' = security module crashed — only architectural controls active.
-const SHIELD_LABELS = {
-  protected: { label: 'SEC', aria: 'Security status: protected' },
-  degraded:  { label: 'SEC', aria: 'Security status: degraded (some layers offline)' },
-  inactive:  { label: 'SEC', aria: 'Security status: inactive (architectural controls only)' },
-};
-function updateSecurityShield(securityState) {
-  const shield = document.getElementById('security-shield');
-  const labelEl = document.getElementById('security-shield-label');
-  if (!shield || !securityState) return;
-  const status = securityState.status || 'inactive';
-  const info = SHIELD_LABELS[status] || SHIELD_LABELS.inactive;
-  shield.setAttribute('data-status', status);
-  shield.setAttribute('aria-label', info.aria);
-  shield.style.display = 'inline-flex';
-  if (labelEl) labelEl.textContent = info.label;
-  // Hover tooltip gives layer-level detail for debugging.
-  if (securityState.layers) {
-    const parts = Object.entries(securityState.layers).map(([k, v]) => `${k}:${v}`);
-    shield.setAttribute('title', `Security — ${status}\n${parts.join('\n')}`);
-  } else {
-    shield.setAttribute('title', `Security — ${status}`);
-  }
-}
-
-// Wire up banner interactivity once on load
-document.addEventListener('DOMContentLoaded', () => {
-  const closeBtn = document.getElementById('security-banner-close');
-  const expandBtn = document.getElementById('security-banner-expand');
-  const banner = document.getElementById('security-banner');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', hideSecurityBanner);
-  }
-  if (expandBtn) {
-    expandBtn.addEventListener('click', () => {
-      const details = document.getElementById('security-banner-details');
-      const chevron = banner && banner.querySelector('.security-banner-chevron');
-      if (!details) return;
-      const open = !details.hidden;
-      details.hidden = open;
-      expandBtn.setAttribute('aria-expanded', String(!open));
-      if (chevron) chevron.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
-    });
-  }
-  // Escape dismisses the banner (a11y)
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && banner && banner.style.display !== 'none') {
-      hideSecurityBanner();
-    }
-  });
-});
-
-function addChatEntry(entry) {
-  // Dedup by entry ID — prevent repeat rendering on reconnect/replay
-  if (entry.id !== undefined) {
-    if (renderedEntryIds.has(entry.id)) return;
-    renderedEntryIds.add(entry.id);
-  }
-
-  // Remove welcome message on first real message
-  const welcome = chatMessages.querySelector('.chat-welcome');
-  if (welcome) welcome.remove();
-
-  // User messages → chat bubble (skip if we already rendered it optimistically)
-  if (entry.role === 'user') {
-    if (lastOptimisticMsg === entry.message) {
-      lastOptimisticMsg = null; // consumed — don't skip next identical msg
-      return;
-    }
-    const bubble = document.createElement('div');
-    bubble.className = 'chat-bubble user';
-    bubble.innerHTML = `${escapeHtml(entry.message)}<span class="chat-time">${formatChatTime(entry.ts)}</span>`;
-    chatMessages.appendChild(bubble);
-    bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-
-  // Legacy assistant messages (from /sidebar-response)
-  if (entry.role === 'assistant') {
-    const bubble = document.createElement('div');
-    bubble.className = 'chat-bubble assistant';
-    let content = escapeHtml(entry.message);
-    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    content = content.replace(/\n/g, '<br>');
-    bubble.innerHTML = `${content}<span class="chat-time">${formatChatTime(entry.ts)}</span>`;
-    chatMessages.appendChild(bubble);
-    bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-
-  // System notifications (cleanup, screenshot, errors)
-  if (entry.type === 'notification') {
-    const note = document.createElement('div');
-    note.className = 'chat-notification';
-    note.textContent = entry.message;
-    chatMessages.appendChild(note);
-    note.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-
-  // Agent streaming events
-  if (entry.role === 'agent') {
-    handleAgentEvent(entry);
-    return;
-  }
-}
-
-function handleAgentEvent(entry) {
-  if (entry.type === 'agent_start') {
-    // If we already showed thinking dots optimistically in sendMessage(),
-    // don't duplicate. Just ensure fast polling is on.
-    if (agentContainer && document.getElementById('agent-thinking')) {
-      startFastPoll();
-      updateStopButton(true);
-      return;
-    }
-    // Create a new agent response container
-    agentText = '';
-    agentContainer = document.createElement('div');
-    agentContainer.className = 'agent-response';
-    agentTextEl = null;
-    chatMessages.appendChild(agentContainer);
-
-    // Add thinking indicator
-    const thinking = document.createElement('div');
-    thinking.className = 'agent-thinking';
-    thinking.id = 'agent-thinking';
-    thinking.innerHTML = '<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>';
-    agentContainer.appendChild(thinking);
-    agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    startFastPoll();
-    updateStopButton(true);
-    return;
-  }
-
-  if (entry.type === 'agent_done') {
-    // Remove thinking indicator
-    const thinking = document.getElementById('agent-thinking');
-    if (thinking) thinking.remove();
-    updateStopButton(false);
-    stopFastPoll();
-    // Collapse tool calls into a "See reasoning" disclosure
-    if (agentContainer) {
-      const tools = agentContainer.querySelectorAll('.agent-tool');
-      if (tools.length > 0) {
-        const details = document.createElement('details');
-        details.className = 'agent-reasoning';
-        const summary = document.createElement('summary');
-        summary.textContent = `See reasoning (${tools.length} step${tools.length > 1 ? 's' : ''})`;
-        details.appendChild(summary);
-        for (const tool of tools) {
-          details.appendChild(tool);
-        }
-        // Insert the disclosure before the text response (if any)
-        const textEl = agentContainer.querySelector('.agent-text');
-        if (textEl) {
-          agentContainer.insertBefore(details, textEl);
-        } else {
-          agentContainer.appendChild(details);
-        }
-      }
-      // Add timestamp
-      const ts = document.createElement('span');
-      ts.className = 'chat-time';
-      ts.textContent = formatChatTime(entry.ts);
-      agentContainer.appendChild(ts);
-    }
-    agentContainer = null;
-    agentTextEl = null;
-    return;
-  }
-
-  if (entry.type === 'security_event') {
-    showSecurityBanner(entry);
-    return;
-  }
-
-  if (entry.type === 'agent_error') {
-    // Suppress timeout errors that fire after agent_done (cleanup noise)
-    if (entry.error && entry.error.includes('Timed out') && !agentContainer) {
-      return;
-    }
-    const thinking = document.getElementById('agent-thinking');
-    if (thinking) thinking.remove();
-    updateStopButton(false);
-    stopFastPoll();
-    if (!agentContainer) {
-      agentContainer = document.createElement('div');
-      agentContainer.className = 'agent-response';
-      chatMessages.appendChild(agentContainer);
-    }
-    const err = document.createElement('div');
-    err.className = 'agent-error';
-    err.textContent = entry.error || 'Unknown error';
-    agentContainer.appendChild(err);
-    agentContainer = null;
-    return;
-  }
-
-  if (!agentContainer) {
-    agentContainer = document.createElement('div');
-    agentContainer.className = 'agent-response';
-    chatMessages.appendChild(agentContainer);
-  }
-
-  // Remove thinking indicator on first real content
-  const thinking = document.getElementById('agent-thinking');
-  if (thinking) thinking.remove();
-
-  if (entry.type === 'tool_use') {
-    const toolName = entry.tool || 'Tool';
-    const toolInput = entry.input || '';
-
-    // Skip tool uses with no description (e.g. internal tool-result file reads)
-    if (!toolInput) return;
-
-    const toolEl = document.createElement('div');
-    toolEl.className = 'agent-tool';
-
-    // Use the verbose description as the primary text
-    // The tool name becomes a subtle badge
-    const toolIcon = toolName === 'Bash' ? '▸' : toolName === 'Read' ? '📄' : toolName === 'Grep' ? '🔍' : toolName === 'Glob' ? '📁' : '⚡';
-    toolEl.innerHTML = `<span class="tool-icon">${toolIcon}</span> <span class="tool-description">${escapeHtml(toolInput)}</span>`;
-    agentContainer.appendChild(toolEl);
-    agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-
-  if (entry.type === 'text' || entry.type === 'result') {
-    // Full text replacement
-    agentText = entry.text || '';
-    if (!agentTextEl) {
-      agentTextEl = document.createElement('div');
-      agentTextEl.className = 'agent-text';
-      agentContainer.appendChild(agentTextEl);
-    }
-    let content = escapeHtml(agentText);
-    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    content = content.replace(/\n/g, '<br>');
-    agentTextEl.innerHTML = content;
-    agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-
-  if (entry.type === 'text_delta') {
-    // Incremental text append
-    agentText += entry.text || '';
-    if (!agentTextEl) {
-      agentTextEl = document.createElement('div');
-      agentTextEl.className = 'agent-text';
-      agentContainer.appendChild(agentTextEl);
-    }
-    let content = escapeHtml(agentText);
-    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    content = content.replace(/\n/g, '<br>');
-    agentTextEl.innerHTML = content;
-    agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    return;
-  }
-}
-
-async function sendMessage() {
-  const msg = commandInput.value.trim();
-  if (!msg) return;
-
-  commandHistory.push(msg);
-  historyIndex = commandHistory.length;
-  commandInput.value = '';
-  commandInput.disabled = true;
-  sendBtn.disabled = true;
-
-  // Show user bubble + thinking dots IMMEDIATELY — don't wait for poll.
-  // This eliminates up to 1000ms of perceived latency.
-  lastOptimisticMsg = msg;
-  const welcome = chatMessages.querySelector('.chat-welcome');
-  if (welcome) welcome.remove();
-  const userBubble = document.createElement('div');
-  userBubble.className = 'chat-bubble user';
-  userBubble.innerHTML = `${escapeHtml(msg)}<span class="chat-time">${formatChatTime(new Date().toISOString())}</span>`;
-  chatMessages.appendChild(userBubble);
-
-  agentText = '';
-  agentContainer = document.createElement('div');
-  agentContainer.className = 'agent-response';
-  agentTextEl = null;
-  chatMessages.appendChild(agentContainer);
-  const thinking = document.createElement('div');
-  thinking.className = 'agent-thinking';
-  thinking.id = 'agent-thinking';
-  thinking.innerHTML = '<span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>';
-  agentContainer.appendChild(thinking);
-  agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  updateStopButton(true);
-
-  // Speed up polling while agent is working
-  startFastPoll();
-
-  const result = await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'sidebar-command', message: msg, tabId: sidebarActiveTabId }, resolve);
-  });
-
-  commandInput.disabled = false;
-  sendBtn.disabled = false;
-  commandInput.focus();
-
-  if (result?.ok) {
-    // Poll immediately to sync server state
-    pollChat();
-  } else {
-    commandInput.classList.add('error');
-    commandInput.placeholder = result?.error || 'Failed to send';
-    setTimeout(() => {
-      commandInput.classList.remove('error');
-      commandInput.placeholder = 'Message Claude Code...';
-    }, 2000);
-  }
-}
-
-commandInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
-  if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    if (historyIndex > 0) { historyIndex--; commandInput.value = commandHistory[historyIndex]; }
-  }
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    if (historyIndex < commandHistory.length - 1) { historyIndex++; commandInput.value = commandHistory[historyIndex]; }
-    else { historyIndex = commandHistory.length; commandInput.value = ''; }
-  }
-});
-
-sendBtn.addEventListener('click', sendMessage);
-document.getElementById('stop-agent-btn').addEventListener('click', stopAgent);
-
-// Poll for new chat messages
-let initialLoadDone = false;
-
-async function pollChat() {
-  if (pollInProgress) return;
-  pollInProgress = true;
-  if (!serverUrl || !serverToken) { pollInProgress = false; return; }
-  try {
-    // Request chat for the currently displayed tab
-    const tabParam = sidebarActiveTabId !== null ? `&tabId=${sidebarActiveTabId}` : '';
-    const resp = await fetch(`${serverUrl}/sidebar-chat?after=${chatLineCount}${tabParam}`, {
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!resp.ok) {
-      console.warn(`[gstack sidebar] Chat poll failed: ${resp.status} ${resp.statusText}`);
-      return;
-    }
-    const data = await resp.json();
-
-    // Detect tab switch from server — swap chat context.
-    // IMPORTANT: return before cleaning up thinking dots — the agent may be
-    // processing on the NEW tab while the OLD tab is idle. Removing the
-    // thinking indicator here would kill the optimistic UI before the switch.
-    if (data.activeTabId !== undefined && data.activeTabId !== sidebarActiveTabId) {
-      switchChatTab(data.activeTabId);
-      return; // switchChatTab triggers a fresh poll on the correct tab
-    }
-
-    // First successful poll — hide loading spinner
-    if (!initialLoadDone) {
-      initialLoadDone = true;
-      sidebarActiveTabId = data.activeTabId ?? null;
-      const loading = document.getElementById('chat-loading');
-      const welcome = document.getElementById('chat-welcome');
-      if (loading) loading.style.display = 'none';
-      // Show welcome only if no chat history
-      if (data.total === 0 && welcome) welcome.style.display = '';
-    }
-
-    // Shield icon state rides the chat poll (every 300ms in fast mode,
-    // slower when idle). When the ML classifier finishes warming after
-    // initial connect — typically 30s on first run — the shield flips
-    // from 'off' to 'protected' without the user needing to reload.
-    if (data.security) updateSecurityShield(data.security);
-
-    if (data.entries && data.entries.length > 0) {
-      // Hide welcome on first real entry
-      const welcome = document.getElementById('chat-welcome');
-      if (welcome) welcome.style.display = 'none';
-      for (const entry of data.entries) {
-        addChatEntry(entry);
-      }
-      chatLineCount = data.total;
-    }
-
-    // Clean up orphaned thinking indicators after replay.
-    // Only remove if we're on the CORRECT tab and the agent is truly idle.
-    // Don't clean up during tab switches — the agent may be processing on
-    // the new tab while the old tab shows idle.
-    const thinking = document.getElementById('agent-thinking');
-    if (thinking && data.agentStatus !== 'processing') {
-      thinking.remove();
-      agentContainer = null;
-      agentTextEl = null;
-    }
-
-    // Show/hide stop button based on agent status
-    updateStopButton(data.agentStatus === 'processing');
-  } catch (err) {
-    console.error('[gstack sidebar] Chat poll error:', err.message);
-  } finally {
-    pollInProgress = false;
-  }
-}
-
-/** Switch the sidebar to show a different tab's chat context */
-function switchChatTab(newTabId) {
-  if (newTabId === sidebarActiveTabId) return;
-
-  // Save current tab's chat DOM + scroll position
-  if (sidebarActiveTabId !== null) {
-    const frag = document.createDocumentFragment();
-    while (chatMessages.firstChild) {
-      frag.appendChild(chatMessages.firstChild);
-    }
-    chatDomByTab[sidebarActiveTabId] = frag;
-    chatLineCountByTab[sidebarActiveTabId] = chatLineCount;
-  }
-
-  sidebarActiveTabId = newTabId;
-
-  // Restore saved chat for new tab, or carry over current DOM if we're
-  // mid-message (the server may have switched tabs because the user's
-  // Chrome tab changed, but we still want to show the optimistic UI).
-  if (chatDomByTab[newTabId]) {
-    while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
-    chatMessages.appendChild(chatDomByTab[newTabId]);
-    chatLineCount = chatLineCountByTab[newTabId] || 0;
-    // Reset agent state for restored tab
-    agentContainer = null;
-    agentTextEl = null;
-    agentText = '';
-  } else if (lastOptimisticMsg && document.getElementById('agent-thinking')) {
-    // We're mid-send with optimistic UI — keep it, don't blow it away.
-    // The poll for the new tab will pick up the entries and sync naturally.
-    chatLineCount = 0;
-    // agentContainer/agentTextEl are already set from sendMessage()
-  } else {
-    while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
-    const welcomeDiv = document.createElement('div');
-    welcomeDiv.className = 'chat-welcome';
-    welcomeDiv.id = 'chat-welcome';
-    const iconDiv = document.createElement('div');
-    iconDiv.className = 'chat-welcome-icon';
-    iconDiv.textContent = 'G';
-    welcomeDiv.appendChild(iconDiv);
-    const p1 = document.createElement('p');
-    p1.textContent = 'Send a message about this page.';
-    welcomeDiv.appendChild(p1);
-    const p2 = document.createElement('p');
-    p2.className = 'muted';
-    p2.textContent = 'Each tab has its own conversation.';
-    welcomeDiv.appendChild(p2);
-    chatMessages.appendChild(welcomeDiv);
-    chatLineCount = 0;
-    // Reset agent state for fresh tab
-    agentContainer = null;
-    agentTextEl = null;
-    agentText = '';
-  }
-
-  // Immediately poll the new tab's chat
-  setTimeout(pollChat, 0);
-}
-
-function updateStopButton(agentRunning) {
-  const stopBtn = document.getElementById('stop-agent-btn');
-  if (!stopBtn) return;
-  stopBtn.style.display = agentRunning ? '' : 'none';
-}
-
-async function stopAgent() {
-  if (!serverUrl) return;
-  try {
-    const resp = await fetch(`${serverUrl}/sidebar-agent/stop`, { method: 'POST', headers: authHeaders() });
-    if (!resp.ok) console.warn(`[gstack sidebar] Stop agent failed: ${resp.status}`);
-  } catch (err) {
-    console.error('[gstack sidebar] Stop agent error:', err.message);
-  }
-  // Immediately clean up UI
-  const thinking = document.getElementById('agent-thinking');
-  if (thinking) thinking.remove();
-  if (agentContainer) {
-    const notice = document.createElement('div');
-    notice.className = 'agent-text';
-    notice.style.color = 'var(--text-meta)';
-    notice.style.fontStyle = 'italic';
-    notice.textContent = 'Stopped';
-    agentContainer.appendChild(notice);
-    agentContainer = null;
-    agentTextEl = null;
-  }
-  updateStopButton(false);
-  stopFastPoll();
-}
-
-// ─── Adaptive poll speed ─────────────────────────────────────────
-// 300ms while agent is working (fast first-token), 1000ms when idle.
-const FAST_POLL_MS = 300;
-const SLOW_POLL_MS = 1000;
-
-function startFastPoll() {
-  if (chatPollInterval) clearInterval(chatPollInterval);
-  chatPollInterval = setInterval(pollChat, FAST_POLL_MS);
-}
-
-function stopFastPoll() {
-  if (chatPollInterval) clearInterval(chatPollInterval);
-  chatPollInterval = setInterval(pollChat, SLOW_POLL_MS);
-}
-
-// ─── Browser Tab Bar ─────────────────────────────────────────────
-let tabPollInterval = null;
-let lastTabJson = '';
-
-async function pollTabs() {
-  if (!serverUrl || !serverToken) return;
-  try {
-    // Tell the server which Chrome tab the user is actually looking at.
-    // This syncs manual tab switches in the browser → server activeTabId.
-    let activeTabUrl = null;
-    try {
-      const chromeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      activeTabUrl = chromeTabs?.[0]?.url || null;
-    } catch (err) {
-      console.debug('[gstack sidebar] Failed to get active tab URL:', err.message);
-    }
-
-    const resp = await fetch(`${serverUrl}/sidebar-tabs${activeTabUrl ? '?activeUrl=' + encodeURIComponent(activeTabUrl) : ''}`, {
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(2000),
-    });
-    if (!resp.ok) {
-      console.warn(`[gstack sidebar] Tab poll failed: ${resp.status} ${resp.statusText}`);
-      return;
-    }
-    const data = await resp.json();
-    if (!data.tabs) return;
-
-    // Only re-render if tabs changed
-    const json = JSON.stringify(data.tabs);
-    if (json === lastTabJson) return;
-    lastTabJson = json;
-
-    renderTabBar(data.tabs);
-  } catch (err) {
-    console.error('[gstack sidebar] Tab poll error:', err.message);
-  }
-}
-
-function renderTabBar(tabs) {
-  const bar = document.getElementById('browser-tabs');
-  if (!bar) return;
-
-  if (!tabs || tabs.length <= 1) {
-    bar.style.display = 'none';
-    return;
-  }
-
-  bar.style.display = '';
-  bar.innerHTML = '';
-
-  for (const tab of tabs) {
-    const el = document.createElement('div');
-    el.className = 'browser-tab' + (tab.active ? ' active' : '');
-    el.title = tab.url || '';
-
-    // Show favicon-style domain + title
-    let label = tab.title || '';
-    if (!label && tab.url) {
-      try { label = new URL(tab.url).hostname; } catch { label = tab.url; }
-    }
-    if (label.length > 20) label = label.slice(0, 20) + '…';
-
-    el.textContent = label || `Tab ${tab.id}`;
-    el.dataset.tabId = tab.id;
-
-    el.addEventListener('click', () => switchBrowserTab(tab.id));
-    bar.appendChild(el);
-  }
-}
-
-async function switchBrowserTab(tabId) {
-  if (!serverUrl) return;
-  try {
-    await fetch(`${serverUrl}/sidebar-tabs/switch`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ id: tabId }),
-    });
-    // Switch chat context + re-poll tabs
-    switchChatTab(tabId);
-    pollTabs();
-  } catch (err) {
-    console.error('[gstack sidebar] Failed to switch browser tab:', err.message);
-  }
-}
-
-// ─── Clear Chat ─────────────────────────────────────────────────
-
-document.getElementById('clear-chat').addEventListener('click', async () => {
-  if (!serverUrl) return;
-  try {
-    const resp = await fetch(`${serverUrl}/sidebar-chat/clear`, { method: 'POST', headers: authHeaders() });
-    if (!resp.ok) console.warn(`[gstack sidebar] Clear chat failed: ${resp.status}`);
-  } catch (err) {
-    console.error('[gstack sidebar] Clear chat error:', err.message);
-  }
-  // Reset local state
-  chatLineCount = 0;
-  renderedEntryIds.clear();
-  agentContainer = null;
-  agentTextEl = null;
-  agentText = '';
-  chatMessages.innerHTML = `
-    <div class="chat-welcome" id="chat-welcome">
-      <div class="chat-welcome-icon">G</div>
-      <p>Send a message to Claude Code.</p>
-      <p class="muted">Your agent will see it and act on it.</p>
-    </div>`;
-});
+// ─── Chat path ripped ────────────────────────────────────────────
+// Chat queue + sendMessage + pollChat + switchChatTab + browser-tabs
+// strip + security banner all lived here. Replaced by the interactive
+// claude PTY in sidepanel-terminal.js (and terminal-agent.ts on the
+// server side).
 
 // ─── Reload Sidebar ─────────────────────────────────────────────
 document.getElementById('reload-sidebar').addEventListener('click', () => {
@@ -914,24 +116,29 @@ const debugTabs = document.getElementById('debug-tabs');
 const closeDebug = document.getElementById('close-debug');
 let debugOpen = false;
 
+// The Terminal pane is the only primary surface; Activity / Refs / Inspector
+// are debug overlays behind the `debug` toggle. Closing debug returns to
+// the Terminal pane, which is always present.
+const PRIMARY_PANE_ID = 'tab-terminal';
+
+function showPrimaryPane() {
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById(PRIMARY_PANE_ID).classList.add('active');
+  document.querySelectorAll('.debug-tabs .tab').forEach(t => t.classList.remove('active'));
+}
+
 debugToggle.addEventListener('click', () => {
   debugOpen = !debugOpen;
   debugToggle.classList.toggle('active', debugOpen);
   debugTabs.style.display = debugOpen ? 'flex' : 'none';
-  if (!debugOpen) {
-    // Close debug panels, show chat
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.getElementById('tab-chat').classList.add('active');
-    document.querySelectorAll('.debug-tabs .tab').forEach(t => t.classList.remove('active'));
-  }
+  if (!debugOpen) showPrimaryPane();
 });
 
 closeDebug.addEventListener('click', () => {
   debugOpen = false;
   debugToggle.classList.remove('active');
   debugTabs.style.display = 'none';
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.getElementById('tab-chat').classList.add('active');
+  showPrimaryPane();
 });
 
 document.querySelectorAll('.debug-tabs .tab:not(.close-debug)').forEach(tab => {
@@ -1498,73 +705,45 @@ inspectorSendBtn.addEventListener('click', () => {
     message = `CSS Inspector data for: ${inspectorData.selector}\n\n${JSON.stringify(inspectorData, null, 2)}`;
   }
 
-  chrome.runtime.sendMessage({ type: 'sidebar-command', message });
+  // Inject into the running claude PTY so the user can ask claude to act
+  // on the inspector data. Replaces the old `sidebar-command` route which
+  // spawned a one-shot claude -p (sidebar-agent.ts is gone).
+  const ok = window.gstackInjectToTerminal?.(message + '\n');
+  if (!ok) {
+    console.warn('[gstack sidebar] Inspector send needs an active Terminal session.');
+  }
 });
 
-// ─── Quick Action Helpers (shared between chat toolbar + inspector) ──
+// ─── Quick Action Helpers (toolbar buttons) ──────────────────────
 
+/**
+ * "Cleanup" injects a prompt into the running claude PTY. claude takes the
+ * prompt, snapshots the page, hides ads/banners/popups, leaves article
+ * content. The user watches it happen in the Terminal pane.
+ *
+ * Replaced the old chat-queue path (sidebar-agent.ts spawning a one-shot
+ * claude -p) — we have a live REPL now, so route through that instead.
+ */
 async function runCleanup(...buttons) {
-  if (!serverUrl || !serverToken) {
-    return;
-  }
   buttons.forEach(b => b?.classList.add('loading'));
-
-  // Smart cleanup: send a chat message to the sidebar agent (an LLM).
-  // The agent snapshots the page, understands it semantically, and removes
-  // clutter intelligently. Much better than brittle CSS selectors.
   const cleanupPrompt = [
-    'Clean up this page for reading. First run a quick deterministic pass:',
+    'Clean up the active browser page for reading. Run:',
     '$B cleanup --all',
-    '',
-    'Then take a snapshot to see what\'s left:',
-    '$B snapshot -i',
-    '',
-    'Look at the snapshot and identify remaining non-content elements:',
-    '- Ad placeholders, "ADVERTISEMENT" labels, sponsored content',
-    '- Cookie/consent banners, newsletter popups, login walls',
-    '- Audio/podcast player widgets, video autoplay',
-    '- Sidebar widgets (puzzles, games, "most popular", recommendations)',
-    '- Social share buttons, follow prompts, "See more on Google"',
-    '- Floating chat widgets, feedback buttons',
-    '- Navigation drawers, mega-menus (unless they ARE the page content)',
-    '- Empty whitespace from removed ads',
-    '',
-    'KEEP: the site header/masthead/logo, article headline, article body,',
-    'article images, author byline, date. The page should still look like',
-    'the site it is, just without the crap.',
-    '',
-    'For each element to remove, run JavaScript via $B to hide it:',
-    '$B eval "document.querySelector(\'SELECTOR\').style.display=\'none\'"',
-    '',
-    'Also unlock scrolling if the page is scroll-locked:',
-    '$B eval "document.body.style.overflow=\'auto\';document.documentElement.style.overflow=\'auto\'"',
+    'then $B snapshot -i, identify any remaining ads, cookie/consent banners,',
+    'newsletter popups, login walls, video autoplay, sidebar widgets, share',
+    'buttons, floating chat widgets, and hide each via $B eval. Keep the site',
+    'header/masthead, headline, article body, images, byline, and date. Also',
+    'unlock scrolling if the page is scroll-locked.',
   ].join('\n');
-
-  try {
-    // Send as a sidebar command (spawns the agent)
-    const resp = await fetch(`${serverUrl}/sidebar-command`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ message: cleanupPrompt }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (resp.ok) {
-      addChatEntry({ type: 'notification', message: 'Cleaning up page (agent is analyzing...)' });
-    } else {
-      addChatEntry({ type: 'notification', message: 'Failed to start cleanup' });
-    }
-  } catch (err) {
-    addChatEntry({ type: 'notification', message: 'Cleanup failed: ' + err.message });
-  } finally {
-    // Remove loading after a short delay (agent runs async)
-    setTimeout(() => buttons.forEach(b => b?.classList.remove('loading')), 2000);
+  const sent = window.gstackInjectToTerminal?.(cleanupPrompt + '\n');
+  if (!sent) {
+    console.warn('[gstack sidebar] Cleanup needs an active Terminal session.');
   }
+  setTimeout(() => buttons.forEach(b => b?.classList.remove('loading')), 1200);
 }
 
 async function runScreenshot(...buttons) {
-  if (!serverUrl || !serverToken) {
-    return;
-  }
+  if (!serverUrl || !serverToken) return;
   buttons.forEach(b => b?.classList.add('loading'));
   try {
     const resp = await fetch(`${serverUrl}/command`, {
@@ -1574,14 +753,13 @@ async function runScreenshot(...buttons) {
       signal: AbortSignal.timeout(15000),
     });
     const text = await resp.text();
-    if (resp.ok) {
-      addChatEntry({ type: 'notification', message: text || 'Screenshot saved' });
+    if (!resp.ok) {
+      console.warn('[gstack sidebar] Screenshot failed:', text);
     } else {
-      const err = JSON.parse(text).error || 'Screenshot failed';
-      addChatEntry({ type: 'notification', message: 'Error: ' + err });
+      console.log('[gstack sidebar] Screenshot:', text);
     }
   } catch (err) {
-    addChatEntry({ type: 'notification', message: 'Screenshot failed: ' + err.message });
+    console.error('[gstack sidebar] Screenshot error:', err.message);
   } finally {
     buttons.forEach(b => b?.classList.remove('loading'));
   }
@@ -1660,6 +838,16 @@ function updateConnection(url, token) {
   const wasConnected = !!serverUrl;
   serverUrl = url;
   serverToken = token || null;
+  // Expose for sidepanel-terminal.js (PTY surface). The terminal pane needs
+  // the bootstrap token to POST /pty-session and the port to derive the WS
+  // URL. We never expose the PTY token — it lives in an HttpOnly cookie.
+  if (url) {
+    try { window.gstackServerPort = parseInt(new URL(url).port, 10); } catch {}
+    window.gstackAuthToken = token || null;
+  } else {
+    window.gstackServerPort = null;
+    window.gstackAuthToken = null;
+  }
   if (url) {
     document.getElementById('footer-dot').className = 'dot connected';
     const port = new URL(url).port;
@@ -1671,22 +859,11 @@ function updateConnection(url, token) {
     chrome.runtime.sendMessage({ type: 'sidebarOpened' }).catch(() => {});
     connectSSE();
     connectInspectorSSE();
-    if (chatPollInterval) clearInterval(chatPollInterval);
-    chatPollInterval = setInterval(pollChat, SLOW_POLL_MS);
-    pollChat();
-    // Poll browser tabs every 2s (lightweight, just tab list)
-    if (tabPollInterval) clearInterval(tabPollInterval);
-    tabPollInterval = setInterval(pollTabs, 2000);
-    pollTabs();
   } else {
     document.getElementById('footer-dot').className = 'dot';
     document.getElementById('footer-port').textContent = '';
     setActionButtonsEnabled(false);
-    if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
-    if (tabPollInterval) { clearInterval(tabPollInterval); tabPollInterval = null; }
-    if (wasConnected) {
-      startReconnect();
-    }
+    if (wasConnected) startReconnect();
   }
 }
 
@@ -1739,9 +916,10 @@ document.getElementById('conn-copy').addEventListener('click', () => {
 // staring at a blank "Connecting..." with no info.
 let connectAttempts = 0;
 function setLoadingStatus(msg, debug) {
-  const status = document.getElementById('loading-status');
+  // The status line lives inside the Terminal bootstrap card now —
+  // sidepanel-terminal.js owns it. We only update the debug pre block,
+  // and trust the terminal pane to surface the human-readable status.
   const dbg = document.getElementById('loading-debug');
-  if (status) status.textContent = msg;
   if (dbg && debug !== undefined) dbg.textContent = debug;
 }
 
@@ -1800,11 +978,12 @@ async function tryConnect() {
       if (data.status === 'healthy' && data.token) {
         setLoadingStatus(
           `Server healthy on port ${port}, connecting...`,
-          `token: yes (from /health)\nStarting SSE + chat polling...`
+          `token: yes (from /health)\nStarting SSE + activity feed...`
         );
         updateConnection(`http://127.0.0.1:${port}`, data.token);
-        // Shield state arrives on /health alongside the auth token.
-        if (data.security) updateSecurityShield(data.security);
+        // The SEC shield used to drive off /health.security via the chat
+        // path's classifier; with the chat path ripped, the indicator is
+        // not driven yet. Leaving the shield element hidden by default.
         return;
       }
       setLoadingStatus(
@@ -1838,7 +1017,6 @@ chrome.runtime.onMessage.addListener((msg) => {
       chrome.runtime.sendMessage({ type: 'getToken' }, (resp) => {
         updateConnection(url, resp?.token || null);
       });
-      applyChatEnabled(!!msg.data.chatEnabled);
     } else {
       updateConnection(null);
     }
@@ -1861,59 +1039,13 @@ chrome.runtime.onMessage.addListener((msg) => {
     inspectorPickerActive = false;
     inspectorPickBtn.classList.remove('active');
   }
-  // Instant tab switch — background.js fires this on chrome.tabs.onActivated
-  if (msg.type === 'browserTabActivated') {
-    // Tell the server which tab is now active, then switch chat context
-    if (serverUrl && serverToken) {
-      fetch(`${serverUrl}/sidebar-tabs?activeUrl=${encodeURIComponent(msg.url || '')}`, {
-        headers: authHeaders(),
-        signal: AbortSignal.timeout(2000),
-      }).then(r => r.json()).then(data => {
-        if (data.tabs) {
-          renderTabBar(data.tabs);
-          // Find the server-side tab ID for this Chrome tab
-          const activeTab = data.tabs.find(t => t.active);
-          if (activeTab && activeTab.id !== sidebarActiveTabId) {
-            switchChatTab(activeTab.id);
-          }
-        }
-      }).catch(() => {});
-    }
+  // browserTabState: full snapshot of all open tabs + the active one,
+  // pushed by background.js on chrome.tabs events. We forward it as a
+  // custom event so sidepanel-terminal.js can relay to terminal-agent.ts.
+  // Result: claude's <stateDir>/tabs.json + active-tab.json stay live.
+  if (msg.type === 'browserTabState') {
+    document.dispatchEvent(new CustomEvent('gstack:tab-state', {
+      detail: { active: msg.active, tabs: msg.tabs, reason: msg.reason },
+    }));
   }
 });
-
-// ─── Chat Gate ──────────────────────────────────────────────────
-// Show/hide Chat tab + command bar based on chatEnabled from server
-
-function applyChatEnabled(enabled) {
-  const commandBar = document.querySelector('.command-bar');
-  const chatTab = document.getElementById('tab-chat');
-  const banner = document.getElementById('experimental-banner');
-  const clearBtn = document.getElementById('clear-chat');
-
-  if (enabled) {
-    // Chat is enabled: show command bar, chat tab, experimental banner
-    if (commandBar) commandBar.style.display = '';
-    if (chatTab) chatTab.style.display = '';
-    if (banner) banner.style.display = '';
-    if (clearBtn) clearBtn.style.display = '';
-  } else {
-    // Chat disabled: hide command bar, chat content, clear button
-    if (commandBar) commandBar.style.display = 'none';
-    if (banner) banner.style.display = 'none';
-    if (clearBtn) clearBtn.style.display = 'none';
-    // If currently on chat tab, switch to activity
-    if (chatTab && chatTab.classList.contains('active')) {
-      chatTab.classList.remove('active');
-      // Open debug tabs and show activity
-      const debugToggle = document.getElementById('debug-toggle');
-      const debugTabs = document.getElementById('debug-tabs');
-      if (debugToggle) debugToggle.classList.add('active');
-      if (debugTabs) debugTabs.style.display = 'flex';
-      const activityTab = document.getElementById('tab-activity');
-      if (activityTab) activityTab.classList.add('active');
-      const activityBtn = document.querySelector('.tab[data-tab="activity"]');
-      if (activityBtn) activityBtn.classList.add('active');
-    }
-  }
-}
