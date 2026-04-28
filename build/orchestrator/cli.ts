@@ -189,6 +189,93 @@ function printPhaseTable(phases: Phase[]) {
   }
 }
 
+function printPhaseReport(phase: Phase, phaseState: import('./types').PhaseState, nextPhaseName: string | null) {
+  const w = 58;
+  const bar = '═'.repeat(w);
+  const line = (label: string, value: string) =>
+    `  ${label.padEnd(14)} ${value}`;
+
+  const gitSha = (() => {
+    try {
+      const r = spawnSync('git', ['log', '--oneline', '-1'], { encoding: 'utf8' });
+      return r.stdout?.trim() || '(unknown)';
+    } catch { return '(unknown)'; }
+  })();
+
+  const testIter = phaseState.testRun?.iterations ?? 0;
+  const fixIter = phaseState.testFix?.iterations ?? 0;
+  const codexIter = phaseState.codexReview?.iterations ?? 0;
+  const redAttempts = phaseState.redSpecAttempts ?? 0;
+  const testStatus = phaseState.testRun?.finalStatus === 'green'
+    ? `✅ green (fix iters: ${fixIter}, test runs: ${testIter})`
+    : `⚠ ${phaseState.testRun?.finalStatus ?? 'n/a'}`;
+  const reviewStatus = phaseState.codexReview?.finalVerdict === 'GATE PASS'
+    ? `✅ GATE PASS (iters: ${codexIter})`
+    : `⚠ ${phaseState.codexReview?.finalVerdict ?? 'n/a'} (iters: ${codexIter})`;
+
+  console.log(`\n${'═'.repeat(w)}`);
+  console.log(`  PHASE ${phase.number} COMPLETE — ${phase.name}`);
+  console.log(bar);
+  if (phaseState.geminiTestSpec) {
+    console.log(line('Test Spec:', `✅ written (red attempts: ${redAttempts})`));
+  }
+  console.log(line('Tests:', testStatus));
+  console.log(line('Review:', reviewStatus));
+  console.log(line('Commit:', gitSha));
+  console.log(line('Next:', nextPhaseName ? `Phase → ${nextPhaseName}` : 'FINAL SHIP'));
+  console.log(`${'═'.repeat(w)}\n`);
+}
+
+async function verifyPostShip(cwd: string, branch: string): Promise<{ ok: boolean; report: string[] }> {
+  const issues: string[] = [];
+  const lines: string[] = [];
+
+  const run = (cmd: string, args: string[]) =>
+    spawnSync(cmd, args, { encoding: 'utf8', cwd });
+
+  // 1. No open PRs for the feature branch
+  const openPR = run('gh', ['pr', 'list', '--state', 'open', '--head', branch, '--json', 'number', '--jq', 'length']);
+  const openCount = parseInt(openPR.stdout?.trim() || '0', 10);
+  if (openCount > 0) {
+    issues.push(`${openCount} open PR(s) still exist for branch ${branch}`);
+    lines.push(`  PR:          ⚠ ${openCount} open PR(s) for ${branch} — /land-and-deploy may not have completed`);
+  } else {
+    lines.push(`  PR:          ✅ merged (0 open)`);
+  }
+
+  // 2. No unmerged feat/* branches on origin
+  run('git', ['fetch', 'origin']);
+  const unmerged = run('git', ['branch', '-r', '--no-merged', 'origin/main']);
+  const unmergedFeat = (unmerged.stdout || '').split('\n')
+    .map((l: string) => l.trim()).filter((l: string) => l.startsWith('origin/feat/'));
+  if (unmergedFeat.length > 0) {
+    issues.push(`unmerged feat branches: ${unmergedFeat.join(', ')}`);
+    lines.push(`  Branches:    ⚠ unmerged: ${unmergedFeat.join(', ')}`);
+  } else {
+    lines.push(`  Branches:    ✅ no unmerged feat/* on origin/main`);
+  }
+
+  // 3. Working tree clean
+  const dirty = run('git', ['status', '--porcelain']);
+  if ((dirty.stdout || '').trim()) {
+    issues.push('working tree is not clean after ship');
+    lines.push(`  Working tree: ⚠ dirty — uncommitted changes remain`);
+  } else {
+    lines.push(`  Working tree: ✅ clean`);
+  }
+
+  // 4. Current HEAD on main matches origin/main
+  const localHead = run('git', ['rev-parse', 'HEAD']).stdout?.trim();
+  const remoteHead = run('git', ['rev-parse', 'origin/main']).stdout?.trim();
+  if (localHead && remoteHead && localHead !== remoteHead) {
+    lines.push(`  Main sync:   ⚠ local HEAD ${localHead?.slice(0, 7)} ≠ origin/main ${remoteHead?.slice(0, 7)}`);
+  } else {
+    lines.push(`  Main sync:   ✅ in sync`);
+  }
+
+  return { ok: issues.length === 0, report: lines };
+}
+
 function logActivity(event: Record<string, any>) {
   const dir = path.join(os.homedir(), '.gstack', 'analytics');
   fs.mkdirSync(dir, { recursive: true });
@@ -424,6 +511,7 @@ function countCommitsSinceBase(worktreePath: string, baseCommit: string): number
 async function runPhase(args: {
   state: BuildState;
   phase: Phase;
+  nextPhaseName: string | null;
   cwd: string;
   noGbrain: boolean;
   dryRun: boolean;
@@ -476,7 +564,7 @@ async function runPhase(args: {
       state.phases[phase.index] = phaseState;
       state.currentPhaseIndex = phase.index + 1;
       saveState(state, { noGbrain, log: console.warn });
-      console.log(`  ✓ Phase ${phase.number} committed`);
+      printPhaseReport(phase, phaseState, args.nextPhaseName);
       return 'done';
     }
 
@@ -1129,6 +1217,7 @@ async function main() {
       const outcome = await runPhase({
         state,
         phase,
+        nextPhaseName: phases[idx + 1]?.name ?? null,
         cwd,
         noGbrain: args.noGbrain,
         dryRun: args.dryRun,
@@ -1152,6 +1241,17 @@ async function main() {
         console.log(`  ✓ shipped (${(result.durationMs / 1000).toFixed(0)}s)`);
         state.completed = true;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+        const { ok, report } = await verifyPostShip(cwd, state.branch);
+        const w = 58;
+        console.log(`\n${'╔' + '═'.repeat(w - 2) + '╗'}`);
+        console.log(`║  WEEK/GROUP COMPLETE — EXECUTION REPORT${' '.repeat(w - 42)}║`);
+        console.log(`${'╠' + '═'.repeat(w - 2) + '╣'}`);
+        for (const l of report) console.log(`║${l.padEnd(w - 2)}║`);
+        console.log(`${'╚' + '═'.repeat(w - 2) + '╝'}\n`);
+        if (!ok) {
+          console.error('✗ post-ship guardrail failed — see issues above');
+          exitCode = 1;
+        }
       }
     } else if (exitCode === 0 && (args.skipShip || args.dryRun)) {
       state.completed = !args.dryRun;
