@@ -33,7 +33,7 @@ _EMIT=$(find ~/.claude/plugins/cache -name "bams-viz-emit.sh" -path "*/bams-plug
 phase3-quantitative-eval.md에서 C등급 이하(C/D)인 에이전트와,
 phase2-kpt-consolidated.md의 Problem 항목에서 명시적으로 지목된 에이전트를 대상으로 합니다. 두 기준 중 하나라도 해당하면 개선 대상에 포함합니다.
 
-**일반화 가능성 가드 (R4 / NG1 정합)**:
+**일반화 가능성 가드 (R4 / NG1 정합, 분류 기준: `references/retro-protocol.md` §3-1 참조)**:
 phase2-kpt-consolidated.md에서 **"단일 프로젝트 한정"으로 분류된 Problem만 근거가 되는 개선 후보는 plugin agent 수정 대상에서 제외**합니다. 해당 후보는 `.crew/gotchas.md` 후보 또는 프로젝트 차원 액션 아이템으로 분류하여 Step 8 사용자 승인의 별도 흐름(R9, AC11)에서 처리합니다.
 같은 에이전트가 다중 프로젝트 재현 Problem과 단일 프로젝트 한정 Problem 둘 다에 의해 지목된 경우, 다중 프로젝트 재현 Problem 부분만 plugin agent 수정 대상에 포함합니다.
 
@@ -192,7 +192,9 @@ phase4-improvements-summary.md에서 각 개선안의 `### 일반화 가능성` 
 
 - **전체 승인**: 모든 "다중 프로젝트 재현 가능" 개선안 → Step 9 위임. "단일 프로젝트 한정" 개선안은 plugin agents/*.md 수정 대상이 아니므로 별도 처리(아래 2단계 질문).
 - **선택 승인**: 선택된 에이전트 번호에 해당하는 "다중 프로젝트 재현 가능" 개선안 → Step 9 위임. "단일 프로젝트 한정" 분류는 자동 제외 후 별도 처리(아래 2단계 질문).
-- **보류**: Step 9 skip, Phase 5로 직행. 개선안 파일 경로를 최종 보고서에 포함.
+- **보류**: Step 9 skip. 단, "단일 프로젝트 한정" 분류 개선안이 ≥1건이면 Step 8-2(gotchas.md 승격 확인)는 본 1단계 응답(C)과 무관하게 발동된다 — Step 8-2는 plugin agents 수정과 독립적인 흐름이다. Step 8-2 종료 후 Phase 5로 직행. 개선안 파일 경로를 최종 보고서에 포함.
+
+---
 
 ### Step 8-2: 단일 프로젝트 한정 개선안 .crew/gotchas.md 승격 확인 (조건부, R9/AC11)
 
