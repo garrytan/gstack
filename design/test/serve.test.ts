@@ -64,6 +64,48 @@ describe('Serve HTTP endpoints', () => {
       fetch(req) {
         const url = new URL(req.url);
 
+        if (url.pathname.startsWith('/api/')) {
+          if (url.pathname === '/api/progress') {
+            if (req.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'GET' } });
+            return Response.json({ status: state });
+          }
+
+          if (url.pathname === '/api/feedback') {
+            if (req.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
+            return (async () => {
+              let body: any;
+              try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+              if (typeof body !== 'object' || body === null) return Response.json({ error: 'Expected JSON object' }, { status: 400 });
+              const isSubmit = body.regenerated === false;
+              const feedbackFile = isSubmit ? 'feedback.json' : 'feedback-pending.json';
+              fs.writeFileSync(path.join(tmpDir, feedbackFile), JSON.stringify(body, null, 2));
+              if (isSubmit) {
+                state = 'done';
+                return Response.json({ received: true, action: 'submitted' });
+              }
+              state = 'regenerating';
+              return Response.json({ received: true, action: 'regenerate' });
+            })();
+          }
+
+          if (url.pathname === '/api/reload') {
+            if (req.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
+            return (async () => {
+              let body: any;
+              try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+              if (typeof body !== 'object' || body === null) return Response.json({ error: 'Expected JSON object' }, { status: 400 });
+              if (!body.html || !fs.existsSync(body.html)) {
+                return Response.json({ error: `HTML file not found: ${body.html}` }, { status: 400 });
+              }
+              htmlContent = fs.readFileSync(body.html, 'utf-8');
+              state = 'serving';
+              return Response.json({ reloaded: true });
+            })();
+          }
+
+          return Response.json({ error: 'Not found' }, { status: 404 });
+        }
+
         if (req.method === 'GET' && url.pathname === '/') {
           const injected = htmlContent.replace(
             '</head>',
@@ -72,40 +114,6 @@ describe('Serve HTTP endpoints', () => {
           return new Response(injected, {
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
           });
-        }
-
-        if (req.method === 'GET' && url.pathname === '/api/progress') {
-          return Response.json({ status: state });
-        }
-
-        if (req.method === 'POST' && url.pathname === '/api/feedback') {
-          return (async () => {
-            let body: any;
-            try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
-            if (typeof body !== 'object' || body === null) return Response.json({ error: 'Expected JSON object' }, { status: 400 });
-            const isSubmit = body.regenerated === false;
-            const feedbackFile = isSubmit ? 'feedback.json' : 'feedback-pending.json';
-            fs.writeFileSync(path.join(tmpDir, feedbackFile), JSON.stringify(body, null, 2));
-            if (isSubmit) {
-              state = 'done';
-              return Response.json({ received: true, action: 'submitted' });
-            }
-            state = 'regenerating';
-            return Response.json({ received: true, action: 'regenerate' });
-          })();
-        }
-
-        if (req.method === 'POST' && url.pathname === '/api/reload') {
-          return (async () => {
-            let body: any;
-            try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
-            if (!body.html || !fs.existsSync(body.html)) {
-              return Response.json({ error: `HTML file not found: ${body.html}` }, { status: 400 });
-            }
-            htmlContent = fs.readFileSync(body.html, 'utf-8');
-            state = 'serving';
-            return Response.json({ reloaded: true });
-          })();
         }
 
         return new Response('Not found', { status: 404 });
@@ -266,6 +274,34 @@ describe('Serve HTTP endpoints', () => {
       body: JSON.stringify({ html: '/nonexistent/file.html' }),
     });
     expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('application/json');
+  });
+
+  test('POST /api/reload with malformed JSON returns 400 JSON', async () => {
+    const res = await fetch(`${baseUrl}/api/reload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid JSON' });
+  });
+
+  test('POST /api/reload with non-object returns 400 JSON', async () => {
+    const res = await fetch(`${baseUrl}/api/reload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '"just a string"',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Expected JSON object' });
+  });
+
+  test('unknown API route returns 404 JSON instead of board HTML', async () => {
+    const res = await fetch(`${baseUrl}/api/unknown`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await res.json()).toEqual({ error: 'Not found' });
   });
 
   test('GET /unknown returns 404', async () => {
@@ -293,27 +329,33 @@ describe('Serve /api/reload — path traversal protection', () => {
       fetch(req) {
         const url = new URL(req.url);
 
+        if (url.pathname.startsWith('/api/')) {
+          if (url.pathname === '/api/reload') {
+            if (req.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
+            return (async () => {
+              let body: any;
+              try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+              if (typeof body !== 'object' || body === null) return Response.json({ error: 'Expected JSON object' }, { status: 400 });
+              if (!body.html || !fs.existsSync(body.html)) {
+                return Response.json({ error: `HTML file not found: ${body.html}` }, { status: 400 });
+              }
+              // Production path validation — same as design/src/serve.ts
+              const resolvedReload = fs.realpathSync(path.resolve(body.html));
+              if (!resolvedReload.startsWith(allowedDir + path.sep) && resolvedReload !== allowedDir) {
+                return Response.json({ error: `Path must be within: ${allowedDir}` }, { status: 403 });
+              }
+              htmlContent = fs.readFileSync(resolvedReload, 'utf-8');
+              return Response.json({ reloaded: true });
+            })();
+          }
+
+          return Response.json({ error: 'Not found' }, { status: 404 });
+        }
+
         if (req.method === 'GET' && url.pathname === '/') {
           return new Response(htmlContent, {
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
           });
-        }
-
-        if (req.method === 'POST' && url.pathname === '/api/reload') {
-          return (async () => {
-            let body: any;
-            try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
-            if (!body.html || !fs.existsSync(body.html)) {
-              return Response.json({ error: `HTML file not found: ${body.html}` }, { status: 400 });
-            }
-            // Production path validation — same as design/src/serve.ts
-            const resolvedReload = fs.realpathSync(path.resolve(body.html));
-            if (!resolvedReload.startsWith(allowedDir + path.sep) && resolvedReload !== allowedDir) {
-              return Response.json({ error: `Path must be within: ${allowedDir}` }, { status: 403 });
-            }
-            htmlContent = fs.readFileSync(resolvedReload, 'utf-8');
-            return Response.json({ reloaded: true });
-          })();
         }
 
         return new Response('Not found', { status: 404 });
@@ -387,29 +429,39 @@ describe('Full regeneration lifecycle', () => {
       port: 0,
       fetch(req) {
         const url = new URL(req.url);
+        if (url.pathname.startsWith('/api/')) {
+          if (url.pathname === '/api/progress') {
+            if (req.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'GET' } });
+            return Response.json({ status: state });
+          }
+          if (url.pathname === '/api/feedback') {
+            if (req.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
+            return (async () => {
+              let body: any;
+              try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+              if (typeof body !== 'object' || body === null) return Response.json({ error: 'Expected JSON object' }, { status: 400 });
+              if (body.regenerated) { state = 'regenerating'; return Response.json({ received: true, action: 'regenerate' }); }
+              state = 'done'; return Response.json({ received: true, action: 'submitted' });
+            })();
+          }
+          if (url.pathname === '/api/reload') {
+            if (req.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
+            return (async () => {
+              let body: any;
+              try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+              if (typeof body !== 'object' || body === null) return Response.json({ error: 'Expected JSON object' }, { status: 400 });
+              if (body.html && fs.existsSync(body.html)) {
+                htmlContent = fs.readFileSync(body.html, 'utf-8');
+                state = 'serving';
+                return Response.json({ reloaded: true });
+              }
+              return Response.json({ error: 'Not found' }, { status: 400 });
+            })();
+          }
+          return Response.json({ error: 'Not found' }, { status: 404 });
+        }
         if (req.method === 'GET' && url.pathname === '/') {
           return new Response(htmlContent, { headers: { 'Content-Type': 'text/html' } });
-        }
-        if (req.method === 'GET' && url.pathname === '/api/progress') {
-          return Response.json({ status: state });
-        }
-        if (req.method === 'POST' && url.pathname === '/api/feedback') {
-          return (async () => {
-            const body = await req.json();
-            if (body.regenerated) { state = 'regenerating'; return Response.json({ received: true, action: 'regenerate' }); }
-            state = 'done'; return Response.json({ received: true, action: 'submitted' });
-          })();
-        }
-        if (req.method === 'POST' && url.pathname === '/api/reload') {
-          return (async () => {
-            const body = await req.json();
-            if (body.html && fs.existsSync(body.html)) {
-              htmlContent = fs.readFileSync(body.html, 'utf-8');
-              state = 'serving';
-              return Response.json({ reloaded: true });
-            }
-            return Response.json({ error: 'Not found' }, { status: 400 });
-          })();
         }
         return new Response('Not found', { status: 404 });
       },

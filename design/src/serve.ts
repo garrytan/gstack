@@ -69,6 +69,43 @@ export async function serve(options: ServeOptions): Promise<void> {
     fetch(req) {
       const url = new URL(req.url);
 
+      if (url.pathname.startsWith("/api/")) {
+        // Progress polling endpoint (used by board during regeneration)
+        if (url.pathname === "/api/progress") {
+          if (req.method !== "GET") {
+            return Response.json(
+              { error: "Method not allowed" },
+              { status: 405, headers: { Allow: "GET" } },
+            );
+          }
+          return Response.json({ status: state });
+        }
+
+        // Feedback submission from the board
+        if (url.pathname === "/api/feedback") {
+          if (req.method !== "POST") {
+            return Response.json(
+              { error: "Method not allowed" },
+              { status: 405, headers: { Allow: "POST" } },
+            );
+          }
+          return handleFeedback(req);
+        }
+
+        // Reload endpoint (used by the agent to swap in new board HTML)
+        if (url.pathname === "/api/reload") {
+          if (req.method !== "POST") {
+            return Response.json(
+              { error: "Method not allowed" },
+              { status: 405, headers: { Allow: "POST" } },
+            );
+          }
+          return handleReload(req);
+        }
+
+        return Response.json({ error: "Not found" }, { status: 404 });
+      }
+
       // Serve the comparison board HTML
       if (
         req.method === "GET" &&
@@ -82,21 +119,6 @@ export async function serve(options: ServeOptions): Promise<void> {
         return new Response(injected, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
-      }
-
-      // Progress polling endpoint (used by board during regeneration)
-      if (req.method === "GET" && url.pathname === "/api/progress") {
-        return Response.json({ status: state });
-      }
-
-      // Feedback submission from the board
-      if (req.method === "POST" && url.pathname === "/api/feedback") {
-        return handleFeedback(req);
-      }
-
-      // Reload endpoint (used by the agent to swap in new board HTML)
-      if (req.method === "POST" && url.pathname === "/api/reload") {
-        return handleReload(req);
       }
 
       return new Response("Not found", { status: 404 });
@@ -184,6 +206,10 @@ export async function serve(options: ServeOptions): Promise<void> {
       body = await req.json();
     } catch {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    if (typeof body !== "object" || body === null) {
+      return Response.json({ error: "Expected JSON object" }, { status: 400 });
     }
 
     const newHtmlPath = body.html;
