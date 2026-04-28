@@ -7,6 +7,29 @@
 > next bumps. When syncing from upstream after their next release, give this
 > entry a real version + date.
 
+## **`gstack-build` model selection + hardening (build skill v1.16.0)**
+
+`gstack-build` now lets you pin the exact LLM for each role in the pipeline. Pass `--gemini-model`, `--codex-model`, and `--codex-review-model` on any invocation; values persist into `BuildState` so resume picks up the same models even across machines. If you resume with different flags, the orchestrator warns you and updates state so future saves are authoritative. All Codex invocations default to `xhigh` reasoning effort and `gpt-5.3-codex-spark`/`gpt-5.5` defaults are baked in — no extra flags needed for the common case.
+
+### Added
+- `--gemini-model <model>` CLI flag. Default: `gemini-3.1-pro-preview`. Persists into `BuildState.geminiModel`.
+- `--codex-model <model>` CLI flag. Default: `gpt-5.3-codex-spark`. Used by Codex implementor in `--dual-impl` mode. Warns at startup if specified without `--dual-impl`.
+- `--codex-review-model <model>` CLI flag. Default: `gpt-5.5`. Used by Codex review pass.
+- `BuildState.geminiModel / .codexModel / .codexReviewModel` — model fields persisted at phase start and loaded on resume.
+- Resume mismatch detection: if stored model ≠ CLI model (or stored model predates tracking), logs a `[warn]` and updates state so subsequent saves are correct.
+- `buildCodexImplArgv` and `buildCodexReviewArgv` now accept `reasoning?: 'low'|'medium'|'high'|'xhigh'` param (default `'xhigh'`); the `model?` param threads through to `-m`.
+
+### Fixed
+- `timedOut` detection in `spawnCaptured` now uses `err.killed` (set by Node's internal timeout mechanism) instead of a custom `setTimeout` that fired 1000ms after the process already exited. The old setTimeout was dead code — `child.once('exit', clearTimeout)` always cancelled it before it ran.
+- Gemini default model ID corrected to `gemini-3.1-pro-preview` (was `gemini-3.1-pro`).
+- `--gemini-model` / `--codex-model` / `--codex-review-model` parser now rejects values that start with `-` (flag-as-value typo guard: `--gemini-model --other-flag` would previously silently use `--other-flag` as the model name).
+
+### Changed
+- `buildCodexReviewArgv` extracted as a named pure function (was inlined at call site) — makes argv shape unit-testable and model param injectable.
+- `Args` model fields are required with defaults in `parseArgs`; double-defaulting (default in parseArgs + default in callsite) removed.
+- `build/SKILL.md.tmpl` (and regenerated `build/SKILL.md`) bumped to v1.16.0.
+- 185 tests pass (was 147 in v1.15.0); 38 new tests cover model flag parsing, `buildCodexReviewArgv` shape, reasoning-override, model defaults, and combined flag variants.
+
 ## **Dual implementor mode for `gstack-build` — Gemini + Codex tournament with Opus judge (build skill v1.15.0)**
 
 `gstack-build --dual-impl` runs every phase as a tournament: Gemini and GPT-Codex each implement the same task in their own isolated git worktree, in parallel; tests run on both worktrees in parallel; Claude Opus judges the diffs and picks a winner; the winning commits are cherry-picked back onto the main branch and the existing TDD pipeline (test+fix loop → Codex review) takes over from there. This eliminates single-model blind spots — if one implementor takes a structurally wrong approach, the other usually doesn't, and the judge sees both side-by-side.
