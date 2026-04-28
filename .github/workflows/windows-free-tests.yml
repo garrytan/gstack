@@ -1,0 +1,57 @@
+name: Windows Free Tests
+
+# Curated subset of the free test suite that runs on windows-latest.
+#
+# Codex's v1.18.0.0 review flagged that the existing evals.yml workflow uses
+# a Linux container, so a windows-latest matrix entry there isn't a drop-in.
+# This workflow is non-container, runs the curated Windows-safe subset, plus
+# targeted resolver tests that exercise the Bun.which-based claude binary
+# resolution + the GSTACK_CLAUDE_BIN override path on Windows.
+#
+# What this DOES NOT do (out of scope for v1.18.0.0):
+#   - Run the full free suite on Windows. The 24 tests that hardcode /bin/sh,
+#     spawn('sh',...), or raw /tmp/ paths are excluded by scripts/test-free-shards.ts
+#     --windows-only. They need POSIX-bound surfaces to be ported off shell
+#     primitives before they can run on Windows. Tracked as a follow-up TODO.
+#   - Run Playwright/browser-backed tests. Browse server bring-up on Windows is
+#     a separate concern (PR #1238 windows-pty-bun-pty-fix is in flight).
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-free-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-free-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Show curated subset (for build log audit trail)
+        run: bun run scripts/test-free-shards.ts --windows-only --list
+        shell: bash
+
+      - name: Run curated Windows-safe subset
+        run: bun run test:windows
+        shell: bash
+
+      - name: Targeted Claude resolver tests (real PATHEXT coverage on Windows)
+        run: bun test browse/test/claude-bin.test.ts
+        shell: bash
+
+      - name: gstack-paths helper test (resolves $GSTACK_STATE_ROOT etc. on Windows)
+        run: bun test test/gstack-paths.test.ts
+        shell: bash
