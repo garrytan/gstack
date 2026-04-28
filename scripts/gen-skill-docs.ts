@@ -370,6 +370,9 @@ function processExternalHost(
 
   // Transform frontmatter (host-aware)
   let result = transformFrontmatter(content, host);
+  if (host !== 'claude' && frontmatterName) {
+    result = result.replace(/^name:\s*.+$/m, `name: ${frontmatterName}`);
+  }
 
   // Insert safety advisory at the top of the body (after frontmatter)
   if (safetyProse) {
@@ -466,7 +469,23 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
   } else {
-    const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
+    const templateDir = path.dirname(tmplPath);
+    const aliasFrontmatterName = (() => {
+      try {
+        return fs.lstatSync(templateDir).isSymbolicLink() ? path.basename(templateDir) : null;
+      } catch {
+        return null;
+      }
+    })();
+    const result = processExternalHost(
+      content,
+      tmplContent,
+      host,
+      skillDir,
+      postProcessDescription,
+      ctx,
+      aliasFrontmatterName || extractedName || undefined,
+    );
     content = result.content;
     outputPath = result.outputPath;
     symlinkLoop = result.symlinkLoop;
