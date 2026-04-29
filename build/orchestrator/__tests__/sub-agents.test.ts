@@ -201,6 +201,38 @@ describe('parseJudgeVerdict (Opus tournament judge output)', () => {
     const result = parseJudgeVerdict(diagnosticMsg);
     expect(result.verdict).toBeNull();
   });
+
+  it('extracts HARDENING notes when all three sections are present', () => {
+    const out =
+      'WINNER: gemini\nREASONING: cleaner implementation\nHARDENING:\n- Handle null input in processPayment\n- Guard against empty worktree path\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.verdict).toBe('gemini');
+    expect(result.reasoning).toContain('cleaner implementation');
+    expect(result.hardeningNotes).toContain('Handle null input');
+    expect(result.hardeningNotes).toContain('Guard against empty worktree path');
+  });
+
+  it('returns empty hardeningNotes when HARDENING section is absent', () => {
+    const out = 'WINNER: codex\nREASONING: fewer abstractions\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.verdict).toBe('codex');
+    expect(result.hardeningNotes).toBe('');
+  });
+
+  it('REASONING does not bleed into HARDENING section', () => {
+    const out = 'WINNER: gemini\nREASONING: good structure\nHARDENING:\n- edge case A\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.reasoning).not.toContain('edge case A');
+    expect(result.hardeningNotes).toContain('edge case A');
+  });
+
+  it('extracts HARDENING when it appears before REASONING (order variation)', () => {
+    const out = 'WINNER: codex\nHARDENING:\n- null check missing\nREASONING: overall better approach\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.verdict).toBe('codex');
+    expect(result.hardeningNotes).toContain('null check missing');
+    expect(result.reasoning).toContain('overall better approach');
+  });
 });
 
 describe('buildCodexImplArgv (codex exec invocation shape)', () => {

@@ -54,25 +54,25 @@ describe('--dual-impl flag wiring', () => {
     expect(args.dualImpl).toBe(true);
   });
 
-  it('parseArgs default → dualImpl=false', () => {
+  it('parseArgs default -> dualImpl=false', () => {
     const args = parseArgs(['plan.md']);
     expect(args.dualImpl).toBe(false);
   });
 });
 
 describe('--skip-clean-check / --skip-sweep flags', () => {
-  it('parseArgs default → skipCleanCheck=false, skipSweep=false', () => {
+  it('parseArgs default -> skipCleanCheck=false, skipSweep=false', () => {
     const args = parseArgs(['plan.md']);
     expect(args.skipCleanCheck).toBe(false);
     expect(args.skipSweep).toBe(false);
   });
 
-  it('parseArgs([plan, --skip-clean-check]) → skipCleanCheck=true', () => {
+  it('parseArgs([plan, --skip-clean-check]) -> skipCleanCheck=true', () => {
     const args = parseArgs(['plan.md', '--skip-clean-check']);
     expect(args.skipCleanCheck).toBe(true);
   });
 
-  it('parseArgs([plan, --skip-sweep]) → skipSweep=true', () => {
+  it('parseArgs([plan, --skip-sweep]) -> skipSweep=true', () => {
     const args = parseArgs(['plan.md', '--skip-sweep']);
     expect(args.skipSweep).toBe(true);
   });
@@ -105,7 +105,7 @@ describe('--gemini-model / --codex-model flag wiring', () => {
     expect(args.codexModel).toBe('gpt-5.4');
   });
 
-  it('parseArgs default → model defaults are baked in (no flags needed)', () => {
+  it('parseArgs default -> model defaults are baked in (no flags needed)', () => {
     const args = parseArgs(['plan.md']);
     expect(args.geminiModel).toBe('gemini-3.1-pro-preview');
     expect(args.codexModel).toBe('gpt-5.3-codex-spark');
@@ -203,8 +203,6 @@ describe('buildJudgePrompt (Opus tournament judge prompt)', () => {
       geminiTestResult: { ...pass(), testExitCode: 0 },
       codexTestResult: { ...pass(), testExitCode: 1, failureCount: 3 },
     });
-    // Expect the judge sees both passed/failed — the exact phrasing is tested
-    // loosely so prompt edits don't break tests.
     expect(prompt).toMatch(/exit/i);
     expect(prompt.toLowerCase()).toMatch(/0/);
     expect(prompt.toLowerCase()).toMatch(/1/);
@@ -220,8 +218,97 @@ describe('buildJudgePrompt (Opus tournament judge prompt)', () => {
       codexTestResult: pass(),
     });
     expect(prompt).toContain('[...truncated');
-    // The first 40000 chars must be present; the 40001st must not
     expect(prompt).toContain('x'.repeat(40000));
     expect(prompt).not.toContain('x'.repeat(40001));
+  });
+
+  it('fmtFixIter: undefined omits fix iteration text from prompt', () => {
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+    });
+    expect(prompt).not.toContain('Fix iterations:');
+    expect(prompt).not.toContain('Fix loop:');
+  });
+
+  it('fmtFixIter: null emits fix loop not run message', () => {
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+      geminiFixIterations: null,
+      codexFixIterations: null,
+    });
+    expect(prompt).toContain('Fix loop: not run');
+  });
+
+  it('fmtFixIter: 0 emits passed on first try', () => {
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+      geminiFixIterations: 0,
+      codexFixIterations: 0,
+    });
+    expect(prompt).toContain('passed on first try');
+  });
+
+  it('fmtFixIter: N>0 emits required N fix passes', () => {
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+      geminiFixIterations: 3,
+      codexFixIterations: 1,
+    });
+    expect(prompt).toContain('required 3 fix passes');
+    expect(prompt).toContain('required 1 fix pass');
+  });
+
+  it('injects geminiFixHistory section into prompt when provided', () => {
+    const history = '--- Fix iteration 1 ---\nTestFailed: expected x got y';
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+      geminiFixIterations: 1,
+      geminiFixHistory: history,
+    });
+    expect(prompt).toContain('Gemini fix history');
+    expect(prompt).toContain('TestFailed');
+  });
+
+  it('omits fix history section heading when geminiFixHistory is absent', () => {
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+    });
+    expect(prompt).not.toContain('## Gemini fix history');
+    expect(prompt).not.toContain('## Codex fix history');
+  });
+
+  it('includes HARDENING format instruction in verdict section', () => {
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+    });
+    expect(prompt).toContain('HARDENING:');
   });
 });
