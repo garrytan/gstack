@@ -5,22 +5,41 @@
 > Fork-only changes ahead of `garrytan/gstack:main` (currently at v1.17.0.0).
 > When syncing from upstream after their next release, give the entries below real versions + dates.
 
-## **`gstack-build` startup gates: clean check + feat/* sweep (build skill v1.18.0)**
+## [1.23.0.0] - 2026-04-29
 
-Two preflight gates run before any phase begins:
+**`gstack-build` stops you from building on a dirty tree and ships your other branches first.**
 
-1. **Pre-build clean check** — `git status --porcelain` filtered to tracked changes only (untracked `??` lines excluded). If dirty, exits 1 with a summary of modified/staged files. Bypass: `--skip-clean-check`.
-2. **Unshipped feat/* sweep** — fetches `origin`, finds all `feat/*` branches not merged into `origin/main` (excluding the current build branch), checks each out, runs `shipAndDeploy`, and returns. Warn-and-continue on per-branch failure. Bypass: `--skip-sweep`.
+Before any build phase runs, `gstack-build` now checks two things: is your working tree clean, and are there unshipped `feat/*` branches sitting on origin? If the tree is dirty, it exits immediately with a list of the changed files so you can commit or stash before building. If there are unshipped branches, it checks each one out, runs `/ship + /land-and-deploy`, and then returns to your branch. Both gates skip automatically with `--dry-run`, `--skip-ship`, `--skip-clean-check`, or `--skip-sweep`.
 
-Both gates skip automatically when `--dry-run` or `--skip-ship` is active.
+The sweep caps at 3 branches per startup to prevent runaway latency. It also fetches with `--prune` so deleted remote refs don't trigger phantom sweeps, and resets each branch to `origin/<branch>` before shipping so you never ship a stale local copy.
 
-### Added
-- `checkWorkingTreeClean(cwd)` exported from `cli.ts` — pure function, uses `git status --porcelain`.
-- `findUnshippedFeatBranches(cwd, currentBranch)` exported from `cli.ts` — fetches origin, returns unmerged `feat/*` branch names excluding current branch.
-- `sweepUnshippedFeatBranches(cwd, currentBranch, slug)` in `cli.ts` — iterates unshipped branches, ships each, always restores original branch.
-- `--skip-clean-check` / `--skip-sweep` CLI flags in `Args`, `parseArgs()`, and `HELP_TEXT`.
+Three commits shipped: the feature, a Codex P1 hardening pass (cwd-scoped `getCurrentBranch`, checkout guard), and a post-review fix pass (unconditional finally-restore, `path.resolve()` for relative plan paths, `git fetch --prune`, server-side `--list` filter on branch enumeration, MAX_SWEEP_BRANCHES cap).
+
+### The numbers that matter
+
+No automated benchmark for this change. The gates add one `git status --porcelain` call and one `git fetch --prune origin` call at startup. On a local repo with a warm network connection: status is ~10ms, fetch is 200-500ms. Users on slow connections can bypass both with `--skip-sweep`.
+
+### What this means for builders
+
+If you have been leaving feat/* branches unshipped while starting new builds, this cleans them up automatically. Your next `gstack-build` will process any outstanding branches before touching your new plan. Use `--skip-sweep` for environments where you manage branch lifecycle manually.
+
+### Itemized changes
+
+#### Added
+- `checkWorkingTreeClean(cwd)` exported from `cli.ts` — pure function using `git status --porcelain`, filters `??` untracked lines.
+- `findUnshippedFeatBranches(cwd, currentBranch)` exported from `cli.ts` — fetches origin with `--prune`, returns unmerged `feat/*` branch names (server-side filtered) excluding the current branch.
+- `sweepUnshippedFeatBranches(cwd, currentBranch, slug)` in `cli.ts` — iterates unshipped branches up to `MAX_SWEEP_BRANCHES=3`, resets each to `origin/<branch>` before shipping, always restores original branch in `finally`.
+- `--skip-clean-check` / `--skip-sweep` CLI flags.
 - `__tests__/startup.test.ts` — 8 unit tests using real temp git repos + local bare remotes.
 - 5 flag tests added to `__tests__/cli.test.ts`.
+
+#### Fixed (post-review hardening)
+- Resume path (`else` branch of noResume check) called `getCurrentBranch()` without `cwd` — now passes `cwdForPreflight`.
+- `cwdForPreflight` used `path.dirname()` on relative paths, giving `'.'` instead of an absolute path — now resolved via `path.resolve()` first.
+- `git fetch` result was silently discarded — now warns with exit code on failure.
+- `git branch -r` fetched all remote refs then filtered in JS — now uses `--list 'origin/feat/*'` for server-side filtering.
+- `finally` restore was conditional on `getCurrentBranch()` check — now unconditional since `shipAndDeploy` can leave the tree mid-checkout.
+- `build/SKILL.md` and `build/SKILL.md.tmpl` updated to v1.18.0 with Startup Gates section (§2.5); §2.5 Dual-Implementor renumbered to §2.6.
 
 ## **`gstack-build` dual-implementor tournament mode (build skill v1.17.0)**
 
