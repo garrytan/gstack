@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.21.0.0] - 2026-04-29
+## [1.23.0.0] - 2026-04-29
 
 ### Added
 - `--dual-impl` recursive fix loops: when tests fail after implementation, each implementor now runs up to `DEFAULT_MAX_TEST_ITERATIONS` fix passes before results are submitted to the judge. Both Gemini and Codex run their fix loops concurrently in parallel `Promise.all`.
