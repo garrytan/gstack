@@ -119,6 +119,9 @@ gstack/
 ├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
+├── build/           # /build skill (autonomous plan executor: TDD loop, dual-impl, Codex review)
+│   ├── SKILL.md, SKILL.md.tmpl
+│   └── orchestrator/  # gstack-build CLI: cli.ts, phase-runner.ts, sub-agents.ts, worktree.ts, etc.
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)

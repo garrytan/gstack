@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.17.0
+version: 1.18.0
 description: |
   Autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -130,7 +130,14 @@ rm -rf .llm-tmp     # once after all phases complete (or on each phase cleanup)
    - **If tests PASS before implementation**: The tests are too weak. Write a new test-spec input file describing the problem ("tests passed before implementation — rewrite with stricter assertions") and re-spawn Gemini. Re-run until tests fail. Cap this at `GSTACK_BUILD_RED_MAX_ITER` (default 3) re-prompts. If Gemini cannot produce failing tests after 3 attempts, STOP and surface the error to the user.
    - **If tests FAIL as expected**: Proceed to implementation (step 3).
 
-2.5. **Dual-Implementor Mode (`--dual-impl`) — full CLI delegation**: When the user wants tournament selection (Gemini vs Codex, Opus judge), hand off the entire build to the `gstack-build` CLI with `--dual-impl`. **Do NOT attempt to manually orchestrate dual-impl within this skill** — the CLI owns the full loop: worktree creation, parallel impl, tests, judge, apply winner, test+fix, Codex review, and plan checkbox updates.
+2.5. **Startup Gates (v1.18.0)**: `gstack-build` runs two preflight checks before starting any phase:
+
+   1. **Pre-build clean check** — if any tracked file is modified or staged (untracked files ignored), the CLI exits 1 immediately with a diff summary. Commit or stash before building. Bypass with `--skip-clean-check`.
+   2. **Unshipped feat/* sweep** — scans `origin` for any `feat/*` branch not merged into `origin/main`. For each one (excluding the current build's branch), checks it out, runs `/ship + /land-and-deploy`, and returns. Warn-and-continue on individual sweep failures. Bypass with `--skip-sweep`.
+
+   Both gates are skipped automatically when `--dry-run` or `--skip-ship` is active.
+
+2.6. **Dual-Implementor Mode (`--dual-impl`) — full CLI delegation**: When the user wants tournament selection (Gemini vs Codex, Opus judge), hand off the entire build to the `gstack-build` CLI with `--dual-impl`. **Do NOT attempt to manually orchestrate dual-impl within this skill** — the CLI owns the full loop: worktree creation, parallel impl, tests, judge, apply winner, test+fix, Codex review, and plan checkbox updates.
 
    ```bash
    gstack-build <plan.md> --dual-impl [--gemini-model M] [--codex-model M]

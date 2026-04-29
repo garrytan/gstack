@@ -60,6 +60,32 @@ describe('--dual-impl flag wiring', () => {
   });
 });
 
+describe('--skip-clean-check / --skip-sweep flags', () => {
+  it('parseArgs default → skipCleanCheck=false, skipSweep=false', () => {
+    const args = parseArgs(['plan.md']);
+    expect(args.skipCleanCheck).toBe(false);
+    expect(args.skipSweep).toBe(false);
+  });
+
+  it('parseArgs([plan, --skip-clean-check]) → skipCleanCheck=true', () => {
+    const args = parseArgs(['plan.md', '--skip-clean-check']);
+    expect(args.skipCleanCheck).toBe(true);
+  });
+
+  it('parseArgs([plan, --skip-sweep]) → skipSweep=true', () => {
+    const args = parseArgs(['plan.md', '--skip-sweep']);
+    expect(args.skipSweep).toBe(true);
+  });
+
+  it('HELP_TEXT contains --skip-clean-check', () => {
+    expect(HELP_TEXT).toContain('--skip-clean-check');
+  });
+
+  it('HELP_TEXT contains --skip-sweep', () => {
+    expect(HELP_TEXT).toContain('--skip-sweep');
+  });
+});
+
 describe('--gemini-model / --codex-model flag wiring', () => {
   it('--help text mentions --gemini-model', () => {
     expect(HELP_TEXT).toContain('--gemini-model');
