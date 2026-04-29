@@ -19,6 +19,8 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { PassThrough } from 'node:stream';
+import { CdpPipeTransport, extractCookiesViaCdpPipe, buildCdpSpawnArgs } from '../src/cookie-import-browser';
 
 // ─── Test Constants ─────────────────────────────────────────────
 
@@ -515,5 +517,351 @@ describe('Cookie Import Browser', () => {
         expect(err.message).toContain('chrome');
       }
     });
+  });
+});
+
+// ─── CdpPipeTransport ────────────────────────────────────────────
+
+// Helper: create a controllable pair of PassThrough streams mimicking Chrome's
+// pipe ends. `writeToChild` is the stream the transport writes TO (Chrome
+// would read). `readFromChild` is the stream the transport reads FROM (Chrome
+// would write). PassThrough is structurally equivalent to the net.Socket ends
+// that node:child_process.spawn returns at stdio[3]/[4] for this purpose.
+function makeMockPipes() {
+  const writeToChild = new PassThrough();
+  const readFromChild = new PassThrough();
+  const writtenChunks: Buffer[] = [];
+  writeToChild.on('data', (chunk: Buffer) => writtenChunks.push(chunk));
+
+  return {
+    writeToChild,
+    readFromChild,
+    getWritten: () => Buffer.concat(writtenChunks).toString('utf-8'),
+    pushFromChild: (s: string) => readFromChild.write(s),
+    closeFromChild: () => readFromChild.end(),
+    errorFromChild: (err: Error) => readFromChild.destroy(err),
+  };
+}
+
+// Flush pending I/O ticks so writes reach the PassThrough 'data' listener.
+const flush = async () => {
+  for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+};
+
+describe('CdpPipeTransport', () => {
+  test('send writes a NUL-terminated JSON frame with monotonic id', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    // Attach catch handlers — we never await these, but close() will reject them.
+    t.send('Network.enable').catch(() => {});
+    t.send('Network.getAllCookies').catch(() => {});
+    await flush();
+
+    const written = pipes.getWritten();
+    expect(written).toBe(
+      '{"id":1,"method":"Network.enable"}\x00' +
+      '{"id":2,"method":"Network.getAllCookies"}\x00'
+    );
+
+    t.close();
+  });
+
+  test('send resolves when matching id arrives as a single frame', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.enable');
+    pipes.pushFromChild('{"id":1,"result":{}}\x00');
+    const result = await pending;
+    expect(result).toEqual({});
+
+    t.close();
+  });
+
+  test('send resolves when response arrives split across two reads at the NUL boundary', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.getAllCookies');
+    pipes.pushFromChild('{"id":1,"result":{"coo');
+    pipes.pushFromChild('kies":[]}}\x00');
+    const result = await pending;
+    expect(result).toEqual({ cookies: [] });
+
+    t.close();
+  });
+
+  test('ingest handles multiple frames arriving in one chunk', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const p1 = t.send('Network.enable');
+    const p2 = t.send('Network.getAllCookies');
+    pipes.pushFromChild('{"id":1,"result":{}}\x00{"id":2,"result":{"cookies":[{"name":"x"}]}}\x00');
+
+    expect(await p1).toEqual({});
+    expect(await p2).toEqual({ cookies: [{ name: 'x' }] });
+
+    t.close();
+  });
+
+  test('error frame rejects the matching pending promise with cdp_error', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.getAllCookies');
+    pipes.pushFromChild('{"id":1,"error":{"code":-32000,"message":"nope"}}\x00');
+
+    let caught: any = null;
+    try { await pending; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+    expect(caught!.message).toContain('nope');
+
+    t.close();
+  });
+
+  test('close rejects pending promises with cdp_error', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.enable');
+    t.close();
+
+    let caught: any = null;
+    try { await pending; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+    expect(caught!.message.toLowerCase()).toContain('closed');
+  });
+
+  test('unexpected read-stream end rejects pending with cdp_error', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    const pending = t.send('Network.enable');
+    pipes.closeFromChild();
+
+    let caught: any = null;
+    try { await pending; } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+  });
+
+  test('send after read-stream end rejects immediately (closed flag flipped)', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    pipes.closeFromChild();
+    // Give the 'end' handler a tick to fire.
+    await flush();
+
+    let caught: any = null;
+    try {
+      await t.send('Network.enable');
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught.code).toBe('cdp_error');
+    expect(caught.message.toLowerCase()).toContain('closed');
+  });
+
+  test('send with explicit sessionId includes it in the frame', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    t.send('Network.enable', undefined, 'SESSION123').catch(() => {});
+    await flush();
+
+    const written = pipes.getWritten();
+    expect(written).toBe('{"id":1,"method":"Network.enable","sessionId":"SESSION123"}\x00');
+
+    t.close();
+  });
+
+  test('send with params serializes them into the frame', async () => {
+    const pipes = makeMockPipes();
+    const t = new CdpPipeTransport(pipes.writeToChild, pipes.readFromChild);
+
+    t.send('Target.attachToTarget', { targetId: 'T1', flatten: true }).catch(() => {});
+    await flush();
+
+    const written = pipes.getWritten();
+    expect(written).toBe(
+      '{"id":1,"method":"Target.attachToTarget","params":{"targetId":"T1","flatten":true}}\x00'
+    );
+
+    t.close();
+  });
+});
+
+// A mock transport that replays scripted responses per-method.
+// The test writes scripts keyed by method name; send() returns the next
+// scripted response for that method.
+class ScriptedTransport {
+  private scripts: Record<string, unknown[]> = {};
+  sent: Array<{ method: string; params?: unknown; sessionId?: string }> = [];
+
+  script(method: string, ...responses: unknown[]) {
+    this.scripts[method] = (this.scripts[method] ?? []).concat(responses);
+  }
+
+  async send(method: string, params?: object, sessionId?: string): Promise<any> {
+    this.sent.push({ method, params, sessionId });
+    const queue = this.scripts[method];
+    if (!queue || queue.length === 0) {
+      throw new Error(`No scripted response for ${method}`);
+    }
+    const next = queue.shift();
+    if (next instanceof Error) throw next;
+    return next;
+  }
+}
+
+describe('extractCookiesViaCdpPipe', () => {
+  test('happy path: attaches to first page target, requests cookies, filters by domain', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', {
+      targetInfos: [
+        { targetId: 'BROWSER1', type: 'browser' },
+        { targetId: 'PAGE1', type: 'page', url: 'about:blank' },
+      ],
+    });
+    transport.script('Target.attachToTarget', { sessionId: 'S1' });
+    transport.script('Network.enable', {});
+    transport.script('Network.getAllCookies', {
+      cookies: [
+        { name: 'sid', value: 'abc', domain: 'example.com', path: '/', expires: 1800000000, size: 4, httpOnly: true, secure: true, session: false, sameSite: 'Lax' },
+        { name: 'other', value: 'xyz', domain: 'other.com', path: '/', expires: -1, size: 3, httpOnly: false, secure: false, session: true, sameSite: 'None' },
+      ],
+    });
+
+    const cookies = await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toEqual({
+      name: 'sid',
+      value: 'abc',
+      domain: 'example.com',
+      path: '/',
+      expires: 1800000000,
+      secure: true,
+      httpOnly: true,
+      sameSite: 'Lax',
+    });
+
+    expect(transport.sent.map(s => s.method)).toEqual([
+      'Target.getTargets',
+      'Target.attachToTarget',
+      'Network.enable',
+      'Network.getAllCookies',
+    ]);
+
+    expect(transport.sent[1].params).toEqual({ targetId: 'PAGE1', flatten: true });
+
+    expect(transport.sent[2].sessionId).toBe('S1');
+    expect(transport.sent[3].sessionId).toBe('S1');
+  });
+
+  test('matches cookies with leading-dot domain normalization', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', { targetInfos: [{ targetId: 'P', type: 'page' }] });
+    transport.script('Target.attachToTarget', { sessionId: 'S1' });
+    transport.script('Network.enable', {});
+    transport.script('Network.getAllCookies', {
+      cookies: [
+        { name: 'a', value: '1', domain: '.example.com', path: '/', expires: -1, size: 1, httpOnly: false, secure: false, session: true, sameSite: 'Lax' },
+      ],
+    });
+
+    const cookies = await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0].domain).toBe('.example.com');
+  });
+
+  test('throws cdp_error if no page target exists', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', {
+      targetInfos: [{ targetId: 'BROWSER1', type: 'browser' }],
+    });
+
+    let caught: any = null;
+    try {
+      await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught!.code).toBe('cdp_error');
+    expect(caught!.message.toLowerCase()).toContain('page target');
+  });
+
+  test('empty domains list short-circuits to empty result', async () => {
+    const transport = new ScriptedTransport();
+    const cookies = await extractCookiesViaCdpPipe(transport as any, []);
+    expect(cookies).toEqual([]);
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  test('returns empty array when Network.getAllCookies response has no cookies field', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', { targetInfos: [{ targetId: 'P', type: 'page' }] });
+    transport.script('Target.attachToTarget', { sessionId: 'S1' });
+    transport.script('Network.enable', {});
+    transport.script('Network.getAllCookies', {}); // no 'cookies' field
+
+    const cookies = await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    expect(cookies).toEqual([]);
+  });
+
+  test('throws cdp_error when attachToTarget returns no sessionId', async () => {
+    const transport = new ScriptedTransport();
+    transport.script('Target.getTargets', { targetInfos: [{ targetId: 'P', type: 'page' }] });
+    transport.script('Target.attachToTarget', {}); // missing sessionId
+
+    let caught: any = null;
+    try {
+      await extractCookiesViaCdpPipe(transport as any, ['example.com']);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(CookieImportError);
+    expect(caught.code).toBe('cdp_error');
+    expect(caught.message.toLowerCase()).toContain('sessionid');
+  });
+});
+
+describe('buildCdpSpawnArgs', () => {
+  test('includes --remote-debugging-pipe', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Default');
+    expect(args).toContain('--remote-debugging-pipe');
+  });
+
+  test('never includes --remote-debugging-port', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Default');
+    expect(args.some(a => /^--remote-debugging-port/.test(a))).toBe(false);
+  });
+
+  test('passes user-data-dir and profile-directory', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Profile 1');
+    expect(args).toContain('--user-data-dir=C:\\udd');
+    expect(args).toContain('--profile-directory=Profile 1');
+  });
+
+  test('includes headless and hardening flags', () => {
+    const args = buildCdpSpawnArgs('C:\\chrome.exe', 'C:\\udd', 'Default');
+    for (const expected of [
+      '--remote-debugging-pipe',
+      '--headless=new',
+      '--no-first-run',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-sync',
+      '--no-default-browser-check',
+    ]) {
+      expect(args).toContain(expected);
+    }
   });
 });
