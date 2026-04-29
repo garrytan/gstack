@@ -637,6 +637,17 @@ above, plus:
   community PR, name the contributor with `Contributed by @username`. Contributors
   did real work. Thank them publicly every time, no exceptions.
 
+## Fork versioning rule
+
+**Never bump the top-level `VERSION` file in this repo when working on fork-specific skills.**
+
+This repo (`anbangr/gstack`) is a personal fork of `garrytan/gstack`. The top-level `VERSION` file tracks the fork's release state relative to upstream. Bumping it creates divergence that makes `gstack-update-check` output confusing (`UPGRADE_AVAILABLE` with the local version higher than upstream).
+
+**The rule:**
+- Editing or building a custom skill (e.g. `build/SKILL.md.tmpl`)? Bump only the `version:` frontmatter field inside that skill file (e.g. `version: 1.19.0`). Do NOT touch `VERSION` or `package.json` version.
+- Merging upstream? Sync `VERSION` and `package.json` to upstream's version after the merge.
+- Only bump `VERSION` when merging or syncing with upstream, never for fork-local skill work.
+
 ## AI effort compression
 
 When estimating or discussing effort, always show both human-team and CC+gstack time:
