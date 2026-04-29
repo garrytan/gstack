@@ -79,6 +79,107 @@ Branch totals come from `git diff --shortstat origin/main..HEAD` after every lan
 
 - Hardening direction credited to the McGluut fork: <https://github.com/mcgluut/gstack>. The Bun.which-based resolver is upstream's adaptation of the cross-platform binary lookup the fork implemented in `claude-bin.ts`; the path-portability helper is upstream's factoring of the `${CLAUDE_PLUGIN_DATA:-...}` chain the fork inlined per-skill. The curated Windows test job is upstream's reading of what `test-free-shards.ts` was reaching toward, applied with explicit attention to which surfaces are actually Windows-safe today.
 
+## [1.20.0.0] - 2026-04-28
+
+## **Browser-skills land. `/scrape <intent>` first call drives the page; second call runs the codified script in 200ms.**
+
+Browser-skills are deterministic Playwright scripts that run as standalone Bun processes via `$B skill run`. They live in three storage tiers (project > global > bundled), get a per-spawn scoped capability token, and ship with `_lib/browse-client.ts` so each skill is fully self-contained. The bundled reference is `hackernews-frontpage` — try `$B skill run hackernews-frontpage` and you get the HN front page as JSON in 200ms.
+
+The agent authors them. `/scrape <intent>` is the single entry point for pulling page data — it matches existing skills via the `triggers:` array on first call, or drives `$B goto`/`$B html`/etc. on a brand-new intent and returns JSON. After a successful prototype, `/skillify` codifies the flow: it walks back through the conversation, extracts the final-attempt `$B` calls (no failed selectors, no chat fragments), synthesizes `script.ts` + `script.test.ts` + a captured fixture, stages everything to `~/.gstack/.tmp/skillify-<spawnId>/`, runs the test there, and asks before renaming into the final tier path. Test failure or rejection: `rm -rf` the temp dir, no half-written skill ever appears in `$B skill list`. Next `/scrape` with a matching intent routes via `$B skill list` + `$B skill run <name>`. ~30s prototype becomes ~200ms forever after.
+
+Mutating-flow sibling `/automate` is tracked as P0 in `TODOS.md` for the next release. Scraping is the safer wedge to validate the skillify pattern (failure mode: wrong data); mutating actions need the per-step confirmation gate that `/automate` adds on top.
+
+The architecture sidesteps the in-daemon isolation problem by running skill scripts *outside* the daemon as standalone Bun processes. Each script gets a per-spawn scoped capability token bound to the read+write command surface; the daemon root token never leaves the harness. Two token policies share the same registry but enforce independently: `tabPolicy: 'shared'` (default for skill spawns) is permissive on tab access — a skill can drive any tab, gated only by scope checks and rate limits. `tabPolicy: 'own-only'` (pair-agent over the ngrok tunnel) is strict — the token can only access tabs it owns, must `newtab` first to get a tab to drive, can't reach the user's natural tabs. Trust boundaries are at the daemon, not in process-side env scrubbing.
+
+### What you can now do
+
+- **Run a bundled skill:** `$B skill run hackernews-frontpage` returns JSON.
+- **Scrape with one verb:** `/scrape latest hacker news stories`. First call matches the bundled skill via the `triggers:` array and runs in 200ms. New intent? It prototypes via `$B`, returns JSON, and suggests `/skillify`.
+- **Codify a prototype:** `/skillify` walks back through the conversation, finds the last `/scrape` result, synthesizes the script + test + fixture, stages to a temp dir, runs the test, and asks before committing to `~/.gstack/browser-skills/<name>/`.
+- **List what's available:** `$B skill list` walks three tiers (project > global > bundled) and prints the resolved tier inline.
+- **Test a skill against a fixture:** `$B skill test hackernews-frontpage` runs the bundled `script.test.ts` against a captured HTML snapshot, no live network.
+- **Read a skill's contract:** `$B skill show hackernews-frontpage` prints SKILL.md.
+- **Tombstone a user-tier skill:** `$B skill rm <name> [--global]` moves it to `.tombstones/<name>-<ts>/`. Bundled skills are read-only.
+
+### The numbers that matter
+
+Source: 155 unit assertions across `browse/test/{skill-token,browse-client,browser-skills-storage,browser-skill-commands,browser-skill-write,tab-isolation,server-auth}.test.ts`, `browser-skills/hackernews-frontpage/script.test.ts`, and `test/skill-validation.test.ts`. Plus 5 gate-tier E2E scenarios in `test/skill-e2e-skillify.test.ts`. All free-tier tests pass in under two seconds; the gate-tier E2E adds ~$5 to a CI run.
+
+| Surface | Shape |
+|---|---|
+| Latency on a codified intent | ~200ms (vs ~30s prototype on first call) |
+| New `$B` command | `skill` (5 subcommands: list, show, run, test, rm) |
+| New gstack skills | 2 (`/scrape`, `/skillify`); `/automate` tracked as P0 in TODOS |
+| New modules | 5 (`browse-client.ts`, `browser-skills.ts`, `browser-skill-commands.ts`, `skill-token.ts`, `browser-skill-write.ts`) |
+| Bundled reference skills | 1 (`hackernews-frontpage`) |
+| Storage tiers | 3 (project > global > bundled, first-wins) |
+| SDK distribution model | sibling-file: each skill ships `_lib/browse-client.ts` (~3KB, byte-identical to canonical) |
+| Daemon-side capability default | scoped session token, `read+write` only (no `eval`/`js`/`cookies`/`storage`) |
+| Process-side env default | scrubbed: drops $HOME, $PATH user-paths, anything matching TOKEN/KEY/SECRET, AWS_*, OPENAI_*, GITHUB_*, etc. |
+| Tab access policy | `'shared'` (skill spawns) = permissive, gated by scope only. `'own-only'` (pair-agent tunnel) = strict ownership for every read + write. |
+| Atomic-write contract | temp-dir-then-rename via `browse/src/browser-skill-write.ts`. Test fail OR approval reject = `rm -rf` the temp dir. Never a half-written skill on disk. |
+
+### What this means for builders
+
+The compounding loop is closed. The first time you ask the agent to scrape a page, it pays the prototype cost. The second time on the same intent (rephrased or not), it runs the codified script in 200ms. Multiply across every recurring data-pull task you have, release-notes scraping, leaderboard checks, dashboard captures, and the time savings compound across sessions.
+
+The agent-authoring contract is tight: `/skillify` extracts only the final-attempt `$B` calls from the conversation (no failed selectors, no chat fragments leak into the on-disk artifact), writes to a temp dir, runs the auto-generated `script.test.ts` there, and only commits on test pass + your approval. If anything fails, the temp dir vanishes, no broken skill ever appears in `$B skill list`.
+
+Mutating flows (form fills, click sequences, multi-step automations) ship next as `/automate` (P0 in `TODOS.md`). Same skillify machinery, different trust profile: per-mutating-step confirmation gate when running non-codified, unattended once committed. Scraping's failure mode is benign (wrong data) and mutation's isn't (unintended writes); the staged rollout validates the skillify pattern with the safer half first.
+
+Pair-agent operators get the same isolation guarantees they had before. The dual-listener tunnel architecture is intact: a remote agent over ngrok can't read or write tabs the local user is using. Tunnel tokens get `tabPolicy: 'own-only'`, must `newtab` first to drive a tab, and only the 26-command tunnel allowlist is reachable.
+
+### Itemized changes
+
+#### Added — `$B skill` runtime
+
+- `$B skill list|show|run|test|rm <name?>`. Five subcommands. List walks 3 tiers (project > global > bundled) and prints the resolved tier inline so "why did it run that one?" is never a debugging mystery. Run mints a per-spawn scoped capability token, spawns `bun run script.ts -- <args>` with cwd locked to the skill dir, captures stdout (1MB cap) and stderr, and revokes the token on exit.
+- `browse/src/browse-client.ts`. Canonical SDK (~250 LOC). Reads `GSTACK_PORT` + `GSTACK_SKILL_TOKEN` from env first (set by `$B skill run`), falls back to `<project>/.gstack/browse.json` for standalone debug runs. Convenience methods cover the read+write surface: goto, click, fill, text, html, snapshot, links, forms, accessibility, attrs, media, data, scroll, press, type, select, wait, hover, screenshot. Low-level `command(cmd, args)` escape hatch for anything else.
+- `browse/src/browser-skills.ts`. Three-tier storage helpers. `listBrowserSkills()` walks project > global > bundled (first-wins), parses SKILL.md frontmatter, no INDEX.json. `readBrowserSkill(name)` does the same for a single name. `tombstoneBrowserSkill(name, tier)` moves a skill into `.tombstones/<name>-<ts>/` for recoverability.
+- `browse/src/skill-token.ts`. Wraps `token-registry.createToken/revokeToken` with skill-specific clientId encoding (`skill:<name>:<spawn-id>`), read+write defaults, and `tabPolicy: 'shared'`. TTL = spawn timeout + 30s slack.
+- `browser-skills/hackernews-frontpage/`. Bundled reference skill (SKILL.md, script.ts, _lib/browse-client.ts, fixtures/hn-2026-04-26.html, script.test.ts). Smallest interesting browser-skill: scrapes HN front page, returns 30 stories as JSON, no auth, stable HTML.
+
+#### Added — `/scrape` + `/skillify` gstack skills
+
+- `scrape/SKILL.md.tmpl` + generated `scrape/SKILL.md`. `/scrape <intent>` is one entry point with three paths: match (intent matches an existing skill's `triggers:` → `$B skill run <name>` in 200ms), prototype (drive `$B` primitives, return JSON, suggest `/skillify`), refusal (mutating intents route to `/automate`). Match decision lives in the agent, not the daemon, no new code in `browse/src/`, no expanded daemon command surface.
+- `skillify/SKILL.md.tmpl` + generated `skillify/SKILL.md`. 11-step flow: provenance guard (walk back ≤10 turns for a bounded `/scrape` result, refuse if cold), name + tier + trigger proposal via `AskUserQuestion`, synthesize `script.ts` from final-attempt `$B` calls only, capture fixture, write `script.test.ts`, copy canonical SDK byte-identical to `_lib/browse-client.ts`, write SKILL.md frontmatter (`source: agent`, `trusted: false`), stage to temp dir, run `$B skill test`, approval gate, atomic rename to final tier path.
+- `browse/src/browser-skill-write.ts`. Atomic-write helper. `stageSkill()` writes files to `~/.gstack/.tmp/skillify-<spawnId>/<name>/` with restrictive perms. `commitSkill()` does an atomic `fs.renameSync` into the final tier path with `realpath`/`lstat` discipline (refuses to follow symlinked staging dirs, refuses to clobber existing skills). `discardStaged()` is the cleanup path for test failures and approval rejections. `rm -rf` is idempotent and bounded to the per-spawn wrapper. `validateSkillName()` enforces lowercase letters/digits/dashes only, no `..` or path-escape characters.
+
+#### Trust model — scoped tokens
+
+Every spawned skill gets its own scoped token. The shape:
+
+- **Capability scope.** Read + write only by default. No `eval`, `js`, `cookies`, `storage`. Single-use clientId encodes skill name + spawn id. Revoked when the spawn exits or times out (TTL = timeout + 30s slack).
+- **Process env.** `trusted: true` frontmatter passes `process.env` minus `GSTACK_TOKEN`. `trusted: false` (default) drops everything except a minimal allowlist (LANG, LC_ALL, TERM, TZ) and pattern-strips secrets (TOKEN/KEY/SECRET/PASSWORD/AWS_*/ANTHROPIC_*/OPENAI_*/GITHUB_*).
+- **Tab access policy.** `tabPolicy: 'shared'` (skill spawns, default scoped clients): permissive, can read or write any tab, gated only by scope checks + rate limits. `tabPolicy: 'own-only'` (pair-agent over the tunnel): strict, the token can only access tabs it owns. The two policies enforce independently in `browser-manager.ts:checkTabAccess`. The capability gate already constrains what shared tokens can do; tab ownership only matters for pair-agent isolation.
+
+#### Changed
+
+- `browse/src/commands.ts` registers `skill` as a META command.
+- `browse/src/server.ts` threads the local listen port (`LOCAL_LISTEN_PORT`) to meta-command dispatch so `$B skill run` knows which port to point spawned scripts at. The tab-ownership gate predicate at the dispatcher fires for `tabPolicy === 'own-only'` only; shared tokens skip it.
+- `browse/src/browser-manager.ts:checkTabAccess` keys on `options.ownOnly`. Shared tokens and root pass unconditionally; own-only tokens require ownership for every read and write.
+- `browse/src/meta-commands.ts` dispatches `skill` to `handleSkillCommand`.
+- `BROWSER.md` rewritten to a complete reference: 1,299 lines, 26 sections covering the productivity loop, browser-skills runtime, domain-skills, pair-agent dual-listener, sidebar agent + terminal PTY, security stack L1-L6, full source map.
+- `docs/designs/BROWSER_SKILLS_V1.md` adds the design for the productivity loop's four contracts (provenance guard, synthesis input slice, atomic write, full test coverage). Phase table organized into 1, 2a, 2b, 3, 4.
+- `TODOS.md` lists `/automate` as P0 above the existing `PACING_UPDATES_V0` entry.
+
+#### Tests
+
+- `browse/test/browser-skill-write.test.ts` — 34 assertions covering the atomic-write contract: stage validation, file-path escape rejection, atomic rename, clobber refusal, symlink refusal, idempotent discard, end-to-end happy + failure paths.
+- `browse/test/tab-isolation.test.ts` — 9 assertions on `checkTabAccess` with explicit shared-vs-own-only coverage: shared agents can read/write any tab; own-only agents can only access their own claimed tabs.
+- `browse/test/server-auth.test.ts` — source-shape regression that fails if a future refactor reintroduces `WRITE_COMMANDS.has(command) ||` into the tab-ownership gate predicate.
+- `test/skill-validation.test.ts` extends to cover bundled browser-skills: each must have SKILL.md + script.ts + _lib/browse-client.ts (byte-identical to canonical) + script.test.ts, with frontmatter satisfying the host/triggers/args contract.
+- `test/skill-e2e-skillify.test.ts` — 5 gate-tier E2E scenarios (`claude -p` driven, deterministic against local file:// fixtures): match path routes to bundled skill, prototype path drives `$B` and emits JSON, skillify happy writes complete skill tree, provenance refusal leaves nothing on disk, approval-gate reject removes the temp dir.
+- `test/helpers/touchfiles.ts` registers all 5 new E2E entries with deps on `scrape/**`, `skillify/**`, `browse/src/browser-skill-write.ts`, plus the runtime modules.
+
+#### For contributors
+
+- The browser-skill SKILL.md frontmatter has a hard contract enforced by `parseSkillFile()` and `test/skill-validation.test.ts`. Required: `host` (string), `triggers` (string list), `args` (mapping list). Optional: `trusted` (bool, defaults false), `version`, `source` (`human`/`agent`), `description`.
+- The canonical SDK at `browse/src/browse-client.ts` and the sibling at `browser-skills/hackernews-frontpage/_lib/browse-client.ts` MUST be byte-identical. The skill-validation test fails the build otherwise. When the canonical SDK changes, update every bundled skill's `_lib/` copy. Agent-authored skills via `/skillify` get a freshly-copied SDK at synthesis time, so they're frozen at the version they were authored against (no drift possible).
+- The atomic-write helper enforces "no half-written skills." Always call `stageSkill` → run tests → `commitSkill` (success) OR `discardStaged` (failure). Never write directly to the final tier path. The helper's `validateSkillName` is the only naming gate, keep it tight (lowercase letters/digits/dashes, ≤64 chars, no consecutive dashes, no leading digit).
+- `checkTabAccess` policy: `ownOnly` is the only signal that constrains access. `isWrite` stays in the signature for callers that want to log or branch elsewhere, but doesn't gate the decision. Adding new policy axes (e.g., per-skill tab quotas) belongs in `docs/designs/`, not as a sneaky `isWrite` overload.
+- `/automate` and the Phase 4 follow-ups (Bun runtime distribution, OS FS sandbox, fixture-staleness detection) are tracked in `docs/designs/BROWSER_SKILLS_V1.md` and `TODOS.md`. The `/automate` skill reuses `/skillify` and `browser-skill-write.ts` as-is; new code is the per-mutating-step confirmation gate.
+
 ## [1.17.0.0] - 2026-04-26
 
 ## **Your gstack memory now actually lives in gbrain.**

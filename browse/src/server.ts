@@ -64,6 +64,14 @@ const AUTH_TOKEN = crypto.randomUUID();
 initRegistry(AUTH_TOKEN);
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
+
+/**
+ * Port the local listener bound to. Set once the daemon picks a port.
+ * Used by `$B skill run` to point spawned skill scripts at the daemon over
+ * loopback. Module-level so handleCommandInternal can read it without threading
+ * the port through every dispatch.
+ */
+let LOCAL_LISTEN_PORT: number = 0;
 // Sidebar chat is always enabled in headed mode (ungated in v0.12.0)
 
 // ─── Tunnel State ───────────────────────────────────────────────
@@ -626,11 +634,17 @@ async function handleCommandInternal(
     }
   }
 
-  // ─── Tab ownership check (for scoped tokens) ──────────────
-  // Skip for newtab — it creates a new tab, doesn't access an existing one.
-  if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && (WRITE_COMMANDS.has(command) || tokenInfo.tabPolicy === 'own-only')) {
+  // ─── Tab ownership check (own-only tokens / pair-agent isolation) ──
+  //
+  // Only `own-only` tokens (pair-agent over tunnel) are bound to their own
+  // tabs. `shared` tokens — the default for skill spawns and local scoped
+  // clients — can drive any tab; the capability gate (scope checks above)
+  // and rate limits already constrain what they can do.
+  //
+  // Skip for `newtab` — it creates a tab rather than accessing one.
+  if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && tokenInfo.tabPolicy === 'own-only') {
     const targetTab = tabId ?? browserManager.getActiveTabId();
-    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: tokenInfo.tabPolicy === 'own-only' })) {
+    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: true })) {
       return {
         status: 403, json: true,
         result: JSON.stringify({
@@ -728,6 +742,7 @@ async function handleCommandInternal(
       const chainDepth = (opts?.chainDepth ?? 0);
       result = await handleMetaCommand(command, args, browserManager, shutdown, tokenInfo, {
         chainDepth,
+        daemonPort: LOCAL_LISTEN_PORT,
         executeCommand: (body, ti) => handleCommandInternal(body, ti, {
           skipRateCheck: true,    // chain counts as 1 request
           skipActivity: true,     // chain emits 1 event for all subcommands
@@ -1003,6 +1018,7 @@ async function start() {
   safeUnlink(DIALOG_LOG_PATH);
 
   const port = await findPort();
+  LOCAL_LISTEN_PORT = port;
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
