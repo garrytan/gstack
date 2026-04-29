@@ -213,7 +213,7 @@ describe('plan storage helpers', () => {
   it('uses explicit --project-root when plan lives outside the product repo', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-root-'));
     const project = path.join(tmpDir, 'app');
-    const mirror = path.join(tmpDir, 'app-gstack', 'living-plans');
+    const mirror = path.join(tmpDir, 'app-gstack', 'inbox', 'living-plan');
     fs.mkdirSync(project, { recursive: true });
     fs.mkdirSync(mirror, { recursive: true });
     const plan = path.join(mirror, 'app-impl-plan-20260430.md');
@@ -262,6 +262,32 @@ describe('plan storage helpers', () => {
     expect(() => resolveProjectRoot({ planFile: plan, cwd: currentProject })).toThrow(/--project-root/);
   });
 
+  it('requires --project-root for inbox plans in a sibling *-gstack repo', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-root-'));
+    const currentProject = path.join(tmpDir, 'app-b');
+    const inbox = path.join(tmpDir, 'app-a-gstack', 'inbox');
+    fs.mkdirSync(currentProject, { recursive: true });
+    fs.mkdirSync(inbox, { recursive: true });
+    spawnSync('git', ['init'], { cwd: currentProject, stdio: 'ignore' });
+    const plan = path.join(inbox, 'app-a-plan-20260430.md');
+    fs.writeFileSync(plan, '# plan\n');
+
+    expect(() => resolveProjectRoot({ planFile: plan, cwd: currentProject })).toThrow(/--project-root/);
+  });
+
+  it('requires --project-root for inbox living plans in a sibling *-gstack repo', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-root-'));
+    const currentProject = path.join(tmpDir, 'app-b');
+    const living = path.join(tmpDir, 'app-a-gstack', 'inbox', 'living-plan');
+    fs.mkdirSync(currentProject, { recursive: true });
+    fs.mkdirSync(living, { recursive: true });
+    spawnSync('git', ['init'], { cwd: currentProject, stdio: 'ignore' });
+    const plan = path.join(living, 'app-a-impl-plan-20260430.md');
+    fs.writeFileSync(plan, '# plan\n');
+
+    expect(() => resolveProjectRoot({ planFile: plan, cwd: currentProject })).toThrow(/--project-root/);
+  });
+
   it('prefers the plan repo over the current cwd repo for in-repo plans', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-root-'));
     const planProject = path.join(tmpDir, 'app-a');
@@ -280,6 +306,19 @@ describe('plan storage helpers', () => {
   it('archives completed living plans into the sibling archived dir', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-archive-'));
     const living = path.join(tmpDir, 'app-gstack', 'living-plans');
+    fs.mkdirSync(living, { recursive: true });
+    const plan = path.join(living, 'app-impl-plan-20260430.md');
+    fs.writeFileSync(plan, '# plan\n');
+
+    const archived = archiveLivingPlan(plan);
+    expect(archived).toBe(path.join(tmpDir, 'app-gstack', 'archived', 'app-impl-plan-20260430.md'));
+    expect(fs.existsSync(plan)).toBe(false);
+    expect(fs.existsSync(archived!)).toBe(true);
+  });
+
+  it('archives completed inbox living plans into the sibling archived dir', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-archive-'));
+    const living = path.join(tmpDir, 'app-gstack', 'inbox', 'living-plan');
     fs.mkdirSync(living, { recursive: true });
     const plan = path.join(living, 'app-impl-plan-20260430.md');
     fs.writeFileSync(plan, '# plan\n');

@@ -267,6 +267,21 @@ function isGstackMirrorRoot(dir: string): boolean {
   return path.basename(dir).endsWith("-gstack");
 }
 
+function findGstackMirrorAncestor(dir: string): string | null {
+  let current = path.resolve(dir);
+  while (true) {
+    if (isGstackMirrorRoot(current)) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function isPlanInGstackMirror(planDir: string, planGitRoot: string | null): string | null {
+  if (planGitRoot && isGstackMirrorRoot(planGitRoot)) return planGitRoot;
+  return findGstackMirrorAncestor(planDir);
+}
+
 export function resolveProjectRoot(opts: {
   planFile: string;
   projectRoot?: string;
@@ -283,17 +298,12 @@ export function resolveProjectRoot(opts: {
   const planDir = path.dirname(path.resolve(opts.planFile));
   const planParent = path.basename(planDir);
   const planGitRoot = gitRootFor(planDir);
-  const planContainer = path.resolve(planDir, "..");
-  const planMirrorRoot =
-    planGitRoot && isGstackMirrorRoot(planGitRoot)
-      ? planGitRoot
-      : isGstackMirrorRoot(planContainer)
-        ? planContainer
-        : null;
+  const planMirrorRoot = isPlanInGstackMirror(planDir, planGitRoot);
 
-  if (planParent === "living-plans" && planMirrorRoot) {
+  if (planMirrorRoot) {
+    const relToMirror = path.relative(planMirrorRoot, planDir).split(path.sep);
     throw new Error(
-      `plan is stored in ${planMirrorRoot}/living-plans but the product repo is ambiguous; rerun with --project-root <repo>`,
+      `plan is stored in ${path.join(planMirrorRoot, relToMirror.join(path.sep))} but the product repo is ambiguous; rerun with --project-root <repo>`,
     );
   }
 
@@ -315,9 +325,14 @@ export function resolveProjectRoot(opts: {
 export function archiveLivingPlan(planFile: string): string | null {
   const resolved = path.resolve(planFile);
   const livingDir = path.dirname(resolved);
-  if (path.basename(livingDir) !== "living-plans") return null;
+  const parentDir = path.dirname(livingDir);
+  const livingBase = path.basename(livingDir);
+  const isCurrentLivingPlan = livingBase === "living-plan" && path.basename(parentDir) === "inbox";
+  const isLegacyLivingPlans = livingBase === "living-plans";
+  if (!isCurrentLivingPlan && !isLegacyLivingPlans) return null;
 
-  const archiveDir = path.join(path.dirname(livingDir), "archived");
+  const archiveRoot = isCurrentLivingPlan ? path.dirname(parentDir) : parentDir;
+  const archiveDir = path.join(archiveRoot, "archived");
   fs.mkdirSync(archiveDir, { recursive: true });
 
   const parsed = path.parse(resolved);

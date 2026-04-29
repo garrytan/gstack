@@ -35,13 +35,13 @@ You are the Execution Agent. The planning phase is over. Your job is to read the
 
 **Execution Modes**:
 - **Normal Mode**: Synthesize a new living plan and build the feature from scratch. (Default)
-- **Resume Mode**: Triggered automatically if you detect a partially completed living plan in the sibling `*-gstack/living-plans/` directory, or if the user explicitly asks you to resume. In this mode:
+- **Resume Mode**: Triggered automatically if you detect a partially completed living plan in the sibling `*-gstack/inbox/living-plan/` directory, or if the user explicitly asks you to resume. In this mode:
   - Do NOT synthesize a new plan.
   - Identify the active feature branch and check it out.
   - Proceed directly to Step 2 and pick up execution from the first uncompleted `[ ]` phase.
 - **Reexamine Mode**: Triggered if the user asks to "reexamine", "audit", or "rerun the full process" for an implemented plan. In this mode:
   - Do NOT synthesize a new plan and do NOT create a new branch.
-  - Locate the existing living plan (`<workspace>/<project>-gstack/living-plans/<project-slug>-impl-plan-<date>.md`).
+  - Locate the existing living plan (`<workspace>/<project>-gstack/inbox/living-plan/<project-slug>-impl-plan-<date>.md`).
   - Loop through *every* phase in the existing plan (ignoring `[x]` marks).
   - For each phase, spawn a sub-agent to audit the codebase and verify the phase was fully implemented. If missing steps are found, the sub-agent MUST fix them. If fully implemented, mark it clean.
 
@@ -55,47 +55,51 @@ If you are in **Reexamine Mode** or **Resume Mode**, skip this entire step and p
    _GSTACK_COUNT=$(printf '%s\n' "$_GSTACK_REPOS" | sed '/^$/d' | wc -l | tr -d ' ')
    [ "$_GSTACK_COUNT" = "1" ] && GSTACK_REPO=$(printf '%s\n' "$_GSTACK_REPOS" | sed '/^$/d' | head -n 1)
    ```
-   If exactly one match exists, set `GSTACK_REPO` to it. If multiple matches exist or none exists, STOP and ask the user to specify the correct `*-gstack` repo path. Create `$GSTACK_REPO/living-plans/` and `$GSTACK_REPO/archived/` if missing.
-2. **Check for Resume**: Look for an existing `<gstack-repo>/living-plans/*-impl-plan-*.md` file. If it exists and contains uncompleted phases, explicitly ask the user if they want to **resume** it. If they say yes, you are in Resume Mode.
+   If exactly one match exists, set `GSTACK_REPO` to it. If multiple matches exist or none exists, STOP and ask the user to specify the correct `*-gstack` repo path. Create `$GSTACK_REPO/inbox/living-plan/` and `$GSTACK_REPO/archived/` if missing.
+2. **Check for Resume**: Look first for an existing `<gstack-repo>/inbox/living-plan/*-impl-plan-*.md` file, then legacy `<gstack-repo>/living-plans/*-impl-plan-*.md`. If one exists and contains uncompleted phases, explicitly ask the user if they want to **resume** it. If they say yes, you are in Resume Mode.
 3. **Create Feature Branch**: Before doing anything else, use the `Bash` tool to create and check out a single feature branch for this entire implementation (e.g., `git checkout main && git pull && git checkout -b feat/your-feature-name`). Do NOT work directly on the `main` or `master` branch.
 4. Look for the latest deliverables from `/office-hours`, `/autoplan`, or a workspace TODOS.md. Check in this priority order:
 
 ```bash
-# Priority 1: TODOS.md at workspace root (canonical backlog for multi-repo workspaces)
-ls TODOS.md 2>/dev/null
-# Priority 2: Standard plan files (sibling -gstack dirs, in-repo plans/, and in-repo .gstack/projects/)
-ls -t "$GSTACK_REPO"/living-plans/*-plan-*.md 2>/dev/null | head -n 1
+# Priority 1: Sibling -gstack inbox (canonical plan handoff for workspaces)
+ls -t "$GSTACK_REPO"/inbox/living-plan/*-impl-plan-*.md 2>/dev/null | head -n 1
 ls -t "$GSTACK_REPO"/inbox/*-plan-*.md 2>/dev/null | head -n 1
+# Priority 2: TODOS.md at workspace root (canonical backlog for multi-repo workspaces)
+ls TODOS.md 2>/dev/null
+# Priority 3: Standard plan files (legacy sibling -gstack dirs, in-repo plans/, and in-repo .gstack/projects/)
+ls -t "$GSTACK_REPO"/living-plans/*-plan-*.md 2>/dev/null | head -n 1
 ls -t "$GSTACK_REPO"/plans/*-plan-*.md 2>/dev/null | head -n 1
 ls -t plans/*-plan-*.md 2>/dev/null | head -n 1
 ls -t .gstack/projects/*/*-plan-*.md 2>/dev/null | head -n 1
+ls -t ../*-gstack/inbox/living-plan/*-impl-plan-*.md 2>/dev/null | head -n 1
 ls -t ../*-gstack/inbox/*-plan-*.md 2>/dev/null | head -n 1
 ls -t ../*-gstack/plans/*-plan-*.md 2>/dev/null | head -n 1
-# Priority 3: User-level gstack project home (~/.gstack/projects/<slug>/)
+# Priority 4: User-level gstack project home (~/.gstack/projects/<slug>/)
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
 ls -t ~/.gstack/projects/${SLUG:-unknown}/*-plan-*.md 2>/dev/null | head -n 1
 ls -t ~/.gstack/projects/${SLUG:-unknown}/ceo-plans/*.md 2>/dev/null | head -n 1
-# Priority 4: Plan-mode workflow output (host-agent plans)
+# Priority 5: Plan-mode workflow output (host-agent plans)
 ls -t ~/.claude/plans/*.md 2>/dev/null | head -n 3
 ls -t ~/.codex/plans/*.md 2>/dev/null | head -n 3
-# Priority 5: Sub-directory TODOS
+# Priority 6: Sub-directory TODOS
 ls -t */TODOS.md 2>/dev/null | head -n 3
 ```
 
-If `TODOS.md` exists at the workspace root, treat unchecked `[ ]` items as the implementation backlog — group them by priority label (P0, P1, P2, etc.) and ask the user which priority bands to execute. Do NOT invent a separate plan file; use TODOS.md as the living plan directly.
+If the highest-priority selected source is `TODOS.md` at the workspace root, treat unchecked `[ ]` items as the implementation backlog — group them by priority label (P0, P1, P2, etc.) and ask the user which priority bands to execute. Do NOT let `TODOS.md` override a higher-priority `*-gstack/inbox/` plan.
 
 **Plan locations covered (in priority order):**
-1. `TODOS.md` at workspace root
-2. In-repo `plans/*-plan-*.md` and `.gstack/projects/<slug>/*-plan-*.md`
-3. **Sibling `-gstack/` mirror dirs** (e.g., `../mitosis-gstack/inbox/`, `../netx-gstack/plans/`) — per the gstack outputs mirror pattern, design docs and implementation plans for product projects often live in the sibling `-gstack/` repo, not the prototype source tree
-4. `~/.gstack/projects/<slug>/*-plan-*.md` and `~/.gstack/projects/<slug>/ceo-plans/*.md` — user-level gstack project home where /office-hours and /plan-ceo-review save artifacts
-5. **`~/.claude/plans/*.md` and `~/.codex/plans/*.md`** — host-agent plan-mode workflow output
-6. Sub-directory `*/TODOS.md` (multi-repo workspace fallback)
+1. **Sibling `-gstack/` inbox** (`<workspace>/<project>-gstack/inbox/living-plan/` for active living plans, then `<workspace>/<project>-gstack/inbox/` for source plans)
+2. `TODOS.md` at workspace root
+3. In-repo `plans/*-plan-*.md` and `.gstack/projects/<slug>/*-plan-*.md`
+4. **Legacy sibling `-gstack/` mirror dirs** (e.g., `../mitosis-gstack/living-plans/`, `../netx-gstack/plans/`) — per the gstack outputs mirror pattern, design docs and implementation plans for product projects often live in the sibling `-gstack/` repo, not the prototype source tree
+5. `~/.gstack/projects/<slug>/*-plan-*.md` and `~/.gstack/projects/<slug>/ceo-plans/*.md` — user-level gstack project home where /office-hours and /plan-ceo-review save artifacts
+6. **`~/.claude/plans/*.md` and `~/.codex/plans/*.md`** — host-agent plan-mode workflow output
+7. Sub-directory `*/TODOS.md` (multi-repo workspace fallback)
 
 When more than one candidate is found across priorities, prefer the most recent (`-mtime` order) within the highest-priority category that has a match. When the file's branch/repo basename matches the current branch/repo, that's the strongest signal — favor it.
 
 5. Read the most recent plan file you find. **CRITICAL:** If you cannot find any plan file or TODOS.md from Step 4, you MUST immediately STOP, output an error, and wait for the user. Do NOT attempt to guess the plan or invent your own checklist. You must process the ENTIRE plan, covering all weeks, phases, and milestones, not just the next immediate week.
-6. Synthesize a comprehensive "Living Implementation & Test Plan" that spans the entire project timeline. Write this plan to `<gstack-repo>/living-plans/<project-slug>-impl-plan-<date>.md` (e.g., `../agnt2-gstack/living-plans/agnt2-impl-plan-20260426.md`). It MUST include:
+6. Synthesize a comprehensive "Living Implementation & Test Plan" that spans the entire project timeline. Write this plan to `<gstack-repo>/inbox/living-plan/<project-slug>-impl-plan-<date>.md` (e.g., `../agnt2-gstack/inbox/living-plan/agnt2-impl-plan-20260426.md`). It MUST include:
    - A comprehensive phase-by-phase checklist of implementation steps spanning all weeks (using `[ ]` markdown checkboxes).
    - **CRITICAL**: For *every* phase in the checklist, you MUST explicitly include sub-checkboxes for the execution loop. This acts as your strict state machine. Format every phase exactly like this:
      ```markdown
@@ -446,7 +450,7 @@ Once ALL phases are complete (and have been individually reviewed):
    - Use the configured commands exactly; by default run `/gstack-ship` followed by `/gstack-land-and-deploy` via Codex.
    - **CRITICAL: Do NOT substitute these skills with raw `gh pr create` or `gh pr merge` commands! You MUST use the GStack skills because they contain mandatory CI/CD safety gates.** Do NOT invoke the native `ship` tool!
 2. **Wait for Ship/Land Completion**: Run each ship/land sub-agent synchronously in the foreground. Wait for the Bash tool to return.
-3. **Archive Living Plan**: After ship and land complete, move the completed living plan from `<gstack-repo>/living-plans/` to `<gstack-repo>/archived/`. If a file with the same name already exists in `archived/`, append a timestamp before moving. If you cannot determine the correct `*-gstack` repo, STOP and ask the user to specify it.
+3. **Archive Living Plan**: After ship and land complete, move the completed living plan from `<gstack-repo>/inbox/living-plan/` to `<gstack-repo>/archived/`. Legacy plans may still move from `<gstack-repo>/living-plans/`. If a file with the same name already exists in `archived/`, append a timestamp before moving. If you cannot determine the correct `*-gstack` repo, STOP and ask the user to specify it.
 4. **Sync Status**: Use the `Edit` tool to update the execution status in the *original* source plan file if it was separate from the living plan. Synchronize all the `[x]` completion marks from your synthesized living plan back to the original plan.
 5. **Week/Group Guardrail Verification**: After ship + land-and-deploy, run the following checks. If ANY fails, STOP and surface the error — do NOT report completion.
 

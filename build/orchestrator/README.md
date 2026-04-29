@@ -30,7 +30,7 @@ If it's not on PATH, add `~/.claude/skills/gstack/bin` to your `PATH` or symlink
 gstack-build <plan-file> [flags]
 ```
 
-When the plan lives in a sibling `*-gstack/living-plans/` repo, run the command
+When the plan lives in a sibling `*-gstack/inbox/living-plan/` or `*-gstack/inbox/` repo, run the command
 from the product repo and pass `--project-root "$(git rev-parse --show-toplevel)"`
 if there is any ambiguity. Completed living plans are moved to the sibling
 `archived/` directory after a successful non-dry-run build.
@@ -225,10 +225,11 @@ Manual recovery: `git worktree list` to find leftover worktrees, then `git workt
 ## Living plan storage
 
 `/build` writes synthesized living plans to the workspace's sibling
-`*-gstack/living-plans/` directory. The product repo remains the execution root:
-tests, sub-agents, review, ship, and land all run from `--project-root` or the
-current git worktree. If `gstack-build` is invoked from inside the `*-gstack`
-repo and cannot infer the product repo, it exits with instructions to rerun with
+`*-gstack/inbox/living-plan/` directory. Source plans to execute are searched
+first in `*-gstack/inbox/`. The product repo remains the execution root: tests,
+sub-agents, review, ship, and land all run from `--project-root` or the current
+git worktree. If `gstack-build` is invoked with a plan inside the `*-gstack` repo
+and cannot infer the product repo, it exits with instructions to rerun with
 `--project-root <repo>`.
 
 ## File layout

@@ -77,7 +77,7 @@ blocks is ignored.
 
 For short plans, `/build` acts as the orchestrator itself:
 
-1. Locate the sibling `*-gstack` repo and use its `living-plans/` directory.
+1. Locate the sibling `*-gstack` repo and use its `inbox/living-plan/` directory.
 2. Ask for confirmation after synthesizing a living plan.
 3. Create `.llm-tmp/` for file-path I/O with sub-agents.
 4. Ask Claude Opus 4.7 xhigh to write failing tests.
@@ -90,7 +90,7 @@ For short plans, `/build` acts as the orchestrator itself:
 11. Repeat without asking between phases unless blocked.
 12. Delegate final ship and deploy to Codex GPT-5.5 high running
     `/gstack-ship` and `/gstack-land-and-deploy`.
-13. Move the completed living plan from `<gstack-repo>/living-plans/` to
+13. Move the completed living plan from `<gstack-repo>/inbox/living-plan/` to
     `<gstack-repo>/archived/`.
 
 All model handoffs use file-path I/O. Large prompts are written to disk and the
