@@ -312,6 +312,57 @@ describe('parseNumberedOptions', () => {
   test('returns empty array on prose-with-numbers (no cursor)', () => {
     expect(parseNumberedOptions('text 1. one 2. two')).toEqual([]);
   });
+
+  test('extracts options when the cursor is INLINE with prompt header (box-layout)', () => {
+    // Real /plan-ceo-review rendering: the TTY's cursor-positioning escapes
+    // collapse divider + header + prompt + cursor onto one logical line.
+    // Subsequent options (2..7) still start their own lines.
+    const visible = [
+      '────────────────────────────────────────',
+      '☐ Review scope                                                     What scope do you want me to CEO-review?                                                     ❯ 1. The branch\'s diff vs main',
+      '   Review the full branch: ~10K LOC.',
+      '2. A specific plan file or design doc',
+      '   You point me at a file (path) and I review that.',
+      '3. An idea you\'ll describe inline',
+      '4. Cancel — wrong skill',
+      '5. Type something.',
+      '────────────────────────────────────────',
+      '6. Chat about this',
+      '7. Skip interview and plan immediately',
+    ].join('\n');
+    const opts = parseNumberedOptions(visible);
+    expect(opts).toHaveLength(7);
+    expect(opts[0]).toEqual({ index: 1, label: "The branch's diff vs main" });
+    expect(opts[1]?.index).toBe(2);
+    expect(opts[6]?.index).toBe(7);
+    expect(opts[6]?.label).toBe('Skip interview and plan immediately');
+  });
+
+  test('inline-cursor and start-of-line cursor both produce 7 options for the box-layout case', () => {
+    // The inline path captures option 1 from the cursor line itself; the
+    // subsequent-lines path captures 2..7 with the existing optionRe.
+    const inlineLayout = [
+      'header text                                                     ❯ 1. first option',
+      '2. second',
+      '3. third',
+    ].join('\n');
+    expect(parseNumberedOptions(inlineLayout)).toEqual([
+      { index: 1, label: 'first option' },
+      { index: 2, label: 'second' },
+      { index: 3, label: 'third' },
+    ]);
+
+    const cleanLayout = [
+      '  ❯ 1. first option',
+      '    2. second',
+      '    3. third',
+    ].join('\n');
+    expect(parseNumberedOptions(cleanLayout)).toEqual([
+      { index: 1, label: 'first option' },
+      { index: 2, label: 'second' },
+      { index: 3, label: 'third' },
+    ]);
+  });
 });
 
 describe('runPlanSkillObservation env passthrough surface', () => {
@@ -427,6 +478,24 @@ describe('parseQuestionPrompt', () => {
       ❯ 1. yes
         2. no`;
     expect(parseQuestionPrompt(visible)).toBe('D1 — Spaced out');
+  });
+
+  test('inline-cursor box-layout: extracts prompt text BEFORE ❯1. on the cursor line', () => {
+    // Real /plan-ceo-review rendering: divider + ☐ header + prompt text +
+    // cursor are all on one logical line because TTY cursor-positioning
+    // escapes collapse the box layout under stripAnsi.
+    const visible = [
+      '──────────────────',
+      '☐ Review scope                                                     What scope do you want me to CEO-review?                                                     ❯ 1. The branch\'s diff vs main',
+      '2. A specific plan file',
+      '3. An idea inline',
+    ].join('\n');
+    const prompt = parseQuestionPrompt(visible);
+    // Should extract "Review scope" and the prompt text, dropping the ☐ box-drawing sigil.
+    expect(prompt).toContain('Review scope');
+    expect(prompt).toContain('What scope do you want me to CEO-review?');
+    expect(prompt).not.toContain('❯');
+    expect(prompt).not.toMatch(/^☐/);
   });
 });
 

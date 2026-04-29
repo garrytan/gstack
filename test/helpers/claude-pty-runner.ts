@@ -234,12 +234,14 @@ export function parseNumberedOptions(
   // this, parseNumberedOptions returns stale options after the dialog is
   // dismissed.
   const lines = tail.split('\n');
-  // Anchor on the LAST `❯ 1.` line (cursor is on option 1 of the active
-  // AskUserQuestion). Greedy character classes don't help here — we need a literal
-  // `❯` after optional leading whitespace.
+  // Anchor on the LAST line containing `❯<spaces>1.` ANYWHERE on the line.
+  // The /plan-*-review skill's box-layout AUQ uses TTY cursor-positioning
+  // escapes that stripAnsi removes — leaving the cursor `❯1.` mid-line,
+  // after dividers + header + prompt text on the same logical line. The
+  // earlier `^\s*❯` anchor missed those entirely.
   let cursorLineIdx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (/^\s*❯\s*1\./.test(lines[i] ?? '')) {
+    if (/❯\s*1\./.test(lines[i] ?? '')) {
       cursorLineIdx = i;
       break;
     }
@@ -259,7 +261,37 @@ export function parseNumberedOptions(
   if (cursorLineIdx < 0) return [];
   const found: Array<{ index: number; label: string }> = [];
   const seenIndices = new Set<number>();
-  for (let i = cursorLineIdx; i < lines.length; i++) {
+
+  // Cursor line: option 1 may be inline after box dividers + prompt header
+  // (`...divider...header...❯1. label`). Use a non-anchored regex that
+  // captures `❯N. label` from anywhere on the line through end-of-line.
+  // Only used for the cursor line — subsequent options are parsed with the
+  // start-of-line `optionRe`.
+  const cursorLine = lines[cursorLineIdx] ?? '';
+  const cursorInlineRe = /❯\s*([1-9])\.\s*(\S.*?)\s*$/;
+  const inlineMatch = cursorInlineRe.exec(cursorLine);
+  if (inlineMatch) {
+    const idx = Number(inlineMatch[1]);
+    const label = (inlineMatch[2] ?? '').trim();
+    if (label.length > 0 && !seenIndices.has(idx)) {
+      seenIndices.add(idx);
+      found.push({ index: idx, label });
+    }
+  } else {
+    // No inline cursor match — fall back to start-of-line regex.
+    const startMatch = optionRe.exec(cursorLine);
+    if (startMatch) {
+      const idx = Number(startMatch[1]);
+      const label = (startMatch[2] ?? '').trim();
+      if (label.length > 0 && !seenIndices.has(idx)) {
+        seenIndices.add(idx);
+        found.push({ index: idx, label });
+      }
+    }
+  }
+
+  // Subsequent lines: standard start-of-line option parsing.
+  for (let i = cursorLineIdx + 1; i < lines.length; i++) {
     const m = optionRe.exec(lines[i] ?? '');
     if (!m) continue;
     const idx = Number(m[1]);
@@ -442,15 +474,32 @@ export function parseQuestionPrompt(visible: string): string {
   const tail = visible.length > 4096 ? visible.slice(-4096) : visible;
   const lines = tail.split('\n');
 
-  // Find the latest `❯ 1.` cursor line (matching parseNumberedOptions).
+  // Find the latest line containing `❯<spaces>1.` (matching parseNumberedOptions —
+  // unanchored to handle the box-layout case where cursor is mid-line after
+  // divider + header + prompt text on the same logical line).
   let cursorLineIdx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (/^\s*❯\s*1\./.test(lines[i] ?? '')) {
+    if (/❯\s*1\./.test(lines[i] ?? '')) {
       cursorLineIdx = i;
       break;
     }
   }
   if (cursorLineIdx < 0) return '';
+
+  // Box-layout case: prompt text may be ON the cursor line, BEFORE `❯1.`.
+  // Extract that prefix (after stripping leading box-drawing characters and
+  // dividers) as the last piece of the prompt — appended after any prior
+  // multi-line prompt text we walk up to find.
+  const cursorLine = lines[cursorLineIdx] ?? '';
+  let inlinePrompt = '';
+  const cursorPos = cursorLine.search(/❯\s*1\./);
+  if (cursorPos > 0) {
+    inlinePrompt = cursorLine
+      .slice(0, cursorPos)
+      // Strip box-drawing chars + dividers + leading checkbox sigil.
+      .replace(/^[─━┄┅┈┉─┌┐└┘├┤┬┴┼│┃☐□■\s]+/, '')
+      .trim();
+  }
 
   // Walk up at most 6 lines collecting prompt text. Stop at:
   //   - a blank line preceded by another blank line (paragraph break)
@@ -472,7 +521,8 @@ export function parseQuestionPrompt(visible: string): string {
     promptLines.unshift(trimmed);
   }
 
-  const joined = promptLines.join(' ').replace(/\s+/g, ' ').trim();
+  const all = inlinePrompt.length > 0 ? [...promptLines, inlinePrompt] : promptLines;
+  const joined = all.join(' ').replace(/\s+/g, ' ').trim();
   return joined.slice(0, 240);
 }
 
