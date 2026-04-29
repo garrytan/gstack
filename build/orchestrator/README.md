@@ -114,7 +114,7 @@ Tournament selection: Gemini and GPT-Codex implement each TDD phase **in paralle
 
 **Legacy 2-checkbox plans don't trigger dual-impl** — dual-impl only fires after `tests_red`, which requires a `**Test Specification` checkbox. Setting `--dual-impl` on a legacy plan is silently a no-op for that phase; you'll see normal single-Gemini behavior.
 
-**Required CLIs**: `gemini`, `codex`, and `claude` must all be on `PATH` (or set `GEMINI_BIN` / `CODEX_BIN` / `CLAUDE_BIN`). The orchestrator does not preflight check these — if Codex is missing, `runCodexImpl` will exit non-zero and you'll see one half of the tournament fail. Effectively the phase falls back to "gemini auto-wins via test results" or fails outright if both halves break. Install all three before running.
+**Required CLIs**: `gemini`, `codex`, and `claude` must all be on `PATH` (or set `GEMINI_BIN` / `CODEX_BIN` / `CLAUDE_BIN`). The orchestrator does not preflight check these — if Codex fails to produce committed work, `countCommitsSinceBase` returns 0 for the Codex side, making it ineligible. If only Gemini committed, it is auto-selected and dual-tests + judge are skipped (`selectedBy='auto'`). If neither committed, the phase fails. Install all three before running.
 
 This eliminates single-model blind spots — if Gemini takes a structurally wrong approach, Codex's independent attempt usually doesn't, and the judge sees both diffs side-by-side.
 
@@ -147,7 +147,15 @@ gstack-build plans/...md --dual-impl
 
 ### Worktree isolation
 
-Each phase creates a fresh pair under `os.tmpdir()/gstack-dual-<slug>-p<N>-<timestamp>/`. Branches are named `gstack-dual-p<N>-{gemini|codex}-<timestamp>`. Worktrees are torn down after a successful `Apply Winner`; on apply failure they are **preserved** for forensic recovery (the error message lists the paths and a manual cleanup command).
+Each phase creates a fresh pair under `os.tmpdir()/gstack-dual-<slug>-p<N>-<timestamp>/`. Branches are named `gstack-dual-p<N>-{gemini|codex}-<timestamp>`. Cleanup behavior by outcome:
+
+- **Successful Apply Winner** → worktrees torn down immediately.
+- **Apply Winner failure** (cherry-pick + patch both fail) → worktrees **preserved** for manual recovery; cwd tracking files are restored to HEAD via `git reset --hard HEAD` (only on the specific patch-apply failure branch; `git add` or `git commit` failures after a successful patch leave cwd dirty — check `git status` before recovery). Error message includes the worktree paths.
+- **Phase FAIL before Apply — at Dual Tests** (both timed out, or both fail with no parseable failure count) → worktrees torn down immediately after the test result is recorded; `failed` status set. These have no recovery value since there is no winner to cherry-pick.
+- **Phase FAIL before Apply — at RUN_DUAL_IMPL** (e.g. neither implementor committed, unexpected crash) → worktrees torn down in the `finally` block; only `failed` status is left in state.
+- **Judge failure / malformed verdict** → worktrees torn down; phase status `failed`.
+
+Manual recovery: `git worktree list` to find leftover worktrees, then `git worktree remove --force <path>` + `git branch -D <branch>` to clean up.
 
 ### Auto-select vs Judge
 

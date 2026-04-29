@@ -871,8 +871,19 @@ async function runPhase(args: {
         // (Phase 4 review, HIGH; refined Phase 5 /codex review P2.)
         const gCommits = countCommitsSinceBase(pair.geminiWorktreePath, pair.baseCommit);
         const cCommits = countCommitsSinceBase(pair.codexWorktreePath, pair.baseCommit);
-        const gCommitted = (gCommits ?? 0) > 0;
-        const cCommitted = (cCommits ?? 0) > 0;
+
+        // null = git rev-list failed (worktree may be broken) — fail closed rather than
+        // silently treating it as "0 commits" and auto-selecting the other side.
+        if (gCommits === null || cCommits === null) {
+          phaseState.status = 'failed';
+          phaseState.error = `Failed to count commits since base — cannot determine implementation eligibility (gemini=${gCommits}, codex=${cCommits})`;
+          state.phases[phase.index] = phaseState;
+          saveState(state, { noGbrain, log: console.warn });
+          continue;
+        }
+
+        const gCommitted = gCommits > 0;
+        const cCommitted = cCommits > 0;
 
         // Catastrophic = timeout, OR both have non-zero exit, OR neither committed.
         const eitherTimedOut = gRes.timedOut || cRes.timedOut;
@@ -995,6 +1006,17 @@ async function runPhase(args: {
       });
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
+
+      // Tear down worktrees on hard failure (both timed out, or both fail with
+      // no parseable failure count). These phases have no recovery value —
+      // there is no winner to cherry-pick, so preserving worktrees only wastes disk.
+      if (phaseState.status === 'failed' && phaseState.dualImpl) {
+        try {
+          if (!dryRun) teardownWorktrees({ cwd, dualImpl: phaseState.dualImpl });
+        } catch (err) {
+          console.warn(`  ⚠ worktree teardown raised: ${(err as Error).message}`);
+        }
+      }
       continue;
     }
 
@@ -1002,6 +1024,10 @@ async function runPhase(args: {
       console.log(`  → Judge Opus: deciding between Gemini and Codex`);
       const dual = phaseState.dualImpl;
       if (!dual || !dual.geminiTestResult || !dual.codexTestResult) {
+        // Corrupted state — tear down worktrees if we have enough info.
+        if (dual && !dryRun) {
+          try { teardownWorktrees({ cwd, dualImpl: dual }); } catch {}
+        }
         phaseState.status = 'failed';
         phaseState.error = 'RUN_JUDGE_OPUS reached without dual test results — orchestrator bug';
         state.phases[phase.index] = phaseState;

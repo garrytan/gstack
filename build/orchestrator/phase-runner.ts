@@ -440,6 +440,7 @@ export function applyResult(
       }
       const gFails = g.failureCount ?? Number.MAX_SAFE_INTEGER;
       const cFails = c.failureCount ?? Number.MAX_SAFE_INTEGER;
+      // Ties (cFails === gFails) intentionally pick gemini — documented preference.
       selectedImplementor = cFails < gFails ? 'codex' : 'gemini';
       nextStatus = 'dual_winner_pending';
     }

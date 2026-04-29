@@ -113,12 +113,20 @@ export function applyWinner(opts: {
   const { baseCommit } = dualImpl;
 
   // Get list of commits from baseCommit..HEAD in winner's worktree
-  const logOutput = spawnSync(
+  const logResult = spawnSync(
     "git",
     ["log", "--reverse", "--format=%H", `${baseCommit}..HEAD`],
     { cwd: worktreePath, encoding: "utf8", maxBuffer: SPAWN_MAX_BUFFER }
-  ).stdout.trim();
+  );
 
+  if (logResult.status !== 0) {
+    return {
+      ok: false,
+      error: `git log failed in winner worktree (path=${worktreePath}): ${logResult.stderr || logResult.stdout}`,
+    };
+  }
+
+  const logOutput = logResult.stdout.trim();
   if (!logOutput) {
     return { ok: false, error: "No commits found in winner worktree since base" };
   }
@@ -139,6 +147,21 @@ export function applyWinner(opts: {
   // Cherry-pick failed — abort and try patch fallback
   tryRun(["cherry-pick", "--abort"], cwd);
 
+  // Preflight: verify cwd is clean before attempting patch apply.
+  // git apply -3 can partially modify the index AND working tree on conflict;
+  // we can only safely recover if the repo started clean.
+  const cwdStatus = spawnSync("git", ["status", "--porcelain"], {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: SPAWN_MAX_BUFFER,
+  });
+  if (cwdStatus.stdout.trim()) {
+    return {
+      ok: false,
+      error: `Cherry-pick failed and cwd is not clean — skipping patch fallback to avoid corrupting repo.\nCherry-pick: ${cherryPick.stderr}\nDirty files:\n${cwdStatus.stdout}`,
+    };
+  }
+
   const diff = spawnSync(
     "git",
     ["diff", `${baseCommit}..HEAD`],
@@ -157,9 +180,12 @@ export function applyWinner(opts: {
   });
 
   if (apply.status !== 0) {
+    // cwd was verified clean before apply — git reset --hard HEAD restores both
+    // the index and working tree, undoing any partial changes git apply left.
+    tryRun(["reset", "--hard", "HEAD"], cwd);
     return {
       ok: false,
-      error: `Both cherry-pick and patch-apply failed.\nCherry-pick: ${cherryPick.stderr}\nApply: ${apply.stderr}`,
+      error: `Both cherry-pick and patch-apply failed. cwd restored to HEAD.\nCherry-pick: ${cherryPick.stderr}\nApply: ${apply.stderr}`,
     };
   }
 
