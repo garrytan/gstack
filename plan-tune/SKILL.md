@@ -241,6 +241,7 @@ Key routing rules:
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Stress-test a plan, "poke holes", "what could go wrong", red-team a design → invoke /challenge
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 ```
