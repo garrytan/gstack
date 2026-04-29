@@ -11,6 +11,8 @@ describe('checkWorkingTreeClean', () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-clean-'));
     spawnSync('git', ['init', '--initial-branch=main'], { cwd: tempDir });
+    // Fallback for git < 2.28 that ignores --initial-branch.
+    spawnSync('git', ['checkout', '-B', 'main'], { cwd: tempDir });
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tempDir });
     spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tempDir });
   });
@@ -60,7 +62,7 @@ describe('checkWorkingTreeClean', () => {
 
     const result = checkWorkingTreeClean(tempDir);
     expect(result.clean).toBe(false);
-    expect(result.dirty.length).toBeGreaterThan(0);
+    expect(result.dirty).toHaveLength(1);
     expect(result.dirty[0]).toMatch(/A\s+staged\.ts/);
   });
 });
@@ -73,6 +75,8 @@ describe('findUnshippedFeatBranches', () => {
     mainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-main-'));
     bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-bare-'));
     spawnSync('git', ['init', '--initial-branch=main'], { cwd: mainDir });
+    // Fallback for git < 2.28 that ignores --initial-branch.
+    spawnSync('git', ['checkout', '-B', 'main'], { cwd: mainDir });
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: mainDir });
     spawnSync('git', ['config', 'user.name', 'Test'], { cwd: mainDir });
     spawnSync('git', ['init', '--bare', '--initial-branch=main'], { cwd: bareDir });

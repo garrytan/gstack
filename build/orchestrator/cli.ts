@@ -1252,11 +1252,15 @@ async function main() {
     process.exit(2);
   }
 
-  const cwdForPreflight = path.dirname(args.planFile).includes('plans')
+  // Plan files in a plans/ subdirectory sit one level below the project root.
+  const cwdForPreflight = path.basename(path.dirname(args.planFile)) === 'plans'
     ? path.resolve(path.dirname(args.planFile), '..')
     : path.dirname(args.planFile);
 
-  if (!args.skipCleanCheck && !args.dryRun && !args.skipShip) {
+  // Skip both startup gates when running in simulation mode or skipping ship.
+  const runStartupGates = !args.dryRun && !args.skipShip;
+
+  if (!args.skipCleanCheck && runStartupGates) {
     const { clean, dirty } = checkWorkingTreeClean(cwdForPreflight);
     if (!clean) {
       console.error('\n✗ working tree has uncommitted changes — commit or stash before building:\n');
@@ -1269,7 +1273,7 @@ async function main() {
   const slug = deriveSlug(args.planFile);
 
   const currentBranchForSweep = getCurrentBranch(cwdForPreflight);
-  if (!args.skipSweep && !args.dryRun && !args.skipShip) {
+  if (!args.skipSweep && runStartupGates) {
     await sweepUnshippedFeatBranches(cwdForPreflight, currentBranchForSweep, slug);
   }
 
@@ -1291,7 +1295,7 @@ async function main() {
   if (args.noResume) {
     state = freshState({
       planFile: args.planFile,
-      branch: getCurrentBranch(),
+      branch: getCurrentBranch(cwdForPreflight),
       phases,
       geminiModel: args.geminiModel,
       codexModel: args.codexModel,
@@ -1443,6 +1447,10 @@ async function main() {
 
 export function checkWorkingTreeClean(cwd: string): { clean: boolean; dirty: string[] } {
   const r = spawnSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+  if (r.status !== 0) {
+    const msg = (r.stderr || '').trim() || 'git status failed';
+    return { clean: false, dirty: [`<git error: ${msg}>`] };
+  }
   const lines = (r.stdout || '').split('\n').filter(Boolean);
   const dirty = lines.filter((l: string) => !l.startsWith('??'));
   return { clean: dirty.length === 0, dirty };
@@ -1450,6 +1458,8 @@ export function checkWorkingTreeClean(cwd: string): { clean: boolean; dirty: str
 
 export function findUnshippedFeatBranches(cwd: string, currentBranch: string): string[] {
   spawnSync('git', ['fetch', 'origin'], { cwd, encoding: 'utf8' });
+  // Assumes origin/main is the default branch. If your repo uses master or another
+  // default, pass --skip-sweep and handle the sweep manually.
   const r = spawnSync('git', ['branch', '-r', '--no-merged', 'origin/main'], { cwd, encoding: 'utf8' });
   return (r.stdout || '')
     .split('\n')
@@ -1488,7 +1498,10 @@ async function sweepUnshippedFeatBranches(
     }
   } finally {
     if (getCurrentBranch(cwd) !== currentBranch) {
-      spawnSync('git', ['checkout', currentBranch], { cwd, encoding: 'utf8' });
+      const restore = spawnSync('git', ['checkout', currentBranch], { cwd, encoding: 'utf8' });
+      if (restore.status !== 0) {
+        console.warn(`  ⚠ could not restore branch: ${currentBranch} — you may be on a different branch`);
+      }
     }
   }
 }
