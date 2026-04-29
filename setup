@@ -18,6 +18,8 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+CLAUDE_SKILLS="$HOME/.claude/skills"
+CLAUDE_GSTACK="$CLAUDE_SKILLS/gstack"
 CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
@@ -177,31 +179,35 @@ elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
 fi
 
-migrate_direct_codex_install() {
+migrate_direct_global_install() {
   local gstack_dir="$1"
-  local codex_gstack="$2"
   local migrated_dir="$HOME/.gstack/repos/gstack"
+  local source_kind=""
 
-  [ "$gstack_dir" = "$codex_gstack" ] || return 0
+  case "$gstack_dir" in
+    "$CLAUDE_GSTACK") source_kind="Claude" ;;
+    "$CODEX_GSTACK") source_kind="Codex" ;;
+    "$FACTORY_GSTACK") source_kind="Factory" ;;
+    "$OPENCODE_GSTACK") source_kind="OpenCode" ;;
+    *) return 0 ;;
+  esac
   [ -L "$gstack_dir" ] && return 0
 
   mkdir -p "$(dirname "$migrated_dir")"
   if [ -e "$migrated_dir" ] && [ "$migrated_dir" != "$gstack_dir" ]; then
-    echo "gstack setup failed: direct Codex install detected at $gstack_dir" >&2
+    echo "gstack setup failed: direct $source_kind install detected at $gstack_dir" >&2
     echo "A migrated repo already exists at $migrated_dir; move one of them aside and rerun setup." >&2
     exit 1
   fi
 
-  log "Migrating direct Codex install to $migrated_dir to avoid duplicate skill discovery..."
+  log "Migrating direct $source_kind install to $migrated_dir so all hosts share one source repo..."
   mv "$gstack_dir" "$migrated_dir"
   SOURCE_GSTACK_DIR="$migrated_dir"
-  INSTALL_GSTACK_DIR="$migrated_dir"
-  INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
   BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
 }
 
-if [ "$INSTALL_CODEX" -eq 1 ]; then
-  migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
+if [ "$LOCAL_INSTALL" -eq 0 ]; then
+  migrate_direct_global_install "$SOURCE_GSTACK_DIR"
 fi
 
 ensure_playwright_browser() {
@@ -773,6 +779,7 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK"
     # Clean up stale symlinks from the opposite prefix mode
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"

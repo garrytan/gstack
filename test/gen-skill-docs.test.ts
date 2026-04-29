@@ -2321,10 +2321,13 @@ describe('setup script validation', () => {
     expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$codex_gstack"');
   });
 
-  test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
-    expect(setupContent).toContain('migrate_direct_codex_install');
+  test('direct global host-root installs are migrated into one shared repo', () => {
+    expect(setupContent).toContain('migrate_direct_global_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
-    expect(setupContent).toContain('avoid duplicate skill discovery');
+    expect(setupContent).toContain('$CLAUDE_GSTACK');
+    expect(setupContent).toContain('$CODEX_GSTACK');
+    expect(setupContent).toContain('$FACTORY_GSTACK');
+    expect(setupContent).toContain('$OPENCODE_GSTACK');
   });
 
   // --- Symlink prefix tests (PR #503) ---

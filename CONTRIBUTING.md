@@ -280,12 +280,17 @@ Each host config (`hosts/*.ts`) controls:
 |--------|---------------------------|
 | Output directory | `{skill}/SKILL.md` vs `.agents/skills/gstack-{skill}/SKILL.md` |
 | Frontmatter | Full (name, description, hooks, version) vs minimal (name + description) |
-| Paths | `~/.claude/skills/gstack` vs `$GSTACK_ROOT` |
+| Paths | `~/.claude/skills/gstack` vs `$GSTACK_ROOT` (setup may migrate the source checkout to `~/.gstack/repos/gstack` and recreate host runtime links) |
 | Tool names | "use the Bash tool" vs same (Factory rewrites to "run this command") |
 | Hook skills | `hooks:` frontmatter vs inline safety advisory prose |
 | Suppressed sections | None vs Codex self-invocation sections stripped |
 
 See `scripts/host-config.ts` for the full `HostConfig` interface.
+
+Global installs now use one canonical source checkout at `~/.gstack/repos/gstack`
+whenever setup detects that gstack was cloned directly into a host discovery path
+such as `~/.claude/skills/gstack`, `~/.codex/skills/gstack`,
+`~/.factory/skills/gstack`, or `~/.config/opencode/skills/gstack`.
 
 ### Testing host output
 
