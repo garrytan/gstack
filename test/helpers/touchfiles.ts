@@ -242,6 +242,29 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
   'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts'],
 
+  // Browser-skills Phase 2a — /scrape + /skillify (v1.19.0.0). Gate-tier
+  // E2E covers the D1 (provenance guard), D3 (atomic write) contracts plus
+  // the basic loop. Shared deps: both skill templates, the D3 helper, the
+  // Phase 1 runtime, and the bundled hackernews-frontpage reference (the
+  // match-path test relies on it).
+  'scrape-match-path': [
+    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+    'browser-skills/hackernews-frontpage/**',
+  ],
+  'scrape-prototype-path': [
+    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+  ],
+  'skillify-happy-path': [
+    'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
+    'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+  ],
+  'skillify-provenance-refusal': [
+    'skillify/**', 'browse/src/browser-skill-write.ts',
+  ],
+  'skillify-approval-reject': [
+    'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
+  ],
+
   // Skill routing — journey-stage tests (depend on ALL skill descriptions)
   'journey-ideation':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-plan-eng':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -477,6 +500,13 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
   'benchmark-providers-live': 'periodic',
+
+  // Browser-skills Phase 2a — gate (D1/D3 contracts must not silently break)
+  'scrape-match-path': 'gate',
+  'scrape-prototype-path': 'gate',
+  'skillify-happy-path': 'gate',
+  'skillify-provenance-refusal': 'gate',
+  'skillify-approval-reject': 'gate',
 
   // Skill routing — periodic (LLM routing is non-deterministic)
   'journey-ideation': 'periodic',

@@ -145,6 +145,30 @@ describe('Server auth security', () => {
     expect(handleBlock).toContain('Tab not owned by your agent');
   });
 
+  // Test 10a: tab gate is gated on own-only, not on isWrite
+  // Regression test for v1.20.0.0 footgun fix. Pre-fix the gate fired for
+  // any write command from any non-root token, which 403'd local skill
+  // spawns trying to drive the user's natural (unowned) tabs. The bundled
+  // hackernews-frontpage skill failed identically. The fix narrows the
+  // gate to `tabPolicy === 'own-only'` so pair-agent tunnel tokens stay
+  // strict while local shared-policy tokens (skill spawns) get unblocked.
+  test('tab gate predicate is own-only-scoped, not write-scoped', () => {
+    const handleBlock = sliceBetween(SERVER_SRC, "async function handleCommand", "Block mutation commands while watching");
+    // The gate condition must include the own-only check.
+    expect(handleBlock).toContain("tabPolicy === 'own-only'");
+    // It must NOT depend on WRITE_COMMANDS in the gate predicate (only inside
+    // the checkTabAccess call's isWrite arg, which is informational). The
+    // surrounding `if (...) {` for the gate must use `tabPolicy === 'own-only'`
+    // as the trigger, not `WRITE_COMMANDS.has(command) || ...`.
+    const gateLine = handleBlock.split('\n').find(l =>
+      l.includes("command !== 'newtab'") &&
+      l.includes('tokenInfo') &&
+      l.includes('tabPolicy')
+    );
+    expect(gateLine).toBeTruthy();
+    expect(gateLine).not.toMatch(/WRITE_COMMANDS\.has\(command\)\s*\|\|/);
+  });
+
   // Test 10b: chain command pre-validates subcommand scopes
   test('chain handler checks scope for each subcommand before dispatch', () => {
     const metaSrc = fs.readFileSync(path.join(import.meta.dir, '../src/meta-commands.ts'), 'utf-8');
@@ -317,7 +341,7 @@ describe('Server auth security', () => {
   // Regression: newtab returned 403 for scoped tokens because the tab ownership
   // check ran before the newtab handler, checking the active tab (owned by root).
   test('newtab is excluded from tab ownership check', () => {
-    const ownershipBlock = sliceBetween(SERVER_SRC, 'Tab ownership check (for scoped tokens)', 'newtab with ownership for scoped tokens');
+    const ownershipBlock = sliceBetween(SERVER_SRC, 'Tab ownership check (own-only tokens / pair-agent isolation)', 'newtab with ownership for scoped tokens');
     // The ownership check condition must exclude newtab
     expect(ownershipBlock).toContain("command !== 'newtab'");
   });
