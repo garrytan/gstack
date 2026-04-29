@@ -279,8 +279,14 @@ export async function importCookies(
         const cookie = toPlaywrightCookie(row, value);
         cookies.push(cookie);
         domainCounts[row.host_key] = (domainCounts[row.host_key] || 0) + 1;
-      } catch {
+      } catch (err: any) {
         failed++;
+        if (process.env.GSTACK_DEBUG === '1' || process.env.DEBUG === '1') {
+          const code = err?.code ? ` [${err.code}]` : '';
+          console.error(
+            `[cookie-import] decrypt failed for ${row.host_key}/${row.name}${code}: ${err?.message ?? String(err)}`
+          );
+        }
       }
     }
 
