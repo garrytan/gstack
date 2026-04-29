@@ -220,6 +220,9 @@ export function applyWinner(opts: {
     { cwd, encoding: "utf8", maxBuffer: SPAWN_MAX_BUFFER }
   );
   if (commitResult.status !== 0) {
+    // git apply -3 succeeded but commit failed (e.g. commit-hook, missing user config).
+    // The patch is staged but not committed — reset to restore a clean cwd.
+    tryRun(["reset", "--hard", "HEAD"], cwd);
     return { ok: false, error: `git commit failed after patch apply: ${commitResult.stderr}` };
   }
 
