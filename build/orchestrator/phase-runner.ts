@@ -249,6 +249,15 @@ export interface ApplyResultExtra {
     geminiBranch: string;
     codexBranch: string;
     baseCommit: string;
+    /** Pre-computed by in-impl fix loops — lets RUN_DUAL_TESTS skip re-running tests. */
+    geminiTestResult?: DualImplTestResult;
+    codexTestResult?: DualImplTestResult;
+    geminiFixIterations?: number | null;
+    codexFixIterations?: number | null;
+    geminiFixHistory?: string;
+    codexFixHistory?: string;
+    geminiTestedCommit?: string;
+    codexTestedCommit?: string;
   };
   /** RUN_DUAL_TESTS: individual test outcomes for each worktree */
   geminiTestResult?: DualImplTestResult;
@@ -256,6 +265,7 @@ export interface ApplyResultExtra {
   /** RUN_JUDGE_OPUS: Opus judge decision */
   judgeVerdict?: 'gemini' | 'codex';
   judgeReasoning?: string;
+  judgeHardeningNotes?: string;
 }
 
 /**
@@ -497,6 +507,7 @@ export function applyResult(
       ...(phaseState.dualImpl as any),
       judgeVerdict: verdict,
       judgeReasoning: extra?.judgeReasoning,
+      judgeHardeningNotes: extra?.judgeHardeningNotes,
       judgeLogPath: result.logPath,
       selectedImplementor: verdict,
       selectedBy: 'judge',

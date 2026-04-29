@@ -71,6 +71,34 @@ export interface DualImplState {
   baseCommit: string;
   geminiTestResult?: DualImplTestResult;
   codexTestResult?: DualImplTestResult;
+  /**
+   * Number of recursive fix passes Gemini needed to reach its final test state.
+   * 0 = passed on first try. null = fix loop did not run (impl crashed or no test command).
+   */
+  geminiFixIterations?: number | null;
+  /**
+   * Number of recursive fix passes Codex needed to reach its final test state.
+   * 0 = passed on first try. null = fix loop did not run (impl crashed or no test command).
+   */
+  codexFixIterations?: number | null;
+  /** HEAD commit SHA in the Gemini worktree at the time tests last ran. Used to detect stale cached results on resume. */
+  geminiTestedCommit?: string;
+  /** HEAD commit SHA in the Codex worktree at the time tests last ran. */
+  codexTestedCommit?: string;
+  /**
+   * Formatted log of what test failures Gemini hit at each fix iteration.
+   * Each entry = "--- Fix iteration N ---\n<truncated test output>".
+   * Passed to the judge so it can see what bugs each model encountered and fixed.
+   */
+  geminiFixHistory?: string;
+  /** Same as geminiFixHistory but for Codex. */
+  codexFixHistory?: string;
+  /**
+   * Hardening notes emitted by the Opus judge after seeing both fix histories.
+   * Lists concrete issues from EITHER implementor's failure history that the
+   * final code must handle. Passed into the Codex review prompt.
+   */
+  judgeHardeningNotes?: string;
   judgeLogPath?: string;
   judgeVerdict?: 'gemini' | 'codex';
   judgeReasoning?: string;
