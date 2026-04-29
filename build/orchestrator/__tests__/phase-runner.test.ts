@@ -64,14 +64,14 @@ describe('decideNextAction', () => {
     expect(action.type).toBe('RUN_GEMINI');
   });
 
-  it('gemini_done (TDD phase) → RUN_TESTS iter 1', () => {
-    const action = decideNextAction(basePhase({ status: 'gemini_done' }), 5, { testSpecDone: false } as any);
+  it('impl_done (TDD phase) → RUN_TESTS iter 1', () => {
+    const action = decideNextAction(basePhase({ status: 'impl_done' }), 5, { testSpecDone: false } as any);
     expect(action.type).toBe('RUN_TESTS');
     if (action.type === 'RUN_TESTS') expect(action.iteration).toBe(1);
   });
 
-  it('gemini_done (legacy phase, testSpecDone=true) → RUN_CODEX_REVIEW', () => {
-    const action = decideNextAction(basePhase({ status: 'gemini_done' }), 5, { testSpecDone: true } as any);
+  it('impl_done (legacy phase, testSpecDone=true) → RUN_CODEX_REVIEW', () => {
+    const action = decideNextAction(basePhase({ status: 'impl_done' }), 5, { testSpecDone: true } as any);
     expect(action.type).toBe('RUN_CODEX_REVIEW');
   });
 
@@ -114,11 +114,11 @@ describe('decideNextAction', () => {
 });
 
 describe('applyResult — Gemini', () => {
-  it('successful Gemini → status gemini_done', () => {
+  it('successful Gemini → status impl_done', () => {
     const initial = basePhase({ status: 'pending' });
     const action = decideNextAction(initial);
     const next = applyResult(initial, action as any, geminiSuccess());
-    expect(next.status).toBe('gemini_done');
+    expect(next.status).toBe('impl_done');
     expect(next.gemini?.exitCode).toBe(0);
     expect(next.gemini?.outputLogPath).toBe('/tmp/gemini.log');
   });
@@ -242,24 +242,24 @@ describe('findNextPhaseIndex', () => {
     ];
     expect(findNextPhaseIndex(phases)).toBe(-1);
   });
-  it('treats `gemini_done` (partial-checked phase) as needing work', () => {
+  it('treats `impl_done` (partial-checked phase) as needing work', () => {
     const phases: PhaseState[] = [
       basePhase({ index: 0, status: 'committed' }),
-      basePhase({ index: 1, status: 'gemini_done' }),
+      basePhase({ index: 1, status: 'impl_done' }),
     ];
     expect(findNextPhaseIndex(phases)).toBe(1);
   });
 });
 
 describe('end-to-end happy path through the state machine', () => {
-  it('pending → gemini_done → tests_green → review_clean → committed', () => {
+  it('pending → impl_done → tests_green → review_clean → committed', () => {
     let s = basePhase({ status: 'pending' });
-    // TDD phase: testSpecDone=false means test spec is needed, but we start from gemini_done
-    // to test the post-impl path; use testSpecDone=false so gemini_done routes to RUN_TESTS.
+    // TDD phase: testSpecDone=false means test spec is needed, but we start from impl_done
+    // to test the post-impl path; use testSpecDone=false so impl_done routes to RUN_TESTS.
     let a = decideNextAction(s as any, 5, { testSpecDone: false } as any);
     expect(a.type).toBe('RUN_GEMINI_TEST_SPEC');
-    // Simulate already having gone through test-spec + verify-red + impl: jump to gemini_done.
-    s = { ...basePhase({ status: 'gemini_done' }) };
+    // Simulate already having gone through test-spec + verify-red + impl: jump to impl_done.
+    s = { ...basePhase({ status: 'impl_done' }) };
 
     a = decideNextAction(s as any, 5, { testSpecDone: false } as any);
     expect(a.type).toBe('RUN_TESTS');
@@ -338,9 +338,9 @@ describe('TDD state machine transitions', () => {
     expect(action.type).toBe('RUN_GEMINI_TEST_SPEC');
   });
 
-  it('gemini_done with prewritten testspec + dual-impl → RUN_TESTS (verify winner on main cwd)', () => {
+  it('impl_done with prewritten testspec + dual-impl → RUN_TESTS (verify winner on main cwd)', () => {
     const prewrittenDual: Phase = { ...legacyPhase, dualImpl: true };
-    const state: PhaseState = { index: 0, number: '1', name: 'PrewrittenDual', status: 'gemini_done' as any };
+    const state: PhaseState = { index: 0, number: '1', name: 'PrewrittenDual', status: 'impl_done' as any };
     const action = decideNextAction(state, 5, prewrittenDual);
     expect(action.type).toBe('RUN_TESTS');
   });
@@ -357,8 +357,8 @@ describe('TDD state machine transitions', () => {
     expect(action.type).toBe('RUN_GEMINI');
   });
 
-  it('gemini_done → RUN_TESTS', () => {
-    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'gemini_done' as any, gemini: { retries: 0 } as any };
+  it('impl_done → RUN_TESTS', () => {
+    const state: PhaseState = { index: 0, number: '1', name: 'TDD', status: 'impl_done' as any, gemini: { retries: 0 } as any };
     const action = decideNextAction(state, 5, tddPhase);
     expect(action.type).toBe('RUN_TESTS');
   });
@@ -490,8 +490,8 @@ describe('Dual-implementor state machine transitions', () => {
     expect(decideNextAction(next).type).toBe('APPLY_WINNER');
   });
 
-  // (g): APPLY_WINNER done → gemini_done (handoff to existing pipeline)
-  it('(g) APPLY_WINNER applied → gemini_done', () => {
+  // (g): APPLY_WINNER done → impl_done (handoff to existing pipeline)
+  it('(g) APPLY_WINNER applied → impl_done', () => {
     const initial = basePhase({
       status: 'dual_winner_pending' as any,
       dualImpl: { ...minDualImpl(), selectedImplementor: 'gemini', selectedBy: 'auto' },
@@ -501,7 +501,7 @@ describe('Dual-implementor state machine transitions', () => {
       { type: 'APPLY_WINNER', phaseIndex: 0, winner: 'gemini' } as any,
       geminiSuccess()
     );
-    expect(next.status).toBe('gemini_done');
+    expect(next.status).toBe('impl_done');
   });
 
   // (h): tests_red + dualImpl=false → RUN_GEMINI (single-impl path unchanged)
@@ -650,8 +650,8 @@ describe('Dual-implementor state machine transitions', () => {
     expect(next.error).toMatch(/judgeVerdict/);
   });
 
-  // APPLY_WINNER with winner=codex also lands in gemini_done
-  it('APPLY_WINNER with winner=codex → gemini_done (codex win uses same handoff state)', () => {
+  // APPLY_WINNER with winner=codex also lands in impl_done
+  it('APPLY_WINNER with winner=codex → impl_done (codex win uses same handoff state)', () => {
     const initial = basePhase({
       status: 'dual_winner_pending' as any,
       dualImpl: { ...minDualImpl(), selectedImplementor: 'codex', selectedBy: 'judge' },
@@ -661,7 +661,7 @@ describe('Dual-implementor state machine transitions', () => {
       { type: 'APPLY_WINNER', phaseIndex: 0, winner: 'codex' } as any,
       geminiSuccess()
     );
-    expect(next.status).toBe('gemini_done');
+    expect(next.status).toBe('impl_done');
     expect(next.dualImpl?.worktreesTornDownAt).toBeDefined();
   });
 

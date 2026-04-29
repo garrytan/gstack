@@ -14,7 +14,7 @@ export type PhaseStatus =
   | 'test_spec_done'
   | 'tests_red'
   | 'gemini_running'
-  | 'gemini_done'
+  | 'impl_done'
   | 'test_fix_running'
   | 'tests_green'
   | 'codex_running'

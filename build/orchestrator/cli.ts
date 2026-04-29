@@ -801,6 +801,14 @@ async function runPhase(args: {
       }
 
       // Real path: create worktrees, run both impls in parallel.
+
+      // If a prior run crashed between createWorktrees and saveState, phaseState.dualImpl
+      // already holds the orphaned paths — tear them down before creating a fresh pair.
+      if (phaseState.dualImpl?.geminiWorktreePath) {
+        console.log(`  ↩ Tearing down orphaned worktrees from interrupted prior run…`);
+        teardownWorktrees({ cwd, dualImpl: phaseState.dualImpl as any });
+      }
+
       let pair;
       try {
         pair = createWorktrees({ cwd, slug: state.slug, phaseNumber: phase.number });
@@ -825,6 +833,13 @@ async function runPhase(args: {
         codexBranch: pair.codexBranch,
         baseCommit: pair.baseCommit,
       };
+
+      // Persist worktree paths immediately so that if we crash before applyResult
+      // saves them, the next resume finds them and can tear down the orphaned pair.
+      phaseState = { ...phaseState, dualImpl: dualState };
+      state.phases[phase.index] = phaseState;
+      saveState(state, { noGbrain, log: console.warn });
+
       let dualImplOk = false;
       try {
         const implPromptBody = buildGeminiPromptBody(phase, state.planFile, state.branch);

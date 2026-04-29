@@ -204,10 +204,25 @@ export async function runGemini(opts: {
  * parsing fails the way it should ("unclear"), and surface the original
  * shell stdout in stderr for forensics.
  */
-function mergeOutputFile(result: SubAgentResult, outputFilePath: string): SubAgentResult {
+function mergeOutputFile(
+  result: SubAgentResult,
+  outputFilePath: string,
+  opts?: { emptyFileIsError?: boolean }
+): SubAgentResult {
   try {
     const fileContent = fs.readFileSync(outputFilePath, 'utf8');
     if (fileContent.trim() === '') {
+      if (opts?.emptyFileIsError) {
+        // For judge calls the output file is the only authoritative source.
+        // An empty file means the judge didn't write its verdict — treating the
+        // stream fallback as a valid verdict risks matching a stray "WINNER:" line
+        // from Opus narration. Surface as a parse failure instead.
+        return {
+          ...result,
+          stderr: result.stderr + `\n# judge output file ${outputFilePath} was empty — treating as parse failure`,
+          stdout: `Judge did not write expected output to ${outputFilePath}. Original shell stdout:\n${result.stdout}`,
+        };
+      }
       // Sub-agent left the output file empty (e.g. Codex applied edits inline but
       // skipped writing the report). Preserve captured streams so parseVerdict can
       // still find GATE PASS / GATE FAIL — Codex writes its verdict to stderr.
@@ -747,7 +762,7 @@ export async function runJudgeOpus(opts: {
       closeStdin: false,
     });
     retryResult.retries = 1;
-    return mergeOutputFile(retryResult, opts.outputFilePath);
+    return mergeOutputFile(retryResult, opts.outputFilePath, { emptyFileIsError: true });
   }
-  return mergeOutputFile(result, opts.outputFilePath);
+  return mergeOutputFile(result, opts.outputFilePath, { emptyFileIsError: true });
 }

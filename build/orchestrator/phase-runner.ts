@@ -122,7 +122,7 @@ export function decideNextAction(
         iteration: (phaseState.gemini?.retries ?? 0) + 1,
       };
 
-    case 'gemini_done':
+    case 'impl_done':
       // For TDD phases (testSpecDone=false) or prewritten-testspec+dual-impl phases,
       // run tests to verify the adopted code on main cwd.
       // For legacy phases (testSpecDone=true, !dualImpl), go straight to Codex review.
@@ -280,7 +280,7 @@ export function applyResult(
       next.gemini.error = next.error;
       return next;
     }
-    next.status = 'gemini_done';
+    next.status = 'impl_done';
     return next;
   }
 
@@ -388,8 +388,8 @@ export function applyResult(
       next.error = `Gemini fix step failed: exit ${result.exitCode}`;
       return next;
     }
-    // After a successful fix, re-run tests (route back through gemini_done → RUN_TESTS).
-    next.status = 'gemini_done';
+    // After a successful fix, re-run tests (route back through impl_done → RUN_TESTS).
+    next.status = 'impl_done';
     return next;
   }
 
@@ -503,7 +503,7 @@ export function applyResult(
       ...(phaseState.dualImpl as any),
       worktreesTornDownAt: new Date().toISOString(),
     };
-    next.status = 'gemini_done';
+    next.status = 'impl_done';
     return next;
   }
 
@@ -526,7 +526,7 @@ export function markCommitted(phaseState: PhaseState): PhaseState {
 /**
  * Find the index of the next phase that needs work, or -1 if all done.
  * Mirrors parser.findNextPhase but operates on PhaseState (the runtime
- * view) so it can see in-progress states like `gemini_done`.
+ * view) so it can see in-progress states like `impl_done`.
  */
 export function findNextPhaseIndex(phaseStates: PhaseState[]): number {
   for (let i = 0; i < phaseStates.length; i++) {
