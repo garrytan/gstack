@@ -233,6 +233,28 @@ describe('parseJudgeVerdict (Opus tournament judge output)', () => {
     expect(result.hardeningNotes).toContain('null check missing');
     expect(result.reasoning).toContain('overall better approach');
   });
+
+  it('parses correctly when input has Windows CRLF line endings', () => {
+    const out = 'WINNER: gemini\r\nREASONING: clean impl\r\nHARDENING:\r\n- guard null path\r\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.verdict).toBe('gemini');
+    expect(result.reasoning).toContain('clean impl');
+    expect(result.hardeningNotes).toContain('guard null path');
+  });
+
+  it('REASONING does not truncate when "HARDENING:" appears mid-sentence in prose', () => {
+    // Fix #3: tightened regex requires HARDENING: to be standalone or bullet-prefixed.
+    // A sentence containing "HARDENING:" as prose should not end the REASONING block.
+    const out =
+      'WINNER: gemini\n' +
+      'REASONING: The key concern is HARDENING: this is prose, not a section. More text here.\n' +
+      'HARDENING:\n' +
+      '- actual hardening note\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.verdict).toBe('gemini');
+    expect(result.reasoning).toContain('HARDENING: this is prose');
+    expect(result.hardeningNotes).toContain('actual hardening note');
+  });
 });
 
 describe('buildCodexImplArgv (codex exec invocation shape)', () => {

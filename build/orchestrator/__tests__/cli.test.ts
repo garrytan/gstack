@@ -289,6 +289,21 @@ describe('buildJudgePrompt (Opus tournament judge prompt)', () => {
     expect(prompt).toContain('TestFailed');
   });
 
+  it('injects codexFixHistory section into prompt when provided', () => {
+    const history = '--- Fix iteration 1 ---\nAssertionError: expected 0 got 1';
+    const prompt = buildJudgePrompt({
+      phase: basePhase,
+      geminiDiff: 'g',
+      codexDiff: 'c',
+      geminiTestResult: pass(),
+      codexTestResult: pass(),
+      codexFixIterations: 1,
+      codexFixHistory: history,
+    });
+    expect(prompt).toContain('Codex fix history');
+    expect(prompt).toContain('AssertionError');
+  });
+
   it('omits fix history section heading when geminiFixHistory is absent', () => {
     const prompt = buildJudgePrompt({
       phase: basePhase,

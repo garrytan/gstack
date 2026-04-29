@@ -67,6 +67,55 @@ test("teardownWorktrees removes both worktrees and is idempotent (safe to call t
   expect(() => teardownWorktrees({ cwd: repoPath, dualImpl: state })).not.toThrow();
 });
 
+/**
+ * Test hygiene gate logic (Fix #1 judge path, Fix #2 auto-select path).
+ * Both gates run the same git diff command against test file patterns.
+ * We test the git command directly with a real worktree — same code path
+ * as the driver loop without having to drive the full orchestrator.
+ */
+test("hygiene gate: git diff detects test file modification in winning worktree", () => {
+  const pair = createWorktrees({ cwd: repoPath, slug: "test-hg1", phaseNumber: "4" });
+
+  // Add a test file to gemini's worktree and commit it — simulates impl that weakened tests
+  fs.writeFileSync(path.join(pair.geminiWorktreePath, "feature.test.ts"), "// weakened test\n");
+  git(["add", "."], pair.geminiWorktreePath);
+  git(["commit", "-m", "gemini modified tests"], pair.geminiWorktreePath);
+
+  // Reproduce the exact git diff command used by Fix #1 / Fix #2 hygiene gate
+  const r = spawnSync(
+    "git",
+    ["-C", pair.geminiWorktreePath, "diff", pair.baseCommit, "--",
+      "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
+    { encoding: "utf8" },
+  );
+
+  expect(r.status).toBe(0);
+  expect(r.stdout.trim()).not.toBe(""); // diff is non-empty → gate fires
+
+  teardownWorktrees({ cwd: repoPath, dualImpl: { ...pair } });
+});
+
+test("hygiene gate: git diff is empty when winning worktree only modified non-test files", () => {
+  const pair = createWorktrees({ cwd: repoPath, slug: "test-hg2", phaseNumber: "5" });
+
+  // Only add a source file (not a test file) — gate should not fire
+  fs.writeFileSync(path.join(pair.geminiWorktreePath, "feature.ts"), "export const x = 1;\n");
+  git(["add", "."], pair.geminiWorktreePath);
+  git(["commit", "-m", "gemini source-only impl"], pair.geminiWorktreePath);
+
+  const r = spawnSync(
+    "git",
+    ["-C", pair.geminiWorktreePath, "diff", pair.baseCommit, "--",
+      "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
+    { encoding: "utf8" },
+  );
+
+  expect(r.status).toBe(0);
+  expect(r.stdout.trim()).toBe(""); // diff is empty → gate does not fire
+
+  teardownWorktrees({ cwd: repoPath, dualImpl: { ...pair } });
+});
+
 test("applyWinner cherry-picks commits from winning worktree branch onto main cwd", () => {
   const pair = createWorktrees({ cwd: repoPath, slug: "test-aw", phaseNumber: "3" });
 
