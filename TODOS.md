@@ -1496,45 +1496,17 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P2
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
-## Dual Implementor (dual-impl) — Remaining Phases
-
-### Phase 1: worktree.ts + types.ts foundation (P1)
-
-**What:** Create `build/orchestrator/worktree.ts` with `createWorktrees`, `applyWinner` (cherry-pick + patch fallback), `teardownWorktrees`. Add 6 new `PhaseStatus` values (`dual_impl_running`, `dual_impl_done`, `dual_tests_running`, `dual_judge_pending`, `dual_judge_running`, `dual_winner_pending`), `DualImplState`, `DualImplTestResult` interfaces, and `dualImpl?: boolean` on `Phase` + `DualImplState` on `PhaseState` to `types.ts`. Edit `parser.ts` to stamp `dualImpl=true` when `--dual-impl` is detected. Add `__tests__/worktree.test.ts`.
-
-**Context:** Deferred from ship on 2026-04-29 — commits shipped model flags/persistence infrastructure. Phases 1, 2, 5 were NOT DONE in plan audit. Plan file: `~/.claude/plans/c-and-use-plan-eng-review-expressive-panda.md`.
-
-**Priority:** P1
-**Effort:** M (CC: ~60 min)
-**Depends on:** Nothing (can start immediately)
-
----
-
-### Phase 2: phase-runner.ts dual-impl state machine (P1)
-
-**What:** Edit `phase-runner.ts` with 4 new Action types (`RUN_DUAL_IMPL`, `RUN_DUAL_TESTS`, `RUN_JUDGE_OPUS`, `APPLY_WINNER`); extend `decideNextAction` for all 6 new statuses; extend `applyResult` for dual-impl actions; implement both-fail auto-select logic using `failureCount`; update `_never` exhaustiveness guard. Add 8 new transition tests to `__tests__/phase-runner.test.ts`.
-
-**Context:** Same as Phase 1 above.
-
-**Priority:** P1
-**Effort:** M (CC: ~45 min)
-**Depends on:** Phase 1 (worktree.ts + types.ts)
-
----
-
-### Phase 5: README.md + SKILL.md.tmpl + integration test (P1)
-
-**What:** Edit `README.md` to add dual-impl workflow section (`--dual-impl` flag, worktree isolation, judge format, auto-select conditions). Edit `build/SKILL.md.tmpl` to document dual-impl in Step 2 loop and bump version to v1.15.0. Run `bun run gen:skill-docs --host claude`. Add `__tests__/integration.test.ts` dry-run test with `--dual-impl --dry-run`.
-
-**Context:** Same as Phase 1 above.
-
-**Priority:** P1
-**Effort:** S (CC: ~30 min)
-**Depends on:** Phases 1, 2, 3, 4 (all already in main except 1 and 2)
-
----
-
 ## Completed
+
+### Dual Implementor foundation + fix loops + hardening notes (v1.15.0.0 – v1.23.0.0)
+
+- **Phase 1/2 (v1.15.0.0):** `worktree.ts` with `createWorktrees`/`applyWinner`/`teardownWorktrees`, 6 new `PhaseStatus` values, `DualImplState`/`DualImplTestResult` interfaces, `phase-runner.ts` with `RUN_DUAL_IMPL`/`RUN_DUAL_TESTS`/`RUN_JUDGE_OPUS`/`APPLY_WINNER` action types, full transition test coverage.
+- **Phase 5 (v1.15.0.0):** `README.md` dual-impl section, `integration.test.ts` dry-run test with `--dual-impl --dry-run`.
+- **Fix loops + hardening (v1.23.0.0):** `runDualImplFixLoop` recursive fix passes (up to `DEFAULT_MAX_TEST_ITERATIONS`), per-iteration `fixHistory` threaded to the Opus judge, `HARDENING:` block flowing into Codex review prompt, SHA validation on resume, test hygiene gate before auto-select.
+
+**Completed:** v1.23.0.0 (2026-04-29)
+
+---
 
 ### Slim preamble + real-PTY plan-mode E2E harness (v1.13.1.0)
 
