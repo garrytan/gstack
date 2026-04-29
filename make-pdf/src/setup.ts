@@ -3,7 +3,7 @@
  *
  * Flow (per the CEO plan CLI UX spec):
  *   1. Verify browse binary exists and responds
- *   2. Verify Chromium launches via $B goto about:blank
+ *   2. Verify Chromium launches via a dedicated blank tab
  *   3. Verify pdftotext is installed (warn, don't fail)
  *   4. Generate a smoke-test PDF from an inline 2-paragraph fixture
  *   5. Open it
@@ -32,11 +32,11 @@ export async function runSetup(): Promise<void> {
     process.exit(4);
   }
 
-  // 2. Chromium smoke (navigate a dedicated tab to about:blank)
+  // 2. Chromium smoke (open a dedicated blank tab)
   process.stderr.write("  [2/5] Launching Chromium...");
   let chromiumTab: number | null = null;
   try {
-    chromiumTab = browseClient.newtab("about:blank");
+    chromiumTab = browseClient.newtab();
     process.stderr.write(` OK (tab ${chromiumTab})\n`);
   } catch (err: any) {
     process.stderr.write(" FAIL\n");
@@ -78,7 +78,7 @@ export async function runSetup(): Promise<void> {
     "",
   ].join("\n");
   const fixturePath = path.join(os.tmpdir(), `make-pdf-smoke-${process.pid}.md`);
-  const outPath = path.join(os.tmpdir(), `make-pdf-smoke-${process.pid}.pdf`);
+  const outPath = path.join(defaultOutputDir(), `make-pdf-smoke-${process.pid}.pdf`);
   fs.writeFileSync(fixturePath, fixture, "utf8");
 
   try {
@@ -107,4 +107,11 @@ export async function runSetup(): Promise<void> {
     `Smoke-test PDF: ${outPath}`,
     "",
   ].join("\n"));
+}
+
+function defaultOutputDir(): string {
+  if (process.platform === "darwin" && fs.existsSync("/private/tmp")) {
+    return "/private/tmp";
+  }
+  return os.tmpdir();
 }

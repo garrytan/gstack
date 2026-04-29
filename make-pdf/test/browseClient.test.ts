@@ -5,6 +5,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 import { BrowseClientError } from "../src/types";
 import { resolveBrowseBin } from "../src/browseClient";
@@ -55,6 +58,36 @@ describe("resolveBrowseBin", () => {
       } else {
         process.env.BROWSE_BIN = originalEnv;
       }
+    }
+  });
+
+  test("does not treat executable directories as binaries", () => {
+    const originalEnv = process.env.BROWSE_BIN;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "make-pdf-browse-dir-"));
+    fs.chmodSync(dir, 0o755);
+    process.env.BROWSE_BIN = dir;
+
+    try {
+      let resolved: string | null = null;
+      let thrown: any = null;
+      try {
+        resolved = resolveBrowseBin();
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(resolved).not.toBe(dir);
+      if (thrown) {
+        expect(thrown).toBeInstanceOf(BrowseClientError);
+        expect(thrown.message).toContain("browse binary not found");
+      }
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.BROWSE_BIN;
+      } else {
+        process.env.BROWSE_BIN = originalEnv;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
