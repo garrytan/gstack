@@ -242,6 +242,17 @@ describe('parseJudgeVerdict (Opus tournament judge output)', () => {
     expect(result.hardeningNotes).toContain('guard null path');
   });
 
+  it('HARDENING: -> none identified inline sentinel is captured and does not bleed into REASONING', () => {
+    const out =
+      'WINNER: codex\n' +
+      'REASONING: both implementations are clean with no major differences.\n' +
+      'HARDENING: -> none identified\n';
+    const result = parseJudgeVerdict(out);
+    expect(result.verdict).toBe('codex');
+    expect(result.reasoning).not.toContain('none identified');
+    expect(result.hardeningNotes).toContain('none identified');
+  });
+
   it('REASONING does not truncate when "HARDENING:" appears mid-sentence in prose', () => {
     // Fix #3: tightened regex requires HARDENING: to be standalone or bullet-prefixed.
     // A sentence containing "HARDENING:" as prose should not end the REASONING block.

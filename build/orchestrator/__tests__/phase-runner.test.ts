@@ -518,6 +518,17 @@ describe('Dual-implementor state machine transitions', () => {
     expect(decideNextAction(next).type).toBe('APPLY_WINNER');
   });
 
+  it('(f2) RUN_JUDGE_OPUS result propagates judgeHardeningNotes', () => {
+    const initial = basePhase({ status: 'dual_judge_running' as any, dualImpl: minDualImpl() });
+    const next = applyResult(
+      initial,
+      { type: 'RUN_JUDGE_OPUS', phaseIndex: 0 } as any,
+      geminiSuccess(),
+      { judgeVerdict: 'gemini', judgeReasoning: 'Gemini is more idiomatic', judgeHardeningNotes: 'Add edge case for null input' }
+    );
+    expect(next.dualImpl?.judgeHardeningNotes).toBe('Add edge case for null input');
+  });
+
   // (g): APPLY_WINNER done → impl_done (handoff to existing pipeline)
   it('(g) APPLY_WINNER applied → impl_done', () => {
     const initial = basePhase({

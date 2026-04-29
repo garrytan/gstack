@@ -752,7 +752,7 @@ async function runDualImplFixLoop(opts: {
     `--- Before any fix (initial) ---\n${(testRun.stdout + "\n" + testRun.stderr).slice(0, 2000)}`,
   );
 
-  let lastIter = 0;
+  let lastIter: number | null = null;
   for (let i = 1; i <= maxFixIter; i++) {
     const fixInput = path.join(
       ld,
@@ -1498,7 +1498,7 @@ async function runPhase(args: {
         if (gCommitted && !cCommitted) {
           if (gFinalTest.testExitCode !== 0) {
             phaseState.status = "failed";
-            phaseState.error = `Gemini auto-selected (codex=0 commits) but tests are failing (exit=${gFinalTest.testExitCode}) — fix implementation and resume`;
+            phaseState.error = `Gemini auto-selected (codex=0 commits) but tests are failing (exit=${gFinalTest.testExitCode}) — worktrees will be torn down; re-run gstack-build to retry this phase`;
             state.phases[phase.index] = phaseState;
             saveState(state, { noGbrain, log: console.warn });
             continue;
@@ -1515,7 +1515,7 @@ async function runPhase(args: {
         } else if (!gCommitted && cCommitted) {
           if (cFinalTest.testExitCode !== 0) {
             phaseState.status = "failed";
-            phaseState.error = `Codex auto-selected (gemini=0 commits) but tests are failing (exit=${cFinalTest.testExitCode}) — fix implementation and resume`;
+            phaseState.error = `Codex auto-selected (gemini=0 commits) but tests are failing (exit=${cFinalTest.testExitCode}) — worktrees will be torn down; re-run gstack-build to retry this phase`;
             state.phases[phase.index] = phaseState;
             saveState(state, { noGbrain, log: console.warn });
             continue;
@@ -1538,7 +1538,7 @@ async function runPhase(args: {
           const winner = phaseState.dualImpl.selectedImplementor;
           const winnerPath = winner === "gemini" ? pair.geminiWorktreePath : pair.codexWorktreePath;
           const testDiff = spawnSync(
-            "git", ["-C", winnerPath, "diff", pair.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
+            "git", ["-C", winnerPath, "diff", pair.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**", "__tests__/**"],
             { encoding: "utf8" },
           );
           if (testDiff.status !== 0 || testDiff.stdout.trim()) {
@@ -1620,7 +1620,7 @@ async function runPhase(args: {
           console.warn(
             `  ⚠ Dual Tests: worktree HEAD changed since cached results (gemini: ${dual.geminiTestedCommit} → ${gHead}, codex: ${dual.codexTestedCommit} → ${cHead}) — re-running tests`,
           );
-          // Fall through to the normal test-run path by clearing the fast-path condition.
+          // Re-run tests inline since cached results are stale.
           // Reuse the existing testCmd detection below.
           const testCmd = args.testCmd ?? detectTestCmd(cwd);
           if (!testCmd) {
@@ -1721,7 +1721,7 @@ async function runPhase(args: {
         const winner = phaseState.dualImpl.selectedImplementor;
         const winnerPath = winner === "gemini" ? dual.geminiWorktreePath : dual.codexWorktreePath;
         const testDiff = spawnSync(
-          "git", ["-C", winnerPath, "diff", phaseState.dualImpl.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
+          "git", ["-C", winnerPath, "diff", phaseState.dualImpl.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**", "__tests__/**"],
           { encoding: "utf8" },
         );
         if (testDiff.status !== 0 || testDiff.stdout.trim()) {
@@ -1881,7 +1881,7 @@ async function runPhase(args: {
         const winnerPath = verdict === "gemini" ? dual.geminiWorktreePath : dual.codexWorktreePath;
         const hygieneDiff = spawnSync(
           "git",
-          ["-C", winnerPath, "diff", dual.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
+          ["-C", winnerPath, "diff", dual.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**", "__tests__/**"],
           { encoding: "utf8" },
         );
         if (hygieneDiff.status !== 0 || hygieneDiff.stdout.trim()) {
