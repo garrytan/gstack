@@ -214,13 +214,17 @@ function mergeOutputFile(
     if (fileContent.trim() === '') {
       if (opts?.emptyFileIsError) {
         // For judge calls the output file is the only authoritative source.
-        // An empty file means the judge didn't write its verdict — treating the
-        // stream fallback as a valid verdict risks matching a stray "WINNER:" line
-        // from Opus narration. Surface as a parse failure instead.
+        // An empty file means the judge didn't write its verdict. Do NOT embed
+        // any original stdout in the returned stdout — parseJudgeVerdict scans
+        // stdout for WINNER: and a stray line from Opus narration would give a
+        // false verdict. All debugging content goes to stderr only.
         return {
           ...result,
-          stderr: result.stderr + `\n# judge output file ${outputFilePath} was empty — treating as parse failure`,
-          stdout: `Judge did not write expected output to ${outputFilePath}. Original shell stdout:\n${result.stdout}`,
+          stderr:
+            result.stderr +
+            `\n# judge output file ${outputFilePath} was empty — treating as parse failure` +
+            (result.stdout ? `\n# original shell stdout:\n${result.stdout}` : ''),
+          stdout: '',
         };
       }
       // Sub-agent left the output file empty (e.g. Codex applied edits inline but

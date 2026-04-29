@@ -289,11 +289,22 @@ describe('TDD state machine transitions', () => {
     reviewDone: false, reviewCheckboxLine: 5,
     dualImpl: false,
   };
+  // Legacy 2-checkbox plan: testSpecDone=true via the "no checkbox" compat path.
+  // testSpecCheckboxLine=-1 distinguishes it from a real prewritten testspec.
   const legacyPhase: Phase = {
     index: 0, number: '1', name: 'Legacy', body: 'content',
     testSpecDone: true, testSpecCheckboxLine: -1,
     implementationDone: false, implementationCheckboxLine: 4,
     reviewDone: false, reviewCheckboxLine: 5,
+    dualImpl: false,
+  };
+  // Real prewritten testspec: checkbox exists in the plan (testSpecCheckboxLine >= 0)
+  // and is already checked. Differs from legacy which has testSpecCheckboxLine = -1.
+  const prewrittenPhase: Phase = {
+    index: 0, number: '1', name: 'Prewritten', body: 'content',
+    testSpecDone: true, testSpecCheckboxLine: 10,
+    implementationDone: false, implementationCheckboxLine: 11,
+    reviewDone: false, reviewCheckboxLine: 12,
     dualImpl: false,
   };
 
@@ -303,21 +314,28 @@ describe('TDD state machine transitions', () => {
     expect(action.type).toBe('RUN_GEMINI_TEST_SPEC');
   });
 
-  it('pending with legacy phase (testSpecDone=true) → RUN_GEMINI', () => {
+  it('pending with legacy phase (testSpecDone=true, no checkbox) → RUN_GEMINI', () => {
     const state: PhaseState = { index: 0, number: '1', name: 'Legacy', status: 'pending' as any };
     const action = decideNextAction(state, 5, legacyPhase);
     expect(action.type).toBe('RUN_GEMINI');
   });
 
+  it('pending with legacy phase + dual-impl → RUN_GEMINI (not VERIFY_RED — legacy skips dual-impl)', () => {
+    const legacyDual: Phase = { ...legacyPhase, dualImpl: true };
+    const state: PhaseState = { index: 0, number: '1', name: 'LegacyDual', status: 'pending' as any };
+    const action = decideNextAction(state, 5, legacyDual);
+    expect(action.type).toBe('RUN_GEMINI');
+  });
+
   it('pending with prewritten testspec + dual-impl → VERIFY_RED (not RUN_GEMINI)', () => {
-    const prewrittenDual: Phase = { ...legacyPhase, dualImpl: true };
+    const prewrittenDual: Phase = { ...prewrittenPhase, dualImpl: true };
     const state: PhaseState = { index: 0, number: '1', name: 'PrewrittenDual', status: 'pending' as any };
     const action = decideNextAction(state, 5, prewrittenDual);
     expect(action.type).toBe('VERIFY_RED');
   });
 
   it('test_spec_running with prewritten testspec (VERIFY_RED found trivially passing) → FAIL', () => {
-    const prewrittenDual: Phase = { ...legacyPhase, dualImpl: true };
+    const prewrittenDual: Phase = { ...prewrittenPhase, dualImpl: true };
     const state: PhaseState = {
       index: 0, number: '1', name: 'PrewrittenDual',
       status: 'test_spec_running' as any,
@@ -339,7 +357,7 @@ describe('TDD state machine transitions', () => {
   });
 
   it('impl_done with prewritten testspec + dual-impl → RUN_TESTS (verify winner on main cwd)', () => {
-    const prewrittenDual: Phase = { ...legacyPhase, dualImpl: true };
+    const prewrittenDual: Phase = { ...prewrittenPhase, dualImpl: true };
     const state: PhaseState = { index: 0, number: '1', name: 'PrewrittenDual', status: 'impl_done' as any };
     const action = decideNextAction(state, 5, prewrittenDual);
     expect(action.type).toBe('RUN_TESTS');

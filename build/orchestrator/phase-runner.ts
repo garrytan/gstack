@@ -72,7 +72,10 @@ export function decideNextAction(
       }
       // Prewritten test spec + dual-impl: confirm tests are red before spawning
       // both implementors — same guarantee as the standard TDD path.
-      if (phase?.dualImpl) {
+      // Guard on testSpecCheckboxLine !== -1 to skip legacy 2-checkbox plans
+      // (which set testSpecDone=true via the "no checkbox = already done" compat
+      // path). Legacy plans should run the unchanged single-Gemini flow.
+      if (phase?.dualImpl && phase.testSpecCheckboxLine !== -1) {
         return { type: 'VERIFY_RED', phaseIndex: phaseState.index };
       }
       return {

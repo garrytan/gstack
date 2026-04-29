@@ -76,14 +76,14 @@ export function freshState(args: {
     name: p.name,
     // Status reflects what we observe on disk:
     // - all three checked (testSpec+impl+review) → committed (skip phase)
-    // - impl checked only                         → gemini_done (resume at Codex review)
+    // - impl checked only                         → impl_done (resume at Codex review)
     // - review checked only (user manually)       → committed (trust them; legacy compat)
     // - neither / testSpec unchecked              → pending (run from scratch)
     status:
       isPhaseComplete(p)
         ? 'committed'
         : p.implementationDone && !p.reviewDone
-        ? 'gemini_done'
+        ? 'impl_done'
         : !p.implementationDone && p.reviewDone
         ? 'committed'
         : 'pending',
@@ -118,13 +118,19 @@ export function loadState(slug: string, opts: PersistOptions = {}): BuildState |
   const p = statePath(slug);
   if (fs.existsSync(p)) {
     const raw = fs.readFileSync(p, 'utf8');
+    let parsed: BuildState;
     try {
-      return JSON.parse(raw) as BuildState;
+      parsed = JSON.parse(raw) as BuildState;
     } catch (err) {
       throw new Error(
         `state file at ${p} is corrupt (${(err as Error).message}). Inspect or delete to start fresh.`
       );
     }
+    // Migration: pre-rename persisted states use 'gemini_done'; map to 'impl_done'.
+    parsed.phases = parsed.phases.map((ph) =>
+      (ph.status as string) === 'gemini_done' ? { ...ph, status: 'impl_done' } : ph
+    );
+    return parsed;
   }
 
   if (opts.noGbrain) return null;
