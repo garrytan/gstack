@@ -1108,7 +1108,7 @@ If no project-scoped match, fall back to `ls -t ~/.claude/plans/*.md 2>/dev/null
 but warn: "Note: this plan may be from a different project — verify before sending to Codex."
 
 **IMPORTANT — embed content, don't reference path:** Codex runs sandboxed to the repo
-root (`-C`) and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
+root and cannot access `~/.claude/plans/` or any files outside the repo. You MUST
 read the plan file yourself and embed its FULL CONTENT in the prompt below. Do NOT tell
 Codex the file path or ask it to read the plan file — it will waste 10+ tool calls
 searching and fail.
@@ -1187,8 +1187,9 @@ fi
 For a **resumed session** (user chose "Continue"):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT" || exit 1
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 # Fix 1: same hang detection pattern as new-session block
