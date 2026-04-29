@@ -131,18 +131,34 @@ gstack-build plans/...md --dual-impl
                            - runGemini  in /tmp/gstack-dual-<slug>-pN-<ts>/gemini
                            - runCodexImpl in /tmp/gstack-dual-<slug>-pN-<ts>/codex
                          Each commits to its own branch.
-4. Dual Tests          — Promise.all of runTests on both worktrees
-                           → both pass: judge decides
+4. Dual Fix Loops      — Promise.all of runDualImplFixLoop on both worktrees:
+                         For each implementor:
+                           a. run test command
+                           b. if tests fail: invoke fix agent (up to DEFAULT_MAX_TEST_ITERATIONS)
+                              collecting per-iteration failure output into fixHistory
+                           c. repeat until green or iterations exhausted
+                         SHA of worktree HEAD captured at test time (geminiTestedCommit /
+                         codexTestedCommit) — validated on resume; stale cache detected
+                         fail-closed if HEAD has moved since tests ran.
+                         Outcomes:
+                           → both pass: judge decides (or test hygiene gate below)
                            → one passes: auto-select the passing one
                            → both fail: auto-select fewer-failures winner
                            → both timed out / no signal: fail closed
-5. Judge Opus          — Claude Opus reads both diffs + test results,
-                         emits "WINNER: gemini|codex" + REASONING
+                         Test hygiene gate: before auto-select, git-diff test files
+                         (**/__tests__/**) — if either implementor modified test assertions,
+                         route to the Opus judge instead of auto-deciding.
+5. Judge Opus          — Claude Opus reads both diffs + test results + fixHistory,
+                         emits "WINNER: gemini|codex" + REASONING + HARDENING block
+                         (HARDENING: lists concrete bug surfaces from either side's
+                         fix history; injected into the Codex review prompt)
 6. Apply Winner        — cherry-pick winning branch's commits onto main cwd
                          (patch fallback if cherry-pick conflicts)
 7. — handoff —         — phase rejoins impl_done; existing TDD loop runs
 8. Test+Fix Loop       — adopted code is verified again on main cwd
-9. Codex Review        — final review on main cwd
+9. Codex Review        — final review on main cwd; receives HARDENING notes so
+                         the reviewer checks for known edge cases from both
+                         implementors' failure histories
 ```
 
 ### Worktree isolation
@@ -159,11 +175,12 @@ Manual recovery: `git worktree list` to find leftover worktrees, then `git workt
 
 ### Auto-select vs Judge
 
-- **Both passed tests** → Opus judge runs.
-- **One passed, one failed** → auto-select the passing one (`selectedBy='auto'`).
-- **Both failed** → auto-select fewer-failures winner via `parseFailureCount` (priority: explicit summary line like "3 failed", then ✗/FAIL marker counts).
+- **Both passed tests** → test hygiene gate: if either implementor modified test files (`**/__tests__/**`), Opus judge runs. Otherwise Opus judge runs unconditionally.
+- **One passed, one failed** → auto-select the passing one (`selectedBy='auto'`), unless test hygiene gate triggers.
+- **Both failed** → auto-select fewer-failures winner via `parseFailureCount` (priority: explicit summary line like "3 failed", then ✗/FAIL marker counts), unless test hygiene gate triggers.
 - **Both timed out OR both had no parseable failure count** → fail-closed; phase status `failed`, you resume manually.
 - **Judge output malformed (no anchored `WINNER:` line)** → fail-closed; worktrees are torn down.
+- **Fix iterations** reported in judge prompt: `null` = fix loop not run (impl crashed or no test command), `0` = passed on first try, `N` = required N fix passes.
 
 ### Backward compat
 
