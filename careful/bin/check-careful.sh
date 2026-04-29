@@ -22,6 +22,38 @@ if [ -z "$CMD" ]; then
   exit 0
 fi
 
+# Split command on shell operators and filter out text-only segments.
+# Segments that start with git commit, echo, cat, or printf produce text output,
+# not destructive actions — skip their content to avoid false positives.
+FILTERED_CMD=""
+IFS_SAVE="$IFS"
+IFS="$(printf '\n\t')"
+for segment in $(printf '%s' "$CMD" | sed 's/&&/\n/g; s/||/\n/g; s/;/ /g'); do
+  trimmed=$(printf '%s' "$segment" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  # Skip segments that are purely text-output commands (their args may mention
+  # dangerous patterns without actually executing them)
+  case "$trimmed" in
+    git\ commit\ -m\ *|git\ commit\ --message\ *|echo\ *|printf\ *|cat\ <*)
+      continue
+      ;;
+    *)
+      if [ -n "$FILTERED_CMD" ]; then
+        FILTERED_CMD="$FILTERED_CMD && "
+      fi
+      FILTERED_CMD="${FILTERED_CMD}${trimmed}"
+      ;;
+  esac
+done
+IFS="$IFS_SAVE"
+
+# Use filtered command for pattern checks; if all segments were filtered out, allow
+if [ -z "$FILTERED_CMD" ]; then
+  echo '{}'
+  exit 0
+fi
+
+CMD="$FILTERED_CMD"
+
 # Normalize: lowercase for case-insensitive SQL matching
 CMD_LOWER=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')
 
