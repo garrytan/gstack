@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.18.0
+version: 1.19.0
 description: |
   Autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -31,7 +31,7 @@ triggers:
 You are the Execution Agent. The planning phase is over. Your job is to read the approved implementation plan and execute it autonomously in phases.
 **Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.16.0").**
 
-**LLM-driven loop vs. code-driven CLI** — for short plans (1-3 phases), proceed with this skill: you are the orchestrator. For long multi-week plans (5+ phases), the LLM-driven loop is unreliable: it stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." For those, recommend the standalone CLI: `gstack-build <plan-file>`. The CLI drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. See `~/.claude/skills/gstack/build/orchestrator/README.md` for usage.
+**LLM-driven loop vs. code-driven CLI** — for short plans (1-3 phases), proceed with this skill: you are the orchestrator. For long multi-week plans (5+ phases), the LLM-driven loop is unreliable: it stalls between phases ("Standing by, let me know what's next") even with explicit "don't stop" rules, and context compaction loses awareness of "I'm in the middle of a 12-week build." For those, use the standalone CLI: `gstack-build <plan-file>`. The CLI drives the loop in code while still spawning fresh Gemini and Codex subprocesses per phase. **Do NOT block waiting for it** — use the **CLI Monitoring Loop** (see below): confirm with the user, launch in the background, and poll the state file every 60 seconds to report progress and handle faults. See `~/.claude/skills/gstack/build/orchestrator/README.md` for full usage.
 
 **Execution Modes**:
 - **Normal Mode**: Synthesize a new living plan and build the feature from scratch. (Default)
@@ -143,7 +143,222 @@ rm -rf .llm-tmp     # once after all phases complete (or on each phase cleanup)
    gstack-build <plan.md> --dual-impl [--gemini-model M] [--codex-model M]
    ```
 
-   Your role after invocation: wait for the CLI to finish (via the Bash tool), read its stdout/stderr for the phase summary and test counts, then report the result to the user. If the CLI exits non-zero, surface the error — do NOT try to re-run individual steps manually. The full dual-impl workflow and recovery guide are in `build/orchestrator/README.md`.
+   Your role after invocation: use the **CLI Monitoring Loop** (see below) — confirm with the user, launch in the background, and poll for progress and faults. Do NOT run `gstack-build --dual-impl` as a blocking Bash call; that prevents fault recovery during a potentially multi-hour run. The full dual-impl workflow and recovery guide are in `build/orchestrator/README.md`.
+
+## CLI Monitoring Loop
+
+Use this execution path whenever handing off to `gstack-build` — for 5+ phase plans (LLM-driven loop vs. code-driven CLI section above) **and** for `--dual-impl` mode. After launching, skip steps 3–9 entirely; the CLI owns the per-phase loop.
+
+### Step M1: Confirm and Launch
+
+Before running, present a confirmation gate via `AskUserQuestion`:
+
+```
+D<N> — Launch gstack-build and monitor?
+Project/branch/task: <plan file basename>, branch <_BRANCH>
+ELI10: This will start the autonomous build CLI in the background. It runs Gemini and Codex sub-agents for each phase — this can take hours. I'll watch it and report progress every 60 seconds, auto-recovering from timeouts and stale locks. Convergence failures and test failures will need your input.
+Stakes if we pick wrong: Launching immediately starts modifying the branch. Aborting mid-run is safe (the CLI resumes), but re-running from scratch costs time.
+Recommendation: A) Launch and monitor — plan is approved and ready.
+Note: options differ in kind, not coverage — no completeness score.
+Pros / cons:
+A) Launch in background and monitor (recommended)
+  ✅ Hands-free: progress reported every 60s, faults surfaced with full log context
+  ❌ Runs autonomously — branch changes happen without per-phase confirmation
+B) Print the command to run manually instead
+  ✅ Full user control over when and how the CLI runs
+  ❌ No monitoring or auto fault recovery — you're on your own if it fails
+Net: A is right for unattended builds; B is right if you want to drive it yourself in a separate terminal.
+```
+
+If B: print the exact command (`gstack-build <plan-file> [flags]`) and exit. Do not enter the monitoring loop.
+
+If A: proceed to Step M2.
+
+### Step M2: Derive Slug, Set Up Paths, and Launch
+
+```bash
+_PLAN_FILE=<plan-file>
+_FLAGS="<any extra flags, e.g. --dual-impl --skip-ship>"
+_SLUG="build-$(basename "$_PLAN_FILE" .md)"
+_STATE_FILE="$HOME/.gstack/build-state/$_SLUG.json"
+_LOG_DIR="$HOME/.gstack/build-state/$_SLUG"
+mkdir -p "$_LOG_DIR"
+echo "SLUG: $_SLUG"
+echo "STATE: $_STATE_FILE"
+```
+
+Then launch in the background using `run_in_background: true` on the Bash tool:
+```bash
+gstack-build "$_PLAN_FILE" $_FLAGS 2>&1 | tee "$_LOG_DIR/agent-stdout.log"
+```
+
+Store the slug and plan file path in a local variable for use across poll ticks.
+
+### Step M3: Poll Loop (60-second cadence via ScheduleWakeup)
+
+Schedule the next wakeup immediately after launch, passing the same monitoring prompt context forward. On each wakeup, run the following state read:
+
+```bash
+_SLUG="<slug>"
+_STATE_FILE="$HOME/.gstack/build-state/$_SLUG.json"
+_LOG_DIR="$HOME/.gstack/build-state/$_SLUG"
+
+if [ ! -f "$_STATE_FILE" ]; then
+  echo "STATE_FILE_MISSING"
+  ls "$HOME/.gstack/build-state/$_SLUG.lock" 2>/dev/null && echo "LOCK_EXISTS" || echo "LOCK_MISSING"
+else
+  cat "$_STATE_FILE"
+fi
+
+# Process alive check (returns PIDs if running)
+pgrep -f "gstack-build" 2>/dev/null | head -3 || echo "PROCESS_NOT_FOUND"
+
+# Recent activity log
+tail -5 "$HOME/.gstack/analytics/build-runs.jsonl" 2>/dev/null || true
+```
+
+From the state JSON, extract and print a one-line heartbeat:
+`[Build monitor] Phase <currentPhaseIndex+1>/<total> — <human status label> | <committed_count> committed | last update <Xs ago> | elapsed <Xm>`
+
+Use this table to map `PhaseStatus` to a human label:
+
+| `status` | Display |
+|---|---|
+| `pending` | waiting |
+| `test_spec_running` | Gemini writing tests |
+| `test_spec_done` | tests written |
+| `tests_red` | tests verified red |
+| `gemini_running` | Gemini implementing |
+| `impl_done` | implementation done |
+| `test_fix_running` | Gemini fixing tests |
+| `tests_green` | tests passing |
+| `codex_running` | Codex reviewing |
+| `review_clean` | review clean |
+| `committed` | committed ✓ |
+| `failed` | FAILED |
+| `dual_impl_running` | dual-impl in progress |
+| `dual_tests_running` | dual-impl tests running |
+| `dual_judge_running` | Opus judging |
+| `dual_winner_pending` | applying winner |
+
+Then run the outcome checks below — in order, stop at the first that applies.
+
+#### On `completed === true`
+
+Print the final summary and exit the loop:
+```
+══════════════════════════════════════════════════════
+BUILD COMPLETE — <planBasename>
+Phases:      <count committed> committed
+Branch:      <branch>
+Started:     <startedAt>
+Completed:   <lastUpdatedAt>
+══════════════════════════════════════════════════════
+```
+
+#### On `failedAtPhase !== undefined` (phase failure)
+
+1. Capture `_FAILED_PHASE = state.failedAtPhase` and `_REASON = state.failureReason`.
+2. Find and read the most recent logs for that phase:
+   ```bash
+   ls -t "$_LOG_DIR/phase-${_FAILED_PHASE}-"*.log 2>/dev/null | head -3
+   # read the last 80 lines of each
+   ```
+3. Classify by `_REASON`:
+
+   **Contains `"timed out"`** → auto-remediate:
+   ```bash
+   GSTACK_BUILD_GEMINI_TIMEOUT=1200000 gstack-build "$_PLAN_FILE" $_FLAGS   # run_in_background: true
+   ```
+   Report to user: "Gemini timed out on Phase <N>. Raised timeout to 20 min and resumed automatically." Continue monitoring.
+
+   **Contains `"lock"` or `"lock contention"`** → check if stale:
+   ```bash
+   # Lock file format: first line = PID, second line = ISO timestamp (plain text, not JSON)
+   _LOCK_PID=$(head -1 "$HOME/.gstack/build-state/$_SLUG.lock" 2>/dev/null | tr -d '[:space:]' || echo "")
+   [ -n "$_LOCK_PID" ] && kill -0 "$_LOCK_PID" 2>/dev/null && echo "PROCESS_ALIVE" || echo "PROCESS_DEAD"
+   ```
+   If dead: `rm -f "$HOME/.gstack/build-state/$_SLUG.lock"` then relaunch in background + continue monitoring.
+   If alive: surface to user (another instance is actually running — do not remove the lock).
+
+   **All other failures** → escalate via `AskUserQuestion`:
+   ```
+   D<N> — Phase <failedAtPhase+1> failed: <one-line failureReason>
+   Project/branch/task: <planBasename>, branch <branch>
+   ELI10: The build stopped at Phase <N>. The error (shown in log excerpt below) usually means Gemini couldn't converge on working code, or tests and implementation are in conflict. You'll need to look at the log, fix the root cause, then resume.
+   [last 30 lines of most relevant log]
+   Stakes if we pick wrong: Resuming without fixing the root cause just re-hits the same error.
+   Recommendation: A) Fix then resume — because resuming without a fix is a no-op.
+   Note: options differ in kind, not coverage — no completeness score.
+   A) I've fixed it — resume now (recommended)
+     ✅ Picks up from exact failure point — no phase work is re-done
+     ❌ Only works if the root cause is actually resolved
+   B) Abort this build
+     ✅ Clean stop; branch and state are preserved for manual recovery
+     ❌ No forward progress; you'll need to re-run manually later
+   Net: Fix root cause first; resuming blind re-hits the same wall.
+   ```
+   If A: `gstack-build "$_PLAN_FILE" $_FLAGS` (background) + continue monitoring.
+   If B: exit the loop and print the manual resume command.
+
+#### On stale `lastUpdatedAt` (unchanged across 3 consecutive ticks ≈ 3 min)
+
+ScheduleWakeup fires into a fresh LLM turn — shell variables do not survive between ticks. Use a temp file to persist the stale counter:
+
+```bash
+_MONITOR_STATE="$_LOG_DIR/.monitor-state"
+_PREV_UPDATED=$(cat "$_MONITOR_STATE" 2>/dev/null || echo "")
+_CUR_UPDATED=$(echo "$_STATE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastUpdatedAt',''))" 2>/dev/null || echo "")
+
+if [ "$_CUR_UPDATED" = "$_PREV_UPDATED" ] && [ -n "$_PREV_UPDATED" ]; then
+  _STALE_FILE="$_LOG_DIR/.stale-ticks"
+  _STALE_TICKS=$(( $(cat "$_STALE_FILE" 2>/dev/null || echo 0) + 1 ))
+  echo "$_STALE_TICKS" > "$_STALE_FILE"
+else
+  echo "$_CUR_UPDATED" > "$_MONITOR_STATE"
+  echo "0" > "$_LOG_DIR/.stale-ticks"
+  _STALE_TICKS=0
+fi
+```
+
+When `_STALE_TICKS >= 3`:
+
+1. Check if the process is alive: `pgrep -f "gstack-build"`
+2. **Dead** (no process, no lock file): auto-resume.
+   ```bash
+   gstack-build "$_PLAN_FILE" $_FLAGS --skip-clean-check   # run_in_background: true
+   ```
+   Report: "Build process appears to have crashed (state frozen, no process found). Auto-resumed." Reset `_STALE_TICKS` to 0. Continue monitoring.
+3. **Alive** (process running but state frozen): surface via `AskUserQuestion`:
+   ```
+   D<N> — Build appears hung on Phase <N>: <status>
+   Project/branch/task: <planBasename>, branch <branch>
+   ELI10: The build process is still running but hasn't updated its state in 3+ minutes. This usually means it's waiting on a Gemini or Codex sub-agent that hasn't returned — often a slow network call or a very large implementation task. Killing it and resuming restarts the current phase from scratch.
+   Stakes if we pick wrong: Killing a still-working sub-agent discards its partial work and restarts the phase.
+   Recommendation: A) Wait 3 more minutes — sub-agents on large phases can legitimately take this long.
+   Note: options differ in kind, not coverage — no completeness score.
+   A) Wait 3 more minutes (recommended)
+     ✅ If the sub-agent is just slow, all work is preserved
+     ❌ If truly hung, wastes another 3 minutes before you can act
+   B) Kill the process and resume
+     ✅ Forces a clean restart of the stuck phase; usually unblocks immediately
+     ❌ Loses any partial sub-agent work on the current phase
+   Net: Wait one more round first; kill if it's still frozen after that.
+   ```
+   If A: schedule wakeup at 180s (instead of 60s), reset `_STALE_TICKS` to 0.
+   If B:
+   ```bash
+   kill $(pgrep -f "gstack-build") 2>/dev/null || true
+   sleep 2
+   gstack-build "$_PLAN_FILE" $_FLAGS --skip-clean-check   # run_in_background: true
+   ```
+   Reset `_STALE_TICKS` to 0. Continue monitoring.
+
+#### Default: schedule next wakeup
+
+If none of the above conditions fired, schedule the next wakeup at 60 seconds and continue.
+
+---
 
 3. **Spawn Gemini Execution Sub-Agent (file-path I/O)**: You MUST spawn the execution sub-agent using the **Gemini** model via the `mcp__llm-bridge__ask_gemini` MCP tool. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
    - **Write the input prompt to a file first.** Use the `Write` tool to put the full instruction body — goal, phase checklist, code references, constraints, success criteria — into `.llm-tmp/build-<phase-N>-gemini-input-<iter>.md`. The MCP prompt body itself stays short: it just says "Read `<input-path>`. Do the work. Write your output summary to `<output-path>`." Do NOT inline the phase context in the MCP call.
