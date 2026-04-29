@@ -38,6 +38,9 @@ fi
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+# Honor CLAUDE_CONFIG_DIR (matches setup behavior) so uninstall finds skills
+# wherever setup placed them. Falls back to ~/.claude when unset.
+CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 
 # ─── Parse flags ─────────────────────────────────────────────
@@ -62,7 +65,7 @@ done
 # ─── Confirmation ────────────────────────────────────────────
 if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
-  { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
+  { [ -d "$CLAUDE_HOME/skills/gstack" ] || [ -L "$CLAUDE_HOME/skills/gstack" ]; } && echo "  $CLAUDE_HOME/skills/gstack (+ per-skill symlinks)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
@@ -129,7 +132,7 @@ if [ -d "$STATE_DIR/projects" ]; then
 fi
 
 # ─── Remove global Claude skills ────────────────────────────
-CLAUDE_SKILLS="$HOME/.claude/skills"
+CLAUDE_SKILLS="$CLAUDE_HOME/skills"
 if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
   # Remove per-skill symlinks that point into gstack/
   for _LINK in "$CLAUDE_SKILLS"/*; do
@@ -143,7 +146,7 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
   done
 
   rm -rf "$CLAUDE_SKILLS/gstack"
-  REMOVED+=("~/.claude/skills/gstack")
+  REMOVED+=("$CLAUDE_SKILLS/gstack")
 fi
 
 # ─── Remove project-local Claude skills (--local installs) ──
