@@ -754,7 +754,6 @@ async function runDualImplFixLoop(opts: {
 
   let lastIter = 0;
   for (let i = 1; i <= maxFixIter; i++) {
-    lastIter = i;
     const fixInput = path.join(
       ld,
       `phase-${phaseNumber}-dual-${model}-fix${i}-input.md`,
@@ -821,6 +820,7 @@ async function runDualImplFixLoop(opts: {
       );
       break;
     }
+    lastIter = i;
 
     testRun = await runTests({
       testCmd,
@@ -839,8 +839,20 @@ async function runDualImplFixLoop(opts: {
     };
 
     const fixHistoryStr = failureLog.join("\n\n");
-    if (testRun.exitCode === 0 && !testRun.timedOut)
+    if (testRun.exitCode === 0 && !testRun.timedOut) {
+      // Auto-commit any tracked dirty changes so `testedCommit` (HEAD) matches
+      // what tests actually ran against. Dirty worktrees cause SHA stale-cache
+      // detection to fail-closed on resume.
+      const dirty = spawnSync("git", ["diff", "HEAD", "--quiet"], { cwd: worktreePath });
+      if (dirty.status !== 0) {
+        spawnSync("git", ["add", "-u"], { cwd: worktreePath });
+        spawnSync("git", [
+          "commit", "-m",
+          `chore: auto-commit staged changes after green tests (fix pass ${i}) [gstack-dual]`,
+        ], { cwd: worktreePath });
+      }
       return { testResult, fixIterations: i, fixHistory: fixHistoryStr };
+    }
     failureLog.push(
       `--- After fix pass ${i} (still failing) ---\n${(testRun.stdout + "\n" + testRun.stderr).slice(0, 2000)}`,
     );
@@ -1484,6 +1496,13 @@ async function runPhase(args: {
         // (tests would pass on uncommitted edits but applyWinner can't cherry-pick).
         // Skip RUN_DUAL_TESTS + RUN_JUDGE_OPUS entirely; auto-select the committed side.
         if (gCommitted && !cCommitted) {
+          if (gFinalTest.testExitCode !== 0) {
+            phaseState.status = "failed";
+            phaseState.error = `Gemini auto-selected (codex=0 commits) but tests are failing (exit=${gFinalTest.testExitCode}) — fix implementation and resume`;
+            state.phases[phase.index] = phaseState;
+            saveState(state, { noGbrain, log: console.warn });
+            continue;
+          }
           console.log(
             `  ⚠ Codex did not commit (gemini=${gCommits} commits, codex=0) — auto-selecting gemini, skipping tests + judge`,
           );
@@ -1494,6 +1513,13 @@ async function runPhase(args: {
           };
           phaseState.status = "dual_winner_pending";
         } else if (!gCommitted && cCommitted) {
+          if (cFinalTest.testExitCode !== 0) {
+            phaseState.status = "failed";
+            phaseState.error = `Codex auto-selected (gemini=0 commits) but tests are failing (exit=${cFinalTest.testExitCode}) — fix implementation and resume`;
+            state.phases[phase.index] = phaseState;
+            saveState(state, { noGbrain, log: console.warn });
+            continue;
+          }
           console.log(
             `  ⚠ Gemini did not commit (gemini=0, codex=${cCommits} commits) — auto-selecting codex, skipping tests + judge`,
           );
@@ -1849,6 +1875,25 @@ async function runPhase(args: {
         judgeReasoning: reasoning,
         judgeHardeningNotes: hardeningNotes,
       });
+      // Test hygiene gate (judge path): fail closed if winner modified test files.
+      // Same gate as auto-select path — judge can't catch test-weakening the same way.
+      if (!dryRun) {
+        const winnerPath = verdict === "gemini" ? dual.geminiWorktreePath : dual.codexWorktreePath;
+        const hygieneDiff = spawnSync(
+          "git",
+          ["-C", winnerPath, "diff", dual.baseCommit, "--", "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
+          { encoding: "utf8" },
+        );
+        if (hygieneDiff.status !== 0 || hygieneDiff.stdout.trim()) {
+          console.warn(`  ⚠ Judge-selected ${verdict} modified test files — failing closed (test hygiene)`);
+          teardownWorktrees({ cwd, dualImpl: dual });
+          phaseState.status = "failed";
+          phaseState.error = `Judge-selected ${verdict} modified test assertions — potential test-weakening; phase requires manual review`;
+          state.phases[phase.index] = phaseState;
+          saveState(state, { noGbrain, log: console.warn });
+          continue;
+        }
+      }
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
       continue;

@@ -7,7 +7,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const content = fs.readFileSync(tmplPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.18.0')).toBe(true);
+  expect(content.includes('version: 1.19.0')).toBe(true);
   expect(content.includes('Verify Red')).toBe(true);
   expect(content.includes('Test Specification (Gemini Sub-agent)')).toBe(true);
   expect(content.includes('gemini-testspec-input')).toBe(true);

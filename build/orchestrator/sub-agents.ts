@@ -596,8 +596,10 @@ export function parseJudgeVerdict(output: string): {
   }
   const verdict = winnerMatch[1].toLowerCase() as 'gemini' | 'codex';
 
-  // REASONING: runs from marker to next anchored section (HARDENING:) or EOS.
-  const reasoningMatch = clean.match(/^\s*REASONING:\s*([\s\S]*?)(?=^\s*HARDENING:|$(?![\s\S]))/im);
+  // REASONING: runs from marker to next anchored HARDENING section or EOS.
+  // Lookahead requires HARDENING: to be standalone or bullet-prefixed so prose
+  // that happens to contain "HARDENING:" mid-sentence doesn't truncate early.
+  const reasoningMatch = clean.match(/^\s*REASONING:\s*([\s\S]*?)(?=^\s*HARDENING:\s*(?:$|->)|$(?![\s\S]))/im);
   const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
 
   // HARDENING: runs from its marker to the next known section keyword or EOS.
