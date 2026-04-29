@@ -3,6 +3,34 @@
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
+print_help() {
+  cat <<'EOF'
+Usage: ./setup [options]
+
+Build gstack binaries, generate skill docs, and install skills for supported hosts.
+
+Options:
+  --host <name>     Target host: claude, codex, kiro, factory, opencode, auto,
+                    openclaw, hermes, or gbrain
+  --local           Install locally for Claude Code (deprecated)
+  --prefix          Use gstack-prefixed Claude skill names
+  --no-prefix       Use short Claude skill names
+  --team            Enable team mode
+  --no-team         Disable team mode
+  -q, --quiet       Suppress informational output
+  -h, --help        Show this help and exit
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+  esac
+done
+
 if ! command -v bun >/dev/null 2>&1; then
   echo "Error: bun is required but not installed." >&2
   echo "Install with checksum verification:" >&2
