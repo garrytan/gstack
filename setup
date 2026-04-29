@@ -374,6 +374,13 @@ link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local linked=()
+  local gstack_basename="$(basename "$gstack_dir")"
+  # Use relative symlinks when gstack is inside skills_dir (vendored/local installs).
+  # Absolute paths break portability — other devs cloning the repo get dangling symlinks.
+  local resolved_parent="$(cd "$gstack_dir/.." 2>/dev/null && pwd -P)"
+  local resolved_skills="$(cd "$skills_dir" 2>/dev/null && pwd -P)"
+  local use_relative=0
+  [ "$resolved_parent" = "$resolved_skills" ] && use_relative=1
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       dir_name="$(basename "$skill_dir")"
@@ -396,12 +403,16 @@ link_claude_skill_dirs() {
       if [ -L "$target" ]; then
         rm -f "$target"
       fi
-      # Create real directory with symlinked SKILL.md (absolute path)
+      # Create real directory with symlinked SKILL.md
       # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
       mkdir -p "$target"
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      if [ "$use_relative" -eq 1 ]; then
+        ln -snf "../$gstack_basename/$dir_name/SKILL.md" "$target/SKILL.md"
+      else
+        ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      fi
       linked+=("$link_name")
     fi
   done
