@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/flywheel-metrics.schema.json",
+  "title": "FlywheelMetrics",
+  "description": "Aggregate progress metrics for a local vertical intelligence flywheel.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "domain",
+    "total_traces",
+    "accepted_traces",
+    "trainable_traces",
+    "redaction_pass_rate",
+    "avg_context_tokens_before",
+    "avg_context_tokens_after",
+    "context_reduction_pct",
+    "workflows"
+  ],
+  "properties": {
+    "domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "total_traces": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "accepted_traces": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "trainable_traces": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "redaction_pass_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "avg_context_tokens_before": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "avg_context_tokens_after": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "context_reduction_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "workflows": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "traces",
+          "trainable",
+          "eval_cases",
+          "acceptance_rate",
+          "slm_candidate"
+        ],
+        "properties": {
+          "traces": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trainable": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "eval_cases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "acceptance_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "slm_candidate": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

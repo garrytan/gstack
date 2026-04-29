@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/eval-case.schema.json",
+  "title": "EvalCase",
+  "description": "A sanitized workflow eval case derived from approved or rejected vertical work.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "domain",
+    "workflow",
+    "input_redacted",
+    "expected_behavior",
+    "forbidden_behavior",
+    "rubric",
+    "tags",
+    "source_trace_ids"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_redacted": {
+      "type": "string",
+      "description": "Sanitized input fixture or summary. Do not include raw PII."
+    },
+    "expected_behavior": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "forbidden_behavior": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "rubric": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "source_trace_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
+  }
+}

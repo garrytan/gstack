@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/context-card.schema.json",
+  "title": "ContextCard",
+  "description": "A compact, reviewable workflow context artifact distilled from repeated approved work.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "domain",
+    "workflow",
+    "goal",
+    "stable_rules",
+    "tool_contracts",
+    "human_approval_required_for",
+    "source_trace_count",
+    "token_budget",
+    "eval_refs",
+    "version"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "examples": ["context_real_estate_lead_intake_v1"]
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stable_rules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tool_contracts": {
+      "type": "array",
+      "description": "Required schemas, tools, fields, APIs, files, or workflow contracts.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "human_approval_required_for": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "source_trace_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "token_budget": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "eval_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

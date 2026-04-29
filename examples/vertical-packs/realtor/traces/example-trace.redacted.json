@@ -1,0 +1,43 @@
+{
+  "id": "trace_2026_04_25_realtor_example_001",
+  "created_at": "2026-04-25T00:00:00Z",
+  "project": "openclaw-real-estate-demo",
+  "domain": "real_estate",
+  "workflow": "lead_intake",
+  "skill": "/trace-to-train",
+  "host": "openclaw",
+  "model_used": "unknown",
+  "input_summary": "Parsed a redacted inbound buyer lead and prepared CRM-ready fields plus a follow-up draft.",
+  "input_hash": "sha256_redacted_example_input",
+  "raw_input_stored": false,
+  "pii_level": "none",
+  "redaction_status": "passed",
+  "context_tokens_before": 4200,
+  "context_tokens_after": 900,
+  "output_summary": "Created lead profile, missing-info questions, and a human-approval-gated follow-up draft.",
+  "human_review": {
+    "status": "edited",
+    "edit_distance_estimate": "low",
+    "review_notes": "Human softened tone and removed an unsupported financing assumption."
+  },
+  "eval_tags": [
+    "lead_intake",
+    "crm",
+    "real_estate",
+    "client_facing"
+  ],
+  "failure_modes": [
+    "unsupported_inference"
+  ],
+  "trainable": true,
+  "target_use": [
+    "retrieval",
+    "eval",
+    "fine_tune_candidate"
+  ],
+  "model_target": {
+    "family": "custom",
+    "size_class": "small",
+    "method": "unknown"
+  }
+}

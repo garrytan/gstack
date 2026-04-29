@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/trace-record.schema.json",
+  "title": "TraceRecord",
+  "description": "A redacted record of a human-reviewed GStack/OpenClaw run for retrieval, evals, and optional future training candidacy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "created_at",
+    "project",
+    "domain",
+    "workflow",
+    "skill",
+    "host",
+    "input_summary",
+    "input_hash",
+    "raw_input_stored",
+    "pii_level",
+    "redaction_status",
+    "output_summary",
+    "human_review",
+    "eval_tags",
+    "failure_modes",
+    "trainable",
+    "target_use",
+    "model_target"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^trace_[A-Za-z0-9_.-]+$",
+      "examples": ["trace_2026_04_25_001"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "examples": ["openclaw-real-estate"]
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1,
+      "examples": ["real_estate"]
+    },
+    "workflow": {
+      "type": "string",
+      "minLength": 1,
+      "examples": ["lead_intake"]
+    },
+    "skill": {
+      "type": "string",
+      "examples": ["/trace-to-train"]
+    },
+    "host": {
+      "type": "string",
+      "description": "Execution host that produced or coordinated the run.",
+      "examples": ["openclaw", "claude-code", "cursor", "other"]
+    },
+    "model_used": {
+      "type": "string",
+      "description": "Best-known model name, or unknown if unavailable.",
+      "default": "unknown"
+    },
+    "input_summary": {
+      "type": "string",
+      "description": "Redacted summary of the input; do not store raw PII here."
+    },
+    "input_hash": {
+      "type": "string",
+      "description": "Hash of the redacted input or sanitized fixture."
+    },
+    "raw_input_stored": {
+      "type": "boolean",
+      "description": "Must normally be false. True is only for explicitly sanitized fixtures."
+    },
+    "pii_level": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high"]
+    },
+    "redaction_status": {
+      "type": "string",
+      "enum": ["passed", "needs_review", "failed"]
+    },
+    "context_tokens_before": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "context_tokens_after": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "output_summary": {
+      "type": "string",
+      "description": "Redacted summary of the approved or reviewed output."
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "edit_distance_estimate", "review_notes"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["accepted", "edited", "rejected"]
+        },
+        "edit_distance_estimate": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "review_notes": {
+          "type": "string"
+        }
+      }
+    },
+    "eval_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "failure_modes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "trainable": {
+      "type": "boolean",
+      "description": "True only after redaction has passed and human review approved training candidacy."
+    },
+    "target_use": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["retrieval", "eval", "fine_tune_candidate"]
+      },
+      "uniqueItems": true
+    },
+    "model_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "size_class", "method"],
+      "properties": {
+        "family": {
+          "type": "string",
+          "description": "Model family target. Examples only, not a provider lock.",
+          "examples": ["gemma", "qwen", "llama", "mistral", "deepseek", "custom"]
+        },
+        "size_class": {
+          "type": "string",
+          "examples": ["small", "medium", "large"]
+        },
+        "method": {
+          "type": "string",
+          "examples": ["prompt", "rag", "lora", "qlora", "full_finetune", "unknown"]
+        }
+      }
+    }
+  }
+}

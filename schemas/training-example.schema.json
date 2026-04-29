@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/training-example.schema.json",
+  "title": "TrainingExample",
+  "description": "A redacted JSONL-ready example derived from human-approved workflow output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instruction", "context", "input", "output", "metadata"],
+  "properties": {
+    "instruction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "type": "string",
+      "description": "Reference to a context card or compact rules."
+    },
+    "input": {
+      "type": "string",
+      "description": "Redacted input. Do not include raw PII."
+    },
+    "output": {
+      "type": "string",
+      "description": "Human-approved output, sanitized when needed."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "workflow",
+        "source_trace_ids",
+        "split",
+        "pii_level",
+        "trainable"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflow": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_trace_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "split": {
+          "type": "string",
+          "enum": ["train", "validation", "test"]
+        },
+        "pii_level": {
+          "type": "string",
+          "enum": ["none", "low", "medium", "high"]
+        },
+        "trainable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
