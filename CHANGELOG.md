@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.21.0.0] - 2026-04-29
+
+### Added
+- `--dual-impl` recursive fix loops: when tests fail after implementation, each implementor now runs up to `DEFAULT_MAX_TEST_ITERATIONS` fix passes before results are submitted to the judge. Both Gemini and Codex run their fix loops concurrently in parallel `Promise.all`.
+- Fix history threading: per-iteration test failure output is collected and passed to the Opus judge, letting it reason about which bugs each implementor encountered and fixed — not just their final test state.
+- Judge hardening notes: Opus judge now emits a `HARDENING:` block listing every concrete bug surface identified in either implementor's fix history. These flow into the Codex review prompt so the reviewer knows which edge cases must not regress.
+- SHA validation on resume: the HEAD commit of each worktree is stored when tests run. On resume, the orchestrator validates the stored SHAs match current HEAD — if the worktree has external commits, tests re-run instead of reusing stale cached results.
+- Test hygiene enforcement: before auto-selecting a winner by test outcome, the orchestrator diffs the winner's worktree against the base commit on test files (`*.test.ts`, `*.spec.ts`, `**/__tests__/**`). If the winner modified test assertions, it routes to the judge instead of auto-selecting.
+
+### Changed
+- `parseJudgeVerdict` now returns a third field `hardeningNotes: string` alongside `verdict` and `reasoning`. CRLF-normalized before regex parsing.
+- `buildJudgePrompt` accepts `geminiFixIterations`, `codexFixIterations`, `geminiFixHistory`, `codexFixHistory` — the judge sees fix iteration counts and per-iteration failure logs for each side.
+- `buildCodexReviewBody` accepts optional `hardeningNotes` — injected as a `## Hardening notes` section with gate sentinel sanitization (strips `GATE PASS`/`GATE FAIL` to prevent prompt injection).
+- Fix loop log files use the inner iteration index `i` (not the outer dual-impl iteration) so parallel retries never overwrite each other's logs.
+- `fmtFixIter` distinguishes `null` (fix loop not run — impl crashed or no test command) from `0` (passed on first try) from `N` (required N passes).
+
 ## [1.20.0.0] - 2026-04-28
 
 ## **Browser-skills land. `/scrape <intent>` first call drives the page; second call runs the codified script in 200ms.**

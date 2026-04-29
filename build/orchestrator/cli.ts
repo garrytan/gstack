@@ -688,7 +688,6 @@ async function runDualImplFixLoop(opts: {
   branch: string;
   slug: string;
   phaseNumber: string;
-  outerIteration: number;
   testCmd: string | null;
   maxFixIter: number;
   geminiModel?: string;
@@ -706,7 +705,6 @@ async function runDualImplFixLoop(opts: {
     branch,
     slug,
     phaseNumber,
-    outerIteration,
     testCmd,
     maxFixIter,
     geminiModel,
