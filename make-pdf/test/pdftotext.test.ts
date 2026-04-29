@@ -7,8 +7,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
-import { normalize, copyPasteGate } from "../src/pdftotext";
+import { normalize, copyPasteGate, resolvePdftotext } from "../src/pdftotext";
 
 describe("normalize", () => {
   test("strips trailing spaces", () => {
@@ -102,5 +105,28 @@ describe("copyPasteGate — assertion logic", () => {
     expect(Math.abs(expectedBreaks - tooFewBreaks)).toBeGreaterThan(1);
     // After normalize, 3+ newlines become 2, so the count matches
     expect(Math.abs(expectedBreaks - tooManyBreaksNormalized)).toBeLessThanOrEqual(4);
+  });
+});
+
+describe("resolvePdftotext", () => {
+  test("on win32, honors PDFTOTEXT_BIN pointing at a base path that needs .exe", () => {
+    if (process.platform !== "win32") return;
+    const originalEnv = process.env.PDFTOTEXT_BIN;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pdftotext-resolve-"));
+    const exePath = path.join(tmpDir, "pdftotext.exe");
+    try {
+      // Empty .exe is fine — describeBinary() swallows the non-zero exit
+      // from `bin -v` and returns version: "unknown". We only assert on
+      // the resolved path.
+      fs.writeFileSync(exePath, "");
+      process.env.PDFTOTEXT_BIN = path.join(tmpDir, "pdftotext");
+      const info = resolvePdftotext();
+      expect(info.bin).toBe(exePath);
+    } finally {
+      if (originalEnv === undefined) delete process.env.PDFTOTEXT_BIN;
+      else process.env.PDFTOTEXT_BIN = originalEnv;
+      try { fs.unlinkSync(exePath); } catch { /* best-effort */ }
+      try { fs.rmdirSync(tmpDir); } catch { /* best-effort */ }
+    }
   });
 });

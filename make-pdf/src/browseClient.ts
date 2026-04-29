@@ -60,7 +60,10 @@ export interface JsOptions {
  */
 export function resolveBrowseBin(): string {
   const envOverride = process.env.BROWSE_BIN;
-  if (envOverride && isExecutable(envOverride)) return envOverride;
+  if (envOverride) {
+    const resolved = findExecutable(envOverride);
+    if (resolved) return resolved;
+  }
 
   // Sibling: look relative to this process's binary
   // (for when make-pdf and browse live next to each other in dist/)
@@ -71,22 +74,35 @@ export function resolveBrowseBin(): string {
     path.resolve(selfDir, "../browse"),
   ];
   for (const candidate of siblingCandidates) {
-    if (isExecutable(candidate)) return candidate;
+    const resolved = findExecutable(candidate);
+    if (resolved) return resolved;
   }
 
   // Global install
   const home = os.homedir();
   const globalPath = path.join(home, ".claude/skills/gstack/browse/dist/browse");
-  if (isExecutable(globalPath)) return globalPath;
+  const globalResolved = findExecutable(globalPath);
+  if (globalResolved) return globalResolved;
 
-  // PATH lookup
+  // PATH lookup — use `where` on Windows (native, always in System32),
+  // `which` on POSIX. Git Bash provides `which` too, but Windows users
+  // running from cmd.exe or PowerShell don't have it.
+  const pathLookupCmd = process.platform === "win32" ? "where" : "which";
   try {
-    const which = execFileSync("which", ["browse"], { encoding: "utf8" }).trim();
-    if (which && isExecutable(which)) return which;
+    const out = execFileSync(pathLookupCmd, ["browse"], { encoding: "utf8" }).trim();
+    // `where` can return multiple matches; take the first.
+    const firstHit = out.split(/\r?\n/)[0]?.trim();
+    if (firstHit) {
+      const resolved = findExecutable(firstHit);
+      if (resolved) return resolved;
+    }
   } catch {
-    // `which` exited non-zero; fall through to error
+    // non-zero exit; fall through to error
   }
 
+  const setCmd = process.platform === "win32"
+    ? '  setx BROWSE_BIN "C:\\path\\to\\browse.exe"'
+    : "  export BROWSE_BIN=/path/to/browse";
   throw new BrowseClientError(
     /* exitCode */ 127,
     "resolve",
@@ -94,19 +110,50 @@ export function resolveBrowseBin(): string {
       "browse binary not found.",
       "",
       "make-pdf needs browse (the gstack Chromium daemon) to render PDFs.",
+      `Platform: ${process.platform}`,
       "Tried:",
       `  - $BROWSE_BIN (${envOverride || "unset"})`,
       `  - sibling: ${siblingCandidates.join(", ")}`,
       `  - global: ${globalPath}`,
-      "  - PATH: `browse`",
+      `  - PATH: \`browse\` (via ${pathLookupCmd})`,
       "",
       "To fix: run gstack setup from the gstack repo:",
       "  cd ~/.claude/skills/gstack && ./setup",
       "",
       "Or set BROWSE_BIN explicitly:",
-      "  export BROWSE_BIN=/path/to/browse",
+      setCmd,
     ].join("\n"),
   );
+}
+
+/**
+ * Resolve a base path to an executable, probing platform-specific extensions.
+ *
+ * On win32, probes `{base}.exe`, `{base}.cmd`, `{base}.bat` in addition to
+ * `{base}` so callers can pass POSIX-style candidate paths and still hit
+ * Windows artifacts (bun --compile emits `.exe`, batch wrappers are common).
+ *
+ * Returns the resolved path or null if nothing is executable.
+ *
+ * Why this exists: on Windows, `fs.constants.X_OK` is degraded to an
+ * existence check (the Node docs are explicit:
+ * https://nodejs.org/api/fs.html#fsaccesspath-mode-callback —
+ * "On Windows, the file system accessibility checks can behave differently.
+ * For example, changing visibility using chmod does not update read and
+ * write permissions... Only the presence of the read-only attribute is
+ * reflected."). So `isExecutable("/path/to/browse")` returns false when
+ * the actual file on disk is `/path/to/browse.exe` — the extension probe
+ * is the only thing that closes the gap.
+ */
+export function findExecutable(base: string): string | null {
+  if (isExecutable(base)) return base;
+  if (process.platform === "win32") {
+    for (const ext of [".exe", ".cmd", ".bat"]) {
+      const withExt = base + ext;
+      if (isExecutable(withExt)) return withExt;
+    }
+  }
+  return null;
 }
 
 function isExecutable(p: string): boolean {
