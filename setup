@@ -776,6 +776,21 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    # Warn when the auto-detected skills dir won't be read by Claude Code.
+    # Happens when CLAUDE_CONFIG_DIR points elsewhere (e.g. ~/.config/claude) but
+    # the clone lives under the legacy ~/.claude/skills path. Skip for --local
+    # (intentional project-scoped install) and CODEX_REPO_LOCAL (.agents/skills).
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$LOCAL_INSTALL" -eq 0 ] && [ "$CODEX_REPO_LOCAL" -eq 0 ] && [ "$INSTALL_SKILLS_DIR" != "$CLAUDE_HOME/skills" ]; then
+      echo "" >&2
+      echo "WARNING: CLAUDE_CONFIG_DIR is set to $CLAUDE_CONFIG_DIR" >&2
+      echo "  but this clone is at $INSTALL_GSTACK_DIR." >&2
+      echo "  Claude Code reads skills from $CLAUDE_HOME/skills, so the" >&2
+      echo "  installation below will NOT be discovered by Claude Code." >&2
+      echo "  To fix: move the clone and re-run setup:" >&2
+      echo "    mv $INSTALL_GSTACK_DIR $CLAUDE_HOME/skills/gstack" >&2
+      echo "    cd $CLAUDE_HOME/skills/gstack && ./setup" >&2
+      echo "" >&2
+    fi
     # Clean up stale symlinks from the opposite prefix mode
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
