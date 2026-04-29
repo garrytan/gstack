@@ -350,6 +350,7 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(0);
     const lines = stdout.split('\n');
     expect(lines).toContain('bin');
+    expect(lines).toContain('design/dist');
     expect(lines).toContain('ETHOS.md');
     expect(lines).toContain('review/checklist.md');
   });
