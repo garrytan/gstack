@@ -743,7 +743,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `click <sel>` | Click element |
 | `cookie <name>=<value>` | Set cookie on current page domain |
 | `cookie-import <json>` | Import cookies from JSON file |
-| `cookie-import-browser [browser] [--domain d]` | Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import) |
+| `cookie-import-browser [browser] [--domain d] [--keep-storage]` | Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import) |
 | `dialog-accept [text]` | Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response |
 | `dialog-dismiss` | Auto-dismiss next dialog |
 | `fill <sel> <val>` | Fill input |

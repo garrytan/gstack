@@ -686,10 +686,11 @@ export async function handleWriteCommand(
       // 1. Direct CLI import: cookie-import-browser <browser> --domain <domain> [--profile <profile>]
       //    Requires --domain (or --all to explicitly import everything).
       // 2. Open picker UI: cookie-import-browser [browser] (interactive domain selection)
-      const browserArg = args[0];
+      const browserArg = args.find(arg => !arg.startsWith('--'));
       const domainIdx = args.indexOf('--domain');
       const profileIdx = args.indexOf('--profile');
       const hasAll = args.includes('--all');
+      const keepStorage = args.includes('--keep-storage');
       const profile = (profileIdx !== -1 && profileIdx + 1 < args.length) ? args[profileIdx + 1] : 'Default';
 
       if (domainIdx !== -1 && domainIdx + 1 < args.length) {
@@ -701,6 +702,14 @@ export async function handleWriteCommand(
         if (normalizedDomain !== pageHostname && !pageHostname.endsWith('.' + normalizedDomain)) {
           throw new Error(`--domain "${domain}" does not match current page domain "${pageHostname}". Navigate to the target site first.`);
         }
+
+        if (!keepStorage) {
+          await page.evaluate(() => {
+            localStorage.clear();
+            sessionStorage.clear();
+          }).catch(() => {});
+        }
+
         const browser = browserArg || 'comet';
         let result = await importCookies(browser, [domain], profile);
         // If all cookies failed and v20 is detected, try CDP extraction
@@ -713,6 +722,7 @@ export async function handleWriteCommand(
         }
         const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
+        if (!keepStorage) msg.push('(storage cleared)');
         return msg.join(' ');
       }
 
@@ -726,6 +736,14 @@ export async function handleWriteCommand(
         if (allDomainNames.length === 0) {
           return `No cookies found in ${browser} (profile: ${profile})`;
         }
+
+        if (!keepStorage) {
+            await page.evaluate(() => {
+              localStorage.clear();
+              sessionStorage.clear();
+            }).catch(() => {});
+        }
+
         const result = await importCookies(browser, allDomainNames, profile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
@@ -734,6 +752,7 @@ export async function handleWriteCommand(
         const msg = [`Imported ${result.count} cookies across ${Object.keys(result.domainCounts).length} domains from ${browser}`];
         msg.push('(used --all: all browser cookies imported, consider --domain for tighter scoping)');
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
+        if (!keepStorage) msg.push('(storage cleared)');
         return msg.join(' ');
       }
 
@@ -746,7 +765,7 @@ export async function handleWriteCommand(
         throw new Error(`No Chromium browsers found. Supported: ${listSupportedBrowserNames().join(', ')}`);
       }
 
-      const code = generatePickerCode();
+      const code = generatePickerCode(!keepStorage);
       const pickerUrl = `http://127.0.0.1:${port}/cookie-picker?code=${code}`;
       try {
         Bun.spawn(['open', pickerUrl], { stdout: 'ignore', stderr: 'ignore' });
@@ -757,7 +776,6 @@ export async function handleWriteCommand(
 
       return `Cookie picker opened at http://127.0.0.1:${port}/cookie-picker\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nSelect domains to import, then close the picker when done.\n\nTip: For scripted imports, use --domain <domain> to scope cookies to a single domain.`;
     }
-
     case 'style': {
       // style --undo [N] → revert modification
       if (args[0] === '--undo') {

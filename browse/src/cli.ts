@@ -765,7 +765,7 @@ Interaction:    click <sel> | fill <sel> <val> | select <sel> <val>
                 scroll [sel] | wait <sel|--networkidle|--load> | viewport <WxH>
                 upload <sel> <file1> [file2...]
                 cookie-import <json-file>
-                cookie-import-browser [browser] [--domain <d>]
+                cookie-import-browser [browser] [--domain <d>] [--keep-storage]
 Inspection:     js <expr> | eval <file> | css <sel> <prop> | attrs <sel>
                 console [--clear|--errors] | network [--clear] | dialog [--clear]
                 cookies | storage [set <k> <v>] | perf
