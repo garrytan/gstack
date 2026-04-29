@@ -581,8 +581,9 @@ export function parseFailureCount(output: string): number | undefined {
 export function parseJudgeVerdict(output: string): {
   verdict: 'gemini' | 'codex' | null;
   reasoning: string;
+  hardeningNotes: string;
 } {
-  const clean = stripAnsi(output || '');
+  const clean = stripAnsi(output || '').replace(/\r/g, '');
   // Anchored: WINNER must be at start of line. Avoids false matches like
   // "I think the WINNER: gemini is better" embedded in narrative prose.
   const winnerMatch = clean.match(/^\s*WINNER:\s*(gemini|codex)\b/im);
@@ -590,16 +591,21 @@ export function parseJudgeVerdict(output: string): {
     return {
       verdict: null,
       reasoning: 'no anchored WINNER line found in judge output — caller must fail-closed',
+      hardeningNotes: '',
     };
   }
   const verdict = winnerMatch[1].toLowerCase() as 'gemini' | 'codex';
 
-  // REASONING runs from the anchored marker to end of input; trim whitespace.
-  // Single multi-paragraph reasoning is fine — Opus prompt template asks for
-  // one paragraph, but we accept anything until EOS.
-  const reasoningMatch = clean.match(/^\s*REASONING:\s*([\s\S]*)$/im);
+  // REASONING: runs from marker to next anchored section (HARDENING:) or EOS.
+  const reasoningMatch = clean.match(/^\s*REASONING:\s*([\s\S]*?)(?=^\s*HARDENING:|$(?![\s\S]))/im);
   const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
-  return { verdict, reasoning };
+
+  // HARDENING: runs from its marker to the next known section keyword or EOS.
+  // Non-greedy so trailing prose / section order variations don't bleed in.
+  const hardeningMatch = clean.match(/^\s*HARDENING:\s*([\s\S]*?)(?=^\s*WINNER:|^\s*REASONING:|$(?![\s\S]))/im);
+  const hardeningNotes = hardeningMatch ? hardeningMatch[1].trim() : '';
+
+  return { verdict, reasoning, hardeningNotes };
 }
 
 /**
@@ -669,13 +675,16 @@ export async function runCodexImpl(opts: {
   iteration: number;
   reasoning?: 'low' | 'medium' | 'high' | 'xhigh';
   model?: string;
+  /** Optional prefix for log filenames — used by fix-loop passes to avoid overwriting the initial impl log. */
+  logPrefix?: string;
 }): Promise<SubAgentResult> {
   ensureLogDir(opts.slug);
   const argv = buildCodexImplArgv(opts);
 
+  const logName = opts.logPrefix ?? 'codex-impl';
   const logPath = path.join(
     logDir(opts.slug),
-    `phase-${opts.phaseNumber}-codex-impl-${opts.iteration}.log`
+    `phase-${opts.phaseNumber}-${logName}-${opts.iteration}.log`
   );
 
   let result = await spawnCaptured({
@@ -690,7 +699,7 @@ export async function runCodexImpl(opts: {
   if (result.timedOut) {
     const retryLog = path.join(
       logDir(opts.slug),
-      `phase-${opts.phaseNumber}-codex-impl-${opts.iteration}-retry.log`
+      `phase-${opts.phaseNumber}-${logName}-${opts.iteration}-retry.log`
     );
     const retryResult = await spawnCaptured({
       bin: CODEX_BIN,
