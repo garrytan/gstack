@@ -55,29 +55,35 @@ Do not log obvious facts or one-time transient errors.
 After workflow completion, log telemetry. Use skill \`name:\` from frontmatter. OUTCOME is success/error/abort/unknown.
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
-\`~/.gstack/analytics/\`, matching preamble analytics writes.
+\`~/.gstack/analytics/\` (user config directory, not project files). The skill
+preamble already uses the same state area. If telemetry is on, skipping this
+command loses session duration and outcome data.
 
 Run this bash:
 
 \`\`\`bash
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
+if [ "$_TEL" != "off" ]; then
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
 ~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
-if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-fi
-# Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
-    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
-    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+  # Remote telemetry (opt-in, requires binary)
+  if [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
+    ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
+      --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
+      --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
+  fi
 fi
 \`\`\`
 
-Replace \`SKILL_NAME\`, \`OUTCOME\`, and \`USED_BROWSE\` before running.
+Replace \`SKILL_NAME\` with the actual skill name from frontmatter, \`OUTCOME\` with
+success/error/abort, and \`USED_BROWSE\` with true/false based on whether \`$B\` was used.
+If you cannot determine the outcome, use "unknown". Local analytics and session
+timeline entries only log if telemetry is not off. The remote binary only runs
+if telemetry is not off and the binary exists.
 
 ## Plan Status Footer
 
