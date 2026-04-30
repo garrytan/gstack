@@ -1,0 +1,152 @@
+---
+name: scrape
+version: 1.0.0
+description: |
+  Pull data from a web page. First call on a new intent prototypes the flow
+  via $B primitives and returns JSON. Subsequent calls on a matching intent
+  route to a codified browser-skill and return in ~200ms. Read-only — for
+  mutating flows (form fills, clicks, submissions), use /automate.
+  Use when asked to "scrape", "get data from", "pull", "extract from", or
+  "what's on" a page. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - AskUserQuestion
+triggers:
+  - scrape this page
+  - get data from
+  - pull from
+  - extract from
+  - what is on
+---
+
+{{PREAMBLE}}
+
+# /scrape — pull data from a page
+
+One entry point for getting data off the web. Two paths under the hood:
+
+1. **Match path** (~200ms) — if the user's intent matches an existing
+   browser-skill's triggers, run it via `$B skill run <name>` and emit
+   the JSON.
+2. **Prototype path** (~30s) — no matching skill yet, so drive the page
+   with `$B` primitives, return the JSON, and suggest `/skillify` so the
+   next call lands on the match path.
+
+Read-only by contract. If the intent implies writing (submitting forms,
+clicking buttons that mutate state), refuse and route to `/automate`.
+
+## Step 1 — Determine intent
+
+The user's request after `/scrape` is the intent. If they did not include
+one, ask once:
+
+> "What do you want to scrape? Describe it in one line, e.g. 'top stories
+> on Hacker News' or 'product names + prices on example.com/products'."
+
+Do not ask multiple clarifying questions up front. Any further questions
+go in the prototype path where they're cheaper.
+
+## Step 2 — Refuse mutating intents
+
+If the intent implies writes — verbs like *submit*, *post*, *send*, *log
+in*, *click X*, *fill the form*, *delete*, *create*, *order*, *book* —
+respond:
+
+> "/scrape is read-only. For mutating flows, use /automate (browser-skills
+> Phase 2 P0 in TODOS.md — not yet shipped). Until then, use $B click /
+> $B fill / $B type directly."
+
+Stop. Do not enter the match or prototype path.
+
+## Step 3 — Match phase
+
+List existing browser-skills:
+
+```bash
+$B skill list
+```
+
+For each skill, `$B skill show <name>` exposes the full SKILL.md including
+`triggers:`, `description:`, and `host:`. Read these and judge whether the
+user's intent semantically matches one of them.
+
+A confident match means **all three** are true:
+
+- The intent's domain matches the skill's `host` (or one of its hostnames)
+- A `triggers:` phrase or the `description:` covers the same data the
+  intent asks for
+- The intent does not require args the skill does not declare in `args:`
+
+If matched, parse any `--arg key=value` from the intent (or pass none for
+zero-arg skills) and run:
+
+```bash
+$B skill run <name> [--arg key=value ...]
+```
+
+Emit the JSON the skill prints to stdout. Stop.
+
+If matching is ambiguous (two skills could plausibly fit), pick the
+narrower-tier one (project > global > bundled — `$B skill list` shows the
+tier). If still ambiguous, fall through to the prototype path rather than
+guess wrong.
+
+## Step 4 — Prototype phase
+
+No match. Drive the page using `$B` primitives:
+
+1. `$B goto <url>` — navigate to the target. The user's intent usually
+   names a host or a URL; use it directly.
+2. `$B snapshot --text` (or `$B text`) — get a clean text view of the
+   page to find selectors.
+3. `$B html` — pull the raw HTML when you need to parse structured data
+   (lists, tables, repeated rows).
+4. `$B links` — when the intent is to gather URLs.
+5. Iterate: try a selector, check the output, refine.
+
+Emit the result as JSON on stdout (one document, not pretty-printed).
+Use a stable shape — typically `{ "items": [...], "count": N }` or
+similar — so downstream consumers can treat it as data.
+
+## Step 5 — Skillify nudge
+
+After a successful prototype, append exactly one line:
+
+> "Say /skillify to make this a permanent skill (200ms on next call)."
+
+That is the entire nudge. Do not nag, do not list pros, do not push.
+Proactive surfacing is a Phase 3 knob (`gstack-config browser_skillify_prompts`),
+not this skill's job.
+
+## When the prototype fails
+
+If the page loads but data extraction does not yield a sensible JSON shape
+after 3-4 selector attempts:
+
+- Report what you tried, what came back, and what's blocking (lazy-loaded,
+  JS-rendered, paywalled, etc.).
+- Do NOT write a partial result and call it done.
+- Do NOT suggest /skillify on a broken prototype.
+- Ask the user whether they want to (a) try a different selector, (b)
+  switch to a different page, or (c) stop.
+
+## What this skill does NOT do
+
+- Mutating actions (use /automate when shipped, or $B primitives directly)
+- Auth flows / cookie import (use /setup-browser-cookies first)
+- Multi-page crawls (this is one-shot per call)
+- Anything that requires the daemon to not be running
+
+## Output discipline
+
+The match path returns whatever JSON the matched skill emits. The
+prototype path returns whatever JSON you construct. In both cases:
+
+- One JSON document, on stdout.
+- Stderr (or chat) is for logs and the skillify nudge.
+- Do not embed prose around the JSON in the chat reply unless the user
+  asked for an explanation — many `/scrape` callers pipe the output to
+  `jq`.
+
+{{LEARNINGS_LOG}}

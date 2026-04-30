@@ -1682,3 +1682,83 @@ describe('no compiled binaries in git', () => {
 // claude PTY (terminal-agent.ts); these assertions had no target file.
 // Terminal-pane invariants are covered by browse/test/sidebar-tabs.test.ts
 // and browse/test/terminal-agent.test.ts.
+
+// ─── Browser-skills validation ──────────────────────────────────
+//
+// Browser-skills are bundled in <gstack-root>/browser-skills/<name>/. Each
+// must have a SKILL.md whose frontmatter satisfies the contract enforced by
+// browse/src/browser-skills.ts:parseSkillFile (host required, args + triggers
+// parseable as the right shape). This test catches malformed bundled skills
+// at CI time, before they ship.
+
+describe('Bundled browser-skills frontmatter contract', () => {
+  const browserSkillsRoot = path.join(ROOT, 'browser-skills');
+
+  function listBundledSkillDirs(): string[] {
+    if (!fs.existsSync(browserSkillsRoot)) return [];
+    return fs.readdirSync(browserSkillsRoot)
+      .filter(name => !name.startsWith('.'))
+      .map(name => path.join(browserSkillsRoot, name))
+      .filter(dir => {
+        try { return fs.statSync(dir).isDirectory(); } catch { return false; }
+      });
+  }
+
+  test('each bundled skill has a SKILL.md', () => {
+    for (const dir of listBundledSkillDirs()) {
+      const skillFile = path.join(dir, 'SKILL.md');
+      expect(fs.existsSync(skillFile)).toBe(true);
+    }
+  });
+
+  test('each bundled skill SKILL.md frontmatter parses with required fields', async () => {
+    const { parseSkillFile } = await import('../browse/src/browser-skills');
+    for (const dir of listBundledSkillDirs()) {
+      const name = path.basename(dir);
+      const content = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8');
+      // parseSkillFile throws on missing required fields; we just want to
+      // make sure none of our shipped skills tripwire it.
+      const { frontmatter } = parseSkillFile(content, { skillName: name });
+      expect(frontmatter.name).toBe(name);
+      expect(typeof frontmatter.host).toBe('string');
+      expect(frontmatter.host.length).toBeGreaterThan(0);
+      expect(Array.isArray(frontmatter.triggers)).toBe(true);
+      expect(Array.isArray(frontmatter.args)).toBe(true);
+    }
+  });
+
+  test('each bundled skill has a script.ts', () => {
+    for (const dir of listBundledSkillDirs()) {
+      expect(fs.existsSync(path.join(dir, 'script.ts'))).toBe(true);
+    }
+  });
+
+  test('each bundled skill ships a sibling SDK at _lib/browse-client.ts', () => {
+    for (const dir of listBundledSkillDirs()) {
+      expect(fs.existsSync(path.join(dir, '_lib', 'browse-client.ts'))).toBe(true);
+    }
+  });
+
+  test('each bundled skill has a script.test.ts', () => {
+    for (const dir of listBundledSkillDirs()) {
+      expect(fs.existsSync(path.join(dir, 'script.test.ts'))).toBe(true);
+    }
+  });
+
+  test("each bundled skill's _lib/browse-client.ts matches the canonical SDK", () => {
+    // If the canonical SDK changes, the bundled copy must be updated. This
+    // test enforces that — the _lib copy should be byte-identical.
+    const canonical = fs.readFileSync(path.join(ROOT, 'browse', 'src', 'browse-client.ts'), 'utf-8');
+    for (const dir of listBundledSkillDirs()) {
+      const sibling = fs.readFileSync(path.join(dir, '_lib', 'browse-client.ts'), 'utf-8');
+      expect(sibling).toBe(canonical);
+    }
+  });
+
+  test('script.ts imports browse from ./_lib/browse-client', () => {
+    for (const dir of listBundledSkillDirs()) {
+      const content = fs.readFileSync(path.join(dir, 'script.ts'), 'utf-8');
+      expect(content).toMatch(/from\s+['"]\.\/_lib\/browse-client['"]/);
+    }
+  });
+});

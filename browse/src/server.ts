@@ -64,6 +64,14 @@ const AUTH_TOKEN = crypto.randomUUID();
 initRegistry(AUTH_TOKEN);
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
+
+/**
+ * Port the local listener bound to. Set once the daemon picks a port.
+ * Used by `$B skill run` to point spawned skill scripts at the daemon over
+ * loopback. Module-level so handleCommandInternal can read it without threading
+ * the port through every dispatch.
+ */
+let LOCAL_LISTEN_PORT: number = 0;
 // Sidebar chat is always enabled in headed mode (ungated in v0.12.0)
 
 // ─── Tunnel State ───────────────────────────────────────────────
@@ -108,12 +116,30 @@ const TUNNEL_PATHS = new Set<string>([
  * extension-inspector state. This allowlist maps to the eng-review decision
  * logged in the CEO plan for sec-wave v1.6.0.0.
  */
-const TUNNEL_COMMANDS = new Set<string>([
+export const TUNNEL_COMMANDS = new Set<string>([
+  // Original 17
   'goto', 'click', 'text', 'screenshot',
   'html', 'links', 'forms', 'accessibility',
   'attrs', 'media', 'data',
   'scroll', 'press', 'type', 'select', 'wait', 'eval',
+  // Tab + navigation primitives operator docs and CLI hints already promised
+  'newtab', 'tabs', 'back', 'forward', 'reload',
+  // Read/inspect/write operators paired agents need to be useful
+  'snapshot', 'fill', 'url', 'closetab',
 ]);
+
+/**
+ * Pure gate: returns true iff the command is reachable over the tunnel surface.
+ * Extracted from the inline /command handler so the gate logic is unit-testable
+ * without standing up an HTTP listener. Behavior is identical to the inline
+ * check; the function canonicalizes the command (so aliases hit the same set)
+ * and returns false for null/undefined input.
+ */
+export function canDispatchOverTunnel(command: string | undefined | null): boolean {
+  if (typeof command !== 'string' || command.length === 0) return false;
+  const cmd = canonicalizeCommand(command);
+  return TUNNEL_COMMANDS.has(cmd);
+}
 
 /**
  * Read ngrok authtoken from env var, ~/.gstack/ngrok.env, or ngrok's native
@@ -608,11 +634,17 @@ async function handleCommandInternal(
     }
   }
 
-  // ─── Tab ownership check (for scoped tokens) ──────────────
-  // Skip for newtab — it creates a new tab, doesn't access an existing one.
-  if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && (WRITE_COMMANDS.has(command) || tokenInfo.tabPolicy === 'own-only')) {
+  // ─── Tab ownership check (own-only tokens / pair-agent isolation) ──
+  //
+  // Only `own-only` tokens (pair-agent over tunnel) are bound to their own
+  // tabs. `shared` tokens — the default for skill spawns and local scoped
+  // clients — can drive any tab; the capability gate (scope checks above)
+  // and rate limits already constrain what they can do.
+  //
+  // Skip for `newtab` — it creates a tab rather than accessing one.
+  if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && tokenInfo.tabPolicy === 'own-only') {
     const targetTab = tabId ?? browserManager.getActiveTabId();
-    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: tokenInfo.tabPolicy === 'own-only' })) {
+    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: true })) {
       return {
         status: 403, json: true,
         result: JSON.stringify({
@@ -710,6 +742,7 @@ async function handleCommandInternal(
       const chainDepth = (opts?.chainDepth ?? 0);
       result = await handleMetaCommand(command, args, browserManager, shutdown, tokenInfo, {
         chainDepth,
+        daemonPort: LOCAL_LISTEN_PORT,
         executeCommand: (body, ti) => handleCommandInternal(body, ti, {
           skipRateCheck: true,    // chain counts as 1 request
           skipActivity: true,     // chain emits 1 event for all subcommands
@@ -985,6 +1018,7 @@ async function start() {
   safeUnlink(DIALOG_LOG_PATH);
 
   const port = await findPort();
+  LOCAL_LISTEN_PORT = port;
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
@@ -1772,8 +1806,7 @@ async function start() {
         // Paired remote agents drive the browser but cannot configure the
         // daemon, launch new browsers, import cookies, or rotate tokens.
         if (surface === 'tunnel') {
-          const cmd = canonicalizeCommand(body?.command);
-          if (!cmd || !TUNNEL_COMMANDS.has(cmd)) {
+          if (!canDispatchOverTunnel(body?.command)) {
             logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
             return new Response(JSON.stringify({
               error: `Command '${body?.command}' is not allowed over the tunnel surface`,
@@ -2059,6 +2092,29 @@ async function start() {
         try { if (boundTunnel) boundTunnel.stop(true); } catch {}
         tunnelListener = null;
       }
+    }
+  } else if (process.env.BROWSE_TUNNEL_LOCAL_ONLY === '1') {
+    // Test-only: bind the dual-listener tunnel surface on 127.0.0.1 with NO
+    // ngrok forwarding. Lets paid evals exercise the surface==='tunnel' gate
+    // without an ngrok authtoken or live network. Production tunneling still
+    // requires BROWSE_TUNNEL=1 + a valid authtoken above.
+    try {
+      const boundTunnel = Bun.serve({
+        port: 0,
+        hostname: '127.0.0.1',
+        fetch: makeFetchHandler('tunnel'),
+      });
+      tunnelServer = boundTunnel;
+      tunnelActive = true;
+      const tunnelPort = boundTunnel.port;
+      console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
+      const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
+      stateContent.tunnelLocalPort = tunnelPort;
+      const tmpState = config.stateFile + '.tmp';
+      fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+      fs.renameSync(tmpState, config.stateFile);
+    } catch (err: any) {
+      console.error(`[browse] BROWSE_TUNNEL_LOCAL_ONLY=1 listener bind failed: ${err.message}`);
     }
   }
 }

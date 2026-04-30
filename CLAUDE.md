@@ -258,7 +258,7 @@ through `POST /pty-session` only.
 **Transport-layer security** (v1.6.0.0+). When `pair-agent` starts an ngrok tunnel,
 the daemon binds two HTTP listeners: a local listener (127.0.0.1, full command
 surface, never forwarded) and a tunnel listener (locked allowlist: `/connect`,
-`/command` with a scoped token + 17-command browser-driving allowlist,
+`/command` with a scoped token + 26-command browser-driving allowlist,
 `/sidebar-chat`). ngrok forwards only the tunnel port. Root tokens over the tunnel
 return 403. SSE endpoints use a 30-minute HttpOnly `gstack_sse` cookie minted via
 `POST /sse-session` (never valid against `/command`). Tunnel-surface rejections go
@@ -488,6 +488,31 @@ MINOR again on top (e.g., main at v1.14.0.0, your branch lands v1.15.0.0).
 **VERSION and CHANGELOG are branch-scoped.** Every feature branch that ships gets its
 own version bump and CHANGELOG entry. The entry describes what THIS branch adds —
 not what was already on main.
+
+**The CHANGELOG entry is the diff between main and the shipping branch — what users
+get when they upgrade. NOT how the branch got there.** A reader landing on the entry
+should learn what they can do now that they couldn't before; they should not learn
+about the branch's internal version bumps, the bugs we caught and fixed mid-branch,
+the plan reviews we ran, or the commits we squashed. That is branch development
+narrative. It belongs in PR descriptions and commit messages, not CHANGELOG.
+
+**Never reference branch-internal versions in a CHANGELOG entry.** If your branch
+bumped VERSION from v1.5.0.0 → v1.5.1.0 → v1.6.0.0 during development and only the
+final v1.6.0.0 ships to main, the entry must read as if v1.5.1.0 never existed.
+Concretely, NEVER write:
+- "v1.5.1.0 had a bug that v1.6.0.0 fixes" — readers don't know about v1.5.1.0; it's
+  a branch-internal artifact.
+- "The shipping headline of v1.5.1.0 was broken because..." — same reason. From main's
+  perspective, v1.5.1.0 was never released.
+- "Pre-fix tests encoded the broken behavior" — that's a contributor's victory lap,
+  not a user benefit.
+- "Two surgical edits, both in the dispatch path" — micro-narrative of the patch.
+
+Instead, describe the released system: "Browser-skills run end-to-end with the
+expected tab-access semantics." If a property of the shipped system is worth calling
+out (e.g., "skill spawns get permissive tab access; pair-agent tunnel tokens require
+ownership"), document it as a property, not as a fix. The shipped system is what
+the user gets; the path to that system is invisible to them.
 
 **When to write the CHANGELOG entry:**
 - At `/ship` time (Step 13), not during development or mid-branch.

@@ -120,6 +120,16 @@ rm -f "$GSTACK_HOME/.brain-last-pull" 2>/dev/null || true
 rm -f "$GSTACK_HOME/.brain-skip.txt" 2>/dev/null || true
 rm -f "$GSTACK_HOME/.brain-sync-status.json" 2>/dev/null || true
 rm -rf "$GSTACK_HOME/.brain-sync.lock.d" 2>/dev/null || true
+
+# ---- unregister gbrain federated source + remove worktree (best-effort) ----
+# The wireup helper handles: gbrain sources remove, git worktree remove,
+# launchd plist (future). All best-effort; uninstall continues on failure.
+WIREUP_BIN="$SCRIPT_DIR/gstack-gbrain-source-wireup"
+if [ -x "$WIREUP_BIN" ]; then
+  "$WIREUP_BIN" --uninstall 2>/dev/null || true
+fi
+
+# ---- legacy consumers.json (no longer written by gstack-brain-init since v1.17.0.0) ----
 rm -f "$GSTACK_HOME/consumers.json" 2>/dev/null || true
 
 # ---- clear config keys ----
