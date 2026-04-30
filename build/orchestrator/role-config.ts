@@ -1,3 +1,5 @@
+import { BUILD_DEFAULTS } from './build-config';
+
 export type RoleProvider = 'claude' | 'codex' | 'gemini';
 export type RoleReasoning = 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -37,63 +39,7 @@ export const ROLE_DEFINITIONS = [
 export type RoleKey = (typeof ROLE_DEFINITIONS)[number][0];
 export type RoleField = 'provider' | 'model' | 'reasoning' | 'command';
 
-export const DEFAULT_ROLE_CONFIGS: RoleConfigs = {
-  testWriter: {
-    provider: 'claude',
-    model: 'claude-opus-4-7',
-    reasoning: 'xhigh',
-  },
-  primaryImpl: {
-    provider: 'gemini',
-    model: 'gemini-3.1-pro',
-    reasoning: 'high',
-  },
-  testFixer: {
-    provider: 'codex',
-    model: 'gpt-5.5',
-    reasoning: 'high',
-  },
-  secondaryImpl: {
-    provider: 'codex',
-    model: 'gpt-5.3-codex',
-    reasoning: 'high',
-  },
-  review: {
-    provider: 'claude',
-    model: 'claude-opus-4-7',
-    reasoning: 'xhigh',
-    command: '/review',
-  },
-  reviewSecondary: {
-    provider: 'claude',
-    model: 'claude-opus-4-7',
-    reasoning: 'xhigh',
-    command: '/codex review',
-  },
-  qa: {
-    provider: 'codex',
-    model: 'gpt-5.5',
-    reasoning: 'high',
-    command: '/gstack-qa',
-  },
-  ship: {
-    provider: 'codex',
-    model: 'gpt-5.5',
-    reasoning: 'high',
-    command: '/gstack-ship',
-  },
-  land: {
-    provider: 'codex',
-    model: 'gpt-5.5',
-    reasoning: 'high',
-    command: '/gstack-land-and-deploy',
-  },
-  judge: {
-    provider: 'claude',
-    model: 'claude-opus-4-7',
-    reasoning: 'xhigh',
-  },
-};
+export const DEFAULT_ROLE_CONFIGS: RoleConfigs = BUILD_DEFAULTS.roles;
 
 export function cloneRoleConfigs(base: RoleConfigs = DEFAULT_ROLE_CONFIGS): RoleConfigs {
   return JSON.parse(JSON.stringify(base)) as RoleConfigs;

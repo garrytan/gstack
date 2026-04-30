@@ -91,7 +91,7 @@ For short plans, `/build` acts as the orchestrator itself:
 3. Create `.llm-tmp/` for file-path I/O with sub-agents.
 4. Ask Claude Opus 4.7 xhigh to write failing tests.
 5. Verify the tests are red.
-6. Ask Gemini 3.1 Pro to implement.
+6. Ask Gemini 3.1 Pro Preview to implement.
 7. Re-run tests and use Codex GPT-5.5 high fix passes until green.
 8. Ask Claude Opus 4.7 xhigh to run `/review`, then `/codex review`.
 9. Run Codex GPT-5.5 high QA and repeat until all gates emit `GATE PASS`.
@@ -234,7 +234,7 @@ is still running.
 ## Sub-Agent Roles
 
 - Claude Opus 4.7 xhigh writes failing tests.
-- Gemini 3.1 Pro is the primary implementor.
+- Gemini 3.1 Pro Preview is the primary implementor.
 - Codex GPT-5.5 high fixes test failures.
 - Claude Opus 4.7 xhigh runs `/review` and `/codex review`.
 - Codex GPT-5.3-Codex high acts as the second implementor in `--dual-impl`.
@@ -314,12 +314,18 @@ the root cause, re-run the same `gstack-build` command to resume.
 
 ## Environment Variables
 
+Default role routing, retry caps, and timeouts live in
+`build/orchestrator/build.defaults.json`. Edit that file when the built-in
+defaults change; use the env vars below for per-run overrides. Set
+`GSTACK_BUILD_DEFAULTS_FILE` to point at a different defaults JSON file.
+
 | Variable | Purpose |
 | --- | --- |
 | `GEMINI_BIN` | Gemini CLI path. |
 | `CODEX_BIN` | Codex CLI path. |
 | `CLAUDE_BIN` | Claude CLI path. |
 | `GBRAIN_BIN` | Optional gbrain CLI path. |
+| `GSTACK_BUILD_DEFAULTS_FILE` | Alternate defaults JSON file. |
 | `GSTACK_BUILD_<ROLE>_PROVIDER` | Role provider override where supported. |
 | `GSTACK_BUILD_<ROLE>_MODEL` | Role model override. |
 | `GSTACK_BUILD_<ROLE>_REASONING` | Role reasoning override. |

@@ -95,7 +95,7 @@ When a phase has a `**Test Specification` checkbox, the orchestrator runs a 7-st
 ```
 1. Test Specification  — Claude Opus 4.7 xhigh writes failing tests (Red)
 2. Verify Red          — run tests; if they pass, test-writer rewrites stricter tests (cap: GSTACK_BUILD_RED_MAX_ITER)
-3. Implementation      — Gemini 3.1 Pro implements until tests pass
+3. Implementation      — Gemini 3.1 Pro Preview implements until tests pass
 4. Test+Fix Loop       — run tests; if failing, Codex GPT-5.5 high fixes; repeat (cap: GSTACK_BUILD_TEST_MAX_ITER)
 5. Review + QA         — Claude `/review`, Claude `/codex review`, then Codex `/gstack-qa`; all require GATE PASS
 6. Update Plan         — flip all 3 checkboxes [x]
@@ -227,14 +227,20 @@ Manual recovery: `git worktree list` to find leftover worktrees, then `git workt
 
 ## Environment variables
 
+The built-in defaults are data-driven from `build/orchestrator/build.defaults.json`.
+Edit that file to update default role routing, retry caps, or timeout values.
+Use `GSTACK_BUILD_DEFAULTS_FILE` to run with an alternate defaults JSON file
+without editing the repo copy.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_BIN` | `gemini` | Path to Gemini CLI. |
 | `CODEX_BIN` | `codex` | Path to Codex CLI. |
 | `CLAUDE_BIN` | `claude` | Path to Claude Code. |
 | `GBRAIN_BIN` | `gbrain` | Path to gbrain CLI (optional). |
+| `GSTACK_BUILD_DEFAULTS_FILE` | `build/orchestrator/build.defaults.json` | Alternate defaults JSON file. |
 | `GSTACK_BUILD_TEST_WRITER_MODEL` | `claude-opus-4-7` | Failing-test writer model. |
-| `GSTACK_BUILD_PRIMARY_IMPL_MODEL` | `gemini-3.1-pro` | Primary implementation model. |
+| `GSTACK_BUILD_PRIMARY_IMPL_MODEL` | `gemini-3.1-pro-preview` | Primary implementation model. |
 | `GSTACK_BUILD_TEST_FIXER_MODEL` | `gpt-5.5` | Test-fixer model. |
 | `GSTACK_BUILD_SECONDARY_IMPL_MODEL` | `gpt-5.3-codex` | Dual-impl secondary model. |
 | `GSTACK_BUILD_REVIEW_MODEL` | `claude-opus-4-7` | Primary review model. |

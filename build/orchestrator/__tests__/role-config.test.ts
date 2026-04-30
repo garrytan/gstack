@@ -5,8 +5,24 @@ import {
   cloneRoleConfigs,
   migrateLegacyModels,
 } from '../role-config';
+import {
+  BUILD_DEFAULTS,
+  DEFAULT_BUILD_CONFIG_FILE,
+  loadBuildDefaults,
+} from '../build-config';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 describe('role config defaults', () => {
+  it('loads defaults from the tracked build defaults file', () => {
+    const loaded = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+    expect(loaded.roles.primaryImpl.model).toBe('gemini-3.1-pro-preview');
+    expect(loaded.limits.codexMaxIterations).toBe(5);
+    expect(loaded.timeoutsMs.gemini).toBe(600000);
+    expect(BUILD_DEFAULTS.roles.primaryImpl.model).toBe(loaded.roles.primaryImpl.model);
+  });
+
   it('matches the default build routing', () => {
     expect(DEFAULT_ROLE_CONFIGS.testWriter).toEqual({
       provider: 'claude',
@@ -15,7 +31,7 @@ describe('role config defaults', () => {
     });
     expect(DEFAULT_ROLE_CONFIGS.primaryImpl).toEqual({
       provider: 'gemini',
-      model: 'gemini-3.1-pro',
+      model: 'gemini-3.1-pro-preview',
       reasoning: 'high',
     });
     expect(DEFAULT_ROLE_CONFIGS.testFixer).toEqual({
@@ -35,6 +51,37 @@ describe('role config defaults', () => {
 });
 
 describe('role config precedence helpers', () => {
+  it('can load an alternate defaults file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-build-defaults-'));
+    try {
+      const file = path.join(dir, 'build.defaults.json');
+      const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+      defaults.roles.primaryImpl.model = 'gemini-custom-preview';
+      defaults.limits.codexMaxIterations = 7;
+      fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
+
+      const loaded = loadBuildDefaults(file);
+      expect(loaded.roles.primaryImpl.model).toBe('gemini-custom-preview');
+      expect(loaded.limits.codexMaxIterations).toBe(7);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid defaults files', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-build-defaults-'));
+    try {
+      const file = path.join(dir, 'bad.defaults.json');
+      const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+      (defaults.roles.primaryImpl as any).provider = 'bad-provider';
+      fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
+
+      expect(() => loadBuildDefaults(file)).toThrow('roles.primaryImpl.provider');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('applies env overrides over defaults', () => {
     const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
       GSTACK_BUILD_SHIP_MODEL: 'gpt-5.4',

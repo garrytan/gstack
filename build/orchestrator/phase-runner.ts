@@ -19,17 +19,18 @@
 import type { PhaseState, Phase, DualImplTestResult } from './types';
 import type { SubAgentResult, Verdict } from './sub-agents';
 import { parseVerdict } from './sub-agents';
+import { BUILD_DEFAULTS, envNumberOrDefault } from './build-config';
 
 /** Maximum recursive Codex review iterations before giving up. */
 export const DEFAULT_MAX_CODEX_ITERATIONS =
-  Number(process.env.GSTACK_BUILD_CODEX_MAX_ITER) || 5;
+  envNumberOrDefault('GSTACK_BUILD_CODEX_MAX_ITER', BUILD_DEFAULTS.limits.codexMaxIterations);
 
 /** Maximum times Gemini may re-write tests when VERIFY_RED shows tests pass trivially. */
 export const DEFAULT_MAX_RED_SPEC_ITERATIONS =
-  Number(process.env.GSTACK_BUILD_RED_MAX_ITER) || 3;
+  envNumberOrDefault('GSTACK_BUILD_RED_MAX_ITER', BUILD_DEFAULTS.limits.redSpecMaxIterations);
 
 export const DEFAULT_MAX_TEST_ITERATIONS =
-  Number(process.env.GSTACK_BUILD_TEST_MAX_ITER) || 5;
+  envNumberOrDefault('GSTACK_BUILD_TEST_MAX_ITER', BUILD_DEFAULTS.limits.testMaxIterations);
 
 export type Action =
   | { type: 'RUN_GEMINI'; phaseIndex: number; iteration: number }

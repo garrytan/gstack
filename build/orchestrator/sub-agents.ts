@@ -24,6 +24,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { logDir, ensureLogDir } from './state';
 import type { RoleReasoning } from './role-config';
+import { BUILD_DEFAULTS, envNumberOrDefault } from './build-config';
 
 const MAX_BUFFER = 20 * 1024 * 1024;
 
@@ -31,9 +32,9 @@ const GEMINI_BIN = process.env.GEMINI_BIN || 'gemini';
 const CODEX_BIN = process.env.CODEX_BIN || 'codex';
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 
-const GEMINI_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_GEMINI_TIMEOUT) || 10 * 60_000;
-const CODEX_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_CODEX_TIMEOUT) || 15 * 60_000;
-const SHIP_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_SHIP_TIMEOUT) || 30 * 60_000;
+const GEMINI_TIMEOUT_MS = envNumberOrDefault('GSTACK_BUILD_GEMINI_TIMEOUT', BUILD_DEFAULTS.timeoutsMs.gemini);
+const CODEX_TIMEOUT_MS = envNumberOrDefault('GSTACK_BUILD_CODEX_TIMEOUT', BUILD_DEFAULTS.timeoutsMs.codex);
+const SHIP_TIMEOUT_MS = envNumberOrDefault('GSTACK_BUILD_SHIP_TIMEOUT', BUILD_DEFAULTS.timeoutsMs.ship);
 
 export type Verdict = 'pass' | 'fail' | 'unclear';
 
@@ -666,7 +667,7 @@ export async function runTests(opts: {
     bin,
     argv,
     cwd: opts.cwd,
-    timeoutMs: Number(process.env.GSTACK_BUILD_TEST_TIMEOUT) || 5 * 60_000,
+    timeoutMs: envNumberOrDefault('GSTACK_BUILD_TEST_TIMEOUT', BUILD_DEFAULTS.timeoutsMs.test),
     logPath,
     closeStdin: true,
   });
@@ -867,7 +868,7 @@ export async function runCodexImpl(opts: {
   return mergeOutputFile(result, opts.outputFilePath);
 }
 
-const JUDGE_TIMEOUT_MS = Number(process.env.GSTACK_BUILD_JUDGE_TIMEOUT) || 10 * 60_000;
+const JUDGE_TIMEOUT_MS = envNumberOrDefault('GSTACK_BUILD_JUDGE_TIMEOUT', BUILD_DEFAULTS.timeoutsMs.judge);
 
 /**
  * Run Claude Opus as the tournament judge. Caller writes the full judge prompt
@@ -899,7 +900,7 @@ export async function runJudgeOpus(opts: {
     `Return ONLY the output file path. No narrative.`,
   ].join(' ');
 
-  const argv = ['--model', opts.model || process.env.GSTACK_BUILD_JUDGE_MODEL || 'claude-opus-4-7', '-p', shellPrompt];
+  const argv = ['--model', opts.model || process.env.GSTACK_BUILD_JUDGE_MODEL || BUILD_DEFAULTS.roles.judge.model, '-p', shellPrompt];
 
   const logPath = path.join(
     logDir(opts.slug),

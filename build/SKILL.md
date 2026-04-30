@@ -768,7 +768,7 @@ When more than one candidate is found across priorities, prefer the most recent 
 
      ### Phase X: [Phase Name]
      - [ ] **Test Specification (test-writer role)**: Write failing tests covering the behavior described below. Tests MUST fail before implementation begins. Cover happy path + key edge cases using the project's existing test framework. Do NOT write any implementation code yet. Default: Claude Opus 4.7 xhigh.
-     - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct code. Do NOT change test assertions. Default: Gemini 3.1 Pro with high thinking.
+     - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct code. Do NOT change test assertions. Default: Gemini 3.1 Pro Preview with high thinking.
      - [ ] **Review & QA (review roles)**: Run primary `/review`, secondary `/codex review`, and `/gstack-qa`; all gates must pass. Defaults: Claude Opus 4.7 xhigh for both review gates, Codex GPT-5.5 high for QA.
      ```
    - A dedicated test plan strategy for verifying the behavior.
@@ -821,7 +821,7 @@ rm -rf .llm-tmp     # once after all phases complete (or on each phase cleanup)
    gstack-build <plan.md> --dual-impl [--primary-impl-model M] [--secondary-impl-model M]
    ```
 
-   Defaults: test-writer Claude Opus 4.7 xhigh; primary implementor Gemini 3.1 Pro high; test-fixer Codex GPT-5.5 high; secondary implementor Codex GPT-5.3-Codex high; review and secondary review Claude Opus 4.7 xhigh; QA, ship, and land Codex GPT-5.5 high. Deprecated aliases still work: `--gemini-model`, `--codex-model`, and `--codex-review-model`.
+   Defaults: test-writer Claude Opus 4.7 xhigh; primary implementor Gemini 3.1 Pro Preview high; test-fixer Codex GPT-5.5 high; secondary implementor Codex GPT-5.3-Codex high; review and secondary review Claude Opus 4.7 xhigh; QA, ship, and land Codex GPT-5.5 high. Deprecated aliases still work: `--gemini-model`, `--codex-model`, and `--codex-review-model`.
 
    Your role after invocation: use the **CLI Monitoring Loop** (see below) — confirm with the user, launch in the background, and poll for progress and faults. Do NOT run `gstack-build --dual-impl` as a blocking Bash call; that prevents fault recovery during a potentially multi-hour run. The full dual-impl workflow and recovery guide are in `build/orchestrator/README.md`.
 
@@ -1044,7 +1044,7 @@ If none of the above conditions fired, schedule the next wakeup at 60 seconds an
 
 ---
 
-3. **Spawn Primary Implementation Sub-Agent (file-path I/O)**: By default this is Gemini 3.1 Pro with high thinking. You MUST spawn the execution sub-agent using the configured primary-impl role. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
+3. **Spawn Primary Implementation Sub-Agent (file-path I/O)**: Use the configured primary-impl role from `build/orchestrator/build.defaults.json` plus any CLI/env overrides. The repo default is Gemini 3.1 Pro Preview with high thinking. You MUST spawn the execution sub-agent using the configured primary-impl role. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
    - **Write the input prompt to a file first.** Use the `Write` tool to put the full instruction body — goal, phase checklist, code references, constraints, success criteria — into `.llm-tmp/build-<phase-N>-gemini-input-<iter>.md`. The MCP prompt body itself stays short: it just says "Read `<input-path>`. Do the work. Write your output summary to `<output-path>`." Do NOT inline the phase context in the MCP call.
    - **Reference existing code by file path, not by inlined content.** Tell Gemini: "Read the existing code at `path/to/file.ts` if you need it." With `--yolo` mode, Gemini's file-read tools work reliably. Inlining hundreds of lines of code wastes tokens and the model often returns truncated.
    - **The input file** must include: the exact goal, phase checklist from the living plan, instructions to build and verify, instructions to make GitHub Actions checks green, instruction to commit to the current branch, instruction to fail forward and only return when the code is written, and "Do NOT use raw `git` commands or `gh` CLI to ship. Do NOT skip steps or hallucinate your own review process. Do NOT instruct Gemini to run /review or /ship."
@@ -1166,4 +1166,4 @@ After ALL features are complete:
 - **Bias for action**: Write the code. Do not write meta-commentary.
 - **Strict adherence**: Stick to the plan. Do not expand scope unless strictly necessary to make the code compile. Do NOT hallucinate elaborate alternative processes if a file or command is missing—always STOP and report the error to the user.
 - **Fail forward**: If tests fail, try to fix them. Only escalate to the user if you are stuck after multiple attempts.
-- **Model Routing Discipline**: Use the role config, not hardcoded model assumptions. Defaults are: test-writer Claude Opus 4.7 xhigh; primary-impl Gemini 3.1 Pro high; test-fixer Codex GPT-5.5 high; secondary-impl Codex GPT-5.3-Codex high; review and review-secondary Claude Opus 4.7 xhigh; QA, ship, and land Codex GPT-5.5 high; judge Claude Opus 4.7 xhigh.
+- **Model Routing Discipline**: Use the role config from `build/orchestrator/build.defaults.json` plus CLI/env overrides, not hardcoded model assumptions. Defaults are data, not prose; check the config file before naming a model or provider.

@@ -16,7 +16,7 @@
  *   --no-gbrain     Skip gbrain mirror; local JSON only.
  *   --skip-ship     Skip per-feature /ship + /land-and-deploy steps.
  *   --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
- *   --max-codex-iter N   Override GSTACK_BUILD_CODEX_MAX_ITER (default 5).
+ *   --max-codex-iter N   Override GSTACK_BUILD_CODEX_MAX_ITER.
  *   -h, --help      This help.
  *
  * Exit codes:
@@ -82,8 +82,9 @@ import {
   type RoleField,
   type RoleKey,
 } from "./role-config";
+import { BUILD_DEFAULTS } from "./build-config";
 
-const DEFAULT_MAX_ORIGIN_VERIFICATION_ITERATIONS = 3;
+const DEFAULT_MAX_ORIGIN_VERIFICATION_ITERATIONS = BUILD_DEFAULTS.limits.originVerificationMaxIterations;
 
 export interface Args {
   planFile: string;
@@ -410,15 +411,15 @@ Flags:
   --dual-impl          Tournament mode: Gemini and Codex implement in parallel
                        (isolated git worktrees), Opus judges and the winner
                        is cherry-picked back. Existing TDD pipeline runs after.
-  --test-writer-model <m>          Default: claude-opus-4-7.
-  --primary-impl-model <m>         Default: gemini-3.1-pro.
-  --test-fixer-model <m>           Default: gpt-5.5.
-  --secondary-impl-model <m>       Default: gpt-5.3-codex.
-  --review-model <m>               Default: claude-opus-4-7.
-  --review-secondary-model <m>     Default: claude-opus-4-7.
-  --qa-model <m>                   Default: gpt-5.5.
-  --ship-model <m>                 Default: gpt-5.5.
-  --land-model <m>                 Default: gpt-5.5.
+  --test-writer-model <m>          Default: ${DEFAULT_ROLE_CONFIGS.testWriter.model}.
+  --primary-impl-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.primaryImpl.model}.
+  --test-fixer-model <m>           Default: ${DEFAULT_ROLE_CONFIGS.testFixer.model}.
+  --secondary-impl-model <m>       Default: ${DEFAULT_ROLE_CONFIGS.secondaryImpl.model}.
+  --review-model <m>               Default: ${DEFAULT_ROLE_CONFIGS.review.model}.
+  --review-secondary-model <m>     Default: ${DEFAULT_ROLE_CONFIGS.reviewSecondary.model}.
+  --qa-model <m>                   Default: ${DEFAULT_ROLE_CONFIGS.qa.model}.
+  --ship-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.ship.model}.
+  --land-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.land.model}.
   --<role>-provider <p>            claude|codex|gemini. Some workflows require fixed providers.
   --<role>-reasoning <r>           low|medium|high|xhigh.
   --<role>-command <cmd>           For review, review-secondary, qa, ship, land.
@@ -428,7 +429,7 @@ Flags:
   --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
   --project-root <dir> Run sub-agents/tests from this repo root. Required when a living plan is stored in an ambiguous *-gstack repo.
   --origin-plan <file> Original source plan. Verified after each feature and archived after final completion.
-  --max-codex-iter N   Cap recursive Codex iterations (default 5).
+  --max-codex-iter N   Cap recursive Codex iterations (default ${DEFAULT_MAX_CODEX_ITERATIONS}).
   -h, --help           Show this help.
 
 Plan file format: standard /build implementation plan with feature sections:

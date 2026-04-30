@@ -1,0 +1,72 @@
+{
+  "roles": {
+    "testWriter": {
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
+    },
+    "primaryImpl": {
+      "provider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "reasoning": "high"
+    },
+    "testFixer": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high"
+    },
+    "secondaryImpl": {
+      "provider": "codex",
+      "model": "gpt-5.3-codex",
+      "reasoning": "high"
+    },
+    "review": {
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh",
+      "command": "/review"
+    },
+    "reviewSecondary": {
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh",
+      "command": "/codex review"
+    },
+    "qa": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high",
+      "command": "/gstack-qa"
+    },
+    "ship": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high",
+      "command": "/gstack-ship"
+    },
+    "land": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high",
+      "command": "/gstack-land-and-deploy"
+    },
+    "judge": {
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
+    }
+  },
+  "limits": {
+    "codexMaxIterations": 5,
+    "redSpecMaxIterations": 3,
+    "testMaxIterations": 5,
+    "originVerificationMaxIterations": 3
+  },
+  "timeoutsMs": {
+    "gemini": 600000,
+    "codex": 900000,
+    "ship": 1800000,
+    "test": 300000,
+    "judge": 600000
+  }
+}
