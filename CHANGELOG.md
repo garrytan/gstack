@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.21.0.0] - 2026-04-29
+
+## **Existing products now get their own strategy loop.**
+## **You can iterate from signal, not founder taste alone.**
+
+If you already have users, `/office-hours` is no longer the only thoughtful starting point. gstack now ships `/product-iteration`, a new skill built for the moment after reality has spoken: users are doing something interesting, support keeps hearing the same complaint, activation is soft, or the product is being bent into a workflow you did not plan for. Instead of brainstorming from vibes, it starts from observed behavior, separates facts from interpretation, forces a normalized decision metric, classifies the problem into one primary iteration mode, and ends with 3 distinct directions plus a concrete 7-day test.
+
+This fills a real gap in the stack. `/office-hours` is still the greenfield move. `/plan-ceo-review` is still the ambition check. `/product-iteration` now sits between them for existing products that need evidence-driven next moves. The routing docs, install docs, and generated skill catalog all point to it, so the workflow is discoverable instead of living as tribal knowledge.
+
+### The numbers that matter
+
+Source: `product-iteration/SKILL.md.tmpl`, `README.md`, `docs/skills.md`, and `SKILL.md.tmpl` in this branch. Reproduce with repo-local inspection and `rg product-iteration README.md docs/skills.md SKILL.md.tmpl`.
+
+| Surface | Before | After | Δ |
+|---|---:|---:|---:|
+| Existing-product iteration skills in gstack | 0 | 1 | +1 |
+| Explicit iteration modes in the workflow | 0 | 5 | +5 |
+| Forcing questions aimed at real product signal | 0 | 6 | +6 |
+| Required strategic options per run | 0 | 3 | +3 |
+| Default experiment horizon in the output | 0 days | 7 days | +7 days |
+
+The big shift is not the file count. It is that gstack now has a first-class answer for "what should we build next?" when the right answer depends on evidence, not taste. That makes the product loop tighter for teams that already shipped and now need judgment, not just ideation.
+
+For founders and product builders, use `/product-iteration` the first time you have real behavior, real complaints, or real pull. It should sharpen scope before you widen it, and it should stop a lot of premature platform thinking. Try it when you catch yourself saying "users keep doing this weird thing" or "we have feedback, but I don't know what it means yet."
+
+### Itemized changes
+
+#### Added
+
+- `/product-iteration`, a new existing-product strategy skill focused on real usage, feedback, retention, activation, workflow expansion, monetization, and wedge decisions.
+- A structured iteration brief that separates observed facts, interpretations, open questions, and evidence quality before making recommendations.
+- A decision frame that requires a normalized metric, denominator, baseline, meaningful lift target, three distinct options, and a recommended 7-day test.
+
+#### Changed
+
+- Root skill routing now sends existing-product "what should we build next?" asks to `/product-iteration` instead of overloading `/office-hours` or `/plan-ceo-review`.
+- `README.md`, `docs/skills.md`, `AGENTS.md`, and `CLAUDE.md` now document where `/product-iteration` fits in the gstack workflow.
+- Generated skill docs now include `/product-iteration` across supported hosts.
+
+#### For contributors
+
+- `product-iteration/SKILL.md.tmpl` is the source of truth. Regenerate with `bun run gen:skill-docs` or `bun run build` after edits.
+- Contributed by @tongchen92.
+
 ## [1.20.0.0] - 2026-04-28
 
 ## **Browser-skills land. `/scrape <intent>` first call drives the page; second call runs the codified script in 200ms.**

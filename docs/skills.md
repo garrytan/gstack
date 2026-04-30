@@ -5,6 +5,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
 | [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
+| [`/product-iteration`](#product-iteration) | **Existing-Product PM** | Turn real usage, feedback, and surprise behavior into a sharp next move. Finds the strongest pull, generates 3 ambitious directions, and recommends a 7-day test. |
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
@@ -96,6 +97,60 @@ Recommends A because you learn from real usage. CRM data comes naturally in week
 Both modes end with a design doc written to `~/.gstack/projects/` — and that doc feeds directly into `/plan-ceo-review` and `/plan-eng-review`. The full lifecycle is now: `office-hours → plan → implement → review → QA → ship → retro`.
 
 After the design doc is approved, `/office-hours` reflects on what it noticed about how you think — not generic praise, but specific callbacks to things you said during the session. The observations appear in the design doc too, so you re-encounter them when you re-read later.
+
+---
+
+## `/product-iteration`
+
+This is the skill for **what to build next after reality has spoken**.
+
+`/office-hours` is for before the product exists. `/product-iteration` is for after users have done something interesting, annoying, or revealing enough that your next move should be anchored in evidence, not taste alone.
+
+### What it does
+
+It starts from actual product signal:
+
+- user behavior
+- retention or activation patterns
+- support complaints
+- surprise workflows
+- repeated feature requests
+- manual workarounds
+
+Then it forces the core product questions:
+
+- Where is the pull most concentrated?
+- What are users still doing outside the product?
+- What surprised you in real usage?
+- What pain shows up when the product fails or disappears?
+- Which repeated request is actually a deeper job?
+- If you believe the strongest signal, what bigger product becomes obvious?
+
+### Why this matters
+
+Most iteration advice is too mushy. It averages across users too early, overweights what people say instead of what they do, and jumps from one quote to a giant platform vision. This skill is stricter.
+
+It forces:
+
+- one primary mode: activation, retention, workflow expansion, monetization, or wedge
+- a normalized decision metric with a denominator
+- evidence-quality grading
+- three meaningfully different options
+- a concrete 7-day test with kill criteria
+
+The result is a product iteration brief that says, clearly: **this is the strongest signal, this is the bigger job trying to emerge, this is the direction to test next**.
+
+### When to use it
+
+Use `/product-iteration` when you say things like:
+
+- "What should we build next?"
+- "Here’s what users are telling us."
+- "Where should we double down?"
+- "Help me analyze this feedback dump."
+- "Activation is weak — what does the evidence say?"
+
+If there is no real user or product signal yet, use `/office-hours` instead.
 
 ---
 
