@@ -436,6 +436,7 @@ quality gates that produce better results than answering inline.
 
 **Routing rules — when you see these patterns, INVOKE the skill via the Skill tool:**
 - User describes a new idea, asks "is this worth building", brainstorms, pitches a concept → invoke `/office-hours`
+- User has an existing product and asks what to build next based on users, feedback, activation, retention, or surprising usage → invoke `/product-iteration`
 - User asks about strategy, scope, ambition, "think bigger", "what should we build" → invoke `/plan-ceo-review`
 - User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/plan-eng-review`
 - User asks about design system, brand, visual identity, "how should this look" → invoke `/design-consultation`

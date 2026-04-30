@@ -11,6 +11,7 @@ Skills live in `.agents/skills/`. Invoke them by name (e.g., `/office-hours`).
 | Skill | What it does |
 |-------|-------------|
 | `/office-hours` | Start here. Reframes your product idea before you write code. |
+| `/product-iteration` | Existing-product iteration: turn usage, feedback, and surprise behavior into the next move. |
 | `/plan-ceo-review` | CEO-level review: find the 10-star product in the request. |
 | `/plan-eng-review` | Lock architecture, data flow, edge cases, and tests. |
 | `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |

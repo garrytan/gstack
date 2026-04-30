@@ -13,9 +13,12 @@ import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
+const PRIMARY_HOST = ALL_HOST_CONFIGS.find(config => config.name === 'claude');
+const PRIMARY_HOST_SKIPPED_SKILLS = new Set(PRIMARY_HOST?.generation.skipSkills ?? []);
 
 function isRepoRootSymlink(candidateDir: string): boolean {
   try {
@@ -73,6 +76,11 @@ for (const { tmpl, output } of TEMPLATES) {
     continue;
   }
   if (!fs.existsSync(outPath)) {
+    const skillDir = output.replace(/\/SKILL\.md$/, '');
+    if (PRIMARY_HOST_SKIPPED_SKILLS.has(skillDir)) {
+      console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — skipped for Claude host generation`);
+      continue;
+    }
     hasErrors = true;
     console.log(`  \u274c ${output.padEnd(30)} — generated file missing! Run: bun run gen:skill-docs`);
     continue;
@@ -129,8 +137,6 @@ for (const hostConfig of getExternalHosts()) {
 }
 
 // ─── Freshness (config-driven) ──────────────────────────────
-
-import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 for (const hostConfig of ALL_HOST_CONFIGS) {
   const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;
