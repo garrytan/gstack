@@ -665,6 +665,26 @@ describe('Step0BoundaryPredicate per-skill', () => {
       expect(ceoStep0Boundary(f)).toBe(true);
     });
 
+    test('FIRES on scope-selection AUQ with "Skip interview" option (skip-interview path)', () => {
+      // After calibration run 1: plan-ceo's first AUQ is scope-selection,
+      // and we route via "Skip interview and plan immediately" to bypass
+      // Step 0 entirely. Boundary must fire on this AUQ so subsequent
+      // AUQs go to reviewCount.
+      const f = fp(
+        'What scope do you want me to CEO-review?',
+        [
+          "The branch's diff vs main",
+          'A specific plan file',
+          "An idea you'll describe inline",
+          'Cancel — wrong skill',
+          'Type something.',
+          'Chat about this',
+          'Skip interview and plan immediately',
+        ],
+      );
+      expect(ceoStep0Boundary(f)).toBe(true);
+    });
+
     test('does NOT fire on premise challenge AUQs', () => {
       const f = fp('D1 — Premise check: is this the right problem?', ['Yes', 'No', 'Other']);
       expect(ceoStep0Boundary(f)).toBe(false);

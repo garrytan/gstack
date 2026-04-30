@@ -621,7 +621,12 @@ export function assertReviewReportAtBottom(
  * files import them directly.
  */
 export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
-  fp.options.some((o) => MODE_RE.test(o.label));
+  // Mode-pick path (Step 0F): one of HOLD SCOPE / SCOPE EXPANSION / etc.
+  fp.options.some((o) => MODE_RE.test(o.label)) ||
+  // Skip-interview path: scope-selection AUQ has "Skip interview and plan
+  // immediately" — picking it bypasses the rest of Step 0 and routes
+  // directly to review-phase. Boundary fires on the scope AUQ itself.
+  fp.options.some((o) => /skip\s+interview|plan\s+immediately/i.test(o.label));
 
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /scope reduction recommendation|cross[\s-]?project learnings/i.test(
@@ -1097,6 +1102,18 @@ export async function runPlanSkillCounting(opts: {
   reviewCountCeiling: number;
   /** Numbered option to press by default. Defaults to 1 (recommended). */
   defaultPick?: number;
+  /**
+   * Optional override for the FIRST AUQ observed. Receives the fingerprint;
+   * returns the option index to press. Subsequent AUQs always use defaultPick.
+   *
+   * Skill-specific routing helper: /plan-ceo-review's first AUQ asks "what
+   * scope?" with options like "branch diff" / "describe inline" / "skip
+   * interview". Pressing the default 1 routes to "branch diff" (the wrong
+   * review target for a seeded fixture). firstAUQPick lets the test pick
+   * "Skip interview" or "describe inline" so the agent reviews the
+   * follow-up plan content the test sent, not the git diff.
+   */
+  firstAUQPick?: (fp: AskUserQuestionFingerprint) => number;
   /** Working directory. Default process.cwd() (repo cwd holds skill registry). */
   cwd?: string;
   /** Total budget for skill to reach a terminal outcome. Default 1_500_000 (25 min). */
@@ -1120,6 +1137,7 @@ export async function runPlanSkillCounting(opts: {
   let boundaryFired = false;
   let step0Count = 0;
   let reviewCount = 0;
+  let isFirstAUQ = true;
   let lastSig = '';
 
   function snapshot(
@@ -1239,8 +1257,11 @@ export async function runPlanSkillCounting(opts: {
       if (boundaryFired) reviewCount += 1;
       else step0Count += 1;
 
-      // Press to advance.
-      session.send(`${defaultPick}\r`);
+      // Press to advance — first AUQ may use the override pick.
+      const pickIdx =
+        isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(fp) : defaultPick;
+      isFirstAUQ = false;
+      session.send(`${pickIdx}\r`);
 
       // Evaluate boundary AFTER pressing — if THIS AUQ was the last Step 0
       // question, all subsequent AUQs go to reviewCount.

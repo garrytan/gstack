@@ -21,7 +21,35 @@ import {
   runPlanSkillCounting,
   ceoStep0Boundary,
   assertReviewReportAtBottom,
+  type AskUserQuestionFingerprint,
 } from './helpers/claude-pty-runner';
+
+/**
+ * /plan-ceo-review's first AUQ asks "what scope?" with options like
+ *   1. Branch diff vs main
+ *   2. A specific plan file or design doc
+ *   3. An idea you'll describe inline
+ *   ...
+ *   7. Skip interview and plan immediately
+ *
+ * The default pick (1) routes to "branch diff vs main" — the wrong target
+ * for our seeded fixture (the agent would review the gstack PR itself,
+ * recursively). Picking "Skip interview and plan immediately" bypasses
+ * Step 0 and routes the agent to review the chat context (where our
+ * follow-up plan was pasted).
+ */
+function pickSkipInterview(fp: AskUserQuestionFingerprint): number {
+  const skipOpt = fp.options.find((o) =>
+    /skip\s+interview|plan\s+immediately/i.test(o.label),
+  );
+  if (skipOpt) return skipOpt.index;
+  // Fallback: "describe inline" also routes to using our pasted plan.
+  const inlineOpt = fp.options.find((o) =>
+    /describe.*inline|inline.*idea/i.test(o.label),
+  );
+  if (inlineOpt) return inlineOpt.index;
+  return 1;
+}
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
 const describeE2E = shouldRun ? describe : describe.skip;
@@ -93,6 +121,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
         followUpPrompt: PLAN_CEO_5_FINDINGS,
         isLastStep0AUQ: ceoStep0Boundary,
         reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
+        firstAUQPick: pickSkipInterview, // bypass scope-selection, route to review
         cwd: process.cwd(),
         timeoutMs: 1_500_000, // 25 min
         env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
