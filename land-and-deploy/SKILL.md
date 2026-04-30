@@ -3,10 +3,7 @@ name: land-and-deploy
 preamble-tier: 4
 version: 1.0.0
 description: |
-  Land and deploy workflow. Merges the PR, waits for CI and deploy,
-  verifies production health via canary checks. Takes over after /ship
-  creates the PR. Use when: "merge", "land", "deploy", "merge and verify",
-  "land it", "ship it to production". (gstack)
+  gstack land-and-deploy merges a PR, waits for CI and deployment, then verifies production.
 allowed-tools:
   - Bash
   - Read

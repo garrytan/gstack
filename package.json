@@ -28,6 +28,8 @@
     "test:gemini": "EVALS=1 bun test test/gemini-e2e.test.ts",
     "test:gemini:all": "EVALS=1 EVALS_ALL=1 bun test test/gemini-e2e.test.ts",
     "skill:check": "bun run scripts/skill-check.ts",
+    "skill:budget": "bun run scripts/skill-context-budget.ts --report",
+    "skill:budget:check": "bun run scripts/skill-context-budget.ts --check",
     "dev:skill": "bun run scripts/dev-skill.ts",
     "start": "bun run browse/src/server.ts",
     "eval:list": "bun run scripts/eval-list.ts",

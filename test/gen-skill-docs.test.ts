@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+const MAX_SKILL_DESCRIPTION_LENGTH = 360;
 
 function extractDescription(content: string): string {
   const fmEnd = content.indexOf('\n---', 4);
@@ -190,8 +190,8 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  test('every Codex SKILL.md description stays under 900-char warning threshold', () => {
-    const WARN_THRESHOLD = 900;
+  test('every Codex SKILL.md description stays under compact routing threshold', () => {
+    const WARN_THRESHOLD = MAX_SKILL_DESCRIPTION_LENGTH;
     const agentsDir = path.join(ROOT, '.agents', 'skills');
     if (!fs.existsSync(agentsDir)) return;
     const violations: string[] = [];
@@ -1176,7 +1176,13 @@ describe('DESIGN_SKETCH resolver', () => {
 
 describe('CODEX_SECOND_OPINION resolver', () => {
   const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
-  const codexContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+  const codexOfficeHoursPath = path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md');
+  if (!fs.existsSync(codexOfficeHoursPath)) {
+    Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+  }
+  const codexContent = fs.readFileSync(codexOfficeHoursPath, 'utf-8');
 
   test('Phase 3.5 section appears in office-hours SKILL.md', () => {
     expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
@@ -1741,7 +1747,7 @@ describe('Codex generation (--host codex)', () => {
   });
 
   test('multiline descriptions preserved in Codex output', () => {
-    // office-hours has a multiline description — verify it survives the frontmatter transform
+    // office-hours has a compact multiline description; verify it survives the frontmatter transform.
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(4, fmEnd);
@@ -1749,7 +1755,7 @@ describe('Codex generation (--host codex)', () => {
     const descLines = frontmatter.split('\n').filter(l => l.startsWith('  '));
     expect(descLines.length).toBeGreaterThan(1);
     // Verify key phrases survived
-    expect(frontmatter).toContain('YC Office Hours');
+    expect(frontmatter).toContain('gstack office-hours');
   });
 
   test('hook skills have safety prose and no hooks: in frontmatter', () => {

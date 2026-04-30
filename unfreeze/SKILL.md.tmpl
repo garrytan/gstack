@@ -2,10 +2,7 @@
 name: unfreeze
 version: 0.1.0
 description: |
-  Clear the freeze boundary set by /freeze, allowing edits to all directories
-  again. Use when you want to widen edit scope without ending the session.
-  Use when asked to "unfreeze", "unlock edits", "remove freeze", or
-  "allow all edits". (gstack)
+  gstack unfreeze clears the active edit boundary so files can be changed anywhere.
 triggers:
   - unfreeze edits
   - unlock all directories
