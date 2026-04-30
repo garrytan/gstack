@@ -1981,6 +1981,13 @@ For each specialist's output:
 2. Otherwise, parse each line as a JSON object. Skip lines that are not valid JSON.
 3. Collect all parsed findings into a single list, tagged with their specialist name.
 
+**Sanity check — all specialists returned NO FINDINGS (#839):**
+If EVERY specialist returned "NO FINDINGS" (zero parsed findings from all subagents), pause and verify before proceeding:
+1. Confirm the diff is non-empty: `git diff $(git merge-base HEAD main)..HEAD --stat` should show changed files
+2. Confirm the specialist subagents received the diff (check their output for file paths)
+3. If the diff is non-trivial (>50 lines changed) and all specialists found nothing, warn the user:
+   "All specialists returned NO FINDINGS on a non-trivial diff. This may indicate a configuration issue (wrong branch, empty diff, or skills not reading files). Proceeding with clean result — verify manually if unexpected."
+
 **Fingerprint and deduplicate:**
 For each finding, compute its fingerprint:
 - If `fingerprint` field is present, use it
