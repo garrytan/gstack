@@ -33,6 +33,16 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Quick start
 
+## OpenClaw Monitor
+
+> Real-time AI Agent Monitoring Dashboard for OpenClaw
+
+**GitHub:** [flik2002/openclaw-monitor](https://github.com/flik2002/openclaw-monitor)
+
+![Dashboard](https://raw.githubusercontent.com/flik2002/openclaw-monitor/main/Openclaw%20Monitor.jpg)
+
+
+
 1. Install gstack (30 seconds — see below)
 2. Run `/office-hours` — describe what you're building
 3. Run `/plan-ceo-review` on any feature idea
