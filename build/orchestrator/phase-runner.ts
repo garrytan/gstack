@@ -45,7 +45,7 @@ export type Action =
   // Dual-implementor actions (--dual-impl flag)
   | { type: 'RUN_DUAL_IMPL'; phaseIndex: number; iteration: number }
   | { type: 'RUN_DUAL_TESTS'; phaseIndex: number }
-  | { type: 'RUN_JUDGE_OPUS'; phaseIndex: number }
+  | { type: 'RUN_JUDGE'; phaseIndex: number }
   | { type: 'APPLY_WINNER'; phaseIndex: number; winner: 'gemini' | 'codex' };
 
 /**
@@ -211,7 +211,7 @@ export function decideNextAction(
 
     case 'dual_judge_pending':
     case 'dual_judge_running':
-      return { type: 'RUN_JUDGE_OPUS', phaseIndex: phaseState.index };
+      return { type: 'RUN_JUDGE', phaseIndex: phaseState.index };
 
     case 'dual_winner_pending': {
       const winner = phaseState.dualImpl?.selectedImplementor;
@@ -263,7 +263,7 @@ export interface ApplyResultExtra {
   /** RUN_DUAL_TESTS: individual test outcomes for each worktree */
   geminiTestResult?: DualImplTestResult;
   codexTestResult?: DualImplTestResult;
-  /** RUN_JUDGE_OPUS: Opus judge decision */
+  /** RUN_JUDGE: configured judge decision */
   judgeVerdict?: 'gemini' | 'codex';
   judgeReasoning?: string;
   judgeHardeningNotes?: string;
@@ -492,16 +492,16 @@ export function applyResult(
     return next;
   }
 
-  if (action.type === 'RUN_JUDGE_OPUS') {
+  if (action.type === 'RUN_JUDGE') {
     if (result.timedOut || result.exitCode !== 0) {
       next.status = 'failed';
-      next.error = `Judge Opus failed: exit ${result.exitCode}`;
+      next.error = `Judge failed: exit ${result.exitCode}`;
       return next;
     }
     const verdict = extra?.judgeVerdict;
     if (!verdict) {
       next.status = 'failed';
-      next.error = 'RUN_JUDGE_OPUS requires judgeVerdict in extra';
+      next.error = 'RUN_JUDGE requires judgeVerdict in extra';
       return next;
     }
     next.dualImpl = {

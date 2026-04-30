@@ -59,7 +59,7 @@ import {
   detectTestCmd,
   runTests,
   runCodexImpl,
-  runJudgeOpus,
+  runJudge,
   parseVerdict,
   parseFailureCount,
   parseJudgeVerdict,
@@ -68,7 +68,7 @@ import {
 import { flipPhaseCheckboxes, flipTestSpecCheckbox } from "./plan-mutator";
 import { shipAndDeploy } from "./ship";
 import { createWorktrees, applyWinner, teardownWorktrees } from "./worktree";
-import type { BuildState, Phase, DualImplTestResult } from "./types";
+import type { BuildState, Phase, DualImplTestResult, SubAgentInvocation } from "./types";
 import type { Feature, FeatureState } from "./types";
 import {
   DEFAULT_ROLE_CONFIGS,
@@ -96,7 +96,7 @@ export interface Args {
   maxCodexIter: number;
   testCmd?: string;
   projectRoot?: string;
-  /** When true, every phase implements via Gemini+Codex tournament with Claude judge. */
+  /** When true, every phase implements via configured primary/secondary tournament with configured judge. */
   dualImpl: boolean;
   /** Central provider/model/reasoning/command routing. */
   roles: RoleConfigs;
@@ -250,9 +250,9 @@ export function validateRoleProviders(args: Pick<Args, "dualImpl" | "roles">): s
       errors.push(`--${roleFlagName(name)}-provider gemini is not supported for slash-command gates`);
     }
   }
-  for (const name of ["ship", "land"] as const) {
+  for (const name of ["ship", "land", "contextSave"] as const) {
     if (args.roles[name].provider === "gemini") {
-      errors.push(`--${roleFlagName(name)}-provider gemini is not supported for ship/land`);
+      errors.push(`--${roleFlagName(name)}-provider gemini is not supported for slash-command roles`);
     }
   }
   if (args.dualImpl) {
@@ -409,7 +409,7 @@ Flags:
   --skip-clean-check   Skip the pre-build working tree dirty check.
   --skip-sweep         Skip the unshipped feat/* branch sweep at startup.
   --dual-impl          Tournament mode: Gemini and Codex implement in parallel
-                       (isolated git worktrees), Opus judges and the winner
+                       (isolated git worktrees), the configured judge picks the winner
                        is cherry-picked back. Existing TDD pipeline runs after.
   --test-writer-model <m>          Default: ${DEFAULT_ROLE_CONFIGS.testWriter.model}.
   --primary-impl-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.primaryImpl.model}.
@@ -420,9 +420,10 @@ Flags:
   --qa-model <m>                   Default: ${DEFAULT_ROLE_CONFIGS.qa.model}.
   --ship-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.ship.model}.
   --land-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.land.model}.
+  --context-save-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.contextSave.model}.
   --<role>-provider <p>            claude|codex|gemini. Some workflows require fixed providers.
   --<role>-reasoning <r>           low|medium|high|xhigh.
-  --<role>-command <cmd>           For review, review-secondary, qa, ship, land.
+  --<role>-command <cmd>           For review, review-secondary, qa, ship, land, context-save.
   --gemini-model <m>               Deprecated alias for --primary-impl-model.
   --codex-model <m>                Deprecated alias for --secondary-impl-model.
   --codex-review-model <m>         Deprecated alias for --review-secondary-model.
@@ -1143,7 +1144,7 @@ export function buildCodexImplPromptBody(
     `## Instructions`,
     ``,
     `You are competing against Gemini in a tournament. Both of you are implementing this phase`,
-    `independently in isolated git worktrees. After both finish, an Opus judge will pick the better`,
+    `independently in isolated git worktrees. After both finish, the configured judge will pick the better`,
     `implementation.`,
     ``,
     `1. Implement the changes to make all failing tests pass.`,
@@ -1272,6 +1273,91 @@ export function buildGeminiFixPrompt(phase: Phase, planFile: string): string {
     ``,
     `Write your output summary to the output file path (provided in shell prompt).`,
   ].join("\n");
+}
+
+export function buildContextSaveBody(args: {
+  state: BuildState;
+  phase: Phase;
+  cwd: string;
+}): string {
+  return [
+    `# gstack-build phase boundary context save`,
+    ``,
+    `Repository: ${args.cwd}`,
+    `Plan file: ${args.state.planFile}`,
+    `State slug: ${args.state.slug}`,
+    `Build branch: ${args.state.branch}`,
+    ``,
+    `Completed phase: ${args.phase.number} — ${args.phase.name}`,
+    `Feature: ${args.phase.featureNumber} — ${args.phase.featureName}`,
+    ``,
+    `Task`,
+    ``,
+    `Save the current working context so another session can resume if the context window is compacted.`,
+    `Do not make code changes, commits, branch changes, or plan edits.`,
+  ].join("\n");
+}
+
+function invocationFromResult(result: SubAgentResult): SubAgentInvocation {
+  return {
+    startedAt: new Date(Date.now() - result.durationMs).toISOString(),
+    completedAt: new Date().toISOString(),
+    outputLogPath: result.logPath,
+    retries: result.retries,
+    exitCode: result.exitCode ?? undefined,
+    ...(result.timedOut || result.exitCode !== 0
+      ? { error: result.timedOut ? "context-save timed out" : `context-save exited ${result.exitCode}` }
+      : {}),
+  };
+}
+
+async function runPhaseContextSave(args: {
+  state: BuildState;
+  phase: Phase;
+  cwd: string;
+  role: RoleConfig;
+}): Promise<SubAgentResult> {
+  if (args.role.provider === "gemini") {
+    return mockResult({
+      exitCode: 1,
+      stdout: "context-save role provider gemini is not supported",
+    });
+  }
+
+  const inputFilePath = path.join(
+    logDir(args.state.slug),
+    `phase-${args.phase.number}-context-save-input.md`,
+  );
+  const outputFilePath = path.join(
+    logDir(args.state.slug),
+    `phase-${args.phase.number}-context-save-output.md`,
+  );
+  fs.writeFileSync(
+    inputFilePath,
+    buildContextSaveBody({
+      state: args.state,
+      phase: args.phase,
+      cwd: args.cwd,
+    }),
+  );
+  fs.writeFileSync(outputFilePath, "");
+
+  return runSlashCommand({
+    inputFilePath,
+    outputFilePath,
+    cwd: args.cwd,
+    slug: args.state.slug,
+    phaseNumber: args.phase.number,
+    iteration: 1,
+    logPrefix: "context-save",
+    role: {
+      provider: args.role.provider,
+      model: args.role.model,
+      reasoning: args.role.reasoning,
+      command: args.role.command || "/context-save",
+    },
+    gate: false,
+  });
 }
 
 function summarizePhase(
@@ -1711,6 +1797,28 @@ async function runPhase(args: {
       state.phases[phase.index] = phaseState;
       state.currentPhaseIndex = phase.index + 1;
       saveState(state, { noGbrain, log: console.warn });
+      if (dryRun) {
+        console.log(`  → Context save ${roleLabel(args.roles.contextSave)}: skipped in dry-run`);
+      } else {
+        console.log(`  → Context save ${roleLabel(args.roles.contextSave)}`);
+        const contextSaveResult = await runPhaseContextSave({
+          state,
+          phase,
+          cwd: args.cwd,
+          role: args.roles.contextSave,
+        });
+        phaseState = {
+          ...phaseState,
+          contextSave: invocationFromResult(contextSaveResult),
+        };
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        if (contextSaveResult.timedOut || contextSaveResult.exitCode !== 0) {
+          console.warn(
+            `  ⚠ context-save failed; see ${contextSaveResult.logPath}`,
+          );
+        }
+      }
       printPhaseReport(phase, phaseState, args.nextPhaseName, args.cwd);
       return "done";
     }
@@ -2242,7 +2350,7 @@ async function runPhase(args: {
 
         // /codex review P2 — if exactly one side committed, the other is ineligible
         // (tests would pass on uncommitted edits but applyWinner can't cherry-pick).
-        // Skip RUN_DUAL_TESTS + RUN_JUDGE_OPUS entirely; auto-select the committed side.
+        // Skip RUN_DUAL_TESTS + RUN_JUDGE entirely; auto-select the committed side.
         if (gCommitted && !cCommitted) {
           if (gFinalTest.testExitCode !== 0) {
             phaseState.status = "failed";
@@ -2504,8 +2612,8 @@ async function runPhase(args: {
       continue;
     }
 
-    if (action.type === "RUN_JUDGE_OPUS") {
-      console.log(`  → Judge Opus: deciding between Gemini and Codex`);
+    if (action.type === "RUN_JUDGE") {
+      console.log(`  → Judge: deciding between primary and secondary implementors`);
       const dual = phaseState.dualImpl;
       if (!dual || !dual.geminiTestResult || !dual.codexTestResult) {
         // Corrupted state — tear down worktrees if we have enough info.
@@ -2516,7 +2624,7 @@ async function runPhase(args: {
         }
         phaseState.status = "failed";
         phaseState.error =
-          "RUN_JUDGE_OPUS reached without dual test results — orchestrator bug";
+          "RUN_JUDGE reached without dual test results — orchestrator bug";
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;
@@ -2579,7 +2687,7 @@ async function runPhase(args: {
         );
         fs.writeFileSync(outputPath, "");
 
-        const judgeRes = await runJudgeOpus({
+        const judgeRes = await runJudge({
           inputFilePath: inputPath,
           outputFilePath: outputPath,
           cwd,
@@ -2598,7 +2706,7 @@ async function runPhase(args: {
           // Tear down worktrees and fail closed.
           teardownWorktrees({ cwd, dualImpl: dual });
           phaseState.status = "failed";
-          phaseState.error = `Judge Opus failed: exit=${judgeRes.exitCode} timedOut=${judgeRes.timedOut}`;
+          phaseState.error = `Judge failed: exit=${judgeRes.exitCode} timedOut=${judgeRes.timedOut}`;
           state.phases[phase.index] = phaseState;
           saveState(state, { noGbrain, log: console.warn });
           continue;
@@ -2609,7 +2717,7 @@ async function runPhase(args: {
         // Malformed judge output — fail closed (Phase 3 review).
         teardownWorktrees({ cwd, dualImpl: dual });
         phaseState.status = "failed";
-        phaseState.error = `Judge Opus output was malformed (no anchored WINNER line); reasoning: ${reasoning}`;
+        phaseState.error = `Judge output was malformed (no anchored WINNER line); reasoning: ${reasoning}`;
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;

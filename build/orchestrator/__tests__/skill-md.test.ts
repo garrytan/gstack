@@ -34,3 +34,19 @@ test("generated SKILL.md reflects TDD changes", () => {
   expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
   expect(content.includes('Origin Plan Feature Verification')).toBe(true);
 });
+
+test("build skill and CLI do not hardcode default model names", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../cli.ts"),
+  ];
+  const forbidden = /(claude-opus|gemini-\d|gpt-\d|Claude Opus|Gemini 3|Codex GPT|Opus|Sonnet|--model sonnet)/;
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).not.toMatch(forbidden);
+  }
+  expect(fs.readFileSync(files[0], "utf-8")).toContain("configure.cm");
+  expect(fs.readFileSync(files[1], "utf-8")).toContain("configure.cm");
+});

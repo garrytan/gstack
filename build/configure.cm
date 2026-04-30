@@ -54,6 +54,12 @@
       "provider": "claude",
       "model": "claude-opus-4-7",
       "reasoning": "xhigh"
+    },
+    "contextSave": {
+      "provider": "claude",
+      "model": "sonnet",
+      "reasoning": "high",
+      "command": "/context-save"
     }
   },
   "limits": {

@@ -767,9 +767,9 @@ When more than one candidate is found across priorities, prefer the most recent 
      Acceptance: [what must be true for this feature to satisfy the origin plan]
 
      ### Phase X: [Phase Name]
-     - [ ] **Test Specification (test-writer role)**: Write failing tests covering the behavior described below. Tests MUST fail before implementation begins. Cover happy path + key edge cases using the project's existing test framework. Do NOT write any implementation code yet. Default: Claude Opus 4.7 xhigh.
-     - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct code. Do NOT change test assertions. Default: Gemini 3.1 Pro Preview with high thinking.
-     - [ ] **Review & QA (review roles)**: Run primary `/review`, secondary `/codex review`, and `/gstack-qa`; all gates must pass. Defaults: Claude Opus 4.7 xhigh for both review gates, Codex GPT-5.5 high for QA.
+     - [ ] **Test Specification (test-writer role)**: Write failing tests covering the behavior described below. Tests MUST fail before implementation begins. Cover happy path + key edge cases using the project's existing test framework. Do NOT write any implementation code yet. Default comes from `build/configure.cm`.
+     - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct code. Do NOT change test assertions. Default comes from `build/configure.cm`.
+     - [ ] **Review & QA (review roles)**: Run primary `/review`, secondary `/codex review`, and `/gstack-qa`; all gates must pass. Defaults come from `build/configure.cm`.
      ```
    - A dedicated test plan strategy for verifying the behavior.
 7. Present this newly synthesized living plan to the user and **PAUSE**. Use `AskUserQuestion` to explicitly ask the user to confirm the plan before moving on to the coding loop.
@@ -815,13 +815,13 @@ rm -rf .llm-tmp     # once after all phases complete (or on each phase cleanup)
 
    Both gates are skipped automatically when `--dry-run` or `--skip-ship` is active.
 
-2.6. **Dual-Implementor Mode (`--dual-impl`) — full CLI delegation**: When the user wants tournament selection (primary implementor vs secondary implementor, Opus judge), hand off the entire build to the `gstack-build` CLI with `--dual-impl`. **Do NOT attempt to manually orchestrate dual-impl within this skill** — the CLI owns the full loop: worktree creation, parallel impl, tests, judge, apply winner, test+fix, review gates, QA, and plan checkbox updates.
+2.6. **Dual-Implementor Mode (`--dual-impl`) — full CLI delegation**: When the user wants tournament selection (primary implementor vs secondary implementor, configured judge), hand off the entire build to the `gstack-build` CLI with `--dual-impl`. **Do NOT attempt to manually orchestrate dual-impl within this skill** — the CLI owns the full loop: worktree creation, parallel impl, tests, judge, apply winner, test+fix, review gates, QA, and plan checkbox updates.
 
    ```bash
    gstack-build <plan.md> --dual-impl [--primary-impl-model M] [--secondary-impl-model M]
    ```
 
-   Defaults: test-writer Claude Opus 4.7 xhigh; primary implementor Gemini 3.1 Pro Preview high; test-fixer Codex GPT-5.5 high; secondary implementor Codex GPT-5.3-Codex high; review and secondary review Claude Opus 4.7 xhigh; QA, ship, and land Codex GPT-5.5 high. Deprecated aliases still work: `--gemini-model`, `--codex-model`, and `--codex-review-model`.
+   Default providers, models, reasoning levels, and commands come from `build/configure.cm`; CLI/env overrides still apply. Deprecated aliases still work: `--gemini-model`, `--codex-model`, and `--codex-review-model`.
 
    Your role after invocation: use the **CLI Monitoring Loop** (see below) — confirm with the user, launch in the background, and poll for progress and faults. Do NOT run `gstack-build --dual-impl` as a blocking Bash call; that prevents fault recovery during a potentially multi-hour run. The full dual-impl workflow and recovery guide are in `build/orchestrator/README.md`.
 
@@ -922,7 +922,7 @@ Use this table to map `PhaseStatus` to a human label:
 | `failed` | FAILED |
 | `dual_impl_running` | dual-impl in progress |
 | `dual_tests_running` | dual-impl tests running |
-| `dual_judge_running` | Opus judging |
+| `dual_judge_running` | configured judge running |
 | `dual_winner_pending` | applying winner |
 
 Then run the outcome checks below — in order, stop at the first that applies.
@@ -1044,7 +1044,7 @@ If none of the above conditions fired, schedule the next wakeup at 60 seconds an
 
 ---
 
-3. **Spawn Primary Implementation Sub-Agent (file-path I/O)**: Use the configured primary-impl role from `build/orchestrator/build.defaults.json` plus any CLI/env overrides. The repo default is Gemini 3.1 Pro Preview with high thinking. You MUST spawn the execution sub-agent using the configured primary-impl role. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
+3. **Spawn Primary Implementation Sub-Agent (file-path I/O)**: Use the configured primary-impl role from `build/configure.cm` plus any CLI/env overrides. You MUST spawn the execution sub-agent using the configured primary-impl role. **CRITICAL:** Do NOT use the `Bash` tool to run `claude -m gemini` or `claude --model gemini`, as that will fail!
    - **Write the input prompt to a file first.** Use the `Write` tool to put the full instruction body — goal, phase checklist, code references, constraints, success criteria — into `.llm-tmp/build-<phase-N>-gemini-input-<iter>.md`. The MCP prompt body itself stays short: it just says "Read `<input-path>`. Do the work. Write your output summary to `<output-path>`." Do NOT inline the phase context in the MCP call.
    - **Reference existing code by file path, not by inlined content.** Tell Gemini: "Read the existing code at `path/to/file.ts` if you need it." With `--yolo` mode, Gemini's file-read tools work reliably. Inlining hundreds of lines of code wastes tokens and the model often returns truncated.
    - **The input file** must include: the exact goal, phase checklist from the living plan, instructions to build and verify, instructions to make GitHub Actions checks green, instruction to commit to the current branch, instruction to fail forward and only return when the code is written, and "Do NOT use raw `git` commands or `gh` CLI to ship. Do NOT skip steps or hallucinate your own review process. Do NOT instruct Gemini to run /review or /ship."
@@ -1055,13 +1055,13 @@ If none of the above conditions fired, schedule the next wakeup at 60 seconds an
 5. **Recursive Test+Fix Loop (MANDATORY — loop until green)**: After implementation finishes, run tests recursively until they all pass.
    - Run the project's test command: `cd <project-dir> && <test-cmd>`.
    - If tests **PASS** (exit 0): proceed to review gates (step 6).
-   - If tests **FAIL**: write a new test-fixer input file at `.llm-tmp/build-<phase-N>-test-fix-input-<iter>.md` describing which tests failed and what the error output was. Re-spawn the configured test-fixer role (default Codex GPT-5.5 high), require it to write its output summary to `.llm-tmp/build-<phase-N>-test-fix-output-<iter>.md`, then read that output file before re-running tests. Repeat up to 5 times (`GSTACK_BUILD_TEST_MAX_ITER`, default 5).
+   - If tests **FAIL**: write a new test-fixer input file at `.llm-tmp/build-<phase-N>-test-fix-input-<iter>.md` describing which tests failed and what the error output was. Re-spawn the configured test-fixer role, require it to write its output summary to `.llm-tmp/build-<phase-N>-test-fix-output-<iter>.md`, then read that output file before re-running tests. Repeat up to the configured `GSTACK_BUILD_TEST_MAX_ITER` cap.
    - If still failing after 5 iterations: STOP, surface the failure to the user, and exit. Do NOT advance to review gates with failing tests.
-6. **Spawn Review Gates (RECURSIVE — loop until clean, file-path I/O)**: After implementation is green, run the configured primary review, secondary review, and QA roles. Defaults: Claude Opus 4.7 xhigh `/review`, Claude Opus 4.7 xhigh `/codex review`, Codex GPT-5.5 high `/gstack-qa`.
+6. **Spawn Review Gates (RECURSIVE — loop until clean, file-path I/O)**: After implementation is green, run the configured primary review, secondary review, and QA roles from `build/configure.cm`.
    - **Write the review request to a file.** Put the goal of this review iteration (which phase, what changed, what to verify) into `.llm-tmp/build-<phase-N>-codex-input-<iter>.md`. The codex CLI invocation prompt stays short.
    - **Invocation pattern**: each gate reads `.llm-tmp/build-<phase-N>-review-input-<iter>.md`, runs its configured slash command, and writes a report file containing a final `GATE PASS` or `GATE FAIL` line. Do NOT inline the diff or instructions.
    - QA is now part of the default gate sequence, not only a UI-change add-on.
-   - **CRITICAL**: Do NOT use Sonnet for review, QA, ship, or land unless the role config explicitly says so.
+   - **CRITICAL**: Do NOT use an unconfigured fallback model for review, QA, ship, or land; the role config is authoritative.
    - **After each Codex iteration**, use the `Read` tool to read the output file. Look for the `GATE PASS` / `GATE FAIL` keyword on its own line. Do NOT parse stdout for the verdict — stdout is for status only; the file is the source of truth for the work product.
    - **RECURSIVE LOOP REQUIREMENT**: If the output file's verdict is `GATE FAIL`, write a new input file (`.llm-tmp/build-<phase-N>-codex-input-<iter+1>.md`) describing the issues to fix, re-spawn Codex with a new output path, and re-check. Repeat the review→fix→review cycle until Codex writes `GATE PASS`. Do NOT advance to step 8 (Update Living Plan) with open review findings. A single review pass is NOT sufficient — past sessions have left issues unaddressed by stopping after one pass.
 7. **Wait for Review Completion**: Run each gate synchronously in the foreground. Apply the recursive loop in step 6 until all gates are fully clean.
@@ -1105,15 +1105,15 @@ If none of the above conditions fired, schedule the next wakeup at 60 seconds an
    ══════════════════════════════════════════════════════
    ```
 
-9. **Context save at phase boundary**: After each phase completes (all three sub-checkboxes — Test Specification, Implementation, and Review — checked and guardrail verified), run `claude --model sonnet -p /context-save` via the `Bash` tool. This ensures progress survives a context window compaction mid-session.
+9. **Context save at phase boundary**: After each phase completes (all three sub-checkboxes — Test Specification, Implementation, and Review — checked and guardrail verified), run the configured context-save role from `build/configure.cm`. This ensures progress survives a context window compaction mid-session.
 
 After each feature's phases are clean, ship and land that feature before starting the next feature. Then revisit the origin plan and verify that the shipped feature satisfies the origin-plan requirements mapped to that feature. If not, record concrete issues and restart the feature loop. Do NOT stop to ask the user for permission between phases or features unless a sub-agent fails catastrophically, a gate cannot be cleared automatically, or a safety constraint requires user judgment. Keep the loop going.
 
 ## Step 3: Final Ship & Completion
 
 For EACH feature, once all phases in that feature are complete (and have been individually reviewed):
-1. **Spawn Ship/Land Roles**: You MUST spawn the configured ship and land roles to merge and deploy the fully reviewed feature branch. Defaults are Codex GPT-5.5 high running `/gstack-ship`, then Codex GPT-5.5 high running `/gstack-land-and-deploy`.
-   - Use the configured commands exactly; by default run `/gstack-ship` followed by `/gstack-land-and-deploy` via Codex.
+1. **Spawn Ship/Land Roles**: You MUST spawn the configured ship and land roles from `build/configure.cm` to merge and deploy the fully reviewed feature branch.
+   - Use the configured commands exactly.
    - **CRITICAL: Do NOT substitute these skills with raw `gh pr create` or `gh pr merge` commands! You MUST use the GStack skills because they contain mandatory CI/CD safety gates.** Do NOT invoke the native `ship` tool!
 2. **Wait for Ship/Land Completion**: Run each ship/land sub-agent synchronously in the foreground. Wait for the Bash tool to return.
 3. **Origin Plan Feature Verification**: Re-open the original source plan and verify this landed feature satisfies the mapped origin-plan requirements. If gaps remain, record the issues in the living plan and restart that feature's implementation loop.
@@ -1161,9 +1161,9 @@ After ALL features are complete:
 
 **Rules:**
 - **Autonomous Continuity**: Do NOT ask for the user's confirmation to proceed between steps, phases, or loops unless you are critically blocked. Just narrate your current state and keep moving.
-- **Autonomous Skill Execution**: If you or your sub-agents use other GStack skills, you MUST run them as separate processes using the `Bash` tool. Defaults are Claude `/review`, Claude `/codex review`, Codex `/gstack-qa`, Codex `/gstack-ship`, and Codex `/gstack-land-and-deploy`. **CRITICAL BUG WARNING: NEVER invoke skills natively as tools (i.e., do NOT use the `review`, `qa`, or `ship` tools directly). Invoking them as native tools just dumps their source code into your context and will permanently break the autonomous loop. Always use the Bash tool.**
+- **Autonomous Skill Execution**: If you or your sub-agents use other GStack skills, you MUST run them as separate processes using the `Bash` tool. Use the configured commands from `build/configure.cm`. **CRITICAL BUG WARNING: NEVER invoke skills natively as tools (i.e., do NOT use the `review`, `qa`, or `ship` tools directly). Invoking them as native tools just dumps their source code into your context and will permanently break the autonomous loop. Always use the Bash tool.**
 - **Verbose State Reporting**: Always tell the user what you are currently doing (e.g., implementing, reviewing, debating, shipping, fixing, merging).
 - **Bias for action**: Write the code. Do not write meta-commentary.
 - **Strict adherence**: Stick to the plan. Do not expand scope unless strictly necessary to make the code compile. Do NOT hallucinate elaborate alternative processes if a file or command is missing—always STOP and report the error to the user.
 - **Fail forward**: If tests fail, try to fix them. Only escalate to the user if you are stuck after multiple attempts.
-- **Model Routing Discipline**: Use the role config from `build/orchestrator/build.defaults.json` plus CLI/env overrides, not hardcoded model assumptions. Defaults are data, not prose; check the config file before naming a model or provider.
+- **Model Routing Discipline**: Use the role config from `build/configure.cm` plus CLI/env overrides, not hardcoded model assumptions. Defaults are data, not prose; check the config file before naming a model or provider.

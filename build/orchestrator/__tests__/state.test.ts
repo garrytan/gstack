@@ -15,20 +15,21 @@ import {
 } from '../state';
 import type { Phase } from '../types';
 
-// Override HOME for the duration of each test so we don't pollute the
-// real ~/.gstack/build-state.
-let realHome: string | undefined;
-let tmpHome: string;
+// Override the state directory for each test so we don't pollute the real
+// ~/.gstack/build-state.
+let realStateDir: string | undefined;
+let tmpStateDir: string;
 
 beforeEach(() => {
-  realHome = process.env.HOME;
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-build-state-test-'));
-  process.env.HOME = tmpHome;
+  realStateDir = process.env.GSTACK_BUILD_STATE_DIR;
+  tmpStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-build-state-test-'));
+  process.env.GSTACK_BUILD_STATE_DIR = tmpStateDir;
 });
 
 afterEach(() => {
-  if (realHome) process.env.HOME = realHome;
-  fs.rmSync(tmpHome, { recursive: true, force: true });
+  if (realStateDir) process.env.GSTACK_BUILD_STATE_DIR = realStateDir;
+  else delete process.env.GSTACK_BUILD_STATE_DIR;
+  fs.rmSync(tmpStateDir, { recursive: true, force: true });
 });
 
 const phases: Phase[] = [

@@ -218,7 +218,7 @@ function mergeOutputFile(
         // For judge calls the output file is the only authoritative source.
         // An empty file means the judge didn't write its verdict. Do NOT embed
         // any original stdout in the returned stdout — parseJudgeVerdict scans
-        // stdout for WINNER: and a stray line from Opus narration would give a
+        // stdout for WINNER: and a stray line from judge narration would give a
         // false verdict. All debugging content goes to stderr only.
         return {
           ...result,
@@ -714,7 +714,7 @@ export function parseFailureCount(output: string): number | undefined {
 }
 
 /**
- * Parse the Opus tournament judge's output for a verdict + reasoning.
+ * Parse the tournament judge's output for a verdict + reasoning.
  *
  * Expected format (anchored to start-of-line; case-insensitive on the value):
  *   WINNER: gemini|codex
@@ -871,14 +871,14 @@ export async function runCodexImpl(opts: {
 const JUDGE_TIMEOUT_MS = envNumberOrDefault('GSTACK_BUILD_JUDGE_TIMEOUT', BUILD_DEFAULTS.timeoutsMs.judge);
 
 /**
- * Run Claude Opus as the tournament judge. Caller writes the full judge prompt
+ * Run the configured Claude judge. Caller writes the full judge prompt
  * (task + tests + both diffs + both test results) to inputFilePath BEFORE calling.
- * Opus reads it, picks a winner, writes verdict to outputFilePath.
+ * The judge reads it, picks a winner, and writes verdict to outputFilePath.
  *
  * Caller should call parseJudgeVerdict on the returned result.stdout to extract
  * { verdict, reasoning }.
  */
-export async function runJudgeOpus(opts: {
+export async function runJudge(opts: {
   inputFilePath: string;
   outputFilePath: string;
   /** Main cwd (judge is read-only — doesn't matter much, but stay in main). */
@@ -904,7 +904,7 @@ export async function runJudgeOpus(opts: {
 
   const logPath = path.join(
     logDir(opts.slug),
-    `phase-${opts.phaseNumber}-judge-opus.log`
+    `phase-${opts.phaseNumber}-judge.log`
   );
 
   let result = await spawnCaptured({
@@ -919,7 +919,7 @@ export async function runJudgeOpus(opts: {
   if (result.timedOut) {
     const retryLog = path.join(
       logDir(opts.slug),
-      `phase-${opts.phaseNumber}-judge-opus-retry.log`
+      `phase-${opts.phaseNumber}-judge-retry.log`
     );
     const retryResult = await spawnCaptured({
       bin: CLAUDE_BIN,

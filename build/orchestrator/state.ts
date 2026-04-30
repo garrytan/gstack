@@ -29,7 +29,12 @@ export interface PersistOptions {
   log?: (msg: string) => void;
 }
 
-const STATE_DIR = path.join(os.homedir(), '.gstack', 'build-state');
+function stateDir(): string {
+  if (process.env.GSTACK_BUILD_STATE_DIR) {
+    return path.resolve(process.env.GSTACK_BUILD_STATE_DIR);
+  }
+  return path.join(os.homedir(), '.gstack', 'build-state');
+}
 
 export function deriveSlug(planFile: string): string {
   const base = path.basename(planFile);
@@ -38,19 +43,19 @@ export function deriveSlug(planFile: string): string {
 }
 
 export function statePath(slug: string): string {
-  return path.join(STATE_DIR, `${slug}.json`);
+  return path.join(stateDir(), `${slug}.json`);
 }
 
 export function lockPath(slug: string): string {
-  return path.join(STATE_DIR, `${slug}.lock`);
+  return path.join(stateDir(), `${slug}.lock`);
 }
 
 export function logDir(slug: string): string {
-  return path.join(STATE_DIR, slug);
+  return path.join(stateDir(), slug);
 }
 
 function ensureStateDir(): void {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.mkdirSync(stateDir(), { recursive: true });
 }
 
 function migrateState(state: BuildState): BuildState {

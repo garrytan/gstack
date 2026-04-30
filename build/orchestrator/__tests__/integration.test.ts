@@ -64,7 +64,7 @@ test("dry-run TDD plan announces Test Specification and Verify Red for each phas
   expect(result.status).toBe(0);
 });
 
-test("dry-run with --dual-impl announces Dual Impl, Judge Opus, and Apply Winner", () => {
+test("dry-run with --dual-impl announces Dual Impl, Judge, and Apply Winner", () => {
   const cliPath = path.resolve(import.meta.dir, "../cli.ts");
   const result = spawnSync(
     "bun",
@@ -94,7 +94,7 @@ test("dry-run with --dual-impl announces Dual Impl, Judge Opus, and Apply Winner
 
   expect(out).toContain("Dual Impl");
   expect(out).toContain("Dual Tests");
-  expect(out).toContain("Judge Opus");
+  expect(out).toContain("Judge");
   expect(out).toContain("Apply Winner");
   // TDD steps still run after dual-impl hands off to impl_done.
   expect(out).toContain("Test Specification");

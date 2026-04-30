@@ -128,7 +128,7 @@ export interface DualImplState {
   /** Same as geminiFixHistory but for Codex. */
   codexFixHistory?: string;
   /**
-   * Hardening notes emitted by the Opus judge after seeing both fix histories.
+   * Hardening notes emitted by the configured judge after seeing both fix histories.
    * Lists concrete issues from EITHER implementor's failure history that the
    * final code must handle. Passed into the Codex review prompt.
    */
@@ -137,7 +137,7 @@ export interface DualImplState {
   judgeVerdict?: 'gemini' | 'codex';
   judgeReasoning?: string;
   selectedImplementor?: 'gemini' | 'codex';
-  /** 'judge' = Opus decided; 'auto' = one passed/fewer failures; winner was obvious */
+  /** 'judge' = judge decided; 'auto' = one passed/fewer failures; winner was obvious */
   selectedBy?: 'judge' | 'auto';
   /** ISO timestamp when worktrees were torn down. */
   worktreesTornDownAt?: string;
@@ -179,6 +179,8 @@ export interface PhaseState {
     outputLogPaths: string[];
   };
   codexReview?: CodexReviewState;
+  /** Best-effort context-save invocation after the phase is committed. */
+  contextSave?: SubAgentInvocation;
   /** Origin-plan verification issue report that must be fixed during the next review loop. */
   originIssueLogPath?: string;
   /** Dual-implementor tournament state (populated when --dual-impl is active). */

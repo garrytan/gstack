@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   buildGeminiTestSpecPrompt,
   buildCodexImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
+  buildContextSaveBody,
   parseArgs,
   validateRoleProviders,
   resolveProjectRoot,
@@ -20,13 +21,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { DEFAULT_ROLE_CONFIGS } from '../role-config';
 
 let tmpDir: string | null = null;
+let tmpStateDir: string | null = null;
+let realStateDir: string | undefined;
+
+beforeEach(() => {
+  realStateDir = process.env.GSTACK_BUILD_STATE_DIR;
+  tmpStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cli-state-'));
+  process.env.GSTACK_BUILD_STATE_DIR = tmpStateDir;
+});
 
 afterEach(() => {
+  if (realStateDir) process.env.GSTACK_BUILD_STATE_DIR = realStateDir;
+  else delete process.env.GSTACK_BUILD_STATE_DIR;
+  if (tmpStateDir && fs.existsSync(tmpStateDir)) {
+    fs.rmSync(tmpStateDir, { recursive: true, force: true });
+  }
   if (tmpDir && fs.existsSync(tmpDir)) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+  tmpStateDir = null;
   tmpDir = null;
 });
 
@@ -132,25 +148,12 @@ describe('--gemini-model / --codex-model flag wiring', () => {
 
   it('parseArgs default -> model defaults are baked in (no flags needed)', () => {
     const args = parseArgs(['plan.md']);
-    expect(args.geminiModel).toBe('gemini-3.1-pro-preview');
-    expect(args.codexModel).toBe('gpt-5.3-codex');
-    expect(args.codexReviewModel).toBe('claude-opus-4-7');
-    expect(args.roles.testWriter).toEqual({
-      provider: 'claude',
-      model: 'claude-opus-4-7',
-      reasoning: 'xhigh',
-    });
-    expect(args.roles.testFixer).toEqual({
-      provider: 'codex',
-      model: 'gpt-5.5',
-      reasoning: 'high',
-    });
-    expect(args.roles.ship).toEqual({
-      provider: 'codex',
-      model: 'gpt-5.5',
-      reasoning: 'high',
-      command: '/gstack-ship',
-    });
+    expect(args.geminiModel).toBe(DEFAULT_ROLE_CONFIGS.primaryImpl.model);
+    expect(args.codexModel).toBe(DEFAULT_ROLE_CONFIGS.secondaryImpl.model);
+    expect(args.codexReviewModel).toBe(DEFAULT_ROLE_CONFIGS.reviewSecondary.model);
+    expect(args.roles.testWriter).toEqual(DEFAULT_ROLE_CONFIGS.testWriter);
+    expect(args.roles.testFixer).toEqual(DEFAULT_ROLE_CONFIGS.testFixer);
+    expect(args.roles.ship).toEqual(DEFAULT_ROLE_CONFIGS.ship);
   });
 
   it('--codex-review-model overrides the review model default', () => {
@@ -177,9 +180,9 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   it('parseArgs model flags combine correctly with --dual-impl', () => {
     const args = parseArgs(['plan.md', '--dual-impl']);
     expect(args.dualImpl).toBe(true);
-    expect(args.geminiModel).toBe('gemini-3.1-pro-preview');
-    expect(args.codexModel).toBe('gpt-5.3-codex');
-    expect(args.codexReviewModel).toBe('claude-opus-4-7');
+    expect(args.geminiModel).toBe(DEFAULT_ROLE_CONFIGS.primaryImpl.model);
+    expect(args.codexModel).toBe(DEFAULT_ROLE_CONFIGS.secondaryImpl.model);
+    expect(args.codexReviewModel).toBe(DEFAULT_ROLE_CONFIGS.reviewSecondary.model);
   });
 
   it('new role flags override defaults', () => {
@@ -204,16 +207,44 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   it('provider validation rejects unsupported slash-command and dual-impl providers', () => {
     const args = parseArgs(['plan.md', '--dual-impl']);
     args.roles.qa.provider = 'gemini';
+    args.roles.contextSave.provider = 'gemini';
     args.roles.primaryImpl.provider = 'codex';
     args.roles.secondaryImpl.provider = 'claude';
     args.roles.judge.provider = 'codex';
 
     expect(validateRoleProviders(args)).toEqual([
       '--qa-provider gemini is not supported for slash-command gates',
+      '--context-save-provider gemini is not supported for slash-command roles',
       '--primary-impl-provider must be gemini when --dual-impl is enabled',
       '--secondary-impl-provider must be codex when --dual-impl is enabled',
       '--judge-provider must be claude when --dual-impl is enabled',
     ]);
+  });
+});
+
+describe('buildContextSaveBody', () => {
+  it('asks the configured context-save role to preserve phase boundary state', () => {
+    const state: BuildState = {
+      planFile: '/repo/plan.md',
+      planBasename: 'plan',
+      slug: 'build-plan',
+      branch: 'main',
+      startedAt: '2026-04-30T00:00:00.000Z',
+      lastUpdatedAt: '2026-04-30T00:00:00.000Z',
+      currentPhaseIndex: 0,
+      phases: [],
+      completed: false,
+    };
+
+    const body = buildContextSaveBody({
+      state,
+      phase: basePhase,
+      cwd: '/repo',
+    });
+
+    expect(body).toContain('phase boundary context save');
+    expect(body).toContain('Completed phase: 1 — Auth middleware');
+    expect(body).toContain('Do not make code changes, commits, branch changes, or plan edits.');
   });
 });
 
@@ -597,7 +628,7 @@ describe('ensureFeatureBranch', () => {
   });
 });
 
-describe('buildJudgePrompt (Opus tournament judge prompt)', () => {
+describe('buildJudgePrompt (tournament judge prompt)', () => {
   function pass(): DualImplTestResult {
     return {
       worktreePath: '/tmp/wt',

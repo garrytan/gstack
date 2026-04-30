@@ -21,6 +21,7 @@ export interface RoleConfigs {
   ship: RoleConfig;
   land: RoleConfig;
   judge: RoleConfig;
+  contextSave: RoleConfig;
 }
 
 export const ROLE_DEFINITIONS = [
@@ -34,6 +35,7 @@ export const ROLE_DEFINITIONS = [
   ['ship', 'ship', 'GSTACK_BUILD_SHIP'],
   ['land', 'land', 'GSTACK_BUILD_LAND'],
   ['judge', 'judge', 'GSTACK_BUILD_JUDGE'],
+  ['contextSave', 'context-save', 'GSTACK_BUILD_CONTEXT_SAVE'],
 ] as const satisfies readonly [keyof RoleConfigs, string, string][];
 
 export type RoleKey = (typeof ROLE_DEFINITIONS)[number][0];
@@ -41,8 +43,13 @@ export type RoleField = 'provider' | 'model' | 'reasoning' | 'command';
 
 export const DEFAULT_ROLE_CONFIGS: RoleConfigs = BUILD_DEFAULTS.roles;
 
-export function cloneRoleConfigs(base: RoleConfigs = DEFAULT_ROLE_CONFIGS): RoleConfigs {
-  return JSON.parse(JSON.stringify(base)) as RoleConfigs;
+export function cloneRoleConfigs(base: Partial<RoleConfigs> = DEFAULT_ROLE_CONFIGS): RoleConfigs {
+  const next = JSON.parse(JSON.stringify(DEFAULT_ROLE_CONFIGS)) as RoleConfigs;
+  for (const [key] of ROLE_DEFINITIONS) {
+    const role = base[key];
+    if (role) next[key] = { ...next[key], ...role };
+  }
+  return next;
 }
 
 export function applyEnvRoleConfig(

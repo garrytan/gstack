@@ -25,7 +25,8 @@ export interface BuildDefaults {
 
 export const DEFAULT_BUILD_CONFIG_FILE = path.join(
   import.meta.dir,
-  'build.defaults.json',
+  '..',
+  'configure.cm',
 );
 
 const ROLE_KEYS: RoleKey[] = [
@@ -39,23 +40,24 @@ const ROLE_KEYS: RoleKey[] = [
   'ship',
   'land',
   'judge',
+  'contextSave',
 ];
 
 const PROVIDERS: RoleProvider[] = ['claude', 'codex', 'gemini'];
 const REASONING: RoleReasoning[] = ['low', 'medium', 'high', 'xhigh'];
 
 export function loadBuildDefaults(
-  filePath: string = process.env.GSTACK_BUILD_DEFAULTS_FILE || DEFAULT_BUILD_CONFIG_FILE,
+  filePath: string = process.env.GSTACK_BUILD_CONFIG_FILE || process.env.GSTACK_BUILD_DEFAULTS_FILE || DEFAULT_BUILD_CONFIG_FILE,
 ): BuildDefaults {
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (err) {
-    throw new Error(`failed to load build defaults from ${filePath}: ${(err as Error).message}`);
+    throw new Error(`failed to load build config from ${filePath}: ${(err as Error).message}`);
   }
 
   const config = parsed as Partial<BuildDefaults>;
-  const roles = validateRoles(config.roles, filePath);
+  const roles = validateRoles(withMigratedRoles(config.roles, filePath), filePath);
   const limits = validateNumberSection(
     config.limits,
     ['codexMaxIterations', 'redSpecMaxIterations', 'testMaxIterations', 'originVerificationMaxIterations'],
@@ -68,6 +70,23 @@ export function loadBuildDefaults(
   ) as unknown as BuildTimeoutsMs;
 
   return { roles, limits, timeoutsMs };
+}
+
+function withMigratedRoles(value: unknown, filePath: string): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const roles = { ...(value as Record<string, unknown>) };
+  if (
+    !roles.contextSave &&
+    path.resolve(filePath) !== path.resolve(DEFAULT_BUILD_CONFIG_FILE)
+  ) {
+    roles.contextSave = readDefaultRole('contextSave');
+  }
+  return roles;
+}
+
+function readDefaultRole(key: RoleKey): unknown {
+  const parsed = JSON.parse(fs.readFileSync(DEFAULT_BUILD_CONFIG_FILE, 'utf8')) as Partial<BuildDefaults>;
+  return (parsed.roles as Record<string, unknown> | undefined)?.[key];
 }
 
 function validateRoles(value: unknown, filePath: string): RoleConfigs {

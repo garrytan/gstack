@@ -93,13 +93,13 @@ After all features complete, the final exam verifies there are no incomplete pha
 When a phase has a `**Test Specification` checkbox, the orchestrator runs a 7-step loop:
 
 ```
-1. Test Specification  — Claude Opus 4.7 xhigh writes failing tests (Red)
+1. Test Specification  — configured test-writer role writes failing tests (Red)
 2. Verify Red          — run tests; if they pass, test-writer rewrites stricter tests (cap: GSTACK_BUILD_RED_MAX_ITER)
-3. Implementation      — Gemini 3.1 Pro Preview implements until tests pass
-4. Test+Fix Loop       — run tests; if failing, Codex GPT-5.5 high fixes; repeat (cap: GSTACK_BUILD_TEST_MAX_ITER)
-5. Review + QA         — Claude `/review`, Claude `/codex review`, then Codex `/gstack-qa`; all require GATE PASS
+3. Implementation      — configured primary-impl role implements until tests pass
+4. Test+Fix Loop       — run tests; if failing, configured test-fixer role fixes; repeat (cap: GSTACK_BUILD_TEST_MAX_ITER)
+5. Review + QA         — configured review, review-secondary, and QA roles; all require GATE PASS
 6. Update Plan         — flip all 3 checkboxes [x]
-7. Context save        — claude --model sonnet -p /context-save
+7. Context save        — configured context-save role
 ```
 
 ### Test command detection
@@ -149,13 +149,13 @@ To force a fresh start: `gstack-build ... --no-resume` or `rm ~/.gstack/build-st
 
 ## Dual Implementor Mode (`--dual-impl`)
 
-Tournament selection: Gemini and GPT-Codex implement each TDD phase **in parallel**, in **isolated git worktrees**, and Claude Opus picks the winner. The winning commits are cherry-picked back onto the main branch and the existing TDD pipeline (test+fix loop → review gates) takes over from there.
+Tournament selection: the configured primary and secondary implementors build each TDD phase **in parallel**, in **isolated git worktrees**, and the configured judge picks the winner. The winning commits are cherry-picked back onto the main branch and the existing TDD pipeline (test+fix loop → review gates) takes over from there.
 
-**Prewritten test specs are supported** — if a phase has `[x] **Test Specification` already checked (user wrote the tests before running gstack), dual-impl runs `VERIFY_RED` first to confirm the tests fail, then spawns both implementors. If the prewritten tests pass trivially (before any implementation), the phase fails with a clear message: fix the tests so they fail, then re-run. **Legacy 2-checkbox plans** (no test spec checkbox at all) still skip dual-impl silently and use normal single-Gemini behavior.
+**Prewritten test specs are supported** — if a phase has `[x] **Test Specification` already checked (user wrote the tests before running gstack), dual-impl runs `VERIFY_RED` first to confirm the tests fail, then spawns both implementors. If the prewritten tests pass trivially (before any implementation), the phase fails with a clear message: fix the tests so they fail, then re-run. **Legacy 2-checkbox plans** (no test spec checkbox at all) still skip dual-impl silently and use normal single-implementor behavior.
 
 **Required CLIs**: `gemini`, `codex`, and `claude` must all be on `PATH` (or set `GEMINI_BIN` / `CODEX_BIN` / `CLAUDE_BIN`). The orchestrator does not preflight check these — if Codex fails to produce committed work, `countCommitsSinceBase` returns 0 for the Codex side, making it ineligible. If only Gemini committed, it is auto-selected and dual-tests + judge are skipped (`selectedBy='auto'`). If neither committed, the phase fails. Install all three before running.
 
-This eliminates single-model blind spots — if Gemini takes a structurally wrong approach, Codex's independent attempt usually doesn't, and the judge sees both diffs side-by-side.
+This eliminates single-model blind spots: if one implementor takes a structurally wrong approach, the other independent attempt may not, and the judge sees both diffs side-by-side.
 
 ```bash
 gstack-build plans/...md --dual-impl
@@ -164,7 +164,7 @@ gstack-build plans/...md --dual-impl
 ### Per-phase loop (when `--dual-impl` is active)
 
 ```
-1. Test Specification  — Claude Opus writes failing tests (Red)
+1. Test Specification  — configured test-writer writes failing tests (Red)
 2. Verify Red          — confirm tests fail                            [unchanged]
 3. Dual Impl           — createWorktrees, then Promise.all of:
                            - runGemini  in /tmp/gstack-dual-<slug>-pN-<ts>/gemini
@@ -186,8 +186,8 @@ gstack-build plans/...md --dual-impl
                            → both timed out / no signal: fail closed
                          Test hygiene gate: before auto-select, git-diff test files
                          (**/__tests__/**) — if either implementor modified test assertions,
-                         route to the Opus judge instead of auto-deciding.
-5. Judge Opus          — Claude Opus reads both diffs + test results + fixHistory,
+                         route to the configured judge instead of auto-deciding.
+5. Judge               — configured judge reads both diffs + test results + fixHistory,
                          emits "WINNER: gemini|codex" + REASONING + HARDENING block
                          (HARDENING: lists concrete bug surfaces from either side's
                          fix history; injected into the review prompt)
@@ -214,7 +214,7 @@ Manual recovery: `git worktree list` to find leftover worktrees, then `git workt
 
 ### Auto-select vs Judge
 
-- **Both passed tests** → test hygiene gate: if either implementor modified test files (`**/__tests__/**`), Opus judge runs. Otherwise Opus judge runs unconditionally.
+- **Both passed tests** → test hygiene gate: if either implementor modified test files (`**/__tests__/**`), the configured judge runs. Otherwise the configured judge runs unconditionally.
 - **One passed, one failed** → auto-select the passing one (`selectedBy='auto'`), unless test hygiene gate triggers.
 - **Both failed** → auto-select fewer-failures winner via `parseFailureCount` (priority: explicit summary line like "3 failed", then ✗/FAIL marker counts), unless test hygiene gate triggers.
 - **Both timed out OR both had no parseable failure count** → fail-closed; phase status `failed`, you resume manually.
@@ -223,14 +223,14 @@ Manual recovery: `git worktree list` to find leftover worktrees, then `git workt
 
 ### Backward compat
 
-`--dual-impl` is a runtime-only flag. Plans don't need any per-phase frontmatter — when the flag is set, every parsed phase gets `dualImpl=true`. Prewritten test-spec phases (where `[x] **Test Specification` is already checked) now run `VERIFY_RED` first before spawning both implementors. Legacy 2-checkbox plans (no test-spec checkbox at all) still skip dual-impl and use the normal single-Gemini path.
+`--dual-impl` is a runtime-only flag. Plans don't need any per-phase frontmatter — when the flag is set, every parsed phase gets `dualImpl=true`. Prewritten test-spec phases (where `[x] **Test Specification` is already checked) now run `VERIFY_RED` first before spawning both implementors. Legacy 2-checkbox plans (no test-spec checkbox at all) still skip dual-impl and use the normal single-implementor path.
 
 ## Environment variables
 
-The built-in defaults are data-driven from `build/orchestrator/build.defaults.json`.
-Edit that file to update default role routing, retry caps, or timeout values.
-Use `GSTACK_BUILD_DEFAULTS_FILE` to run with an alternate defaults JSON file
-without editing the repo copy.
+The built-in defaults are data-driven from `build/configure.cm`. Edit that file
+to update default role routing, retry caps, or timeout values. Use
+`GSTACK_BUILD_CONFIG_FILE` to run with an alternate config file without editing
+the repo copy. `GSTACK_BUILD_DEFAULTS_FILE` remains as a legacy alias.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -238,19 +238,21 @@ without editing the repo copy.
 | `CODEX_BIN` | `codex` | Path to Codex CLI. |
 | `CLAUDE_BIN` | `claude` | Path to Claude Code. |
 | `GBRAIN_BIN` | `gbrain` | Path to gbrain CLI (optional). |
-| `GSTACK_BUILD_DEFAULTS_FILE` | `build/orchestrator/build.defaults.json` | Alternate defaults JSON file. |
-| `GSTACK_BUILD_TEST_WRITER_MODEL` | `claude-opus-4-7` | Failing-test writer model. |
-| `GSTACK_BUILD_PRIMARY_IMPL_MODEL` | `gemini-3.1-pro-preview` | Primary implementation model. |
-| `GSTACK_BUILD_TEST_FIXER_MODEL` | `gpt-5.5` | Test-fixer model. |
-| `GSTACK_BUILD_SECONDARY_IMPL_MODEL` | `gpt-5.3-codex` | Dual-impl secondary model. |
-| `GSTACK_BUILD_REVIEW_MODEL` | `claude-opus-4-7` | Primary review model. |
-| `GSTACK_BUILD_REVIEW_SECONDARY_MODEL` | `claude-opus-4-7` | Secondary review model. |
-| `GSTACK_BUILD_QA_MODEL` | `gpt-5.5` | QA model. |
-| `GSTACK_BUILD_SHIP_MODEL` | `gpt-5.5` | Ship model. |
-| `GSTACK_BUILD_LAND_MODEL` | `gpt-5.5` | Land model. |
+| `GSTACK_BUILD_CONFIG_FILE` | `build/configure.cm` | Alternate build config file. |
+| `GSTACK_BUILD_DEFAULTS_FILE` | `build/configure.cm` | Legacy alias for `GSTACK_BUILD_CONFIG_FILE`. |
+| `GSTACK_BUILD_TEST_WRITER_MODEL` | role default | Failing-test writer model. |
+| `GSTACK_BUILD_PRIMARY_IMPL_MODEL` | role default | Primary implementation model. |
+| `GSTACK_BUILD_TEST_FIXER_MODEL` | role default | Test-fixer model. |
+| `GSTACK_BUILD_SECONDARY_IMPL_MODEL` | role default | Dual-impl secondary model. |
+| `GSTACK_BUILD_REVIEW_MODEL` | role default | Primary review model. |
+| `GSTACK_BUILD_REVIEW_SECONDARY_MODEL` | role default | Secondary review model. |
+| `GSTACK_BUILD_QA_MODEL` | role default | QA model. |
+| `GSTACK_BUILD_SHIP_MODEL` | role default | Ship model. |
+| `GSTACK_BUILD_LAND_MODEL` | role default | Land model. |
+| `GSTACK_BUILD_CONTEXT_SAVE_MODEL` | role default | Context-save model. |
 | `GSTACK_BUILD_<ROLE>_PROVIDER` | role default | Provider override where supported; dual-impl requires Gemini primary, Codex secondary, Claude judge. |
 | `GSTACK_BUILD_<ROLE>_REASONING` | role default | Role reasoning override. |
-| `GSTACK_BUILD_<ROLE>_COMMAND` | role default | Command override for review, QA, ship, and land roles. |
+| `GSTACK_BUILD_<ROLE>_COMMAND` | role default | Command override for review, QA, ship, land, and context-save roles. |
 | `GSTACK_BUILD_GEMINI_TIMEOUT` | `600000` | Per-Gemini-call timeout in ms (10 min). |
 | `GSTACK_BUILD_CODEX_TIMEOUT` | `900000` | Per-Codex-iteration timeout in ms (15 min). |
 | `GSTACK_BUILD_SHIP_TIMEOUT` | `1800000` | Final ship-step timeout in ms (30 min). |
@@ -258,8 +260,8 @@ without editing the repo copy.
 | `GSTACK_BUILD_TEST_TIMEOUT` | `300000` | Per-test-run timeout in ms (5 min). |
 | `GSTACK_BUILD_TEST_MAX_ITER` | `5` | Hard cap on test-fixer iterations when tests fail post-impl. |
 | `GSTACK_BUILD_RED_MAX_ITER` | `3` | Hard cap on test-writer re-spec iterations when tests pass trivially (VERIFY_RED). |
-| `GSTACK_BUILD_JUDGE_TIMEOUT` | `600000` | Per-Opus-judge-call timeout in ms (10 min). Dual-impl only. |
-| `GSTACK_BUILD_JUDGE_MODEL` | `claude-opus-4-7` | Model passed to `claude --model` for the judge. Dual-impl only. |
+| `GSTACK_BUILD_JUDGE_TIMEOUT` | `600000` | Per-judge-call timeout in ms (10 min). Dual-impl only. |
+| `GSTACK_BUILD_JUDGE_MODEL` | role default | Model passed to `claude --model` for the judge. Dual-impl only. |
 | `GSTACK_BUILD_CODEX_IMPL_SANDBOX` | `workspace-write` | Sandbox mode for `runCodexImpl`. Set to `danger-full-access` to opt in to looser sandboxing (worktrees share .git/remotes — be aware). |
 
 ## Living plan storage

@@ -458,8 +458,8 @@ describe('Dual-implementor state machine transitions', () => {
     expect(action.type).toBe('RUN_DUAL_TESTS');
   });
 
-  // (c): both pass → dual_judge_pending → RUN_JUDGE_OPUS
-  it('(c) both tests pass → dual_judge_pending + decideNextAction → RUN_JUDGE_OPUS', () => {
+  // (c): both pass → dual_judge_pending → RUN_JUDGE
+  it('(c) both tests pass → dual_judge_pending + decideNextAction → RUN_JUDGE', () => {
     const initial = basePhase({ status: 'dual_impl_done' as any, dualImpl: minDualImpl() });
     const next = applyResult(
       initial,
@@ -468,7 +468,7 @@ describe('Dual-implementor state machine transitions', () => {
       { geminiTestResult: passResult(), codexTestResult: passResult() }
     );
     expect(next.status).toBe('dual_judge_pending');
-    expect(decideNextAction(next).type).toBe('RUN_JUDGE_OPUS');
+    expect(decideNextAction(next).type).toBe('RUN_JUDGE');
   });
 
   // (d): one passes → auto-select + APPLY_WINNER
@@ -503,11 +503,11 @@ describe('Dual-implementor state machine transitions', () => {
   });
 
   // (f): judge complete → dual_winner_pending with judge verdict
-  it('(f) RUN_JUDGE_OPUS result → dual_winner_pending with judge verdict + APPLY_WINNER', () => {
+  it('(f) RUN_JUDGE result → dual_winner_pending with judge verdict + APPLY_WINNER', () => {
     const initial = basePhase({ status: 'dual_judge_running' as any, dualImpl: minDualImpl() });
     const next = applyResult(
       initial,
-      { type: 'RUN_JUDGE_OPUS', phaseIndex: 0 } as any,
+      { type: 'RUN_JUDGE', phaseIndex: 0 } as any,
       geminiSuccess(),
       { judgeVerdict: 'codex', judgeReasoning: 'Codex solution is cleaner' }
     );
@@ -518,11 +518,11 @@ describe('Dual-implementor state machine transitions', () => {
     expect(decideNextAction(next).type).toBe('APPLY_WINNER');
   });
 
-  it('(f2) RUN_JUDGE_OPUS result propagates judgeHardeningNotes', () => {
+  it('(f2) RUN_JUDGE result propagates judgeHardeningNotes', () => {
     const initial = basePhase({ status: 'dual_judge_running' as any, dualImpl: minDualImpl() });
     const next = applyResult(
       initial,
-      { type: 'RUN_JUDGE_OPUS', phaseIndex: 0 } as any,
+      { type: 'RUN_JUDGE', phaseIndex: 0 } as any,
       geminiSuccess(),
       { judgeVerdict: 'gemini', judgeReasoning: 'Gemini is more idiomatic', judgeHardeningNotes: 'Add edge case for null input' }
     );
@@ -676,12 +676,12 @@ describe('Dual-implementor state machine transitions', () => {
     expect(next.status).toBe('failed');
   });
 
-  // RUN_JUDGE_OPUS missing judgeVerdict in extra → status failed
-  it('RUN_JUDGE_OPUS without judgeVerdict in extra → status failed', () => {
+  // RUN_JUDGE missing judgeVerdict in extra → status failed
+  it('RUN_JUDGE without judgeVerdict in extra → status failed', () => {
     const initial = basePhase({ status: 'dual_judge_running' as any, dualImpl: minDualImpl() });
     const next = applyResult(
       initial,
-      { type: 'RUN_JUDGE_OPUS', phaseIndex: 0 } as any,
+      { type: 'RUN_JUDGE', phaseIndex: 0 } as any,
       geminiSuccess(),
       {} // no judgeVerdict
     );

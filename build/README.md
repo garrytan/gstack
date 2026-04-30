@@ -89,16 +89,15 @@ For short plans, `/build` acts as the orchestrator itself:
 1. Locate the sibling `*-gstack` repo and use its `inbox/living-plan/` directory.
 2. Ask for confirmation after synthesizing a living plan.
 3. Create `.llm-tmp/` for file-path I/O with sub-agents.
-4. Ask Claude Opus 4.7 xhigh to write failing tests.
+4. Ask the configured test-writer role to write failing tests.
 5. Verify the tests are red.
-6. Ask Gemini 3.1 Pro Preview to implement.
-7. Re-run tests and use Codex GPT-5.5 high fix passes until green.
-8. Ask Claude Opus 4.7 xhigh to run `/review`, then `/codex review`.
-9. Run Codex GPT-5.5 high QA and repeat until all gates emit `GATE PASS`.
+6. Ask the configured primary-impl role to implement.
+7. Re-run tests and use the configured test-fixer role until green.
+8. Run the configured review gates.
+9. Run the configured QA role and repeat until all gates emit `GATE PASS`.
 10. Update checkboxes, print a phase report, and save context.
 11. Repeat without asking between phases unless blocked.
-12. Delegate final ship and deploy to Codex GPT-5.5 high running
-    `/gstack-ship` and `/gstack-land-and-deploy`.
+12. Delegate final ship and deploy to the configured ship and land roles.
 13. Move the completed living plan from `<gstack-repo>/inbox/living-plan/` to
     `<gstack-repo>/archived/`.
 
@@ -185,7 +184,7 @@ primary review, secondary review, and QA all produce `GATE PASS`.
 3. Run Gemini and Codex implementations in parallel.
 4. Run independent test-and-fix loops in each worktree.
 5. Choose a winner automatically when only one side passes.
-6. Otherwise ask Claude Opus to judge both diffs and test histories.
+6. Otherwise ask the configured judge to review both diffs and test histories.
 7. Cherry-pick the winning commits back to the main working tree.
 8. Continue through the normal green-tests and Codex-review loop.
 
@@ -233,13 +232,16 @@ is still running.
 
 ## Sub-Agent Roles
 
-- Claude Opus 4.7 xhigh writes failing tests.
-- Gemini 3.1 Pro Preview is the primary implementor.
-- Codex GPT-5.5 high fixes test failures.
-- Claude Opus 4.7 xhigh runs `/review` and `/codex review`.
-- Codex GPT-5.3-Codex high acts as the second implementor in `--dual-impl`.
-- Claude Opus 4.7 xhigh judges dual-implementor tournaments.
-- Codex GPT-5.5 high runs `/gstack-qa`, `/gstack-ship`, and `/gstack-land-and-deploy`.
+- `testWriter` writes failing tests.
+- `primaryImpl` is the primary implementor.
+- `testFixer` fixes test failures.
+- `review` and `reviewSecondary` run the review gates.
+- `secondaryImpl` acts as the second implementor in `--dual-impl`.
+- `judge` judges dual-implementor tournaments.
+- `qa`, `ship`, and `land` run QA and release commands.
+
+All role providers, models, reasoning levels, and commands are configured in
+`build/configure.cm`.
 
 The CLI talks to these tools through subprocess wrappers in
 `build/orchestrator/sub-agents.ts`. Codex stdin is explicitly closed because
@@ -251,8 +253,8 @@ After every feature is committed, the CLI runs the existing release skills inste
 of using raw GitHub commands:
 
 ```text
-codex exec "/gstack-ship" -m gpt-5.5 -c model_reasoning_effort=\"high\"
-codex exec "/gstack-land-and-deploy" -m gpt-5.5 -c model_reasoning_effort=\"high\"
+<configured ship role command>
+<configured land role command>
 ```
 
 Post-ship verification checks:
@@ -314,10 +316,10 @@ the root cause, re-run the same `gstack-build` command to resume.
 
 ## Environment Variables
 
-Default role routing, retry caps, and timeouts live in
-`build/orchestrator/build.defaults.json`. Edit that file when the built-in
-defaults change; use the env vars below for per-run overrides. Set
-`GSTACK_BUILD_DEFAULTS_FILE` to point at a different defaults JSON file.
+Default role routing, retry caps, and timeouts live in `build/configure.cm`.
+Edit that file when the built-in defaults change; use the env vars below for
+per-run overrides. Set `GSTACK_BUILD_CONFIG_FILE` to point at a different
+config file.
 
 | Variable | Purpose |
 | --- | --- |
@@ -325,11 +327,12 @@ defaults change; use the env vars below for per-run overrides. Set
 | `CODEX_BIN` | Codex CLI path. |
 | `CLAUDE_BIN` | Claude CLI path. |
 | `GBRAIN_BIN` | Optional gbrain CLI path. |
-| `GSTACK_BUILD_DEFAULTS_FILE` | Alternate defaults JSON file. |
+| `GSTACK_BUILD_CONFIG_FILE` | Alternate build config file. |
+| `GSTACK_BUILD_DEFAULTS_FILE` | Legacy alias for `GSTACK_BUILD_CONFIG_FILE`. |
 | `GSTACK_BUILD_<ROLE>_PROVIDER` | Role provider override where supported. |
 | `GSTACK_BUILD_<ROLE>_MODEL` | Role model override. |
 | `GSTACK_BUILD_<ROLE>_REASONING` | Role reasoning override. |
-| `GSTACK_BUILD_<ROLE>_COMMAND` | Command override for review, QA, ship, and land roles. |
+| `GSTACK_BUILD_<ROLE>_COMMAND` | Command override for review, QA, ship, land, and context-save roles. |
 | `GSTACK_BUILD_GEMINI_TIMEOUT` | Gemini call timeout in milliseconds. |
 | `GSTACK_BUILD_CODEX_TIMEOUT` | Codex call timeout in milliseconds. |
 | `GSTACK_BUILD_SHIP_TIMEOUT` | Final ship/deploy timeout in milliseconds. |

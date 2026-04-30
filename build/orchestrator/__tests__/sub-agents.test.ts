@@ -146,7 +146,7 @@ describe('parseFailureCount (dual-impl test outcome scoring)', () => {
   });
 });
 
-describe('parseJudgeVerdict (Opus tournament judge output)', () => {
+describe('parseJudgeVerdict (tournament judge output)', () => {
   it('extracts WINNER: gemini + REASONING from valid output', () => {
     const out = 'Reviewing both implementations...\nWINNER: gemini\nREASONING: cleaner code, fewer abstractions\n';
     const result = parseJudgeVerdict(out);
@@ -321,11 +321,11 @@ describe('buildCodexImplArgv (codex exec invocation shape)', () => {
       inputFilePath: '/tmp/in.md',
       outputFilePath: '/tmp/out.md',
       cwd: '/tmp/wt',
-      model: 'gpt-5.3-codex-spark',
+      model: 'codex-model-under-test',
     });
     const mIdx = argv.indexOf('-m');
     expect(mIdx).toBeGreaterThan(-1);
-    expect(argv[mIdx + 1]).toBe('gpt-5.3-codex-spark');
+    expect(argv[mIdx + 1]).toBe('codex-model-under-test');
   });
 
   it('omits -m when model is not specified', () => {
@@ -342,7 +342,7 @@ describe('buildCodexImplArgv (codex exec invocation shape)', () => {
       inputFilePath: '/tmp/in.md',
       outputFilePath: '/tmp/out.md',
       cwd: '/tmp/wt',
-      model: 'gpt-5.3-codex-spark',
+      model: 'codex-model-under-test',
     });
     const mIdx = argv.indexOf('-m');
     const sIdx = argv.indexOf('-s');
@@ -366,11 +366,11 @@ describe('buildCodexReviewArgv (codex review invocation shape)', () => {
       inputFilePath: '/tmp/review-in.md',
       outputFilePath: '/tmp/review-out.md',
       cwd: '/tmp/wt',
-      model: 'gpt-5.5',
+      model: 'codex-review-model-under-test',
     });
     const mIdx = argv.indexOf('-m');
     expect(mIdx).toBeGreaterThan(-1);
-    expect(argv[mIdx + 1]).toBe('gpt-5.5');
+    expect(argv[mIdx + 1]).toBe('codex-review-model-under-test');
   });
 
   it('omits -m when model is not specified', () => {
@@ -387,7 +387,7 @@ describe('buildCodexReviewArgv (codex review invocation shape)', () => {
       inputFilePath: '/tmp/review-in.md',
       outputFilePath: '/tmp/review-out.md',
       cwd: '/tmp/wt',
-      model: 'gpt-5.5',
+      model: 'codex-review-model-under-test',
     });
     const mIdx = argv.indexOf('-m');
     const sIdx = argv.indexOf('-s');
@@ -431,29 +431,29 @@ describe('buildCodexReviewArgv (codex review invocation shape)', () => {
 });
 
 describe('buildClaudeTaskArgv (claude role invocation shape)', () => {
-  it('builds an Opus /review gate prompt with xhigh thinking', () => {
+  it('builds a configured /review gate prompt with xhigh thinking', () => {
     const argv = buildClaudeTaskArgv({
       inputFilePath: '/tmp/review-in.md',
       outputFilePath: '/tmp/review-out.md',
       command: '/review',
-      model: 'claude-opus-4-7',
+      model: 'claude-role-model-under-test',
       reasoning: 'xhigh',
       gate: true,
     });
     expect(argv).toContain('--model');
-    expect(argv[argv.indexOf('--model') + 1]).toBe('claude-opus-4-7');
+    expect(argv[argv.indexOf('--model') + 1]).toBe('claude-role-model-under-test');
     const prompt = argv[argv.indexOf('-p') + 1];
     expect(prompt).toContain('Use xhigh thinking');
     expect(prompt).toContain('/review');
     expect(prompt).toContain('GATE PASS');
   });
 
-  it('builds an Opus /codex review second-opinion prompt', () => {
+  it('builds a configured /codex review second-opinion prompt', () => {
     const argv = buildClaudeTaskArgv({
       inputFilePath: '/tmp/review-in.md',
       outputFilePath: '/tmp/review-out.md',
       command: '/codex review',
-      model: 'claude-opus-4-7',
+      model: 'claude-role-model-under-test',
       reasoning: 'xhigh',
       gate: true,
     });
