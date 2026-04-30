@@ -427,7 +427,7 @@ For a **resumed session** (user chose "Continue"):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
+_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'model_reasoning_effort="medium"' -c 'sandbox_mode="read-only"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 python3 -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 # Fix 1: same hang detection pattern as new-session block
@@ -445,6 +445,8 @@ mkdir -p .context
 ```
 Save the session ID printed by the parser (the line starting with `SESSION_ID:`)
 to `.context/codex-session-id`.
+
+Working directory already comes from the resumed shell/session context, so `codex exec resume` should not pass `-C`. The resume subcommand also rejects `-s`; use `-c 'sandbox_mode="read-only"'` instead.
 
 6. Present the full streamed output:
 
