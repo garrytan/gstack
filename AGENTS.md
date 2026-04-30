@@ -47,3 +47,9 @@ bun run skill:check      # health dashboard for all skills
 - Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
+
+## Full reference
+
+Use [`docs/AGENT_CONTEXT_REFERENCE.md`](./docs/AGENT_CONTEXT_REFERENCE.md) for the
+full historical development guide, detailed project structure, eval mechanics, host
+internals, and exhaustive skill-directory notes. Keep this entrypoint concise.
