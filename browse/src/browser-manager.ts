@@ -1273,6 +1273,11 @@ export class BrowserManager {
       // Swap to new browser/context before restoreState (it uses this.context)
       const oldBrowser = this.browser;
 
+      // Close old pages before clearing the map to release resources
+      for (const page of this.pages.values()) {
+        await page.close().catch(() => {});
+      }
+
       this.context = newContext;
       this.browser = newContext.browser();
       this.pages.clear();
