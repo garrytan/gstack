@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.25.1.0] - 2026-05-02
+
+## **Build skills can launch the orchestrator even when spawned shells miss `PATH` setup.**
+
+The `/build` skill no longer assumes `gstack-build` is discoverable through the
+interactive shell's `PATH`. Before launch or resume, it now resolves an
+executable from `GSTACK_BUILD_CLI`, `command -v gstack-build`, host-specific
+Claude/Codex setup paths, or the current checkout's `bin/gstack-build`, then
+uses that resolved path for every background run.
+
+### Fixed
+
+- `/build` now launches and resumes through `_GSTACK_BUILD_CLI` instead of a bare
+  `gstack-build` command, fixing spawned-agent environments that could not find
+  the build CLI.
+- Generated Claude and Codex build skills get host-specific CLI candidates, so
+  Claude output does not contain Codex install paths and Codex output can use
+  `GSTACK_ROOT` when available.
+
+### Changed
+
+- Build documentation now describes the manual `PATH` requirement separately
+  from the `/build` skill's resolver order, including the explicit
+  `GSTACK_BUILD_CLI=/absolute/path/to/gstack-build` override.
+
+### Added
+
+- Regression coverage in `test/gen-skill-docs.test.ts` verifies generated build
+  skills use the resolver and do not regress to bare `gstack-build` launches.
+
 ## [1.25.0.0] - 2026-05-02
 
 ## **Fork customizations preserved while upgrading to upstream v1.25.0.0.**
