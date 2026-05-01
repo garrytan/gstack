@@ -139,6 +139,19 @@ export function isPlanReadyVisible(visible: string): boolean {
 }
 
 /**
+ * Detect the AUTO_DECIDE preamble template firing. The model prints
+ * "Auto-decided <summary> → <option> (your preference). Change with /plan-tune."
+ * when it short-circuits an AskUserQuestion via the question-tuning resolver
+ * (`scripts/resolvers/question-tuning.ts:26`). We detect any of those phrases
+ * — the wording can drift slightly between model invocations, so each cue is
+ * checked independently. The arrow + "(your preference)" combination is the
+ * tightest signal.
+ */
+export function isAutoDecidedVisible(visible: string): boolean {
+  return /Auto-decided\b/i.test(visible) && /\(your preference\)/i.test(visible);
+}
+
+/**
  * Detect a Claude Code permission dialog. These render as a numbered
  * option list (so isNumberedOptionListVisible matches them) but they
  * are NOT a skill's AskUserQuestion — they're claude asking the user
@@ -521,16 +534,23 @@ export async function invokeAndObserve(
 export interface PlanSkillObservation {
   /**
    * What happened first. One of:
-   *  - 'asked'      — skill emitted a numbered-option prompt (its Step 0
-   *                   AskUserQuestion or the routing-injection prompt)
-   *  - 'plan_ready' — claude wrote a plan and emitted its native
-   *                   "Ready to execute" confirmation
+   *  - 'asked'        — skill emitted a numbered-option prompt (its Step 0
+   *                     AskUserQuestion or the routing-injection prompt)
+   *  - 'auto_decided' — visible TTY shows "Auto-decided ... → ..." (the
+   *                     AUTO_DECIDE preamble template fired). Distinguishes
+   *                     "the regression we're tracking" (auto-mode silently
+   *                     auto-deciding questions the user wanted to see) from
+   *                     "skill legitimately reached plan_ready". Detected
+   *                     before plan_ready/silent_write so the auto-decide
+   *                     evidence wins when both are present.
+   *  - 'plan_ready'   — claude wrote a plan and emitted its native
+   *                     "Ready to execute" confirmation
    *  - 'silent_write' — a Write/Edit landed BEFORE any prompt, to a path
-   *                   outside the sanctioned plan/project directories
-   *  - 'exited'     — claude process died before any of the above
-   *  - 'timeout'    — none of the above within budget
+   *                     outside the sanctioned plan/project directories
+   *  - 'exited'       — claude process died before any of the above
+   *  - 'timeout'      — none of the above within budget
    */
-  outcome: 'asked' | 'plan_ready' | 'silent_write' | 'exited' | 'timeout';
+  outcome: 'asked' | 'auto_decided' | 'plan_ready' | 'silent_write' | 'exited' | 'timeout';
   /** Human-readable summary. */
   summary: string;
   /** Visible terminal text since the slash command was sent (last 2KB). */
@@ -566,12 +586,19 @@ export async function runPlanSkillObservation(opts: {
   cwd?: string;
   /** Total budget for skill to reach a terminal outcome. Default 180000. */
   timeoutMs?: number;
+  /** Extra CLI args appended after --permission-mode. Used by the v1.21+
+   *  AskUserQuestion-blocked regression tests to pass
+   *  `['--disallowedTools', 'AskUserQuestion']` (the flag set Conductor
+   *  uses to remove native AskUserQuestion in favor of its MCP variant).
+   *  Plumbs straight through to launchClaudePty. */
+  extraArgs?: string[];
 }): Promise<PlanSkillObservation> {
   const startedAt = Date.now();
   const session = await launchClaudePty({
     permissionMode: opts.inPlanMode === false ? null : 'plan',
     cwd: opts.cwd,
     timeoutMs: (opts.timeoutMs ?? 180_000) + 30_000,
+    extraArgs: opts.extraArgs,
   });
 
   try {
@@ -624,18 +651,30 @@ export async function runPlanSkillObservation(opts: {
           };
         }
       }
-      if (isPlanReadyVisible(visible)) {
-        return {
-          outcome: 'plan_ready',
-          summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
-          evidence: visible.slice(-2000),
-          elapsedMs: Date.now() - startedAt,
-        };
-      }
+      // Order: 'asked' first (rendered numbered list = user being asked),
+      // then 'auto_decided' (auto-decide text fired upstream of plan_ready
+      // — surfacing this distinguishes the auto-mode regression from a
+      // legitimate plan_ready outcome), then 'plan_ready'.
       if (isNumberedOptionListVisible(visible)) {
         return {
           outcome: 'asked',
           summary: 'skill fired a numbered-option prompt (AskUserQuestion or routing-injection)',
+          evidence: visible.slice(-2000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+      if (isAutoDecidedVisible(visible)) {
+        return {
+          outcome: 'auto_decided',
+          summary: 'skill auto-decided an AskUserQuestion via the AUTO_DECIDE preamble (the user never saw the prompt)',
+          evidence: visible.slice(-2000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+      if (isPlanReadyVisible(visible)) {
+        return {
+          outcome: 'plan_ready',
+          summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
         };
