@@ -41,6 +41,7 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
+CHOOSE_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
     --team)    TEAM_MODE=1; shift ;;
     --no-team) NO_TEAM_MODE=1; shift ;;
+    --choose) CHOOSE_MODE=1; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
@@ -373,12 +375,20 @@ mkdir -p "$HOME/.gstack/projects"
 link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
+  local filter_list="${3:-}"
   local linked=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       dir_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$dir_name" = "node_modules" ] && continue
+      # --choose filter: skip skills not in selected list
+      if [ -n "$filter_list" ]; then
+        case " $filter_list " in
+          *" $dir_name "*) ;;
+          *) continue ;;
+        esac
+      fi
       # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
       skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
       [ -z "$skill_name" ] && skill_name="$dir_name"
@@ -491,12 +501,123 @@ cleanup_prefixed_claude_symlinks() {
   fi
 }
 
+# ─── Interactive skill picker for --choose mode ──────────────────────────
+# Discovers all skill dirs (containing SKILL.md) and presents a multi-select menu.
+# Sets SELECTED_SKILLS array with chosen skill directory names.
+choose_skills() {
+  local gstack_dir="$1"
+  local all_skills=()
+  local selected_flags=()
+
+  # Discover skills
+  for dir in "$gstack_dir"/*/; do
+    [ -f "$dir/SKILL.md" ] || continue
+    local name; name="$(basename "$dir")"
+    case "$name" in
+      .agents|node_modules|.git|.github) continue ;;
+    esac
+    all_skills+=("$name")
+  done
+
+  local total=${#all_skills[@]}
+  if [ "$total" -eq 0 ]; then
+    echo "  No skills found in $gstack_dir" >&2
+    return 1
+  fi
+
+  # Default: all selected
+  for (( i=0; i<total; i++ )); do
+    selected_flags[i]=1
+  done
+
+  print_menu() {
+    local cols=2
+    local col=0
+    printf '\n  Select skills to install:\n\n'
+    for (( i=0; i<total; i++ )); do
+      local mark="[x]"
+      [ "${selected_flags[i]}" -eq 0 ] && mark="[ ]"
+      local num=$((i+1))
+      if [ "$num" -lt 10 ]; then
+        printf '  %s %d. %-24s' "$mark" "$num" "${all_skills[i]}"
+      else
+        printf '  %s %2d. %-23s' "$mark" "$num" "${all_skills[i]}"
+      fi
+      col=$((col+1))
+      if [ "$col" -ge "$cols" ]; then
+        printf '\n'
+        col=0
+      fi
+    done
+    [ "$col" -ne 0 ] && printf '\n'
+    printf '\n'
+  }
+
+  print_menu
+
+  while true; do
+    printf "  Toggle: numbers (e.g. 1,3,5) | all | none | Enter to confirm: "
+    read -r input </dev/tty
+
+    # Empty = confirm
+    if [ -z "$input" ]; then
+      break
+    fi
+
+    case "$input" in
+      all)
+        for (( i=0; i<total; i++ )); do selected_flags[i]=1; done
+        ;;
+      none)
+        for (( i=0; i<total; i++ )); do selected_flags[i]=0; done
+        ;;
+      *)
+        # Parse comma/space separated numbers
+        IFS_ORIG="$IFS"
+        IFS=', ' read -ra tokens <<< "$input"
+        IFS="$IFS_ORIG"
+        local valid=1
+        for t in "${tokens[@]}"; do
+          t="${t// /}"
+          [ -z "$t" ] && continue
+          if [[ "$t" =~ ^[0-9]+$ ]] && [ "$t" -ge 1 ] && [ "$t" -le "$total" ]; then
+            local idx=$((t-1))
+            if [ "${selected_flags[idx]}" -eq 1 ]; then
+              selected_flags[idx]=0
+            else
+              selected_flags[idx]=1
+            fi
+          else
+            echo "  Invalid: $t (use 1-$total, all, none, or Enter)" >&2
+            valid=0
+            break
+          fi
+        done
+        [ "$valid" -eq 0 ] && continue
+        ;;
+    esac
+    print_menu
+  done
+
+  # Collect results
+  SELECTED_SKILLS=()
+  for (( i=0; i<total; i++ )); do
+    if [ "${selected_flags[i]}" -eq 1 ]; then
+      SELECTED_SKILLS+=("${all_skills[i]}")
+    fi
+  done
+
+  local count=${#SELECTED_SKILLS[@]}
+  echo "  Selected $count/$total skills."
+}
+
 # ─── Helper: link generated Codex skills into a skills parent directory ──
 # Installs from .agents/skills/gstack-* (the generated Codex-format skills)
 # instead of source dirs (which have Claude paths).
 link_codex_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
+  local filter_list="${3:-}"
   local agents_dir="$gstack_dir/.agents/skills"
   local linked=()
 
@@ -517,6 +638,14 @@ link_codex_skill_dirs() {
       # browse/), not a skill. Linking it would overwrite the root gstack
       # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
+      # --choose filter
+      if [ -n "$filter_list" ]; then
+        local bare_name="${skill_name#gstack-}"
+        case " $filter_list " in
+          *" $bare_name "*) ;;
+          *) continue ;;
+        esac
+      fi
       target="$skills_dir/$skill_name"
       # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then
@@ -702,6 +831,7 @@ create_opencode_runtime_root() {
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
+  local filter_list="${3:-}"
   local factory_dir="$gstack_dir/.factory/skills"
   local linked=()
 
@@ -719,6 +849,14 @@ link_factory_skill_dirs() {
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
+      # --choose filter
+      if [ -n "$filter_list" ]; then
+        local bare_name="${skill_name#gstack-}"
+        case " $filter_list " in
+          *" $bare_name "*) ;;
+          *) continue ;;
+        esac
+      fi
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "$skill_dir" "$target"
@@ -734,6 +872,7 @@ link_factory_skill_dirs() {
 link_opencode_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
+  local filter_list="${3:-}"
   local opencode_dir="$gstack_dir/.opencode/skills"
   local linked=()
 
@@ -751,6 +890,14 @@ link_opencode_skill_dirs() {
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
+      # --choose filter
+      if [ -n "$filter_list" ]; then
+        local bare_name="${skill_name#gstack-}"
+        case " $filter_list " in
+          *" $bare_name "*) ;;
+          *) continue ;;
+        esac
+      fi
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "$skill_dir" "$target"
@@ -764,6 +911,17 @@ link_opencode_skill_dirs() {
 }
 
 # 4. Install for Claude (default)
+# --choose: interactive skill selection
+CHOOSE_FILTER=""
+if [ "$CHOOSE_MODE" -eq 1 ]; then
+  if [ ! -t 0 ]; then
+    echo "Error: --choose requires an interactive terminal (TTY)." >&2
+    exit 1
+  fi
+  choose_skills "$SOURCE_GSTACK_DIR"
+  CHOOSE_FILTER="${SELECTED_SKILLS[*]}"
+fi
+
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
 CODEX_REPO_LOCAL=0
@@ -782,7 +940,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
     # reads the correct (patched) name: values for symlink naming
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" "$CHOOSE_FILTER"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
@@ -791,12 +949,22 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
     # Backwards-compat alias: /connect-chrome → /open-gstack-browser
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+    # Skip if open-gstack-browser was filtered out by --choose
+    _SKIP_OGB_ALIAS=0
+    if [ -n "$CHOOSE_FILTER" ]; then
+      case " $CHOOSE_FILTER " in
+        *" open-gstack-browser "*) ;;
+        *) _SKIP_OGB_ALIAS=1 ;;
+      esac
     fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+    if [ "$_SKIP_OGB_ALIAS" -eq 0 ]; then
+      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+      fi
+      if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
+        ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+      fi
     fi
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
@@ -821,17 +989,26 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" "$CHOOSE_FILTER"
     GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
     if [ -x "$GSTACK_RELINK" ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+    _SKIP_OGB_ALIAS=0
+    if [ -n "$CHOOSE_FILTER" ]; then
+      case " $CHOOSE_FILTER " in
+        *" open-gstack-browser "*) ;;
+        *) _SKIP_OGB_ALIAS=1 ;;
+      esac
     fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+    if [ "$_SKIP_OGB_ALIAS" -eq 0 ]; then
+      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+      fi
+      if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
+        ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+      fi
     fi
     log "gstack ready (claude)."
     log "  browse: $BROWSE_BIN"
@@ -852,7 +1029,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
     create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
   fi
   # Install generated Codex-format skills (not Claude source dirs)
-  link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
+  link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS" "$CHOOSE_FILTER"
 
   log "gstack ready (codex)."
   log "  browse: $BROWSE_BIN"
@@ -900,6 +1077,14 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
     for skill_dir in "$AGENTS_DIR"/gstack*/; do
       [ -f "$skill_dir/SKILL.md" ] || continue
       skill_name="$(basename "$skill_dir")"
+      # --choose filter
+      if [ -n "$CHOOSE_FILTER" ]; then
+        _bare="${skill_name#gstack-}"
+        case " $CHOOSE_FILTER " in
+          *" $_bare "*) ;;
+          *) continue ;;
+        esac
+      fi
       target_dir="$KIRO_SKILLS/$skill_name"
       mkdir -p "$target_dir"
       # Generated Codex skills use $HOME/.codex (not ~/), plus $GSTACK_ROOT variables.
@@ -919,7 +1104,7 @@ fi
 if [ "$INSTALL_FACTORY" -eq 1 ]; then
   mkdir -p "$FACTORY_SKILLS"
   create_factory_runtime_root "$SOURCE_GSTACK_DIR" "$FACTORY_GSTACK"
-  link_factory_skill_dirs "$SOURCE_GSTACK_DIR" "$FACTORY_SKILLS"
+  link_factory_skill_dirs "$SOURCE_GSTACK_DIR" "$FACTORY_SKILLS" "$CHOOSE_FILTER"
   echo "gstack ready (factory)."
   echo "  browse: $BROWSE_BIN"
   echo "  factory skills: $FACTORY_SKILLS"
@@ -929,7 +1114,7 @@ fi
 if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   mkdir -p "$OPENCODE_SKILLS"
   create_opencode_runtime_root "$SOURCE_GSTACK_DIR" "$OPENCODE_GSTACK"
-  link_opencode_skill_dirs "$SOURCE_GSTACK_DIR" "$OPENCODE_SKILLS"
+  link_opencode_skill_dirs "$SOURCE_GSTACK_DIR" "$OPENCODE_SKILLS" "$CHOOSE_FILTER"
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
