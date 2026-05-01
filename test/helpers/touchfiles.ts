@@ -105,6 +105,12 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // skills with no prior plan-mode test:
   'autoplan-auto-mode':           ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
   'office-hours-auto-mode':       ['office-hours/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  // v1.21+ AUTO_DECIDE preserve eval (periodic). Verifies the Tool resolution
+  // fix doesn't trip the legitimate /plan-tune opt-in path: when the user has
+  // written a never-ask preference, AUQ should still auto-decide rather than
+  // surfacing the question. Touches the question-tuning + preference
+  // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
+  'auto-decide-preserved':        ['scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'plan-ceo-review/**', 'bin/gstack-question-preference', 'bin/gstack-config', 'bin/gstack-slug', 'test/helpers/claude-pty-runner.ts'],
 
   // Real-PTY E2E batch (#6 new tests on the harness).
   // Each one tests behavior the SDK harness can't observe (rendered TTY,
@@ -385,6 +391,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // v1.21+ auto-mode regression tests
   'autoplan-auto-mode': 'gate',
   'office-hours-auto-mode': 'gate',
+  'auto-decide-preserved': 'periodic',
   'e2e-harness-audit': 'gate',
 
   // Real-PTY E2E batch — tier classification:
