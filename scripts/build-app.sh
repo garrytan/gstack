@@ -94,7 +94,9 @@ if [ -f "$CHROMIUM_PLIST" ]; then
   if [ -f "$CHROMIUM_STRINGS" ]; then
     # InfoPlist.strings may be binary plist, convert to xml first
     plutil -convert xml1 "$CHROMIUM_STRINGS" 2>/dev/null || true
-    sed -i '' "s/Google Chrome for Testing/$APP_NAME/g" "$CHROMIUM_STRINGS" 2>/dev/null || true
+    # Escape sed replacement metachars (& / \) in $APP_NAME so unusual names can't break or inject into the s/// command.
+    APP_NAME_SED_ESCAPED=$(printf '%s' "$APP_NAME" | sed 's/[&/\]/\\&/g')
+    sed -i '' "s/Google Chrome for Testing/${APP_NAME_SED_ESCAPED}/g" "$CHROMIUM_STRINGS" 2>/dev/null || true
   fi
   # Replace Chromium's icon with ours so the Dock shows the GStack icon
   # (Chromium's process owns the Dock icon, not our launcher)
@@ -177,7 +179,11 @@ echo "  Creating DMG..."
 rm -f "$DMG_PATH"
 
 # Create a temporary directory for DMG contents
-DMG_TMP=$(mktemp -d)
+DMG_TMP=$(mktemp -d) || { echo "ERROR: mktemp -d failed — refusing to continue so we don't cp into the filesystem root." >&2; exit 1; }
+if [ -z "$DMG_TMP" ] || [ ! -d "$DMG_TMP" ]; then
+  echo "ERROR: mktemp -d returned an invalid path ('$DMG_TMP')." >&2
+  exit 1
+fi
 cp -a "$APP_DIR" "$DMG_TMP/"
 ln -s /Applications "$DMG_TMP/Applications"
 

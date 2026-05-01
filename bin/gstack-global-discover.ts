@@ -274,15 +274,22 @@ function resolveClaudeCodeCwd(
 }
 
 function extractCwdFromJsonl(filePath: string): string | null {
+  // Read a capped prefix so huge JSONL files don't blow up memory. 64KB
+  // comfortably fits the largest observed session headers; the old 8KB cap
+  // would sometimes fall inside a single long line and silently drop the
+  // project (JSON.parse failure on the truncated tail).
+  const MAX_BYTES = 64 * 1024;
+  const MAX_LINES = 30;
   try {
-    // Read only the first 8KB to avoid loading huge JSONL files into memory
     const fd = openSync(filePath, "r");
-    const buf = Buffer.alloc(8192);
-    const bytesRead = readSync(fd, buf, 0, 8192, 0);
+    const buf = Buffer.alloc(MAX_BYTES);
+    const bytesRead = readSync(fd, buf, 0, MAX_BYTES, 0);
     closeSync(fd);
     const text = buf.toString("utf-8", 0, bytesRead);
-    const lines = text.split("\n").slice(0, 15);
-    for (const line of lines) {
+    // Drop the final segment — it may be an incomplete line at the cap boundary.
+    const parts = text.split("\n");
+    const completeLines = parts.length > 1 ? parts.slice(0, -1) : parts;
+    for (const line of completeLines.slice(0, MAX_LINES)) {
       if (!line.trim()) continue;
       try {
         const obj = JSON.parse(line);

@@ -148,7 +148,16 @@ function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
     );
   }
   const raw = fs.readFileSync(payloadPath, 'utf8');
-  const json = JSON.parse(raw);
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`pdf: --from-file ${payloadPath} is not valid JSON (${msg}).`);
+  }
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) {
+    throw new Error(`pdf: --from-file ${payloadPath} must be a JSON object, got ${Array.isArray(json) ? 'array' : typeof json}.`);
+  }
   const out: ParsedPdfArgs = {
     output: json.output || `${TEMP_DIR}/browse-page.pdf`,
     format: json.format,
