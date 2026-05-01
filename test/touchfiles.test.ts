@@ -97,8 +97,10 @@ describe('selectTests', () => {
     expect(result.selected).toContain('ask-user-question-format-pty');
     expect(result.selected).toContain('plan-ceo-mode-routing');
     expect(result.selected).toContain('autoplan-chain-pty');
-    expect(result.selected.length).toBe(18);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 18);
+    // Per-finding count + review-report-at-bottom (v1.21.x)
+    expect(result.selected).toContain('plan-ceo-finding-count');
+    expect(result.selected.length).toBe(19);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 19);
   });
 
   test('global touchfile triggers ALL tests', () => {

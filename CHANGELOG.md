@@ -1,10 +1,10 @@
 # Changelog
 
-## [1.22.0.0] - 2026-04-28
+## [1.24.0.0] - 2026-04-30
 
 ## **Cross-platform hardening. Mac + Linux full, curated Windows lane added.**
 
-v1.22.0.0 ports the McGluut fork's portability work into upstream and adds a curated Windows test job that actually runs green. `bin/gstack-paths` consolidates state-root resolution behind one helper sourced via `eval "$(...)"` from skill bash blocks; eight skills (`careful`, `freeze`, `guard`, `unfreeze`, `investigate`, `context-save`, `context-restore`, `learn`, `office-hours`, `plan-tune`, `codex`) move off inline `${CLAUDE_PLUGIN_DATA:-...}` chains. `Bun.which()` replaces 75 lines of fork-side PATH-resolution code in a new `browse/src/claude-bin.ts` wrapper, wired through five hardcoded `claude` spawn sites. A new `windows-free-tests` GitHub Actions job runs a curated 103-test subset on `windows-latest` plus targeted resolver tests; `evals.yml` stays Linux-container as it should. `AGENTS.md` and `docs/skills.md` sync to the live skill inventory (40+ skills, was 21); `/debug` → `/investigate`, missing skills added, stale `<5s` `bun test` claim dropped. Hardening direction credited to the McGluut fork.
+v1.24.0.0 ports the McGluut fork's portability work into upstream and adds a curated Windows test job that actually runs green. `bin/gstack-paths` consolidates state-root resolution behind one helper sourced via `eval "$(...)"` from skill bash blocks; eight skills (`careful`, `freeze`, `guard`, `unfreeze`, `investigate`, `context-save`, `context-restore`, `learn`, `office-hours`, `plan-tune`, `codex`) move off inline `${CLAUDE_PLUGIN_DATA:-...}` chains. `Bun.which()` replaces 75 lines of fork-side PATH-resolution code in a new `browse/src/claude-bin.ts` wrapper, wired through five hardcoded `claude` spawn sites. A new `windows-free-tests` GitHub Actions job runs a curated 103-test subset on `windows-latest` plus targeted resolver tests; `evals.yml` stays Linux-container as it should. `AGENTS.md` and `docs/skills.md` sync to the live skill inventory (40+ skills, was 21); `/debug` → `/investigate`, missing skills added, stale `<5s` `bun test` claim dropped. Hardening direction credited to the McGluut fork.
 
 ### The numbers that matter
 
@@ -61,8 +61,8 @@ Branch totals come from `git diff --shortstat origin/main..HEAD` after every lan
 - `test/helpers/agent-sdk-runner.ts`: `resolveClaudeBinary()` now delegates to the shared resolver.
 - `AGENTS.md`: rewrote the skill table from 21 entries to 40+, organized by category (plan reviews, implementation, release, operational, browser, safety). `/debug` → `/investigate`. Stale `<5s` `bun test` claim dropped — there's no realistic universal claim to make about test suite duration with periodic + gate + free tiers all in play.
 - `docs/skills.md`: added 11 missing skills to the inventory table (`/plan-devex-review`, `/devex-review`, `/plan-tune`, `/context-save`, `/context-restore`, `/health`, `/landing-report`, `/benchmark-models`, `/pair-agent`, `/setup-gbrain`, `/make-pdf`).
-- `package.json`: 2 new scripts. `test:free` runs the full free suite via the sharding script. `test:windows` runs the curated Windows-safe subset. Version bump `1.15.0.0` → `1.22.0.0`.
-- `VERSION`: `1.15.0.0` → `1.22.0.0`. Workspace-aware queue at /ship time: v1.16.0.0 claimed by `garrytan/gbrowser-unleashed` (PR #1253), v1.17.0.0 by `garrytan/setup-gbrain-run` (PR #1234), v1.19.0.0 by `garrytan/browserharness` (PR #1233), v1.21.1.0 by `garrytan/pty-plan-mode-e2e` (PR #1255). This branch claims the next available MINOR slot.
+- `package.json`: 2 new scripts. `test:free` runs the full free suite via the sharding script. `test:windows` runs the curated Windows-safe subset. Version bump `1.15.0.0` → `1.24.0.0`.
+- `VERSION`: `1.15.0.0` → `1.24.0.0`. Workspace-aware queue at /ship time: v1.16.0.0 claimed by `garrytan/gbrowser-unleashed` (PR #1253), v1.17.0.0 by `garrytan/setup-gbrain-run` (PR #1234), v1.19.0.0 by `garrytan/browserharness` (PR #1233), v1.21.1.0 by `garrytan/pty-plan-mode-e2e` (PR #1255). This branch claims the next available MINOR slot.
 
 #### Fixed
 
@@ -73,11 +73,101 @@ Branch totals come from `git diff --shortstat origin/main..HEAD` after every lan
 
 - **Merge-time version-slot freshness recheck.** Current `bin/gstack-next-version` + `scripts/compare-pr-version.ts` queue protection triggers on PR events touching version files. If another PR lands AFTER our gate fires, our claimed slot can go stale without an automatic recheck. P3 follow-up.
 - **POSIX-bound test surfaces for full Windows parity.** 25 tests are excluded from the curated Windows lane via the `WINDOWS_FRAGILE_PATTERNS` scan in `scripts/test-free-shards.ts`. Concrete examples: `test/ship-version-sync.test.ts:72` hardcodes `/bin/bash`, `test/helpers/providers/claude.ts:22` (now fixed in this release), `package.json:12` build step shells out to `bash`/`chmod`. Porting these is the gap between "curated Windows lane" and "full Windows parity." P4 follow-up.
-- **Native PowerShell setup support.** `setup` is bash + symlink heavy at `setup:404`. v1.22.0.0 documents Git Bash / MSYS as the supported Windows install path in `AGENTS.md`. A native PowerShell port closes the last off-the-shelf-for-Windows gap. P4 follow-up.
+- **Native PowerShell setup support.** `setup` is bash + symlink heavy at `setup:404`. v1.24.0.0 documents Git Bash / MSYS as the supported Windows install path in `AGENTS.md`. A native PowerShell port closes the last off-the-shelf-for-Windows gap. P4 follow-up.
 
 #### For contributors
 
 - Hardening direction credited to the McGluut fork: <https://github.com/mcgluut/gstack>. The Bun.which-based resolver is upstream's adaptation of the cross-platform binary lookup the fork implemented in `claude-bin.ts`; the path-portability helper is upstream's factoring of the `${CLAUDE_PLUGIN_DATA:-...}` chain the fork inlined per-skill. The curated Windows test job is upstream's reading of what `test-free-shards.ts` was reaching toward, applied with explicit attention to which surfaces are actually Windows-safe today.
+
+## [1.23.0.0] - 2026-04-30
+
+## **Every PR title now starts with `vX.Y.Z.W`. `/ship`, `/document-release`, and the GitHub Action all enforce it.**
+
+The format was already documented in `/ship` Step 19, but a "leave custom titles alone" loophole meant a PR opened without a version prefix would never get one — and `/document-release` never touched the title at all, so a doc-release VERSION bump silently left the PR pointing at the old version. This release closes both gaps. The rule lives in one place now (`bin/gstack-pr-title-rewrite.sh`), all three callers shell out to it, and a free `bun test` locks in the four branches.
+
+### The numbers that matter
+
+Numbers come from `git diff --shortstat origin/main..HEAD` and `bun test test/pr-title-rewrite.test.ts` on a clean tree.
+
+| Metric | Δ |
+|---|---|
+| Net branch size vs main | +210 / −36 lines (5 files + 2 new) |
+| New helper script | **bin/gstack-pr-title-rewrite.sh** (40 lines, single source of truth) |
+| New unit tests added | **+9** (test/pr-title-rewrite.test.ts) |
+| Unit suite runtime | **402ms** (free-tier, runs on every push) |
+| Loopholes closed | **3** (ship Step 19, document-release Step 9, pr-title-sync.yml) |
+| Reviewers run on this PR | plan-eng-review (CLEARED) + adversarial (Claude subagent) |
+
+### What this means for builders
+
+PR titles are now a deterministic function of the VERSION file, no matter how the PR got created. Open one via the web UI with `feat: my thing` and the next push of a VERSION bump turns it into `v1.23.0.0 feat: my thing`. Run `/ship` from a stale branch where Step 12's queue-drift detection rebumps to a higher version and the title moves with it. Run `/document-release`, bump VERSION at Step 8, and the PR title now follows along instead of staying at the previous version.
+
+The helper itself rejects malformed VERSION values (anything outside `^[0-9]+(\.[0-9]+)*$`) with exit code 2, uses a literal `case` prefix match instead of bash's pattern-matching `#` operator (so a hypothetical VERSION containing glob metacharacters can't silently mismatch), and is idempotent — applying it twice yields the same result.
+
+### Itemized changes
+
+#### Added
+
+- `bin/gstack-pr-title-rewrite.sh`: shared helper. Takes `<NEW_VERSION>` + `<CURRENT_TITLE>`, prints the corrected title on stdout. Three cases: already correct (no-op), different version prefix (replace), no prefix (prepend). Validates NEW_VERSION shape at entry. Used by `/ship`, `/document-release`, and the GitHub Action.
+- `test/pr-title-rewrite.test.ts`: 9 deterministic tests covering already-correct, different-prefix, different-prefix-length, no-prefix, plain-words-not-stripped, single-segment-not-stripped, missing-args, malformed-VERSION rejection, and idempotence. Free-tier, runs on every `bun test`.
+
+#### Changed
+
+- `ship/SKILL.md.tmpl` Step 19: idempotency block now always rewrites titles to start with `v$NEW_VERSION` — no more "custom title kept intentionally" escape hatch. Shells out to `bin/gstack-pr-title-rewrite.sh` for the rule. Adds a post-edit self-check that re-fetches the title and retries once if the edit didn't stick.
+- `ship/SKILL.md.tmpl` create-PR snippets (lines 867 and 876): inline comment makes the `v$NEW_VERSION` requirement unmissable when reading the step.
+- `document-release/SKILL.md.tmpl` Step 9: new "PR/MR title sync" sub-step calls the same helper after the body update. Catches the case where Step 8 bumped VERSION after `/ship` had already created the PR — title follows VERSION instead of going stale.
+- `.github/workflows/pr-title-sync.yml`: drops the "eligible only if already prefixed" gate. Sources the helper, rewrites unconditionally on every VERSION change. Defense-in-depth backstop for PRs opened outside the skills (manual `gh pr create`, web UI). Uses `env:` for `OLD_TITLE` so YAML expression injection can't reach `run:`.
+
+#### For contributors
+
+- The helper is a regular `bin/` script with `set -euo pipefail`, no external deps beyond bash + sed. Slots into the existing pattern alongside `bin/gstack-config`, `bin/gstack-slug`, `bin/gstack-next-version`.
+- Test coverage gates this — any future change to the rule has to update the test fixtures or the suite goes red.
+
+## [1.21.1.0] - 2026-04-28
+
+## **plan-ceo-review smoke tightens. The "agent skips Step 0 and ships a plan" regression now fails the gate.**
+
+The v1.15.0.0 real-PTY harness shipped with a smoke that accepted either `'asked'` or `'plan_ready'` as success. That OR was too lax for `/plan-ceo-review` specifically: the skill template mandates Step 0A premise challenge plus Step 0F mode selection BEFORE any plan write, so reaching `plan_ready` first IS the regression. This release tightens the assertion to `'asked'` only for that smoke, and refactors the runner so the contract is testable in <1s instead of $0.50 of stochastic PTY.
+
+### The numbers that matter
+
+Numbers come from `git diff --shortstat origin/main..HEAD` and `bun test test/helpers/claude-pty-runner.unit.test.ts` on a clean tree.
+
+| Metric | Δ |
+|---|---|
+| Net branch size vs main | +162 / −65 lines (3 files) |
+| New unit tests added | **+24** (claude-pty-runner.unit.test.ts) |
+| Unit suite runtime | **14ms** (deterministic, free-tier) |
+| Real-PTY gate runs verified | **4 clean PTY runs** (3 lock-in + 1 post-refactor) |
+| Outcome assertions covered | **5/5** (was 3/5; `plan_ready` is now FAIL for plan-ceo) |
+| Reviewers run on this PR | plan-eng-review (CLEARED) + codex consult + 2 specialists + adversarial |
+
+### What this means for builders
+
+Three new classes of harness regression are now caught deterministically in the free tier instead of waiting on a $0.50 stochastic PTY run. The classifier is extracted into a pure `classifyVisible()` function so reordering branches in the polling loop fails the unit tests instead of silently shipping. Permission dialogs (which render numbered lists) are filtered out of the `'asked'` classification so a permission prompt cannot pose as a Step 0 skill question. The bare phrase `Do you want to proceed?` no longer triggers permission detection on its own — it now requires a file-edit context co-trigger, so a skill question that contains the phrase isn't mis-classified.
+
+For `/plan-ceo-review` specifically: any future preamble slim-down or template edit that lets the agent skip Step 0 and write a plan will fail the gate before the PR ships. Pull, run `bun test`, and the harness layer is provably tighter without you having to spend a token.
+
+### Itemized changes
+
+#### Added
+
+- `test/helpers/claude-pty-runner.unit.test.ts`: 24 deterministic tests covering `isPermissionDialogVisible` (with the new co-trigger contract), `isNumberedOptionListVisible`, `parseNumberedOptions`, and the new `classifyVisible()` runtime path. Free-tier, runs on every `bun test`.
+- `classifyVisible(visible)` in `claude-pty-runner.ts`: pure classifier extracted from the polling loop. Returns `{ outcome, summary } | null`. Branch order: silent_write → plan_ready → asked → null (with permission-dialog filter). Live-state branches (process exited, "Unknown command") stay in the runner.
+- `TAIL_SCAN_BYTES = 1500` exported constant. Shared between `runPlanSkillObservation` and the routing test's nav loop so tuning stays in sync.
+- `env?: Record<string, string>` option on `runPlanSkillObservation`, threaded to `launchClaudePty`. Plumbing for future env-driven test isolation (gstack-config does not yet honor env overrides; tracked as post-merge follow-up).
+
+#### Changed
+
+- `test/skill-e2e-plan-ceo-plan-mode.test.ts`: assertion narrowed from `['asked', 'plan_ready']` to `'asked'` only. Failure message now branches on `outcome` (plan_ready vs timeout vs silent_write) with a tailored diagnosis line, and references skill-template section names instead of line numbers (durable to template edits).
+- `isPermissionDialogVisible`: bare `Do you want to proceed?` now requires a file-edit context co-trigger (`Edit to <path>` or `Write to <path>`). Other clauses (`requested permissions to`, `allow all edits`, `always allow access to`, `Bash command requires permission`) remain unconditional.
+- `test/skill-e2e-plan-ceo-mode-routing.test.ts`: replaces the local `1500` magic number with the shared `TAIL_SCAN_BYTES` constant.
+
+#### For contributors
+
+- The runner change is additive and the existing sibling smokes (`plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`) keep their loose `['asked', 'plan_ready']` assertion. Their behavior is unchanged.
+- Post-merge follow-ups captured in `TODOS.md`: per-finding AskUserQuestion count assertion (V2), env-driven gstack-config overrides (so `QUESTION_TUNING=false` actually isolates the test), path-confusion hardening on `SANCTIONED_WRITE_SUBSTRINGS`.
+
 
 ## [1.20.0.0] - 2026-04-28
 

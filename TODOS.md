@@ -213,6 +213,56 @@ scope of that PR; deliberately deferred to keep PTY-import small.
 
 ## Testing
 
+## P2: Per-finding AskUserQuestion count assertion for /plan-ceo-review
+
+**What:** PTY E2E test that drives /plan-ceo-review through Step 0 with a stable fixture diff containing N known findings, asserts that exactly N distinct AskUserQuestions fire (one per finding) before plan_ready.
+
+**Why:** The skill template repeats "One issue = one AskUserQuestion call. Never combine multiple issues into one question." at every review checkpoint. No test enforces it. The current `skill-e2e-plan-ceo-plan-mode.test.ts` smoke (post-v1.21.1.0) only catches "agent skipped Step 0 entirely." Batching findings into one question slips through silently.
+
+**Pros:** Locks in the strongest contract the skill mandates. Catches a real failure mode (the original attachment showed 2 findings batched as 0 questions).
+**Cons:** Needs a stable fixture diff to keep finding count deterministic (~1 day human / ~30 min CC). Opus may reasonably consolidate two related findings, so the assertion needs a forgiving lower bound (e.g., `>= ceil(N * 0.6)`) rather than strict equality.
+
+**Context:** The PTY harness (`runPlanSkillObservation`) returns at first terminal outcome — for V2 we need a streaming variant that counts AskUserQuestions across the whole session up to `plan_ready`. Probably a new helper alongside `runPlanSkillObservation`.
+
+**Depends on:** Stable fixture diff (`test/fixtures/plans/multi-finding.diff` or similar) with a small known set of issues that triggers all 4 review sections.
+
+**Priority:** P2.
+**Effort:** S (CC: ~30 min once fixture exists). Captured from v1.21.1.0 plan-eng-review D2.
+
+---
+
+## P3: Honor env vars in gstack-config (so QUESTION_TUNING/EXPLAIN_LEVEL actually isolate tests)
+
+**What:** `gstack-config get <key>` reads `~/.gstack/config.yaml`. `runPlanSkillObservation` plumbs `env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' }` through to the spawned `claude` process — but the skill preamble bash uses `gstack-config get question_tuning`, which never looks at env. The env passthrough is theater on current code.
+
+**Why:** Without env honoring, the v1.21.1.0 plan-ceo-review smoke is still flaky on machines with `question_tuning: true` set in YAML. AUTO_DECIDE preferences would skip the rendered AskUserQuestion list, masking the regression we want to catch.
+
+**Pros:** Makes the gate test hermetic across machines. The env wiring is already in place — only `gstack-config` needs to read env first, fall back to YAML.
+**Cons:** Touches the gstack-config binary across all 3 platforms (linux/darwin/windows). Cross-binary refactor.
+
+**Context:** Captured from v1.21.1.0 adversarial review. Documented honestly in the test docstring as a known limitation.
+
+**Priority:** P3.
+**Effort:** S. Single-file edit to `bin/gstack-config` (~10 LOC for env-first lookup).
+
+---
+
+## P3: Path-confusion hardening on SANCTIONED_WRITE_SUBSTRINGS
+
+**What:** `runPlanSkillObservation`'s silent-write detector uses substring matching on a few sanctioned paths (`.gstack/`, `CHANGELOG.md`, `TODOS.md`, etc). A write to `node_modules/some-pkg/CHANGELOG.md` or `src/foo/.gstack/leak.ts` is currently sanctioned because the substring matches anywhere in the path.
+
+**Why:** Defensive — no current bug exploits this, but a malicious skill or fixture could write to a path that happens to contain `.gstack/` or `CHANGELOG.md` and slip past silent-write detection.
+
+**Pros:** Hardens the harness against future skill misbehavior. Aligns substring rules with their intent.
+**Cons:** Need to anchor against absolute prefixes (`os.homedir() + '/.gstack/'`, worktree root) which makes the test less portable across machines.
+
+**Context:** Captured from v1.21.1.0 adversarial review (HIGH/FIXABLE finding, pre-existing). Refactored into a `SANCTIONED_WRITE_SUBSTRINGS` constant in v1.21.1.0 but the substring-includes logic is unchanged from before.
+
+**Priority:** P3.
+**Effort:** S.
+
+---
+
 ## P1: Structural STOP-Ask forcing function across all skills
 
 **What:** Design and implement a structural forcing function that catches when a skill mandates per-issue AskUserQuestion but the model silently substitutes batch-synthesis. Candidate mechanisms: question-count assertion (skill declares expected question count in frontmatter; post-run audit logs if model fired <N), typed question templates (skill hands the model pre-built AskUserQuestion payloads rather than prose instructions), or a canUseTool-based post-run audit that compares declared-gates-fired vs expected.
