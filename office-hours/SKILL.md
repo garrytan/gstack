@@ -1657,6 +1657,19 @@ Replace ITERATIONS, FOUND, FIXED, REMAINING, SCORE with actual values from the r
 
 ---
 
+**Before asking for approval, output the full design doc inline.**
+
+Print the complete contents of the design doc as direct assistant text in the
+conversation — do NOT ask the user to open the file, and do NOT rely on a
+`Bash cat` or `Read` tool call to show it. Tool outputs are frequently
+collapsed in the Claude Code UI, which leaves the user approving a document
+they cannot actually see. The one place the full doc is guaranteed to render
+is the assistant message itself.
+
+Format: a short preamble (`Here is the design doc saved to {path} — please
+review before approving:`) followed by the verbatim document body. Then
+proceed to the AskUserQuestion below.
+
 Present the reviewed design doc to the user via AskUserQuestion:
 - A) Approve — mark Status: APPROVED and proceed to handoff
 - B) Revise — specify which sections need changes (loop back to revise those sections)
