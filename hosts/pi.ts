@@ -21,6 +21,7 @@ const pi: HostConfig = {
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '~/.pi/agent/skills/gstack' },
     { from: '.claude/skills/gstack', to: '.pi/agent/skills/gstack' },
+    { from: '.claude/skills/review', to: '.pi/agent/skills/gstack/review' },
     { from: '.claude/skills', to: '.pi/agent/skills' },
   ],
   // Define runtime root and install strategy based on Pi's structure
