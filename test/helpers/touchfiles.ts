@@ -82,16 +82,29 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
 
-  // Plan-mode smoke tests — gate-tier safety regression tests. Each fires when
-  // any of: the interactive skill's template, the plan-mode resolver
-  // (completion-status owns generatePlanModeInfo), preamble composition, or
-  // the real-PTY runner (which the tests now use instead of the SDK harness)
-  // change.
-  'plan-ceo-review-plan-mode':    ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
-  'plan-eng-review-plan-mode':    ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
-  'plan-design-review-plan-mode': ['plan-design-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
-  'plan-devex-review-plan-mode':  ['plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  // Plan-mode smoke tests — gate-tier safety regression tests. Each test file
+  // contains TWO test cases as of v1.21: the baseline plan-mode case and the
+  // AskUserQuestion-blocked regression case (--disallowedTools AskUserQuestion
+  // parameterized — the flag set Conductor uses by default). Touchfiles
+  // include question-tuning.ts and generate-ask-user-format.ts because the
+  // AUTO_DECIDE preamble injection lives there and changes can flip the
+  // regression test outcome between 'asked' and 'auto_decided'.
+  'plan-ceo-review-plan-mode':    ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-eng-review-plan-mode':    ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-design-review-plan-mode': ['plan-design-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-devex-review-plan-mode':  ['plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
   'plan-mode-no-op':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+
+  // v1.21+ AskUserQuestion-blocked regression tests — Conductor launches
+  // claude with `--disallowedTools AskUserQuestion --permission-mode default`
+  // (verified via `ps`); skills must still surface user-decisions through a
+  // fallback path (mcp__conductor__AskUserQuestion or plan-file flow) rather
+  // than silently auto-deciding. Parameterized regression test cases live
+  // INSIDE the existing 4 plan-X-review-plan-mode test files (covered
+  // transitively by the entries above). Two new standalone files exist for
+  // skills with no prior plan-mode test:
+  'autoplan-auto-mode':           ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'office-hours-auto-mode':       ['office-hours/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
 
   // Real-PTY E2E batch (#6 new tests on the harness).
   // Each one tests behavior the SDK harness can't observe (rendered TTY,
@@ -369,6 +382,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-design-review-plan-mode': 'gate',
   'plan-devex-review-plan-mode': 'gate',
   'plan-mode-no-op': 'gate',
+  // v1.21+ auto-mode regression tests
+  'autoplan-auto-mode': 'gate',
+  'office-hours-auto-mode': 'gate',
   'e2e-harness-audit': 'gate',
 
   // Real-PTY E2E batch — tier classification:

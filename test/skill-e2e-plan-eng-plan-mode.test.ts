@@ -29,4 +29,27 @@ describeE2E('plan-eng-review plan-mode smoke (gate)', () => {
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);
+
+  // v1.21+ regression: see skill-e2e-plan-ceo-plan-mode.test.ts for the
+  // contract. plan-eng-review's Step 0 always issues a scope-challenge
+  // AskUserQuestion (and per-section STOPs after that), so 'asked' is the
+  // only pass when AskUserQuestion is --disallowedTools.
+  test('AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', async () => {
+    const obs = await runPlanSkillObservation({
+      skillName: 'plan-eng-review',
+      inPlanMode: true,
+      extraArgs: ['--disallowedTools', 'AskUserQuestion'],
+      timeoutMs: 300_000,
+    });
+
+    if (obs.outcome !== 'asked') {
+      throw new Error(
+        `plan-eng-review AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
+          `summary: ${obs.summary}\n` +
+          `elapsed: ${obs.elapsedMs}ms\n` +
+          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+      );
+    }
+    expect(obs.outcome).toEqual('asked');
+  }, 360_000);
 });

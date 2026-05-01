@@ -45,4 +45,31 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);
+
+  // v1.21+ regression: Conductor launches Claude Code with
+  // `--disallowedTools AskUserQuestion --permission-mode default` (verified
+  // via `ps` on the live Conductor claude process). Native AskUserQuestion
+  // is removed from the model's tool registry; without fallback guidance
+  // the model can't ask and silently proceeds. plan-ceo-review's Step 0
+  // always asks a scope-mode question, so 'asked' is the only pass — the
+  // fix must route through mcp__conductor__AskUserQuestion (when present)
+  // or the plan-file + ExitPlanMode flow.
+  test('AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', async () => {
+    const obs = await runPlanSkillObservation({
+      skillName: 'plan-ceo-review',
+      inPlanMode: true,
+      extraArgs: ['--disallowedTools', 'AskUserQuestion'],
+      timeoutMs: 300_000,
+    });
+
+    if (obs.outcome !== 'asked') {
+      throw new Error(
+        `plan-ceo-review AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
+          `summary: ${obs.summary}\n` +
+          `elapsed: ${obs.elapsedMs}ms\n` +
+          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+      );
+    }
+    expect(obs.outcome).toEqual('asked');
+  }, 360_000);
 });

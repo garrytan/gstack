@@ -97,8 +97,10 @@ describe('selectTests', () => {
     expect(result.selected).toContain('ask-user-question-format-pty');
     expect(result.selected).toContain('plan-ceo-mode-routing');
     expect(result.selected).toContain('autoplan-chain-pty');
-    expect(result.selected.length).toBe(18);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 18);
+    // v1.21+ auto-mode regression: autoplan-auto-mode also depends on plan-ceo-review/**
+    expect(result.selected).toContain('autoplan-auto-mode');
+    expect(result.selected.length).toBe(19);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 19);
   });
 
   test('global touchfile triggers ALL tests', () => {
