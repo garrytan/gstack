@@ -18,6 +18,7 @@
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
+import { stealthArgs, applyStealthPatches } from './stealth';
 import { TabSession, type RefEntry } from './tab-session';
 
 export type { RefEntry };
@@ -179,7 +180,7 @@ export class BrowserManager {
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
     // Extensions only work in headed mode, so we use an off-screen window.
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
-    const launchArgs: string[] = [];
+    const launchArgs: string[] = [...stealthArgs];
     let useHeadless = true;
 
     // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
@@ -228,6 +229,9 @@ export class BrowserManager {
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
     }
+
+    // Anti-bot stealth patches (WebGL spoof, plugins, CDP cleanup, etc.)
+    await applyStealthPatches(this.context);
 
     // Create first tab
     await this.newTab();
@@ -370,61 +374,10 @@ export class BrowserManager {
     this.intentionalDisconnect = false;
 
     // ─── Anti-bot-detection stealth patches ───────────────────────
-    // Playwright's Chromium is detected by sites like Google/NYTimes via:
-    //   1. navigator.webdriver = true (handled by --disable-blink-features above)
-    //   2. Missing plugins array (real Chrome has PDF viewer, etc.)
-    //   3. Missing languages
-    //   4. CDP runtime detection (window.cdc_* variables)
-    //   5. Permissions API returning 'denied' for notifications
-    await this.context.addInitScript(() => {
-      // Fake plugins array (real Chrome has at least PDF Viewer)
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => {
-          const plugins = [
-            { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-            { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
-            { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
-          ];
-          (plugins as any).namedItem = (name: string) => plugins.find(p => p.name === name) || null;
-          (plugins as any).refresh = () => {};
-          return plugins;
-        },
-      });
-
-      // Fake languages (Playwright sometimes sends empty)
-      Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en'],
-      });
-
-      // Remove CDP runtime artifacts that automation detectors look for
-      // cdc_ prefixed vars are injected by ChromeDriver/CDP
-      const cleanup = () => {
-        for (const key of Object.keys(window)) {
-          if (key.startsWith('cdc_') || key.startsWith('__webdriver')) {
-            try {
-              delete (window as any)[key];
-            } catch (e: any) {
-              if (!(e instanceof TypeError)) throw e;
-            }
-          }
-        }
-      };
-      cleanup();
-      // Re-clean after a tick in case they're injected late
-      setTimeout(cleanup, 0);
-
-      // Override Permissions API to return 'prompt' for notifications
-      // (automation browsers return 'denied' which is a fingerprint)
-      const originalQuery = window.navigator.permissions?.query;
-      if (originalQuery) {
-        (window.navigator.permissions as any).query = (params: any) => {
-          if (params.name === 'notifications') {
-            return Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus);
-          }
-          return originalQuery.call(window.navigator.permissions, params);
-        };
-      }
-    });
+    // Comprehensive patches: webdriver property removal, WebGL spoofing,
+    // proper PluginArray, complete chrome object, CDP cleanup, permissions
+    // normalization, Function.toString protection. See stealth.ts.
+    await applyStealthPatches(this.context);
 
     // Inject visual indicator — subtle top-edge amber gradient
     // Extension's content script handles the floating pill
