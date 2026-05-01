@@ -37,13 +37,14 @@ import {
   isPermissionDialogVisible,
   parseNumberedOptions,
   isPlanReadyVisible,
+  MODE_RE,
+  optionsSignature,
+  TAIL_SCAN_BYTES,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
 const describeE2E = shouldRun ? describe : describe.skip;
-
-const MODE_RE = /HOLD SCOPE|SCOPE EXPANSION|SELECTIVE EXPANSION|SCOPE REDUCTION/i;
 
 interface ModeCase {
   mode: 'HOLD SCOPE' | 'SCOPE EXPANSION';
@@ -95,8 +96,8 @@ async function navigateToModeAskUserQuestion(
 
     // Has the rendered list changed since last poll? If not, we're seeing
     // the same prompt and shouldn't double-press.
-    const sig = opts.map(o => `${o.index}:${o.label}`).join('|');
-    const lastSig = lastSeenList.map(o => `${o.index}:${o.label}`).join('|');
+    const sig = optionsSignature(opts);
+    const lastSig = optionsSignature(lastSeenList);
     if (sig === lastSig) continue;
     lastSeenList = opts;
 
@@ -115,7 +116,14 @@ async function navigateToModeAskUserQuestion(
     // Permission dialog? Grant with "1" but don't count it against nav budget.
     // Classify on the recent tail only — old permission text persists in
     // visibleSince and would re-trigger forever.
-    if (isPermissionDialogVisible(visible.slice(-1500))) {
+    //
+    // Note: runPlanSkillObservation has its own permission-dialog filter that
+    // simply skips classification (since it observes, doesn't drive). This nav
+    // loop drives the PTY directly via launchClaudePty and so owns its own
+    // dialog handling — granting with "1" so the workflow advances. Both
+    // paths share TAIL_SCAN_BYTES as the recent-tail window so tuning stays
+    // in sync.
+    if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
       session.send('1\r');
       await Bun.sleep(1500);
       continue;

@@ -1,44 +1,45 @@
 # Changelog
 
-## [1.21.0.0] - 2026-04-30
+## [1.22.0.0] - 2026-05-01
 
 ## **Plan-mode skills surface every decision again, even when the host disallows AskUserQuestion.**
 
-Conductor launches Claude Code with `--disallowedTools AskUserQuestion --permission-mode default --permission-prompt-tool stdio` (verified by inspecting the live conductor claude process via `ps`). The native AskUserQuestion tool is removed from the model's tool registry, so when a plan-mode skill instructs the model to "call AskUserQuestion," the call silently fails: the model can't ask, the user never sees the question, and the skill auto-proceeds without input. The whole interactive premise of `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`, and `/office-hours` was broken in any session that used these flags.
+Conductor launches Claude Code with `--disallowedTools AskUserQuestion --permission-mode default --permission-prompt-tool stdio` (verified by inspecting the live conductor claude process via `ps`). The native AskUserQuestion tool is removed from the model's tool registry, so when a plan-mode skill instructs the model to "call AskUserQuestion," the call silently fails: the model can't ask, the user never sees the question, and the skill auto-proceeds without input. The whole interactive premise of `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`, and `/office-hours` was broken in any Conductor session.
 
 The fix is preamble guidance, not skill-template surgery. A new `Tool resolution` section in `scripts/resolvers/preamble/generate-ask-user-format.ts` tells the model to check its tool list and prefer any `mcp__*__AskUserQuestion` variant (e.g. `mcp__conductor__AskUserQuestion`) over the native tool. Hosts that disable native AskUserQuestion register their own MCP variant; the variant takes the same questions/options shape and the host renders the prompt through its own UI surface. If neither variant is callable, the model falls back to writing a `## Decisions to confirm` section into the plan file and calling ExitPlanMode — plan-mode's native "Ready to execute?" confirmation surfaces the decisions through TTY UI. **Never silently auto-decide.**
 
-Six new gate-tier real-PTY regression tests reproduce the exact Conductor flag set (`extraArgs: ['--disallowedTools', 'AskUserQuestion']`) for every plan-mode skill, plus a periodic-tier eval that protects the legitimate `/plan-tune` AUTO_DECIDE opt-in path from being broken by the fix.
+Six gate-tier real-PTY regression tests reproduce the exact Conductor flag set (`extraArgs: ['--disallowedTools', 'AskUserQuestion']`) for every plan-mode skill, plus a periodic-tier eval that protects the legitimate `/plan-tune` AUTO_DECIDE opt-in path from being broken by the fix. The harness gains a new `'auto_decided'` outcome and whitespace-tolerant detectors that survive TTY cursor-positioning escape sequences (which `stripAnsi` removes without leaving spaces, collapsing "ready to execute" to "readytoexecute").
 
 ### What you can now do
 
 - **Use plan-mode review skills in Conductor.** Open a Conductor workspace, run `/plan-ceo-review` against a plan, and the scope-mode question actually appears for you to answer. Same for `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`'s premise gate, and `/office-hours`.
-- **Stay in control under `--disallowedTools` without writing template overrides.** The Tool resolution section is in the gstack preamble that prepends every tier-≥2 skill; new hosts that disable native AUQ via the same pattern get the fix transparently as long as they register an MCP variant.
+- **Stay in control under `--disallowedTools` without writing template overrides.** The Tool resolution section sits at preamble position 1 in every tier-≥2 skill; new hosts that disable native AUQ via the same pattern get the fix transparently as long as they register an MCP variant.
 - **Opt-in to AUTO_DECIDE without losing the regression guard.** `/plan-tune` users who set `never-ask` for specific questions keep auto-pick under Conductor flags; the periodic-tier `auto-decide-preserved` eval protects this path.
 
 ### The numbers that matter
 
-Source: `ps -p <conductor-claude-pid> -o args=` for the regression mechanism (verified primary source). 6 new gate-tier real-PTY regression cases plus 1 periodic-tier AUTO_DECIDE preserve eval; coverage in `test/skill-e2e-plan-{ceo,eng,design,devex}-plan-mode.test.ts` (parameterized inline) + `test/skill-e2e-{autoplan,office-hours}-auto-mode.test.ts` (standalone) + `test/skill-e2e-auto-decide-preserved.test.ts` (periodic).
+Source: `ps -p <conductor-claude-pid> -o args=` for the regression mechanism (verified primary source). 6 new gate-tier regression cases + 1 periodic-tier AUTO_DECIDE eval; coverage in `test/skill-e2e-plan-{ceo,eng,design,devex}-plan-mode.test.ts` (parameterized inline) + `test/skill-e2e-{autoplan,office-hours}-auto-mode.test.ts` (standalone) + `test/skill-e2e-auto-decide-preserved.test.ts` (periodic).
 
 | Surface | Shape |
 |---|---|
 | Skills that regain interactivity in Conductor | 6 (`/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`, `/office-hours`) |
-| New gate-tier regression test cases | 6 (one per skill above; `--disallowedTools AskUserQuestion` parameterized) |
+| New gate-tier regression test cases | 6 (one per skill; `--disallowedTools AskUserQuestion` parameterized) |
 | New periodic-tier eval | 1 (`auto-decide-preserved`, protects `/plan-tune` opt-in path) |
-| New `PlanSkillObservation` outcome | `auto_decided` — TTY shows "Auto-decided … (your preference)" |
-| New `runPlanSkillObservation` parameter | `extraArgs?: string[]` — plumbs raw flags to the spawned `claude` |
+| New `ClassifyResult` outcome | `auto_decided` — TTY shows "Auto-decided … (your preference)" |
+| New `runPlanSkillObservation` parameter | `extraArgs?: string[]` — plumbs raw flags to spawned `claude` |
 | Preamble resolvers touched | 2 (`generate-ask-user-format.ts`, `generate-completion-status.ts`) |
 | SKILL.md files regenerated | 41 |
-| Test detection order | `asked` > `auto_decided` > `plan_ready` (rendered list wins; auto-decide text wins over downstream plan-ready) |
-| Mechanism verified by | `ps -p <conductor-claude-pid> -o args=` showing `--disallowedTools AskUserQuestion --permission-mode default` |
+| `classifyVisible` branch order | `silent_write` → `auto_decided` → `plan_ready` → `asked` (each more specific than the next) |
+| Whitespace-tolerant detectors | `isPlanReadyVisible`, `isAutoDecidedVisible` (defeats stripAnsi cursor-positioning collapse) |
+| Verified by | `ps -p <conductor-claude-pid> -o args=` showing `--disallowedTools AskUserQuestion --permission-mode default` |
 
 ### What this means for builders
 
-If you built a workflow on `/plan-ceo-review` or any plan-mode review skill and ran it in Conductor, this release is the difference between the skill silently producing a plan you didn't shape and the skill stopping for you to choose scope mode, accept or reject scope expansions, and gate every architectural decision the way the skill was designed to. The fix is in the preamble, so you don't update skill templates yourself — just upgrade gstack and the next plan review you run honors your input.
+If you ran `/plan-ceo-review` or any plan-mode review skill in Conductor before this release, the skill silently produced a plan you didn't shape — the scope-mode question, expansion proposals, and per-section STOPs never reached you. After upgrading, the skill stops for every gate the template defines. The fix is in the preamble, so you don't update skill templates yourself — just upgrade gstack and the next plan review you run honors your input.
 
-If you opted into auto-deciding specific questions via `/plan-tune`, the new periodic eval guards that path. The fix is "prefer MCP variant when registered," not "force every question to surface" — your `never-ask` preferences still auto-pick, the AUTO_DECIDE annotation still renders, nothing changes for opt-in users.
+If you opted into auto-deciding specific questions via `/plan-tune`, the periodic eval guards that path. The fix is "prefer MCP variant when registered," not "force every question to surface" — your `never-ask` preferences still auto-pick, the AUTO_DECIDE annotation still renders, nothing changes for opt-in users.
 
-The gstack-side regression test surface now mirrors what real users hit. Each existing plan-mode test file gained a second `test()` block that sets `extraArgs: ['--disallowedTools', 'AskUserQuestion']` and asserts the AskUserQuestion still surfaces. CI gate runtime adds roughly 18-30 minutes for the new cases (real-PTY tests are slow); the alternative was missing the regression entirely, which is exactly what happened until v1.21.
+The gstack-side regression test surface now mirrors what real users hit. Each plan-mode test file gained a second `test()` block that sets `extraArgs: ['--disallowedTools', 'AskUserQuestion']` and asserts the AskUserQuestion still surfaces. Builds on v1.21.1.0's `classifyVisible()` extraction — the new auto-decided branch slots in cleanly between silent_write and plan_ready.
 
 ### Itemized changes
 
@@ -47,28 +48,74 @@ The gstack-side regression test surface now mirrors what real users hit. Each ex
 - `scripts/resolvers/preamble/generate-ask-user-format.ts` gets a new `### Tool resolution (read first)` section at the top of the AskUserQuestion Format block. Tells the model: AskUserQuestion can resolve to two tools at runtime (host MCP variant or native); prefer any `mcp__*__AskUserQuestion` variant in the tool list over native; hosts may disable native via `--disallowedTools AskUserQuestion` (Conductor does this by default); same questions/options shape and decision-brief format applies to the MCP variant. Includes a fallback path when neither variant is callable: write the decision into the plan file as `## Decisions to confirm` + ExitPlanMode.
 - `scripts/resolvers/preamble/generate-completion-status.ts` (the plan-mode-info block at preamble position 1) updated to point at the Tool resolution section: AskUserQuestion satisfies plan mode's end-of-turn requirement for "any variant," with the plan-file fallback for the no-variant case.
 
-#### Added — gate-tier regression tests
+#### Added — regression tests
 
-- 4 inline `test()` blocks added to `test/skill-e2e-plan-{ceo,eng,design,devex}-plan-mode.test.ts`. Each spawns claude with `extraArgs: ['--disallowedTools', 'AskUserQuestion']` and asserts the skill still reaches `outcome === 'asked'` (or for plan-design-review's no-UI-scope short-circuit, the looser envelope `['asked', 'plan_ready']` plus an explicit fail on `'auto_decided'`).
+- 4 inline `test()` blocks added to `test/skill-e2e-plan-{ceo,eng,design,devex}-plan-mode.test.ts`. Each spawns claude with `extraArgs: ['--disallowedTools', 'AskUserQuestion']` and asserts the skill still surfaces the question — pass envelope `['asked', 'plan_ready']` (the latter covers the plan-file fallback flow), failure signals are `'auto_decided'` (caught explicitly) plus the standard silent_write/exited/timeout.
 - `test/skill-e2e-autoplan-auto-mode.test.ts` (new). Asserts autoplan's first non-auto-decided gate (Phase 1 premise confirmation) still surfaces. Autoplan auto-decides intermediate questions BY DESIGN, so the test scopes to gates the user MUST see.
 - `test/skill-e2e-office-hours-auto-mode.test.ts` (new). Asserts office-hours' startup-vs-builder mode AskUserQuestion still surfaces.
 - `test/skill-e2e-auto-decide-preserved.test.ts` (new, periodic-tier). Sets up an isolated `GSTACK_HOME` tmpdir, writes `question_tuning=true` + a `never-ask` preference for `plan-ceo-review-mode` (source `'plan-tune'`), runs `/plan-ceo-review` under `--disallowedTools AskUserQuestion`, asserts outcome is NOT `'asked'` (the model honored the opt-in).
 
 #### Changed — PTY harness
 
-- `test/helpers/claude-pty-runner.ts`: `runPlanSkillObservation` accepts a new optional `extraArgs?: string[]` parameter that plumbs straight through to `launchClaudePty` (which already supported the field at the lower level). New outcome `'auto_decided'` in `PlanSkillObservation` plus `isAutoDecidedVisible(visible)` detector that matches the AUTO_DECIDE preamble template (`Auto-decided … (your preference)`). Detection order in the observation loop is `asked` (rendered numbered list) > `auto_decided` (text only, no list) > `plan_ready`, so an upstream auto-decide isn't masked by a downstream plan-mode confirmation.
+- `test/helpers/claude-pty-runner.ts`: `runPlanSkillObservation` accepts new optional `extraArgs?: string[]` (plumbs straight through to `launchClaudePty`, which already supported the field). `ClassifyResult` gains `'auto_decided'` outcome plus `isAutoDecidedVisible(visible)` detector that matches the AUTO_DECIDE preamble template (`Auto-decided … (your preference)`). `classifyVisible` branch order extended to `silent_write → auto_decided → plan_ready → asked` so an upstream auto-decide isn't masked by a downstream plan-mode confirmation.
+- Whitespace-tolerant detection: `isPlanReadyVisible` and `isAutoDecidedVisible` now test both spaced and whitespace-collapsed forms of their target phrases. `stripAnsi` removes cursor-positioning escapes (`\x1b[40C`) without replacing them with spaces, so "ready to execute" can come through as "readytoexecute" — the spaced regex would miss it.
 
 #### Changed — touchfiles
 
 - `test/helpers/touchfiles.ts`: existing `plan-X-review-plan-mode` entries gain `scripts/resolvers/question-tuning.ts` and `scripts/resolvers/preamble/generate-ask-user-format.ts` as touchfile dependencies, so AUTO_DECIDE-bearing resolver changes correctly invalidate the regression cases.
 - New entries: `autoplan-auto-mode` (gate), `office-hours-auto-mode` (gate), `auto-decide-preserved` (periodic).
-- `test/touchfiles.test.ts`: count of tests selected by `plan-ceo-review/SKILL.md` updates from 18 to 20 to cover the two new entries that depend on `plan-ceo-review/**`.
+- `test/touchfiles.test.ts`: count of tests selected by `plan-ceo-review/SKILL.md` updates from 19 to 21 to cover the new entries that depend on `plan-ceo-review/**`.
 
 #### For contributors
 
-- The PTY harness's new `auto_decided` outcome is a defense-in-depth signal: it fires on the AUTO_DECIDE preamble template wording, which is non-deterministic. Treat it as evidence of a regression, not a hard contract. The strict regression assertion across most plan-mode skills is `outcome === 'asked'`; `auto_decided` and `silent_write`/`exited`/`timeout` are the FAIL paths.
-- The Tool resolution section is the surgical fix site for any future host that disables native AUQ in a similar way (cursor, factory, etc.). The pattern: register a `mcp__<host>__AskUserQuestion` MCP tool; the gstack preamble already tells the model to prefer it. No skill-template changes needed per-host.
-- `auto-decide-preserved` runs in an isolated `GSTACK_HOME` tmpdir to avoid mutating the developer's real `~/.gstack` state. When debugging this test, set `GSTACK_HOME` manually to a scratch dir and run the same setup steps the test does (`gstack-config set question_tuning true` then `gstack-question-preference --write`).
+- The PTY harness's `auto_decided` outcome is a defense-in-depth signal: it fires on the AUTO_DECIDE preamble template wording, which is non-deterministic. Treat it as evidence of a regression, not a hard contract.
+- The Tool resolution section is the surgical fix site for any future host that disables native AUQ similarly. The pattern: register a `mcp__<host>__AskUserQuestion` MCP tool; the gstack preamble already tells the model to prefer it. No skill-template changes needed per-host.
+- `auto-decide-preserved` runs in an isolated `GSTACK_HOME` tmpdir to avoid mutating the developer's real `~/.gstack` state. When debugging, set `GSTACK_HOME` manually to a scratch dir and run the same setup the test does (`gstack-config set question_tuning true`, then `gstack-question-preference --write`).
+
+## [1.21.1.0] - 2026-04-28
+
+## **plan-ceo-review smoke tightens. The "agent skips Step 0 and ships a plan" regression now fails the gate.**
+
+The v1.15.0.0 real-PTY harness shipped with a smoke that accepted either `'asked'` or `'plan_ready'` as success. That OR was too lax for `/plan-ceo-review` specifically: the skill template mandates Step 0A premise challenge plus Step 0F mode selection BEFORE any plan write, so reaching `plan_ready` first IS the regression. This release tightens the assertion to `'asked'` only for that smoke, and refactors the runner so the contract is testable in <1s instead of $0.50 of stochastic PTY.
+
+### The numbers that matter
+
+Numbers come from `git diff --shortstat origin/main..HEAD` and `bun test test/helpers/claude-pty-runner.unit.test.ts` on a clean tree.
+
+| Metric | Δ |
+|---|---|
+| Net branch size vs main | +162 / −65 lines (3 files) |
+| New unit tests added | **+24** (claude-pty-runner.unit.test.ts) |
+| Unit suite runtime | **14ms** (deterministic, free-tier) |
+| Real-PTY gate runs verified | **4 clean PTY runs** (3 lock-in + 1 post-refactor) |
+| Outcome assertions covered | **5/5** (was 3/5; `plan_ready` is now FAIL for plan-ceo) |
+| Reviewers run on this PR | plan-eng-review (CLEARED) + codex consult + 2 specialists + adversarial |
+
+### What this means for builders
+
+Three new classes of harness regression are now caught deterministically in the free tier instead of waiting on a $0.50 stochastic PTY run. The classifier is extracted into a pure `classifyVisible()` function so reordering branches in the polling loop fails the unit tests instead of silently shipping. Permission dialogs (which render numbered lists) are filtered out of the `'asked'` classification so a permission prompt cannot pose as a Step 0 skill question. The bare phrase `Do you want to proceed?` no longer triggers permission detection on its own — it now requires a file-edit context co-trigger, so a skill question that contains the phrase isn't mis-classified.
+
+For `/plan-ceo-review` specifically: any future preamble slim-down or template edit that lets the agent skip Step 0 and write a plan will fail the gate before the PR ships. Pull, run `bun test`, and the harness layer is provably tighter without you having to spend a token.
+
+### Itemized changes
+
+#### Added
+
+- `test/helpers/claude-pty-runner.unit.test.ts`: 24 deterministic tests covering `isPermissionDialogVisible` (with the new co-trigger contract), `isNumberedOptionListVisible`, `parseNumberedOptions`, and the new `classifyVisible()` runtime path. Free-tier, runs on every `bun test`.
+- `classifyVisible(visible)` in `claude-pty-runner.ts`: pure classifier extracted from the polling loop. Returns `{ outcome, summary } | null`. Branch order: silent_write → plan_ready → asked → null (with permission-dialog filter). Live-state branches (process exited, "Unknown command") stay in the runner.
+- `TAIL_SCAN_BYTES = 1500` exported constant. Shared between `runPlanSkillObservation` and the routing test's nav loop so tuning stays in sync.
+- `env?: Record<string, string>` option on `runPlanSkillObservation`, threaded to `launchClaudePty`. Plumbing for future env-driven test isolation (gstack-config does not yet honor env overrides; tracked as post-merge follow-up).
+
+#### Changed
+
+- `test/skill-e2e-plan-ceo-plan-mode.test.ts`: assertion narrowed from `['asked', 'plan_ready']` to `'asked'` only. Failure message now branches on `outcome` (plan_ready vs timeout vs silent_write) with a tailored diagnosis line, and references skill-template section names instead of line numbers (durable to template edits).
+- `isPermissionDialogVisible`: bare `Do you want to proceed?` now requires a file-edit context co-trigger (`Edit to <path>` or `Write to <path>`). Other clauses (`requested permissions to`, `allow all edits`, `always allow access to`, `Bash command requires permission`) remain unconditional.
+- `test/skill-e2e-plan-ceo-mode-routing.test.ts`: replaces the local `1500` magic number with the shared `TAIL_SCAN_BYTES` constant.
+
+#### For contributors
+
+- The runner change is additive and the existing sibling smokes (`plan-eng`, `plan-design`, `plan-devex`, `plan-mode-no-op`) keep their loose `['asked', 'plan_ready']` assertion. Their behavior is unchanged.
+- Post-merge follow-ups captured in `TODOS.md`: per-finding AskUserQuestion count assertion (V2), env-driven gstack-config overrides (so `QUESTION_TUNING=false` actually isolates the test), path-confusion hardening on `SANCTIONED_WRITE_SUBSTRINGS`.
 
 ## [1.20.0.0] - 2026-04-28
 
