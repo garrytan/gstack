@@ -125,6 +125,28 @@ Or target a specific agent with `./setup --host <name>`:
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
 
+### Claude Code Plugin Marketplace
+
+gstack is also available as a [Claude Code plugin](https://code.claude.com/docs/en/plugins). No git clone, no setup script — just install and go.
+
+```bash
+# Step 1: Register the marketplace
+/plugin marketplace add garrytan/gstack
+
+# Step 2: Install the plugin
+/plugin install gstack@garrytan-gstack
+```
+
+Skills are namespaced under the plugin: `/gstack:review`, `/gstack:qa`, `/gstack:office-hours`, etc.
+
+To upgrade:
+
+```bash
+/plugin update gstack@garrytan-gstack
+```
+
+**Plugin install vs. git clone install:** The plugin install gives you all 28 skills instantly. The git clone install (Step 1 above) additionally builds the `/browse` headless browser binary and registers hook-based safety skills (`/careful`, `/freeze`, `/guard`). If you need real browser QA testing or safety guardrails, use the git clone install.
+
 ## See it work
 
 ```
