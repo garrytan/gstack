@@ -776,7 +776,7 @@ Write your summary to ${testDir}/${testName}-summary.md`,
 
     const summary = fs.readFileSync(summaryPath, 'utf-8').toLowerCase();
     // All skills should have codex availability check
-    expect(summary).toMatch(/which codex/);
+    expect(summary).toMatch(/command -v codex/);
     // All skills should have fallback behavior
     expect(summary).toMatch(/fallback|subagent|unavailable|not available|skip/);
     // All skills should show it's optional/non-blocking

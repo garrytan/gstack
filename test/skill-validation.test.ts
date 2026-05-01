@@ -1315,9 +1315,9 @@ describe('Codex skill', () => {
     expect(content).toContain('gstack-review-log');
   });
 
-  test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
+  test('codex/SKILL.md uses command -v for binary discovery, not hardcoded path', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('which codex');
+    expect(content).toContain('command -v codex');
     expect(content).not.toContain('/opt/homebrew/bin/codex');
   });
 
