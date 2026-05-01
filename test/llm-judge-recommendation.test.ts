@@ -1,0 +1,117 @@
+/**
+ * Fixture-based sanity test for judgeRecommendation.
+ *
+ * Replaces the original "manually inject bad text into a captured file
+ * and revert the SKILL template" sabotage step with deterministic
+ * negative coverage: hand-graded good/bad recommendation strings, asserted
+ * against the same threshold the production E2E tests use (>= 4).
+ *
+ * Costs ~$0.04 per run (4 Haiku calls + 3 deterministic-only fixtures).
+ * Touchfile-gated to test/helpers/llm-judge.ts so it fires on rubric
+ * tweaks but not every test run. Runs only under EVALS=1 with an API key.
+ */
+
+import { describe, test, expect } from 'bun:test';
+import { judgeRecommendation } from './helpers/llm-judge';
+import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
+
+// Fixtures wrap a realistic AskUserQuestion shape so the judge sees the menu
+// as context. The because-clause is what gets graded.
+function buildAUQ(recommendation: string): string {
+  return `D1 — Where should the retrieval smarts live?
+ELI10: Two ways to ship the retrieval layer that powers cross-skill memory. The choice changes who else can use it and how fast we ship V1.
+Stakes if we pick wrong: V1 ships months later, OR every other agent has to rebuild the same logic.
+${recommendation}
+Note: options differ in kind, not coverage — no completeness score.
+Pros / cons:
+A) Server-side (gbrain ships the smarts)
+  ✅ Reusable across every agent that calls gbrain — Codex, Cursor, etc.
+  ❌ Cross-repo work; gbrain release tied to gstack release; slower V1
+B) Client-side (gstack ships the smarts) (recommended)
+  ✅ Ships entirely in gstack — no gbrain release dependency; faster V1
+  ❌ Every other agent has to rebuild the same logic; multi-call overhead
+C) Hybrid — V1 client-side, V1.5 promotes to gbrain
+  ✅ Ships V1 value without cross-repo coordination; clear migration path
+  ❌ Two-phase shipping; V1.5 risks slipping if priorities shift
+Net: optimize for V1 ship velocity vs long-term agent reusability.`;
+}
+
+describeIfSelected('judgeRecommendation rubric sanity', ['llm-judge-recommendation'], () => {
+  testIfSelected('llm-judge-recommendation', async () => {
+    // Run all 7 fixtures sequentially in one test entry so the eval-store sees
+    // a single result; individual assertions surface as failed expectations.
+
+    // SUBSTANCE 5: option-specific reason that contrasts an alternative.
+    const good5 = await judgeRecommendation(buildAUQ(
+      'Recommendation: Choose C because hybrid ships V1 in gstack-only without blocking on cross-repo gbrain coordination, and locks the migration path before other agents take a hard dependency.',
+    ));
+    expect(good5.present).toBe(true);
+    expect(good5.commits).toBe(true);
+    expect(good5.has_because).toBe(true);
+    expect(
+      good5.reason_substance,
+      `expected >=4 for option-specific cross-alternative reason; got ${good5.reason_substance}: ${good5.reasoning}`,
+    ).toBeGreaterThanOrEqual(4);
+
+    // SUBSTANCE 4: concrete option-specific reason without alternative comparison.
+    const good4 = await judgeRecommendation(buildAUQ(
+      'Recommendation: Choose B because client-side composition uses MCP tools that already exist in gstack and avoids any gbrain release dependency for V1.',
+    ));
+    expect(good4.present).toBe(true);
+    expect(
+      good4.reason_substance,
+      `expected >=4 for concrete option-specific reason; got ${good4.reason_substance}: ${good4.reasoning}`,
+    ).toBeGreaterThanOrEqual(4);
+
+    // SUBSTANCE ~1: boilerplate.
+    const bad1 = await judgeRecommendation(buildAUQ(
+      'Recommendation: Choose B because it is better.',
+    ));
+    expect(bad1.present).toBe(true);
+    expect(bad1.has_because).toBe(true);
+    expect(
+      bad1.reason_substance,
+      `expected <4 for boilerplate "because it is better"; got ${bad1.reason_substance}: ${bad1.reasoning}`,
+    ).toBeLessThan(4);
+
+    // SUBSTANCE ~3: generic.
+    const bad3 = await judgeRecommendation(buildAUQ(
+      'Recommendation: Choose B because it is faster.',
+    ));
+    expect(bad3.present).toBe(true);
+    expect(bad3.has_because).toBe(true);
+    expect(
+      bad3.reason_substance,
+      `expected <4 for generic "because it is faster"; got ${bad3.reason_substance}: ${bad3.reasoning}`,
+    ).toBeLessThan(4);
+
+    // NO BECAUSE: missing causal connective.
+    const noBecause = await judgeRecommendation(buildAUQ(
+      'Recommendation: Choose B (it has the best tradeoffs).',
+    ));
+    expect(noBecause.present).toBe(true);
+    expect(noBecause.has_because).toBe(false);
+    expect(noBecause.reason_substance).toBe(1);
+
+    // NO RECOMMENDATION: line missing entirely.
+    const noRec = await judgeRecommendation(`D1 — Where should the smarts live?
+ELI10: ...
+Pros / cons:
+A) Server-side
+B) Client-side
+Net: ...`);
+    expect(noRec.present).toBe(false);
+    expect(noRec.has_because).toBe(false);
+    expect(noRec.reason_substance).toBe(1);
+
+    // HEDGING: "either A or B" — fails commits.
+    const hedging = await judgeRecommendation(buildAUQ(
+      'Recommendation: Choose either B or C because both ship faster than A.',
+    ));
+    expect(hedging.present).toBe(true);
+    expect(
+      hedging.commits,
+      `expected commits=false for "either B or C"; got ${hedging.commits}: ${hedging.reasoning}`,
+    ).toBe(false);
+  }, 240_000);
+});
