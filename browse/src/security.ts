@@ -414,6 +414,33 @@ function findTelemetryBinary(): string | null {
 }
 
 /**
+ * Build the [cmd, args] tuple for invoking a bash-script telemetry binary
+ * in a way that works on both POSIX and Windows.
+ *
+ * POSIX: returns [bin, args] unchanged — shebang gets honored by execve.
+ * Win32: wraps in bash explicitly. `gstack-telemetry-log` is a shell script
+ * (`#!/usr/bin/env bash`) and Windows `CreateProcess` can't dispatch on a
+ * shebang — it tries to load the file as a PE image, fails with ENOEXEC,
+ * and our 'error' handler silently swallows it. Most Windows dev boxes
+ * running gstack ship Git Bash, which puts bash.exe on PATH; if bash is
+ * missing, spawn() will still fire 'error' and the same swallow path kicks
+ * in. Either way, the local `attempts.jsonl` write in logAttempt() keeps
+ * the audit trail intact.
+ *
+ * Exported for testability — resolution is a pure function of (platform,
+ * bin, args) so we can assert on it without actually spawning.
+ */
+export function buildTelemetrySpawnCommand(
+  bin: string,
+  args: string[],
+): { cmd: string; cmdArgs: string[] } {
+  if (process.platform === 'win32') {
+    return { cmd: 'bash', cmdArgs: [bin, ...args] };
+  }
+  return { cmd: bin, cmdArgs: args };
+}
+
+/**
  * Fire-and-forget subprocess invocation of gstack-telemetry-log with the
  * attack_attempt event type. The binary handles tier gating internally
  * (community → upload, anonymous → local only, off → no-op), so we don't
@@ -426,14 +453,15 @@ function reportAttemptTelemetry(record: AttemptRecord): void {
   const bin = findTelemetryBinary();
   if (!bin) return;
   try {
-    const child = spawn(bin, [
+    const { cmd, cmdArgs } = buildTelemetrySpawnCommand(bin, [
       '--event-type', 'attack_attempt',
       '--url-domain', record.urlDomain || '',
       '--payload-hash', record.payloadHash,
       '--confidence', String(record.confidence),
       '--layer', record.layer,
       '--verdict', record.verdict,
-    ], {
+    ]);
+    const child = spawn(cmd, cmdArgs, {
       stdio: 'ignore',
       detached: true,
     });
