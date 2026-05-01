@@ -3,6 +3,16 @@ import type { TemplateContext } from '../types';
 export function generateAskUserFormat(_ctx: TemplateContext): string {
   return `## AskUserQuestion Format
 
+### Tool resolution (read first)
+
+"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
+
+**Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+
+**Fallback when neither variant is callable:** in plan mode, write the decision brief into the plan file as a \`## Decisions to confirm\` section + ExitPlanMode (the native "Ready to execute?" surfaces it). Outside plan mode, output the brief as prose and stop. **Never silently auto-decide** — only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking.
+
+### Format
+
 Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
 
 \`\`\`
