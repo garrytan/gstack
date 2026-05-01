@@ -1,5 +1,75 @@
 # Changelog
 
+## [1.21.0.0] - 2026-04-30
+
+## **Plan-mode skills surface every decision again, even when the host disallows AskUserQuestion.**
+
+Conductor launches Claude Code with `--disallowedTools AskUserQuestion --permission-mode default --permission-prompt-tool stdio` (verified by inspecting the live conductor claude process via `ps`). The native AskUserQuestion tool is removed from the model's tool registry, so when a plan-mode skill instructs the model to "call AskUserQuestion," the call silently fails: the model can't ask, the user never sees the question, and the skill auto-proceeds without input. The whole interactive premise of `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`, and `/office-hours` was broken in any session that used these flags.
+
+The fix is preamble guidance, not skill-template surgery. A new `Tool resolution` section in `scripts/resolvers/preamble/generate-ask-user-format.ts` tells the model to check its tool list and prefer any `mcp__*__AskUserQuestion` variant (e.g. `mcp__conductor__AskUserQuestion`) over the native tool. Hosts that disable native AskUserQuestion register their own MCP variant; the variant takes the same questions/options shape and the host renders the prompt through its own UI surface. If neither variant is callable, the model falls back to writing a `## Decisions to confirm` section into the plan file and calling ExitPlanMode — plan-mode's native "Ready to execute?" confirmation surfaces the decisions through TTY UI. **Never silently auto-decide.**
+
+Six new gate-tier real-PTY regression tests reproduce the exact Conductor flag set (`extraArgs: ['--disallowedTools', 'AskUserQuestion']`) for every plan-mode skill, plus a periodic-tier eval that protects the legitimate `/plan-tune` AUTO_DECIDE opt-in path from being broken by the fix.
+
+### What you can now do
+
+- **Use plan-mode review skills in Conductor.** Open a Conductor workspace, run `/plan-ceo-review` against a plan, and the scope-mode question actually appears for you to answer. Same for `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`'s premise gate, and `/office-hours`.
+- **Stay in control under `--disallowedTools` without writing template overrides.** The Tool resolution section is in the gstack preamble that prepends every tier-≥2 skill; new hosts that disable native AUQ via the same pattern get the fix transparently as long as they register an MCP variant.
+- **Opt-in to AUTO_DECIDE without losing the regression guard.** `/plan-tune` users who set `never-ask` for specific questions keep auto-pick under Conductor flags; the periodic-tier `auto-decide-preserved` eval protects this path.
+
+### The numbers that matter
+
+Source: `ps -p <conductor-claude-pid> -o args=` for the regression mechanism (verified primary source). 6 new gate-tier real-PTY regression cases plus 1 periodic-tier AUTO_DECIDE preserve eval; coverage in `test/skill-e2e-plan-{ceo,eng,design,devex}-plan-mode.test.ts` (parameterized inline) + `test/skill-e2e-{autoplan,office-hours}-auto-mode.test.ts` (standalone) + `test/skill-e2e-auto-decide-preserved.test.ts` (periodic).
+
+| Surface | Shape |
+|---|---|
+| Skills that regain interactivity in Conductor | 6 (`/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/autoplan`, `/office-hours`) |
+| New gate-tier regression test cases | 6 (one per skill above; `--disallowedTools AskUserQuestion` parameterized) |
+| New periodic-tier eval | 1 (`auto-decide-preserved`, protects `/plan-tune` opt-in path) |
+| New `PlanSkillObservation` outcome | `auto_decided` — TTY shows "Auto-decided … (your preference)" |
+| New `runPlanSkillObservation` parameter | `extraArgs?: string[]` — plumbs raw flags to the spawned `claude` |
+| Preamble resolvers touched | 2 (`generate-ask-user-format.ts`, `generate-completion-status.ts`) |
+| SKILL.md files regenerated | 41 |
+| Test detection order | `asked` > `auto_decided` > `plan_ready` (rendered list wins; auto-decide text wins over downstream plan-ready) |
+| Mechanism verified by | `ps -p <conductor-claude-pid> -o args=` showing `--disallowedTools AskUserQuestion --permission-mode default` |
+
+### What this means for builders
+
+If you built a workflow on `/plan-ceo-review` or any plan-mode review skill and ran it in Conductor, this release is the difference between the skill silently producing a plan you didn't shape and the skill stopping for you to choose scope mode, accept or reject scope expansions, and gate every architectural decision the way the skill was designed to. The fix is in the preamble, so you don't update skill templates yourself — just upgrade gstack and the next plan review you run honors your input.
+
+If you opted into auto-deciding specific questions via `/plan-tune`, the new periodic eval guards that path. The fix is "prefer MCP variant when registered," not "force every question to surface" — your `never-ask` preferences still auto-pick, the AUTO_DECIDE annotation still renders, nothing changes for opt-in users.
+
+The gstack-side regression test surface now mirrors what real users hit. Each existing plan-mode test file gained a second `test()` block that sets `extraArgs: ['--disallowedTools', 'AskUserQuestion']` and asserts the AskUserQuestion still surfaces. CI gate runtime adds roughly 18-30 minutes for the new cases (real-PTY tests are slow); the alternative was missing the regression entirely, which is exactly what happened until v1.21.
+
+### Itemized changes
+
+#### Added — Tool resolution preamble
+
+- `scripts/resolvers/preamble/generate-ask-user-format.ts` gets a new `### Tool resolution (read first)` section at the top of the AskUserQuestion Format block. Tells the model: AskUserQuestion can resolve to two tools at runtime (host MCP variant or native); prefer any `mcp__*__AskUserQuestion` variant in the tool list over native; hosts may disable native via `--disallowedTools AskUserQuestion` (Conductor does this by default); same questions/options shape and decision-brief format applies to the MCP variant. Includes a fallback path when neither variant is callable: write the decision into the plan file as `## Decisions to confirm` + ExitPlanMode.
+- `scripts/resolvers/preamble/generate-completion-status.ts` (the plan-mode-info block at preamble position 1) updated to point at the Tool resolution section: AskUserQuestion satisfies plan mode's end-of-turn requirement for "any variant," with the plan-file fallback for the no-variant case.
+
+#### Added — gate-tier regression tests
+
+- 4 inline `test()` blocks added to `test/skill-e2e-plan-{ceo,eng,design,devex}-plan-mode.test.ts`. Each spawns claude with `extraArgs: ['--disallowedTools', 'AskUserQuestion']` and asserts the skill still reaches `outcome === 'asked'` (or for plan-design-review's no-UI-scope short-circuit, the looser envelope `['asked', 'plan_ready']` plus an explicit fail on `'auto_decided'`).
+- `test/skill-e2e-autoplan-auto-mode.test.ts` (new). Asserts autoplan's first non-auto-decided gate (Phase 1 premise confirmation) still surfaces. Autoplan auto-decides intermediate questions BY DESIGN, so the test scopes to gates the user MUST see.
+- `test/skill-e2e-office-hours-auto-mode.test.ts` (new). Asserts office-hours' startup-vs-builder mode AskUserQuestion still surfaces.
+- `test/skill-e2e-auto-decide-preserved.test.ts` (new, periodic-tier). Sets up an isolated `GSTACK_HOME` tmpdir, writes `question_tuning=true` + a `never-ask` preference for `plan-ceo-review-mode` (source `'plan-tune'`), runs `/plan-ceo-review` under `--disallowedTools AskUserQuestion`, asserts outcome is NOT `'asked'` (the model honored the opt-in).
+
+#### Changed — PTY harness
+
+- `test/helpers/claude-pty-runner.ts`: `runPlanSkillObservation` accepts a new optional `extraArgs?: string[]` parameter that plumbs straight through to `launchClaudePty` (which already supported the field at the lower level). New outcome `'auto_decided'` in `PlanSkillObservation` plus `isAutoDecidedVisible(visible)` detector that matches the AUTO_DECIDE preamble template (`Auto-decided … (your preference)`). Detection order in the observation loop is `asked` (rendered numbered list) > `auto_decided` (text only, no list) > `plan_ready`, so an upstream auto-decide isn't masked by a downstream plan-mode confirmation.
+
+#### Changed — touchfiles
+
+- `test/helpers/touchfiles.ts`: existing `plan-X-review-plan-mode` entries gain `scripts/resolvers/question-tuning.ts` and `scripts/resolvers/preamble/generate-ask-user-format.ts` as touchfile dependencies, so AUTO_DECIDE-bearing resolver changes correctly invalidate the regression cases.
+- New entries: `autoplan-auto-mode` (gate), `office-hours-auto-mode` (gate), `auto-decide-preserved` (periodic).
+- `test/touchfiles.test.ts`: count of tests selected by `plan-ceo-review/SKILL.md` updates from 18 to 20 to cover the two new entries that depend on `plan-ceo-review/**`.
+
+#### For contributors
+
+- The PTY harness's new `auto_decided` outcome is a defense-in-depth signal: it fires on the AUTO_DECIDE preamble template wording, which is non-deterministic. Treat it as evidence of a regression, not a hard contract. The strict regression assertion across most plan-mode skills is `outcome === 'asked'`; `auto_decided` and `silent_write`/`exited`/`timeout` are the FAIL paths.
+- The Tool resolution section is the surgical fix site for any future host that disables native AUQ in a similar way (cursor, factory, etc.). The pattern: register a `mcp__<host>__AskUserQuestion` MCP tool; the gstack preamble already tells the model to prefer it. No skill-template changes needed per-host.
+- `auto-decide-preserved` runs in an isolated `GSTACK_HOME` tmpdir to avoid mutating the developer's real `~/.gstack` state. When debugging this test, set `GSTACK_HOME` manually to a scratch dir and run the same setup steps the test does (`gstack-config set question_tuning true` then `gstack-question-preference --write`).
+
 ## [1.20.0.0] - 2026-04-28
 
 ## **Browser-skills land. `/scrape <intent>` first call drives the page; second call runs the codified script in 200ms.**
