@@ -9,7 +9,10 @@ bin/gstack-global-discover
 .claude/skills/
 .claude/scheduled_tasks.lock
 .claude/*.lock
-.agents/
+.agents/*
+.agents/skills/
+!.agents/plugins/
+!.agents/plugins/**
 .factory/
 .kiro/
 .opencode/
