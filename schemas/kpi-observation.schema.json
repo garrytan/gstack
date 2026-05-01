@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/kpi-observation.schema.json",
+  "title": "KPIObservation",
+  "description": "A measured KPI value for a specific metric and time window, with sample size and data-quality status.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "metric_id",
+    "observed_at",
+    "window_start",
+    "window_end",
+    "value",
+    "sample_size",
+    "confidence",
+    "source_event_count",
+    "data_quality_status"
+  ],
+  "properties": {
+    "metric_id": {
+      "type": "string"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window_end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "value": {
+      "type": "number"
+    },
+    "sample_size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "confidence": {
+      "type": "string",
+      "examples": ["low", "medium", "high"]
+    },
+    "source_event_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "data_quality_status": {
+      "type": "string",
+      "examples": ["ok", "warning", "blocked"]
+    }
+  }
+}

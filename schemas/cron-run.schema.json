@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/cron-run.schema.json",
+  "title": "CronRun",
+  "description": "A local scheduled or cron-triggered agent run with start/finish timestamps for Gantt charts, resource accounting, and daily activity dashboards.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "started_at",
+    "workflow",
+    "run_type",
+    "status",
+    "privacy_level",
+    "pii_level"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "examples": ["cron_daily_followup_001"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "examples": ["gstack", "openclaw", "hermes", "system_cron", "github_actions"]
+    },
+    "project": {
+      "type": "string"
+    },
+    "host": {
+      "type": "string",
+      "examples": ["openclaw", "hermes", "claude-code", "codex"]
+    },
+    "schedule": {
+      "type": ["string", "null"],
+      "description": "Human-readable schedule or cron expression, if safe to store."
+    },
+    "name": {
+      "type": "string",
+      "examples": ["daily follow-up sweep"]
+    },
+    "workflow": {
+      "type": "string",
+      "examples": ["crm_followup", "lead_intake", "market_digest"]
+    },
+    "phase": {
+      "type": "string",
+      "examples": ["automation", "follow_up", "analysis", "reporting"]
+    },
+    "run_type": {
+      "type": "string",
+      "examples": ["cron", "scheduled"]
+    },
+    "agent_id_hash": {
+      "type": ["string", "null"],
+      "description": "Hash of a local agent/session/worker id. Do not export raw agent identifiers."
+    },
+    "category": {
+      "type": "string",
+      "examples": ["personal", "admin", "work", "financial", "coding"]
+    },
+    "status": {
+      "type": "string",
+      "examples": ["success", "error", "aborted", "unknown"]
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tokens_in_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "tokens_out_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "tokens_total_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "cost_estimate_usd": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "privacy_level": {
+      "type": "string",
+      "examples": ["local_only", "sanitized_export", "team_opt_in"]
+    },
+    "pii_level": {
+      "type": "string",
+      "examples": ["none", "low", "medium", "high", "unknown"]
+    }
+  }
+}

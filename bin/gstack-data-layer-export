@@ -1,0 +1,1221 @@
+#!/usr/bin/env bun
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const VALID_WINDOWS = new Set(['7d', '30d', '90d', 'all']);
+const VALID_BUCKETS = new Set(['hour', 'day', 'week', 'month']);
+
+function usage() {
+  return `gstack-data-layer-export
+
+Usage:
+  gstack-data-layer-export [--out DIR] [--analytics FILE] [--business-events FILE]
+                           [--cron-runs FILE] [--category-rules FILE]
+                           [--date YYYY-MM-DD] [--project NAME] [--domain DOMAIN]
+                           [--window 7d|30d|90d|all] [--bucket hour|day|week|month]
+
+Defaults:
+  --analytics       $GSTACK_STATE_DIR/analytics/skill-usage.jsonl or ~/.gstack/analytics/skill-usage.jsonl
+  --business-events .gstack/data-layer/business-events.jsonl
+  --cron-runs       .gstack/data-layer/cron-runs.jsonl
+  --category-rules  .gstack/data-layer/category-rules.json
+  --out             .gstack/data-layer/exports/<YYYY-MM-DD>
+
+This command is local-only. It never sends data over the network.`;
+}
+
+function parseArgs(argv) {
+  const args = {
+    outDir: '',
+    analyticsFile: '',
+    businessEventsFile: '',
+    cronRunsFile: '',
+    categoryRulesFile: '',
+    date: new Date().toISOString().slice(0, 10),
+    project: '',
+    domain: 'general',
+    window: 'all',
+    bucket: 'day',
+    help: false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') {
+      args.help = true;
+      continue;
+    }
+    const next = argv[i + 1];
+    switch (arg) {
+      case '--out':
+        args.outDir = requireValue(arg, next);
+        i++;
+        break;
+      case '--analytics':
+        args.analyticsFile = requireValue(arg, next);
+        i++;
+        break;
+      case '--business-events':
+        args.businessEventsFile = requireValue(arg, next);
+        i++;
+        break;
+      case '--cron-runs':
+        args.cronRunsFile = requireValue(arg, next);
+        i++;
+        break;
+      case '--category-rules':
+        args.categoryRulesFile = requireValue(arg, next);
+        i++;
+        break;
+      case '--date':
+        args.date = requireValue(arg, next);
+        i++;
+        break;
+      case '--project':
+        args.project = requireValue(arg, next);
+        i++;
+        break;
+      case '--domain':
+        args.domain = requireValue(arg, next);
+        i++;
+        break;
+      case '--window':
+        args.window = requireValue(arg, next);
+        i++;
+        break;
+      case '--bucket':
+        args.bucket = requireValue(arg, next);
+        i++;
+        break;
+      default:
+        throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date)) {
+    throw new Error('--date must use YYYY-MM-DD');
+  }
+  if (!VALID_WINDOWS.has(args.window)) {
+    throw new Error('--window must be one of 7d, 30d, 90d, all');
+  }
+  if (!VALID_BUCKETS.has(args.bucket)) {
+    throw new Error('--bucket must be one of hour, day, week, month');
+  }
+
+  const stateDir = process.env.GSTACK_STATE_DIR || path.join(os.homedir(), '.gstack');
+  args.analyticsFile ||= path.join(stateDir, 'analytics', 'skill-usage.jsonl');
+  args.businessEventsFile ||= path.join(process.cwd(), '.gstack', 'data-layer', 'business-events.jsonl');
+  args.cronRunsFile ||= path.join(process.cwd(), '.gstack', 'data-layer', 'cron-runs.jsonl');
+  args.categoryRulesFile ||= path.join(process.cwd(), '.gstack', 'data-layer', 'category-rules.json');
+  args.outDir ||= path.join(process.cwd(), '.gstack', 'data-layer', 'exports', args.date);
+
+  return args;
+}
+
+function requireValue(flag, value) {
+  if (!value || value.startsWith('--')) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+function hash(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function safeNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readJsonl(file) {
+  const result = { records: [], malformed: 0, missing: false };
+  if (!fs.existsSync(file)) {
+    result.missing = true;
+    return result;
+  }
+
+  const content = fs.readFileSync(file, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        result.records.push(obj);
+      } else {
+        result.malformed++;
+      }
+    } catch {
+      result.malformed++;
+    }
+  }
+  return result;
+}
+
+function readJson(file) {
+  const result = { data: null, malformed: false, missing: false };
+  if (!fs.existsSync(file)) {
+    result.missing = true;
+    return result;
+  }
+
+  try {
+    result.data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    result.malformed = true;
+  }
+  return result;
+}
+
+function cutoffForWindow(window) {
+  if (window === 'all') return null;
+  const days = Number(window.replace('d', ''));
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
+function isInsideWindow(record, cutoff) {
+  if (!cutoff) return true;
+  const ts = record.ts || record.created_at;
+  if (typeof ts !== 'string') return false;
+  const date = new Date(ts);
+  return Number.isFinite(date.getTime()) && date >= cutoff;
+}
+
+function isSkillRun(record) {
+  if (!record || typeof record !== 'object') return false;
+  if (record.event === 'hook_fire') return false;
+  if (typeof record.event_type === 'string' && record.event_type !== 'skill_run') return false;
+  if (typeof record.event_type === 'string' && record.event_type.startsWith('upgrade_')) return false;
+  return typeof record.skill === 'string' && typeof record.ts === 'string';
+}
+
+function toIso(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function addMs(iso, ms) {
+  if (!iso || typeof ms !== 'number' || !Number.isFinite(ms)) return null;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Date(date.getTime() + ms).toISOString();
+}
+
+function canonicalCategory(value) {
+  if (!value || typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizedSkillValue(value) {
+  if (!value || typeof value !== 'string') return '';
+  return withSlash(value);
+}
+
+function matchesAny(actual, expected) {
+  const values = asArray(expected);
+  if (values.length === 0) return false;
+  return values.includes(actual);
+}
+
+function buildCategoryRules(raw) {
+  const data = raw && typeof raw === 'object' ? raw : {};
+  return {
+    defaultCategory: canonicalCategory(data.default_category) || 'uncategorized',
+    rules: asArray(data.rules)
+      .filter((rule) => rule && typeof rule === 'object' && rule.category)
+      .map((rule) => ({
+        ...rule,
+        category: canonicalCategory(rule.category) || 'uncategorized',
+        skills: asArray(rule.skills).map(normalizedSkillValue).filter(Boolean),
+        workflows: asArray(rule.workflows).map(canonicalCategory).filter(Boolean),
+        phases: asArray(rule.phases).map(canonicalCategory).filter(Boolean),
+        sources: asArray(rule.sources).map(canonicalCategory).filter(Boolean),
+        hosts: asArray(rule.hosts).map(canonicalCategory).filter(Boolean),
+        run_types: asArray(rule.run_types).map(canonicalCategory).filter(Boolean),
+      })),
+  };
+}
+
+function resolveCategory(record, categoryRules) {
+  const explicit = canonicalCategory(record.category)
+    || canonicalCategory(record.metadata_redacted?.category)
+    || canonicalCategory(record.metadata?.category);
+  if (explicit) return explicit;
+
+  const skill = normalizedSkillValue(record.skill || '');
+  const workflow = canonicalCategory(record.workflow || '');
+  const phase = canonicalCategory(record.phase || '');
+  const source = canonicalCategory(record.source || '');
+  const host = canonicalCategory(record.host || '');
+  const runType = canonicalCategory(record.run_type || record.trigger || '');
+
+  for (const rule of categoryRules.rules) {
+    if (matchesAny(skill, rule.skills)) return rule.category;
+    if (matchesAny(workflow, rule.workflows)) return rule.category;
+    if (matchesAny(phase, rule.phases)) return rule.category;
+    if (matchesAny(source, rule.sources)) return rule.category;
+    if (matchesAny(host, rule.hosts)) return rule.category;
+    if (matchesAny(runType, rule.run_types)) return rule.category;
+  }
+
+  return categoryRules.defaultCategory;
+}
+
+function hashMaybe(value) {
+  if (!value) return null;
+  return `sha256:${hash(value)}`;
+}
+
+function agentIdHash(record) {
+  return hashMaybe(record.agent_id || record.worker_id || record.session_id || record.host || record.source);
+}
+
+function withSlash(skill) {
+  if (!skill) return '/unknown';
+  return skill.startsWith('/') ? skill : `/${skill}`;
+}
+
+function inferPhase(skill) {
+  const key = skill.replace(/^\//, '');
+  if (key.includes('office-hours') || key.includes('plan') || key.includes('autoplan')) return 'plan';
+  if (key.includes('review') || key === 'cso') return 'review';
+  if (key.includes('qa') || key.includes('canary') || key.includes('benchmark')) return 'qa';
+  if (key.includes('ship') || key.includes('deploy')) return 'ship';
+  if (key.includes('retro') || key.includes('learn') || key.includes('data-layer')) return 'analysis';
+  if (key.includes('investigate') || key.includes('debug')) return 'analysis';
+  return 'analysis';
+}
+
+function inferWorkflow(skill) {
+  const key = skill.replace(/^\//, '').replace(/-/g, '_');
+  const phase = inferPhase(skill);
+  if (phase === 'plan') return 'planning';
+  if (phase === 'review') return 'review';
+  if (phase === 'qa') return 'quality_assurance';
+  if (phase === 'ship') return 'release';
+  return key || 'unknown';
+}
+
+function normalizeStatus(outcome) {
+  const value = typeof outcome === 'string' ? outcome.toLowerCase() : 'unknown';
+  if (value === 'success' || value === 'error' || value === 'aborted') return value;
+  if (value === 'fail' || value === 'failed' || value === 'failure') return 'error';
+  return 'unknown';
+}
+
+function normalizeAgentEvent(record, index, args, categoryRules) {
+  const skill = withSlash(String(record.skill || 'unknown'));
+  const repoSlug = record._repo_slug || record.repo || '';
+  const durationSeconds = safeNumber(record.duration_s);
+  const durationMs = durationSeconds === null ? safeNumber(record.duration_ms) : Math.round(durationSeconds * 1000);
+  const createdAt = toIso(record.started_at || record.ts || record.created_at) || String(record.ts);
+  const finishedAt = toIso(record.finished_at || record.ended_at) || addMs(createdAt, durationMs);
+  const sessionId = record.session_id || '';
+  const idSeed = `${createdAt}|${sessionId}|${skill}|${index}`;
+  const tokensIn = safeNumber(record.tokens_in_estimate);
+  const tokensOut = safeNumber(record.tokens_out_estimate);
+
+  return {
+    id: `evt_${hash(idSeed).slice(0, 16)}`,
+    created_at: createdAt,
+    started_at: createdAt,
+    finished_at: finishedAt,
+    source: record.source || 'gstack',
+    project: args.project || 'local-project',
+    repo_slug_hash: repoSlug ? `sha256:${hash(repoSlug)}` : null,
+    host: record.host || 'claude-code',
+    skill,
+    workflow: record.workflow || inferWorkflow(skill),
+    phase: record.phase || inferPhase(skill),
+    run_type: record.run_type || record.trigger || 'manual',
+    cron_run_id: record.cron_run_id || null,
+    agent_id_hash: agentIdHash(record),
+    category: resolveCategory({ ...record, skill }, categoryRules),
+    duration_ms: durationMs,
+    status: normalizeStatus(record.outcome),
+    human_review_status: record.human_review_status || 'unknown',
+    tokens_in_estimate: tokensIn,
+    tokens_out_estimate: tokensOut,
+    tokens_total_estimate: (tokensIn || 0) + (tokensOut || 0) || null,
+    cost_estimate_usd: safeNumber(record.cost_estimate_usd),
+    privacy_level: record.privacy_level || 'local_only',
+    pii_level: record.pii_level || 'unknown',
+  };
+}
+
+function normalizeBusinessEvent(record, index, args, categoryRules) {
+  const createdAt = toIso(record.created_at || record.ts) || new Date().toISOString();
+  const rawEntity = record.entity_id || record.entity_id_raw || '';
+  const entityHash = record.entity_id_hash || (rawEntity ? `sha256:${hash(rawEntity)}` : null);
+  const idSeed = `${createdAt}|${record.workflow || ''}|${record.event_type || ''}|${index}`;
+
+  return {
+    id: record.id || `biz_${hash(idSeed).slice(0, 16)}`,
+    created_at: createdAt,
+    domain: record.domain || args.domain || 'general',
+    entity_type: record.entity_type || 'unknown',
+    entity_id_hash: entityHash,
+    workflow: record.workflow || 'unknown',
+    event_type: record.event_type || 'business_event',
+    value: safeNumber(record.value) ?? 1,
+    amount_usd: safeNumber(record.amount_usd),
+    source: record.source || 'manual',
+    agent_event_ids: Array.isArray(record.agent_event_ids) ? record.agent_event_ids : [],
+    category: resolveCategory(record, categoryRules),
+    metadata_redacted: record.metadata_redacted && typeof record.metadata_redacted === 'object'
+      ? record.metadata_redacted
+      : {},
+    privacy_level: record.privacy_level || 'local_only',
+    pii_level: record.pii_level || 'unknown',
+  };
+}
+
+function normalizeCronRun(record, index, args, categoryRules) {
+  const startedAt = toIso(record.started_at || record.created_at || record.ts) || new Date().toISOString();
+  const finishedAt = toIso(record.finished_at || record.ended_at);
+  const durationMs = safeNumber(record.duration_ms)
+    ?? (safeNumber(record.duration_s) === null ? null : Math.round(safeNumber(record.duration_s) * 1000))
+    ?? (finishedAt ? new Date(finishedAt).getTime() - new Date(startedAt).getTime() : null);
+  const normalizedDurationMs = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0
+    ? Math.round(durationMs)
+    : null;
+  const idSeed = `${startedAt}|${record.name || record.workflow || ''}|${record.schedule || ''}|${index}`;
+  const tokensIn = safeNumber(record.tokens_in_estimate);
+  const tokensOut = safeNumber(record.tokens_out_estimate);
+
+  return {
+    id: record.id || `cron_${hash(idSeed).slice(0, 16)}`,
+    created_at: toIso(record.created_at || record.ts || startedAt) || startedAt,
+    started_at: startedAt,
+    finished_at: finishedAt || addMs(startedAt, normalizedDurationMs),
+    source: record.source || 'gstack',
+    project: args.project || 'local-project',
+    host: record.host || 'openclaw',
+    schedule: record.schedule || null,
+    name: record.name || record.workflow || 'cron_run',
+    workflow: record.workflow || 'scheduled_workflow',
+    phase: record.phase || 'automation',
+    run_type: 'cron',
+    agent_id_hash: agentIdHash(record),
+    category: resolveCategory({ ...record, run_type: 'cron' }, categoryRules),
+    status: normalizeStatus(record.status || record.outcome),
+    duration_ms: normalizedDurationMs,
+    tokens_in_estimate: tokensIn,
+    tokens_out_estimate: tokensOut,
+    tokens_total_estimate: (tokensIn || 0) + (tokensOut || 0) || null,
+    cost_estimate_usd: safeNumber(record.cost_estimate_usd),
+    privacy_level: record.privacy_level || 'local_only',
+    pii_level: record.pii_level || 'unknown',
+  };
+}
+
+function median(values) {
+  const nums = values.filter((v) => typeof v === 'number' && Number.isFinite(v)).sort((a, b) => a - b);
+  if (nums.length === 0) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : Math.round((nums[mid - 1] + nums[mid]) / 2);
+}
+
+function buildWorkflowOutcomes(agentEvents, businessEvents, domain) {
+  const byWorkflow = new Map();
+  for (const event of agentEvents) {
+    const key = event.workflow || 'unknown';
+    if (!byWorkflow.has(key)) byWorkflow.set(key, []);
+    byWorkflow.get(key).push(event);
+  }
+  for (const event of businessEvents) {
+    const key = event.workflow || 'unknown';
+    if (!byWorkflow.has(key)) byWorkflow.set(key, []);
+  }
+
+  return [...byWorkflow.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([workflow, events]) => {
+    const agentRows = events.filter((event) => event.id && event.id.startsWith('evt_'));
+    const accepted = agentRows.filter((event) => event.human_review_status === 'accepted').length;
+    const edited = agentRows.filter((event) => event.human_review_status === 'edited').length;
+    const rejected = agentRows.filter((event) => event.human_review_status === 'rejected').length;
+    const reviewed = accepted + edited + rejected;
+    const runs = agentRows.length;
+    const acceptanceRate = reviewed > 0 ? Number((accepted / reviewed).toFixed(3)) : null;
+    const linkedMetrics = [...new Set(
+      businessEvents
+        .filter((event) => event.workflow === workflow)
+        .map((event) => event.event_type)
+        .filter(Boolean),
+    )];
+    const medianDuration = median(agentRows.map((event) => event.duration_ms));
+    const estimatedHoursSaved = medianDuration && runs > 0
+      ? Number(((medianDuration * runs * 0.5) / 3600000).toFixed(2))
+      : null;
+    const slmCandidate = reviewed >= 50 && acceptanceRate !== null && acceptanceRate >= 0.8;
+
+    return {
+      workflow,
+      domain,
+      runs,
+      accepted_runs: accepted,
+      edited_runs: edited,
+      rejected_runs: rejected,
+      acceptance_rate: acceptanceRate,
+      median_duration_ms: medianDuration,
+      estimated_hours_saved: estimatedHoursSaved,
+      linked_business_metrics: linkedMetrics,
+      slm_candidate: slmCandidate,
+      reason: slmCandidate
+        ? 'High reviewed volume and high acceptance rate.'
+        : 'Needs more reviewed local outcomes before routing or SLM-readiness decisions.',
+    };
+  });
+}
+
+function countBy(records, field) {
+  const counts = {};
+  for (const record of records) {
+    const key = record[field] || 'unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
+}
+
+function sum(records, field) {
+  return records.reduce((total, record) => total + (safeNumber(record[field]) || 0), 0);
+}
+
+function bucketStart(iso, bucket) {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return 'unknown';
+  if (bucket === 'hour') {
+    date.setUTCMinutes(0, 0, 0);
+  } else if (bucket === 'day') {
+    date.setUTCHours(0, 0, 0, 0);
+  } else if (bucket === 'week') {
+    const day = date.getUTCDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    date.setUTCDate(date.getUTCDate() + diff);
+    date.setUTCHours(0, 0, 0, 0);
+  } else if (bucket === 'month') {
+    date.setUTCDate(1);
+    date.setUTCHours(0, 0, 0, 0);
+  }
+  return date.toISOString();
+}
+
+function buildActivitySeries(agentEvents, cronRuns, businessEvents, bucket) {
+  const rows = new Map();
+  function rowFor(iso) {
+    const key = bucketStart(iso, bucket);
+    if (!rows.has(key)) {
+      rows.set(key, {
+        bucket_start: key,
+        agent_runs: 0,
+        cron_runs: 0,
+        business_events: 0,
+        tokens_in_estimate: 0,
+        tokens_out_estimate: 0,
+        tokens_total_estimate: 0,
+        cost_estimate_usd: 0,
+        active_agents: 0,
+      });
+    }
+    return rows.get(key);
+  }
+
+  const activeByBucket = new Map();
+  for (const event of agentEvents) {
+    const row = rowFor(event.started_at || event.created_at);
+    row.agent_runs++;
+    row.tokens_in_estimate += safeNumber(event.tokens_in_estimate) || 0;
+    row.tokens_out_estimate += safeNumber(event.tokens_out_estimate) || 0;
+    row.tokens_total_estimate += safeNumber(event.tokens_total_estimate) || 0;
+    row.cost_estimate_usd += safeNumber(event.cost_estimate_usd) || 0;
+    if (event.agent_id_hash) {
+      const key = row.bucket_start;
+      if (!activeByBucket.has(key)) activeByBucket.set(key, new Set());
+      activeByBucket.get(key).add(event.agent_id_hash);
+    }
+  }
+
+  for (const run of cronRuns) {
+    const row = rowFor(run.started_at || run.created_at);
+    row.cron_runs++;
+    row.tokens_in_estimate += safeNumber(run.tokens_in_estimate) || 0;
+    row.tokens_out_estimate += safeNumber(run.tokens_out_estimate) || 0;
+    row.tokens_total_estimate += safeNumber(run.tokens_total_estimate) || 0;
+    row.cost_estimate_usd += safeNumber(run.cost_estimate_usd) || 0;
+    if (run.agent_id_hash) {
+      const key = row.bucket_start;
+      if (!activeByBucket.has(key)) activeByBucket.set(key, new Set());
+      activeByBucket.get(key).add(run.agent_id_hash);
+    }
+  }
+
+  for (const event of businessEvents) {
+    rowFor(event.created_at).business_events++;
+  }
+
+  for (const [key, agents] of activeByBucket.entries()) {
+    rows.get(key).active_agents = agents.size;
+  }
+
+  return [...rows.values()]
+    .sort((a, b) => a.bucket_start.localeCompare(b.bucket_start))
+    .map((row) => ({
+      ...row,
+      cost_estimate_usd: Number(row.cost_estimate_usd.toFixed(4)),
+    }));
+}
+
+function buildCronTimeline(cronRuns) {
+  return cronRuns
+    .slice()
+    .sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)))
+    .map((run) => ({
+      id: run.id,
+      name: run.name,
+      workflow: run.workflow,
+      category: run.category,
+      schedule: run.schedule,
+      started_at: run.started_at,
+      finished_at: run.finished_at,
+      duration_ms: run.duration_ms,
+      status: run.status,
+      tokens_total_estimate: run.tokens_total_estimate,
+      cost_estimate_usd: run.cost_estimate_usd,
+      agent_id_hash: run.agent_id_hash,
+    }));
+}
+
+function buildCategorySummary(agentEvents, cronRuns, businessEvents) {
+  const rows = new Map();
+  function rowFor(category) {
+    const key = category || 'uncategorized';
+    if (!rows.has(key)) {
+      rows.set(key, {
+        category: key,
+        agent_runs: 0,
+        cron_runs: 0,
+        business_events: 0,
+        duration_ms: 0,
+        tokens_total_estimate: 0,
+        cost_estimate_usd: 0,
+      });
+    }
+    return rows.get(key);
+  }
+
+  for (const event of agentEvents) {
+    const row = rowFor(event.category);
+    row.agent_runs++;
+    row.duration_ms += safeNumber(event.duration_ms) || 0;
+    row.tokens_total_estimate += safeNumber(event.tokens_total_estimate) || 0;
+    row.cost_estimate_usd += safeNumber(event.cost_estimate_usd) || 0;
+  }
+  for (const run of cronRuns) {
+    const row = rowFor(run.category);
+    row.cron_runs++;
+    row.duration_ms += safeNumber(run.duration_ms) || 0;
+    row.tokens_total_estimate += safeNumber(run.tokens_total_estimate) || 0;
+    row.cost_estimate_usd += safeNumber(run.cost_estimate_usd) || 0;
+  }
+  for (const event of businessEvents) {
+    rowFor(event.category).business_events++;
+  }
+
+  return [...rows.values()]
+    .sort((a, b) => (b.agent_runs + b.cron_runs + b.business_events) - (a.agent_runs + a.cron_runs + a.business_events))
+    .map((row) => ({
+      ...row,
+      hours: Number((row.duration_ms / 3600000).toFixed(2)),
+      cost_estimate_usd: Number(row.cost_estimate_usd.toFixed(4)),
+    }));
+}
+
+function buildAgentConcurrency(agentEvents, cronRuns) {
+  const active = new Map();
+  for (const record of [...agentEvents, ...cronRuns]) {
+    if (!record.agent_id_hash) continue;
+    const key = record.agent_id_hash;
+    if (!active.has(key)) {
+      active.set(key, {
+        agent_id_hash: key,
+        runs: 0,
+        cron_runs: 0,
+        first_seen_at: record.started_at || record.created_at,
+        last_seen_at: record.finished_at || record.started_at || record.created_at,
+        duration_ms: 0,
+        tokens_total_estimate: 0,
+      });
+    }
+    const row = active.get(key);
+    row.runs++;
+    if (record.run_type === 'cron') row.cron_runs++;
+    if (String(record.started_at || record.created_at).localeCompare(String(row.first_seen_at)) < 0) {
+      row.first_seen_at = record.started_at || record.created_at;
+    }
+    const last = record.finished_at || record.started_at || record.created_at;
+    if (String(last).localeCompare(String(row.last_seen_at)) > 0) row.last_seen_at = last;
+    row.duration_ms += safeNumber(record.duration_ms) || 0;
+    row.tokens_total_estimate += safeNumber(record.tokens_total_estimate) || 0;
+  }
+  return [...active.values()].sort((a, b) => b.runs - a.runs);
+}
+
+function buildDashboardData(agentEvents, businessEvents, cronRuns, workflowOutcomes, activitySeries, cronTimeline, categorySummary, agentConcurrency, dashboardSummary) {
+  return {
+    summary: dashboardSummary,
+    activity_series: activitySeries,
+    cron_timeline: cronTimeline,
+    category_summary: categorySummary,
+    agent_concurrency: agentConcurrency,
+    workflow_outcomes: workflowOutcomes,
+    top_skills: dashboardSummary.top_skills,
+    business_events_by_type: dashboardSummary.business_events_by_type,
+    samples: {
+      agent_events: agentEvents.slice(0, 20),
+      business_events: businessEvents.slice(0, 20),
+      cron_runs: cronRuns.slice(0, 20),
+    },
+  };
+}
+
+function buildDashboardSummary(agentEvents, businessEvents, cronRuns, workflowOutcomes, activitySeries, categorySummary, agentConcurrency, quality, args) {
+  return {
+    generated_at: new Date().toISOString(),
+    privacy_model: 'local_only',
+    project: args.project || 'local-project',
+    domain: args.domain,
+    window: args.window,
+    bucket: args.bucket,
+    counts: {
+      agent_events: agentEvents.length,
+      business_events: businessEvents.length,
+      cron_runs: cronRuns.length,
+      workflows: workflowOutcomes.length,
+      active_agents: agentConcurrency.length,
+      categories: categorySummary.length,
+    },
+    resources: {
+      tokens_in_estimate: sum(agentEvents, 'tokens_in_estimate') + sum(cronRuns, 'tokens_in_estimate'),
+      tokens_out_estimate: sum(agentEvents, 'tokens_out_estimate') + sum(cronRuns, 'tokens_out_estimate'),
+      tokens_total_estimate: sum(agentEvents, 'tokens_total_estimate') + sum(cronRuns, 'tokens_total_estimate'),
+      cost_estimate_usd: Number((sum(agentEvents, 'cost_estimate_usd') + sum(cronRuns, 'cost_estimate_usd')).toFixed(4)),
+    },
+    top_skills: countBy(agentEvents, 'skill'),
+    workflows: countBy(agentEvents, 'workflow'),
+    categories: countBy([...agentEvents, ...cronRuns, ...businessEvents], 'category'),
+    business_events_by_type: countBy(businessEvents, 'event_type'),
+    crons_by_day: Object.fromEntries(
+      activitySeries
+        .filter((row) => row.cron_runs > 0)
+        .map((row) => [row.bucket_start, row.cron_runs]),
+    ),
+    data_quality: quality,
+    downstream_targets: [
+      'csv',
+      'json',
+      'jsonl',
+      'html_dashboard',
+      'daily_screenshot_report',
+      'duckdb',
+      'sqlite',
+      'postgres',
+      'supabase',
+      'nextjs',
+      'streamlit',
+      'observable',
+      'evidence.dev',
+      'metabase',
+      'grafana',
+      'retool',
+    ],
+  };
+}
+
+function writeJsonl(file, records) {
+  fs.writeFileSync(file, records.map((record) => JSON.stringify(record)).join('\n') + (records.length ? '\n' : ''));
+}
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return '';
+  const text = Array.isArray(value) ? value.join('|') : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function writeCsv(file, records, fields) {
+  const rows = [fields.join(',')];
+  for (const record of records) {
+    rows.push(fields.map((field) => csvEscape(record[field])).join(','));
+  }
+  fs.writeFileSync(file, `${rows.join('\n')}\n`);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function writeDashboardHtml(file, dashboardData) {
+  const payload = JSON.stringify(dashboardData).replace(/</g, '\\u003c');
+  fs.writeFileSync(file, `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GStack Data Layer Dashboard</title>
+  <style>
+    :root { color-scheme: light; --ink:#18212f; --muted:#627083; --line:#d9e0e8; --bg:#f7f9fb; --panel:#fff; --blue:#2463eb; --green:#0f8b6f; --amber:#b26a00; --red:#b42318; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+    header { padding: 28px 32px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 18px; letter-spacing: 0; }
+    p { margin: 0; color: var(--muted); }
+    main { padding: 24px 32px 40px; display: grid; gap: 18px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .metric { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fbfcfe; }
+    .metric b { display:block; font-size: 28px; line-height: 1.1; }
+    .metric span { display:block; color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .chart { display: grid; gap: 8px; }
+    .bar-row { display: grid; grid-template-columns: 150px 1fr 76px; gap: 10px; align-items: center; min-height: 26px; font-size: 13px; }
+    .bar-track { height: 16px; border-radius: 4px; background: #edf2f7; overflow: hidden; }
+    .bar { height: 100%; background: var(--blue); border-radius: 4px; }
+    .bar.green { background: var(--green); }
+    .bar.amber { background: var(--amber); }
+    .timeline { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    .gantt { min-width: 820px; }
+    .gantt-bar { display:inline-block; min-width: 3px; height: 12px; background: var(--green); border-radius: 4px; }
+    .warn { color: var(--amber); }
+    .footer { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GStack Data Layer Dashboard</h1>
+    <p id="subtitle"></p>
+  </header>
+  <main>
+    <section>
+      <h2>Resource Overview</h2>
+      <div class="grid" id="metrics"></div>
+    </section>
+    <section>
+      <h2>Activity By ${escapeHtml(dashboardData.summary.bucket)}</h2>
+      <div class="chart" id="activity"></div>
+    </section>
+    <section>
+      <h2>Token Use By ${escapeHtml(dashboardData.summary.bucket)}</h2>
+      <div class="chart" id="tokens"></div>
+    </section>
+    <section>
+      <h2>Cron Runs And Active Agents</h2>
+      <div class="chart" id="crons"></div>
+    </section>
+    <section>
+      <h2>Task Categories</h2>
+      <div class="chart" id="categories"></div>
+    </section>
+    <section>
+      <h2>Cron Timeline</h2>
+      <div class="timeline"><table class="gantt" id="timeline"></table></div>
+    </section>
+    <section>
+      <h2>Workflow Outcomes</h2>
+      <div class="timeline"><table id="workflows"></table></div>
+    </section>
+    <p class="footer">Local-only export. Review data quality, metric definitions, and PII status before sharing screenshots.</p>
+  </main>
+  <script type="application/json" id="dashboard-data">${payload}</script>
+  <script>
+    const data = JSON.parse(document.getElementById('dashboard-data').textContent);
+    const summary = data.summary;
+    const fmt = new Intl.NumberFormat();
+    document.getElementById('subtitle').textContent = [summary.project, summary.domain, summary.window, summary.generated_at].filter(Boolean).join(' · ');
+
+    function metric(label, value) {
+      return '<div class="metric"><b>' + escapeHtml(String(value)) + '</b><span>' + escapeHtml(label) + '</span></div>';
+    }
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+    document.getElementById('metrics').innerHTML = [
+      metric('Agent runs', fmt.format(summary.counts.agent_events || 0)),
+      metric('Cron runs', fmt.format(summary.counts.cron_runs || 0)),
+      metric('Active agents', fmt.format(summary.counts.active_agents || 0)),
+      metric('Categories', fmt.format(summary.counts.categories || 0)),
+      metric('Tokens est.', fmt.format(summary.resources.tokens_total_estimate || 0)),
+      metric('Cost est.', '$' + Number(summary.resources.cost_estimate_usd || 0).toFixed(2))
+    ].join('');
+
+    function barChart(id, rows, labelFn, valueFn, cls) {
+      const max = Math.max(1, ...rows.map(valueFn));
+      document.getElementById(id).innerHTML = rows.map(row => {
+        const value = valueFn(row) || 0;
+        const width = Math.max(2, Math.round(value / max * 100));
+        return '<div class="bar-row"><span>' + escapeHtml(labelFn(row)) + '</span><div class="bar-track"><div class="bar ' + (cls || '') + '" style="width:' + width + '%"></div></div><strong>' + escapeHtml(fmt.format(value)) + '</strong></div>';
+      }).join('') || '<p>No data yet.</p>';
+    }
+    const series = data.activity_series || [];
+    barChart('activity', series, r => r.bucket_start.slice(0, 10) + (summary.bucket === 'hour' ? ' ' + r.bucket_start.slice(11, 13) + ':00' : ''), r => r.agent_runs + r.business_events, 'green');
+    barChart('tokens', series, r => r.bucket_start.slice(0, 10) + (summary.bucket === 'hour' ? ' ' + r.bucket_start.slice(11, 13) + ':00' : ''), r => r.tokens_total_estimate || 0, '');
+    barChart('crons', series, r => r.bucket_start.slice(0, 10), r => (r.cron_runs || 0) + (r.active_agents || 0), 'amber');
+    barChart('categories', data.category_summary || [], r => r.category, r => r.agent_runs + r.cron_runs + r.business_events, '');
+
+    function table(id, headers, rows, cells) {
+      const head = '<thead><tr>' + headers.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr></thead>';
+      const body = '<tbody>' + rows.map(row => '<tr>' + cells(row).map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</tbody>';
+      document.getElementById(id).innerHTML = head + body;
+    }
+    table('timeline', ['Cron', 'Workflow', 'Category', 'Start', 'Finish', 'Duration', 'Status', 'Gantt'], data.cron_timeline || [], row => {
+      const mins = Math.max(0, Math.round((row.duration_ms || 0) / 60000));
+      const width = Math.min(300, Math.max(3, mins * 4));
+      return [
+        escapeHtml(row.name || ''),
+        escapeHtml(row.workflow || ''),
+        escapeHtml(row.category || ''),
+        escapeHtml(row.started_at || ''),
+        escapeHtml(row.finished_at || ''),
+        escapeHtml(fmt.format(mins) + 'm'),
+        escapeHtml(row.status || ''),
+        '<span class="gantt-bar" style="width:' + width + 'px"></span>'
+      ];
+    });
+    table('workflows', ['Workflow', 'Runs', 'Accepted', 'Edited', 'Rejected', 'Acceptance', 'Hours saved est.', 'Future SLM candidate'], data.workflow_outcomes || [], row => [
+      row.workflow,
+      fmt.format(row.runs || 0),
+      fmt.format(row.accepted_runs || 0),
+      fmt.format(row.edited_runs || 0),
+      fmt.format(row.rejected_runs || 0),
+      row.acceptance_rate == null ? 'n/a' : Math.round(row.acceptance_rate * 100) + '%',
+      row.estimated_hours_saved == null ? 'n/a' : String(row.estimated_hours_saved),
+      row.slm_candidate ? 'yes' : 'not yet'
+    ].map(escapeHtml));
+  </script>
+</body>
+</html>
+`);
+}
+
+function writeDailyReport(file, dashboardData) {
+  const summary = dashboardData.summary;
+  const topCategory = dashboardData.category_summary[0]?.category || 'none yet';
+  const topWorkflow = Object.entries(summary.workflows || {})[0]?.[0] || 'none yet';
+  fs.writeFileSync(file, `# Daily GStack Data Layer Report
+
+Generated: ${summary.generated_at}
+
+## Key Numbers
+
+- Agent runs: ${summary.counts.agent_events}
+- Cron runs: ${summary.counts.cron_runs}
+- Active agents: ${summary.counts.active_agents}
+- Estimated tokens: ${summary.resources.tokens_total_estimate}
+- Estimated cost: $${summary.resources.cost_estimate_usd}
+- Top workflow: ${topWorkflow}
+- Top category: ${topCategory}
+
+## Screenshot Targets
+
+- \`dashboard.html\`: full visual dashboard for daily screenshots.
+- Key sections for screenshot/reporting: Resource Overview, Activity By ${summary.bucket}, Token Use By ${summary.bucket}, Cron Runs And Active Agents, Task Categories, Cron Timeline.
+
+## Delivery Note
+
+This file does not send data anywhere by itself. A user-approved agent or cron can
+open \`dashboard.html\`, capture a screenshot, and deliver it through the user's
+chosen channel. Treat screenshots as local/private unless the user explicitly
+approves sharing.
+`);
+}
+
+function writeReadme(file, args, counts) {
+  fs.writeFileSync(file, `# GStack Data Layer Export
+
+Generated: ${new Date().toISOString()}
+
+This export is local-only and dashboard-ready. It was written by
+\`gstack-data-layer-export\` from local analytics and optional redacted business
+events.
+
+## Files
+
+- \`agent-events.jsonl\` / \`agent-events.csv\`: normalized GStack skill runs.
+- \`business-events.jsonl\` / \`business-events.csv\`: optional redacted business events.
+- \`cron-runs.jsonl\` / \`cron-runs.csv\`: scheduled/cron run records with start and finish timestamps.
+- \`workflow-outcomes.json\` / \`workflow-outcomes.csv\`: workflow rollups.
+- \`activity-series.json\` / \`activity-series.csv\`: flexible time-bucketed activity, token, cost, and active-agent rollups.
+- \`category-summary.json\` / \`category-summary.csv\`: user-defined task category rollups.
+- \`agent-concurrency.json\` / \`agent-concurrency.csv\`: active agent/resource usage rollups.
+- \`cron-timeline.json\` / \`cron-timeline.csv\`: Gantt-ready cron timeline rows.
+- \`dashboard-summary.json\`: summary counts and data-quality notes.
+- \`dashboard.html\`: local visual dashboard for screenshots.
+- \`daily-report.md\`: daily screenshot/report handoff notes.
+
+## Counts
+
+- Agent events: ${counts.agentEvents}
+- Business events: ${counts.businessEvents}
+- Workflow outcomes: ${counts.workflowOutcomes}
+- Cron runs: ${counts.cronRuns}
+- Active agents: ${counts.activeAgents}
+- Categories: ${counts.categories}
+
+## Privacy
+
+Raw repo names are not exported. Repo slugs are represented as hashes when
+available. Do not commit this directory unless you intentionally reviewed and
+sanitized the contents.
+
+## Source Paths
+
+- Analytics: \`${args.analyticsFile}\`
+- Business events: \`${args.businessEventsFile}\`
+- Cron runs: \`${args.cronRunsFile}\`
+- Category rules: \`${args.categoryRulesFile}\`
+`);
+}
+
+function main() {
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    console.error('');
+    console.error(usage());
+    process.exit(2);
+  }
+
+  if (args.help) {
+    console.log(usage());
+    return;
+  }
+
+  const cutoff = cutoffForWindow(args.window);
+  const analytics = readJsonl(args.analyticsFile);
+  const business = readJsonl(args.businessEventsFile);
+  const cron = readJsonl(args.cronRunsFile);
+  const categoryConfig = readJson(args.categoryRulesFile);
+  const categoryRules = buildCategoryRules(categoryConfig.data);
+
+  const skillRuns = analytics.records.filter((record) => isSkillRun(record) && isInsideWindow(record, cutoff));
+  const agentEvents = skillRuns.map((record, index) => normalizeAgentEvent(record, index, args, categoryRules));
+  const businessEvents = business.records
+    .filter((record) => isInsideWindow(record, cutoff))
+    .map((record, index) => normalizeBusinessEvent(record, index, args, categoryRules));
+  const cronRuns = cron.records
+    .filter((record) => isInsideWindow(record, cutoff))
+    .map((record, index) => normalizeCronRun(record, index, args, categoryRules));
+  const workflowOutcomes = buildWorkflowOutcomes(agentEvents, businessEvents, args.domain);
+  const activitySeries = buildActivitySeries(agentEvents, cronRuns, businessEvents, args.bucket);
+  const cronTimeline = buildCronTimeline(cronRuns);
+  const categorySummary = buildCategorySummary(agentEvents, cronRuns, businessEvents);
+  const agentConcurrency = buildAgentConcurrency(agentEvents, cronRuns);
+  const dataQuality = {
+    analytics_file_missing: analytics.missing,
+    business_events_file_missing: business.missing,
+    cron_runs_file_missing: cron.missing,
+    category_rules_file_missing: categoryConfig.missing,
+    category_rules_malformed: categoryConfig.malformed,
+    malformed_analytics_lines: analytics.malformed,
+    malformed_business_event_lines: business.malformed,
+    malformed_cron_run_lines: cron.malformed,
+    note: 'Review metric definitions, denominators, date windows, and PII status before sharing exports.',
+  };
+  const dashboardSummary = buildDashboardSummary(
+    agentEvents,
+    businessEvents,
+    cronRuns,
+    workflowOutcomes,
+    activitySeries,
+    categorySummary,
+    agentConcurrency,
+    dataQuality,
+    args,
+  );
+  const dashboardData = buildDashboardData(
+    agentEvents,
+    businessEvents,
+    cronRuns,
+    workflowOutcomes,
+    activitySeries,
+    cronTimeline,
+    categorySummary,
+    agentConcurrency,
+    dashboardSummary,
+  );
+
+  fs.mkdirSync(args.outDir, { recursive: true });
+  writeJsonl(path.join(args.outDir, 'agent-events.jsonl'), agentEvents);
+  writeCsv(path.join(args.outDir, 'agent-events.csv'), agentEvents, [
+    'id',
+    'created_at',
+    'source',
+    'project',
+    'repo_slug_hash',
+    'host',
+    'skill',
+    'workflow',
+    'phase',
+    'run_type',
+    'cron_run_id',
+    'agent_id_hash',
+    'category',
+    'duration_ms',
+    'status',
+    'human_review_status',
+    'tokens_in_estimate',
+    'tokens_out_estimate',
+    'tokens_total_estimate',
+    'cost_estimate_usd',
+    'privacy_level',
+    'pii_level',
+  ]);
+  writeJsonl(path.join(args.outDir, 'business-events.jsonl'), businessEvents);
+  writeCsv(path.join(args.outDir, 'business-events.csv'), businessEvents, [
+    'id',
+    'created_at',
+    'domain',
+    'entity_type',
+    'entity_id_hash',
+    'workflow',
+    'event_type',
+    'value',
+    'amount_usd',
+    'source',
+    'category',
+    'privacy_level',
+    'pii_level',
+  ]);
+  writeJsonl(path.join(args.outDir, 'cron-runs.jsonl'), cronRuns);
+  writeCsv(path.join(args.outDir, 'cron-runs.csv'), cronRuns, [
+    'id',
+    'created_at',
+    'started_at',
+    'finished_at',
+    'source',
+    'project',
+    'host',
+    'schedule',
+    'name',
+    'workflow',
+    'phase',
+    'run_type',
+    'agent_id_hash',
+    'category',
+    'status',
+    'duration_ms',
+    'tokens_in_estimate',
+    'tokens_out_estimate',
+    'tokens_total_estimate',
+    'cost_estimate_usd',
+    'privacy_level',
+    'pii_level',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'workflow-outcomes.json'), JSON.stringify(workflowOutcomes, null, 2) + '\n');
+  writeCsv(path.join(args.outDir, 'workflow-outcomes.csv'), workflowOutcomes, [
+    'workflow',
+    'domain',
+    'runs',
+    'accepted_runs',
+    'edited_runs',
+    'rejected_runs',
+    'acceptance_rate',
+    'median_duration_ms',
+    'estimated_hours_saved',
+    'slm_candidate',
+    'reason',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'activity-series.json'), JSON.stringify(activitySeries, null, 2) + '\n');
+  writeCsv(path.join(args.outDir, 'activity-series.csv'), activitySeries, [
+    'bucket_start',
+    'agent_runs',
+    'cron_runs',
+    'business_events',
+    'tokens_in_estimate',
+    'tokens_out_estimate',
+    'tokens_total_estimate',
+    'cost_estimate_usd',
+    'active_agents',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'category-summary.json'), JSON.stringify(categorySummary, null, 2) + '\n');
+  writeCsv(path.join(args.outDir, 'category-summary.csv'), categorySummary, [
+    'category',
+    'agent_runs',
+    'cron_runs',
+    'business_events',
+    'duration_ms',
+    'hours',
+    'tokens_total_estimate',
+    'cost_estimate_usd',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'agent-concurrency.json'), JSON.stringify(agentConcurrency, null, 2) + '\n');
+  writeCsv(path.join(args.outDir, 'agent-concurrency.csv'), agentConcurrency, [
+    'agent_id_hash',
+    'runs',
+    'cron_runs',
+    'first_seen_at',
+    'last_seen_at',
+    'duration_ms',
+    'tokens_total_estimate',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'cron-timeline.json'), JSON.stringify(cronTimeline, null, 2) + '\n');
+  writeCsv(path.join(args.outDir, 'cron-timeline.csv'), cronTimeline, [
+    'id',
+    'name',
+    'workflow',
+    'category',
+    'schedule',
+    'started_at',
+    'finished_at',
+    'duration_ms',
+    'status',
+    'tokens_total_estimate',
+    'cost_estimate_usd',
+    'agent_id_hash',
+  ]);
+  fs.writeFileSync(path.join(args.outDir, 'dashboard-summary.json'), JSON.stringify(dashboardSummary, null, 2) + '\n');
+  fs.writeFileSync(path.join(args.outDir, 'dashboard-data.json'), JSON.stringify(dashboardData, null, 2) + '\n');
+  writeDashboardHtml(path.join(args.outDir, 'dashboard.html'), dashboardData);
+  writeDailyReport(path.join(args.outDir, 'daily-report.md'), dashboardData);
+  writeReadme(path.join(args.outDir, 'README.md'), args, {
+    agentEvents: agentEvents.length,
+    businessEvents: businessEvents.length,
+    workflowOutcomes: workflowOutcomes.length,
+    cronRuns: cronRuns.length,
+    activeAgents: agentConcurrency.length,
+    categories: categorySummary.length,
+  });
+
+  console.log(`gstack data layer export: ${args.outDir}`);
+  console.log(`agent_events=${agentEvents.length}`);
+  console.log(`business_events=${businessEvents.length}`);
+  console.log(`cron_runs=${cronRuns.length}`);
+  console.log(`workflow_outcomes=${workflowOutcomes.length}`);
+  console.log(`activity_buckets=${activitySeries.length}`);
+  console.log(`dashboard_html=${path.join(args.outDir, 'dashboard.html')}`);
+  if (analytics.missing) console.log(`analytics_missing=${args.analyticsFile}`);
+  if (business.missing) console.log(`business_events_missing=${args.businessEventsFile}`);
+  if (cron.missing) console.log(`cron_runs_missing=${args.cronRunsFile}`);
+}
+
+main();

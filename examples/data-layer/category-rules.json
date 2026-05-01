@@ -1,0 +1,27 @@
+{
+  "default_category": "uncategorized",
+  "rules": [
+    {
+      "category": "coding",
+      "skills": ["/review", "/qa", "/ship", "/benchmark", "/canary"],
+      "workflows": ["quality_assurance", "release", "code_review"]
+    },
+    {
+      "category": "admin",
+      "run_types": ["cron", "scheduled"],
+      "workflows": ["crm_followup", "inbox_triage", "reporting"]
+    },
+    {
+      "category": "financial",
+      "workflows": ["invoice_collection", "expense_review", "revenue_reporting"]
+    },
+    {
+      "category": "personal",
+      "workflows": ["personal_planning", "calendar_coordination"]
+    },
+    {
+      "category": "work",
+      "phases": ["plan", "review", "qa", "ship", "analysis"]
+    }
+  ]
+}

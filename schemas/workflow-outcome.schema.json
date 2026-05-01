@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/workflow-outcome.schema.json",
+  "title": "WorkflowOutcome",
+  "description": "A dashboard-ready rollup for a repeated workflow, including human review counts, duration, business metric links, and future routing readiness.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "workflow",
+    "domain",
+    "runs",
+    "accepted_runs",
+    "edited_runs",
+    "rejected_runs",
+    "acceptance_rate",
+    "median_duration_ms",
+    "estimated_hours_saved",
+    "linked_business_metrics",
+    "slm_candidate",
+    "reason"
+  ],
+  "properties": {
+    "workflow": {
+      "type": "string"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "runs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "accepted_runs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "edited_runs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rejected_runs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "acceptance_rate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "median_duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "estimated_hours_saved": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "linked_business_metrics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "slm_candidate": {
+      "type": "boolean",
+      "description": "Heuristic only. True means the workflow may be worth later routing/eval/context/SLM investigation."
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}
