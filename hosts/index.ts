@@ -66,4 +66,4 @@ export function getExternalHosts(): HostConfig[] {
 }
 
 // Re-export individual configs for direct import
-export { claude, codex, factory, kiro, opencode, slate, cursor, openclaw, hermes, gbrain };
+export { claude, codex, factory, kiro, opencode, slate, cursor, openclaw, hermes, gbrain, pi };
