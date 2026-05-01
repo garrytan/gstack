@@ -35,8 +35,12 @@ import * as os from 'os';
 
 const evalCollector = createEvalCollector('e2e-office-hours-phase4');
 
-// Format predicates — same shape as skill-e2e-plan-format.test.ts.
-const RECOMMENDATION_RE = /[Rr]ecommendation:[*\s]*Choose/;
+// Format predicates. The strict `Recommendation:[*\s]*Choose` regex used by
+// skill-e2e-plan-format pins down a specific template-example wording ("Choose
+// [X]"). The format spec at scripts/resolvers/preamble/generate-ask-user-format.ts
+// only requires `Recommendation: <choice> because <reason>` — `<choice>` can
+// be the bare option label. judgeRecommendation.present (deterministic) checks
+// this canonical shape correctly; we don't need a redundant strict regex here.
 const BECAUSE_RE = /\bbecause\b/i;
 // At least 2 numbered/lettered options (A/B or 1/2). Office-hours Phase 4 says
 // "2-3 distinct alternatives," so 2+ is the minimum bar.
@@ -123,8 +127,8 @@ After writing the file with that ONE Phase 4 question, stop. Do not continue to 
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Format-spec compliance.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Format-spec compliance. judgeRecommendation below covers the
+    // Recommendation: line itself; these regexes catch cheap structural shape.
     expect(captured).toMatch(BECAUSE_RE);
     expect(captured).toMatch(TWO_OPTIONS_RE);
     // Phase-4 specificity: prevents a stray earlier-phase AUQ from false-passing.

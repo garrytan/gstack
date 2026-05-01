@@ -34,11 +34,13 @@ import * as os from 'os';
 const evalCollector = createEvalCollector('e2e-plan-format');
 
 // Regex predicates applied to captured AskUserQuestion content.
-// RECOMMENDATION regex is lenient on intervening markdown markers (e.g.
-// agent writes `**RECOMMENDATION:** Choose` — the `**` closers are benign).
-// Post v1.7.0.0: "Recommendation:" (mixed-case) is the canonical form per
-// the Pros/Cons format; accept both cases for backward compatibility.
-const RECOMMENDATION_RE = /[Rr]ecommendation:[*\s]*Choose/;
+// Recommendation-line presence + substance is now graded by judgeRecommendation
+// (deterministic regex for present/commits/has_because, Haiku for substance);
+// the prior strict `[Rr]ecommendation:[*\s]*Choose` regex pinned down a
+// template-example wording ("Choose [X]") that the format spec doesn't require
+// — the canonical form per generate-ask-user-format.ts is just
+// `Recommendation: <choice> because <reason>`, where <choice> is the bare
+// option label. judgeRecommendation.present covers the canonical shape.
 const COMPLETENESS_RE = /Completeness:\s*\d{1,2}\/10/;
 const KIND_NOTE_RE = /options differ in kind/i;
 
@@ -142,9 +144,8 @@ After writing the file, stop. Do not continue the review.`,
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Kind-differentiated: RECOMMENDATION required, Completeness: N/10 must NOT appear,
-    // "options differ in kind" note must appear.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
+    // in kind" note must appear. Recommendation presence is checked by the judge.
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
 
@@ -212,8 +213,8 @@ After writing the file, stop. Do not continue the review.`,
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Coverage-differentiated: both RECOMMENDATION and Completeness: N/10 required.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Coverage-differentiated: Completeness: N/10 required. Recommendation
+    // presence checked by the judge.
     expect(captured).toMatch(COMPLETENESS_RE);
 
     const recScore = await judgeRecommendation(captured);
@@ -281,8 +282,8 @@ After writing the file with that ONE question, stop. Do not continue the review.
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Coverage-differentiated: both RECOMMENDATION and Completeness: N/10 required.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Coverage-differentiated: Completeness: N/10 required. Recommendation
+    // presence checked by the judge.
     expect(captured).toMatch(COMPLETENESS_RE);
 
     const recScore = await judgeRecommendation(captured);
@@ -347,9 +348,8 @@ After writing the file with that ONE question, stop. Do not continue the review.
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Kind-differentiated: RECOMMENDATION required, Completeness: N/10 must NOT appear,
-    // "options differ in kind" note must appear.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
+    // in kind" note must appear. Recommendation presence checked by the judge.
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
 
