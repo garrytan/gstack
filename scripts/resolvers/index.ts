@@ -22,6 +22,7 @@ import { generateModelOverlay } from './model-overlay';
 import { generateGBrainContextLoad, generateGBrainSaveResults } from './gbrain';
 import { generateQuestionPreferenceCheck, generateQuestionLog, generateInlineTuneFeedback } from './question-tuning';
 import { generateMakePdfSetup } from './make-pdf';
+import { generateAutoplanOutsideVoiceBlock, generateAutoplanOutsideVoicePreflight } from './autoplan';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -76,4 +77,6 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   QUESTION_LOG: generateQuestionLog,
   INLINE_TUNE_FEEDBACK: generateInlineTuneFeedback,
   MAKE_PDF_SETUP: generateMakePdfSetup,
+  AUTOPLAN_OUTSIDE_VOICE_PREFLIGHT: generateAutoplanOutsideVoicePreflight,
+  AUTOPLAN_OUTSIDE_VOICE_BLOCK: generateAutoplanOutsideVoiceBlock,
 };

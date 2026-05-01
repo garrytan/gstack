@@ -1698,6 +1698,32 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('is_error');
   });
 
+  test('Codex-host autoplan flips dual voices to host subagent + Claude outside voice', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-autoplan', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Claude CLI not found');
+    expect(content).toContain('claude -p --output-format json');
+    expect(content).toContain('Host-native CEO subagent');
+    expect(content).toMatch(/OUTSIDE VOICE\s*\(CEO/);
+    expect(content).toContain('Dimension                           Subagent Outside Consensus');
+    expect(content).toContain('SOURCE = "subagent+outside", "outside-only", "subagent-only", or "unavailable".');
+    expect(content).not.toContain('Claude CEO subagent');
+    expect(content).not.toContain('CLAUDE SUBAGENT (CEO');
+    expect(content).not.toContain('Run Claude subagent (foreground');
+    expect(content).not.toContain('**Codex outside voice**');
+    expect(content).not.toContain('_gstack_codex_timeout_wrapper 600 codex exec');
+  });
+
+  test('Claude-host autoplan still uses Codex as the outside voice', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex CLI not found');
+    expect(content).toContain('codex exec');
+    expect(content).toContain('Host-native CEO subagent');
+    expect(content).toMatch(/OUTSIDE VOICE\s*\(CEO/);
+    expect(content).toContain('Dimension                           Subagent Outside Consensus');
+    expect(content).toContain('SOURCE = "subagent+outside", "outside-only", "subagent-only", or "unavailable".');
+    expect(content).not.toContain('Claude CLI not found');
+  });
+
   test('Codex review step stripped from Codex-host ship and review', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
