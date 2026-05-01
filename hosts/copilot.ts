@@ -44,6 +44,39 @@ const copilot: HostConfig = {
     { from: '.claude/skills', to: '.copilot/skills' },
   ],
 
+  // Map Claude Code tool names to GitHub Copilot CLI equivalents.
+  // Mapping is based on the official Copilot CLI tool catalog
+  // (docs.github.com/copilot/concepts/agents/about-copilot-cli):
+  //   Bash → bash, Read → view, Write → create, Edit → edit,
+  //   Agent → task, Grep → grep, Glob → glob, AskUserQuestion → ask_user.
+  // Only literal "<verb> the X tool" / "the X tool" / "AskUserQuestion"
+  // protocol phrases are rewritten — bare verbs like "Read the file"
+  // are left intact so prose stays readable.
+  toolRewrites: {
+    'use the Bash tool': 'use the bash tool',
+    'use the Write tool': 'use the create tool',
+    'use the Read tool': 'use the view tool',
+    'use the Edit tool': 'use the edit tool',
+    'use the Agent tool': 'use the task tool',
+    'use the Grep tool': 'use the grep tool',
+    'use the Glob tool': 'use the glob tool',
+    'the Bash tool': 'the bash tool',
+    'the Read tool': 'the view tool',
+    'the Write tool': 'the create tool',
+    'the Edit tool': 'the edit tool',
+    'the Agent tool': 'the task tool',
+    // Bare forms catch parenthesized usages like "(Agent tool)" and
+    // imperatives like "use Edit tool" / "via Agent tool". The plural
+    // form "X tools" is left alone — it only appears in the freeze skill
+    // describing which tools are affected, where lowercase would read wrong.
+    'Bash tool': 'bash tool',
+    'Read tool': 'view tool',
+    'Write tool': 'create tool',
+    'Edit tool': 'edit tool',
+    'Agent tool': 'task tool',
+    AskUserQuestion: 'ask_user',
+  },
+
   suppressedResolvers: [
     // Codex-specific second-opinion / outside-voice steps don't apply.
     'CODEX_SECOND_OPINION',
