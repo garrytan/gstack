@@ -494,10 +494,20 @@ export async function checkTranscript(params: {
     // ~44k cache_creation tokens per call (massive cost inflation).
     // Using os.tmpdir() gives Haiku a clean context for pure classification.
     const p = spawn('claude', [
-      '-p', prompt,
+      '-p',
       '--model', HAIKU_MODEL,
       '--output-format', 'json',
-    ], { stdio: ['ignore', 'pipe', 'pipe'], cwd: os.tmpdir() });
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: os.tmpdir(),
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      },
+    });
+    p.stdin.write(prompt);
+    p.stdin.end();
 
     let stdout = '';
     let done = false;
