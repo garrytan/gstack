@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.23.0.0] - 2026-04-30
+
+## **Every PR title now starts with `vX.Y.Z.W`. `/ship`, `/document-release`, and the GitHub Action all enforce it.**
+
+The format was already documented in `/ship` Step 19, but a "leave custom titles alone" loophole meant a PR opened without a version prefix would never get one — and `/document-release` never touched the title at all, so a doc-release VERSION bump silently left the PR pointing at the old version. This release closes both gaps. The rule lives in one place now (`bin/gstack-pr-title-rewrite.sh`), all three callers shell out to it, and a free `bun test` locks in the four branches.
+
+### The numbers that matter
+
+Numbers come from `git diff --shortstat origin/main..HEAD` and `bun test test/pr-title-rewrite.test.ts` on a clean tree.
+
+| Metric | Δ |
+|---|---|
+| Net branch size vs main | +210 / −36 lines (5 files + 2 new) |
+| New helper script | **bin/gstack-pr-title-rewrite.sh** (40 lines, single source of truth) |
+| New unit tests added | **+9** (test/pr-title-rewrite.test.ts) |
+| Unit suite runtime | **402ms** (free-tier, runs on every push) |
+| Loopholes closed | **3** (ship Step 19, document-release Step 9, pr-title-sync.yml) |
+| Reviewers run on this PR | plan-eng-review (CLEARED) + adversarial (Claude subagent) |
+
+### What this means for builders
+
+PR titles are now a deterministic function of the VERSION file, no matter how the PR got created. Open one via the web UI with `feat: my thing` and the next push of a VERSION bump turns it into `v1.23.0.0 feat: my thing`. Run `/ship` from a stale branch where Step 12's queue-drift detection rebumps to a higher version and the title moves with it. Run `/document-release`, bump VERSION at Step 8, and the PR title now follows along instead of staying at the previous version.
+
+The helper itself rejects malformed VERSION values (anything outside `^[0-9]+(\.[0-9]+)*$`) with exit code 2, uses a literal `case` prefix match instead of bash's pattern-matching `#` operator (so a hypothetical VERSION containing glob metacharacters can't silently mismatch), and is idempotent — applying it twice yields the same result.
+
+### Itemized changes
+
+#### Added
+
+- `bin/gstack-pr-title-rewrite.sh`: shared helper. Takes `<NEW_VERSION>` + `<CURRENT_TITLE>`, prints the corrected title on stdout. Three cases: already correct (no-op), different version prefix (replace), no prefix (prepend). Validates NEW_VERSION shape at entry. Used by `/ship`, `/document-release`, and the GitHub Action.
+- `test/pr-title-rewrite.test.ts`: 9 deterministic tests covering already-correct, different-prefix, different-prefix-length, no-prefix, plain-words-not-stripped, single-segment-not-stripped, missing-args, malformed-VERSION rejection, and idempotence. Free-tier, runs on every `bun test`.
+
+#### Changed
+
+- `ship/SKILL.md.tmpl` Step 19: idempotency block now always rewrites titles to start with `v$NEW_VERSION` — no more "custom title kept intentionally" escape hatch. Shells out to `bin/gstack-pr-title-rewrite.sh` for the rule. Adds a post-edit self-check that re-fetches the title and retries once if the edit didn't stick.
+- `ship/SKILL.md.tmpl` create-PR snippets (lines 867 and 876): inline comment makes the `v$NEW_VERSION` requirement unmissable when reading the step.
+- `document-release/SKILL.md.tmpl` Step 9: new "PR/MR title sync" sub-step calls the same helper after the body update. Catches the case where Step 8 bumped VERSION after `/ship` had already created the PR — title follows VERSION instead of going stale.
+- `.github/workflows/pr-title-sync.yml`: drops the "eligible only if already prefixed" gate. Sources the helper, rewrites unconditionally on every VERSION change. Defense-in-depth backstop for PRs opened outside the skills (manual `gh pr create`, web UI). Uses `env:` for `OLD_TITLE` so YAML expression injection can't reach `run:`.
+
+#### For contributors
+
+- The helper is a regular `bin/` script with `set -euo pipefail`, no external deps beyond bash + sed. Slots into the existing pattern alongside `bin/gstack-config`, `bin/gstack-slug`, `bin/gstack-next-version`.
+- Test coverage gates this — any future change to the rule has to update the test fixtures or the suite goes red.
+
 ## [1.21.1.0] - 2026-04-28
 
 ## **plan-ceo-review smoke tightens. The "agent skips Step 0 and ships a plan" regression now fails the gate.**
