@@ -247,11 +247,11 @@ export async function handleWriteCommand(
       if (!filePath) throw new Error('Usage: browse load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]');
 
       // Extension allowlist
-      const ALLOWED_EXT = ['.html', '.htm', '.xhtml', '.svg'];
+      const ALLOWED_EXT = ['.html', '.htm', '.xhtml'];
       const ext = path.extname(filePath).toLowerCase();
       if (!ALLOWED_EXT.includes(ext)) {
         throw new Error(
-          `load-html: file does not appear to be HTML. Expected .html/.htm/.xhtml/.svg, got ${ext || '(no extension)'}. Rename the file if it's really HTML.`
+          `load-html: file does not appear to be HTML. Expected .html/.htm/.xhtml, got ${ext || '(no extension)'}. Rename the file if it's really HTML.`
         );
       }
 
