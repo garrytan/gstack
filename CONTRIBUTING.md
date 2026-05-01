@@ -230,6 +230,44 @@ bun run dev:skill
 
 For template authoring best practices (natural language over bash-isms, dynamic branch detection, `{{BASE_BRANCH_DETECT}}` usage), see CLAUDE.md's "Writing SKILL templates" section.
 
+### Available `{{PLACEHOLDER}}` tokens
+
+Templates use `{{PLACEHOLDER}}` tokens that expand at generation time. Here are all available tokens and what they inject:
+
+| Placeholder | What it injects |
+|-------------|----------------|
+| `{{PREAMBLE}}` | Session tracking, update check, proactive routing, telemetry opt-in. Required in every skill — go first. |
+| `{{BASE_BRANCH_DETECT}}` | Shell snippet to detect `main`/`master`/`develop` dynamically. Use in any skill that references a base branch. |
+| `{{BROWSE_SETUP}}` | Check for browse daemon availability (`$B` alias). Use in skills that need real browser access. |
+| `{{LEARNINGS_SEARCH}}` | Query `~/.gstack/projects/{slug}/learnings.jsonl` for relevant past learnings from this project. Place after initial setup, before main analysis. |
+| `{{LEARNINGS_LOG}}` | Persist new learnings at session end. Place before "Important Rules". Pair with `{{LEARNINGS_SEARCH}}`. |
+| `{{SLUG_SETUP}}` | Set `$SLUG` from git remote or directory name. Needed before writing any project-scoped artifact. |
+| `{{SLUG_EVAL}}` | Inline `eval` of the slug command (for inline bash blocks). |
+| `{{QA_METHODOLOGY}}` | Core QA philosophy: what to test, how to prioritize, when to stop. |
+| `{{DESIGN_SETUP}}` | Check for the `design` binary and `$D` alias for AI mockup generation. |
+| `{{DESIGN_METHODOLOGY}}` | Full design system principles, AI slop anti-patterns, typography/color rules. |
+| `{{DESIGN_REVIEW_LITE}}` | Lightweight design consistency check (subset of `/design-review`). Used by `/ship`. |
+| `{{DESIGN_OUTSIDE_VOICES}}` | Dual-voice design critique pattern (Claude subagent + Codex). |
+| `{{REVIEW_DASHBOARD}}` | Check for prior review artifacts (CEO/design/eng) before shipping. |
+| `{{CODEX_SECOND_OPINION}}` | Run Codex as a second reviewer and build a consensus table. |
+| `{{ADVERSARIAL_STEP}}` | Adversarial challenge step — one model challenges the other's analysis. |
+| `{{TEST_BOOTSTRAP}}` | Detect test framework and bootstrap test infrastructure if needed. |
+| `{{TEST_COVERAGE_AUDIT_PLAN}}` / `{{TEST_COVERAGE_AUDIT_SHIP}}` / `{{TEST_COVERAGE_AUDIT_REVIEW}}` | Coverage gap analysis at plan/ship/review time. |
+| `{{TEST_FAILURE_TRIAGE}}` | Triage pre-existing test failures (pre-existing vs regression). |
+| `{{CO_AUTHOR_TRAILER}}` | Append `Co-Authored-By:` to commits for AI attribution. |
+| `{{CHANGELOG_WORKFLOW}}` | Branch-scoped CHANGELOG + VERSION bump instructions. |
+| `{{DEPLOY_BOOTSTRAP}}` | Detect deploy strategy (Vercel, Fly, Railway, Render, etc.). |
+| `{{INVOKE_SKILL}}` | Invoke another gstack skill as a sub-step. |
+| `{{BENEFITS_FROM}}` | Declare prerequisite skills (shown in skill health dashboard). |
+
+**Parameterized placeholders** — some tokens accept arguments via `:`:
+```
+{{PREAMBLE:tier=2}}    → tier-2 preamble (includes browse setup)
+{{PREAMBLE:tier=4}}    → tier-4 preamble (all utilities)
+```
+
+Most skills use the `preamble-tier` frontmatter field instead, which `gen-skill-docs` passes automatically.
+
 To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
 
 ## Jargon list (V1 writing style)
