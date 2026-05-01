@@ -3,9 +3,9 @@ name: claude
 preamble-tier: 3
 version: 1.0.0
 description: |
-  Claude Code CLI wrapper for non-Claude hosts - three modes. Review: independent
-  diff review via claude -p. Challenge: adversarial failure-mode review. Consult:
-  ask Claude about the repo with read-only file tools. Use when asked for "claude
+  No-Claude temp shim for non-Claude hosts - three modes. Review: independent
+  diff review via codex-temp. Challenge: adversarial failure-mode review. Consult:
+  ask an external CLI about the repo with read-only file tools. Use when asked for "claude
   review", "claude challenge", "ask claude", "second opinion from claude", or
   "outside voice". (gstack)
 triggers:
@@ -24,23 +24,30 @@ allowed-tools:
 
 # /claude - Claude Outside Voice
 
-You are running the `/claude` skill from a non-Claude host. This wraps `claude -p`
-to get an independent Claude Code second opinion without allowing nested Claude to
-modify files.
+> TEMP SWAP 2026-05-01: no-Claude mode is active. This skill must not spawn
+> Claude print mode. Use `/codex` or `~/bin/codex-temp exec --skip-git-repo-check
+> --ephemeral -` for external review during the temp window. The original
+> Claude commands are preserved below in rollback comments.
+
+You are running the `/claude` skill from a non-Claude host. During the no-Claude
+temp window this wraps `codex-temp` to get an external second opinion without
+allowing the nested process to modify files.
+<!-- TEMP SWAP 2026-05-01: original wording referenced `claude -p`. -->
 
 The generated external invocation name is `gstack-claude`.
 
 ---
 
-## Step 0: Check Claude CLI
+## Step 0: Check Codex Temp CLI
 
 ```bash
-CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "")
-[ -z "$CLAUDE_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $CLAUDE_BIN"
+CODEX_TEMP_BIN="${CODEX_TEMP_BIN:-$HOME/bin/codex-temp}"
+[ -x "$CODEX_TEMP_BIN" ] && echo "FOUND: $CODEX_TEMP_BIN" || echo "NOT_FOUND"
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude binary check: CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "") -->
 
 If `NOT_FOUND`, stop and tell the user:
-"Claude CLI not found. Install Claude Code, then re-run this skill."
+"codex-temp not found. Install or refresh the Codex temp launcher, then re-run this skill."
 
 Check auth:
 
@@ -52,23 +59,21 @@ else
 fi
 ```
 
-If `AUTH_MISSING`, stop and tell the user:
-"No Claude authentication found. Run `claude` interactively to log in, or export `ANTHROPIC_API_KEY`, then re-run this skill."
+If `AUTH_MISSING`, continue to the codex-temp smoke; no Claude authentication is required during the no-Claude temp window.
 
 ---
 
 ## Safety Boundary
 
-Nested Claude must stay focused on the user's repository and must not run gstack
+Nested external CLI must stay focused on the user's repository and must not run gstack
 skills from inside this skill.
 
-All `claude -p` calls MUST include:
+All `codex-temp` calls MUST include:
 
-- `--disable-slash-commands`
-- Review/challenge: `--tools ""`
-- Consult: `--allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write`
+- `exec --skip-git-repo-check --ephemeral -`
+- Prompt content through stdin
 
-Never pass `Bash`, `Edit`, or `Write` to nested Claude in this skill.
+Never allow the nested external process to edit files in this skill.
 
 All prompts MUST be written to a temp file and fed through stdin. Never interpolate
 user text directly into the shell command.
@@ -138,7 +143,7 @@ PY
 ```
 
 If stderr contains `auth`, `login`, or `unauthorized`, tell the user:
-"Claude authentication failed. Run `claude` interactively to authenticate or export `ANTHROPIC_API_KEY`."
+"codex-temp authentication failed. Refresh the Codex temp login and retry."
 
 ---
 
@@ -178,8 +183,9 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$HOME/bin/codex-temp" exec --skip-git-repo-check --ephemeral - > "$RESP_FILE" 2>"$ERR_FILE"
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude command for revert: cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE" -->
 
 4. Present the parsed output:
 
@@ -224,8 +230,9 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$HOME/bin/codex-temp" exec --skip-git-repo-check --ephemeral - > "$RESP_FILE" 2>"$ERR_FILE"
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude command for revert: cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE" -->
 
 4. Present the parsed output:
 
@@ -276,14 +283,16 @@ EOF
 For a new session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$HOME/bin/codex-temp" exec --skip-git-repo-check --ephemeral - > "$RESP_FILE" 2>"$ERR_FILE"
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude command for revert: cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE" -->
 
 For a resumed session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$HOME/bin/codex-temp" exec --skip-git-repo-check --ephemeral - > "$RESP_FILE" 2>"$ERR_FILE"
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude command for revert: cat "$PROMPT_FILE" | claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE" -->
 
 4. Parse and save the session id:
 
@@ -334,7 +343,7 @@ rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
 
 ## Important Rules
 
-- Nested Claude is read-only in consult mode and tool-less in review/challenge.
+- Nested external CLI is read-only by instruction during the no-Claude temp window.
 - Always include `--disable-slash-commands`.
 - Never pass nested Claude `Bash`, `Edit`, or `Write`.
 - Never interpolate user text into a shell command.

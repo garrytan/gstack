@@ -8,7 +8,7 @@
  *      result) with the fields we destructure.
  *   4. `scripts/resolvers/model-overlay.ts` resolves `{{INHERIT:claude}}` against
  *      `opus-4-7.md` with no unresolved inheritance directives.
- *   5. A local `claude` binary exists at `which claude` so binary pinning is possible.
+ *   5. TEMP SWAP 2026-05-01: local Claude binary pinning is skipped.
  *
  * Run: bun run scripts/preflight-agent-sdk.ts
  *
@@ -18,7 +18,6 @@
 
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readOverlay } from './resolvers/model-overlay';
-import { execSync } from 'child_process';
 
 async function main() {
   const failures: string[] = [];
@@ -42,15 +41,12 @@ async function main() {
     }
   }
 
-  // 2. Local claude binary exists
+  // 2. Binary pinning disabled during no-Claude mode
   console.log('\n2. Binary pinning');
-  let claudePath: string | null = null;
-  try {
-    claudePath = execSync('which claude', { encoding: 'utf-8' }).trim();
-    pass(`local claude binary: ${claudePath}`);
-  } catch {
-    fail('`which claude` failed — cannot pin binary');
-  }
+  const claudePath: string | null = null;
+  console.log('  skip  Claude binary pinning disabled by no-Claude temp migration');
+  // TEMP SWAP 2026-05-01: original binary check for revert:
+  // claudePath = execSync('which claude', { encoding: 'utf-8' }).trim();
 
   // 3. SDK query end-to-end
   console.log('\n3. SDK query end-to-end');

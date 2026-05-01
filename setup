@@ -35,7 +35,7 @@ QUIET=0
 log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
 
 # ─── Parse flags ──────────────────────────────────────────────
-HOST="claude"
+HOST="auto"
 LOCAL_INSTALL=0
 SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
@@ -156,14 +156,19 @@ INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
 if [ "$HOST" = "auto" ]; then
-  command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
+  # TEMP SWAP 2026-05-01: no-Claude mode. Do not auto-install Claude host assets.
+  # Original detection for revert:
+  # command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
+  INSTALL_CLAUDE=0
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
-  # If none found, default to claude
+  # If none found, fail clearly during no-Claude mode.
   if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
-    INSTALL_CLAUDE=1
+    # TEMP SWAP 2026-05-01: original fallback set INSTALL_CLAUDE=1.
+    echo "Error: no supported no-Claude host found. Install Codex or pass --host explicitly." >&2
+    exit 1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1

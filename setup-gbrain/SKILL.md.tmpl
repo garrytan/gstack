@@ -280,28 +280,28 @@ doctor output and STOP.
 
 ---
 
-## Step 5a: Register gbrain as Claude Code MCP (D18)
+## Step 5a: Register gbrain MCP manually for the active host (D18)
 
-Only if `which claude` resolves. Ask: "Give Claude Code a typed tool surface
-for gbrain? (recommended yes)"
+TEMP SWAP 2026-05-01: Claude Code MCP auto-registration is disabled during
+the no-Claude temp window. Keep the gbrain CLI installed and register
+`gbrain serve` in the active host's MCP config manually. For Codex, use the
+Codex MCP configuration path rather than invoking Claude MCP commands.
 
-If yes, register at **user scope** with an **absolute path** to the gbrain
-binary. User scope makes the MCP available in every Claude Code session on
-this machine, not just the current workspace. Absolute path avoids PATH
-resolution issues when Claude Code spawns `gbrain serve` as a subprocess.
+<!-- TEMP SWAP 2026-05-01: original guard for revert: Only if `which claude` resolves. Ask: "Give Claude Code a typed tool surface for gbrain? (recommended yes)" -->
 
 ```bash
 GBRAIN_BIN=$(command -v gbrain)
 [ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
-claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
-claude mcp list | grep gbrain  # verify: should show "✓ Connected"
+echo "Register this command in your active host MCP config: $GBRAIN_BIN serve"
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude MCP add/list for revert: claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve && claude mcp list | grep gbrain -->
 
 If the user already had a local-scope registration from an earlier run,
 remove it first so both scopes don't conflict:
 ```bash
-claude mcp remove gbrain 2>/dev/null || true
+echo "If reverting to Claude MCP, remove any local-scope duplicate before adding user-scope gbrain."
 ```
+<!-- TEMP SWAP 2026-05-01: original Claude MCP remove for revert: claude mcp remove gbrain 2>/dev/null || true -->
 
 If `claude` is not on PATH: emit "MCP registration skipped — this skill is
 Claude-Code-targeted; register `gbrain serve` in your agent's MCP config

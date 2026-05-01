@@ -1,19 +1,18 @@
 /**
  * Claude Agent SDK wrapper for the overlay-efficacy harness.
  *
- * This sits alongside session-runner.ts (which drives `claude -p` as a
- * subprocess) but runs the model via the published @anthropic-ai/claude-agent-sdk
+ * This sits alongside session-runner.ts (historically a separate subprocess
+ * runner) but runs the model via the published @anthropic-ai/claude-agent-sdk
  * instead. The SDK exposes the same harness primitives Claude Code itself uses,
  * so overlay-driven behavior change is measured against a closer approximation
- * of real Claude Code than the `claude -p` subprocess path provides.
+ * of real Claude Code than the historical print-mode subprocess path provides.
  *
  * Explicit design rules (from plan review):
  *   - Use SDK-exported SDKMessage types. No `| unknown` union collapse.
  *   - Permission surface is explicit: bypassPermissions + settingSources:[] +
  *     disallowedTools inverse. Without these, the SDK inherits user settings,
  *     project .claude/, and local hooks, and arms are no longer comparable.
- *   - Binary pinning via pathToClaudeCodeExecutable. Resolve with `which claude`
- *     at setup time; the SDK would otherwise use its bundled binary.
+ *   - TEMP SWAP 2026-05-01: binary pinning is disabled during no-Claude mode.
  *   - 3-shape rate-limit detection: thrown error, result-message error subtype,
  *     mid-stream SDKRateLimitEvent. All three recover on retry.
  *   - On retry, caller resets workspace via a setupWorkspace callback so
@@ -278,11 +277,9 @@ function resolveSdkVersion(): string {
 }
 
 export function resolveClaudeBinary(): string | null {
-  try {
-    return execSync('which claude', { encoding: 'utf-8' }).trim() || null;
-  } catch {
-    return null;
-  }
+  // TEMP SWAP 2026-05-01: Claude binary resolution disabled in no-Claude mode.
+  // Original for revert: return execSync('which claude', { encoding: 'utf-8' }).trim() || null;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -511,7 +508,8 @@ export async function runAgentSdkTest(
 
 /**
  * Adapt AgentSdkResult to the legacy SkillTestResult shape so helpers that
- * expect the old `claude -p` output (extractToolSummary, etc) work unchanged.
+ * expect the old print-mode output (extractToolSummary, etc) work unchanged.
+ * TEMP SWAP 2026-05-01: original wording referenced `claude -p`.
  */
 export function toSkillTestResult(r: AgentSdkResult): SkillTestResult {
   // Cost estimate: use SDK's authoritative cost; back-compute chars.

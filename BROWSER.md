@@ -555,7 +555,8 @@ on the page, plus an interactive Claude PTY inside the sidebar.
 
 ### The Terminal pane (the headline)
 
-The Side Panel's primary surface is the **Terminal pane** — a live `claude -p`
+The Side Panel's primary surface is the **Terminal pane** — a live no-Claude temp CLI
+<!-- TEMP SWAP 2026-05-01: original wording referenced live `claude -p`. -->
 PTY you can type into directly from the sidebar. Activity / Refs / Inspector
 are debug overlays behind the footer's `debug` toggle. WebSocket auth uses
 `Sec-WebSocket-Protocol` (browsers can't set `Authorization` on a WebSocket
