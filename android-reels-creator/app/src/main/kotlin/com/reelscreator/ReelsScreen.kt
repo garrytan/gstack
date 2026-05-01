@@ -2,10 +2,12 @@ package com.reelscreator
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -100,6 +102,22 @@ fun ReelsScreen(vm: ReelsViewModel = viewModel()) {
                                 Icon(Icons.Default.Share, contentDescription = null)
                                 Spacer(Modifier.width(4.dp))
                                 Text("Share")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    saveToGallery(context, path)
+                                        .onSuccess {
+                                            Toast.makeText(context, "Saved to Movies/ReelsCreator", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .onFailure {
+                                            Toast.makeText(context, "Download failed: ${it.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Download")
                             }
                         }
                         Spacer(Modifier.height(8.dp))
