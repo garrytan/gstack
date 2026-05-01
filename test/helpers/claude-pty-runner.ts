@@ -183,21 +183,24 @@ export function isAutoDecidedVisible(visible: string): boolean {
  */
 export function extractPlanFilePath(visible: string): string | null {
   // Patterns checked in order of specificity. Each captures the .md path.
-  // The visible buffer may have stripAnsi-collapsed whitespace, so we
-  // accept space-or-not separators in the prompts and accept paths
-  // without intervening whitespace (e.g. `editinVSCode·~/.claude/...`).
+  // The visible buffer may have stripAnsi-collapsed whitespace ("yet at" can
+  // become "yetat"), so the captured path MUST start at a clear path-anchor
+  // character: `~/`, `/Users/`, `/home/`, `/var/`, or `/tmp/`. Anchoring on
+  // these prefixes prevents earlier non-whitespace characters from being
+  // glommed into the path (real bug seen in the wild: `yetat/Users/...`).
+  const PATH_ANCHOR = '(~\\/|\\/Users\\/|\\/home\\/|\\/var\\/|\\/tmp\\/|\\.\\/)';
   const patterns: RegExp[] = [
-    /Plan\s*saved\s*to\s*:?\s*(\S+\.md)/i,
-    /Plan\s*file\s*:?\s*(\S+\.md)/i,
-    /·\s*(\S+\.claude\/plans\/\S+\.md)/i,
-    // Fallback: any reference to a .claude/plans path in the buffer.
-    /(~?\/?\S*\.claude\/plans\/[\w-]+\.md)/i,
+    new RegExp(`Plan\\s*saved\\s*to\\s*:?\\s*(${PATH_ANCHOR}\\S+\\.md)`, 'i'),
+    new RegExp(`Plan\\s*file\\s*:?\\s*(${PATH_ANCHOR}\\S+\\.md)`, 'i'),
+    new RegExp(`·\\s*(${PATH_ANCHOR}\\S*\\.claude\\/plans\\/\\S+\\.md)`, 'i'),
+    // Fallback: any path-anchored reference to a .claude/plans .md file.
+    new RegExp(`(${PATH_ANCHOR}\\S*\\.claude\\/plans\\/[\\w-]+\\.md)`, 'i'),
   ];
   for (const p of patterns) {
     const m = visible.match(p);
     if (m && m[1]) {
       let raw = m[1];
-      // Some patterns capture trailing punctuation; strip a trailing dot.
+      // Strip trailing punctuation that some patterns may capture.
       raw = raw.replace(/\.+$/, '.md').replace(/\.md\.+$/, '.md');
       // Tilde expansion to absolute path.
       if (raw.startsWith('~')) {
