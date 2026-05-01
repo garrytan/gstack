@@ -226,6 +226,27 @@ rm -f ~/.gstack/last-update-check
 rm -f ~/.gstack/update-snoozed
 ```
 
+### Step 5.5: Verify generated artifacts and design workflow
+
+After setup, migrations, and cache cleanup, run the local post-upgrade verifier
+before declaring the upgrade complete:
+
+```bash
+if [ -x "$HOME/bin/gstack-post-upgrade-verify" ]; then
+  "$HOME/bin/gstack-post-upgrade-verify"
+else
+  echo "WARNING: $HOME/bin/gstack-post-upgrade-verify not found. Run the post-upgrade checks manually before treating this upgrade as complete." >&2
+fi
+```
+
+If the verifier fails because the sandbox blocked localhost binding, rerun it
+with appropriate local-network permission. Do not treat a sandbox-blocked run as
+a passing upgrade.
+
+If it finds stale generated files, API drift, design/browser regressions,
+evaluator issues, or worktree-helper issues, fix the root cause and rerun the
+verifier. The upgrade is not complete until the verifier passes.
+
 ### Step 6: Show What's New
 
 Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between the old version and the new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless they're significant.

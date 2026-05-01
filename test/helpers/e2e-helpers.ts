@@ -213,16 +213,18 @@ if (evalsEnabled) {
   }
 }
 
-// Fail fast if Anthropic API is unreachable — don't burn through tests getting ConnectionRefused
+// Fail fast if codex-temp is unreachable — don't burn through tests getting connection failures.
 if (evalsEnabled) {
-  const check = spawnSync('sh', ['-c', 'echo "ping" | claude -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions'], {
-    stdio: 'pipe', timeout: 30_000,
+  const check = spawnSync('sh', ['-c', 'printf "Reply with exactly OK." | "$HOME/bin/codex-temp" exec --skip-git-repo-check --ephemeral -'], {
+    stdio: 'pipe', timeout: 120_000,
   });
   const output = check.stdout?.toString() || '';
   if (output.includes('ConnectionRefused') || output.includes('Unable to connect')) {
-    throw new Error('Anthropic API unreachable — aborting E2E suite. Fix connectivity and retry.');
+    throw new Error('codex-temp unreachable — aborting E2E suite. Fix connectivity and retry.');
   }
 }
+// TEMP SWAP 2026-05-01: original Claude preflight for revert:
+// echo "ping" | claude -p --max-turns 1 --output-format stream-json --verbose --dangerously-skip-permissions
 
 /** Skip an individual test if not selected (for multi-test describe blocks). */
 export function testIfSelected(testName: string, fn: () => Promise<void>, timeout: number) {

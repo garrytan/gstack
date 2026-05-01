@@ -15,11 +15,16 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { BrowserManager } from '../../browse/src/browser-manager';
-import { handleReadCommand } from '../../browse/src/read-commands';
-import { handleWriteCommand } from '../../browse/src/write-commands';
+import { handleReadCommand as _handleReadCommand } from '../../browse/src/read-commands';
+import { handleWriteCommand as _handleWriteCommand } from '../../browse/src/write-commands';
 import { generateCompareHtml } from '../src/compare';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
+const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
+  _handleWriteCommand(cmd, args, b.getActiveSession(), b);
 
 let bm: BrowserManager;
 let baseUrl: string;

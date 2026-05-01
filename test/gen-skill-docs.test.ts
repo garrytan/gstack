@@ -1686,15 +1686,12 @@ describe('Codex generation (--host codex)', () => {
 
   test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('claude -p');
+    expect(content).toContain('codex-temp');
+    expect(content).toContain('TEMP SWAP 2026-05-01');
     expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
     expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
-    expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
-    expect(content).toContain('--disable-slash-commands');
-    expect(content).toContain('--tools ""');
-    expect(content).toContain('--allowedTools Read,Grep,Glob');
-    expect(content).toContain('--disallowedTools Bash,Edit,Write');
+    expect(content).toContain('cat "$PROMPT_FILE" | "$HOME/bin/codex-temp" exec --skip-git-repo-check --ephemeral -');
     expect(content).toContain('is_error');
   });
 
@@ -2095,10 +2092,8 @@ describe('Parameterized host smoke tests', () => {
         const skillMd = path.join(hostDir, 'gstack-claude', 'SKILL.md');
         expect(fs.existsSync(skillMd)).toBe(true);
         const content = fs.readFileSync(skillMd, 'utf-8');
-        expect(content).toContain('claude -p');
-        expect(content).toContain('--disable-slash-commands');
-        expect(content).toContain('--allowedTools Read,Grep,Glob');
-        expect(content).toContain('--disallowedTools Bash,Edit,Write');
+        expect(content).toContain('codex-temp');
+        expect(content).toContain('TEMP SWAP 2026-05-01');
       });
 
       test('--dry-run freshness check passes', () => {
@@ -2248,8 +2243,8 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
-    expect(setupContent).toContain('command -v claude');
+  test('auto mode detects no-Claude hosts and skips Claude auto-install', () => {
+    expect(setupContent).toContain('no-Claude mode');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');

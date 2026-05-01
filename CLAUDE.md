@@ -73,7 +73,8 @@ bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
 
 `bun test` runs skill validation, gen-skill-docs quality checks, and browse
 integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
-tests via `claude -p`. Both must pass before creating a PR.
+tests via the no-Claude temp-window checks. Both must pass before creating a PR.
+<!-- TEMP SWAP 2026-05-01: original wording referenced tests via `claude -p`. -->
 
 ## Project structure
 
@@ -105,7 +106,8 @@ gstack/
 │   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
 │   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
 │   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
+│   └── skill-e2e-*.test.ts       # Tier 2: disabled during no-Claude temp window
+<!-- TEMP SWAP 2026-05-01: original wording referenced E2E via claude -p. -->
 ├── qa-only/         # /qa-only skill (report-only QA, no fixes)
 ├── plan-design-review/  # /plan-design-review skill (report-only design audit)
 ├── design-review/    # /design-review skill (design audit + fix loop)
@@ -701,7 +703,8 @@ you'll check later.
 ## E2E test fixtures: extract, don't copy
 
 **NEVER copy a full SKILL.md file into an E2E test fixture.** SKILL.md files are
-1500-2000 lines. When `claude -p` reads a file that large, context bloat causes
+1500-2000 lines. When a print-mode model reads a file that large, context bloat causes
+<!-- TEMP SWAP 2026-05-01: original wording referenced `claude -p`. -->
 timeouts, flaky turn limits, and tests that take 5-10x longer than necessary.
 
 Instead, extract only the section the test actually needs:
