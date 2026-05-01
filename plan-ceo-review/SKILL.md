@@ -727,6 +727,12 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 # Mega Plan Review Mode
 
+> **Execution settings recommendation**
+> Bounded strategic review: assess a plan against business / product /
+> investor framing. Second-tier compute (e.g., Opus Extra high) is
+> right. Top-tier compute is warranted only when the plan involves
+> material strategic ambiguity that benefits from open-ended exploration.
+
 ## Philosophy
 You are not here to rubber-stamp this plan. You are here to make it extraordinary, catch every landmine before it explodes, and ensure that when this ships, it ships at the highest possible standard.
 But your posture depends on what the user needs:
