@@ -2152,6 +2152,18 @@ describe('setup script validation', () => {
     expect(setupContent).not.toMatch(/^link_skill_dirs\(\)/m);
   });
 
+  test('setup has config-driven helpers for symlink-generated external hosts', () => {
+    expect(setupContent).toContain('create_host_runtime_root()');
+    expect(setupContent).toContain('link_host_skill_dirs()');
+    expect(setupContent).toContain('create_host_sidecar()');
+  });
+
+  test('generic host helpers shell out to host-config-export.ts for host metadata', () => {
+    expect(setupContent).toContain('scripts/host-config-export.ts');
+    expect(setupContent).toContain('host-config-export.ts symlinks');
+    expect(setupContent).toContain('host-config-export.ts get');
+  });
+
   test('Claude install uses link_claude_skill_dirs', () => {
     // The Claude install section (section 4) should use the Claude function
     const claudeSection = setupContent.slice(

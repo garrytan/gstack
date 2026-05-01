@@ -3,26 +3,33 @@ on:
   # Rebuild weekly (Monday 6am UTC) to pick up CLI updates
   schedule:
     - cron: '0 6 * * 1'
-  # Rebuild on Dockerfile or lockfile changes
+  # Rebuild on Dockerfile or dependency manifest changes
   push:
     branches: [main]
     paths:
       - '.github/docker/Dockerfile.ci'
       - 'package.json'
+      - 'bun.lock'
   # Manual trigger
   workflow_dispatch:
 
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+
 jobs:
   build:
-    runs-on: ubicloud-standard-2
+    runs-on: ${{ github.repository == 'garrytan/gstack' && 'ubicloud-standard-2' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
 
-      # Copy lockfile + package.json into Docker build context
-      - run: cp package.json .github/docker/
+      - id: meta
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
+
+      # Copy dependency manifests into Docker build context
+      - run: cp package.json bun.lock .github/docker/
 
       - uses: docker/login-action@v3
         with:
@@ -36,5 +43,8 @@ jobs:
           file: .github/docker/Dockerfile.ci
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/ci:latest
-            ghcr.io/${{ github.repository }}/ci:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ steps.meta.outputs.tag }}
+          build-args: |
+            USE_HETZNER_MIRROR=${{ github.repository == 'garrytan/gstack' && 'true' || 'false' }}
