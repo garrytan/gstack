@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { runPlanSkillObservation } from './helpers/claude-pty-runner';
+import { runPlanSkillObservation, planFileHasDecisionsSection } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
@@ -54,6 +54,14 @@ describeE2E('plan-devex-review plan-mode smoke (gate)', () => {
           `elapsed: ${obs.elapsedMs}ms\n` +
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
+    }
+    if (obs.outcome === 'plan_ready') {
+      if (!obs.planFile || !planFileHasDecisionsSection(obs.planFile)) {
+        throw new Error(
+          `plan-devex-review AskUserQuestion-blocked regression: plan_ready without a "## Decisions" section in ${obs.planFile ?? '<no plan file detected>'} — Step 0 was silently skipped.\n` +
+            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+        );
+      }
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);

@@ -34,7 +34,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { runPlanSkillObservation } from './helpers/claude-pty-runner';
+import { runPlanSkillObservation, planFileHasDecisionsSection } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
@@ -109,6 +109,24 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
           `elapsed: ${obs.elapsedMs}ms\n` +
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
+    }
+    // plan_ready under --disallowedTools is only a pass when the model used
+    // the plan-file fallback (wrote a `## Decisions to confirm` section).
+    // Without that section, plan_ready means the model silently skipped Step 0
+    // and went straight to ExitPlanMode — the regression we're catching.
+    if (obs.outcome === 'plan_ready') {
+      if (!obs.planFile) {
+        throw new Error(
+          `plan-ceo-review AskUserQuestion-blocked regression: outcome=plan_ready but no plan file path detected in TTY output. Cannot verify the model used the fallback flow.\n` +
+            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+        );
+      }
+      if (!planFileHasDecisionsSection(obs.planFile)) {
+        throw new Error(
+          `plan-ceo-review AskUserQuestion-blocked regression: model wrote ${obs.planFile} without a "## Decisions" section. Step 0 was silently skipped.\n` +
+            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+        );
+      }
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);

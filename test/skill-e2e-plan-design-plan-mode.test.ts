@@ -10,7 +10,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { runPlanSkillObservation } from './helpers/claude-pty-runner';
+import { runPlanSkillObservation, planFileHasDecisionsSection } from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
@@ -61,6 +61,12 @@ describeE2E('plan-design-review plan-mode smoke (gate)', () => {
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
     }
+    // plan-design-review legitimately short-circuits to plan_ready on no-UI
+    // branches. Allow plan_ready WITHOUT a decisions section ONLY if the
+    // plan file genuinely has no UI scope (we don't have a deterministic way
+    // to check this from the test, so this skill keeps the looser envelope).
+    // Other plan-mode skills require the decisions section under
+    // --disallowedTools; design is the special case.
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);
 });

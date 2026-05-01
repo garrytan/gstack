@@ -164,6 +164,73 @@ export function isAutoDecidedVisible(visible: string): boolean {
 }
 
 /**
+ * Extract the plan file path from rendered TTY output. Plan-mode's native
+ * confirmation includes one of these formats near the "Ready to execute?"
+ * prompt:
+ *   - `Plan saved to: /path/to/plan.md`
+ *   - `Plan file: /path/to/plan.md`
+ *   - `ctrl-g to edit in VSCode · ~/.claude/plans/<name>.md`
+ *
+ * stripAnsi may collapse whitespace via cursor-positioning escape removal,
+ * so the regex tolerates variable spacing. Returns the resolved absolute
+ * path with `~` expanded, or null if no path was rendered.
+ *
+ * Used by v1.22 AskUserQuestion-blocked regression tests to read the plan
+ * file post-`plan_ready` and verify it contains a decisions section, which
+ * distinguishes the legitimate fallback flow ("write decision brief into
+ * plan file") from the silent-skip regression ("write a plan that didn't
+ * surface any decisions").
+ */
+export function extractPlanFilePath(visible: string): string | null {
+  // Patterns checked in order of specificity. Each captures the .md path.
+  // The visible buffer may have stripAnsi-collapsed whitespace, so we
+  // accept space-or-not separators in the prompts and accept paths
+  // without intervening whitespace (e.g. `editinVSCode·~/.claude/...`).
+  const patterns: RegExp[] = [
+    /Plan\s*saved\s*to\s*:?\s*(\S+\.md)/i,
+    /Plan\s*file\s*:?\s*(\S+\.md)/i,
+    /·\s*(\S+\.claude\/plans\/\S+\.md)/i,
+    // Fallback: any reference to a .claude/plans path in the buffer.
+    /(~?\/?\S*\.claude\/plans\/[\w-]+\.md)/i,
+  ];
+  for (const p of patterns) {
+    const m = visible.match(p);
+    if (m && m[1]) {
+      let raw = m[1];
+      // Some patterns capture trailing punctuation; strip a trailing dot.
+      raw = raw.replace(/\.+$/, '.md').replace(/\.md\.+$/, '.md');
+      // Tilde expansion to absolute path.
+      if (raw.startsWith('~')) {
+        const home = process.env.HOME ?? '';
+        raw = home + raw.slice(1);
+      }
+      return raw;
+    }
+  }
+  return null;
+}
+
+/**
+ * Read a plan file written by a plan-mode skill and verify it contains a
+ * "decisions" section — evidence the skill surfaced the decisions it was
+ * supposed to gate on, even when AskUserQuestion is --disallowedTools and
+ * the model used the plan-file fallback flow instead of a numbered prompt.
+ *
+ * Accepts any `## Decisions ...` heading (the canonical form from the
+ * preamble is `## Decisions to confirm`, but small variants like
+ * `## Decisions needed` or `## Decisions for review` are common). Returns
+ * false if the file is unreadable, missing, or has no decisions section.
+ */
+export function planFileHasDecisionsSection(planFile: string): boolean {
+  try {
+    const content = fs.readFileSync(planFile, 'utf-8');
+    return /^##\s+Decisions\b/im.test(content);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Recent-tail window (in bytes of stripped TTY text) used when classifying
  * permission dialogs. Old permission text persists in the visibleSince buffer
  * after the dialog is dismissed, so callers should pass `visible.slice(-TAIL_SCAN_BYTES)`
@@ -963,6 +1030,15 @@ export interface PlanSkillObservation {
   evidence: string;
   /** Wall time (ms) until the outcome was decided. */
   elapsedMs: number;
+  /**
+   * Path to the plan file the skill wrote (if outcome is 'plan_ready').
+   * Extracted from the visible TTY via {@link extractPlanFilePath}. Lets the
+   * v1.22 AskUserQuestion-blocked regression tests verify the plan file
+   * contains a `## Decisions to confirm` section under --disallowedTools —
+   * a model that silently skips Step 0 reaches plan_ready WITHOUT writing
+   * the section, and that's the regression we want to catch.
+   */
+  planFile?: string;
 }
 
 /**
@@ -1046,11 +1122,19 @@ export async function runPlanSkillObservation(opts: {
       }
       const classified = classifyVisible(visible);
       if (classified) {
-        return {
+        const obs: PlanSkillObservation = {
           ...classified,
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
         };
+        // For plan_ready outcomes, capture the plan file path from the full
+        // visible buffer — tests under --disallowedTools verify the file's
+        // contents to distinguish legitimate fallback flow from silent-skip.
+        if (classified.outcome === 'plan_ready') {
+          const planFile = extractPlanFilePath(visible);
+          if (planFile) obs.planFile = planFile;
+        }
+        return obs;
       }
     }
 
