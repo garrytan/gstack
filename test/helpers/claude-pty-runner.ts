@@ -133,22 +133,34 @@ export function isTrustDialogVisible(visible: string): boolean {
   return visible.includes('trust this folder');
 }
 
-/** Detect plan-mode's native "ready to execute" confirmation. */
+/**
+ * Detect plan-mode's native "ready to execute" confirmation. Tests both the
+ * spaced and whitespace-collapsed forms because stripAnsi removes cursor-
+ * positioning escapes (e.g. `\x1b[40C`) that render visually as spaces but
+ * leave no character behind — so "ready to execute" can come through as
+ * "readytoexecute" depending on the rendering path.
+ */
 export function isPlanReadyVisible(visible: string): boolean {
-  return /ready to execute|Would you like to proceed/i.test(visible);
+  if (/ready to execute|Would you like to proceed/i.test(visible)) return true;
+  const collapsed = visible.replace(/\s+/g, '');
+  return /readytoexecute|Wouldyouliketoproceed/i.test(collapsed);
 }
 
 /**
  * Detect the AUTO_DECIDE preamble template firing. The model prints
  * "Auto-decided <summary> → <option> (your preference). Change with /plan-tune."
  * when it short-circuits an AskUserQuestion via the question-tuning resolver
- * (`scripts/resolvers/question-tuning.ts:26`). We detect any of those phrases
- * — the wording can drift slightly between model invocations, so each cue is
- * checked independently. The arrow + "(your preference)" combination is the
- * tightest signal.
+ * (`scripts/resolvers/question-tuning.ts:26`). The "Auto-decided ..." stem +
+ * "(your preference)" tail combination is the tightest signal. Whitespace-
+ * collapsed forms covered for the same TTY-rendering reason as
+ * isPlanReadyVisible.
  */
 export function isAutoDecidedVisible(visible: string): boolean {
-  return /Auto-decided\b/i.test(visible) && /\(your preference\)/i.test(visible);
+  const stemMatch =
+    /Auto-decided\b/i.test(visible) || /Auto-decided/i.test(visible.replace(/\s+/g, ''));
+  if (!stemMatch) return false;
+  if (/\(your preference\)/i.test(visible)) return true;
+  return /\(yourpreference\)/i.test(visible.replace(/\s+/g, ''));
 }
 
 /**
@@ -651,18 +663,18 @@ export async function runPlanSkillObservation(opts: {
           };
         }
       }
-      // Order: 'asked' first (rendered numbered list = user being asked),
-      // then 'auto_decided' (auto-decide text fired upstream of plan_ready
-      // — surfacing this distinguishes the auto-mode regression from a
-      // legitimate plan_ready outcome), then 'plan_ready'.
-      if (isNumberedOptionListVisible(visible)) {
-        return {
-          outcome: 'asked',
-          summary: 'skill fired a numbered-option prompt (AskUserQuestion or routing-injection)',
-          evidence: visible.slice(-2000),
-          elapsedMs: Date.now() - startedAt,
-        };
-      }
+      // Detection order is most-specific first:
+      //   1. 'auto_decided' — requires "Auto-decided" + "(your preference)";
+      //      the strongest signal that AUTO_DECIDE fired regardless of what
+      //      else is on screen.
+      //   2. 'plan_ready'   — "ready to execute" / "Would you like to proceed";
+      //      the plan-mode native confirmation. MUST be checked before
+      //      'asked' because the confirmation itself renders as a numbered
+      //      options list ("1. Yes, ... / 2. Manual ... / 3. ..."), and a
+      //      naive numbered-list check would mis-classify it as 'asked'.
+      //   3. 'asked'        — any numbered options list that wasn't already
+      //      classified as plan_ready. Real AskUserQuestion prompts AND
+      //      fallback-flow prose with numbered options both land here.
       if (isAutoDecidedVisible(visible)) {
         return {
           outcome: 'auto_decided',
@@ -675,6 +687,14 @@ export async function runPlanSkillObservation(opts: {
         return {
           outcome: 'plan_ready',
           summary: 'skill ran end-to-end and emitted plan-mode "Ready to execute" confirmation',
+          evidence: visible.slice(-2000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+      if (isNumberedOptionListVisible(visible)) {
+        return {
+          outcome: 'asked',
+          summary: 'skill fired a numbered-option prompt (AskUserQuestion or routing-injection)',
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
         };

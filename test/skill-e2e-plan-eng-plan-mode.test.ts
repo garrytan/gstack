@@ -31,9 +31,9 @@ describeE2E('plan-eng-review plan-mode smoke (gate)', () => {
   }, 360_000);
 
   // v1.21+ regression: see skill-e2e-plan-ceo-plan-mode.test.ts for the
-  // contract. plan-eng-review's Step 0 always issues a scope-challenge
-  // AskUserQuestion (and per-section STOPs after that), so 'asked' is the
-  // only pass when AskUserQuestion is --disallowedTools.
+  // contract. Pass envelope is ['asked', 'plan_ready']; failure signals
+  // are 'auto_decided' (AUTO_DECIDE without opt-in) plus the standard
+  // silent_write/exited/timeout.
   test('AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', async () => {
     const obs = await runPlanSkillObservation({
       skillName: 'plan-eng-review',
@@ -42,7 +42,12 @@ describeE2E('plan-eng-review plan-mode smoke (gate)', () => {
       timeoutMs: 300_000,
     });
 
-    if (obs.outcome !== 'asked') {
+    if (
+      obs.outcome === 'auto_decided' ||
+      obs.outcome === 'silent_write' ||
+      obs.outcome === 'exited' ||
+      obs.outcome === 'timeout'
+    ) {
       throw new Error(
         `plan-eng-review AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
           `summary: ${obs.summary}\n` +
@@ -50,6 +55,6 @@ describeE2E('plan-eng-review plan-mode smoke (gate)', () => {
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
     }
-    expect(obs.outcome).toEqual('asked');
+    expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);
 });

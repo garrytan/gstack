@@ -27,6 +27,12 @@ const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
 
 describeE2E('autoplan AskUserQuestion-blocked smoke (gate)', () => {
+  // Pass envelope is ['asked', 'plan_ready']: model either renders the
+  // first non-auto-decided gate (Phase 1 premise confirmation) as numbered
+  // prose or surfaces it through the plan file + ExitPlanMode flow.
+  // Autoplan auto-decides intermediate questions BY DESIGN; the failure
+  // signal we care about is the AUTO_DECIDE preamble firing on a gate it
+  // shouldn't (caught explicitly via the 'auto_decided' outcome).
   test('a non-auto-decided gate surfaces when AskUserQuestion is --disallowedTools', async () => {
     const obs = await runPlanSkillObservation({
       skillName: 'autoplan',
@@ -35,7 +41,12 @@ describeE2E('autoplan AskUserQuestion-blocked smoke (gate)', () => {
       timeoutMs: 300_000,
     });
 
-    if (obs.outcome !== 'asked') {
+    if (
+      obs.outcome === 'auto_decided' ||
+      obs.outcome === 'silent_write' ||
+      obs.outcome === 'exited' ||
+      obs.outcome === 'timeout'
+    ) {
       throw new Error(
         `autoplan AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
           `summary: ${obs.summary}\n` +
@@ -43,6 +54,6 @@ describeE2E('autoplan AskUserQuestion-blocked smoke (gate)', () => {
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
     }
-    expect(obs.outcome).toEqual('asked');
+    expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);
 });

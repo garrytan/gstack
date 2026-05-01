@@ -50,10 +50,21 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
   // `--disallowedTools AskUserQuestion --permission-mode default` (verified
   // via `ps` on the live Conductor claude process). Native AskUserQuestion
   // is removed from the model's tool registry; without fallback guidance
-  // the model can't ask and silently proceeds. plan-ceo-review's Step 0
-  // always asks a scope-mode question, so 'asked' is the only pass — the
-  // fix must route through mcp__conductor__AskUserQuestion (when present)
-  // or the plan-file + ExitPlanMode flow.
+  // the model can't ask and silently proceeds.
+  //
+  // The fix (Tool resolution preamble) accepts two surface paths under
+  // --disallowedTools:
+  //   - 'asked'      — model emits a numbered-option prompt as prose (with
+  //                     the same D<N> + Pros/cons format as a real AUQ)
+  //   - 'plan_ready' — model writes the question into the plan file as a
+  //                     "## Decisions to confirm" section + ExitPlanMode;
+  //                     the native plan-mode "Ready to execute?" surfaces
+  //                     it through the TTY confirmation
+  //
+  // Both let the user see the decision. Failure signals are
+  // silent_write/exited/timeout (model never surfaced the question) and
+  // 'auto_decided' (the AUTO_DECIDE preamble fired without a /plan-tune
+  // opt-in — caught explicitly).
   test('AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', async () => {
     const obs = await runPlanSkillObservation({
       skillName: 'plan-ceo-review',
@@ -62,7 +73,12 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
       timeoutMs: 300_000,
     });
 
-    if (obs.outcome !== 'asked') {
+    if (
+      obs.outcome === 'auto_decided' ||
+      obs.outcome === 'silent_write' ||
+      obs.outcome === 'exited' ||
+      obs.outcome === 'timeout'
+    ) {
       throw new Error(
         `plan-ceo-review AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
           `summary: ${obs.summary}\n` +
@@ -70,6 +86,6 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
     }
-    expect(obs.outcome).toEqual('asked');
+    expect(['asked', 'plan_ready']).toContain(obs.outcome);
   }, 360_000);
 });
