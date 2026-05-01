@@ -287,8 +287,12 @@ for `server.ts`. See `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-04-19-pr
 
 **Thresholds** (in `security.ts`):
 - `BLOCK: 0.85` — single-layer score that would cause BLOCK if cross-confirmed
-- `WARN: 0.60` — cross-confirm threshold. When L4 AND L4b both >= 0.60 → BLOCK
+- `WARN: 0.75` — cross-confirm threshold. When L4 AND L4b both >= 0.75 → BLOCK
 - `LOG_ONLY: 0.40` — gates transcript classifier (skip Haiku when all layers < 0.40)
+- `SOLO_CONTENT_BLOCK: 0.92` — single-layer threshold for label-less content classifiers
+  (testsavant, deberta). Intentionally higher than `BLOCK` because these layers can't
+  distinguish "this is an injection" from "this looks like phishing aimed at the user."
+  The transcript classifier keeps a separate, label-gated solo path at `BLOCK` (0.85).
 
 **Ensemble rule:** BLOCK only when the ML content classifier AND the transcript
 classifier both report >= WARN. Single-layer high confidence degrades to WARN —
