@@ -2243,16 +2243,17 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|copilot', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|copilot|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
+  test('auto mode detects claude, codex, kiro, opencode, and copilot binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v copilot');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2283,6 +2284,18 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('INSTALL_OPENCODE=');
     expect(setupContent).toContain('OPENCODE_SKILLS="$HOME/.config/opencode/skills"');
     expect(setupContent).toContain('OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"');
+  });
+
+  test('setup supports --host copilot with install section and Copilot CLI skill path vars', () => {
+    expect(setupContent).toContain('INSTALL_COPILOT=');
+    expect(setupContent).toContain('COPILOT_SKILLS="$HOME/.copilot/skills"');
+    expect(setupContent).toContain('COPILOT_GSTACK="$COPILOT_SKILLS/gstack"');
+  });
+
+  test('setup installs Copilot CLI skills into a nested gstack runtime root', () => {
+    expect(setupContent).toContain('create_copilot_runtime_root');
+    expect(setupContent).toContain('.copilot/skills');
+    expect(setupContent).toContain('link_copilot_skill_dirs');
   });
 
   test('setup installs OpenCode skills into a nested gstack runtime root', () => {
