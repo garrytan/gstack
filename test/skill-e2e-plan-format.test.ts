@@ -41,7 +41,11 @@ const evalCollector = createEvalCollector('e2e-plan-format');
 // — the canonical form per generate-ask-user-format.ts is just
 // `Recommendation: <choice> because <reason>`, where <choice> is the bare
 // option label. judgeRecommendation.present covers the canonical shape.
-const COMPLETENESS_RE = /Completeness:\s*\d{1,2}\/10/;
+// COMPLETENESS regex matches both legacy bare form (`Completeness: 10/10`) and
+// the canonical option-prefixed form (`Completeness: A=10/10, B=7/10`) per
+// scripts/resolvers/preamble/generate-ask-user-format.ts. The optional
+// `[A-Z]=` prefix tolerates either shape; both are acceptable spec output.
+const COMPLETENESS_RE = /Completeness:\s*(?:[A-Z]=)?\d{1,2}\/10/;
 const KIND_NOTE_RE = /options differ in kind/i;
 
 // v1.7.0.0 Pros/Cons format tokens. Tests are additive: existing

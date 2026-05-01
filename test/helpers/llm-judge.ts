@@ -236,15 +236,21 @@ export async function judgeRecommendation(askUserText: string): Promise<Recommen
   const present = !!recLine;
   const recBody = recLine?.[1]?.trim() ?? '';
 
-  // commits: reject obvious hedging language. The format-spec self-check
-  // requires the recommendation to name ONE choice; "either", "depending on",
-  // "if X then" all signal the model bailed on the commitment.
-  const commits = present && !/\b(either|depends? on|depending|if .+ then|or maybe|whichever)\b/i.test(recBody);
-
   // has_because: literal "because" token in the body, per the format spec.
   const becauseMatch = recBody.match(/\bbecause\s+(.+?)$/i);
   const has_because = !!becauseMatch;
   const reason_text = becauseMatch?.[1]?.trim() ?? '';
+
+  // commits: reject hedging language only in the CHOICE portion (before the
+  // "because" token). The because-clause itself is the reason and routinely
+  // contains technical phrases like "the plan doesn't yet depend on Redis"
+  // that aren't hedging at all. Looking only at the choice keeps the check
+  // focused: "Either A or B because..." → flagged; "A because depends on X" →
+  // accepted.
+  const choicePortion = becauseMatch
+    ? recBody.slice(0, recBody.toLowerCase().indexOf('because')).trim()
+    : recBody;
+  const commits = present && !/\b(either|depends? on|depending|if .+ then|or maybe|whichever)\b/i.test(choicePortion);
 
   // If the because-clause is absent, the substance score is implicitly 1.
   // Skip the LLM call — there is nothing to grade.
