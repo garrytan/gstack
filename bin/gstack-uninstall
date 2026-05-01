@@ -10,8 +10,9 @@
 #   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
 #   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
-#   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
-#   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
+#   ~/.factory/skills/gstack*     - Factory Droid skill install + per-skill symlinks
+#   ~/.kiro/skills/gstack*        - Kiro skill install + per-skill symlinks
+#   ~/.copilot/skills/gstack*     - GitHub Copilot CLI skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
@@ -66,6 +67,7 @@ if [ "$FORCE" -eq 0 ]; then
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
+  [ -d "$HOME/.copilot/skills" ] && echo "  ~/.copilot/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
   if [ -n "$_GIT_ROOT" ]; then
@@ -188,6 +190,16 @@ if [ -d "$KIRO_SKILLS" ]; then
     [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
     rm -rf "$_ITEM"
     REMOVED+=("kiro/$(basename "$_ITEM")")
+  done
+fi
+
+# ─── Remove Copilot CLI skills ──────────────────────────────
+COPILOT_SKILLS="$HOME/.copilot/skills"
+if [ -d "$COPILOT_SKILLS" ]; then
+  for _ITEM in "$COPILOT_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("copilot/$(basename "$_ITEM")")
   done
 fi
 
