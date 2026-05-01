@@ -97,16 +97,35 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
     expect(out).toMatch(/options differ in kind, not coverage/);
   });
 
-  test('documents tool_use mandate (rule 11)', () => {
+  test('documents tool_use mandate', () => {
     expect(out).toMatch(/tool_use/);
-    // "not a question" spans a newline in the rendered text
-    expect(out).toMatch(/not a[\s\S]*question|not[\s\S]*interactive/i);
+    expect(out).toMatch(/brief, then called the tool_use payload/i);
+  });
+
+  test('keeps long decision briefs out of the tool question field', () => {
+    expect(out).toMatch(/Do not pack the full brief into the tool's `question` string/);
+    expect(out).toMatch(/`question` is only the decision prompt/);
+    expect(out).toMatch(/<=80 chars/);
+    expect(out).toMatch(/no newlines/);
+  });
+
+  test('limits batched AskUserQuestion tabs for panel readability', () => {
+    expect(out).toMatch(/batch at most two related questions\/tabs/i);
+    expect(out).toMatch(/Sequence independent decisions/i);
+  });
+
+  test('forbids duplicate trade-off text in question and option descriptions', () => {
+    expect(out).toMatch(/Do not duplicate the same trade-off text/);
+    expect(out).toMatch(/options\[\]\.description/);
   });
 
   test('includes self-check before emitting', () => {
     expect(out).toContain('Self-check before emitting');
     expect(out).toMatch(/D<N> header present/);
     expect(out).toMatch(/Net line closes/);
+    expect(out).toMatch(/`question` is one sentence/);
+    expect(out).toMatch(/no more than two related questions\/tabs/);
+    expect(out).toMatch(/No duplicated trade-off text/);
   });
 
   test('documents D-numbering as model-level not runtime state', () => {
