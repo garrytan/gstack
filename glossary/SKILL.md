@@ -1,26 +1,31 @@
 ---
-name: landing-report
-version: 0.1.0
+name: glossary
+preamble-tier: 2
+version: 1.0.0
 description: |
-  Read-only queue dashboard for workspace-aware ship. Shows which VERSION slots
-  are currently claimed by open PRs, which sibling Conductor workspaces have
-  WIP work likely to ship soon, and what slot /ship would pick next. No
-  mutations — just a snapshot. Use when asked to "landing report", "what's in
-  the queue", "show me open PRs", or "which version do I claim next". (gstack)
-triggers:
-  - landing report
-  - version queue
-  - ship queue
-  - what version comes next
-  - show open PR versions
+  Build (or update) an ubiquitous language for the codebase — a glossary of
+  domain terms grouped by bounded context, with a context map showing how
+  those contexts relate. Grounded in Evans, Domain-Driven Design (2003),
+  Ch. 2 (Ubiquitous Language) and Ch. 14 (Maintaining Model Integrity).
+  Use when asked to "build a glossary", "document our domain language",
+  "context map", "bounded contexts", or "why does 'Customer' mean different
+  things in different parts of the codebase". (gstack)
 allowed-tools:
   - Bash
   - Read
+  - Write
+  - Grep
+  - Glob
+  - AskUserQuestion
+triggers:
+  - build a glossary
+  - ubiquitous language
+  - bounded contexts
+  - context map
+  - domain vocabulary
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-
-# /landing-report — Version Queue Dashboard
 
 ## Preamble (run first)
 
@@ -57,7 +62,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"landing-report","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"glossary","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -79,7 +84,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"landing-report","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"glossary","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -593,7 +598,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"landing-report","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"glossary","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -606,24 +611,6 @@ Write (only after confirmation for free-form):
 ```
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<id>` → `<preference>`. Active immediately."
-
-## Repo Ownership — See Something, Say Something
-
-`REPO_MODE` controls how to handle issues outside your branch:
-- **`solo`** — You own everything. Investigate and offer to fix proactively.
-- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
-
-Always flag anything that looks wrong — one sentence, what you noticed and its impact.
-
-## Search Before Building
-
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
-- **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
-
-**Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
-```bash
-jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg branch "$(git branch --show-current 2>/dev/null)" --arg insight "ONE_LINE_SUMMARY" '{ts:$ts,skill:$skill,branch:$branch,insight:$insight}' >> ~/.gstack/analytics/eureka.jsonl 2>/dev/null || true
-```
 
 ## Completion Status Protocol
 
@@ -680,141 +667,280 @@ In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPOR
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
+# /glossary — Ubiquitous Language & Context Map
+
+You are a **Domain-Driven Design consultant** who has spent years helping teams turn accidental, drifting codebases into deliberate, bounded ones. Your first job is never to invent new vocabulary — it's to surface the vocabulary that already exists in the code and make it explicit, consistent, and mappable.
+
+**Why this skill exists:** On any codebase older than a year, the same word means different things in different modules. "Customer" in `billing/` is "the entity we invoice." In `support/` it's "the person we talk to on the phone." In `analytics/` it's "a deduplicated device fingerprint." These drifts are not a problem IF they are named and contained. They are a problem when nobody has written them down — then every cross-module conversation re-negotiates the term from scratch, and refactors split the concept silently.
+
+Evans' answer is **bounded contexts**: a coherent subsystem in which the language is consistent, with explicit relationships (via a **context map**) to other contexts. Your output is one document that makes the contexts and their relationships visible.
+
+**HARD GATE:** Do NOT rename anything, refactor anything, or propose architecture changes. This skill produces documentation only. Renames are a separate conversation (the output of this skill will often motivate them).
+
 ---
 
-## Why this skill exists
+## User-invocable
 
-When you're running 5-10 parallel Conductor workspaces, it helps to see — at a
-glance — which version numbers are claimed, by whom, and what slot your next
-`/ship` would land in. This skill is a read-only call into the same
-`bin/gstack-next-version` utility `/ship` uses, but with nothing mutating.
-Think of it as `gh pr list` for VERSION numbers.
+When the user types `/glossary`, run this skill.
+
+## Arguments
+
+- `/glossary` — first-run or update. Re-scans the codebase, presents changes vs the existing `UBIQUITOUS_LANGUAGE.md` (if any), and writes an updated one after approval.
+- `/glossary --scope <path>` — limit to a specific directory (useful for mono-repo subprojects).
+- `/glossary --dry-run` — produce the analysis but don't write the file. User reads output and decides.
 
 ---
 
-## Step 1: Detect platform and base branch
+## Phase 1: Discover domain terms
 
-Same detection as other gstack skills.
+Surface the nouns, verbs, and roles that already appear in the code. Do NOT invent — only collect what is already there.
+
+1. **Module structure.** List top-level source directories. Each directory name is a first-cut domain area:
+   ```bash
+   ls -d */ src/*/ lib/*/ app/*/ 2>/dev/null | grep -Ev '^(node_modules|dist|build|vendor|test|tests|spec|\.)' | head -40
+   ```
+
+2. **Class / type / interface names.** Use Grep to find the domain types. Scope to detected languages from the repo (check `package.json`, `requirements.txt`, `Gemfile`, `go.mod` etc. — same stack detection as `/cso` Phase 0).
+   - TypeScript/JavaScript: `interface\s+[A-Z]`, `class\s+[A-Z]`, `type\s+[A-Z]\w*\s*=`
+   - Python: `class\s+[A-Z]`
+   - Ruby: `class\s+[A-Z]`, `module\s+[A-Z]`
+   - Go: `type\s+[A-Z]\w+\s+(struct|interface)`
+   - Java/Kotlin/C#: `(class|interface|record)\s+[A-Z]`
+   Filter out framework base classes (e.g., `React.Component`, `ApplicationController`) and test doubles.
+
+3. **Database tables.** Check migration files, `schema.rb`, `schema.prisma`, `*.sql`, `db/` directory. Table names are often the cleanest domain terms because the DB resists casual renaming.
+
+4. **URL path segments.** Grep routers for top-level paths. `/orders`, `/shipments`, `/returns` are domain nouns. `/api/v2/admin/users/bulk-suspend` is the language of a specific context.
+
+5. **API response field names.** If there's an OpenAPI spec or typed API schema, read it. Response field names travel further than class names — they are public contract.
+
+6. **Terms the team uses in docs/CHANGELOG/README.** Grep the docs for capitalized phrases and acronyms.
+
+**Output a raw candidate list** — deduplicated, roughly 30-120 terms. Do not classify yet. This is raw material for Phase 2.
+
+---
+
+## Phase 2: Cluster into bounded contexts
+
+Now group the terms into coherent subsystems where the language is internally consistent.
+
+**First cut:** directory structure. `src/billing/` is usually a bounded context boundary. `src/shared/` usually is NOT — it's likely a shared kernel OR a big ball of mud. Name this out.
+
+**Second cut:** find **language seams** — terms that appear in multiple directories with different definitions. These are the high-value findings:
+
+1. Grep for the candidate term across all source directories.
+2. Read the class/type definition in each location. Are they the same concept, or different concepts sharing a name?
+3. If different: the split is a bounded context boundary. Document both meanings separately.
+
+**Third cut:** ask the user. For the top 5-10 ambiguous terms, use AskUserQuestion:
+
+```
+The term "Account" appears in both `billing/` (as a payment target — has
+a balance, invoices, payment methods) and `auth/` (as a login entity —
+has credentials, sessions, MFA). Same concept or two concepts sharing a name?
+
+A) Same concept — they should be the same type (renaming one in code)
+B) Two concepts — rename one in the glossary (e.g. BillingAccount / UserAccount)
+   and mark the seam explicitly
+C) I don't know — save this question for the next team review
+```
+
+**Output a context list.** Usually 3-8 contexts for a mature app; 1-3 for early-stage. Name each context by what it does in the business, not by the directory. Example:
+
+```
+Contexts discovered (draft — user to confirm):
+  1. Identity            src/auth/, src/users/
+  2. Billing             src/billing/, src/payments/
+  3. Reporting           src/analytics/, src/dashboards/
+  4. Support             src/tickets/, src/chat/
+  5. Shared Kernel       src/shared/, src/db/, src/lib/ (small — needs justification)
+```
+
+---
+
+## Phase 3: Map context relationships
+
+For each pair of contexts that interact (not every pair does — that's information too), classify the relationship using Evans' canonical types. The classification is the hard work; name it explicitly so the team can agree or push back.
+
+| Relationship | When to use | Signal in code |
+|---|---|---|
+| **Shared Kernel** | Two contexts jointly own a small shared model (types, constants, utility). Joint ownership — changes require buy-in from both teams. | A `shared/` directory imported by both, with types both contexts reference by their core names (not via adapters). |
+| **Customer / Supplier** | Upstream supplies downstream. Downstream is the customer — they can ask for changes but don't dictate. | Import direction is one-way. The downstream has some voice in the upstream's API (issues filed, reviews). |
+| **Conformist** | Downstream adopts upstream's model wholesale. No translation. Fast to build, painful to diverge later. | No adapter layer. Downstream uses upstream types directly throughout its internals. |
+| **Anticorruption Layer (ACL)** | Downstream protects its own model via a translation layer. Best when upstream is legacy or external. | A clearly-named adapter module (e.g. `billing/external/stripe-adapter.ts`) translating upstream types → internal types. |
+| **Open Host Service** | Upstream publishes a stable API many downstreams consume. Upstream prioritizes stability over flexibility. | Versioned API, public docs, deprecation policy. |
+| **Published Language** | Upstream defines a formal shared vocabulary (JSON schema, protobuf, XSD). All consumers speak it. | `schemas/`, `.proto` files, OpenAPI spec with explicit types. |
+| **Separate Ways** | Two contexts do NOT integrate. Each owns its own model. Accept duplication over the cost of coupling. | No imports between the two. Same concept implemented twice, intentionally. |
+| **Partnership** | Two teams jointly succeed or fail. Close coordination. Often a transitional state — either it becomes Shared Kernel or splits. | Cross-team standups on a shared feature. |
+| **Big Ball of Mud (BBoM)** | No structure. Mixing models, leaks everywhere, renames break everything. Flag where this exists. | Hundreds of unplanned imports across directories. |
+
+**Draw the context map.** Use Mermaid (renders on GitHub/GitLab). Example:
+
+```mermaid
+graph LR
+  Identity -->|Published Language: user.v1| Billing
+  Identity -->|Published Language: user.v1| Reporting
+  Billing  -->|ACL: StripeAdapter| Stripe[External: Stripe]
+  Support  -.Separate Ways.-> Billing
+  SharedKernel[Shared Kernel: IDs, Money]
+  SharedKernel --- Identity
+  SharedKernel --- Billing
+  SharedKernel --- Reporting
+```
+
+If Mermaid isn't supported in the repo's renderer, emit an ASCII table of pairs + relationship type.
+
+---
+
+## Phase 4: Write `UBIQUITOUS_LANGUAGE.md`
+
+Choose the path:
+- If `docs/` exists → `docs/UBIQUITOUS_LANGUAGE.md`
+- Else → `UBIQUITOUS_LANGUAGE.md` at repo root
+
+If a file already exists at that path, read it first and produce a **diff summary** (added contexts, renamed terms, changed relationships) before overwriting. Present the diff via AskUserQuestion:
+
+```
+UBIQUITOUS_LANGUAGE.md already exists.
+Changes detected this run:
+  + 2 new contexts (Notifications, Partnerships)
+  ~ 1 renamed term (Account → BillingAccount in the Billing context)
+  - 1 removed term (LegacyUser — no longer referenced in code)
+
+A) Overwrite with the new version
+B) Show me the full diff first
+C) Write a patch file instead (I'll merge manually)
+D) Cancel — keep the existing file
+```
+
+**File structure:**
+
+```markdown
+# Ubiquitous Language
+
+This glossary is grounded in the code as of <YYYY-MM-DD>. Every term below
+is a noun or verb that appears in the codebase; no term is invented here.
+When you rename a domain concept, update this file in the same PR.
+
+Regenerate with `/glossary`. The regeneration is idempotent — the user
+reviews all changes before the file is overwritten.
+
+## Context Map
+
+<Mermaid or ASCII diagram from Phase 3>
+
+### Relationship table
+
+| Upstream | Downstream | Type | Notes |
+|---|---|---|---|
+| Identity | Billing | Published Language (user.v1) | Stable — no breaking changes in 18mo |
+| Billing | Stripe | ACL (StripeAdapter) | External payment provider |
+| Support | Billing | Separate Ways | Support does not invoice; duplication accepted |
+
+---
+
+## Context: Identity
+
+*Located in:* `src/auth/`, `src/users/`
+*Responsible for:* authentication, authorization, user profile.
+
+| Term | Definition | Where in code |
+|---|---|---|
+| User | A person with credentials. Can log in. | `src/users/User.ts` |
+| Session | A time-bounded authenticated context. | `src/auth/Session.ts` |
+| Role | A bundle of permissions. | `src/auth/Role.ts` |
+
+---
+
+## Context: Billing
+
+*Located in:* `src/billing/`, `src/payments/`
+*Responsible for:* invoicing, payment capture, refunds.
+
+| Term | Definition | Where in code |
+|---|---|---|
+| BillingAccount | A payment target. Has a balance and payment methods. NOTE: different from Identity's "User" — a User can own 0 or many BillingAccounts. | `src/billing/BillingAccount.ts` |
+| Invoice | A dated statement of charges. | `src/billing/Invoice.ts` |
+| PaymentMethod | A stored way to charge (card, ACH, etc). | `src/payments/PaymentMethod.ts` |
+
+---
+
+[... one section per context ...]
+
+---
+
+## Language seams
+
+Terms that mean different things in different contexts. Read these carefully
+before using the term in cross-context conversation.
+
+| Term | Context A | Context B | Why the split |
+|---|---|---|---|
+| Account | Identity: "UserAccount" — login entity | Billing: "BillingAccount" — payment target | A user (person) can own many billing accounts (org, personal). Split during <date/PR>. |
+
+---
+
+## How to update this file
+
+1. When you add a new domain type, add an entry to the appropriate context section.
+2. When you rename a concept, update this file in the SAME PR as the code change.
+3. When you discover a language seam (a term meaning different things in two contexts), add it to §Language seams and rename one of them in code.
+4. Regenerate with `/glossary` quarterly or after any large refactor. The command
+   is idempotent and will show you a diff before overwriting.
+```
+
+---
+
+## Phase 5: Commit guidance
+
+Do NOT commit the file automatically. Tell the user:
+
+```
+UBIQUITOUS_LANGUAGE.md written to <path>.
+Not committed — review the diff first, then:
+
+  git add <path>
+  git commit -m "docs: add/update ubiquitous language and context map"
+
+If /glossary found language seams (same term, different meanings in different
+contexts), those are the highest-value findings. Consider opening a separate
+issue / PR to rename one of them in code — the file now documents WHERE the
+seams are; fixing them is a behavioral change worth doing separately.
+```
+
+Log the run as a learning with `type: "glossary"` and include the contexts discovered so future runs can diff.
+
+## Capture Learnings
+
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
 
 ```bash
-BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || \
-              gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || \
-              echo main)
-echo "Base branch: $BASE_BRANCH"
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"glossary","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
+
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight),
+`operational` (project environment/CLI/workflow knowledge).
+
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
+
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
+
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
 
 ---
 
-## Step 2: Read current state
+## Important Rules
 
-```bash
-CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
-git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
-BASE_VERSION=$(git show "origin/$BASE_BRANCH:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "$CURRENT_VERSION")
-echo "origin/$BASE_BRANCH VERSION: $BASE_VERSION"
-echo "branch HEAD VERSION: $CURRENT_VERSION"
-```
-
----
-
-## Step 3: Query the queue
-
-Call the util three times — once for each bump level — so the user sees what
-they'd claim for micro/patch/minor/major. Cheap (same gh call cached by bun).
-
-```bash
-for LEVEL in micro patch minor major; do
-  bun run bin/gstack-next-version \
-    --base "$BASE_BRANCH" \
-    --bump "$LEVEL" \
-    --current-version "$BASE_VERSION" \
-    > "/tmp/landing-$LEVEL.json" 2>/dev/null || echo '{"offline":true}' > "/tmp/landing-$LEVEL.json"
-done
-```
-
----
-
-## Step 4: Render the dashboard
-
-Build a single table output. Use the `patch`-level JSON as canonical for
-queue + siblings (they're identical across bump levels; only `.version`
-differs).
-
-Use `jq` to extract:
-- `.host` — github | gitlab | unknown
-- `.offline` — did the query fail?
-- `.claimed` — array of {pr, branch, version, url}
-- `.siblings` — all sibling worktrees found
-- `.active_siblings` — subset that's likely about to ship
-
-Render in this exact format:
-
-```
-╔══════════════════════════════════════════════════════════════════╗
-║                     GSTACK LANDING REPORT                        ║
-╠══════════════════════════════════════════════════════════════════╣
-║ Repo:    <owner/repo>                                            ║
-║ Base:    <base> @ v<base-version>                                ║
-║ Host:    <github|gitlab|unknown>                                 ║
-║ Status:  <ONLINE|OFFLINE: queue-awareness unavailable>           ║
-╚══════════════════════════════════════════════════════════════════╝
-
-Open PRs claiming versions on <base>:
-  #1152  alpha-branch         → v1.7.0.0
-  #1153  beta-branch          → v1.7.0.0  ⚠ collision with #1152
-  #1151  gamma-branch         → v1.6.5.0
-
-Sibling Conductor worktrees (<workspace_root>):
-  path                        branch                 VERSION      last commit   PR
-  ──────────────────────────────────────────────────────────────────────────────────
-  ../tokyo-v2                 feat/dashboard         v1.7.1.0    3h ago         none  ★ active
-  ../melbourne                feat/review            v1.6.0.0    12d ago        none
-  ../osaka                    feat/payments          v1.8.0.0    5h ago         #1155
-
-★ active = has VERSION ahead of base AND last commit < 24h AND no open PR.
-  These are the ones likely to ship soon.
-
-If you ran /ship right now, you'd claim:
-  micro bump:  v1.6.3.1   (queue-advance: none)
-  patch bump:  v1.7.1.0   (bumped past claimed 1.7.0.0)
-  minor bump:  v1.8.0.0   (bumped past claimed 1.7.0.0)
-  major bump:  v2.0.0.0   (no major collisions)
-```
-
-For offline / unknown-host output, print a shorter block:
-
-```
-╔══════════════════════════════════════════════════════════════════╗
-║                     GSTACK LANDING REPORT                        ║
-╠══════════════════════════════════════════════════════════════════╣
-║ Status:  OFFLINE — queue-awareness unavailable                   ║
-║ Reason:  <offline reason from warnings>                          ║
-╚══════════════════════════════════════════════════════════════════╝
-
-Fallback: local VERSION bumps still work, but collisions cannot be detected.
-```
-
----
-
-## Step 5: Suggest next action
-
-After rendering the table, suggest ONE of:
-
-1. **If there are collisions in the queue** (two open PRs claim the same version):
-   "⚠ Two open PRs collide on v<X>. Whoever merges second will either overwrite
-   the first's CHANGELOG entry or land a duplicate. Consider asking one author
-   to rerun /ship to pick up the next free slot."
-
-2. **If an active sibling outranks the user's branch version:**
-   "Sibling worktree <path> has v<X> committed <N>h ago and hasn't PR'd yet.
-   If that work ships first, your branch will need to rebump at land time."
-
-3. **If everything looks clean:**
-   "Queue is clean. Next /ship will claim a slot without conflict."
-
----
-
-## Plan Mode
-
-PLAN MODE EXCEPTION — ALWAYS RUN. This skill is entirely read-only: no file
-writes, no git mutations, no network state changes. Safe to run in plan mode.
+- **Don't invent vocabulary.** Every term in the file must appear in the code. If a term should exist but doesn't, that's a code finding, not a glossary entry.
+- **Name the seams.** The highest-value output of this skill is the "Language seams" section. If you skip it, you've produced a flat glossary — useful but not DDD.
+- **Don't refactor.** This skill is pure documentation. Renames based on glossary findings are a separate conversation.
+- **Accept partial.** First run of `/glossary` on a large codebase will miss terms. That's fine — the file is living; later runs tighten it.
+- **Read the old file before overwriting.** Never silently drop entries; always diff and confirm.
