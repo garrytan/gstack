@@ -25,6 +25,7 @@ import {
   logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { judgeRecommendation } from './helpers/llm-judge';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -135,9 +136,6 @@ After writing the file, stop. Do not continue the review.`,
     });
 
     logCost('/plan-ceo-review format (mode)', result);
-    recordE2E(evalCollector, '/plan-ceo-review-format-mode', 'Plan Format — CEO Mode Selection', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
@@ -149,6 +147,27 @@ After writing the file, stop. Do not continue the review.`,
     expect(captured).toMatch(RECOMMENDATION_RE);
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
+
+    // Recommendation-quality judge: deterministic regex for present/commits/has_because,
+    // Haiku 4.5 for reason_substance 1-5. Threshold >= 4 catches generic-tier reasoning.
+    const recScore = await judgeRecommendation(captured);
+    recordE2E(evalCollector, '/plan-ceo-review-format-mode', 'Plan Format — CEO Mode Selection', result, {
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      judge_scores: {
+        rec_present: recScore.present ? 1 : 0,
+        rec_commits: recScore.commits ? 1 : 0,
+        rec_has_because: recScore.has_because ? 1 : 0,
+        rec_substance: recScore.reason_substance,
+      },
+      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
+    });
+    expect(recScore.present, recScore.reasoning).toBe(true);
+    expect(recScore.commits, recScore.reasoning).toBe(true);
+    expect(recScore.has_because, recScore.reasoning).toBe(true);
+    expect(
+      recScore.reason_substance,
+      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
+    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
@@ -187,9 +206,6 @@ After writing the file, stop. Do not continue the review.`,
     });
 
     logCost('/plan-ceo-review format (approach)', result);
-    recordE2E(evalCollector, '/plan-ceo-review-format-approach', 'Plan Format — CEO Approach Menu', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
@@ -199,6 +215,25 @@ After writing the file, stop. Do not continue the review.`,
     // Coverage-differentiated: both RECOMMENDATION and Completeness: N/10 required.
     expect(captured).toMatch(RECOMMENDATION_RE);
     expect(captured).toMatch(COMPLETENESS_RE);
+
+    const recScore = await judgeRecommendation(captured);
+    recordE2E(evalCollector, '/plan-ceo-review-format-approach', 'Plan Format — CEO Approach Menu', result, {
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      judge_scores: {
+        rec_present: recScore.present ? 1 : 0,
+        rec_commits: recScore.commits ? 1 : 0,
+        rec_has_because: recScore.has_because ? 1 : 0,
+        rec_substance: recScore.reason_substance,
+      },
+      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
+    });
+    expect(recScore.present, recScore.reasoning).toBe(true);
+    expect(recScore.commits, recScore.reasoning).toBe(true);
+    expect(recScore.has_because, recScore.reasoning).toBe(true);
+    expect(
+      recScore.reason_substance,
+      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
+    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
@@ -240,9 +275,6 @@ After writing the file with that ONE question, stop. Do not continue the review.
     });
 
     logCost('/plan-eng-review format (coverage)', result);
-    recordE2E(evalCollector, '/plan-eng-review-format-coverage', 'Plan Format — Eng Coverage Issue', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
@@ -252,6 +284,25 @@ After writing the file with that ONE question, stop. Do not continue the review.
     // Coverage-differentiated: both RECOMMENDATION and Completeness: N/10 required.
     expect(captured).toMatch(RECOMMENDATION_RE);
     expect(captured).toMatch(COMPLETENESS_RE);
+
+    const recScore = await judgeRecommendation(captured);
+    recordE2E(evalCollector, '/plan-eng-review-format-coverage', 'Plan Format — Eng Coverage Issue', result, {
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      judge_scores: {
+        rec_present: recScore.present ? 1 : 0,
+        rec_commits: recScore.commits ? 1 : 0,
+        rec_has_because: recScore.has_because ? 1 : 0,
+        rec_substance: recScore.reason_substance,
+      },
+      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
+    });
+    expect(recScore.present, recScore.reasoning).toBe(true);
+    expect(recScore.commits, recScore.reasoning).toBe(true);
+    expect(recScore.has_because, recScore.reasoning).toBe(true);
+    expect(
+      recScore.reason_substance,
+      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
+    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
@@ -290,9 +341,6 @@ After writing the file with that ONE question, stop. Do not continue the review.
     });
 
     logCost('/plan-eng-review format (kind)', result);
-    recordE2E(evalCollector, '/plan-eng-review-format-kind', 'Plan Format — Eng Kind Issue', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
@@ -304,6 +352,25 @@ After writing the file with that ONE question, stop. Do not continue the review.
     expect(captured).toMatch(RECOMMENDATION_RE);
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
+
+    const recScore = await judgeRecommendation(captured);
+    recordE2E(evalCollector, '/plan-eng-review-format-kind', 'Plan Format — Eng Kind Issue', result, {
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+      judge_scores: {
+        rec_present: recScore.present ? 1 : 0,
+        rec_commits: recScore.commits ? 1 : 0,
+        rec_has_because: recScore.has_because ? 1 : 0,
+        rec_substance: recScore.reason_substance,
+      },
+      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
+    });
+    expect(recScore.present, recScore.reasoning).toBe(true);
+    expect(recScore.commits, recScore.reasoning).toBe(true);
+    expect(recScore.has_because, recScore.reasoning).toBe(true);
+    expect(
+      recScore.reason_substance,
+      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
+    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
