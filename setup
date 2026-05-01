@@ -18,6 +18,9 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+# Honor CLAUDE_CONFIG_DIR for users who relocate Claude Code's config (e.g. ~/.config/claude).
+# Falls back to ~/.claude when unset, preserving the default install layout.
+CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
@@ -773,6 +776,21 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    # Warn when the auto-detected skills dir won't be read by Claude Code.
+    # Happens when CLAUDE_CONFIG_DIR points elsewhere (e.g. ~/.config/claude) but
+    # the clone lives under the legacy ~/.claude/skills path. Skip for --local
+    # (intentional project-scoped install) and CODEX_REPO_LOCAL (.agents/skills).
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$LOCAL_INSTALL" -eq 0 ] && [ "$CODEX_REPO_LOCAL" -eq 0 ] && [ "$INSTALL_SKILLS_DIR" != "$CLAUDE_HOME/skills" ]; then
+      echo "" >&2
+      echo "WARNING: CLAUDE_CONFIG_DIR is set to $CLAUDE_CONFIG_DIR" >&2
+      echo "  but this clone is at $INSTALL_GSTACK_DIR." >&2
+      echo "  Claude Code reads skills from $CLAUDE_HOME/skills, so the" >&2
+      echo "  installation below will NOT be discovered by Claude Code." >&2
+      echo "  To fix: move the clone and re-run setup:" >&2
+      echo "    mv $INSTALL_GSTACK_DIR $CLAUDE_HOME/skills/gstack" >&2
+      echo "    cd $CLAUDE_HOME/skills/gstack && ./setup" >&2
+      echo "" >&2
+    fi
     # Clean up stale symlinks from the opposite prefix mode
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
@@ -806,8 +824,9 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     fi
     log "  browse: $BROWSE_BIN"
   else
-    # Not inside a skills/ directory — symlink into ~/.claude/skills/ and retry
-    CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+    # Not inside a skills/ directory — symlink into $CLAUDE_HOME/skills/ and retry.
+    # $CLAUDE_HOME respects CLAUDE_CONFIG_DIR when set, else defaults to ~/.claude.
+    CLAUDE_SKILLS_DIR="$CLAUDE_HOME/skills"
     CLAUDE_GSTACK_LINK="$CLAUDE_SKILLS_DIR/gstack"
     mkdir -p "$CLAUDE_SKILLS_DIR"
     ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
