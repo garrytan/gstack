@@ -18,7 +18,7 @@
 
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readOverlay } from './resolvers/model-overlay';
-import { execSync } from 'child_process';
+import { resolveClaudeBinary } from '../browse/src/claude-bin';
 
 async function main() {
   const failures: string[] = [];
@@ -44,12 +44,11 @@ async function main() {
 
   // 2. Local claude binary exists
   console.log('\n2. Binary pinning');
-  let claudePath: string | null = null;
-  try {
-    claudePath = execSync('which claude', { encoding: 'utf-8' }).trim();
+  let claudePath: string | null = resolveClaudeBinary();
+  if (claudePath) {
     pass(`local claude binary: ${claudePath}`);
-  } catch {
-    fail('`which claude` failed — cannot pin binary');
+  } else {
+    fail('`Bun.which("claude")` failed — cannot pin binary (set GSTACK_CLAUDE_BIN to override)');
   }
 
   // 3. SDK query end-to-end

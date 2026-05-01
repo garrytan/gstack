@@ -58,4 +58,12 @@ function main() {
   console.log(bin);
 }
 
-main();
+// Only run main() when this module is the entry point. Without this guard,
+// any test that imports `locateBinary` from this file would have main() fire
+// at module-load time, calling process.exit(1) when no compiled binary
+// exists — killing the test process before any test runs. Surfaced on the
+// windows-free-tests CI lane where the runner has no compiled browse
+// binary (intentional — that lane only builds server-node.mjs).
+if (import.meta.main) {
+  main();
+}

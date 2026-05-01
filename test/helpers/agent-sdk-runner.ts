@@ -35,7 +35,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { resolveClaudeBinary as resolveClaudeBinaryShared } from '../../browse/src/claude-bin';
 import type { SkillTestResult } from './session-runner';
 
 // ---------------------------------------------------------------------------
@@ -278,11 +278,7 @@ function resolveSdkVersion(): string {
 }
 
 export function resolveClaudeBinary(): string | null {
-  try {
-    return execSync('which claude', { encoding: 'utf-8' }).trim() || null;
-  } catch {
-    return null;
-  }
+  return resolveClaudeBinaryShared();
 }
 
 // ---------------------------------------------------------------------------

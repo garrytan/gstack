@@ -1,0 +1,39 @@
+# Force LF on text files we parse with `\n`-anchored regexes (frontmatter,
+# YAML, markdown structure tests). Without this, Windows checkouts with
+# core.autocrlf=true convert these to CRLF and break tests that match
+# /^---\n...\n---/ against SKILL.md.tmpl frontmatter, etc.
+*.md         text eol=lf
+*.tmpl       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.json       text eol=lf
+*.toml       text eol=lf
+
+# Bash scripts must always use LF — CRLF in bash scripts produces bizarre
+# "Bad interpreter" / "command not found" errors on Linux runners.
+*.sh         text eol=lf
+*.bash       text eol=lf
+
+# Extensionless executables (top-level setup script + bin/gstack-* helpers).
+# These are bash scripts checked into git without a `.sh` suffix. Without
+# explicit eol=lf, Windows checkout with core.autocrlf=true converts them
+# to CRLF and breaks both `\n`-anchored regex tests (test/setup-codesign.test.ts)
+# and shebang resolution if the script is ever executed on Linux.
+setup        text eol=lf
+bin/*        text eol=lf
+**/scripts/* text eol=lf
+
+# TypeScript/JavaScript: LF for portability across the bun toolchain.
+*.ts         text eol=lf
+*.tsx        text eol=lf
+*.js         text eol=lf
+*.mjs        text eol=lf
+*.cjs        text eol=lf
+
+# Binary files — never touch.
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.gif        binary
+*.ico        binary
+*.pdf        binary
