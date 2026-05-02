@@ -104,14 +104,24 @@ Net: ...`);
     expect(noRec.has_because).toBe(false);
     expect(noRec.reason_substance).toBe(1);
 
-    // HEDGING: "either A or B" — fails commits.
-    const hedging = await judgeRecommendation(buildAUQ(
-      'Recommendation: Choose either B or C because both ship faster than A.',
-    ));
-    expect(hedging.present).toBe(true);
-    expect(
-      hedging.commits,
-      `expected commits=false for "either B or C"; got ${hedging.commits}: ${hedging.reasoning}`,
-    ).toBe(false);
+    // HEDGING: each alternate in the hedging regex is exercised separately.
+    // Each is deterministic — `commits` short-circuits the LLM call when the
+    // choice portion contains hedge vocabulary, so these are free at API cost.
+    const hedgeForms = [
+      ['either B or C',          'Recommendation: Choose either B or C because both ship faster than A.'],
+      ['depends on traffic',     'Recommendation: A depends on traffic — pick B if read-heavy.'],
+      ['depending on the team',  'Recommendation: depending on the team, A or B is fine.'],
+      ['if X then Y',            'Recommendation: if low-traffic then A, otherwise B because both work.'],
+      ['or maybe',               'Recommendation: A or maybe B because both ship in V1.'],
+      ['whichever fits',         'Recommendation: whichever fits the team — A or B both work.'],
+    ];
+    for (const [label, text] of hedgeForms) {
+      const score = await judgeRecommendation(buildAUQ(text));
+      expect(score.present, `[hedge:${label}] present should be true`).toBe(true);
+      expect(
+        score.commits,
+        `[hedge:${label}] expected commits=false; got ${score.commits}. text="${text}"`,
+      ).toBe(false);
+    }
   }, 240_000);
 });
