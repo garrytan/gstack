@@ -101,7 +101,7 @@ These are conversational skills. Your OpenClaw agent runs them directly via chat
 
 ### Other AI Agents
 
-gstack works on 10 AI coding agents, not just Claude. Setup auto-detects which
+gstack works on 11 AI coding agents, not just Claude. Setup auto-detects which
 agents you have installed:
 
 ```bash
@@ -121,9 +121,41 @@ Or target a specific agent with `./setup --host <name>`:
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
 | Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
+| GitHub Copilot CLI | `--host copilot` | `~/.copilot/skills/gstack-*/` |
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
+
+### GitHub Copilot CLI
+
+The standalone `copilot` binary (GA February 2026, separate from the older
+`gh copilot` extension) auto-discovers skills from `~/.copilot/skills/`.
+
+```bash
+# 1. Install Copilot CLI if you haven't already
+npm install -g @github/copilot
+# or: brew install copilot, winget install GitHub.CopilotCLI
+
+# 2. Install gstack
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/gstack
+cd ~/gstack && ./setup --host copilot
+
+# 3. Verify
+copilot
+> /skills list
+```
+
+Each gstack skill becomes a slash command in your Copilot session: `/gstack-review`,
+`/gstack-cso`, `/gstack-office-hours`, `/gstack-ship`, etc.
+
+**v1 scope notes** — these orchestration features are suppressed in the v1 Copilot
+build because they embed Claude-specific Agent dispatch syntax that doesn't
+translate cleanly: `REVIEW_ARMY` (parallel specialist dispatch), `ADVERSARIAL_STEP`
+(adversarial reviewer), `DESIGN_OUTSIDE_VOICES` (design committee). These can be
+re-enabled in a follow-up after validating Copilot CLI's `task` tool semantics
+with real sessions. The core sprint methodology (`/gstack-review`, `/gstack-ship`,
+`/gstack-investigate`, `/gstack-cso`, `/gstack-office-hours`, etc.) works as
+designed.
 
 ## See it work
 
@@ -342,6 +374,7 @@ rm -rf ~/.codex/skills/gstack* 2>/dev/null
 rm -rf ~/.factory/skills/gstack* 2>/dev/null
 rm -rf ~/.kiro/skills/gstack* 2>/dev/null
 rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
+rm -rf ~/.copilot/skills/gstack* 2>/dev/null
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null
