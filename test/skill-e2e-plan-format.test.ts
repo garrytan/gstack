@@ -22,7 +22,7 @@ import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
-  logCost, recordE2E,
+  logCost, assertRecommendationQuality,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { spawnSync } from 'child_process';
@@ -33,12 +33,18 @@ import * as os from 'os';
 const evalCollector = createEvalCollector('e2e-plan-format');
 
 // Regex predicates applied to captured AskUserQuestion content.
-// RECOMMENDATION regex is lenient on intervening markdown markers (e.g.
-// agent writes `**RECOMMENDATION:** Choose` — the `**` closers are benign).
-// Post v1.7.0.0: "Recommendation:" (mixed-case) is the canonical form per
-// the Pros/Cons format; accept both cases for backward compatibility.
-const RECOMMENDATION_RE = /[Rr]ecommendation:[*\s]*Choose/;
-const COMPLETENESS_RE = /Completeness:\s*\d{1,2}\/10/;
+// Recommendation-line presence + substance is now graded by judgeRecommendation
+// (deterministic regex for present/commits/has_because, Haiku for substance);
+// the prior strict `[Rr]ecommendation:[*\s]*Choose` regex pinned down a
+// template-example wording ("Choose [X]") that the format spec doesn't require
+// — the canonical form per generate-ask-user-format.ts is just
+// `Recommendation: <choice> because <reason>`, where <choice> is the bare
+// option label. judgeRecommendation.present covers the canonical shape.
+// COMPLETENESS regex matches both legacy bare form (`Completeness: 10/10`) and
+// the canonical option-prefixed form (`Completeness: A=10/10, B=7/10`) per
+// scripts/resolvers/preamble/generate-ask-user-format.ts. The optional
+// `[A-Z]=` prefix tolerates either shape; both are acceptable spec output.
+const COMPLETENESS_RE = /Completeness:\s*(?:[A-Z]=)?\d{1,2}\/10/;
 const KIND_NOTE_RE = /options differ in kind/i;
 
 // v1.7.0.0 Pros/Cons format tokens. Tests are additive: existing
@@ -135,20 +141,25 @@ After writing the file, stop. Do not continue the review.`,
     });
 
     logCost('/plan-ceo-review format (mode)', result);
-    recordE2E(evalCollector, '/plan-ceo-review-format-mode', 'Plan Format — CEO Mode Selection', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Kind-differentiated: RECOMMENDATION required, Completeness: N/10 must NOT appear,
-    // "options differ in kind" note must appear.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
+    // in kind" note must appear. Recommendation presence is checked by the judge.
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
+
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-ceo-review-format-mode',
+      evalTitle: 'Plan Format — CEO Mode Selection',
+      result,
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+    });
   }, 300_000);
 });
 
@@ -187,18 +198,24 @@ After writing the file, stop. Do not continue the review.`,
     });
 
     logCost('/plan-ceo-review format (approach)', result);
-    recordE2E(evalCollector, '/plan-ceo-review-format-approach', 'Plan Format — CEO Approach Menu', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Coverage-differentiated: both RECOMMENDATION and Completeness: N/10 required.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Coverage-differentiated: Completeness: N/10 required. Recommendation
+    // presence checked by the judge.
     expect(captured).toMatch(COMPLETENESS_RE);
+
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-ceo-review-format-approach',
+      evalTitle: 'Plan Format — CEO Approach Menu',
+      result,
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+    });
   }, 300_000);
 });
 
@@ -240,18 +257,24 @@ After writing the file with that ONE question, stop. Do not continue the review.
     });
 
     logCost('/plan-eng-review format (coverage)', result);
-    recordE2E(evalCollector, '/plan-eng-review-format-coverage', 'Plan Format — Eng Coverage Issue', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Coverage-differentiated: both RECOMMENDATION and Completeness: N/10 required.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Coverage-differentiated: Completeness: N/10 required. Recommendation
+    // presence checked by the judge.
     expect(captured).toMatch(COMPLETENESS_RE);
+
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-eng-review-format-coverage',
+      evalTitle: 'Plan Format — Eng Coverage Issue',
+      result,
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+    });
   }, 300_000);
 });
 
@@ -290,20 +313,25 @@ After writing the file with that ONE question, stop. Do not continue the review.
     });
 
     logCost('/plan-eng-review format (kind)', result);
-    recordE2E(evalCollector, '/plan-eng-review-format-kind', 'Plan Format — Eng Kind Issue', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     expect(fs.existsSync(outFile)).toBe(true);
     const captured = fs.readFileSync(outFile, 'utf-8');
     expect(captured.length).toBeGreaterThan(100);
 
-    // Kind-differentiated: RECOMMENDATION required, Completeness: N/10 must NOT appear,
-    // "options differ in kind" note must appear.
-    expect(captured).toMatch(RECOMMENDATION_RE);
+    // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
+    // in kind" note must appear. Recommendation presence checked by the judge.
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
+
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-eng-review-format-kind',
+      evalTitle: 'Plan Format — Eng Kind Issue',
+      result,
+      passed: ['success', 'error_max_turns'].includes(result.exitReason),
+    });
   }, 300_000);
 });
 

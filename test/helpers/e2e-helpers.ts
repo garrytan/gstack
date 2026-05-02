@@ -5,10 +5,11 @@
  * tests across multiple files by category.
  */
 
-import { describe, test, beforeAll, afterAll } from 'bun:test';
+import { describe, test, beforeAll, afterAll, expect } from 'bun:test';
 import type { SkillTestResult } from './session-runner';
 import { EvalCollector, judgePassed } from './eval-store';
 import type { EvalTestEntry } from './eval-store';
+import { judgeRecommendation, type RecommendationScore } from './llm-judge';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES } from './touchfiles';
 import { WorktreeManager } from '../../lib/worktree';
 import type { HarvestResult } from '../../lib/worktree';
@@ -189,6 +190,51 @@ export function recordE2E(
     max_inter_turn_ms: result.maxInterTurnMs,
     ...extra,
   });
+}
+
+/**
+ * Threshold for `reason_substance` (1-5 rubric) above which a recommendation
+ * is considered substantive enough to ship. 4 = "concrete and option-specific";
+ * 3 = generic ("because it's faster"). We want to catch generic. If Haiku
+ * flakes at this bar in practice, lower the threshold rather than weakening
+ * the gate (per design plan).
+ */
+export const RECOMMENDATION_SUBSTANCE_THRESHOLD = 4;
+
+/**
+ * Run judgeRecommendation on a captured AskUserQuestion text, record the score
+ * into the eval collector, and assert all four quality dimensions. Replaces a
+ * 22-line block previously duplicated across every E2E test that captures an
+ * AskUserQuestion. Returns the score for tests that want to inspect it
+ * further.
+ */
+export async function assertRecommendationQuality(opts: {
+  captured: string;
+  evalCollector: EvalCollector | null;
+  evalId: string;
+  evalTitle: string;
+  result: SkillTestResult;
+  passed: boolean;
+}): Promise<RecommendationScore> {
+  const recScore = await judgeRecommendation(opts.captured);
+  recordE2E(opts.evalCollector, opts.evalId, opts.evalTitle, opts.result, {
+    passed: opts.passed,
+    judge_scores: {
+      rec_present: recScore.present ? 1 : 0,
+      rec_commits: recScore.commits ? 1 : 0,
+      rec_has_because: recScore.has_because ? 1 : 0,
+      rec_substance: recScore.reason_substance,
+    },
+    judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
+  });
+  expect(recScore.present, recScore.reasoning).toBe(true);
+  expect(recScore.commits, recScore.reasoning).toBe(true);
+  expect(recScore.has_because, recScore.reasoning).toBe(true);
+  expect(
+    recScore.reason_substance,
+    `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
+  ).toBeGreaterThanOrEqual(RECOMMENDATION_SUBSTANCE_THRESHOLD);
+  return recScore;
 }
 
 /** Finalize an eval collector (write results). */
