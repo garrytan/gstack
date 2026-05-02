@@ -398,6 +398,75 @@ the prereq is fixed.
 
 ---
 
+## Step 7.5: Transcript & memory ingest gate
+
+After memory sync is wired (Step 7) but before persisting the CLAUDE.md
+config (Step 8), offer to bring this Mac's coding-agent transcripts +
+curated `~/.gstack/` artifacts into gbrain so the retrieval surface
+(per-skill manifests, salience block) has data to surface.
+
+Run the probe to size the operation:
+```bash
+~/.claude/skills/gstack/bin/gstack-memory-ingest --probe
+```
+
+Read the output. If `Total files in window: 0`, skip — there's nothing
+to ingest. Set `gstack-config set transcript_ingest_mode incremental`
+silently and continue to Step 8.
+
+If `New (never ingested)` is < 200 AND total bytes are < 100MB: silent
+bulk via `gstack-memory-ingest --bulk --quiet`. Set
+`transcript_ingest_mode=incremental` and continue.
+
+Otherwise (the "many transcripts on disk" path): AskUserQuestion with
+the exact counts AND the value promise. Default scope is **current repo
+only, last 90 days**:
+
+> "Found <N_repo> transcripts in THIS repo (<repo-slug>) over the last
+> 90 days, plus <N_other> across other repos on this machine (<bytes>
+> total if all ingested). Ingest THIS repo's transcripts into gbrain?
+>
+> What you get after this: every gstack skill auto-loads recent salience
+> from your past sessions in this repo, so the agent finds your prior
+> work without you describing it. You can query 'what was I doing on
+> day X' and get a real answer. Per-session pages are searchable,
+> taggable, and deletable. Secret scanning runs before any push.
+>
+> What stays the same: nothing leaves your machine unless gbrain sync
+> is enabled (Step 7). Per-repo trust policies still apply.
+>
+> Multi-Mac note: if you HAVE enabled brain sync (Step 7), these
+> transcript pages will sync across your Macs. Caveat: deleting a
+> transcript page later removes it from gbrain but git history retains
+> it in prior commits. Use `gstack-transcript-prune` to delete in bulk;
+> use `git filter-repo` on the brain remote for hard-delete from
+> history."
+
+Options:
+- A) Yes — this repo, last 90 days (recommended; ~est min)
+- B) Yes — this repo, ALL history
+- C) Yes — this repo + other repos on this machine
+- D) Skip historical, track new from now (`transcript_ingest_mode=incremental`)
+- E) Never ingest transcripts (`transcript_ingest_mode=off`)
+
+After answer:
+```bash
+~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>
+~/.claude/skills/gstack/bin/gstack-gbrain-sync --full --no-brain-sync
+```
+(`--no-brain-sync` because Step 7 already wired that path; this just
+runs the code import + memory ingest stages. Brain-sync will run on the
+next preamble hook.)
+
+If A/D/E, ingest is incremental from this point on; preamble-boundary
+hook runs `gstack-gbrain-sync --incremental --quiet` on every skill
+start (cheap mtime fast-path).
+
+Reference doc for users: `setup-gbrain/memory.md` (linked from CLAUDE.md
+Step 8).
+
+---
+
 ## Step 8: Persist `## GBrain Configuration` in CLAUDE.md
 
 Find-and-replace (or append) this section in CLAUDE.md:
@@ -424,6 +493,48 @@ gbrain search "smoke test" | grep -i "$SLUG"
 
 Confirms the round trip. On failure, surface `gbrain doctor --json` output
 and STOP with a NEEDS_CONTEXT escalation.
+
+---
+
+## Step 10: GREEN/YELLOW/RED verdict block (idempotent doctor output)
+
+After Steps 1-9 complete, summarize. Re-running `/setup-gbrain` on a
+configured Mac is a first-class doctor path: every step detects existing
+state, repairs only what's missing, and reports here.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-config get transcript_ingest_mode 2>/dev/null || echo "off"
+~/.claude/skills/gstack/bin/gstack-config get gbrain_sync_mode 2>/dev/null || echo "off"
+[ -f ~/.gstack/.gbrain-sync-state.json ] && cat ~/.gstack/.gbrain-sync-state.json || echo "{}"
+```
+
+Print the verdict block. Each row is `[OK]/[FIX]/[WARN]/[ERR]` — see
+template below; substitute your detect outputs:
+
+```
+gbrain status: GREEN
+
+  CLI ............. OK   <gbrain version>
+  Engine .......... OK   <pglite|supabase> at <path>
+  doctor .......... OK
+  MCP ............. OK   registered (user scope)
+  Repo policy ..... OK   <read-write|read-only|deny>
+  Code import ..... OK   <last_imported_head>
+  Memory sync ..... OK   <gbrain_sync_mode> to <remote>
+  Transcripts ..... OK   <N> sessions, last ingest <when>
+  CLAUDE.md ....... OK
+  Smoke test ...... OK   put → search → delete round-trip
+
+Run `/setup-gbrain` again any time gbrain feels off; it's safe and idempotent.
+```
+
+If any row is YELLOW or RED, the verdict line says so and the failing rows
+surface a one-line "next action" (e.g.,
+`Engine .......... ERR  PGLite corrupt — run \`gbrain restore-from-sync\` (V1.5)`).
+For V1, restore-from-sync is a V1.5 P0 cross-repo TODO; until it ships,
+the user's brain remote (with brain-sync enabled) holds curated artifacts
+as markdown + git, recoverable manually via `gbrain import` from a clone.
 
 ---
 
