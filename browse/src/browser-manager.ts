@@ -179,6 +179,7 @@ export class BrowserManager {
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
     // Extensions only work in headed mode, so we use an off-screen window.
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
+    const channel = process.env.BROWSE_CHANNEL;
     const launchArgs: string[] = [];
     let useHeadless = true;
 
@@ -200,14 +201,31 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
-    this.browser = await chromium.launch({
+    const launchOpts = {
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit.
       chromiumSandbox: process.platform !== 'win32',
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
-    });
+    };
+
+    const contextOpts: BrowserContextOptions = {
+      viewport: this.currentViewport,
+      deviceScaleFactor: this.deviceScaleFactor,
+      ...(this.customUserAgent ? { userAgent: this.customUserAgent } : {}),
+    };
+
+    if (channel) {
+      // launchPersistentContext enables macOS platform SSO (newContext does not)
+      this.context = await chromium.launchPersistentContext('', {
+        ...launchOpts, ...contextOpts, channel,
+      });
+      this.browser = this.context.browser();
+    } else {
+      this.browser = await chromium.launch(launchOpts);
+      this.context = await this.browser.newContext(contextOpts);
+    }
 
     // Chromium crash → exit with clear message
     this.browser.on('disconnected', () => {
@@ -215,15 +233,6 @@ export class BrowserManager {
       console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
       process.exit(1);
     });
-
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-      deviceScaleFactor: this.deviceScaleFactor,
-    };
-    if (this.customUserAgent) {
-      contextOptions.userAgent = this.customUserAgent;
-    }
-    this.context = await this.browser.newContext(contextOptions);
 
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
