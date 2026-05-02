@@ -13,6 +13,7 @@ import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
@@ -64,10 +65,18 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const PRIMARY_HOST_CONFIG = ALL_HOST_CONFIGS.find(c => c.name === 'claude');
+const PRIMARY_SKIPPED_OUTPUTS = new Set(
+  (PRIMARY_HOST_CONFIG?.generation.skipSkills || []).map(skill => `${skill}/SKILL.md`)
+);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
+  if (PRIMARY_SKIPPED_OUTPUTS.has(output)) {
+    console.log(`  -  ${output.padEnd(30)} — skipped by primary host config`);
+    continue;
+  }
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
     continue;
@@ -89,8 +98,6 @@ for (const file of SKILL_FILES) {
 }
 
 // ─── External Host Skills (config-driven) ───────────────────
-
-import { getExternalHosts } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -129,8 +136,6 @@ for (const hostConfig of getExternalHosts()) {
 }
 
 // ─── Freshness (config-driven) ──────────────────────────────
-
-import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 for (const hostConfig of ALL_HOST_CONFIGS) {
   const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;

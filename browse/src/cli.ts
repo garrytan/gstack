@@ -942,9 +942,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${existingState.token}`,
         },
-        body: JSON.stringify({
-      domains,
- command: 'disconnect', args: [] }),
+        body: JSON.stringify({ command: 'disconnect', args: [] }),
         signal: AbortSignal.timeout(3000),
       });
       if (resp.ok) {
