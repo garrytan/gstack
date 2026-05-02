@@ -2,65 +2,88 @@
 
 > Route current task through NVIDIA NIM instead of Anthropic
 
-Use this when you want to use your own NIM models (via OpenClaude proxy) instead of Claude Code's default Anthropic models.
+Use this when you want to use your own NIM models instead of Claude Code's default Anthropic models.
 
 ## When
 
-- **Cost savings**: You're running on your own GPU/API
-- **Privacy**: Don't want to send data to Anthropic  
-- **Specific models**: Use NIM-only models (GLM, Llama, Vision)
+- **Cost savings**: Your GPU / API (not per-token)
+- **Privacy**: Data stays local, not sent to Anthropic  
+- **Specific models**: Use NIM-exclusive models (GLM, Llama, Vision)
 - **Testing**: Compare NIM vs Claude outputs
+- **Custom models**: Fine-tuned or private models
 
-## Setup Required
+## Setup (One-Time)
 
 ```bash
-# One-time setup
+# Clone OpenClaude
 git clone https://github.com/Hanishchow/OpenClaude.git ~/OpenClaude
 cd ~/OpenClaude
+
+# Add your NVIDIA API key
+cp config/env.example config/.env
+# Edit .env and add: NVIDIA_NIM_API_KEY=your-key
+
+# Start the proxy
 ./scripts/start.sh
 
-# Test it works
-~/OpenClaude/cli/nim-chat.sh "test"
+# Test
+~/OpenClaude/cli/nim-chat.sh "hello"
 ```
 
-## How It Works
+Get your free NVIDIA API key at: https://build.nvidia.com/settings/api-keys
 
-1. Routes through local proxy at `localhost:8082`
-2. Proxy forwards to NVIDIA NIM (`integrate.api.nvidia.com`)
-3. Response streaming returned in SSE format
+## Architecture
+
+```
+Claude Code → OpenClaude Proxy (localhost:8082) → NVIDIA NIM → Your Models
+```
 
 ## Models Available
 
 | Model | Best For |
 |-------|----------|
-| `z-ai/glm-4.7` | General chat |
+| `z-ai/glm-4.7` | General chat (default) |
 | `meta/llama-3.1-70b-instruct` | Fast responses |
-| `deepseek-ai/deepseek-coder-v2` | Code/debug tasks |
+| `deepseek-ai/deepseek-coder-v2` | Code, debugging |
 | `nvidia/vision` | Image understanding |
 
-## Workflow
+## Usage
 
-1. Activate this skill: `@nim`
-2. Your task will be routed through NIM instead of Anthropic
-3. See the response in your terminal
+```bash
+# Chat with NIM
+~/OpenClaude/cli/nim-chat.sh "Your prompt"
 
-## Requirements
+# Auto-route to best model
+~/OpenClaude/cli/nim-route.sh "description"
 
-- NVIDIA API key (https://build.nvidia.com/settings/api-keys)
-- OpenClaude proxy running (`./scripts/start.sh`)
-- Or use existing CLI: `~/OpenClaude/cli/nim-chat.sh "prompt"`
+# List available models
+~/OpenClaude/cli/nim-models.sh
 
-## Notes
-
-- **Slow first start**: Proxy cold-starts ~5s
-- **Response quality**: May differ from Claude
-- **Tool support**: Limited vs Claude (no computer use, etc.)
-- **Streaming**: Responses stream in real-time
-
-## Examples
-
+# Or use the skill in Claude Code:
+@nim Explain quantum computing
 ```
-@nim Explain quantum computing simply
-@nim Write a Python function for Fibonacci
-@nim Compare this code to NIM vs Claude output
+
+## Comparison
+
+| Feature | Claude (Anthropic) | NIM (This) |
+|---------|-------------------|-------------|
+| Cost | Per-token | Your GPU/API |
+| Privacy | Sends to cloud | Local option |
+| Models | Claude only | Any NIM model |
+| Tools | Full support | Limited |
+| Speed | Fast | Depends on GPU |
+
+## Troubleshooting
+
+**Proxy not running:**
+```bash
+~/OpenClaude/scripts/start.sh
 ```
+
+**API key issues:**
+- Get key from https://build.nvidia.com/settings/api-keys
+- Add to ~/OpenClaude/config/.env
+
+**Model not found:**
+- Some models require acceptance on NVIDIA build
+- Check available models: ~/OpenClaude/cli/nim-models.sh
