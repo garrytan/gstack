@@ -215,6 +215,21 @@ or
 GATE: FAIL (N critical findings)
 ```
 
+5a. **Synthesis recommendation (REQUIRED).** After presenting Codex's verbatim
+output and the GATE verdict, emit ONE recommendation line summarizing what the
+user should do, in the canonical format the AskUserQuestion judge grades:
+
+```
+Recommendation: <action> because <one-line reason that names the most actionable finding>
+```
+
+Examples (the strongest reasons compare against an alternative — another finding, fix-vs-ship, or fix-order):
+- `Recommendation: Fix the SQL injection at users_controller.rb:42 first because its auth-bypass blast radius is higher than the LFI Codex also flagged, and the parameterized-query fix is three lines vs the LFI's session-handling rewrite.`
+- `Recommendation: Ship as-is because all 3 Codex findings are P3 cosmetic and the gate passed; addressing them would block the release without changing user-visible behavior.`
+- `Recommendation: Investigate the race condition Codex flagged at billing.ts:117 before merging because the silent-corruption failure mode is harder to detect post-ship than the harness gap Codex also raised, which is fixable in a follow-up.`
+
+The reason must engage with a specific finding (or compare against alternatives — other findings, fix-vs-ship, fix order). Boilerplate reasons ("because it's better", "because adversarial review found things") fail the format. The recommendation is the ONE line a user reads when they don't have time for the verbatim output. **Never silently auto-decide; always emit the line.**
+
 6. **Cross-model comparison:** If `/review` (Claude's own review) was already run
    earlier in this conversation, compare the two sets of findings:
 
@@ -329,6 +344,20 @@ CODEX SAYS (adversarial challenge):
 ════════════════════════════════════════════════════════════
 Tokens: N | Est. cost: ~$X.XX
 ```
+
+3a. **Synthesis recommendation (REQUIRED).** After presenting the full
+adversarial output, emit ONE recommendation line summarizing what the user
+should do, in the canonical format the AskUserQuestion judge grades:
+
+```
+Recommendation: <action> because <one-line reason that names the most exploitable finding>
+```
+
+Examples (the strongest reasons compare blast radius across findings or fix-vs-ship):
+- `Recommendation: Fix the unbounded retry loop Codex flagged at queue.ts:78 because it DoSes the worker pool under sustained 429s, which is higher-blast-radius than the timing leak Codex also flagged that only touches a debug endpoint.`
+- `Recommendation: Ship as-is because Codex's strongest finding is a theoretical race in cleanup that requires conditions we can't trigger in production, weaker than the runtime regressions a fix-now would risk.`
+
+The reason must point to a specific finding and compare against alternatives (other findings, fix-vs-ship). Generic reasons like "because it's safer" fail the format. **Never silently skip the line.**
 
 ---
 
@@ -477,6 +506,21 @@ Session saved — run /codex again to continue this conversation.
 7. After presenting, note any points where Codex's analysis differs from your own
    understanding. If there is a disagreement, flag it:
    "Note: Claude Code disagrees on X because Y."
+
+8. **Synthesis recommendation (REQUIRED).** Emit ONE recommendation line
+summarizing what the user should do based on Codex's consult output, in the
+canonical format the AskUserQuestion judge grades:
+
+```
+Recommendation: <action> because <one-line reason that names the most actionable insight from Codex>
+```
+
+Examples (the strongest reasons compare Codex's insight against an alternative — different recommendation, status-quo, or another Codex point):
+- `Recommendation: Adopt Codex's sharding suggestion because it eliminates the head-of-line blocking the current writer-pool has, while the cache-layer alternative Codex also floated still has a single-writer hot path.`
+- `Recommendation: Reject Codex's "use SQLite instead" suggestion because the team's Postgres operational experience outweighs the simplicity gain at the projected scale, and Codex's secondary suggestion (read replicas) handles the read-load concern that motivated the SQLite pivot.`
+- `Recommendation: Investigate Codex's flagged migration ordering before D3 lands because it surfaces a real foreign-key cycle that the in-house schema review missed, while the styling concern Codex also raised can wait for a follow-up.`
+
+The reason must engage with a specific Codex insight and compare against an alternative (a different recommendation, status-quo, or another Codex point). Generic synthesis ("because Codex raised good points") fails the format. **Never silently auto-decide; always emit the line.**
 
 ---
 

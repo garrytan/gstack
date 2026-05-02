@@ -2,16 +2,19 @@
 
 ## [1.25.1.0] - 2026-05-01
 
-## **Office-hours stops at Phase 4 architectural forks. AskUserQuestion evals now grade the "because" clause.**
+## **Office-hours stops at Phase 4 architectural forks. AskUserQuestion evals — and `/codex` synthesis — now grade the "because" clause.**
 
 When you run `/office-hours` in builder mode and it reaches Phase 4 (Alternatives Generation), the agent now actually asks you to pick between A/B/C instead of writing "Recommendation: C because..." in chat prose and proceeding straight to the design doc. The previous Phase 4 footer was soft prose ("Present via AskUserQuestion. Do NOT proceed without user approval"); the new one matches the hard `STOP.` pattern from `plan-ceo-review`'s 0C-bis gate, names the blocked next steps (Phase 4.5 / Phase 5 / Phase 6 / design-doc generation), and rejects the "clearly winning approach so I'll just apply it" reasoning.
 
 Format-compliance evals on AskUserQuestion now do more than confirm a `Recommendation:` line exists. A new Haiku 4.5 judge grades the "because <reason>" clause on a 1-5 substance rubric: 5 = specific tradeoff vs an alternative; 3 = generic ("because it's faster"); 1 = boilerplate. Tests fail at threshold ≥ 4, catching the exact failure mode where agents write "Recommendation: B because it's better" — present but useless.
 
+The same rigor extends to **cross-model synthesis surfaces** that previously emitted prose without a structured recommendation. `/codex review`, `/codex challenge`, `/codex consult`, and the Claude adversarial subagent (plus Codex's adversarial pass in `/ship` Step 11) now MUST emit a canonical `Recommendation: <action> because <reason>` line at the end of their synthesis. The reason must compare against alternatives (a different finding, fix-vs-ship, fix-order tradeoff) — generic synthesis ("because adversarial review found things") fails the format check.
+
 ### What you can now do
 
 - **Run `/office-hours` builder mode in Conductor and trust the Phase 4 gate.** The architectural fork (server-side vs client-side vs hybrid, or whatever shape your project has) actually surfaces for you to decide. The agent stops cold at Phase 4 until you respond.
 - **Catch weak recommendations in CI.** Periodic-tier evals on `/plan-ceo-review`, `/plan-eng-review`, and `/office-hours` now grade recommendation substance via Haiku 4.5 (~$0.005/judge call). Generic "because it's faster" reasoning fails the gate.
+- **Get an actionable line out of every `/codex` run.** Review, challenge, and consult modes all now end with `Recommendation: <action> because <reason>` — one line you can act on without re-reading the full Codex transcript. Same for the Claude adversarial subagent and Codex adversarial pass that auto-run in `/ship` Step 11.
 
 ### The numbers that matter
 
@@ -47,6 +50,13 @@ If you've been writing skill templates with `Recommendation: <choice> because <r
 - `office-hours/SKILL.md.tmpl` Phase 4 footer rewritten with a hard `**STOP.**` token (matching `plan-ceo-review/SKILL.md.tmpl:248-252`'s 0C-bis pattern), named blocked next steps (Phase 4.5 Founder Signal Synthesis, Phase 5 Design Doc, Phase 6 Closing, design-doc generation), and an explicit anti-rationalization line ("A 'clearly winning approach' is still an approach decision"). Preserves the preamble's no-variant fallback path explicitly (write `## Decisions to confirm` to the plan file + ExitPlanMode).
 - `test/skill-e2e-plan-format.test.ts` — wired the new judge into all 4 cases (CEO mode, CEO approach, eng coverage, eng kind). Threshold `reason_substance >= 4` catches both boilerplate and generic-tier reasoning. Dropped the strict `Choose` regex (the canonical format spec only requires the option label, not the literal "Choose" prefix). `COMPLETENESS_RE` updated to match the option-prefixed `Completeness: A=10/10, B=7/10` form per `generate-ask-user-format.ts`.
 - `test/helpers/touchfiles.ts` — new entries `office-hours-phase4-fork` (periodic) and `llm-judge-recommendation` (periodic); extended four `plan-{ceo,eng}-review-format-*` entries with `test/helpers/llm-judge.ts` so rubric tweaks invalidate the wired-in tests.
+
+#### Added — cross-model synthesis recommendation requirement
+
+- `codex/SKILL.md.tmpl` Steps 2A (review), 2B (challenge), and 2C (consult) each gain a "Synthesis recommendation (REQUIRED)" subsection. After presenting Codex's verbatim output, the orchestrator must emit ONE `Recommendation: <action> because <reason>` line in the same canonical shape `judgeRecommendation` already grades. Templates teach comparison-style reasoning (compare against another finding, fix-vs-ship, or fix-order) so the synthesis earns substance ≥ 4.
+- `scripts/resolvers/review.ts` Claude adversarial subagent prompt and Codex adversarial command both gain the same final-line requirement. The Claude subagent in `/ship` Step 11 now ends its findings list with a canonical recommendation; same for the Codex adversarial pass that runs alongside it.
+- `test/llm-judge-recommendation.test.ts` extended with 5 cross-model fixtures (3 substance ≥ 4 covering review/adversarial/consult shapes, 2 substance < 4 covering boilerplate). Same `judgeRecommendation` helper grades both AskUserQuestion and cross-model synthesis — one rubric, two surfaces.
+- `test/skill-cross-model-recommendation-emit.test.ts` (new, free-tier) — static guard that greps `codex/SKILL.md.tmpl` and `scripts/resolvers/review.ts` for the canonical emit instruction. Trips before paid eval if a contributor edits the templates and removes the synthesis requirement.
 
 #### Defense — judge prompt + output
 
