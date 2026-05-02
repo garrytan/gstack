@@ -71,6 +71,7 @@ interface CliArgs {
   allHistory: boolean;
   sources: Set<MemoryType>;
   limit: number | null;
+  noWrite: boolean;
 }
 
 type MemoryType =
@@ -172,6 +173,8 @@ Options:
   --all-history        Walk transcripts older than 90 days too.
   --sources <list>     Comma-separated subset: ${ALL_TYPES.join(",")}
   --limit <N>          Stop after N pages written (smoke testing).
+  --no-write           Skip gbrain put_page calls (still updates state file).
+                       Used by tests + dry runs without actual ingest.
   --help               This text.
 `);
 }
@@ -185,6 +188,7 @@ function parseArgs(): CliArgs {
   let allHistory = false;
   let limit: number | null = null;
   let sources: Set<MemoryType> = new Set(ALL_TYPES);
+  let noWrite = process.env.GSTACK_MEMORY_INGEST_NO_WRITE === "1";
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -196,6 +200,7 @@ function parseArgs(): CliArgs {
       case "--benchmark": benchmark = true; break;
       case "--include-unattributed": includeUnattributed = true; break;
       case "--all-history": allHistory = true; break;
+      case "--no-write": noWrite = true; break;
       case "--limit":
         limit = parseInt(args[++i] || "0", 10);
         if (!Number.isFinite(limit) || limit <= 0) {
@@ -223,7 +228,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit };
+  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite };
 }
 
 // ── State file ─────────────────────────────────────────────────────────────
@@ -891,11 +896,13 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       continue;
     }
 
-    const result = await withErrorContext(
-      `put_page:${page.slug}`,
-      async () => gbrainPutPage(page),
-      "gstack-memory-ingest"
-    );
+    const result = args.noWrite
+      ? { ok: true }
+      : await withErrorContext(
+          `put_page:${page.slug}`,
+          async () => gbrainPutPage(page),
+          "gstack-memory-ingest"
+        );
     if (!result.ok) {
       failed++;
       if (!args.quiet) {
