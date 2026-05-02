@@ -20,6 +20,26 @@ allowed-tools:
   - Grep
   - Agent
   - AskUserQuestion
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-approved-variants
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/designs/*/approved.json"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Prior approved design variants for this project"
+    - id: design-md
+      kind: filesystem
+      glob: "DESIGN.md"
+      tail: 1
+      render_as: "## DESIGN.md (project design system)"
+    - id: recent-design-docs
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-design-*.md"
+      sort: mtime_desc
+      limit: 3
+      render_as: "## Recent design docs"
 ---
 
 {{PREAMBLE}}

@@ -25,6 +25,30 @@ triggers:
   - expand scope
   - strategy review
   - rethink this plan
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-ceo-plans
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/ceo-plans/*.md"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Prior CEO plans for this project"
+    - id: recent-design-docs
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-design-*.md"
+      sort: mtime_desc
+      limit: 3
+      render_as: "## Recent design docs for this project"
+    - id: recent-reviews
+      kind: list
+      filter:
+        type: timeline
+        tags_contains: "repo:{repo_slug}"
+        content_contains: "plan-ceo-review"
+      sort: updated_at_desc
+      limit: 5
+      render_as: "## Recent CEO review activity"
 ---
 
 {{PREAMBLE}}
