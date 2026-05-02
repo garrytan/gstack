@@ -297,6 +297,39 @@ function extractCwdFromJsonl(filePath: string): string | null {
   return null;
 }
 
+
+function readFirstLineBounded(filePath: string, maxBytes = 1024 * 1024): string | null {
+  const fd = openSync(filePath, "r");
+  try {
+    const chunks: Buffer[] = [];
+    const chunkSize = 65536;
+    let total = 0;
+
+    while (total < maxBytes) {
+      const remaining = maxBytes - total;
+      const buf = Buffer.alloc(Math.min(chunkSize, remaining));
+      const bytesRead = readSync(fd, buf, 0, buf.length, total);
+      if (bytesRead === 0) break;
+
+      const chunk = buf.subarray(0, bytesRead);
+      const newlineIndex = chunk.indexOf(10);
+      if (newlineIndex !== -1) {
+        chunks.push(chunk.subarray(0, newlineIndex));
+        total += newlineIndex;
+        return Buffer.concat(chunks, total).toString("utf-8");
+      }
+
+      chunks.push(chunk);
+      total += bytesRead;
+    }
+
+    if (chunks.length === 0) return null;
+    return Buffer.concat(chunks, total).toString("utf-8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function scanCodex(since: Date): Session[] {
   const sessionsDir = process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions");
   if (!existsSync(sessionsDir)) return [];
@@ -334,15 +367,10 @@ function scanCodex(since: Date): Session[] {
             }
 
             // Codex session_meta lines embed the full system prompt in
-            // base_instructions (~15KB as of CLI v0.117+). A 4KB buffer
-            // truncates the line and JSON.parse fails. 128KB covers current
-            // sizes with room for growth.
+            // base_instructions. Read until the first newline instead of
+            // relying on a fixed-size prefix so larger prompts still parse.
             try {
-              const fd = openSync(filePath, "r");
-              const buf = Buffer.alloc(131072);
-              const bytesRead = readSync(fd, buf, 0, 131072, 0);
-              closeSync(fd);
-              const firstLine = buf.toString("utf-8", 0, bytesRead).split("\n")[0];
+              const firstLine = readFirstLineBounded(filePath);
               if (!firstLine) continue;
               const meta = JSON.parse(firstLine);
               if (meta.type === "session_meta" && meta.payload?.cwd) {
