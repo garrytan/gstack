@@ -28,6 +28,7 @@ Invoke them by name (e.g., `/office-hours`).
 |-------|-------------|
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. |
+| `/nim` | Route through NVIDIA NIM instead of Anthropic. Use your own models. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
