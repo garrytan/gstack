@@ -11,7 +11,7 @@
  * tweaks but not every test run. Runs only under EVALS=1 with an API key.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { expect } from 'bun:test';
 import { judgeRecommendation } from './helpers/llm-judge';
 import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 
@@ -105,8 +105,9 @@ Net: ...`);
     expect(noRec.reason_substance).toBe(1);
 
     // HEDGING: each alternate in the hedging regex is exercised separately.
-    // Each is deterministic — `commits` short-circuits the LLM call when the
-    // choice portion contains hedge vocabulary, so these are free at API cost.
+    // Most are no-because forms that short-circuit the LLM call entirely (the
+    // judge skips Haiku when has_because is false). The "either B or C
+    // because..." form does call Haiku, but cost is bounded — total <$0.02.
     const hedgeForms = [
       ['either B or C',          'Recommendation: Choose either B or C because both ship faster than A.'],
       ['depends on traffic',     'Recommendation: A depends on traffic — pick B if read-heavy.'],

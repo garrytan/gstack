@@ -19,15 +19,14 @@
  * to a quality benchmark than a deterministic format check. Reclassify if the
  * test turns out stable.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { expect, beforeAll, afterAll } from 'bun:test';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
-  logCost, recordE2E,
+  logCost, assertRecommendationQuality,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
-import { judgeRecommendation } from './helpers/llm-judge';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -46,7 +45,8 @@ const BECAUSE_RE = /\bbecause\b/i;
 // "2-3 distinct alternatives," so 2+ is the minimum bar.
 const TWO_OPTIONS_RE = /\b[AB]\)|\b1\)|\b2\)/;
 // Phase-4-specific: at least one of these tokens should appear in the captured
-// question. Without this, a captured AUQ from an earlier phase would false-pass.
+// question. Without this, a captured AskUserQuestion from an earlier phase
+// would false-pass.
 const PHASE4_VOCAB_RE = /approach|alternative|architecture|implementation/i;
 
 function setupOfficeHoursDir(): string {
@@ -69,12 +69,27 @@ that ships V1 client-side and promotes to gbrain in V1.5.
   run('git', ['add', '.']);
   run('git', ['commit', '-m', 'seed']);
 
-  // Drop in office-hours/SKILL.md so the agent can read it inside the tmpdir.
+  // Extract only the AskUserQuestion Format spec + Phase 4 section from
+  // office-hours/SKILL.md per CLAUDE.md "extract, don't copy" rule. Copying
+  // the full ~2000-line SKILL.md burns Opus tokens on irrelevant phases and
+  // risks turn-limit timeouts. The format spec teaches the agent the
+  // Recommendation/because/options shape; Phase 4 is what we're testing.
   fs.mkdirSync(path.join(dir, 'office-hours'), { recursive: true });
-  fs.copyFileSync(
-    path.join(ROOT, 'office-hours', 'SKILL.md'),
-    path.join(dir, 'office-hours', 'SKILL.md'),
-  );
+  const fullSkill = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  const fmtStart = fullSkill.indexOf('## AskUserQuestion Format');
+  const fmtEnd = fullSkill.indexOf('\n## ', fmtStart + 1);
+  const phase4Start = fullSkill.indexOf('## Phase 4: Alternatives Generation');
+  const phase4End = fullSkill.indexOf('\n## Phase 4.5', phase4Start);
+  if (fmtStart < 0 || phase4Start < 0 || phase4End < 0) {
+    throw new Error('skill-e2e-office-hours-phase4: failed to slice SKILL.md — section markers not found.');
+  }
+  const slice = [
+    '# office-hours (Phase 4 slice for E2E test)\n',
+    fullSkill.slice(fmtStart, fmtEnd > fmtStart ? fmtEnd : fmtStart + 4000),
+    '\n',
+    fullSkill.slice(phase4Start, phase4End),
+  ].join('\n');
+  fs.writeFileSync(path.join(dir, 'office-hours', 'SKILL.md'), slice);
 
   return dir;
 }
@@ -93,6 +108,10 @@ describeIfSelected('Office Hours Phase 4 — Architectural fork must surface Ask
   });
 
   afterAll(() => {
+    // workDir is only set if beforeAll ran (i.e. describe wasn't skipped).
+    // The previous empty-catch pattern silently swallowed `fs.rmSync(undefined)`
+    // when the test was skipped, hiding the latent bug.
+    if (!workDir) return;
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
   });
 
@@ -135,24 +154,14 @@ After writing the file with that ONE Phase 4 question, stop. Do not continue to 
     expect(captured).toMatch(PHASE4_VOCAB_RE);
 
     // Recommendation-quality judge: same threshold as plan-format tests.
-    const recScore = await judgeRecommendation(captured);
-    recordE2E(evalCollector, '/office-hours-phase4-fork', 'Office Hours Phase 4 — Architectural fork must surface AskUserQuestion', result, {
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/office-hours-phase4-fork',
+      evalTitle: 'Office Hours Phase 4 — Architectural fork must surface AskUserQuestion',
+      result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
-      judge_scores: {
-        rec_present: recScore.present ? 1 : 0,
-        rec_commits: recScore.commits ? 1 : 0,
-        rec_has_because: recScore.has_because ? 1 : 0,
-        rec_substance: recScore.reason_substance,
-      },
-      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
     });
-    expect(recScore.present, recScore.reasoning).toBe(true);
-    expect(recScore.commits, recScore.reasoning).toBe(true);
-    expect(recScore.has_because, recScore.reasoning).toBe(true);
-    expect(
-      recScore.reason_substance,
-      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
-    ).toBeGreaterThanOrEqual(4);
   }, 360_000);
 });
 

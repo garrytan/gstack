@@ -22,10 +22,9 @@ import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
-  logCost, recordE2E,
+  logCost, assertRecommendationQuality,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
-import { judgeRecommendation } from './helpers/llm-judge';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -153,26 +152,14 @@ After writing the file, stop. Do not continue the review.`,
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
 
-    // Recommendation-quality judge: deterministic regex for present/commits/has_because,
-    // Haiku 4.5 for reason_substance 1-5. Threshold >= 4 catches generic-tier reasoning.
-    const recScore = await judgeRecommendation(captured);
-    recordE2E(evalCollector, '/plan-ceo-review-format-mode', 'Plan Format — CEO Mode Selection', result, {
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-ceo-review-format-mode',
+      evalTitle: 'Plan Format — CEO Mode Selection',
+      result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
-      judge_scores: {
-        rec_present: recScore.present ? 1 : 0,
-        rec_commits: recScore.commits ? 1 : 0,
-        rec_has_because: recScore.has_because ? 1 : 0,
-        rec_substance: recScore.reason_substance,
-      },
-      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
     });
-    expect(recScore.present, recScore.reasoning).toBe(true);
-    expect(recScore.commits, recScore.reasoning).toBe(true);
-    expect(recScore.has_because, recScore.reasoning).toBe(true);
-    expect(
-      recScore.reason_substance,
-      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
-    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
@@ -221,24 +208,14 @@ After writing the file, stop. Do not continue the review.`,
     // presence checked by the judge.
     expect(captured).toMatch(COMPLETENESS_RE);
 
-    const recScore = await judgeRecommendation(captured);
-    recordE2E(evalCollector, '/plan-ceo-review-format-approach', 'Plan Format — CEO Approach Menu', result, {
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-ceo-review-format-approach',
+      evalTitle: 'Plan Format — CEO Approach Menu',
+      result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
-      judge_scores: {
-        rec_present: recScore.present ? 1 : 0,
-        rec_commits: recScore.commits ? 1 : 0,
-        rec_has_because: recScore.has_because ? 1 : 0,
-        rec_substance: recScore.reason_substance,
-      },
-      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
     });
-    expect(recScore.present, recScore.reasoning).toBe(true);
-    expect(recScore.commits, recScore.reasoning).toBe(true);
-    expect(recScore.has_because, recScore.reasoning).toBe(true);
-    expect(
-      recScore.reason_substance,
-      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
-    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
@@ -290,24 +267,14 @@ After writing the file with that ONE question, stop. Do not continue the review.
     // presence checked by the judge.
     expect(captured).toMatch(COMPLETENESS_RE);
 
-    const recScore = await judgeRecommendation(captured);
-    recordE2E(evalCollector, '/plan-eng-review-format-coverage', 'Plan Format — Eng Coverage Issue', result, {
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-eng-review-format-coverage',
+      evalTitle: 'Plan Format — Eng Coverage Issue',
+      result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
-      judge_scores: {
-        rec_present: recScore.present ? 1 : 0,
-        rec_commits: recScore.commits ? 1 : 0,
-        rec_has_because: recScore.has_because ? 1 : 0,
-        rec_substance: recScore.reason_substance,
-      },
-      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
     });
-    expect(recScore.present, recScore.reasoning).toBe(true);
-    expect(recScore.commits, recScore.reasoning).toBe(true);
-    expect(recScore.has_because, recScore.reasoning).toBe(true);
-    expect(
-      recScore.reason_substance,
-      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
-    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
@@ -357,24 +324,14 @@ After writing the file with that ONE question, stop. Do not continue the review.
     expect(captured).not.toMatch(COMPLETENESS_RE);
     expect(captured).toMatch(KIND_NOTE_RE);
 
-    const recScore = await judgeRecommendation(captured);
-    recordE2E(evalCollector, '/plan-eng-review-format-kind', 'Plan Format — Eng Kind Issue', result, {
+    await assertRecommendationQuality({
+      captured,
+      evalCollector,
+      evalId: '/plan-eng-review-format-kind',
+      evalTitle: 'Plan Format — Eng Kind Issue',
+      result,
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
-      judge_scores: {
-        rec_present: recScore.present ? 1 : 0,
-        rec_commits: recScore.commits ? 1 : 0,
-        rec_has_because: recScore.has_because ? 1 : 0,
-        rec_substance: recScore.reason_substance,
-      },
-      judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
     });
-    expect(recScore.present, recScore.reasoning).toBe(true);
-    expect(recScore.commits, recScore.reasoning).toBe(true);
-    expect(recScore.has_because, recScore.reasoning).toBe(true);
-    expect(
-      recScore.reason_substance,
-      `${recScore.reasoning}\n  reason: "${recScore.reason_text}"`,
-    ).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });
 
