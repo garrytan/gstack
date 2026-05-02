@@ -24,6 +24,10 @@ export const PRICING: Record<string, ModelPricing> = {
   'claude-haiku-4-5':   { input_per_mtok: 1.00,  output_per_mtok: 5.00,  as_of: '2026-04' },
 
   // OpenAI (GPT + o-series)
+  // TODO: gpt-5.5 / gpt-5.5-mini — confirm pricing at launch and add rows here.
+  // Until then, estimateCostUsd will warn-once and return 0 for those models,
+  // which is intentional: 0 in a benchmark report is louder than a placeholder
+  // that quietly ships wrong numbers.
   'gpt-5.4':            { input_per_mtok: 2.50,  output_per_mtok: 10.00, as_of: '2026-04' },
   'gpt-5.4-mini':       { input_per_mtok: 0.60,  output_per_mtok: 2.40,  as_of: '2026-04' },
   'o3':                 { input_per_mtok: 15.00, output_per_mtok: 60.00, as_of: '2026-04' },
