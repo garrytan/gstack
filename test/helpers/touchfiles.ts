@@ -187,6 +187,10 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'cso-diff-mode':    ['cso/**'],
   'cso-infra-scope':  ['cso/**'],
 
+  // Diagnose
+  'diagnose-discovery': ['diagnose/**', 'scripts/gen-skill-docs.ts', 'scripts/resolvers/learnings.ts'],
+  'diagnose-no-edit':   ['diagnose/**'],
+
   // Learnings
   'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
 
@@ -501,6 +505,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'cso-full-audit': 'gate',      // Hardcoded secrets detection
   'cso-diff-mode': 'gate',
   'cso-infra-scope': 'periodic',
+
+  // Diagnose — gate (safety guardrail: read-only skill must not edit)
+  'diagnose-discovery': 'gate',
+  'diagnose-no-edit': 'gate',
 
   // Learnings — gate (functional guardrail: seeded learnings must appear)
   'learnings-show': 'gate',
