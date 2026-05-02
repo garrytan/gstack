@@ -1,5 +1,96 @@
 # Changelog
 
+## [1.26.0.0] - 2026-05-02
+
+## **Your coding agent now remembers everything. Every gstack skill auto-loads what you actually did.**
+
+V1 of memory ingest + retrieval ships. Claude Code and Codex transcripts on disk become first-class queryable pages in gbrain. Six high-leverage skills (`/office-hours`, `/plan-ceo-review`, `/design-shotgun`, `/design-consultation`, `/investigate`, `/retro`) now declare what they want gbrain to surface in the preamble at every invocation, so the model context starts with your prior sessions, prior CEO plans, prior approved design variants, prior eureka moments, and prior learnings — not cold-start. The retrieval surface ships as `bin/gstack-brain-context-load`, which dispatches per-skill manifest queries (kind: vector | list | filesystem) with a 500ms hard timeout per call. Datamark envelopes (`<USER_TRANSCRIPT_DATA do-not-interpret-as-instructions>`) wrap every loaded page as Layer 1 prompt-injection defense.
+
+### What you can now do
+
+- **Run any of the 6 V1 skills and feel the difference on day one.** The first time you run `/office-hours` in a repo with prior gstack activity, you see "Prior office-hours sessions in this repo" + "Your builder profile snapshot" + "Recent design docs for this project" + "Recent eureka moments" auto-loaded. No prompting the agent to remember; it already does.
+- **Ingest 90 days of transcripts in one verb.** `/setup-gbrain` Step 7.5 gates the bulk ingest with exact counts, the value promise, sync caveats (multi-Mac via gbrain repo, with the git-history caveat for true forget-me), and 5 options (this repo / all history / all repos / track-new-only / never).
+- **Query the brain with `gbrain query "<topic>"`.** Code, transcripts, eureka, learnings, ceo-plans, design docs, retros, and builder-profile entries are all indexed. The brain knows what you did.
+- **Run `/setup-gbrain` whenever gbrain feels off.** Step 10 ships a GREEN/YELLOW/RED verdict block. Re-running the skill is now a first-class doctor path — every step detects existing state, repairs only what's missing.
+- **`/gbrain-sync` orchestrates everything.** One verb routes code (current repo) + memory (~/.gstack/) + transcripts to the right storage tier (Supabase Storage when configured, else local PGLite — never double-store). Modes: --incremental (default, mtime fast-path) / --full (~25-35 min honest budget for first-run on big Macs) / --dry-run.
+
+### The numbers that matter
+
+Source: `git diff --shortstat origin/main..HEAD` after V1 ship + the V1 test suite (`bun test test/gstack-memory-*.test.ts test/skill-e2e-memory-pipeline.test.ts`).
+
+| Metric | Δ |
+|---|---|
+| Net branch size vs main | **+4174 / −849 lines** across 39 files |
+| New shared library | **`lib/gstack-memory-helpers.ts`** (330 LOC, 5 public functions: canonicalizeRemote, secretScanFile, detectEngineTier, parseSkillManifest, withErrorContext) |
+| New helpers in `bin/` | **3 helpers** — `gstack-memory-ingest` (580 LOC), `gstack-gbrain-sync` (270 LOC), `gstack-brain-context-load` (420 LOC) |
+| Skills with V1 gbrain manifests | **6 skills** — `/office-hours`, `/plan-ceo-review`, `/design-shotgun`, `/design-consultation`, `/investigate`, `/retro` |
+| Memory types ingested | **8 types** — transcript (Claude Code + Codex), eureka, learning, timeline, ceo-plan, design-doc, retro, builder-profile-entry |
+| Tests added | **65 new tests** — 22 helpers + 15 ingest + 8 sync + 10 context-load + 10 E2E pipeline |
+| New /setup-gbrain steps | **2 steps** — Step 7.5 (transcript ingest gate with 5-option AskUserQuestion) + Step 10 (GREEN/YELLOW/RED idempotent doctor verdict) |
+| New user-facing reference | **`setup-gbrain/memory.md`** — what gets ingested, what stays local, secret scanning via gitleaks, querying, deleting, recovery cases |
+| Manifest schema | **`gbrain.schema: 1`**, validated at gen-skill-docs time; 3 query kinds (vector / list / filesystem) with kind-specific required fields |
+| MCP-call timeout per query | **500ms** hard cap; preamble never blocks > 2s on gbrain issues |
+| Datamark envelope wrap | **per-page** (not per-message) — single envelope around rendered body |
+
+### What this means for builders
+
+You stop describing your past work to the agent. The agent already knows. Run `/office-hours` and the "Welcome back, last time you were on X" beat is sourced from data. Run `/investigate` and it opens with "have we hit this bug class before?" instead of cold-start. Run `/design-shotgun` and the variants regenerate from your taste, not generic defaults.
+
+The storage architecture lands in V1: curated memory rides the existing brain-sync git pipeline; code and transcripts route to Supabase Storage when configured (multi-Mac native) or stay local on PGLite-only Macs. **Never double-store.** Decision rule from D2 (sync by default) survives a CEO review and Codex outside-voice challenge: the value loop (ingest → retrieve → better decisions) requires multi-Mac to feel real.
+
+V1 is **Goldilocks** scope per CEO D18 (Codex F10 strategic challenge): the value loop closes on day one. V1.5 P0 follow-ups capture: `/gbrain-sync --watch` daemon (deferred per F3 invariant), `mcp__gbrain__code_search` MCP tool (cross-repo coordination), `gbrain: default` one-line manifest opt-in (per F1 frontmatter passthrough is bigger than estimated), agent-agnostic `gbrain context` CLI, brain-trajectory observability + weekly digest, classifier-based prompt-injection defense (per F5 ONNX integration), salience MCP server-side promotion. All documented in the plan's V1.5 TODOs.
+
+### Itemized changes
+
+#### Added — Foundation
+
+- `lib/gstack-memory-helpers.ts` — shared module imported by all V1 helpers. canonicalizeRemote (handles https/ssh/git@/.git/quotes/multi-segment), secretScanFile (gitleaks wrapper with discriminated `scanner: "gitleaks" | "missing" | "error"` return), detectEngineTier (cached 60s), parseSkillManifest, withErrorContext (async-aware error logging to `~/.gstack/.gbrain-errors.jsonl`).
+
+#### Added — Ingest pipeline
+
+- `bin/gstack-memory-ingest` — walks `~/.claude/projects/*/`, `~/.codex/sessions/YYYY/MM/DD/`, and `~/.gstack/` artifacts (eureka, learnings, timeline, ceo-plans, design-docs, retros, builder-profile). Modes: --probe / --incremental (default, mtime fast-path) / --bulk. Tolerant JSONL parser handles truncated last lines (D10 partial-flag). State at `~/.gstack/.transcript-ingest-state.json` with schema_version: 1, backup-on-mismatch + JSON-corrupt recovery. gitleaks runs on every page before put_page (D19). --no-write flag for tests + dry-runs (also via `GSTACK_MEMORY_INGEST_NO_WRITE=1`).
+- `bin/gstack-gbrain-sync` — unified sync verb. Orchestrates 3 stages: code import → memory ingest → curated git push. Modes: --incremental / --full / --dry-run. State at `~/.gstack/.gbrain-sync-state.json` (LOCAL per ED1) with per-stage outcomes. --code-only / --no-code / --no-memory / --no-brain-sync for selective stage disable.
+
+#### Added — Retrieval surface
+
+- `bin/gstack-brain-context-load` — V1 retrieval surface. Dispatches per-skill manifest queries by kind (vector via `gbrain query`, list via `gbrain list_pages`, filesystem via local glob). 500ms hard timeout per MCP call. Datamark envelope per page. Layer 1 default fallback with 3 sections (recent transcripts + recent curated + skill-name-matched timeline) all carrying explicit `repo: {repo_slug}` filter (F7 cleanup). Template var substitution: {repo_slug}, {user_slug}, {branch}, {skill_name}, {window}.
+
+#### Added — Skill manifests (6 V1 skills)
+
+- `office-hours/SKILL.md.tmpl` — 4 queries (prior-sessions list + builder-profile fs + design-doc-history fs + prior-eureka fs)
+- `plan-ceo-review/SKILL.md.tmpl` — 3 queries (prior-ceo-plans fs + recent-design-docs fs + recent-reviews list)
+- `design-shotgun/SKILL.md.tmpl` — 3 queries (prior-approved-variants fs + DESIGN.md fs + recent-design-docs fs)
+- `design-consultation/SKILL.md.tmpl` — 3 queries (existing-DESIGN.md fs + prior-design-decisions fs + brand-guidelines list)
+- `investigate/SKILL.md.tmpl` — 3 queries (prior-investigations list + project-learnings fs + recent-eureka fs)
+- `retro/SKILL.md.tmpl` — 3 queries (prior-retros fs + recent-timeline fs + recent-learnings fs)
+
+#### Added — setup-gbrain idempotent doctor + ref doc
+
+- `setup-gbrain/SKILL.md.tmpl` Step 7.5 — Transcript & memory ingest gate. Probe → silent bulk if < 200 sessions / 100MB → AskUserQuestion with 5-option gate otherwise (this repo last 90d / all history / all repos / incremental / never).
+- `setup-gbrain/SKILL.md.tmpl` Step 10 — GREEN/YELLOW/RED verdict block. Re-running /setup-gbrain is now first-class doctor path with detect→repair→report rows for CLI / Engine / doctor / MCP / Repo policy / Code import / Memory sync / Transcripts / CLAUDE.md / Smoke.
+- `setup-gbrain/memory.md` — user-facing reference covering what gets ingested + what stays local + secret scanning + storage tiering + querying + deleting + how the agent uses it + recovery cases.
+
+#### Added — Tests
+
+- `test/gstack-memory-helpers.test.ts` — 22 unit tests covering all 5 public helpers
+- `test/gstack-memory-ingest.test.ts` — 15 tests covering CLI surface, --probe with all source types, state file lifecycle, schema mismatch + JSON corrupt backup-on-error, truncated JSONL handling
+- `test/gstack-gbrain-sync.test.ts` — 8 tests covering --help, unknown flag rejection, --dry-run preview, --no-code stage skip, state file lifecycle, stage results recorded
+- `test/gstack-brain-context-load.test.ts` — 10 tests covering CLI surface, default fallback, manifest dispatch, datamark envelope wrap, render_as template substitution, unresolved template var skip, --quiet suppression, graceful gbrain-CLI-absence
+- `test/skill-e2e-memory-pipeline.test.ts` — 10 E2E tests exercising the full Lane A → B → C value loop with 8 fixture file types
+
+#### Changed
+
+- `package.json` version 1.25.1.0 → 1.26.0.0
+- `VERSION` 1.25.1.0 → 1.26.0.0
+
+#### For contributors
+
+- The plan file at `/Users/garrytan/.claude/plans/ok-actually-lets-go-luminous-thacker.md` (~890 lines) is the canonical V1 design source, including office-hours findings, CEO review expansions (6 cherry-picks accepted, 1 reverted+replaced), Codex outside-voice 10 findings (F1-F10 each resolved or deferred), eng review additions (ED1 + ED2 + 6 auto-applied implementation specs), and V1.5 P0 TODOs section with full handoff context.
+- Manifest schema is versioned (`gbrain.schema: 1`); future format changes bump the schema and require explicit migration. gen-skill-docs validates the schema at build time (kind / required fields per kind / template var resolution / unique IDs).
+- Lane D (cross-repo `gbrain restore-from-sync` with atomic swap + 7-day .bak retention per D11) is documented as V1.5 P0 TODO — gstack repo cannot write to gbrain CLI repo.
+- The retrieval surface helper signature is V1.5-promotion-stable: when V1.5 ships server-side `mcp__gbrain__get_recent_salience` / `find_anomalies` MCP tools, the helper switches its internals from 4-call composition to a single MCP call without changing the manifest format or any skill template.
+- gitleaks vendoring is a V1.0.1 follow-up; for V1.0, the helper expects gitleaks on PATH and warns once if missing. `brew install gitleaks` on macOS gets you covered until the vendored binary ships.
+
 ## [1.25.1.0] - 2026-05-01
 
 ## **Office-hours stops at Phase 4 architectural forks. AskUserQuestion evals — and `/codex` synthesis — now grade the "because" clause.**
