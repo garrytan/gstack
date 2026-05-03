@@ -1,14 +1,14 @@
 [versions]
-agp = "8.3.0"
-kotlin = "1.9.22"
-composeBom = "2024.02.00"
-activityCompose = "1.8.2"
-activityKtx = "1.8.2"
-coroutines = "1.7.3"
+agp = "8.7.0"
+kotlin = "2.0.21"
+composeBom = "2024.09.03"
+activityCompose = "1.9.3"
+activityKtx = "1.9.3"
+coroutines = "1.8.1"
 ffmpegKit = "6.0-2"
-exoplayer = "1.3.0"
-coreKtx = "1.12.0"
-lifecycleViewModel = "2.7.0"
+exoplayer = "1.4.1"
+coreKtx = "1.15.0"
+lifecycleViewModel = "2.8.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
