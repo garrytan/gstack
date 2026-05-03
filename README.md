@@ -176,6 +176,35 @@ gstack is a process, not a collection of tools. The skills run in the order a sp
 
 Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-ceo-review` reads. `/plan-eng-review` writes a test plan that `/qa` picks up. `/review` catches bugs that `/ship` verifies are fixed. Nothing falls through the cracks because every step knows what came before it.
 
+## Sprint sequence
+
+```mermaid
+flowchart TD
+  OH["/office-hours"] --> DD["design doc"]
+  DD --> CEO["/plan-ceo-review"]
+  DD --> ENG["/plan-eng-review"]
+  DD --> DES["/plan-design-review"]
+  CEO --> CODE["User + AI codes"]
+  ENG --> CODE
+  DES --> CODE
+  ENG --> QAP["test plan artifact"]
+  CODE --> REV["/review"]
+  CODE --> INV["/investigate"]
+  CODE --> CSO["/cso"]
+  REV --> QA["/qa"]
+  INV --> QA
+  CSO --> QA
+  QAP --> QA
+  QA --> SHIP["/ship"]
+  SHIP --> LD["/land-and-deploy"]
+  LD --> CAN["/canary"]
+  CAN --> DOC["/document-release"]
+  DOC --> RET["/retro"]
+  RET -- next sprint --> OH
+
+  style ENG stroke:#E24B4A,stroke-width:2px
+```
+
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
 | `/office-hours` | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
