@@ -195,6 +195,11 @@ describe('resolveServerScript', () => {
     expect(() => resolveServerScript({}, '/nonexistent/$bunfs', '/nonexistent/browse'))
       .toThrow('Cannot find server.ts');
   });
+
+  test('compiled Windows path is skipped by caller when server.ts is missing', () => {
+    expect(() => resolveServerScript({}, '/nonexistent/$bunfs', 'C:\\fake\\browse.exe'))
+      .toThrow('Cannot find server.ts');
+  });
 });
 
 describe('resolveNodeServerScript', () => {

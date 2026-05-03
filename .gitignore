@@ -5,6 +5,7 @@ browse/dist/
 design/dist/
 make-pdf/dist/
 bin/gstack-global-discover
+bin/gstack-global-discover.exe
 .gstack/
 .claude/skills/
 .claude/scheduled_tasks.lock
@@ -36,3 +37,4 @@ supabase/.temp/
 
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
 docs/throughput-*.json
+.devin/
