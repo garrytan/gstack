@@ -13,7 +13,7 @@
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 
 export interface ExtractedDesign {
   colors: { name: string; hex: string; usage: string }[];
@@ -34,7 +34,7 @@ export async function extractDesignLanguage(imagePath: string): Promise<Extracte
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(openaiUrl("/chat/completions"), {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
