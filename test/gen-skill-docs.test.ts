@@ -2916,7 +2916,7 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
     // Non-Claude hosts render to hostSubdirs (.agents/, .openclaw/, etc). The
     // plan-mode-info resolver has no host-scoping — all hosts get the new
     // section, none get the old handshake. Scan all candidate host dirs.
-    const hostDirs = ['.agents', '.openclaw', '.opencode', '.factory', '.hermes', '.kiro', '.cursor', '.slate'];
+    const hostDirs = ['.agents', '.openclaw', '.opencode', '.factory', '.hermes', '.kiro', '.cursor', '.slate', '.devin'];
     let checked = 0;
     for (const host of hostDirs) {
       const skillsRoot = path.join(ROOT, host, 'skills');
