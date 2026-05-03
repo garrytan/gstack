@@ -22,7 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun ReelsScreen(vm: ReelsViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Trim", "Merge", "Audio", "Resize", "Caption", "Text→Video", "TXT")
+    val tabs = listOf("News", "Trim", "Merge", "Audio", "Resize", "Caption", "Text→Video", "TXT")
     val context = LocalContext.current
 
     Scaffold(
@@ -133,13 +133,14 @@ fun ReelsScreen(vm: ReelsViewModel = viewModel()) {
                     .verticalScroll(rememberScrollState())
             ) {
                 when (selectedTab) {
-                    0 -> TrimTab(vm)
-                    1 -> MergeTab(vm)
-                    2 -> AudioTab(vm)
-                    3 -> ResizeTab(vm)
-                    4 -> CaptionTab(vm)
-                    5 -> TextToVideoTab(vm)
-                    6 -> TxtOverlayTab(vm)
+                    0 -> NewsFeedTab(vm)
+                    1 -> TrimTab(vm)
+                    2 -> MergeTab(vm)
+                    3 -> AudioTab(vm)
+                    4 -> ResizeTab(vm)
+                    5 -> CaptionTab(vm)
+                    6 -> TextToVideoTab(vm)
+                    7 -> TxtOverlayTab(vm)
                 }
             }
         }

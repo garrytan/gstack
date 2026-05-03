@@ -1,9 +1,11 @@
 package com.reelscreator
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 data class ReelsState(
     val isProcessing: Boolean = false,
@@ -12,9 +14,22 @@ data class ReelsState(
     val error: String? = null
 )
 
+data class NewsState(
+    val isLoading: Boolean = false,
+    val items: List<NewsItem> = emptyList(),
+    val error: String? = null,
+    val sourceName: String = ""
+)
+
 class ReelsViewModel : ViewModel() {
+
     private val _state = MutableStateFlow(ReelsState())
     val state: StateFlow<ReelsState> = _state.asStateFlow()
+
+    private val _newsState = MutableStateFlow(NewsState())
+    val newsState: StateFlow<NewsState> = _newsState.asStateFlow()
+
+    // ── Processing state helpers ──────────────────────────────────────────
 
     private fun processing() = _state.value.copy(isProcessing = true, error = null, outputPath = null)
     private fun done(path: String) = _state.value.copy(isProcessing = false, outputPath = path, progress = 0.0)
@@ -23,6 +38,26 @@ class ReelsViewModel : ViewModel() {
     fun clearResult() {
         _state.value = _state.value.copy(outputPath = null, error = null)
     }
+
+    // ── News feed ─────────────────────────────────────────────────────────
+
+    fun fetchNews(url: String, sourceName: String) {
+        viewModelScope.launch {
+            _newsState.value = NewsState(isLoading = true, sourceName = sourceName)
+            RssRepository.fetch(url)
+                .onSuccess { items ->
+                    _newsState.value = NewsState(items = items, sourceName = sourceName)
+                }
+                .onFailure { e ->
+                    _newsState.value = NewsState(
+                        error = e.message ?: "Network error — check your connection",
+                        sourceName = sourceName
+                    )
+                }
+        }
+    }
+
+    // ── Video operations ──────────────────────────────────────────────────
 
     fun trimVideo(input: String, output: String, start: Double, duration: Double) {
         _state.value = processing()
