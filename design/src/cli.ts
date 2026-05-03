@@ -60,7 +60,8 @@ function printUsage(): void {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log("\nAuth: ~/.gstack/openai.json, then OPENAI_API_KEY env var");
+  console.log("If OPENAI_API_KEY matches a current-directory .env file, the source is reported before billing.");
   console.log("Setup: $D setup");
 }
 
