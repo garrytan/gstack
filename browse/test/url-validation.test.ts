@@ -99,6 +99,10 @@ describe('validateNavigationUrl', () => {
     await expect(validateNavigationUrl('http://[fc00::]/')).rejects.toThrow(/cloud metadata/i);
   });
 
+  it('blocks direct IPv6 link-local addresses', async () => {
+    await expect(validateNavigationUrl('http://[fe80::2]/')).rejects.toThrow(/cloud metadata/i);
+  });
+
   it('does not block hostnames starting with fd (e.g. fd.example.com)', async () => {
     await expect(validateNavigationUrl('https://fd.example.com/')).resolves.toBe('https://fd.example.com/');
   });

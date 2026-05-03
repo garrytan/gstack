@@ -19,14 +19,15 @@ export const BLOCKED_METADATA_HOSTS = new Set([
 ]);
 
 /**
- * IPv6 prefixes to block (CIDR-style). Any address starting with these
- * hex prefixes is rejected. Covers the full ULA range (fc00::/7 = fc00:: and fd00::).
+ * IPv6 prefixes to block (CIDR-style). ULA addresses cover fc00::/7 and
+ * link-local addresses cover fe80::/10.
  */
-const BLOCKED_IPV6_PREFIXES = ['fc', 'fd'];
+const BLOCKED_IPV6_PREFIXES = ['fc', 'fd', 'fe8', 'fe9', 'fea', 'feb'];
 
 /**
  * Check if an IPv6 address falls within a blocked prefix range.
- * Handles the full ULA range (fc00::/7), not just the exact literal fd00::.
+ * Handles the full ULA range (fc00::/7) and link-local range (fe80::/10),
+ * not just exact literals like fd00:: or fe80::1.
  * Only matches actual IPv6 addresses (must contain ':'), not hostnames
  * like fd.example.com or fcustomer.com.
  */
@@ -95,9 +96,7 @@ async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
     const v6Check = resolve6(hostname).then(
       (addresses) => addresses.some(addr => {
         const normalized = addr.toLowerCase();
-        return BLOCKED_METADATA_HOSTS.has(normalized) || isBlockedIpv6(normalized) ||
-          // fe80::/10 is link-local — always block (covers all fe80:: addresses)
-          normalized.startsWith('fe80:');
+        return BLOCKED_METADATA_HOSTS.has(normalized) || isBlockedIpv6(normalized);
       }),
       () => false, // ENODATA / ENOTFOUND — no AAAA records, not a risk
     );
