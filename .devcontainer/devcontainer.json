@@ -1,0 +1,14 @@
+{
+  "name": "Node.js & TypeScript",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["oven.bun-vscode"]
+    }
+  },
+  "postCreateCommand": "bun install --frozen-lockfile && bash ./.devcontainer/setup-gstack.sh",
+  "remoteUser": "node"
+}
