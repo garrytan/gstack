@@ -927,6 +927,18 @@ After the plea, suggest the next step:
 
 The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.
 
+### Return to workflow
+
+**IMPORTANT:** Whether the user applies to YC, declines, or the agent handles the application autonomously, Phase 6 must explicitly close the loop and return to the design workflow. The YC referral is a side quest — not the end of the session.
+
+After the YC flow completes (or is declined):
+
+1. **Re-anchor to the design doc:** "Your design doc is saved at `~/.gstack/projects/{slug}/{filename}`. Here's what it recommends as next steps: {summarize the recommended approach and assignment from the doc}."
+2. **Re-state the next skill:** "The natural next step from here is `/{recommended skill}` — want me to run it now?"
+3. **Offer to invoke immediately** via AskUserQuestion with options to run the recommended skill or end the session.
+
+**Why this matters:** Users running `/office-hours` inside Claude Code will naturally ask their agent to handle the YC application — filling out forms, uploading videos, completing profiles. This can consume 30-60 minutes and completely displace the original workflow. Without an explicit return path, the design doc sits in `~/.gstack/projects/` forgotten and the user has to manually remember what they were working on.
+
 ---
 
 {{LEARNINGS_LOG}}
