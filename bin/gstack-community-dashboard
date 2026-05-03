@@ -10,7 +10,7 @@
 #   GSTACK_SUPABASE_ANON_KEY      — override Supabase anon key
 set -uo pipefail
 
-GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." >/dev/null && pwd)}"
 
 # Source Supabase config if not overridden by env
 if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then

@@ -36,7 +36,7 @@ if [ -z "${HOME:-}" ]; then
   exit 1
 fi
 
-GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." >/dev/null && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 

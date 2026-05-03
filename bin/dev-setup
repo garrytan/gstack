@@ -11,7 +11,7 @@
 #        bin/dev-teardown    # clean up
 set -e
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." >/dev/null && pwd)"
 
 # 1. Copy .env from main worktree (if we're a worktree and don't have one)
 if [ ! -f "$REPO_ROOT/.env" ]; then

@@ -2,7 +2,7 @@
 # Remove local dev skill symlinks. Restores global gstack as the active install.
 set -e
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." >/dev/null && pwd)"
 
 removed=()
 

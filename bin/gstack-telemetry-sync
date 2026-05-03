@@ -11,7 +11,7 @@
 #   GSTACK_SUPABASE_URL        — override Supabase project URL
 set -uo pipefail
 
-GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." >/dev/null && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 ANALYTICS_DIR="$STATE_DIR/analytics"
 JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"

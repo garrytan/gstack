@@ -12,7 +12,7 @@
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
 set -euo pipefail
 
-GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." >/dev/null && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 CACHE_FILE="$STATE_DIR/last-update-check"
 MARKER_FILE="$STATE_DIR/just-upgraded-from"
