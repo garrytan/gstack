@@ -361,8 +361,26 @@ function buildServer() {
         // Binary input. Lazy-spawn claude on the first byte.
         if (!session.spawned) {
           session.spawned = true;
+          // UTF-8 boundary detection to prevent splitting multi-byte characters (issue #1272).
+          // Buffer incomplete UTF-8 sequences until the next chunk completes them.
+          let leftover = Buffer.alloc(0);
           const proc = spawnClaude(session.cols, session.rows, (chunk) => {
-            try { ws.sendBinary(chunk); } catch {}
+            const combined = Buffer.concat([leftover, Buffer.from(chunk)]);
+            // Find the last index where a UTF-8 codepoint ends. Look back at most 3 bytes.
+            let safeEnd = combined.length;
+            for (let i = combined.length - 1; i >= Math.max(0, combined.length - 3); i--) {
+              const b = combined[i];
+              if ((b & 0x80) === 0) { safeEnd = i + 1; break; }              // ASCII
+              if ((b & 0xC0) === 0x80) continue;                             // continuation byte
+              const expected = (b & 0xE0) === 0xC0 ? 2 : (b & 0xF0) === 0xE0 ? 3 : 4;
+              safeEnd = (combined.length - i >= expected) ? combined.length : i;
+              break;
+            }
+            const flush = combined.slice(0, safeEnd);
+            leftover = combined.slice(safeEnd);
+            if (flush.length) {
+              try { ws.sendBinary(flush); } catch {}
+            }
           });
           if (!proc) {
             try {
