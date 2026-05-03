@@ -94,6 +94,13 @@ interface ServerState {
   mode?: 'launched' | 'headed';
 }
 
+export function detachedServerSpawnStdio(isWindows: boolean = IS_WINDOWS): ['ignore', 'ignore', 'ignore'] {
+  // Keep detached server stdio disconnected from the parent shell on every
+  // platform. On macOS/Bun, piped stdio can take the daemon down when the
+  // short-lived CLI process exits between invocations.
+  return ['ignore', 'ignore', 'ignore'];
+}
+
 // ─── State File ────────────────────────────────────────────────
 function readState(): ServerState | null {
   try {
@@ -231,9 +238,11 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
-    // macOS/Linux: Bun.spawn + unref works correctly
+    // POSIX: spawn the Bun server in its own detached session/process group so
+    // the daemon and Chromium survive the short-lived CLI shell.
     proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+      stdio: detachedServerSpawnStdio(),
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
     });
     proc.unref();
@@ -251,27 +260,16 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     await Bun.sleep(100);
   }
 
-  // Server didn't start in time — try to get error details
-  if (proc?.stderr) {
-    // macOS/Linux: read stderr from the spawned process
-    const reader = proc.stderr.getReader();
-    const { value } = await reader.read();
-    if (value) {
-      const errText = new TextDecoder().decode(value);
-      throw new Error(`Server failed to start:\n${errText}`);
+  // Server didn't start in time — read the startup error log if the server
+  // wrote one. This works for detached launches on every platform.
+  const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+  try {
+    const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
+    if (errorLog) {
+      throw new Error(`Server failed to start:\n${errorLog}`);
     }
-  } else {
-    // Windows: check startup error log (server writes errors to disk since
-    // stderr is unavailable due to stdio: 'ignore' for detachment)
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    try {
-      const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
-      if (errorLog) {
-        throw new Error(`Server failed to start:\n${errorLog}`);
-      }
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') throw e;
-    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') throw e;
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }

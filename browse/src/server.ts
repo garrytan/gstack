@@ -980,6 +980,24 @@ process.on('SIGTERM', () => {
     console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
   }
 });
+// Some shells send SIGHUP to background children when the launching shell exits.
+// Treat it like SIGTERM: keep headless daemons alive across CLI invocations, but
+// still allow headed/tunnel sessions to terminate with their controlling shell.
+if (process.platform !== 'win32') {
+  process.on('SIGHUP', () => {
+    if (hasActivePicker()) {
+      console.log('[browse] Received SIGHUP but cookie picker is active, ignoring to avoid stranding the picker UI');
+      return;
+    }
+    const headed = browserManager.getConnectionMode() === 'headed';
+    if (headed || tunnelActive) {
+      console.log(`[browse] Received SIGHUP in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+      shutdown();
+    } else {
+      console.log('[browse] Received SIGHUP (ignoring — headless daemon stays alive across CLI invocations)');
+    }
+  });
+}
 // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
 // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
 if (process.platform === 'win32') {
