@@ -946,7 +946,7 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:4000 2>/dev/null || echo
 Read the \`/qa-only\` skill from disk:
 
 \`\`\`bash
-cat \${CLAUDE_SKILL_DIR}/../qa-only/SKILL.md
+cat \${CLAUDE_PLUGIN_ROOT}/../qa-only/SKILL.md
 \`\`\`
 
 **If unreadable:** Skip with "Could not load /qa-only — skipping plan verification."
