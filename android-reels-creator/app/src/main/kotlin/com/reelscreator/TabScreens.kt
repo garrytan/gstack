@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -253,6 +254,96 @@ fun TextToVideoTab(vm: ReelsViewModel) {
             val output = getOutputPath(context, "text2video_${System.currentTimeMillis()}.mp4")
             val fontPath = getFontPath(context)
             vm.textToVideo(lines, output, fontPath)
+        }
+    }
+}
+
+// ── TXT File Overlay Tab ──────────────────────────────────────────────────────
+
+@Composable
+fun TxtOverlayTab(vm: ReelsViewModel) {
+    val context = LocalContext.current
+    var videoUri by remember { mutableStateOf<Uri?>(null) }
+    var txtUri by remember { mutableStateOf<Uri?>(null) }
+    var durationSec by remember { mutableStateOf("30") }
+    var previewLines by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    val txtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u ->
+        if (u != null) {
+            txtUri = u
+            previewLines = try {
+                context.contentResolver.openInputStream(u)
+                    ?.bufferedReader()?.readLines()
+                    ?.filter { it.isNotBlank() }
+                    ?: emptyList()
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("TXT file → timed captions on video", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Each line of the .txt file is shown as a caption for an equal slice of the video duration.",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        FilePicker("Pick video", videoUri) { videoUri = it }
+
+        OutlinedButton(
+            onClick = { txtLauncher.launch("text/plain") },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (txtUri != null) txtUri!!.lastPathSegment ?: "txt file selected" else "Pick .txt file")
+        }
+
+        if (previewLines.isNotEmpty()) {
+            Text("${previewLines.size} lines found:", style = MaterialTheme.typography.labelMedium)
+            previewLines.take(5).forEach { line ->
+                Text(
+                    "• $line",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+            if (previewLines.size > 5) {
+                Text("… and ${previewLines.size - 5} more", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        OutlinedTextField(
+            value = durationSec,
+            onValueChange = { durationSec = it },
+            label = { Text("Video duration (seconds)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (previewLines.isNotEmpty()) {
+            val dur = durationSec.toDoubleOrNull() ?: 0.0
+            val slice = if (previewLines.isNotEmpty() && dur > 0) dur / previewLines.size else 0.0
+            Text(
+                "Each caption shown for ~${"%.1f".format(slice)}s",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        ProcessButton(
+            label = "Burn captions",
+            enabled = videoUri != null && txtUri != null && previewLines.isNotEmpty()
+        ) {
+            val vPath = videoUri!!.toPath(context) ?: return@ProcessButton
+            val dur = durationSec.toDoubleOrNull() ?: 30.0
+
+            // Copy txt to a temp file FFmpeg can read
+            val tmpTxt = java.io.File(context.cacheDir, "overlay_${System.currentTimeMillis()}.txt")
+            context.contentResolver.openInputStream(txtUri!!)?.use { input ->
+                tmpTxt.outputStream().use { input.copyTo(it) }
+            }
+
+            val output = getOutputPath(context, "txt_overlay_${System.currentTimeMillis()}.mp4")
+            val fontPath = getFontPath(context)
+            vm.addTxtOverlay(vPath, tmpTxt.absolutePath, output, fontPath, dur)
         }
     }
 }

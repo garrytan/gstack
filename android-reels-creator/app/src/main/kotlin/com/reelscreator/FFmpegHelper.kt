@@ -76,6 +76,37 @@ object FFmpegHelper {
         }
     }
 
+    // ── TXT file → timed captions on video ───────────────────────────────
+    // Reads lines from txtPath, spaces them evenly across the video,
+    // burns each line as a subtitle at the bottom for its time slice.
+    fun addTxtOverlay(
+        input: String, output: String,
+        txtPath: String, fontPath: String,
+        videoDurationSec: Double,
+        fontSize: Int = 48, color: String = "white",
+        onDone: (Boolean) -> Unit
+    ) {
+        val lines = java.io.File(txtPath).readLines().filter { it.isNotBlank() }
+        if (lines.isEmpty()) { onDone(false); return }
+
+        val sliceDur = videoDurationSec / lines.size
+        val drawFilters = lines.mapIndexed { i, line ->
+            val safe = line.trim().replace("'", "\\'").replace(":", "\\:")
+            val start = "%.3f".format(i * sliceDur)
+            val end   = "%.3f".format((i + 1) * sliceDur)
+            "drawtext=fontfile='$fontPath':text='$safe':" +
+            "fontcolor=$color:fontsize=$fontSize:" +
+            "x=(w-text_w)/2:y=h-120:" +
+            "box=1:boxcolor=black@0.5:boxborderw=10:" +
+            "enable='between(t\\,$start\\,$end)'"
+        }
+        val vf = drawFilters.joinToString(",")
+        val cmd = "-y -i \"$input\" -vf \"$vf\" -codec:a copy \"$output\""
+        FFmpegKit.executeAsync(cmd) { session ->
+            onDone(ReturnCode.isSuccess(session.returnCode))
+        }
+    }
+
     fun executeWithProgress(
         cmd: String,
         onProgress: (Double) -> Unit,

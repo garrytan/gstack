@@ -66,6 +66,13 @@ class ReelsViewModel : ViewModel() {
         }
     }
 
+    fun addTxtOverlay(video: String, txtPath: String, output: String, fontPath: String, durationSec: Double) {
+        _state.value = processing()
+        FFmpegHelper.addTxtOverlay(video, output, txtPath, fontPath, durationSec) { ok ->
+            _state.value = if (ok) done(output) else failed("TXT overlay failed")
+        }
+    }
+
     fun executeWithProgress(cmd: String) {
         _state.value = processing()
         FFmpegHelper.executeWithProgress(

@@ -22,7 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun ReelsScreen(vm: ReelsViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Trim", "Merge", "Audio", "Resize", "Caption", "Text→Video")
+    val tabs = listOf("Trim", "Merge", "Audio", "Resize", "Caption", "Text→Video", "TXT")
     val context = LocalContext.current
 
     Scaffold(
@@ -139,6 +139,7 @@ fun ReelsScreen(vm: ReelsViewModel = viewModel()) {
                     3 -> ResizeTab(vm)
                     4 -> CaptionTab(vm)
                     5 -> TextToVideoTab(vm)
+                    6 -> TxtOverlayTab(vm)
                 }
             }
         }
