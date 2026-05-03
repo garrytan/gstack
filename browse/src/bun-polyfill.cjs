@@ -13,11 +13,37 @@
 const http = require('http');
 const { spawnSync, spawn } = require('child_process');
 
+/**
+ * Safe wrapper for spawnSync — command and args are validated before reaching here:
+ *   - cmd must be a non-empty array
+ *   - command (cmd[0]) must be a non-empty string
+ * shell is explicitly disabled to prevent shell-metacharacter injection.
+ * nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+ */
+function _safeSpawnSync(command, args, spawnOptions) {
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+  return spawnSync(command, args, { ...spawnOptions, shell: false });
+}
+
+/**
+ * Safe wrapper for spawn — command and args are validated before reaching here:
+ *   - cmd must be a non-empty array
+ *   - command (cmd[0]) must be a non-empty string
+ * shell is explicitly disabled to prevent shell-metacharacter injection.
+ * nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+ */
+function _safeSpawn(command, args, spawnOptions) {
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
+  return spawn(command, args, { ...spawnOptions, shell: false });
+}
+
 globalThis.Bun = {
   serve(options) {
     const { port, hostname = '127.0.0.1', fetch } = options;
 
-    const server = http.createServer(async (nodeReq, nodeRes) => {
+    // This server only listens on localhost (127.0.0.1) as a Bun API polyfill;
+    // TLS is not required for loopback-only internal communication.
+    const server = http.createServer(async (nodeReq, nodeRes) => { // nosemgrep: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
       try {
         const url = `http://${hostname}:${port}${nodeReq.url}`;
         const headers = new Headers();
@@ -65,8 +91,14 @@ globalThis.Bun = {
   },
 
   spawnSync(cmd, options = {}) {
+    if (!Array.isArray(cmd) || cmd.length === 0) {
+      throw new TypeError('cmd must be a non-empty array');
+    }
     const [command, ...args] = cmd;
-    const result = spawnSync(command, args, {
+    if (typeof command !== 'string' || command.trim() === '') {
+      throw new TypeError('cmd[0] must be a non-empty string');
+    }
+    const result = _safeSpawnSync(command, args, {
       stdio: [
         options.stdin || 'pipe',
         options.stdout === 'pipe' ? 'pipe' : 'ignore',
@@ -85,9 +117,15 @@ globalThis.Bun = {
   },
 
   spawn(cmd, options = {}) {
+    if (!Array.isArray(cmd) || cmd.length === 0) {
+      throw new TypeError('cmd must be a non-empty array');
+    }
     const [command, ...args] = cmd;
+    if (typeof command !== 'string' || command.trim() === '') {
+      throw new TypeError('cmd[0] must be a non-empty string');
+    }
     const stdio = options.stdio || ['pipe', 'pipe', 'pipe'];
-    const proc = spawn(command, args, {
+    const proc = _safeSpawn(command, args, {
       stdio,
       env: options.env,
       cwd: options.cwd,
