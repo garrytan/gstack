@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reels Creator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --base: #0C0C0C;
+      --surface: #141414;
+      --surface2: #1E1E1E;
+      --border: #262626;
+      --text: #e4e4e7;
+      --muted: #A1A1AA;
+      --amber: #F59E0B;
+      --green: #22C55E;
+      --red: #EF4444;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--base);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header p { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+    #ffmpeg-status {
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 20px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+    .tabs {
+      display: flex;
+      overflow-x: auto;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 500;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--text); border-bottom-color: var(--amber); }
+    .tab-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #progress-wrap { height: 4px; background: var(--border); display: none; }
+    #progress-bar { height: 100%; background: var(--amber); width: 0%; transition: width 200ms ease; }
+
+    main { padding: 20px; max-width: 680px; margin: 0 auto; }
+
+    .tab-section { display: none; }
+    .tab-section.active { display: block; }
+
+    .form-group { margin-bottom: 16px; }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    input[type="file"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 10px 12px;
+      transition: border-color 0.15s;
+    }
+    input[type="file"] { padding: 8px 12px; cursor: pointer; }
+    input[type="file"]::file-selector-button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      margin-right: 10px;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--amber); }
+    textarea { resize: vertical; min-height: 100px; }
+    select { cursor: pointer; }
+
+    .row { display: flex; gap: 12px; align-items: flex-end; }
+    .row .form-group { flex: 1; margin-bottom: 0; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--amber);
+      border: none;
+      border-radius: 6px;
+      color: #000;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 10px 20px;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-secondary {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 500;
+    }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-danger { color: var(--red); }
+
+    .clip-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    .clip-row { display: flex; gap: 8px; align-items: center; }
+    .clip-row input[type="file"] { flex: 1; }
+    .clip-num { color: var(--muted); font-size: 0.8rem; min-width: 20px; }
+
+    .notice {
+      font-size: 0.78rem;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 16px;
+    }
+
+    #slide-count { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
+
+    #result-card {
+      display: none;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    #result-card.success {
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+    #result-card.error {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+    #result-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; }
+    #result-card.success #result-title { color: var(--green); }
+    #result-card.error #result-title { color: var(--red); }
+    #result-message { font-size: 0.85rem; color: var(--muted); margin-bottom: 12px; }
+    #result-video {
+      width: 100%;
+      max-height: 360px;
+      border-radius: 6px;
+      background: #000;
+      display: none;
+      margin-bottom: 12px;
+    }
+    .result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .size-warning { display: none; font-size: 0.78rem; color: var(--amber); margin-top: 4px; }
+    .hint { font-size: 0.78rem; color: var(--muted); margin-bottom: 16px; }
+
+    @media (max-width: 480px) {
+      header { padding: 12px 16px; }
+      main { padding: 16px; }
+      .row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Reels Creator</h1>
+  <p>Video editing for social media reels — runs entirely in your browser</p>
+</header>
+
+<div id="ffmpeg-status">
+  <div class="spinner"></div>
+  <span id="status-text">Loading FFmpeg (~32 MB), please wait…</span>
+</div>
+
+<nav class="tabs" role="tablist">
+  <button class="tab-btn active" data-tab="trim" disabled>Trim</button>
+  <button class="tab-btn" data-tab="merge" disabled>Merge</button>
+  <button class="tab-btn" data-tab="audio" disabled>Audio</button>
+  <button class="tab-btn" data-tab="resize" disabled>Resize</button>
+  <button class="tab-btn" data-tab="caption" disabled>Caption</button>
+  <button class="tab-btn" data-tab="textvideo" disabled>Text → Video</button>
+</nav>
+
+<div id="progress-wrap"><div id="progress-bar"></div></div>
+
+<main>
+  <div id="result-card">
+    <div id="result-title"></div>
+    <div id="result-message"></div>
+    <video id="result-video" controls playsinline></video>
+    <div class="result-actions">
+      <a id="download-btn" class="btn" style="display:none; text-decoration:none;">⬇ Download</a>
+    </div>
+  </div>
+
+  <!-- Trim -->
+  <section class="tab-section active" id="tab-trim">
+    <div class="form-group">
+      <label>Video file</label>
+      <input type="file" id="trim-file" accept="video/*">
+      <div class="size-warning" id="trim-size-warn">⚠ File over 100 MB — processing may be slow or fail on low-memory devices.</div>
+    </div>
+    <div class="row">
+      <div class="form-group">
+        <label>Start (seconds)</label>
+        <input type="number" id="trim-start" value="0" min="0" step="0.1">
+      </div>
+      <div class="form-group">
+        <label>Duration (seconds)</label>
+        <input type="number" id="trim-duration" value="15" min="0.1" step="0.1">
+      </div>
+    </div>
+    <button class="btn" id="trim-btn" disabled>Trim</button>
+  </section>
+
+  <!-- Merge -->
+  <section class="tab-section" id="tab-merge">
+    <div class="notice">All clips must share the same codec, resolution, and frame rate for stream-copy merge.</div>
+    <div class="clip-list" id="clip-list">
+      <div class="clip-row"><span class="clip-num">1</span><input type="file" accept="video/*" class="clip-file"></div>
+      <div class="clip-row"><span class="clip-num">2</span><input type="file" accept="video/*" class="clip-file"></div>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button class="btn btn-secondary" id="add-clip-btn">+ Add clip</button>
+      <button class="btn btn-secondary btn-danger" id="remove-clip-btn">− Remove</button>
+    </div>
+    <button class="btn" id="merge-btn" disabled>Merge clips</button>
+  </section>
+
+  <!-- Audio -->
+  <section class="tab-section" id="tab-audio">
+    <div class="form-group">
+      <label>Video file</label>
+      <input type="file" id="audio-video-file" accept="video/*">
+    </div>
+    <div class="form-group">
+      <label>Audio file</label>
+      <input type="file" id="audio-audio-file" accept="audio/*">
+    </div>
+    <p class="hint">The audio track replaces the video's original audio. Output stops at the shorter stream.</p>
+    <button class="btn" id="audio-btn" disabled>Mix audio</button>
+  </section>
+
+  <!-- Resize -->
+  <section class="tab-section" id="tab-resize">
+    <div class="form-group">
+      <label>Video file</label>
+      <input type="file" id="resize-file" accept="video/*">
+      <div class="size-warning" id="resize-size-warn">⚠ File over 100 MB — processing may be slow or fail on low-memory devices.</div>
+    </div>
+    <p class="hint">Converts to 1080×1920 (9:16 portrait) with black letterboxing. Original aspect ratio is preserved.</p>
+    <button class="btn" id="resize-btn" disabled>Resize to 1080×1920</button>
+  </section>
+
+  <!-- Caption -->
+  <section class="tab-section" id="tab-caption">
+    <div class="form-group">
+      <label>Video file</label>
+      <input type="file" id="caption-file" accept="video/*">
+    </div>
+    <div class="form-group">
+      <label>Caption text</label>
+      <textarea id="caption-text" placeholder="Your caption here…" rows="3"></textarea>
+    </div>
+    <div class="row">
+      <div class="form-group">
+        <label>Font size</label>
+        <input type="number" id="caption-fontsize" value="48" min="12" max="200">
+      </div>
+      <div class="form-group">
+        <label>Text color</label>
+        <input type="color" id="caption-color" value="#ffffff" style="width:100%;height:40px;padding:2px;border-radius:6px;">
+      </div>
+      <div class="form-group">
+        <label>Position</label>
+        <select id="caption-position">
+          <option value="bottom">Bottom center</option>
+          <option value="center">Center</option>
+          <option value="top">Top center</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn" id="caption-btn" disabled>Burn in caption</button>
+  </section>
+
+  <!-- Text → Video -->
+  <section class="tab-section" id="tab-textvideo">
+    <div class="form-group">
+      <label>Text lines (one slide per line)</label>
+      <textarea id="textvideo-lines" placeholder="First slide&#10;Second slide&#10;Third slide" rows="6"></textarea>
+      <div id="slide-count"></div>
+    </div>
+    <p class="hint">Each line becomes a 3-second slide on a black 1080×1920 background. Output is a silent MP4 at 30fps.</p>
+    <button class="btn" id="textvideo-btn" disabled>Generate video</button>
+  </section>
+</main>
+
+<script type="module">
+import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js';
+import { fetchFile, toBlobURL } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js';
+
+const ffmpeg = new FFmpeg();
+let fontLoaded = false;
+let isProcessing = false;
+let prevResultUrl = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+async function initFFmpeg() {
+  try {
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+
+    ffmpeg.on('progress', ({ progress }) => {
+      setProgress(Math.min(progress * 100, 99));
+    });
+
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+
+    // Pre-load font for drawtext (caption + text→video)
+    try {
+      const res = await fetch(
+        'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Regular.ttf'
+      );
+      if (res.ok) {
+        await ffmpeg.writeFile('font.ttf', new Uint8Array(await res.arrayBuffer()));
+        fontLoaded = true;
+      }
+    } catch (_) { /* font unavailable offline */ }
+
+    setStatus('ready', 'FFmpeg ready');
+    enableUI();
+  } catch (err) {
+    setStatus('error', `Failed to load FFmpeg: ${err.message}`);
+  }
+}
+
+function setStatus(state, msg) {
+  const el = document.getElementById('ffmpeg-status');
+  if (state === 'ready') {
+    el.innerHTML = `<div class="status-dot"></div><span>${msg}</span>`;
+  } else if (state === 'error') {
+    el.innerHTML = `<span style="color:var(--red)">✕ ${msg}</span>`;
+  } else {
+    el.innerHTML = `<div class="spinner"></div><span>${msg}</span>`;
+  }
+}
+
+function enableUI() {
+  document.querySelectorAll('.tab-btn').forEach(b => b.disabled = false);
+  document.querySelectorAll('button.btn[id$="-btn"]').forEach(b => b.disabled = false);
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    clearResult();
+  });
+});
+
+// ── Progress ──────────────────────────────────────────────────────────────────
+
+function setProgress(pct) {
+  const wrap = document.getElementById('progress-wrap');
+  const bar = document.getElementById('progress-bar');
+  wrap.style.display = 'block';
+  bar.style.width = `${pct}%`;
+}
+
+function hideProgress() {
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.getElementById('progress-bar').style.width = '0%';
+}
+
+// ── Result helpers ────────────────────────────────────────────────────────────
+
+function showSuccess(url, filename) {
+  if (prevResultUrl) URL.revokeObjectURL(prevResultUrl);
+  prevResultUrl = url;
+
+  const card = document.getElementById('result-card');
+  card.className = 'success';
+  card.style.display = 'block';
+  document.getElementById('result-title').textContent = '✓ Done';
+  document.getElementById('result-message').textContent = filename;
+
+  const video = document.getElementById('result-video');
+  video.src = url;
+  video.style.display = 'block';
+
+  const dlBtn = document.getElementById('download-btn');
+  dlBtn.href = url;
+  dlBtn.download = filename;
+  dlBtn.style.display = 'inline-flex';
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function showError(msg) {
+  const card = document.getElementById('result-card');
+  card.className = 'error';
+  card.style.display = 'block';
+  document.getElementById('result-title').textContent = '✕ Error';
+  document.getElementById('result-message').textContent = msg;
+  document.getElementById('result-video').style.display = 'none';
+  document.getElementById('download-btn').style.display = 'none';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function clearResult() {
+  const card = document.getElementById('result-card');
+  card.style.display = 'none';
+  card.className = '';
+}
+
+// ── Generic operation runner ──────────────────────────────────────────────────
+
+async function runOperation(inputWrites, args, outputName) {
+  if (isProcessing) return;
+  isProcessing = true;
+  clearResult();
+  setProgress(0);
+
+  try {
+    for (const [name, file] of inputWrites) {
+      await ffmpeg.writeFile(name, await fetchFile(file));
+    }
+    await ffmpeg.exec(args);
+    const data = await ffmpeg.readFile(outputName);
+    const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+
+    for (const [name] of inputWrites) try { await ffmpeg.deleteFile(name); } catch (_) {}
+    try { await ffmpeg.deleteFile(outputName); } catch (_) {}
+
+    setProgress(100);
+    setTimeout(hideProgress, 400);
+    showSuccess(url, outputName);
+  } catch (err) {
+    hideProgress();
+    showError(err.message || 'FFmpeg operation failed');
+  } finally {
+    isProcessing = false;
+  }
+}
+
+// ── drawtext escape helper ────────────────────────────────────────────────────
+
+function escapeDrawtext(str) {
+  return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
+}
+
+// ── File size warning ─────────────────────────────────────────────────────────
+
+function checkSize(file, warnId) {
+  const el = document.getElementById(warnId);
+  if (el) el.style.display = file && file.size > 100 * 1024 * 1024 ? 'block' : 'none';
+}
+
+// ── Trim ──────────────────────────────────────────────────────────────────────
+
+document.getElementById('trim-file').addEventListener('change', e => checkSize(e.target.files[0], 'trim-size-warn'));
+
+document.getElementById('trim-btn').addEventListener('click', async () => {
+  const file = document.getElementById('trim-file').files[0];
+  const start = parseFloat(document.getElementById('trim-start').value) || 0;
+  const duration = parseFloat(document.getElementById('trim-duration').value) || 15;
+  if (!file) { showError('Please select a video file.'); return; }
+  await runOperation(
+    [['input.mp4', file]],
+    ['-y', '-ss', String(start), '-t', String(duration), '-i', 'input.mp4', '-c', 'copy', 'output.mp4'],
+    'output.mp4'
+  );
+});
+
+// ── Merge ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('add-clip-btn').addEventListener('click', () => {
+  const list = document.getElementById('clip-list');
+  const n = list.children.length + 1;
+  const row = document.createElement('div');
+  row.className = 'clip-row';
+  row.innerHTML = `<span class="clip-num">${n}</span><input type="file" accept="video/*" class="clip-file">`;
+  list.appendChild(row);
+});
+
+document.getElementById('remove-clip-btn').addEventListener('click', () => {
+  const list = document.getElementById('clip-list');
+  if (list.children.length > 2) list.removeChild(list.lastChild);
+});
+
+document.getElementById('merge-btn').addEventListener('click', async () => {
+  const clips = [...document.querySelectorAll('.clip-file')].map(i => i.files[0]).filter(Boolean);
+  if (clips.length < 2) { showError('Please select at least 2 video clips.'); return; }
+  if (isProcessing) return;
+  isProcessing = true;
+  clearResult();
+  setProgress(0);
+
+  try {
+    for (let i = 0; i < clips.length; i++) {
+      await ffmpeg.writeFile(`input${i}.mp4`, await fetchFile(clips[i]));
+    }
+    const listContent = clips.map((_, i) => `file 'input${i}.mp4'`).join('\n');
+    await ffmpeg.writeFile('list.txt', new TextEncoder().encode(listContent));
+    await ffmpeg.exec(['-y', '-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4']);
+    const data = await ffmpeg.readFile('output.mp4');
+    const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+
+    for (let i = 0; i < clips.length; i++) try { await ffmpeg.deleteFile(`input${i}.mp4`); } catch (_) {}
+    try { await ffmpeg.deleteFile('list.txt'); } catch (_) {}
+    try { await ffmpeg.deleteFile('output.mp4'); } catch (_) {}
+
+    setProgress(100);
+    setTimeout(hideProgress, 400);
+    showSuccess(url, 'merged.mp4');
+  } catch (err) {
+    hideProgress();
+    showError(err.message || 'Merge failed');
+  } finally {
+    isProcessing = false;
+  }
+});
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('audio-btn').addEventListener('click', async () => {
+  const videoFile = document.getElementById('audio-video-file').files[0];
+  const audioFile = document.getElementById('audio-audio-file').files[0];
+  if (!videoFile) { showError('Please select a video file.'); return; }
+  if (!audioFile) { showError('Please select an audio file.'); return; }
+
+  const ext = audioFile.name.split('.').pop() || 'mp3';
+  await runOperation(
+    [['video.mp4', videoFile], [`audio.${ext}`, audioFile]],
+    ['-y', '-i', 'video.mp4', '-i', `audio.${ext}`, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-shortest', 'output.mp4'],
+    'output.mp4'
+  );
+});
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+
+document.getElementById('resize-file').addEventListener('change', e => checkSize(e.target.files[0], 'resize-size-warn'));
+
+document.getElementById('resize-btn').addEventListener('click', async () => {
+  const file = document.getElementById('resize-file').files[0];
+  if (!file) { showError('Please select a video file.'); return; }
+  await runOperation(
+    [['input.mp4', file]],
+    ['-y', '-i', 'input.mp4',
+     '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black',
+     '-c:a', 'copy', 'output.mp4'],
+    'output.mp4'
+  );
+});
+
+// ── Caption ───────────────────────────────────────────────────────────────────
+
+document.getElementById('caption-btn').addEventListener('click', async () => {
+  const file = document.getElementById('caption-file').files[0];
+  const text = document.getElementById('caption-text').value.trim();
+  const fontSize = parseInt(document.getElementById('caption-fontsize').value) || 48;
+  const color = document.getElementById('caption-color').value.replace('#', '0x');
+  const position = document.getElementById('caption-position').value;
+
+  if (!file) { showError('Please select a video file.'); return; }
+  if (!text) { showError('Please enter caption text.'); return; }
+  if (!fontLoaded) { showError('Font not loaded — Caption requires an internet connection on first use.'); return; }
+
+  const yMap = { bottom: 'h-text_h-40', center: '(h-text_h)/2', top: '40' };
+  const y = yMap[position] || 'h-text_h-40';
+  const safe = escapeDrawtext(text);
+  const filter = `drawtext=fontfile=font.ttf:text='${safe}':fontcolor=${color}:fontsize=${fontSize}:x=(w-text_w)/2:y=${y}:box=1:boxcolor=black@0.4:boxborderw=8`;
+
+  await runOperation(
+    [['input.mp4', file]],
+    ['-y', '-i', 'input.mp4', '-vf', filter, '-codec:a', 'copy', 'output.mp4'],
+    'output.mp4'
+  );
+});
+
+// ── Text → Video ──────────────────────────────────────────────────────────────
+
+document.getElementById('textvideo-lines').addEventListener('input', () => {
+  const lines = document.getElementById('textvideo-lines').value.split('\n').map(l => l.trim()).filter(Boolean);
+  const el = document.getElementById('slide-count');
+  el.textContent = lines.length > 0
+    ? `${lines.length} slide${lines.length !== 1 ? 's' : ''} = ~${lines.length * 3}s`
+    : '';
+});
+
+document.getElementById('textvideo-btn').addEventListener('click', async () => {
+  const lines = document.getElementById('textvideo-lines').value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) { showError('Please enter at least one line of text.'); return; }
+  if (!fontLoaded) { showError('Font not loaded — Text→Video requires an internet connection on first use.'); return; }
+  if (isProcessing) return;
+  isProcessing = true;
+  clearResult();
+  setProgress(0);
+
+  try {
+    const segments = lines.map((line, i) => {
+      const safe = escapeDrawtext(line);
+      return `color=c=black:s=1080x1920:d=3[bg${i}];[bg${i}]drawtext=fontfile=font.ttf:text='${safe}':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=(h-text_h)/2[v${i}]`;
+    });
+    const inputs = lines.map((_, i) => `[v${i}]`).join('');
+    const filter = segments.join(';') + `;${inputs}concat=n=${lines.length}:v=1:a=0[out]`;
+
+    await ffmpeg.exec(['-y', '-filter_complex', filter, '-map', '[out]', '-r', '30', 'output.mp4']);
+    const data = await ffmpeg.readFile('output.mp4');
+    const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+    try { await ffmpeg.deleteFile('output.mp4'); } catch (_) {}
+
+    setProgress(100);
+    setTimeout(hideProgress, 400);
+    showSuccess(url, 'text-reel.mp4');
+  } catch (err) {
+    hideProgress();
+    showError(err.message || 'Text→Video failed');
+  } finally {
+    isProcessing = false;
+  }
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+initFFmpeg();
+</script>
+</body>
+</html>
