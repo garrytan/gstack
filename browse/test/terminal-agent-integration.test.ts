@@ -18,9 +18,14 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { IS_WINDOWS } from '../src/platform';
 
 const AGENT_SCRIPT = path.join(import.meta.dir, '../src/terminal-agent.ts');
 const BASH = '/bin/bash';
+
+// /bin/bash isn't available on Windows; the agent's PTY layer is also a
+// different path (bun-pty vs Bun.spawn({terminal:})). Skip this whole suite
+// on Windows — CI is Ubuntu-only so it doesn't change coverage.
 
 let stateDir: string;
 let agentProc: any;
@@ -50,6 +55,7 @@ function readTokenFile(): string {
 }
 
 beforeAll(() => {
+  if (IS_WINDOWS) return;
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-term-'));
   const stateFile = path.join(stateDir, 'browse.json');
   // browse.json must exist so the agent's readBrowseToken doesn't throw.
@@ -83,7 +89,7 @@ async function grantToken(token: string): Promise<Response> {
   });
 }
 
-describe('terminal-agent: /internal/grant', () => {
+describe.skipIf(IS_WINDOWS)('terminal-agent: /internal/grant', () => {
   test('accepts grants signed with the internal token', async () => {
     const resp = await grantToken('test-cookie-token-very-long-yes');
     expect(resp.status).toBe(200);
@@ -102,7 +108,7 @@ describe('terminal-agent: /internal/grant', () => {
   });
 });
 
-describe('terminal-agent: /ws gates', () => {
+describe.skipIf(IS_WINDOWS)('terminal-agent: /ws gates', () => {
   test('rejects upgrade attempts without an extension Origin', async () => {
     const resp = await fetch(`http://127.0.0.1:${agentPort}/ws`);
     expect(resp.status).toBe(403);
@@ -127,7 +133,7 @@ describe('terminal-agent: /ws gates', () => {
   });
 });
 
-describe('terminal-agent: PTY round-trip via real WebSocket (Cookie auth)', () => {
+describe.skipIf(IS_WINDOWS)('terminal-agent: PTY round-trip via real WebSocket (Cookie auth)', () => {
   test('binary writes go to PTY stdin, output streams back', async () => {
     const cookie = 'rt-token-must-be-at-least-seventeen-chars-long';
     const granted = await grantToken(cookie);

@@ -23,10 +23,31 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { safeUnlink } from './error-handling';
+import { safeUnlink, safeUnlinkQuiet } from './error-handling';
+import { IS_WINDOWS } from './platform';
+
+// bun-pty is loaded only on Windows because Bun's `terminal:` spawn option
+// is POSIX-only (upstream oven-sh/bun#25565). The agent runs as
+// `bun run terminal-agent.ts` (not compiled), so node_modules resolution
+// works at runtime; macOS/Linux skip the dependency entirely. If load
+// fails (missing dep, native binding can't dlopen — e.g. AV quarantine,
+// MSVC runtime missing), exit loudly with actionable instructions so the
+// failure isn't invisible behind cli.ts's "Terminal agent started" message.
+let ptySpawn: any = null;
+if (IS_WINDOWS) {
+  try {
+    ptySpawn = (await import('bun-pty')).spawn;
+  } catch (err: any) {
+    console.error(`[terminal-agent] FATAL: bun-pty failed to load on Windows: ${err?.message || err}`);
+    console.error(`[terminal-agent] Run \`bun install\` in the gstack directory.`);
+    console.error(`[terminal-agent] If the problem persists, see https://github.com/oven-sh/bun/issues/25565`);
+    process.exit(2);
+  }
+}
 
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
+const PID_FILE = path.join(path.dirname(STATE_FILE), 'terminal-agent.pid');
 const BROWSE_SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '0', 10);
 const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || ''; // optional: tighten Origin check
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared with parent server via env at spawn
@@ -74,6 +95,17 @@ function findClaude(): string | null {
     `${process.env.HOME}/.bun/bin/claude`,
     `${process.env.HOME}/.npm-global/bin/claude`,
   ];
+  if (IS_WINDOWS) {
+    // HOME is often unset on Windows; use APPDATA / LOCALAPPDATA / USERPROFILE
+    // explicitly. Cover the npm shim (claude.cmd), the official Anthropic
+    // installer, and `bun install -g`.
+    if (process.env.APPDATA) candidates.push(`${process.env.APPDATA}\\npm\\claude.cmd`);
+    if (process.env.LOCALAPPDATA) {
+      candidates.push(`${process.env.LOCALAPPDATA}\\AnthropicClaude\\claude.exe`);
+      candidates.push(`${process.env.LOCALAPPDATA}\\Programs\\Anthropic\\claude\\claude.exe`);
+    }
+    if (process.env.USERPROFILE) candidates.push(`${process.env.USERPROFILE}\\.bun\\bin\\claude.exe`);
+  }
   for (const c of candidates) {
     try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
   }
@@ -166,6 +198,54 @@ function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void
   // the visible transcript.
   const stateDir = path.dirname(STATE_FILE);
   const tabHint = buildTabAwarenessHint(stateDir);
+
+  if (IS_WINDOWS) {
+    // ConPTY-backed PTY via bun-pty (Rust portable-pty + Bun FFI). Returns a
+    // wrapper that mimics Bun's Subprocess shape — { pid, terminal: { write,
+    // resize, close }, kill, killed, exited } — so disposeSession and the
+    // message handler use one set of optional-chain accessors across platforms.
+    const pty = ptySpawn(claudePath, ['--append-system-prompt', tabHint], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      env,
+    });
+    pty.onData((s: string) => onData(Buffer.from(s, 'utf-8')));
+    let killed = false;
+    const exited = new Promise<number>((resolve) => {
+      pty.onExit(({ exitCode }: any) => {
+        killed = true;
+        resolve(exitCode ?? 0);
+      });
+    });
+    return {
+      pid: pty.pid,
+      get killed() { return killed; },
+      terminal: {
+        // Don't swallow write errors here — the message handler at the call
+        // site already wraps in try/catch and logs via console.error. Letting
+        // throws propagate keeps Win/POSIX error visibility symmetric.
+        write: (buf: Buffer | string) => {
+          pty.write(typeof buf === 'string' ? buf : buf.toString('utf-8'));
+        },
+        resize: (c: number, r: number) => {
+          try { pty.resize(c, r); } catch (err) {
+            console.error('[terminal-agent] pty.resize failed:', err);
+          }
+        },
+        close: () => { /* bun-pty has no terminal.close; kill() handles teardown */ },
+      },
+      kill: (signal?: string) => {
+        try {
+          pty.kill(signal);
+          killed = true;
+        } catch (err) {
+          console.error('[terminal-agent] pty.kill failed:', err);
+        }
+      },
+      exited,
+    };
+  }
 
   const proc = (Bun as any).spawn([claudePath, '--append-system-prompt', tabHint], {
     terminal: {
@@ -529,16 +609,33 @@ function main() {
   fs.writeFileSync(tmp, String(port), { mode: 0o600 });
   fs.renameSync(tmp, PORT_FILE);
 
+  // Write PID file atomically. cli.ts reads this on disconnect/cleanup so
+  // it can target this exact agent with taskkill /PID on Windows (where
+  // pkill -f doesn't exist and /IM bun.exe would kill every Bun process).
+  const pidTmp = `${PID_FILE}.tmp-${process.pid}`;
+  fs.writeFileSync(pidTmp, String(process.pid), { mode: 0o600 });
+  fs.renameSync(pidTmp, PID_FILE);
+
   // Hand the parent the internal token so it can call /internal/grant.
   // Parent learns INTERNAL_TOKEN via env (TERMINAL_AGENT_INTERNAL_TOKEN below).
   // We just print it on stdout for the supervising process to pick up if it's
   // not already in env. Defense against env races at spawn time.
   console.log(`[terminal-agent] listening on 127.0.0.1:${port} pid=${process.pid}`);
 
-  // Cleanup port file on exit.
-  const cleanup = () => { safeUnlink(PORT_FILE); process.exit(0); };
-  process.on('SIGTERM', cleanup);
-  process.on('SIGINT', cleanup);
+  // Cleanup state files on exit. `safeUnlinkQuiet` because per CLAUDE.md
+  // shutdown paths must swallow all errors so a single throw doesn't skip
+  // subsequent unlinks. Register on `exit` (sync handler — no process.exit
+  // inside!) so hard-killed agents (Windows taskkill /T /F skips signal
+  // handlers) still clean up state files. SIGTERM/SIGINT call cleanup
+  // explicitly because process.exit(0) won't fire 'exit' synchronously
+  // before the handler returns; the explicit calls cover the graceful path.
+  const cleanup = () => {
+    safeUnlinkQuiet(PORT_FILE);
+    safeUnlinkQuiet(PID_FILE);
+  };
+  process.on('exit', cleanup);
+  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+  process.on('SIGINT', () => { cleanup(); process.exit(0); });
 }
 
 // Export the internal token so cli.ts can pass the SAME value to the parent

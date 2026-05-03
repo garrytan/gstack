@@ -896,23 +896,99 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         if (fs.existsSync(termAgentScript)) {
           // Kill old terminal-agents so a stale port file can't trick the
           // server into routing /pty-session at a dead listener.
-          try {
-            const { spawnSync } = require('child_process');
-            spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-          } catch (err: any) {
-            if (err?.code !== 'ENOENT') throw err;
+          if (IS_WINDOWS) {
+            // Windows: read the PID file the previous agent wrote, target it
+            // explicitly with taskkill /PID. Don't use /IM bun.exe — that
+            // would kill every Bun process on the machine. Add /FI IMAGENAME
+            // filter so a PID that was recycled to a non-bun process gets
+            // skipped (the previous agent may have been hard-killed and left
+            // a stale PID file). Number.isFinite check distinguishes "first
+            // run" from "corrupted PID file" — log a warning for the latter.
+            const pidFile = path.join(path.dirname(config.stateFile), 'terminal-agent.pid');
+            try {
+              const raw = fs.readFileSync(pidFile, 'utf-8');
+              const oldPid = parseInt(raw, 10);
+              if (Number.isFinite(oldPid) && oldPid > 0) {
+                Bun.spawnSync(['taskkill', '/PID', String(oldPid), '/T', '/F', '/FI', 'IMAGENAME eq bun.exe'], {
+                  stdout: 'pipe', stderr: 'pipe', timeout: 5000,
+                });
+              } else {
+                console.warn(`[browse] terminal-agent.pid contained non-numeric content (${JSON.stringify(raw.slice(0, 32))}); skipping kill`);
+              }
+            } catch (err: any) {
+              if (err?.code !== 'ENOENT') throw err;
+            }
+          } else {
+            try {
+              const { spawnSync } = require('child_process');
+              spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+            } catch (err: any) {
+              if (err?.code !== 'ENOENT') throw err;
+            }
           }
-          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
-            cwd: config.projectDir,
-            env: {
-              ...process.env,
-              BROWSE_STATE_FILE: config.stateFile,
-              BROWSE_SERVER_PORT: String(newState.port),
-            },
-            stdio: ['ignore', 'ignore', 'ignore'],
-          });
-          termProc.unref();
-          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
+
+          if (IS_WINDOWS) {
+            // Windows: Bun.spawn(['bun','run',...]).unref() doesn't truly
+            // detach when invoked from inside the compiled browse.exe — the
+            // child dies before it can write its state files (terminal-port,
+            // terminal-agent.pid). Mirror the proven pattern at cli.ts:221-232:
+            // stringified child_process.spawn launched via `node -e`, with
+            // detached: true and .unref() so the agent outlives this process.
+            //
+            // Resolve the real bun.exe — npm-installed `bun` is a POSIX shell
+            // script Windows can't execute (the bug #1 npm-shim issue). Don't
+            // fall back to bare 'bun.exe' on PATH — it'll resolve to that same
+            // shim. process.execPath returns the compiled browse.exe (which
+            // can't be re-invoked as `bun run`), so it's not a valid fallback
+            // either. If neither candidate exists, fail loud with install
+            // instructions and skip the spawn (chat degrades gracefully).
+            const bunCandidates = [
+              process.env.BUN_INSTALL && `${process.env.BUN_INSTALL}\\bin\\bun.exe`,
+              process.env.USERPROFILE && `${process.env.USERPROFILE}\\.bun\\bin\\bun.exe`,
+            ].filter(Boolean) as string[];
+            const bunExe = bunCandidates.find(c => fs.existsSync(c));
+            if (!bunExe) {
+              console.error('[browse] Could not find bun.exe (checked BUN_INSTALL\\bin and %USERPROFILE%\\.bun\\bin).');
+              console.error('[browse] Terminal agent will not start. Install official Bun: irm bun.com/install.ps1 | iex');
+            } else {
+              // Redirect the detached child's stdout+stderr to a log file so
+              // startup failures (port collision, claude-not-found, bun-pty
+              // load failure per terminal-agent.ts:33, etc.) are diagnosable.
+              // Without this, the user sees only "Terminal agent started" +
+              // 503s in the sidebar with no breadcrumb. Parent's stderr is
+              // 'inherit' so synchronous launcher errors (e.g. node missing)
+              // surface immediately to the user's console.
+              const logPath = path.join(path.dirname(config.stateFile), 'terminal-agent.log');
+              const extraEnvStr = JSON.stringify({
+                BROWSE_STATE_FILE: config.stateFile,
+                BROWSE_SERVER_PORT: String(newState.port),
+              });
+              const launcherCode =
+                `const{spawn}=require('child_process');` +
+                `const fs=require('fs');` +
+                `const out=fs.openSync(${JSON.stringify(logPath)},'a');` +
+                `spawn(${JSON.stringify(bunExe)},['run',${JSON.stringify(termAgentScript)}],` +
+                `{detached:true,stdio:['ignore',out,out],windowsHide:true,` +
+                `cwd:${JSON.stringify(config.projectDir)},` +
+                `env:Object.assign({},process.env,${extraEnvStr})}).unref()`;
+              Bun.spawnSync(['node', '-e', launcherCode], {
+                stdio: ['ignore', 'ignore', 'inherit'],
+              });
+              console.log(`[browse] Terminal agent started (detached); logs: ${logPath}`);
+            }
+          } else {
+            const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
+              cwd: config.projectDir,
+              env: {
+                ...process.env,
+                BROWSE_STATE_FILE: config.stateFile,
+                BROWSE_SERVER_PORT: String(newState.port),
+              },
+              stdio: ['ignore', 'ignore', 'ignore'],
+            });
+            termProc.unref();
+            console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
+          }
         }
       } catch (err: any) {
         // Non-fatal: chat still works without the terminal agent.
