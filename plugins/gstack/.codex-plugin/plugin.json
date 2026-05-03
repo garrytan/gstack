@@ -1,0 +1,43 @@
+{
+  "name": "gstack",
+  "version": "1.21.1.0",
+  "description": "Garry's Stack \u2014 AI engineering workflows, QA, planning, and browser automation skills for Codex.",
+  "author": {
+    "name": "Garry Tan",
+    "email": "opensource@garrytan.com",
+    "url": "https://github.com/garrytan"
+  },
+  "homepage": "https://github.com/garrytan/gstack",
+  "repository": "https://github.com/garrytan/gstack",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "codex",
+    "browser-automation",
+    "qa",
+    "planning",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "gstack",
+    "shortDescription": "AI engineering workflows for Codex",
+    "longDescription": "Use gstack to add planning, QA, browser automation, review, deployment, and product workflow skills to Codex from this repository.",
+    "developerName": "Garry Tan",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/garrytan/gstack",
+    "privacyPolicyURL": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement",
+    "termsOfServiceURL": "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service",
+    "defaultPrompt": [
+      "Run /gstack-qa against my local app and fix the bugs it finds.",
+      "Review this branch before I open a PR.",
+      "Help me plan a new feature before I start coding."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

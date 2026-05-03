@@ -125,6 +125,20 @@ Or target a specific agent with `./setup --host <name>`:
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
 
+### Codex plugin marketplace (repo-local)
+
+If you want Codex to install gstack from this repository through a local plugin
+marketplace instead of `~/.codex/skills`, run:
+
+```bash
+bun run plugin:codex:prepare
+```
+
+That command regenerates the Codex-formatted skills in `.agents/skills/`,
+refreshes the repo-local runtime sidecar under `.agents/skills/gstack/`, and
+keeps `plugins/gstack` pointed at the generated skill tree. Codex can then load
+the plugin from `.agents/plugins/marketplace.json`.
+
 ## See it work
 
 ```
