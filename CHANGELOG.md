@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.26.3.0] - 2026-05-04
+
+## **`/review` and `/cso` stop reading the wrong branch's diff when a subagent flips the worktree.**
+
+The bug, observed three times in one session against a downstream project's PR
+reviewers: a long-running review skill renders findings against whatever branch
+the local worktree happens to be checked out to at the moment each `git diff`
+runs — not against the branch the user asked to review. Inside Agent SDK
+sessions where nested subagents share the worktree, a stray `git checkout`
+anywhere in the call tree silently re-targets every later diff command. The
+review then reports vulnerabilities, race conditions, or dead code on
+unrelated work, and the human reviewer has no way to know.
+
+The fix is mechanical and contained: a new `{{PR_DIFF_PIN}}` template fragment
+runs at Step 0.5 of each review skill, resolves `BASE_SHA` and `HEAD_SHA` to
+immutable commit identifiers via `gh pr view --json headRefOid` (in PR
+context) or `git rev-parse origin/<base>` (out of PR context), and forces
+every subsequent `git diff`, `git log`, and `git show` to reference those
+SHAs by value. Commit SHAs are not symbolic refs — they don't move when the
+worktree flips. `/review` and `/cso` both adopt the new fragment in this
+release. A regression test (`test/pr-diff-pin-regression.test.ts`) builds a
+real two-branch fixture, simulates the worktree flip, and asserts that bare
+`git diff main` reports the wrong branch while SHA-pinned `git diff
+"$BASE_SHA" "$HEAD_SHA"` reports the right one — proving both the failure
+mode and the fix are real.
+
+This is not the upstream Claude Code `/security-review` built-in (which has
+the same class of bug — it uses `git diff origin/HEAD...` against working-tree
+HEAD — but lives in `cli.js` and is out of gstack's reach). The gstack `/cso`
+skill is now a strictly safer alternative for security audits run from inside
+multi-agent sessions.
+
+### What you can now do
+
+- **Run `/review` from a session that spawns subagents and trust the diff is the right one.** Step 0.5 prints the pinned `BASE_SHA` and `HEAD_SHA` so you can verify before findings start. If the SHAs ever look wrong, you'll see it before the review reports anything.
+- **Run `/cso --diff` from the same kind of multi-agent session** and get the same guarantee for the secrets-archaeology and OWASP phases.
+- **Catch a regression in code review.** `test/pr-diff-pin-regression.test.ts` runs in the free `bun test` tier (~6s) and will fail loudly if anyone re-introduces a bare `git diff origin/<base>` into either skill template.
+
+### Itemized changes
+
+#### Added
+
+- `{{PR_DIFF_PIN}}` template resolver in `scripts/resolvers/utility.ts`. Generates a Step 0.5 block that resolves `BASE_SHA`/`HEAD_SHA` from PR metadata when available, from `origin/<base>` and local `HEAD` otherwise, fetches the head commit so the SHA is local, and aborts with a descriptive error when SHAs cannot be resolved (refusing to proceed beats silently rendering against the wrong branch).
+- `test/pr-diff-pin-regression.test.ts` (8 tests, ~6s, free tier). Builds a fresh git repo with two divergent feature branches, exercises the bug end-to-end, and asserts the SHA-pinned form is stable across worktree flips. Includes template smell-tests that fail if `{{PR_DIFF_PIN}}` is removed or if a bare-ref diff command is reintroduced into `review/SKILL.md.tmpl` or `cso/SKILL.md.tmpl`.
+
+#### Changed
+
+- `review/SKILL.md.tmpl` Step 1 and Step 3 use `git diff "$BASE_SHA" "$HEAD_SHA"` instead of `git diff origin/<base>`. The Step 3.4 workspace-aware queue check uses `git show "$HEAD_SHA:VERSION"` and `git show "$BASE_SHA:VERSION"` instead of `git show HEAD:VERSION` and `git show origin/$BASE_BRANCH:VERSION`. The Step 3.5 slop-scan reads against the pinned base. The skill's preamble explicitly names the `shared-checkout-branch-flip-during-review` failure mode the change closes.
+- `cso/SKILL.md.tmpl` adds `{{BASE_BRANCH_DETECT}}` and `{{PR_DIFF_PIN}}` to its preamble (it had neither). The Phase 2 secrets-archaeology `--diff` mode line replaces `git log -p <base>..HEAD` with `git log -p "$BASE_SHA..$HEAD_SHA"`.
+- `review/checklist.md` and `review/greptile-triage.md` reference the pinned SHAs and explain why `git diff origin/main` alone is unsafe inside multi-agent sessions.
+
+#### For contributors
+
+- Other skills with similar bare-ref diff patterns (`ship`, `codex`, `document-release`) are unchanged in this release. They are reachable from outside multi-agent reviews and the worktree-flip risk is lower there; a separate PR will sweep them once a per-skill verification is done. The new `{{PR_DIFF_PIN}}` resolver is reusable — adopting it elsewhere is one line in the `.tmpl` plus running `bun run gen:skill-docs`.
+
 ## [1.26.2.0] - 2026-05-03
 
 ## **`/plan-eng-review` always asks. Never silently writes findings to your plan first.**
