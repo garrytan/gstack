@@ -678,7 +678,134 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
 
 
+## Step 0: Detect platform and base branch
+
+First, detect the git hosting platform from the remote URL:
+
+```bash
+git remote get-url origin 2>/dev/null
+```
+
+- If the URL contains "github.com" → platform is **GitHub**
+- If the URL contains "gitlab" → platform is **GitLab**
+- Otherwise, check CLI availability:
+  - `gh auth status 2>/dev/null` succeeds → platform is **GitHub** (covers GitHub Enterprise)
+  - `glab auth status 2>/dev/null` succeeds → platform is **GitLab** (covers self-hosted)
+  - Neither → **unknown** (use git-native commands only)
+
+Determine which branch this PR/MR targets, or the repo's default branch if no
+PR/MR exists. Use the result as "the base branch" in all subsequent steps.
+
+**If GitHub:**
+1. `gh pr view --json baseRefName -q .baseRefName` — if succeeds, use it
+2. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` — if succeeds, use it
+
+**If GitLab:**
+1. `glab mr view -F json 2>/dev/null` and extract the `target_branch` field — if succeeds, use it
+2. `glab repo view -F json 2>/dev/null` and extract the `default_branch` field — if succeeds, use it
+
+**Git-native fallback (if unknown platform, or CLI commands fail):**
+1. `git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`
+2. If that fails: `git rev-parse --verify origin/main 2>/dev/null` → use `main`
+3. If that fails: `git rev-parse --verify origin/master 2>/dev/null` → use `master`
+
+If all fail, fall back to `main`.
+
+Print the detected base branch name. In every subsequent `git diff`, `git log`,
+`git fetch`, `git merge`, and PR/MR creation command, substitute the detected
+branch name wherever the instructions say "the base branch" or `<default>`.
+
+---
+
+## Step 0.5: Pin diff context to immutable SHAs (anti-branch-flip)
+
+A long-running review skill is **not safe** to read git state through symbolic
+refs like `HEAD`, `origin/<base>`, or `origin/HEAD`. Inside an Agent SDK
+session — and especially across nested subagents that share a worktree — the
+working tree, the symbolic-ref `HEAD`, and even the checked-out branch can
+flip mid-skill (e.g., another tool runs `git checkout` to inspect a file,
+then forgets to switch back). When that happens, every later `git diff`
+command silently re-renders against the new branch, and the review reports
+findings on the wrong code.
+
+The fix is to **resolve diff endpoints to immutable commit SHAs at the very
+start of the skill**, then use those SHAs in every subsequent `git diff`,
+`git log`, and `git show` invocation. SHAs do not move when the working
+tree flips.
+
+Run this **once, before any other diff/log step**:
+
+```bash
+# Resolve the PR (or branch) we're reviewing. Prefer explicit PR context.
+PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null || echo "")
+
+if [ -n "$PR_NUMBER" ]; then
+  # In-PR review: lock to the PR's recorded base + head, not local HEAD.
+  PR_META=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid,baseRefOid 2>/dev/null)
+  BASE_BRANCH=$(echo "$PR_META" | jq -r '.baseRefName // empty')
+  HEAD_BRANCH=$(echo "$PR_META" | jq -r '.headRefName // empty')
+  HEAD_SHA=$(echo "$PR_META" | jq -r '.headRefOid // empty')
+  # Fetch the PR head so the SHA is local. headRefOid is the up-to-date PR head.
+  if [ -n "$HEAD_SHA" ]; then
+    git fetch origin "$HEAD_SHA" --quiet 2>/dev/null || \
+      git fetch origin "pull/$PR_NUMBER/head" --quiet 2>/dev/null || true
+  fi
+  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
+else
+  # No PR context: fall back to local-branch review against detected base branch.
+  # Reuse "the base branch" detected in Step 0; pin to its current origin SHA + local HEAD SHA.
+  HEAD_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
+fi
+
+# Sanity check — refuse to proceed with empty SHAs.
+if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+  echo "ERROR: could not resolve BASE_SHA / HEAD_SHA. Aborting review to avoid wrong-branch findings." >&2
+  exit 1
+fi
+
+echo "Pinned review context:"
+echo "  PR:           ${PR_NUMBER:-<none — local-branch review>}"
+echo "  Base branch:  $BASE_BRANCH @ $BASE_SHA"
+echo "  Head branch:  $HEAD_BRANCH @ $HEAD_SHA"
+```
+
+**For the rest of this skill, use these pinned SHAs** in every diff/log
+command. Concretely:
+
+| Don't (working-tree dependent — bug) | Do (SHA-pinned — correct)                |
+|--------------------------------------|------------------------------------------|
+| `git diff origin/<base>`           | `git diff "$BASE_SHA" "$HEAD_SHA"`     |
+| `git diff origin/<base>...HEAD`    | `git diff "$BASE_SHA" "$HEAD_SHA"`     |
+| `git diff <base>..HEAD`            | `git diff "$BASE_SHA" "$HEAD_SHA"`     |
+| `git log origin/<base>..HEAD`      | `git log "$BASE_SHA..$HEAD_SHA"`       |
+| `git diff --name-only origin/HEAD...` | `git diff --name-only "$BASE_SHA" "$HEAD_SHA"` |
+| `git show HEAD:VERSION`            | `git show "$HEAD_SHA:VERSION"`         |
+
+In a PR-review context, you may also use `gh pr diff "$PR_NUMBER"` —
+GitHub's PR-diff endpoint is also immutable for the PR's current head and
+does not depend on the local working tree.
+
+**Do not** use bare `HEAD`, `origin/HEAD`, or `origin/<base>` (without
+`...$HEAD_SHA`) anywhere else in this skill. Even if those refs are correct
+right now, a later subagent may flip the worktree underneath you.
+
+This step is named `shared-checkout-branch-flip-during-review` in
+`CLAUDE.md` failure-mode tracking.
+
+---
+
 # /cso — Chief Security Officer Audit (v2)
+
+**Diff context is SHA-pinned — see Step 0.5.** Whenever this skill scans a
+PR/branch diff (any phase running with `--diff`, plus Phase 2 secrets-archaeology
+diff mode), it must use `$BASE_SHA` and `$HEAD_SHA` resolved in Step 0.5, **not**
+bare `HEAD` / `origin/<base>` / `<base>..HEAD`. A subagent flipping the worktree
+mid-audit otherwise causes findings to render against the wrong code (named
+failure mode `shared-checkout-branch-flip-during-review`).
 
 You are a **Chief Security Officer** who has led incident response on real breaches and testified before boards about security posture. You think like an attacker but report like a defender. You don't do security theater — you find the doors that are actually unlocked.
 
@@ -864,7 +991,7 @@ done 2>/dev/null
 
 **FP rules:** Placeholders ("your_", "changeme", "TODO") excluded. Test fixtures excluded unless same value in non-test code. Rotated secrets still flagged (they were exposed). `.env.local` in `.gitignore` is expected.
 
-**Diff mode:** Replace `git log -p --all` with `git log -p <base>..HEAD`.
+**Diff mode:** Replace `git log -p --all` with `git log -p "$BASE_SHA..$HEAD_SHA"` (SHAs pinned in Step 0.5 — never use bare `<base>..HEAD` or `origin/<base>..HEAD` because a subagent flipping the worktree would silently re-target the diff at the wrong branch).
 
 ### Phase 3: Dependency Supply Chain
 
