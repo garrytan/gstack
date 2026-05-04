@@ -733,7 +733,7 @@ After the user chooses, execute their choice (commit or stash), then continue wi
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
+[ -z "$B" ] && B="$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -927,7 +927,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/design/dist/design" ] && D="$_ROOT/.claw/skills/gstack/design/dist/design"
-[ -z "$D" ] && D="$HOME$GSTACK_DESIGN/design"
+[ -z "$D" ] && D="$GSTACK_DESIGN/design"
 if [ -x "$D" ]; then
   echo "DESIGN_READY: $D"
 else
@@ -935,7 +935,7 @@ else
 fi
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
+[ -z "$B" ] && B="$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "BROWSE_READY: $B"
 else

@@ -724,7 +724,7 @@ If the codebase is empty and purpose is unclear, say: *"I don't have a clear pic
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
+[ -z "$B" ] && B="$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -764,7 +764,7 @@ If browse is not available, that's fine — visual research is optional. The ski
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/design/dist/design" ] && D="$_ROOT/.claw/skills/gstack/design/dist/design"
-[ -z "$D" ] && D="$HOME$GSTACK_DESIGN/design"
+[ -z "$D" ] && D="$GSTACK_DESIGN/design"
 if [ -x "$D" ]; then
   echo "DESIGN_READY: $D"
 else
@@ -772,7 +772,7 @@ else
 fi
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claw/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claw/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
+[ -z "$B" ] && B="$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "BROWSE_READY: $B"
 else
@@ -804,6 +804,8 @@ data, not project files. They persist across branches, conversations, and worksp
 If `DESIGN_READY`: Phase 5 will generate AI mockups of your proposed design system applied to real screens, instead of just an HTML preview page. Much more powerful — the user sees what their product could actually look like.
 
 If `DESIGN_NOT_AVAILABLE`: Phase 5 falls back to the HTML preview page (still good).
+
+Reference: `references/fallback-preview-and-path-resolution.md` records the path-resolution pitfall and the fallback preview quality checklist. Use it when browse/design binaries exist but path setup or design auth fails.
 
 ---
 

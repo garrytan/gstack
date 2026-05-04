@@ -1,13 +1,12 @@
 ---
-name: pair-agent
+name: connect-chrome
 description: |
-  Pair a remote AI agent with your browser. One command generates a setup key and
-  prints instructions the other agent can follow to connect. Works with OpenClaw,
-  Hermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent
-  gets its own tab with scoped access (read+write by default, admin on request).
-  Use when asked to "pair agent", "connect agent", "share browser", "remote browser",
-  "let another agent use my browser", or "give browser access". (gstack)
-  Voice triggers (speech-to-text aliases): "pair agent", "connect agent", "share my browser", "remote browser access".
+  Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
+  Opens a visible browser window where you can watch every action in real time.
+  The sidebar shows a live activity feed and chat. Anti-bot stealth built in.
+  Use when asked to "open gstack browser", "launch browser", "connect chrome",
+  "open chrome", "real browser", "launch chrome", "side panel", or "control my browser".
+  Voice triggers (speech-to-text aliases): "show me the browser".
 version: 0.15.2.0
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -54,7 +53,7 @@ _QUESTION_TUNING=$($GSTACK_BIN/gstack-config get question_tuning 2>/dev/null || 
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"pair-agent","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"open-gstack-browser","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -76,7 +75,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-$GSTACK_BIN/gstack-timeline-log '{"skill":"pair-agent","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+$GSTACK_BIN/gstack-timeline-log '{"skill":"open-gstack-browser","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAW.md ] && grep -q "## Skill routing" CLAW.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -589,7 +588,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort:
 ```bash
-$GSTACK_BIN/gstack-question-log '{"skill":"pair-agent","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+$GSTACK_BIN/gstack-question-log '{"skill":"open-gstack-browser","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -676,28 +675,10 @@ In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPOR
 
 PLAN MODE EXCEPTION — always allowed (it's the plan file).
 
-# /pair-agent — Share Your Browser With Another AI Agent
+# /open-gstack-browser — Launch GStack Browser
 
-You're sitting in Claude Code with a browser running. You also have another AI agent
-open (OpenClaw, Hermes, Codex, Cursor, whatever). You want that other agent to be
-able to browse the web using YOUR browser. This skill makes that happen.
-
-## How it works
-
-Your gstack browser runs a local HTTP server. This skill creates a one-time setup key,
-prints a block of instructions, and you paste those instructions into the other agent.
-The other agent exchanges the key for a session token, creates its own tab, and starts
-browsing. Each agent gets its own tab. They can't mess with each other's tabs.
-
-The setup key expires in 5 minutes and can only be used once. If it leaks, it's dead
-before anyone can abuse it. The session token lasts 24 hours.
-
-**Same machine:** If the other agent is on the same machine (like OpenClaw running
-locally), you can skip the copy-paste ceremony and write the credentials directly to
-the agent's config directory.
-
-**Remote:** If the other agent is on a different machine, you need an ngrok tunnel.
-The skill will tell you if one is needed and how to set it up.
+Launch GStack Browser — AI-controlled Chromium with the sidebar extension,
+anti-bot stealth, and custom branding. You see every action in real time.
 
 ## SETUP (run this check BEFORE any browse command)
 
@@ -735,217 +716,181 @@ If `NEEDS_SETUP`:
    fi
    ```
 
-## Step 1: Check prerequisites
+## Step 0: Pre-flight cleanup
+
+Before connecting, kill any stale browse servers and clean up lock files that
+may have persisted from a crash. This prevents "already connected" false
+positives and Chromium profile lock conflicts.
 
 ```bash
-$B status 2>/dev/null
+# Kill any existing browse server
+if [ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.gstack/browse.json" ]; then
+  _OLD_PID=$(cat "$(git rev-parse --show-toplevel)/.gstack/browse.json" 2>/dev/null | grep -o '"pid":[0-9]*' | grep -o '[0-9]*')
+  [ -n "$_OLD_PID" ] && kill "$_OLD_PID" 2>/dev/null || true
+  sleep 1
+  [ -n "$_OLD_PID" ] && kill -9 "$_OLD_PID" 2>/dev/null || true
+  rm -f "$(git rev-parse --show-toplevel)/.gstack/browse.json"
+fi
+# Clean Chromium profile locks (can persist after crashes)
+_PROFILE_DIR="$HOME/.gstack/chromium-profile"
+for _LF in SingletonLock SingletonSocket SingletonCookie; do
+  rm -f "$_PROFILE_DIR/$_LF" 2>/dev/null || true
+done
+echo "Pre-flight cleanup done"
 ```
 
-If the browse server is not running, start it:
+## Step 1: Connect
 
 ```bash
-$B goto about:blank
+$B connect
 ```
 
-This ensures the server is up and healthy before pairing.
+This launches GStack Browser (rebranded Chromium) in headed mode with:
+- A visible window you can watch (not your regular Chrome — it stays untouched)
+- The gstack sidebar extension auto-loaded via `launchPersistentContext`
+- Anti-bot stealth patches (sites like Google and NYTimes work without captchas)
+- Custom user agent and GStack Browser branding in Dock/menu bar
+- A sidebar agent process for chat commands
 
-## Step 2: Ask what they want
+The `connect` command auto-discovers the extension from the gstack install
+directory. It always uses port **34567** so the extension can auto-connect.
 
-Use AskUserQuestion:
+After connecting, print the full output to the user. Confirm you see
+`Mode: headed` in the output.
 
-> Which agent do you want to pair with your browser? This determines the
-> instructions format and where credentials get written.
+If the output shows an error or the mode is not `headed`, run `$B status` and
+share the output with the user before proceeding.
 
-Options:
-- A) OpenClaw (local or remote)
-- B) Codex / OpenAI Agents (local)
-- C) Cursor (local)
-- D) Another Claude Code session (local or remote)
-- E) Something else (generic HTTP instructions — use this for Hermes)
-
-Based on the answer, set `TARGET_HOST`:
-- A → `openclaw`
-- B → `codex`
-- C → `cursor`
-- D → `claude`
-- E → generic (no host-specific config)
-
-## Step 3: Local or remote?
-
-Use AskUserQuestion:
-
-> Is the other agent running on this same machine, or on a different machine/server?
->
-> **Same machine** skips the copy-paste ceremony. Credentials are written directly to
-> the agent's config directory. No tunnel needed.
->
-> **Different machine** generates a setup key and instruction block. If ngrok is
-> installed, the tunnel starts automatically. If not, I'll walk you through setup.
->
-> RECOMMENDATION: Choose A if the agent is local. It's instant, no copy-paste needed.
-
-Options:
-- A) Same machine (write credentials directly)
-- B) Different machine (generate instruction block for copy-paste)
-
-## Step 4: Execute pairing
-
-### If same machine (option A):
-
-Run pair-agent with --local flag:
-
-```bash
-$B pair-agent --local TARGET_HOST
-```
-
-Replace `TARGET_HOST` with the value from Step 2 (openclaw, codex, cursor, etc.).
-
-If it succeeds, tell the user:
-"Done. TARGET_HOST can now use your browser. It will read credentials from the
-config file that was written. Try asking it to navigate to a URL."
-
-If it fails (host not found, write permission error), show the error and suggest
-using the generic remote flow instead.
-
-### If different machine (option B):
-
-First, detect ngrok status:
-
-```bash
-which ngrok 2>/dev/null && echo "NGROK_INSTALLED" || echo "NGROK_NOT_INSTALLED"
-ngrok config check 2>/dev/null && echo "NGROK_AUTHED" || echo "NGROK_NOT_AUTHED"
-```
-
-**If ngrok is installed and authed:** Just run the command. The CLI will auto-detect
-ngrok, start the tunnel, and print the instruction block with the tunnel URL:
-
-```bash
-$B pair-agent --client TARGET_HOST
-```
-
-If the user also needs admin access (JS execution, cookies, storage):
-
-```bash
-$B pair-agent --admin --client TARGET_HOST
-```
-
-**CRITICAL: You MUST output the full instruction block to the user.** The command
-prints everything between ═══ lines. Copy the ENTIRE block verbatim into your
-response so the user can copy-paste it into their other agent. Do NOT summarize it,
-do NOT skip it, do NOT just say "here's the output." The user needs to SEE the block
-to copy it. Output it inside a markdown code block so it's easy to select and copy.
-
-Then tell the user:
-"Copy the block above and paste it into your other agent's chat. The setup key
-expires in 5 minutes."
-
-**If ngrok is installed but NOT authed:** Walk the user through authentication:
-
-Tell the user:
-"ngrok is installed but not logged in. Let's fix that:
-
-1. Go to https://dashboard.ngrok.com/get-started/your-authtoken
-2. Copy your auth token
-3. Come back here and I'll run the auth command for you."
-
-STOP here and wait for the user to provide their auth token.
-
-When they provide it, run:
-```bash
-ngrok config add-authtoken THEIR_TOKEN
-```
-
-Then retry `$B pair-agent --client TARGET_HOST`.
-
-**If ngrok is NOT installed:** Walk the user through installation:
-
-Tell the user:
-"To connect a remote agent, we need ngrok (a tunnel that exposes your local
-browser to the internet securely).
-
-1. Go to https://ngrok.com and sign up (free tier works)
-2. Install ngrok:
-   - macOS: `brew install ngrok`
-   - Linux: `snap install ngrok` or download from ngrok.com/download
-3. Auth it: `ngrok config add-authtoken YOUR_TOKEN`
-   (get your token from https://dashboard.ngrok.com/get-started/your-authtoken)
-4. Come back here and run `/pair-agent` again."
-
-STOP here. Wait for the user to install ngrok and re-invoke.
-
-## Step 5: Verify connection
-
-After the user pastes the instructions into the other agent, wait a moment then check:
+## Step 2: Verify
 
 ```bash
 $B status
 ```
 
-Look for the connected agent in the status output. If it appears, tell the user:
-"The remote agent is connected and has its own tab. You'll see its activity in the
-side panel if you have GStack Browser open."
-
-## What the remote agent can do
-
-With default (read+write) access:
-- Navigate to URLs, click elements, fill forms, take screenshots
-- Read page content (text, HTML, snapshot)
-- Create new tabs (each agent gets its own)
-- Cannot execute arbitrary JavaScript, read cookies, or access storage
-
-With admin access (--admin flag):
-- Everything above, plus JS execution, cookie access, storage access
-- Use sparingly. Only for agents you fully trust.
-
-## Troubleshooting
-
-**"Tab not owned by your agent"** — The remote agent tried to interact with a tab
-it didn't create. Tell it to run `newtab` first to get its own tab.
-
-**"Domain not allowed"** — The token has domain restrictions. Re-pair with broader
-domain access or no domain restrictions.
-
-**"Rate limit exceeded"** — The agent is sending > 10 requests/second. It should
-wait for the Retry-After header and slow down.
-
-**"Token expired"** — The 24-hour session expired. Run `/pair-agent` again to
-generate a new setup key.
-
-**Agent can't reach the server** — If remote, check the ngrok tunnel is running
-(`$B status`). If local, check the browse server is running.
-
-## Platform-specific notes
-
-### OpenClaw / AlphaClaw
-
-OpenClaw agents use the `exec` tool instead of `Bash`. The instruction block uses
-`exec curl` syntax which OpenClaw understands natively. When using `--local openclaw`,
-credentials are written to `~/.openclaw/skills/gstack/browse-remote.json`.
-
-
-### Codex
-
-Codex agents can execute shell commands via `codex exec`. The instruction block's
-curl commands work directly. When using `--local codex`, credentials are written
-to `~/.codex/skills/gstack/browse-remote.json`.
-
-### Cursor
-
-Cursor's AI can run terminal commands. The instruction block works as-is.
-When using `--local cursor`, credentials are written to
-`~/.cursor/skills/gstack/browse-remote.json`.
-
-## Revoking access
-
-To disconnect a specific agent:
+Confirm the output shows `Mode: headed`. Read the port from the state file:
 
 ```bash
-$B tunnel revoke AGENT_NAME
+cat "$(git rev-parse --show-toplevel 2>/dev/null)/.gstack/browse.json" 2>/dev/null | grep -o '"port":[0-9]*' | grep -o '[0-9]*'
 ```
 
-To disconnect all agents and rotate the root token:
+The port should be **34567**. If it's different, note it — the user may need it
+for the Side Panel.
+
+Also find the extension path so you can help the user if they need to load it manually:
 
 ```bash
-# This invalidates ALL scoped tokens immediately
-$B tunnel rotate
+_EXT_PATH=""
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+[ -n "$_ROOT" ] && [ -f "$_ROOT/.claw/skills/gstack/extension/manifest.json" ] && _EXT_PATH="$_ROOT/.claw/skills/gstack/extension"
+[ -z "$_EXT_PATH" ] && [ -f "$HOME/.claw/skills/gstack/extension/manifest.json" ] && _EXT_PATH="$HOME/.claw/skills/gstack/extension"
+echo "EXTENSION_PATH: ${_EXT_PATH:-NOT FOUND}"
 ```
+
+## Step 3: Guide the user to the Side Panel
+
+Use AskUserQuestion:
+
+> Chrome is launched with gstack control. You should see Playwright's Chromium
+> (not your regular Chrome) with a golden shimmer line at the top of the page.
+>
+> The Side Panel extension should be auto-loaded. To open it:
+> 1. Look for the **puzzle piece icon** (Extensions) in the toolbar — it may
+>    already show the gstack icon if the extension loaded successfully
+> 2. Click the **puzzle piece** → find **gstack browse** → click the **pin icon**
+> 3. Click the pinned **gstack icon** in the toolbar
+> 4. The Side Panel should open on the right showing a live activity feed
+>
+> **Port:** 34567 (auto-detected — the extension connects automatically in the
+> Playwright-controlled Chrome).
+
+Options:
+- A) I can see the Side Panel — let's go!
+- B) I can see Chrome but can't find the extension
+- C) Something went wrong
+
+If B: Tell the user:
+
+> The extension is loaded into Playwright's Chromium at launch time, but
+> sometimes it doesn't appear immediately. Try these steps:
+>
+> 1. Type `chrome://extensions` in the address bar
+> 2. Look for **"gstack browse"** — it should be listed and enabled
+> 3. If it's there but not pinned, go back to any page, click the puzzle piece
+>    icon, and pin it
+> 4. If it's NOT listed at all, click **"Load unpacked"** and navigate to:
+>    - Press **Cmd+Shift+G** in the file picker dialog
+>    - Paste this path: `{EXTENSION_PATH}` (use the path from Step 2)
+>    - Click **Select**
+>
+> After loading, pin it and click the icon to open the Side Panel.
+>
+> If the Side Panel badge stays gray (disconnected), click the gstack icon
+> and enter port **34567** manually.
+
+If C:
+
+1. Run `$B status` and show the output
+2. If the server is not healthy, re-run Step 0 cleanup + Step 1 connect
+3. If the server IS healthy but the browser isn't visible, try `$B focus`
+4. If that fails, ask the user what they see (error message, blank screen, etc.)
+
+## Step 4: Demo
+
+After the user confirms the Side Panel is working, run a quick demo:
+
+```bash
+$B goto https://news.ycombinator.com
+```
+
+Wait 2 seconds, then:
+
+```bash
+$B snapshot -i
+```
+
+Tell the user: "Check the Side Panel — you should see the `goto` and `snapshot`
+commands appear in the activity feed. Every command Claude runs shows up here
+in real time."
+
+## Step 5: Sidebar chat
+
+After the activity feed demo, tell the user about the sidebar chat:
+
+> The Side Panel also has a **chat tab**. Try typing a message like "take a
+> snapshot and describe this page." A sidebar agent (a child Claude instance)
+> executes your request in the browser — you'll see the commands appear in
+> the activity feed as they happen.
+>
+> The sidebar agent can navigate pages, click buttons, fill forms, and read
+> content. Each task gets up to 5 minutes. It runs in an isolated session, so
+> it won't interfere with this Claude Code window.
+
+## Step 6: What's next
+
+Tell the user:
+
+> You're all set! Here's what you can do with the connected Chrome:
+>
+> **Watch Claude work in real time:**
+> - Run any gstack skill (`/qa`, `/design-review`, `/benchmark`) and watch
+>   every action happen in the visible Chrome window + Side Panel feed
+> - No cookie import needed — the Playwright browser shares its own session
+>
+> **Control the browser directly:**
+> - **Sidebar chat** — type natural language in the Side Panel and the sidebar
+>   agent executes it (e.g., "fill in the login form and submit")
+> - **Browse commands** — `$B goto <url>`, `$B click <sel>`, `$B fill <sel> <val>`,
+>   `$B snapshot -i` — all visible in Chrome + Side Panel
+>
+> **Window management:**
+> - `$B focus` — bring Chrome to the foreground anytime
+> - `$B disconnect` — close headed Chrome and return to headless mode
+>
+> **What skills look like in headed mode:**
+> - `/qa` runs its full test suite in the visible browser — you see every page
+>   load, every click, every assertion
+> - `/design-review` takes screenshots in the real browser — same pixels you see
+> - `/benchmark` measures performance in the headed browser
+
+Then proceed with whatever the user asked to do. If they didn't specify a task,
+ask what they'd like to test or browse.

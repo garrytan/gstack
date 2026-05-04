@@ -700,7 +700,7 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.hermes/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.hermes/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME$GSTACK_BROWSE/browse"
+[ -z "$B" ] && B="$GSTACK_BROWSE/browse"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -1169,7 +1169,7 @@ Present via AskUserQuestion. Do NOT proceed without user approval of the approac
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.hermes/skills/gstack/design/dist/design" ] && D="$_ROOT/.hermes/skills/gstack/design/dist/design"
-[ -z "$D" ] && D="$HOME$GSTACK_DESIGN/design"
+[ -z "$D" ] && D="$GSTACK_DESIGN/design"
 [ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
 ```
 

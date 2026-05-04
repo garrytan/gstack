@@ -1031,7 +1031,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 ## Step 5: Run tests (on merged code)
 
-**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
+**Do NOT run `RAILS_ENV=test bin/rails db:migrate`** — the project-local test lane command already calls
 `db:test:prepare` internally, which loads the schema into the correct lane database.
 Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
 
@@ -1214,7 +1214,7 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 | Tier | When | Speed (cached) | Cost |
 |------|------|----------------|------|
 | `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
-| `standard` (Sonnet) | Default dev, `bin/test-lane --eval` | ~17s (4x faster) | ~$0.37/run |
+| `standard` (Sonnet) | Default dev, project test-lane eval command | ~17s (4x faster) | ~$0.37/run |
 | `full` (Opus persona) | **`/ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
 
 ---
