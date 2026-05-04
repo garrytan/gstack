@@ -739,38 +739,70 @@ Run this **once, before any other diff/log step**:
 # Resolve the PR (or branch) we're reviewing. Prefer explicit PR context.
 PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null || echo "")
 
+# REVIEW_DIRTY governs whether uncommitted local changes count as part of the
+# review. Default OFF in PR context (review committed work only); default ON
+# for local /review pre-PR (preserves the pre-fix behavior where dirty edits
+# were included in the diff). Override by exporting REVIEW_DIRTY=1 / 0 before
+# invoking the skill.
+if [ -z "${REVIEW_DIRTY+x}" ]; then
+  if [ -n "$PR_NUMBER" ]; then REVIEW_DIRTY=0; else REVIEW_DIRTY=1; fi
+fi
+
 if [ -n "$PR_NUMBER" ]; then
-  # In-PR review: lock to the PR's recorded base + head, not local HEAD.
+  # In-PR review: prefer the PR's *own* recorded base/head SHAs over the
+  # local origin/<base> tracking ref. baseRefOid and headRefOid are
+  # immutable for the PR's current state — they are the SHAs GitHub renders
+  # against, regardless of local fetch staleness.
   PR_META=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid,baseRefOid 2>/dev/null)
   BASE_BRANCH=$(echo "$PR_META" | jq -r '.baseRefName // empty')
   HEAD_BRANCH=$(echo "$PR_META" | jq -r '.headRefName // empty')
   HEAD_SHA=$(echo "$PR_META" | jq -r '.headRefOid // empty')
-  # Fetch the PR head so the SHA is local. headRefOid is the up-to-date PR head.
+  BASE_SHA=$(echo "$PR_META" | jq -r '.baseRefOid // empty')
+  # Fetch BOTH SHAs so they are present in the local object store. \
+  # Without this, `git diff "$BASE_SHA" "$HEAD_SHA"` errors out.
   if [ -n "$HEAD_SHA" ]; then
     git fetch origin "$HEAD_SHA" --quiet 2>/dev/null || \
-      git fetch origin "pull/$PR_NUMBER/head" --quiet 2>/dev/null || true
+      git fetch origin "pull/$PR_NUMBER/head" --quiet 2>/dev/null || \
+      git fetch origin "$HEAD_BRANCH" --quiet 2>/dev/null || true
   fi
-  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
-  BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
+  if [ -n "$BASE_SHA" ]; then
+    git fetch origin "$BASE_SHA" --quiet 2>/dev/null || \
+      git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  fi
 else
   # No PR context: fall back to local-branch review against detected base branch.
   # Reuse "the base branch" detected in Step 0; pin to its current origin SHA + local HEAD SHA.
   HEAD_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
-  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  if ! git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null; then
+    echo "WARNING: could not fetch origin/$BASE_BRANCH. Pinning to whatever local origin/$BASE_BRANCH points at — may be stale." >&2
+  fi
   BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
 fi
 
-# Sanity check — refuse to proceed with empty SHAs.
+# Soft-validate the SHAs. If a skill REQUIRES a diff context (`/review`, `/cso --diff`),
+# it should add an explicit `[ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ]` assertion before
+# its first diff/log step. Skills that operate without a diff (`/cso --infra`,
+# `/cso --supply-chain`, etc.) can proceed with empty SHAs and simply skip diff-mode
+# substeps. Returning early via `exit 1` here would break those scope-flag modes.
 if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-  echo "ERROR: could not resolve BASE_SHA / HEAD_SHA. Aborting review to avoid wrong-branch findings." >&2
-  exit 1
+  echo "WARNING: could not resolve BASE_SHA / HEAD_SHA — diff-dependent steps will be skipped." >&2
+  echo "  PR_NUMBER=$PR_NUMBER  BASE_BRANCH=$BASE_BRANCH  HEAD_BRANCH=$HEAD_BRANCH" >&2
 fi
+
+# If we DID resolve SHAs, verify both actually exist in the local object store.
+# (cat-file probe is a no-op when SHA is empty.)
+for _SHA in "$BASE_SHA" "$HEAD_SHA"; do
+  if [ -n "$_SHA" ] && ! git cat-file -e "$_SHA" 2>/dev/null; then
+    echo "WARNING: SHA $_SHA is not present in the local repo — re-run after `git fetch origin` if review covers committed changes." >&2
+  fi
+done
 
 echo "Pinned review context:"
 echo "  PR:           ${PR_NUMBER:-<none — local-branch review>}"
 echo "  Base branch:  $BASE_BRANCH @ $BASE_SHA"
 echo "  Head branch:  $HEAD_BRANCH @ $HEAD_SHA"
+echo "  Dirty edits:  ${REVIEW_DIRTY:-0} (1 = include uncommitted working-tree changes in diff)"
 ```
 
 **For the rest of this skill, use these pinned SHAs** in every diff/log
@@ -785,9 +817,16 @@ command. Concretely:
 | `git diff --name-only origin/HEAD...` | `git diff --name-only "$BASE_SHA" "$HEAD_SHA"` |
 | `git show HEAD:VERSION`            | `git show "$HEAD_SHA:VERSION"`         |
 
-In a PR-review context, you may also use `gh pr diff "$PR_NUMBER"` —
-GitHub's PR-diff endpoint is also immutable for the PR's current head and
-does not depend on the local working tree.
+**Avoid `gh pr diff "$PR_NUMBER"`** even in PR-review context: that endpoint
+re-resolves `HEAD` and `BASE` server-side at every call, so a force-push of
+the PR head or a fast-forward of the PR base mid-review will silently change
+its output. Use the SHA-pinned local `git diff "$BASE_SHA" "$HEAD_SHA"`
+instead — it is immutable both against worktree flips AND against PR-state
+drift on the remote.
+
+If you genuinely need the PR-rendered diff (e.g., to compare against
+GitHub's UI), append `--patch` and a SHA boundary explicitly:
+`gh api "/repos/<owner>/<repo>/compare/$BASE_SHA...$HEAD_SHA"`.
 
 **Do not** use bare `HEAD`, `origin/HEAD`, or `origin/<base>` (without
 `...$HEAD_SHA`) anywhere else in this skill. Even if those refs are correct
@@ -806,6 +845,14 @@ diff mode), it must use `$BASE_SHA` and `$HEAD_SHA` resolved in Step 0.5, **not*
 bare `HEAD` / `origin/<base>` / `<base>..HEAD`. A subagent flipping the worktree
 mid-audit otherwise causes findings to render against the wrong code (named
 failure mode `shared-checkout-branch-flip-during-review`).
+
+When `/cso` runs WITHOUT `--diff` (e.g., `/cso --infra`, `/cso --supply-chain`,
+`/cso --owasp`), Step 0.5's WARN-on-missing-SHA behavior is acceptable: those
+scope flags don't read PR diffs, so empty `$BASE_SHA` / `$HEAD_SHA` is fine.
+Diff-mode substeps that DO need them (Phase 2 with `--diff`, etc.) must check
+`[ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ]` and skip with a clear note when not
+resolvable. Do not silently fall back to bare `HEAD`/`origin/<base>` — that
+re-introduces the bug this Step 0.5 block exists to close.
 
 You are a **Chief Security Officer** who has led incident response on real breaches and testified before boards about security posture. You think like an attacker but report like a defender. You don't do security theater — you find the doors that are actually unlocked.
 

@@ -754,38 +754,70 @@ Run this **once, before any other diff/log step**:
 # Resolve the PR (or branch) we're reviewing. Prefer explicit PR context.
 PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null || echo "")
 
+# REVIEW_DIRTY governs whether uncommitted local changes count as part of the
+# review. Default OFF in PR context (review committed work only); default ON
+# for local /review pre-PR (preserves the pre-fix behavior where dirty edits
+# were included in the diff). Override by exporting REVIEW_DIRTY=1 / 0 before
+# invoking the skill.
+if [ -z "${REVIEW_DIRTY+x}" ]; then
+  if [ -n "$PR_NUMBER" ]; then REVIEW_DIRTY=0; else REVIEW_DIRTY=1; fi
+fi
+
 if [ -n "$PR_NUMBER" ]; then
-  # In-PR review: lock to the PR's recorded base + head, not local HEAD.
+  # In-PR review: prefer the PR's *own* recorded base/head SHAs over the
+  # local origin/<base> tracking ref. baseRefOid and headRefOid are
+  # immutable for the PR's current state — they are the SHAs GitHub renders
+  # against, regardless of local fetch staleness.
   PR_META=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid,baseRefOid 2>/dev/null)
   BASE_BRANCH=$(echo "$PR_META" | jq -r '.baseRefName // empty')
   HEAD_BRANCH=$(echo "$PR_META" | jq -r '.headRefName // empty')
   HEAD_SHA=$(echo "$PR_META" | jq -r '.headRefOid // empty')
-  # Fetch the PR head so the SHA is local. headRefOid is the up-to-date PR head.
+  BASE_SHA=$(echo "$PR_META" | jq -r '.baseRefOid // empty')
+  # Fetch BOTH SHAs so they are present in the local object store. \
+  # Without this, `git diff "$BASE_SHA" "$HEAD_SHA"` errors out.
   if [ -n "$HEAD_SHA" ]; then
     git fetch origin "$HEAD_SHA" --quiet 2>/dev/null || \
-      git fetch origin "pull/$PR_NUMBER/head" --quiet 2>/dev/null || true
+      git fetch origin "pull/$PR_NUMBER/head" --quiet 2>/dev/null || \
+      git fetch origin "$HEAD_BRANCH" --quiet 2>/dev/null || true
   fi
-  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
-  BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
+  if [ -n "$BASE_SHA" ]; then
+    git fetch origin "$BASE_SHA" --quiet 2>/dev/null || \
+      git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  fi
 else
   # No PR context: fall back to local-branch review against detected base branch.
   # Reuse "the base branch" detected in Step 0; pin to its current origin SHA + local HEAD SHA.
   HEAD_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
-  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  if ! git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null; then
+    echo "WARNING: could not fetch origin/$BASE_BRANCH. Pinning to whatever local origin/$BASE_BRANCH points at — may be stale." >&2
+  fi
   BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
 fi
 
-# Sanity check — refuse to proceed with empty SHAs.
+# Soft-validate the SHAs. If a skill REQUIRES a diff context (`/review`, `/cso --diff`),
+# it should add an explicit `[ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ]` assertion before
+# its first diff/log step. Skills that operate without a diff (`/cso --infra`,
+# `/cso --supply-chain`, etc.) can proceed with empty SHAs and simply skip diff-mode
+# substeps. Returning early via `exit 1` here would break those scope-flag modes.
 if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-  echo "ERROR: could not resolve BASE_SHA / HEAD_SHA. Aborting review to avoid wrong-branch findings." >&2
-  exit 1
+  echo "WARNING: could not resolve BASE_SHA / HEAD_SHA — diff-dependent steps will be skipped." >&2
+  echo "  PR_NUMBER=$PR_NUMBER  BASE_BRANCH=$BASE_BRANCH  HEAD_BRANCH=$HEAD_BRANCH" >&2
 fi
+
+# If we DID resolve SHAs, verify both actually exist in the local object store.
+# (cat-file probe is a no-op when SHA is empty.)
+for _SHA in "$BASE_SHA" "$HEAD_SHA"; do
+  if [ -n "$_SHA" ] && ! git cat-file -e "$_SHA" 2>/dev/null; then
+    echo "WARNING: SHA $_SHA is not present in the local repo — re-run after `git fetch origin` if review covers committed changes." >&2
+  fi
+done
 
 echo "Pinned review context:"
 echo "  PR:           ${PR_NUMBER:-<none — local-branch review>}"
 echo "  Base branch:  $BASE_BRANCH @ $BASE_SHA"
 echo "  Head branch:  $HEAD_BRANCH @ $HEAD_SHA"
+echo "  Dirty edits:  ${REVIEW_DIRTY:-0} (1 = include uncommitted working-tree changes in diff)"
 ```
 
 **For the rest of this skill, use these pinned SHAs** in every diff/log
@@ -800,9 +832,16 @@ command. Concretely:
 | `git diff --name-only origin/HEAD...` | `git diff --name-only "$BASE_SHA" "$HEAD_SHA"` |
 | `git show HEAD:VERSION`            | `git show "$HEAD_SHA:VERSION"`         |
 
-In a PR-review context, you may also use `gh pr diff "$PR_NUMBER"` —
-GitHub's PR-diff endpoint is also immutable for the PR's current head and
-does not depend on the local working tree.
+**Avoid `gh pr diff "$PR_NUMBER"`** even in PR-review context: that endpoint
+re-resolves `HEAD` and `BASE` server-side at every call, so a force-push of
+the PR head or a fast-forward of the PR base mid-review will silently change
+its output. Use the SHA-pinned local `git diff "$BASE_SHA" "$HEAD_SHA"`
+instead — it is immutable both against worktree flips AND against PR-state
+drift on the remote.
+
+If you genuinely need the PR-rendered diff (e.g., to compare against
+GitHub's UI), append `--patch` and a SHA boundary explicitly:
+`gh api "/repos/<owner>/<repo>/compare/$BASE_SHA...$HEAD_SHA"`.
 
 **Do not** use bare `HEAD`, `origin/HEAD`, or `origin/<base>` (without
 `...$HEAD_SHA`) anywhere else in this skill. Even if those refs are correct
@@ -819,6 +858,15 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 **Diff context is SHA-pinned — see Step 0.5.** Every `git diff`, `git log`, and `git show` command in this skill must use `$BASE_SHA` and `$HEAD_SHA` (resolved in Step 0.5), not bare `HEAD` / `origin/<base>` / `origin/HEAD`. This is the named failure mode `shared-checkout-branch-flip-during-review`: a subagent flipping the worktree mid-review otherwise causes findings to render against the wrong branch.
 
+**Hard requirement:** `/review` cannot proceed without a resolved diff. Step 0.5 prints a WARNING (not an error) when SHAs cannot be resolved, so /cso's no-PR scope-flag modes still work; /review must check explicitly:
+
+```bash
+if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+  echo "ERROR: /review requires a resolvable BASE_SHA and HEAD_SHA. See Step 0.5 output." >&2
+  exit 1
+fi
+```
+
 ---
 
 ## Step 1: Check branch
@@ -833,10 +881,10 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
 
 1. Read `TODOS.md` (if it exists). Read PR description (`gh pr view --json body --jq .body 2>/dev/null || true`).
-   Read commit messages (`git log origin/<base>..HEAD --oneline`).
+   Read commit messages (`git log "$BASE_SHA..$HEAD_SHA" --oneline`).
    **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
 2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run `git diff origin/<base>...HEAD --stat` and compare the files changed against the stated intent.
+3. Run `git diff --stat "$BASE_SHA" "$HEAD_SHA"` and compare the files changed against the stated intent.
 
 4. Evaluate with skepticism (incorporating plan completion results if available from an earlier step or adjacent section):
 
@@ -921,7 +969,7 @@ For each item, note:
 
 ### Cross-Reference Against Diff
 
-Run `git diff origin/<base>...HEAD` and `git log origin/<base>..HEAD --oneline` to understand what was implemented.
+Run `git diff "$BASE_SHA" "$HEAD_SHA"` and `git log "$BASE_SHA..$HEAD_SHA" --oneline` to understand what was implemented.
 
 For each extracted plan item, check the diff and classify:
 
@@ -962,7 +1010,7 @@ COMPLETION: 4/7 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED
 
 When no plan file is detected, use these secondary intent sources:
 
-1. **Commit messages:** Run `git log origin/<base>..HEAD --oneline`. Use judgment to extract real intent:
+1. **Commit messages:** Run `git log "$BASE_SHA..$HEAD_SHA" --oneline`. Use judgment to extract real intent:
    - Commits with actionable verbs ("add", "implement", "fix", "create", "remove", "update") are intent signals
    - Skip noise: "WIP", "tmp", "squash", "merge", "chore", "typo", "fixup"
    - Extract the intent behind the commit, not the literal message
@@ -975,7 +1023,7 @@ When no plan file is detected, use these secondary intent sources:
 
 For each PARTIAL or NOT DONE item, investigate WHY:
 
-1. Check `git log origin/<base>..HEAD --oneline` for commits that suggest the work was started, attempted, or reverted
+1. Check `git log "$BASE_SHA..$HEAD_SHA" --oneline` for commits that suggest the work was started, attempted, or reverted
 2. Read the relevant code to understand what was built instead
 3. Determine the likely reason from this list:
    - **Scope cut** — evidence of intentional removal (revert commit, removed TODO)
@@ -1058,7 +1106,12 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 The base branch was already fetched in Step 0.5; do not refetch it here (refetching would defeat the SHA-pinning if `origin/<base>` advanced in the meantime).
 
-Run `git diff "$BASE_SHA" "$HEAD_SHA"` to get the full diff. This is the **committed** diff between the pinned base and head SHAs and is immune to working-tree flips during review. To include any uncommitted local changes (only meaningful when reviewing your own un-pushed work), run an additional `git diff "$HEAD_SHA"` and combine the two; for PR reviews you almost always want only the pinned diff.
+Run **one** of the following, depending on the value of `$REVIEW_DIRTY` resolved in Step 0.5:
+
+- **`REVIEW_DIRTY=0`** (default in PR context): `git diff "$BASE_SHA" "$HEAD_SHA"` — the committed diff between the pinned base and head SHAs. Immune to working-tree flips. This is the diff GitHub's PR view shows.
+- **`REVIEW_DIRTY=1`** (default for local pre-PR review): `git diff "$BASE_SHA"` PLUS `git diff "$HEAD_SHA"` — the first is the committed diff, the second is uncommitted working-tree changes on top of `$HEAD_SHA`. Concatenate the two. The uncommitted half is intrinsically not SHA-pinnable (the working tree is the working tree); your only protection there is to read it once and cache the output rather than re-running `git diff "$HEAD_SHA"` after each phase.
+
+If you're not sure which mode you're in, the Step 0.5 output prints `Dirty edits: $REVIEW_DIRTY`.
 
 ## Step 3.4: Workspace-aware queue status (advisory)
 
@@ -1196,8 +1249,8 @@ STACK=""
 [ -f go.mod ] && STACK="${STACK}go "
 [ -f Cargo.toml ] && STACK="${STACK}rust "
 echo "STACK: ${STACK:-unknown}"
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_INS=$(git diff --stat "$BASE_SHA" "$HEAD_SHA" | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff --stat "$BASE_SHA" "$HEAD_SHA" | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_LINES=$((DIFF_INS + DIFF_DEL))
 echo "DIFF_LINES: $DIFF_LINES"
 # Detect test framework for specialist test stub generation
@@ -1271,7 +1324,7 @@ If learnings are found, include them: "Past learnings for this domain: {learning
 4. Instructions:
 
 "You are a specialist code reviewer. Read the checklist below, then run
-`git diff origin/<base>` to get the full diff. Apply the checklist against the diff.
+`git diff "$BASE_SHA" "$HEAD_SHA"` to get the full diff. Apply the checklist against the diff.
 
 For each finding, output a JSON object on its own line:
 {\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
@@ -1374,7 +1427,7 @@ The Red Team subagent receives:
 
 Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
 who found the following issues: {merged findings summary}. Your job is to find what they
-MISSED. Read the checklist, run `git diff origin/<base>`, and look for gaps.
+MISSED. Read the checklist, run `git diff "$BASE_SHA" "$HEAD_SHA"`, and look for gaps.
 Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
 concerns, integration boundary issues, and failure modes that specialist checklists
 don't cover."
@@ -1546,8 +1599,8 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 **Detect diff size and tool availability:**
 
 ```bash
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_INS=$(git diff --stat "$BASE_SHA" "$HEAD_SHA" | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff --stat "$BASE_SHA" "$HEAD_SHA" | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 # Legacy opt-out — only gates Codex passes, Claude always runs
@@ -1567,7 +1620,7 @@ If `OLD_CFG` is `disabled`: skip Codex passes only. Claude adversarial subagent 
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
 Subagent prompt:
-"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>` — examples: `Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s` or `Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
+"Read the diff for this branch with `git diff "$BASE_SHA" "$HEAD_SHA"`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>` — examples: `Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s` or `Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
 
 Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
 
@@ -1582,7 +1635,7 @@ If Codex is available AND `OLD_CFG` is NOT `disabled`:
 ```bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
+codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run \`git diff "\$BASE_SHA" "\$HEAD_SHA"\` to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
 ```
 
 Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
