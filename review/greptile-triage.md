@@ -64,7 +64,7 @@ For each non-suppressed comment:
 
 1. **Line-level comments:** Read the file at the indicated `path:line` and surrounding context (±10 lines)
 2. **Top-level comments:** Read the full comment body
-3. Cross-reference the comment against the full diff (`git diff origin/main`) and the review checklist
+3. Cross-reference the comment against the full diff (`git diff "$BASE_SHA" "$HEAD_SHA"` — SHAs pinned in the review skill's Step 0.5; bare `git diff origin/main` would drift if a subagent flips the worktree mid-review) and the review checklist
 4. Classify:
    - **VALID & ACTIONABLE** — a real bug, race condition, security issue, or correctness problem that exists in the current code
    - **VALID BUT ALREADY FIXED** — a real issue that was addressed in a subsequent commit on the branch. Identify the fixing commit SHA.

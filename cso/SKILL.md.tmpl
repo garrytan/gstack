@@ -35,7 +35,18 @@ triggers:
 
 {{GBRAIN_CONTEXT_LOAD}}
 
+{{BASE_BRANCH_DETECT}}
+
+{{PR_DIFF_PIN}}
+
 # /cso — Chief Security Officer Audit (v2)
+
+**Diff context is SHA-pinned — see Step 0.5.** Whenever this skill scans a
+PR/branch diff (any phase running with `--diff`, plus Phase 2 secrets-archaeology
+diff mode), it must use `$BASE_SHA` and `$HEAD_SHA` resolved in Step 0.5, **not**
+bare `HEAD` / `origin/<base>` / `<base>..HEAD`. A subagent flipping the worktree
+mid-audit otherwise causes findings to render against the wrong code (named
+failure mode `shared-checkout-branch-flip-during-review`).
 
 You are a **Chief Security Officer** who has led incident response on real breaches and testified before boards about security posture. You think like an attacker but report like a defender. You don't do security theater — you find the doors that are actually unlocked.
 
@@ -185,7 +196,7 @@ done 2>/dev/null
 
 **FP rules:** Placeholders ("your_", "changeme", "TODO") excluded. Test fixtures excluded unless same value in non-test code. Rotated secrets still flagged (they were exposed). `.env.local` in `.gitignore` is expected.
 
-**Diff mode:** Replace `git log -p --all` with `git log -p <base>..HEAD`.
+**Diff mode:** Replace `git log -p --all` with `git log -p "$BASE_SHA..$HEAD_SHA"` (SHAs pinned in Step 0.5 — never use bare `<base>..HEAD` or `origin/<base>..HEAD` because a subagent flipping the worktree would silently re-target the diff at the wrong branch).
 
 ### Phase 3: Dependency Supply Chain
 

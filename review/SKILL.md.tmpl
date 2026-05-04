@@ -28,17 +28,20 @@ triggers:
 
 {{BASE_BRANCH_DETECT}}
 
+{{PR_DIFF_PIN}}
+
 # Pre-Landing PR Review
 
 You are running the `/review` workflow. Analyze the current branch's diff against the base branch for structural issues that tests don't catch.
+
+**Diff context is SHA-pinned — see Step 0.5.** Every `git diff`, `git log`, and `git show` command in this skill must use `$BASE_SHA` and `$HEAD_SHA` (resolved in Step 0.5), not bare `HEAD` / `origin/<base>` / `origin/HEAD`. This is the named failure mode `shared-checkout-branch-flip-during-review`: a subagent flipping the worktree mid-review otherwise causes findings to render against the wrong branch.
 
 ---
 
 ## Step 1: Check branch
 
-1. Run `git branch --show-current` to get the current branch.
-2. If on the base branch, output: **"Nothing to review — you're on the base branch or have no changes against it."** and stop.
-3. Run `git fetch origin <base> --quiet && git diff origin/<base> --stat` to check if there's a diff. If no diff, output the same message and stop.
+1. The current local branch (informational only): `git branch --show-current`. The review itself uses `$HEAD_SHA` from Step 0.5, so this is **not** a correctness signal.
+2. If `$BASE_SHA` and `$HEAD_SHA` are equal, or `git diff --stat "$BASE_SHA" "$HEAD_SHA"` is empty, output: **"Nothing to review — head and base point at the same commit."** and stop.
 
 ---
 
@@ -66,22 +69,19 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 ## Step 3: Get the diff
 
-Fetch the latest base branch to avoid false positives from stale local state:
+The base branch was already fetched in Step 0.5; do not refetch it here (refetching would defeat the SHA-pinning if `origin/<base>` advanced in the meantime).
 
-```bash
-git fetch origin <base> --quiet
-```
-
-Run `git diff origin/<base>` to get the full diff. This includes both committed and uncommitted changes against the latest base branch.
+Run `git diff "$BASE_SHA" "$HEAD_SHA"` to get the full diff. This is the **committed** diff between the pinned base and head SHAs and is immune to working-tree flips during review. To include any uncommitted local changes (only meaningful when reviewing your own un-pushed work), run an additional `git diff "$HEAD_SHA"` and combine the two; for PR reviews you almost always want only the pinned diff.
 
 ## Step 3.4: Workspace-aware queue status (advisory)
 
 Check whether this PR's claimed VERSION still points at a free slot in the queue. Advisory only — never blocks review; just informs the reviewer about landing-order risk.
 
 ```bash
-BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
-BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+# Use the SHAs pinned in Step 0.5 — bare HEAD / origin/<base> would drift if a
+# subagent flips the worktree between Step 0.5 and here.
+BRANCH_VERSION=$(git show "$HEAD_SHA:VERSION" 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+BASE_VERSION=$(git show "$BASE_SHA:VERSION" 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
 QUEUE_JSON=$(bun run bin/gstack-next-version \
   --base "$BASE_BRANCH" \
   --bump patch \
@@ -99,10 +99,11 @@ OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
 ## Step 3.5: Slop scan (advisory)
 
 Run a slop scan on changed files to catch AI code quality issues (empty catches,
-redundant `return await`, overcomplicated abstractions):
+redundant `return await`, overcomplicated abstractions). Use the pinned base SHA
+so the slop diff doesn't drift if the worktree flips:
 
 ```bash
-bun run slop:diff origin/<base> 2>/dev/null || true
+bun run slop:diff "$BASE_SHA" 2>/dev/null || true
 ```
 
 If findings are reported, include them in the review output as an informational

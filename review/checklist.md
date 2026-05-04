@@ -2,7 +2,9 @@
 
 ## Instructions
 
-Review the `git diff origin/main` output for the issues listed below. Be specific — cite `file:line` and suggest fixes. Skip anything that's fine. Only flag real problems.
+Review the `git diff "$BASE_SHA" "$HEAD_SHA"` output (SHAs are pinned in Step 0.5 of the review skill — see SKILL.md) for the issues listed below. Be specific — cite `file:line` and suggest fixes. Skip anything that's fine. Only flag real problems.
+
+**Why pinned SHAs:** Bare `git diff origin/main` re-renders against the working tree, which a nested subagent can flip mid-review (named failure mode `shared-checkout-branch-flip-during-review`). The pinned SHAs are immutable across worktree flips.
 
 **Two-pass review:**
 - **Pass 1 (CRITICAL):** Run SQL & Data Safety, Race Conditions, LLM Output Trust Boundary, Shell Injection, and Enum Completeness first. Highest severity.

@@ -49,6 +49,89 @@ branch name wherever the instructions say "the base branch" or \`<default>\`.
 ---`;
 }
 
+export function generatePrDiffPin(_ctx: TemplateContext): string {
+  return `## Step 0.5: Pin diff context to immutable SHAs (anti-branch-flip)
+
+A long-running review skill is **not safe** to read git state through symbolic
+refs like \`HEAD\`, \`origin/<base>\`, or \`origin/HEAD\`. Inside an Agent SDK
+session — and especially across nested subagents that share a worktree — the
+working tree, the symbolic-ref \`HEAD\`, and even the checked-out branch can
+flip mid-skill (e.g., another tool runs \`git checkout\` to inspect a file,
+then forgets to switch back). When that happens, every later \`git diff\`
+command silently re-renders against the new branch, and the review reports
+findings on the wrong code.
+
+The fix is to **resolve diff endpoints to immutable commit SHAs at the very
+start of the skill**, then use those SHAs in every subsequent \`git diff\`,
+\`git log\`, and \`git show\` invocation. SHAs do not move when the working
+tree flips.
+
+Run this **once, before any other diff/log step**:
+
+\`\`\`bash
+# Resolve the PR (or branch) we're reviewing. Prefer explicit PR context.
+PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null || echo "")
+
+if [ -n "$PR_NUMBER" ]; then
+  # In-PR review: lock to the PR's recorded base + head, not local HEAD.
+  PR_META=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefName,headRefOid,baseRefOid 2>/dev/null)
+  BASE_BRANCH=$(echo "$PR_META" | jq -r '.baseRefName // empty')
+  HEAD_BRANCH=$(echo "$PR_META" | jq -r '.headRefName // empty')
+  HEAD_SHA=$(echo "$PR_META" | jq -r '.headRefOid // empty')
+  # Fetch the PR head so the SHA is local. headRefOid is the up-to-date PR head.
+  if [ -n "$HEAD_SHA" ]; then
+    git fetch origin "$HEAD_SHA" --quiet 2>/dev/null || \\
+      git fetch origin "pull/$PR_NUMBER/head" --quiet 2>/dev/null || true
+  fi
+  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
+else
+  # No PR context: fall back to local-branch review against detected base branch.
+  # Reuse \"the base branch\" detected in Step 0; pin to its current origin SHA + local HEAD SHA.
+  HEAD_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+  git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+  BASE_SHA=$(git rev-parse "origin/$BASE_BRANCH" 2>/dev/null || echo "")
+fi
+
+# Sanity check — refuse to proceed with empty SHAs.
+if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+  echo "ERROR: could not resolve BASE_SHA / HEAD_SHA. Aborting review to avoid wrong-branch findings." >&2
+  exit 1
+fi
+
+echo "Pinned review context:"
+echo "  PR:           \${PR_NUMBER:-<none — local-branch review>}"
+echo "  Base branch:  $BASE_BRANCH @ $BASE_SHA"
+echo "  Head branch:  $HEAD_BRANCH @ $HEAD_SHA"
+\`\`\`
+
+**For the rest of this skill, use these pinned SHAs** in every diff/log
+command. Concretely:
+
+| Don't (working-tree dependent — bug) | Do (SHA-pinned — correct)                |
+|--------------------------------------|------------------------------------------|
+| \`git diff origin/<base>\`           | \`git diff "$BASE_SHA" "$HEAD_SHA"\`     |
+| \`git diff origin/<base>...HEAD\`    | \`git diff "$BASE_SHA" "$HEAD_SHA"\`     |
+| \`git diff <base>..HEAD\`            | \`git diff "$BASE_SHA" "$HEAD_SHA"\`     |
+| \`git log origin/<base>..HEAD\`      | \`git log "$BASE_SHA..$HEAD_SHA"\`       |
+| \`git diff --name-only origin/HEAD...\` | \`git diff --name-only "$BASE_SHA" "$HEAD_SHA"\` |
+| \`git show HEAD:VERSION\`            | \`git show "$HEAD_SHA:VERSION"\`         |
+
+In a PR-review context, you may also use \`gh pr diff "$PR_NUMBER"\` —
+GitHub's PR-diff endpoint is also immutable for the PR's current head and
+does not depend on the local working tree.
+
+**Do not** use bare \`HEAD\`, \`origin/HEAD\`, or \`origin/<base>\` (without
+\`...$HEAD_SHA\`) anywhere else in this skill. Even if those refs are correct
+right now, a later subagent may flip the worktree underneath you.
+
+This step is named \`shared-checkout-branch-flip-during-review\` in
+\`CLAUDE.md\` failure-mode tracking.
+
+---`;
+}
+
 export function generateDeployBootstrap(_ctx: TemplateContext): string {
   return `\`\`\`bash
 # Check for persisted deploy config in CLAUDE.md
