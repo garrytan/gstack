@@ -368,17 +368,27 @@ If A: revise the premise and note the revision. If B: proceed (and note that the
 
 export function generateScopeDrift(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
+  const isReview = ctx.skillName === 'review';
   const stepNum = isShip ? '8.2' : '1.5';
+
+  // /review pins BASE_SHA/HEAD_SHA in Step 0.5 (PR_DIFF_PIN). /ship doesn't.
+  // Use SHA-pinned commands inside /review; bare refs elsewhere for back-compat.
+  const logRangeCmd = isReview
+    ? '`git log "$BASE_SHA..$HEAD_SHA" --oneline`'
+    : '`git log origin/<base>..HEAD --oneline`';
+  const diffStatCmd = isReview
+    ? '`git diff --stat "$BASE_SHA" "$HEAD_SHA"`'
+    : '`git diff origin/<base>...HEAD --stat`';
 
   return `## Step ${stepNum}: Scope Drift Detection
 
 Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
 
 1. Read \`TODOS.md\` (if it exists). Read PR description (\`gh pr view --json body --jq .body 2>/dev/null || true\`).
-   Read commit messages (\`git log origin/<base>..HEAD --oneline\`).
+   Read commit messages (${logRangeCmd}).
    **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
 2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run \`git diff origin/<base>...HEAD --stat\` and compare the files changed against the stated intent.
+3. Run ${diffStatCmd} and compare the files changed against the stated intent.
 
 4. Evaluate with skepticism (incorporating plan completion results if available from an earlier step or adjacent section):
 
@@ -413,7 +423,19 @@ export function generateAdversarialStep(ctx: TemplateContext): string {
   if (ctx.host === 'codex') return '';
 
   const isShip = ctx.skillName === 'ship';
+  const isReview = ctx.skillName === 'review';
   const stepNum = isShip ? '11' : '5.7';
+
+  // /review pins SHAs (PR_DIFF_PIN). /ship doesn't (yet).
+  const diffStat = isReview
+    ? `git diff --stat "$BASE_SHA" "$HEAD_SHA"`
+    : `git diff origin/<base> --stat`;
+  const subagentDiff = isReview
+    ? `git diff "$BASE_SHA" "$HEAD_SHA"`
+    : `git diff origin/<base>`;
+  const codexDiffPhrase = isReview
+    ? `Run \\\`git diff "\\$BASE_SHA" "\\$HEAD_SHA"\\\` to see the diff`
+    : `Run git diff origin/<base> to see the diff`;
 
   return `## Step ${stepNum}: Adversarial review (always-on)
 
@@ -422,8 +444,8 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 **Detect diff size and tool availability:**
 
 \`\`\`bash
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_INS=$(${diffStat} | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(${diffStat} | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 # Legacy opt-out — only gates Codex passes, Claude always runs
@@ -443,7 +465,7 @@ If \`OLD_CFG\` is \`disabled\`: skip Codex passes only. Claude adversarial subag
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
 Subagent prompt:
-"Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\` — examples: \`Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s\` or \`Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production\`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
+"Read the diff for this branch with \`${subagentDiff}\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\` — examples: \`Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s\` or \`Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production\`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
 
 Present findings under an \`ADVERSARIAL REVIEW (Claude subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
 
@@ -458,7 +480,7 @@ If Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
 \`\`\`bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
+codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. ${codexDiffPhrase}. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -723,6 +745,17 @@ type PlanCompletionMode = 'ship' | 'review';
 function generatePlanCompletionAuditInner(mode: PlanCompletionMode): string {
   const sections: string[] = [];
 
+  // /review pins SHAs in Step 0.5 (PR_DIFF_PIN). /ship doesn't (yet).
+  // Switch git command phrasing accordingly so the wrong-branch failure
+  // mode (`shared-checkout-branch-flip-during-review`) is closed for /review.
+  const isReview = mode === 'review';
+  const diffRangeCmd = isReview
+    ? '`git diff "$BASE_SHA" "$HEAD_SHA"`'
+    : '`git diff origin/<base>...HEAD`';
+  const logRangeCmd = isReview
+    ? '`git log "$BASE_SHA..$HEAD_SHA" --oneline`'
+    : '`git log origin/<base>..HEAD --oneline`';
+
   // ── Plan file discovery (shared) ──
   sections.push(generatePlanFileDiscovery());
 
@@ -758,7 +791,7 @@ For each item, note:
   sections.push(`
 ### Cross-Reference Against Diff
 
-Run \`git diff origin/<base>...HEAD\` and \`git log origin/<base>..HEAD --oneline\` to understand what was implemented.
+Run ${diffRangeCmd} and ${logRangeCmd} to understand what was implemented.
 
 For each extracted plan item, check the diff and classify:
 
@@ -828,7 +861,7 @@ After producing the completion checklist:
 
 When no plan file is detected, use these secondary intent sources:
 
-1. **Commit messages:** Run \`git log origin/<base>..HEAD --oneline\`. Use judgment to extract real intent:
+1. **Commit messages:** Run ${logRangeCmd}. Use judgment to extract real intent:
    - Commits with actionable verbs ("add", "implement", "fix", "create", "remove", "update") are intent signals
    - Skip noise: "WIP", "tmp", "squash", "merge", "chore", "typo", "fixup"
    - Extract the intent behind the commit, not the literal message
@@ -841,7 +874,7 @@ When no plan file is detected, use these secondary intent sources:
 
 For each PARTIAL or NOT DONE item, investigate WHY:
 
-1. Check \`git log origin/<base>..HEAD --oneline\` for commits that suggest the work was started, attempted, or reverted
+1. Check ${logRangeCmd} for commits that suggest the work was started, attempted, or reverted
 2. Read the relevant code to understand what was built instead
 3. Determine the likely reason from this list:
    - **Scope cut** — evidence of intentional removal (revert commit, removed TODO)

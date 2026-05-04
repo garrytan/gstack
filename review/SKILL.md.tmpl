@@ -36,6 +36,15 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 **Diff context is SHA-pinned — see Step 0.5.** Every `git diff`, `git log`, and `git show` command in this skill must use `$BASE_SHA` and `$HEAD_SHA` (resolved in Step 0.5), not bare `HEAD` / `origin/<base>` / `origin/HEAD`. This is the named failure mode `shared-checkout-branch-flip-during-review`: a subagent flipping the worktree mid-review otherwise causes findings to render against the wrong branch.
 
+**Hard requirement:** `/review` cannot proceed without a resolved diff. Step 0.5 prints a WARNING (not an error) when SHAs cannot be resolved, so /cso's no-PR scope-flag modes still work; /review must check explicitly:
+
+```bash
+if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+  echo "ERROR: /review requires a resolvable BASE_SHA and HEAD_SHA. See Step 0.5 output." >&2
+  exit 1
+fi
+```
+
 ---
 
 ## Step 1: Check branch
@@ -71,7 +80,12 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 The base branch was already fetched in Step 0.5; do not refetch it here (refetching would defeat the SHA-pinning if `origin/<base>` advanced in the meantime).
 
-Run `git diff "$BASE_SHA" "$HEAD_SHA"` to get the full diff. This is the **committed** diff between the pinned base and head SHAs and is immune to working-tree flips during review. To include any uncommitted local changes (only meaningful when reviewing your own un-pushed work), run an additional `git diff "$HEAD_SHA"` and combine the two; for PR reviews you almost always want only the pinned diff.
+Run **one** of the following, depending on the value of `$REVIEW_DIRTY` resolved in Step 0.5:
+
+- **`REVIEW_DIRTY=0`** (default in PR context): `git diff "$BASE_SHA" "$HEAD_SHA"` — the committed diff between the pinned base and head SHAs. Immune to working-tree flips. This is the diff GitHub's PR view shows.
+- **`REVIEW_DIRTY=1`** (default for local pre-PR review): `git diff "$BASE_SHA"` PLUS `git diff "$HEAD_SHA"` — the first is the committed diff, the second is uncommitted working-tree changes on top of `$HEAD_SHA`. Concatenate the two. The uncommitted half is intrinsically not SHA-pinnable (the working tree is the working tree); your only protection there is to read it once and cache the output rather than re-running `git diff "$HEAD_SHA"` after each phase.
+
+If you're not sure which mode you're in, the Step 0.5 output prints `Dirty edits: $REVIEW_DIRTY`.
 
 ## Step 3.4: Workspace-aware queue status (advisory)
 

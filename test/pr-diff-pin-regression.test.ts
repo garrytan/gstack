@@ -214,26 +214,27 @@ describe('pr-diff-pin regression — shared-checkout-branch-flip-during-review',
 
   /**
    * Pull out only **imperative** uses of `git diff` / `git log` / `git show`
-   * — i.e., commands the agent will actually run. We deliberately ignore
-   * markdown prose and don't/do-comparison tables; those exist precisely to
-   * document the bad patterns and would otherwise trip false positives.
+   * — i.e., commands the agent will actually run. We collect both:
+   *   (a) lines inside fenced bash blocks (```bash … ```), and
+   *   (b) inline backtick-quoted commands in narrative prose
+   *       (e.g. `Run \`git diff origin/<base>\` to get the full diff.`),
+   * which are also imperative — the agent reads narrative prose and runs
+   * the backtick-wrapped command verbatim. Codex's review caught a real
+   * gap here: we'd flagged Step 3's bash blocks but the inline Step-1
+   * directive was previously bare-ref.
    *
-   * The signal we want is: each imperative command should reference
-   * `$BASE_SHA` and/or `$HEAD_SHA`, not bare `origin/<base>` etc.
-   *
-   * Heuristic for "imperative":
-   *   - inside a fenced bash code block (```bash … ```)
-   *   - OR wrapped in single backticks somewhere a user is told to "Run …"
-   * For this test we use the bash-block case — it's unambiguous.
+   * We deliberately exclude markdown table rows (don't/do comparison
+   * tables that document the bad patterns) and explicit "**Don't**" /
+   * "**Do**:" labels.
    */
   function imperativeBashCommands(content: string): string[] {
     const lines = content.split('\n');
     const commands: string[] = [];
     let inBash = false;
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmed = line.trim();
       if (/^```(\w+)?$/.test(trimmed)) {
-        // toggle: opening if not in bash, closing if in bash
         if (inBash) {
           inBash = false;
         } else if (trimmed === '```bash' || trimmed === '```sh') {
@@ -241,10 +242,36 @@ describe('pr-diff-pin regression — shared-checkout-branch-flip-during-review',
         }
         continue;
       }
-      if (!inBash) continue;
-      if (trimmed.startsWith('#')) continue; // bash comment
-      if (trimmed === '') continue;
-      commands.push(line);
+      if (inBash) {
+        if (trimmed.startsWith('#')) continue; // bash comment
+        if (trimmed === '') continue;
+        commands.push(line);
+        continue;
+      }
+      // Outside a fenced block — pull out inline backtick-quoted commands
+      // that look imperative (start with git/gh/bun, not narrative quotes
+      // about a pattern).
+      const inlineMatches = line.match(/`([^`]+)`/g) ?? [];
+      for (const m of inlineMatches) {
+        const cmd = m.slice(1, -1).trim();
+        // Skip variable refs like `$BASE_SHA`, type names, etc.
+        if (!/^(git|gh|bun)\s/.test(cmd)) continue;
+        // Skip "table-row-like" lines (markdown table cells).
+        if (trimmed.startsWith('|')) continue;
+        // Skip lines that explicitly label the bad pattern (Don't / wrong / bug).
+        if (/\*\*Don'?t\*\*|\bbad pattern\b|\bworking-tree dependent — bug\b/i.test(line)) continue;
+        // Skip lines that QUOTE a bad pattern alongside its replacement — these are
+        // inline "don't X, do Y" sentences, not imperatives.
+        if (
+          /`(git diff origin\/<base>|<base>\.\.HEAD|origin\/HEAD\.\.\.)/.test(line) &&
+          /\$BASE_SHA|\$HEAD_SHA/.test(line) &&
+          // and the BAD pattern is what we're currently looking at
+          /^(git diff origin\/<base>|git log .*<base>\.\.HEAD|git diff --name-only origin\/HEAD\.\.\.|git diff <base>\.\.HEAD|git diff origin\/<base>\.\.\.HEAD)/.test(cmd)
+        ) {
+          continue;
+        }
+        commands.push(`(inline) ${cmd}`);
+      }
     }
     return commands;
   }
