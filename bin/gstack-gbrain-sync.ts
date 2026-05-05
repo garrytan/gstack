@@ -7,7 +7,8 @@
  *   1. Code (current repo)         → `gbrain sources add` (idempotent via
  *                                    lib/gbrain-sources.ts) + `gbrain sync
  *                                    --strategy code` (incremental) or
- *                                    `gbrain reindex-code --yes` (--full).
+ *                                    `gbrain sync --full --strategy code`
+ *                                    (--full first-run/full refresh).
  *                                    NEVER `gbrain import` (markdown only).
  *   2. Transcripts + curated memory → gstack-memory-ingest (typed put_page)
  *   3. Curated artifacts to git    → gstack-brain-sync (existing pipeline)
@@ -33,6 +34,7 @@ import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSyn
 import { join, dirname } from "path";
 import { execSync, execFileSync, spawnSync } from "child_process";
 import { homedir } from "os";
+import { createHash } from "crypto";
 
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
 import { sourcePageCount } from "../lib/gbrain-sources";
@@ -43,6 +45,8 @@ type Mode = "incremental" | "full" | "dry-run";
 
 interface CliArgs {
   mode: Mode;
+  /** True when --full was requested, even if --dry-run later changes mode to dry-run. */
+  full: boolean;
   quiet: boolean;
   noCode: boolean;
   noMemory: boolean;
@@ -83,7 +87,7 @@ function printUsage(): void {
 
 Modes:
   --incremental        Default. mtime fast-path; ~50ms steady-state.
-  --full               First-run; full walk + reindex. Honest ~25-35 min for big Macs (ED2).
+  --full               First-run/full refresh; source-aware code sync. Honest ~25-35 min for big Macs (ED2).
   --dry-run            Preview what would sync; no writes anywhere.
 
 Options:
@@ -102,6 +106,7 @@ Each stage failure is non-fatal; subsequent stages still run.
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   let mode: Mode = "incremental";
+  let full = false;
   let quiet = false;
   let noCode = false;
   let noMemory = false;
@@ -111,8 +116,8 @@ function parseArgs(): CliArgs {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     switch (a) {
-      case "--incremental": mode = "incremental"; break;
-      case "--full": mode = "full"; break;
+      case "--incremental": mode = "incremental"; full = false; break;
+      case "--full": mode = "full"; full = true; break;
       case "--dry-run": mode = "dry-run"; break;
       case "--quiet": quiet = true; break;
       case "--no-code": noCode = true; break;
@@ -134,7 +139,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly };
+  return { mode, full, quiet, noCode, noMemory, noBrainSync, codeOnly };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -158,20 +163,22 @@ function originUrl(): string | null {
 }
 
 /**
- * Derive a stable source id for the cwd code corpus. Pattern: `gstack-code-<slug>`,
- * where <slug> comes from canonicalizeRemote() then `/` → `-` (e.g.,
- * `github.com/garrytan/gstack` → `gstack-code-github-com-garrytan-gstack`).
- *
- * Falls back to `gstack-code-<basename(repo)>` when there is no origin (local repo).
+ * Derive a stable source id for the cwd code corpus. gbrain limits source ids
+ * to 32 lowercase alnum/hyphen chars, so keep the human slug short and append
+ * a deterministic hash to avoid collisions across owners/remotes.
  */
 function deriveCodeSourceId(repoPath: string): string {
   const remote = canonicalizeRemote(originUrl());
-  if (remote) {
-    return `gstack-code-${remote.replace(/[\/\s]+/g, "-").replace(/-+/g, "-")}`;
-  }
-  // Fallback for repos without a remote.
-  const base = repoPath.split("/").pop() || "repo";
-  return `gstack-code-${base.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-")}`;
+  const rawSlug = (remote ? remote.split("/").slice(-2).join("-") : repoPath.split("/").pop() || "repo")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "repo";
+  const hash = createHash("sha1").update(remote || repoPath).digest("hex").slice(0, 6);
+  const prefix = "gstack-code-";
+  const maxSlugLen = 32 - prefix.length - 1 - hash.length;
+  const slug = rawSlug.slice(0, maxSlugLen).replace(/-$/g, "") || "repo";
+  return `${prefix}${slug}-${hash}`;
 }
 
 function gbrainAvailable(): boolean {
@@ -245,12 +252,15 @@ function runCodeImport(args: CliArgs): StageResult {
   const sourceId = deriveCodeSourceId(root);
 
   if (args.mode === "dry-run") {
+    const syncPreview = args.full
+      ? `gbrain sync --full --strategy code --source ${sourceId}`
+      : `gbrain sync --strategy code --source ${sourceId}`;
     return {
       name: "code",
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}`,
+      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; ${syncPreview}`,
       detail: { source_id: sourceId, source_path: root, status: "skipped" },
     };
   }
@@ -276,9 +286,10 @@ function runCodeImport(args: CliArgs): StageResult {
     };
   }
 
-  // Step 2: Run sync or reindex.
-  const syncArgs = args.mode === "full"
-    ? ["reindex-code", "--source", sourceId, "--yes"]
+  // Step 2: Run source-aware sync. `reindex-code` only re-embeds already
+  // imported code pages; it is not a first-run import path.
+  const syncArgs = args.full
+    ? ["sync", "--full", "--strategy", "code", "--source", sourceId]
     : ["sync", "--strategy", "code", "--source", sourceId];
 
   const syncResult = spawnSync("gbrain", syncArgs, {

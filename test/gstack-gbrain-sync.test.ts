@@ -92,6 +92,18 @@ describe("gstack-gbrain-sync CLI", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it("--full --dry-run with --code-only uses source-aware sync, not reindex-code", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const r = runScript(["--full", "--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("gbrain sync --full --strategy code");
+    expect(r.stdout).not.toContain("reindex-code");
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("dry-run derives a stable source id from the canonical git remote", () => {
     // The source id pattern is `gstack-code-<canonicalized-remote>`. For this
     // repo (github.com/garrytan/gstack), the slug should appear in the dry-run

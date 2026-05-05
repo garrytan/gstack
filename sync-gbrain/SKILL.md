@@ -714,7 +714,7 @@ search over Grep.
 
 **Architecture (post-codex review):** This skill uses gbrain v0.20.0+'s
 **native code surfaces** (`gbrain sources add`, `gbrain sync --strategy code`,
-`gbrain reindex-code`, `gbrain code-def/code-refs/code-callers/code-callees`).
+`gbrain sync --full --strategy code`, `gbrain code-def/code-refs/code-callers/code-callees`).
 It does NOT use `gbrain import` (that path is for markdown directories).
 It does NOT touch `~/.gstack/` indexing (the existing `gstack-gbrain-source-wireup`
 owns that — never double-store).
@@ -725,7 +725,7 @@ When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
 - `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo)
+- `/sync-gbrain --full` — full source-aware code sync via `gbrain sync --full --strategy code` (~25-35 min on a big repo)
 - `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
 - `/sync-gbrain --no-memory` / `--no-brain-sync` — selectively skip stages
@@ -795,7 +795,7 @@ echo "cwd source: $SOURCE_ID, page_count: $PAGES"
 If `PAGES` is 0 or empty AND the user did NOT pass `--no-code` AND mode was
 not `--full`, AskUserQuestion via the format in the preamble:
 
-> D1 — This repo has 0 indexed pages in gbrain. Run a full code reindex now?
+> D1 — This repo has 0 indexed pages in gbrain. Run a full code sync now?
 >
 > ELI10: gbrain hasn't indexed this repo's code yet. The semantic search
 > tools (`gbrain search`, `code-def`, `code-refs`) will return nothing
