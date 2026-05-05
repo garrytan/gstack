@@ -182,6 +182,17 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Global discover
   'global-discover':   ['bin/gstack-global-discover.ts', 'test/global-discover.test.ts'],
 
+  // Build
+  'build-skill-cli-handoff': [
+    'build/**',
+    '.agents/skills/gstack-build/**',
+    'bin/gstack-build',
+    'scripts/gen-skill-docs.ts',
+    'scripts/resolvers/index.ts',
+    'build/orchestrator/**',
+    'test/skill-e2e-build.test.ts',
+  ],
+
   // CSO
   'cso-full-audit':   ['cso/**'],
   'cso-diff-mode':    ['cso/**'],
@@ -495,6 +506,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Global discover
   'global-discover': 'gate',
+
+  // Build — live handoff is periodic because it uses an LLM session.
+  'build-skill-cli-handoff': 'periodic',
 
   // CSO — gate for security guardrails, periodic for quality
   'cso-full-audit': 'gate',      // Hardcoded secrets detection

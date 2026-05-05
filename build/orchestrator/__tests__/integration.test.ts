@@ -64,6 +64,52 @@ test("dry-run TDD plan announces Test Specification and Verify Red for each phas
   expect(result.status).toBe(0);
 });
 
+test("dry-run legacy two-checkbox plan skips TDD red/green steps but completes", () => {
+  const legacyPlanFile = path.join(tmpDir, "legacy-plan.md");
+  fs.writeFileSync(
+    legacyPlanFile,
+    `# Legacy Integration Plan
+
+## Feature 1: Legacy
+
+### Phase 1: Legacy parser
+- [ ] **Implementation (Gemini Sub-agent)**: Implement parser behavior.
+- [ ] **Review & QA (Codex Sub-agent)**: Review parser behavior.
+`,
+  );
+  const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+  const result = spawnSync(
+    "bun",
+    [
+      "run",
+      cliPath,
+      legacyPlanFile,
+      "--dry-run",
+      "--test-cmd",
+      "bun test",
+      "--no-gbrain",
+      "--no-resume",
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: tmpDir,
+        GSTACK_HOME: path.join(tmpDir, ".gstack-legacy"),
+      },
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
+
+  const out = result.stdout + result.stderr;
+
+  expect(result.status).toBe(0);
+  expect(out).toContain("Phase 1");
+  expect(out).toContain("RUN_GEMINI");
+  expect(out).toContain("RUN_CODEX_REVIEW");
+  expect(out).not.toContain("Verify Red");
+});
+
 test("dry-run with --dual-impl announces Dual Impl, Judge, and Apply Winner", () => {
   const cliPath = path.resolve(import.meta.dir, "../cli.ts");
   const result = spawnSync(
@@ -74,6 +120,8 @@ test("dry-run with --dual-impl announces Dual Impl, Judge, and Apply Winner", ()
       planFile,
       "--dry-run",
       "--dual-impl",
+      "--judge-provider",
+      "claude",
       "--test-cmd",
       "bun test",
       "--no-gbrain",

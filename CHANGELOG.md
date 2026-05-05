@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.26.5.0] - 2026-05-05
+
+### Added
+
+- `/build` changes now have a dedicated `test:build-skill` verification path
+  covering build skill contract tests, role routing defaults, CLI parser and
+  gate tests, dry-run orchestrator flows, and generated skill freshness checks.
+- Build orchestrator dry-run coverage now includes legacy two-checkbox plans,
+  dual-implementation tournament mode, parallel phase planning, failed
+  dependency planning, Codex-dominant role defaults, and disabled secondary
+  review gates.
+- `/build` skill handoff now has a periodic live E2E test that verifies the
+  skill invokes the resolved `gstack-build` CLI with the plan path and
+  `--project-root`, plus touchfile metadata so targeted E2E runs pick it up when
+  build-related files change.
+
 ## [1.26.4.0] - 2026-05-05
 
 ### Changed
