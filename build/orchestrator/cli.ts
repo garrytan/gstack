@@ -1732,16 +1732,36 @@ async function runReviewGates(opts: {
     logDir(opts.slug),
     `phase-${opts.phaseNumber}-review-merged-${opts.iteration}.md`,
   );
+  const plan = buildReviewGatePlan(opts.roles);
+  for (const skipped of plan.skipped) {
+    combined.push(`## ${skipped.name}\nSKIPPED: ${skipped.reason}`);
+  }
+  if (plan.missingRequired.length > 0) {
+    for (const name of plan.missingRequired) {
+      combined.push(`## ${name}\n${name} role has no command. GATE FAIL`);
+    }
+    return {
+      result: mergeGateResults(
+        [
+          mockResult({
+            exitCode: 1,
+            stdout: `${plan.missingRequired.join(", ")} role command missing. GATE FAIL`,
+          }),
+        ],
+        combined,
+        "GATE FAIL",
+      ),
+      mergedReportPath: writeMergedReport(
+        mergedReportPath,
+        combined,
+        "GATE FAIL",
+      ),
+    };
+  }
   const runGate = async (
     name: "review" | "reviewSecondary" | "qa",
     role: RoleConfig,
   ) => {
-    if (!role.command) {
-      return mockResult({
-        exitCode: 1,
-        stdout: `${name} role has no command. GATE FAIL`,
-      });
-    }
     if (role.provider === "gemini") {
       return mockResult({
         exitCode: 1,
@@ -1765,17 +1785,13 @@ async function runReviewGates(opts: {
         provider: role.provider,
         model: role.model,
         reasoning: role.reasoning,
-        command: role.command,
+        command: role.command!,
       },
       gate: true,
     });
   };
 
-  for (const [name, role] of [
-    ["review", opts.roles.review],
-    ["reviewSecondary", opts.roles.reviewSecondary],
-    ["qa", opts.roles.qa],
-  ] as const) {
+  for (const { name, role } of plan.gates) {
     const result = await runGate(name, role);
     outputs.push(result);
     combined.push(
@@ -1817,6 +1833,39 @@ function mergeGateResults(
     durationMs: outputs.reduce((sum, r) => sum + r.durationMs, 0),
     retries: outputs.reduce((sum, r) => sum + r.retries, 0),
   };
+}
+
+export function buildReviewGatePlan(roles: RoleConfigs): {
+  gates: Array<{
+    name: "review" | "reviewSecondary" | "qa";
+    role: RoleConfig;
+  }>;
+  skipped: Array<{ name: "reviewSecondary"; reason: string }>;
+  missingRequired: Array<"review" | "qa">;
+} {
+  const gates: Array<{
+    name: "review" | "reviewSecondary" | "qa";
+    role: RoleConfig;
+  }> = [];
+  const skipped: Array<{ name: "reviewSecondary"; reason: string }> = [];
+  const missingRequired: Array<"review" | "qa"> = [];
+
+  if (roles.review.command) gates.push({ name: "review", role: roles.review });
+  else missingRequired.push("review");
+
+  if (roles.reviewSecondary.command) {
+    gates.push({ name: "reviewSecondary", role: roles.reviewSecondary });
+  } else {
+    skipped.push({
+      name: "reviewSecondary",
+      reason: "reviewSecondary command unset; skipped optional secondary review",
+    });
+  }
+
+  if (roles.qa.command) gates.push({ name: "qa", role: roles.qa });
+  else missingRequired.push("qa");
+
+  return { gates, skipped, missingRequired };
 }
 
 function writeMergedReport(

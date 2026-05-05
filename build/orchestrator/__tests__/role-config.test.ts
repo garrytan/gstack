@@ -39,8 +39,10 @@ describe("role config defaults", () => {
     expect(DEFAULT_ROLE_CONFIGS.reviewSecondary).toEqual(
       BUILD_DEFAULTS.roles.reviewSecondary,
     );
-    expect(DEFAULT_ROLE_CONFIGS.ship.command).toBe("/gstack-ship");
-    expect(DEFAULT_ROLE_CONFIGS.land.command).toBe("/gstack-land-and-deploy");
+    expect(DEFAULT_ROLE_CONFIGS.reviewSecondary.command).toBeUndefined();
+    expect(DEFAULT_ROLE_CONFIGS.qa.command).toBe("/qa");
+    expect(DEFAULT_ROLE_CONFIGS.ship.command).toBe("/ship");
+    expect(DEFAULT_ROLE_CONFIGS.land.command).toBe("/land-and-deploy");
     expect(DEFAULT_ROLE_CONFIGS.contextSave.command).toBe("/context-save");
   });
 

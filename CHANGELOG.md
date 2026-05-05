@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.26.4.0] - 2026-05-05
+
+### Changed
+
+- `/build` now uses Codex-native local skill commands by default: `/qa`,
+  `/ship`, and `/land-and-deploy` replace the Claude-style `gstack-*`
+  slash commands in `build/configure.cm`.
+- The secondary review gate is now optional. Leaving
+  `reviewSecondary.command` unset skips the duplicate second-opinion review and
+  records the skip in the merged gate report, while missing primary `/review`
+  or `/qa` commands still fail the gate.
+- Build orchestrator tests now cover disabled secondary review gates and the
+  Codex-dominant default routing.
+
 ## [1.26.3.0] - 2026-05-03
 
 ## **`/sync-gbrain` keeps your brain current and teaches the agent when to use it.**

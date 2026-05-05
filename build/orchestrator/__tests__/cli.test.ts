@@ -5,6 +5,7 @@ import {
   buildCodexReviewBody,
   buildJudgePrompt,
   buildContextSaveBody,
+  buildReviewGatePlan,
   parseArgs,
   validateRoleProviders,
   resolveProjectRoot,
@@ -90,14 +91,53 @@ describe('--dual-impl flag wiring', () => {
     expect(HELP_TEXT).toContain('--dual-impl');
   });
 
-  it('parseArgs([plan, --dual-impl]) sets dualImpl=true', () => {
-    const args = parseArgs(['plan.md', '--dual-impl']);
+  it('parseArgs([plan, --dual-impl]) sets dualImpl=true when judge is Claude-compatible', () => {
+    const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
     expect(args.dualImpl).toBe(true);
   });
 
   it('parseArgs default -> dualImpl=false', () => {
     const args = parseArgs(['plan.md']);
     expect(args.dualImpl).toBe(false);
+  });
+});
+
+describe('review gate planning', () => {
+  it('skips reviewSecondary when its command is unset', () => {
+    const roles = {
+      ...DEFAULT_ROLE_CONFIGS,
+      reviewSecondary: {
+        ...DEFAULT_ROLE_CONFIGS.reviewSecondary,
+        command: undefined,
+      },
+    };
+
+    const plan = buildReviewGatePlan(roles);
+
+    expect(plan.gates.map((g) => g.name)).toEqual(['review', 'qa']);
+    expect(plan.skipped).toEqual([
+      {
+        name: 'reviewSecondary',
+        reason: 'reviewSecondary command unset; skipped optional secondary review',
+      },
+    ]);
+  });
+
+  it('fails required review and QA gates when their commands are unset', () => {
+    const roles = {
+      ...DEFAULT_ROLE_CONFIGS,
+      review: { ...DEFAULT_ROLE_CONFIGS.review, command: undefined },
+      reviewSecondary: {
+        ...DEFAULT_ROLE_CONFIGS.reviewSecondary,
+        command: '/custom second opinion',
+      },
+      qa: { ...DEFAULT_ROLE_CONFIGS.qa, command: undefined },
+    };
+
+    const plan = buildReviewGatePlan(roles);
+
+    expect(plan.gates.map((g) => g.name)).toEqual(['reviewSecondary']);
+    expect(plan.missingRequired).toEqual(['review', 'qa']);
   });
 });
 
@@ -224,7 +264,7 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 
   it('parseArgs model flags combine correctly with --dual-impl', () => {
-    const args = parseArgs(['plan.md', '--dual-impl']);
+    const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
     expect(args.dualImpl).toBe(true);
     expect(args.geminiModel).toBe(DEFAULT_ROLE_CONFIGS.primaryImpl.model);
     expect(args.codexModel).toBe(DEFAULT_ROLE_CONFIGS.secondaryImpl.model);
@@ -251,7 +291,7 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 
   it('provider validation rejects unsupported slash-command and dual-impl providers', () => {
-    const args = parseArgs(['plan.md', '--dual-impl']);
+    const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
     args.roles.qa.provider = 'gemini';
     args.roles.contextSave.provider = 'gemini';
     args.roles.primaryImpl.provider = 'codex';

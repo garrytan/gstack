@@ -29,26 +29,25 @@
     "reviewSecondary": {
       "provider": "codex",
       "model": "gpt-5.5",
-      "reasoning": "high",
-      "command": "/codex review"
+      "reasoning": "high"
     },
     "qa": {
       "provider": "codex",
       "model": "gpt-5.5",
       "reasoning": "high",
-      "command": "/gstack-qa"
+      "command": "/qa"
     },
     "ship": {
       "provider": "codex",
       "model": "gpt-5.5",
       "reasoning": "high",
-      "command": "/gstack-ship"
+      "command": "/ship"
     },
     "land": {
       "provider": "codex",
       "model": "gpt-5.5",
       "reasoning": "high",
-      "command": "/gstack-land-and-deploy"
+      "command": "/land-and-deploy"
     },
     "judge": {
       "provider": "codex",

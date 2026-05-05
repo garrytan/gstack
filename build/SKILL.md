@@ -836,8 +836,8 @@ Skip this entire step if in Reexamine or Resume Mode.
        cases using the project's existing test framework. Do NOT write any implementation code yet.
      - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct
        code. Do NOT change test assertions.
-     - [ ] **Review & QA (review roles)**: Run primary /review, secondary /codex review, and
-       /gstack-qa; all gates must pass.
+     - [ ] **Review & QA (review roles)**: Run primary /review, optional secondary review
+       if configured, and /qa; all required gates must pass.
 
    - A dedicated test plan strategy section.
 
