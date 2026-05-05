@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.26.6.0] - 2026-05-06
+
+### Changed
+
+- `/build` now routes configured `/ship`, `/land-and-deploy`, and template-only
+  plan location roles through Gemini by default.
+- Gemini-backed slash-command role execution now uses generic role-task helper
+  names while keeping Gemini-specific staging behavior isolated to the Gemini
+  CLI file handling path.
+- `/build` no longer rejects Gemini for ship and land phases after role config
+  validation has accepted those providers.
+
+### Added
+
+- Orchestrator coverage now verifies Gemini-backed role argv construction,
+  staged file cleanup, ship-to-land role dispatch, CLI provider validation, role
+  defaults, and generated skill docs for the new routing.
+
 ## [1.26.5.0] - 2026-05-05
 
 ### Added
