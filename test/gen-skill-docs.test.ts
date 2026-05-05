@@ -332,10 +332,12 @@ describe('gen-skill-docs', () => {
     // (Brain Sync, Context Recovery, Routing Injection are load-bearing
     // functionality, not optional). Budget is set to current size + small
     // headroom; ratchet down if a future slim trims real bytes.
+    // Ratcheted from 33000 → 35000 when the gbrain context-load block was
+    // added to generate-brain-sync-block.ts (per /sync-gbrain plan §4).
     for (const skill of reviewSkills) {
       const content = fs.readFileSync(skill.path, 'utf-8');
       const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
-      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(34_000);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(35_000);
     }
   });
 

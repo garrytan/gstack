@@ -55,7 +55,11 @@ describe("gstack-gbrain-sync CLI", () => {
 
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("would: gbrain import");
+    // Code stage now uses native code surface: sources add + sync --strategy code
+    // (NOT gbrain import — that's the markdown-only path that was rejected post-codex).
+    expect(r.stdout).toContain("would: gbrain sources add");
+    expect(r.stdout).toContain("gbrain sync --strategy code");
+    expect(r.stdout).not.toContain("gbrain import");
     // memory + brain-sync stages should not appear
     expect(r.stdout).not.toContain("gstack-memory-ingest --probe");
     expect(r.stdout).not.toContain("gstack-brain-sync --discover-new");
@@ -69,7 +73,8 @@ describe("gstack-gbrain-sync CLI", () => {
 
     const r = runScript(["--dry-run"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("would: gbrain import");
+    expect(r.stdout).toContain("would: gbrain sources add");
+    expect(r.stdout).toContain("gbrain sync --strategy code");
     expect(r.stdout).toContain("would: gstack-memory-ingest");
     expect(r.stdout).toContain("would: gstack-brain-sync");
     rmSync(home, { recursive: true, force: true });
@@ -82,8 +87,81 @@ describe("gstack-gbrain-sync CLI", () => {
 
     const r = runScript(["--dry-run", "--no-code"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).not.toContain("would: gbrain import");
+    expect(r.stdout).not.toContain("would: gbrain sources add");
     expect(r.stdout).toContain("would: gstack-memory-ingest");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("dry-run derives a stable source id from the canonical git remote", () => {
+    // The source id pattern is `gstack-code-<canonicalized-remote>`. For this
+    // repo (github.com/garrytan/gstack), the slug should appear in the dry-run
+    // preview line. We don't pin the exact slug — just verify the prefix +
+    // that the preview command would target a source with id gstack-code-*.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
+    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("dry-run does NOT acquire the lock file (lock is for write paths only)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const r = runScript(["--dry-run"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    // Lock file should not exist after a dry-run (it's a write-only safety primitive).
+    const lockPath = join(gstackHome, ".sync-gbrain.lock");
+    expect(existsSync(lockPath)).toBe(false);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("a stale lock file (older than 5 min) is taken over, not blocking", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    // Plant a stale lock file (mtime 6 min ago).
+    const lockPath = join(gstackHome, ".sync-gbrain.lock");
+    writeFileSync(lockPath, JSON.stringify({ pid: 99999, started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString() }));
+    const sixMinAgo = (Date.now() - 6 * 60 * 1000) / 1000;
+    // Set mtime explicitly via Bun's fs.utimes
+    const fs = require("fs");
+    fs.utimesSync(lockPath, sixMinAgo, sixMinAgo);
+
+    // Run with all stages disabled so we don't actually invoke anything heavy.
+    const r = runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+    });
+    expect(r.exitCode).toBe(0);
+    // Lock should be cleared after the run (we took it over and released).
+    expect(existsSync(lockPath)).toBe(false);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("a fresh lock file (less than 5 min old) blocks a second invocation with exit 2", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    // Plant a fresh lock file (mtime now).
+    const lockPath = join(gstackHome, ".sync-gbrain.lock");
+    writeFileSync(lockPath, JSON.stringify({ pid: 99999, started_at: new Date().toISOString() }));
+
+    const r = runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+    });
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("another /sync-gbrain is running");
+    // Lock should still be there — the second invocation didn't take it over.
+    expect(existsSync(lockPath)).toBe(true);
     rmSync(home, { recursive: true, force: true });
   });
 

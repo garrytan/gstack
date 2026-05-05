@@ -481,6 +481,50 @@ Find-and-replace (or append) this section in CLAUDE.md:
 - Current repo policy: {read-write|read-only|deny|unset}
 ```
 
+**After Step 9 (smoke test) passes, also write the `## GBrain Search Guidance`
+block** so the coding agent learns when to prefer `gbrain` over Grep. This
+block is gated on the smoke test passing — write the Configuration block
+first (so the user knows what state they're in even if the smoke test fails),
+then return here after Step 9 and write the guidance block only if smoke
+test succeeded.
+
+When Step 9 passes, find-and-replace (or append) this block. Use HTML-comment
+delimiters so removal regex is unambiguous and never eats user content. The
+block content is machine-AGNOSTIC — no engine type, no page counts, no
+last-sync time. Machine state stays in the Configuration block above.
+
+```markdown
+## GBrain Search Guidance (configured by /sync-gbrain)
+<!-- gstack-gbrain-search-guidance:start -->
+
+GBrain is set up and synced on this machine. The agent should prefer gbrain
+over Grep when the question is semantic or when you don't know the exact
+identifier yet. Two indexed corpora available via the `gbrain` CLI:
+- This repo's code (registered as `gstack-code-<repo>` source).
+- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
+  the existing federation pipeline).
+
+Prefer gbrain when:
+- "Where is X handled?" / semantic intent, no exact string yet:
+    `gbrain search "<terms>"` or `gbrain query "<question>"`
+- "Where is symbol Y defined?" / symbol-based code questions:
+    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+- "What calls Y?" / "What does Y depend on?":
+    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+- "What did we decide last time?" / past plans, retros, learnings:
+    `gbrain search "<terms>" --source gstack-brain-<user>`
+
+Grep is still right for known exact strings, regex, multiline patterns, and
+file globs. The brain auto-syncs incrementally on every gstack skill start.
+Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
+
+<!-- gstack-gbrain-search-guidance:end -->
+```
+
+If Step 9 smoke test fails, skip the guidance block write entirely. The user's
+next `/sync-gbrain` run will re-evaluate capability and write the block when
+the round-trip works.
+
 ---
 
 ## Step 9: Smoke test

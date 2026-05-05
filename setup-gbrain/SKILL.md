@@ -342,6 +342,35 @@ _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
+# /sync-gbrain context-load: teach the agent to use gbrain when it's available.
+# Mutually exclusive variants per /plan-eng-review §4. Empty string when gbrain
+# is not configured (zero context cost for non-gbrain users).
+_GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
+  if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
+    _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
+    _CWD_PAGES=0
+    if [ -f "$_SYNC_STATE" ]; then
+      # Flatten newlines so the regex works against pretty-printed JSON too.
+      _CWD_PAGES=$(tr -d '\n' < "$_SYNC_STATE" 2>/dev/null \
+        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \
+        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\+' | head -1)
+      _CWD_PAGES=${_CWD_PAGES:-0}
+    fi
+    if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
+      echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
+      echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
+      echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
+      echo "Run /sync-gbrain to refresh."
+    else
+      echo "GBrain configured but this repo isn't indexed yet. Run \`/sync-gbrain --full\`"
+      echo "before relying on \`gbrain search\` for code questions in this repo."
+      echo "Falls back to Grep until indexed."
+    fi
+  fi
+fi
+
 _BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
@@ -1129,6 +1158,50 @@ Find-and-replace (or append) this section in CLAUDE.md:
 - Memory sync: {off|artifacts-only|full}
 - Current repo policy: {read-write|read-only|deny|unset}
 ```
+
+**After Step 9 (smoke test) passes, also write the `## GBrain Search Guidance`
+block** so the coding agent learns when to prefer `gbrain` over Grep. This
+block is gated on the smoke test passing — write the Configuration block
+first (so the user knows what state they're in even if the smoke test fails),
+then return here after Step 9 and write the guidance block only if smoke
+test succeeded.
+
+When Step 9 passes, find-and-replace (or append) this block. Use HTML-comment
+delimiters so removal regex is unambiguous and never eats user content. The
+block content is machine-AGNOSTIC — no engine type, no page counts, no
+last-sync time. Machine state stays in the Configuration block above.
+
+```markdown
+## GBrain Search Guidance (configured by /sync-gbrain)
+<!-- gstack-gbrain-search-guidance:start -->
+
+GBrain is set up and synced on this machine. The agent should prefer gbrain
+over Grep when the question is semantic or when you don't know the exact
+identifier yet. Two indexed corpora available via the `gbrain` CLI:
+- This repo's code (registered as `gstack-code-<repo>` source).
+- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
+  the existing federation pipeline).
+
+Prefer gbrain when:
+- "Where is X handled?" / semantic intent, no exact string yet:
+    `gbrain search "<terms>"` or `gbrain query "<question>"`
+- "Where is symbol Y defined?" / symbol-based code questions:
+    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+- "What calls Y?" / "What does Y depend on?":
+    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+- "What did we decide last time?" / past plans, retros, learnings:
+    `gbrain search "<terms>" --source gstack-brain-<user>`
+
+Grep is still right for known exact strings, regex, multiline patterns, and
+file globs. The brain auto-syncs incrementally on every gstack skill start.
+Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
+
+<!-- gstack-gbrain-search-guidance:end -->
+```
+
+If Step 9 smoke test fails, skip the guidance block write entirely. The user's
+next `/sync-gbrain` run will re-evaluate capability and write the block when
+the round-trip works.
 
 ---
 

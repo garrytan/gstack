@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.26.3.0] - 2026-05-03
+
+## **`/sync-gbrain` keeps your brain current and teaches the agent when to use it.**
+
+Two functional gaps closed in one ship: the cwd repo wasn't actually being indexed by gbrain (the orchestrator called `gbrain import` which only handles markdown directories, not code), and the coding agent had no idea gbrain existed in any session that didn't explicitly opt in. Both fixed by switching to gbrain v0.20.0+'s native code surfaces and adding a CLAUDE.md guidance block that's gated on a working capability check.
+
+### What you can now do
+
+- **Run `/sync-gbrain` to refresh gbrain against this repo's code.** Default is `--incremental` (mtime fast-path, ~50ms). `--full` runs `gbrain reindex-code` for a full re-index. `--dry-run` previews what would sync without writing anywhere. `--code-only`, `--no-memory`, `--no-brain-sync`, `--quiet` all work.
+- **Use `gbrain code-def`/`code-refs`/`code-callers`/`code-callees` against your repo.** /sync-gbrain registers the cwd as a federated source via `gbrain sources add` (idempotent — id is `gstack-code-<repo_slug>`), then runs `gbrain sync --strategy code`. The native code surfaces just work afterward.
+- **Get gbrain hints in every gstack skill preamble.** When gbrain is configured AND the cwd source has page_count > 0, every skill start emits a 4-line "prefer `gbrain search`/`code-def`/`code-refs` over Grep" hint. When configured but the corpus is empty, you get a 3-line emergency hint nudging you to run `/sync-gbrain --full`. When gbrain isn't configured, the hint resolves to empty string — zero context tax for non-gbrain users.
+- **Find the long-form guidance in CLAUDE.md.** `/sync-gbrain` (and `/setup-gbrain` Step 8) write a `## GBrain Search Guidance` block delimited by HTML comments, with concrete CLI commands for semantic search, symbol-aware code lookup, and curated-memory queries. The block is removed automatically when the capability check fails, so a Mac with synced repo CLAUDE.md but no local gbrain doesn't end up telling the agent to use tools that don't exist.
+
+### What gets safer
+
+- **Concurrent /sync-gbrain runs from two terminals don't corrupt CLAUDE.md or `.gbrain-sync-state.json`.** Lock file at `~/.gstack/.sync-gbrain.lock` with PID + timestamp. Stale-lock takeover after 5 min. Both files written via tmp+atomic-rename. SIGINT/SIGTERM trap releases the lock.
+- **`--dry-run` actually doesn't write anywhere.** Previously the orchestrator skipped only the `gbrain import` call; now it skips `sources add`, `sync --strategy code`, the state file, AND the CLAUDE.md guidance block. Print "would: ..." lines for every action.
+- **The capability check is narrower than `gbrain doctor`.** Doctor exits "unhealthy" for unrelated reasons (`resolver_health` warnings, `minions_migration` partial-installs) on otherwise-functional brains. /sync-gbrain uses a write+search round-trip (`gbrain put $SLUG | gbrain search ping | grep $SLUG`) which actually tests what we care about: can the agent search.
+
+### Itemized changes
+
+#### Added
+- New `lib/gbrain-sources.ts` — `ensureSourceRegistered(id, path, options)` + `probeSource(id, env)` + `sourcePageCount(id, env)` helpers. Production callers leave `env` unset (inherit `process.env`); tests pass a custom env to point at a fake `gbrain` on PATH.
+- New `sync-gbrain/SKILL.md.tmpl` — top-level skill, ~250 lines.
+- New `test/gbrain-sources.test.ts` — 9 unit tests with a fake gbrain shell script on PATH (jq-driven state file, no real DB needed).
+- Lock-file primitives (`acquireLock` / `releaseLock`) in the orchestrator.
+- New code-stage detail schema in `.gbrain-sync-state.json`: `last_stages.code.detail = {source_id, source_path, page_count, last_imported, status}`.
+
+#### Changed
+- `bin/gstack-gbrain-sync.ts` `runCodeImport` rewritten to use `gbrain sources add` + `gbrain sync --strategy code` (incremental) or `gbrain reindex-code --yes` (`--full`) instead of `gbrain import`. State file written via tmp+rename for atomicity.
+- `setup-gbrain/SKILL.md.tmpl` Step 8 now writes both `## GBrain Configuration` AND `## GBrain Search Guidance` blocks, gated on Step 9 smoke test pass.
+- `scripts/resolvers/preamble/generate-brain-sync-block.ts` emits Variant A (4 lines, healthy) / Variant B (3 lines, empty corpus) / empty string (gbrain not configured). Reads cached cwd page_count from the state file (handles pretty + compact JSON via `tr -d '\n'` flatten).
+- `test/gen-skill-docs.test.ts` plan-review preamble byte budget bumped 33000 → 35000 to absorb the new context-load block.
+- `test/gstack-gbrain-sync.test.ts` updated for native code surfaces (12 tests, was 8) — adds source-id derivation, dry-run no-lock, stale-lock takeover, fresh-lock blocking.
+- `test/skill-e2e-memory-pipeline.test.ts` updated to assert `would: gbrain sources add` instead of `would: gbrain import`.
+- Ship golden fixtures (`test/fixtures/golden/{claude,codex,factory}-ship-SKILL.md`) refreshed.
+
+#### For contributors
+- The 4-digit `MAJOR.MINOR.PATCH.MICRO` version in `package.json` and `VERSION` is the source of truth.
+- Run `bun run gen:skill-docs --host all` after editing any `.tmpl` to regenerate per-host SKILL.md files; commit both.
+- gbrain v0.25.1 already ships `gbrain sync --watch [--interval N]` and `gbrain sync --install-cron` natively. The previously-deferred V1.5 P0 daemon can wire through to those rather than building a gstack-side watcher.
+
 ## [1.26.2.0] - 2026-05-03
 
 ## **`/plan-eng-review` always asks. Never silently writes findings to your plan first.**

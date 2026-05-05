@@ -2,6 +2,9 @@
  * gbrain-sync preamble block.
  *
  * Emits bash that runs at every skill invocation:
+ *   0. Live gbrain-availability hint (per /plan-eng-review): when gbrain is
+ *      configured, emit one of two variants (steady-state vs empty-corpus
+ *      emergency). Zero context cost when gbrain is not configured.
  *   1. If ~/.gstack-brain-remote.txt exists AND ~/.gstack/.git is missing,
  *      surface a restore-available hint (does NOT auto-run restore).
  *   2. If sync is on, run `gstack-brain-sync --once` (drain + push).
@@ -30,6 +33,35 @@ _GSTACK_HOME="\${GSTACK_HOME:-$HOME/.gstack}"
 _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 _BRAIN_SYNC_BIN="${ctx.paths.binDir}/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="${ctx.paths.binDir}/gstack-config"
+
+# /sync-gbrain context-load: teach the agent to use gbrain when it's available.
+# Mutually exclusive variants per /plan-eng-review §4. Empty string when gbrain
+# is not configured (zero context cost for non-gbrain users).
+_GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
+  if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
+    _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
+    _CWD_PAGES=0
+    if [ -f "$_SYNC_STATE" ]; then
+      # Flatten newlines so the regex works against pretty-printed JSON too.
+      _CWD_PAGES=$(tr -d '\\n' < "$_SYNC_STATE" 2>/dev/null \\
+        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \\
+        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\\+' | head -1)
+      _CWD_PAGES=\${_CWD_PAGES:-0}
+    fi
+    if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
+      echo "GBrain configured. Prefer \\\`gbrain search\\\`/\\\`gbrain query\\\` over Grep for"
+      echo "semantic questions; use \\\`gbrain code-def\\\`/\\\`code-refs\\\`/\\\`code-callers\\\` for"
+      echo "symbol-aware code lookup. See \\"## GBrain Search Guidance\\" in CLAUDE.md."
+      echo "Run /sync-gbrain to refresh."
+    else
+      echo "GBrain configured but this repo isn't indexed yet. Run \\\`/sync-gbrain --full\\\`"
+      echo "before relying on \\\`gbrain search\\\` for code questions in this repo."
+      echo "Falls back to Grep until indexed."
+    fi
+  fi
+fi
 
 _BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
 

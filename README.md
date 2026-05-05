@@ -235,6 +235,7 @@ The three targeted architecture reviews are manual in v1. A good default sequenc
 | `/open-gstack-browser` | **GStack Browser** — launch GStack Browser with sidebar, anti-bot stealth, auto model routing (Sonnet for actions, Opus for analysis), one-click cookie import, and Claude Code integration. Clean up pages, take smart screenshots, edit CSS, and pass info back to your terminal. |
 | `/setup-deploy` | **Deploy Configurator** — one-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 | `/setup-gbrain` | **GBrain Onboarding** — from zero to running gbrain in under 5 minutes. PGLite local, Supabase existing URL, or auto-provision a new Supabase project via Management API. MCP registration for Claude Code + per-repo trust triad (read-write/read-only/deny). [Full guide](USING_GBRAIN_WITH_GSTACK.md). |
+| `/sync-gbrain` | **Keep Brain Current** — re-index this repo's code into gbrain via `gbrain sources add` + `gbrain sync --strategy code`, refresh the `## GBrain Search Guidance` block in CLAUDE.md, and auto-remove guidance when the capability check fails. `--incremental` (default), `--full`, `--dry-run`. Idempotent; safe to re-run. |
 | `/gstack-upgrade` | **Self-Updater** — upgrade gstack to latest. Detects global vs vendored install, syncs both, shows what changed. |
 
 ### New binaries (v0.19)
@@ -394,6 +395,8 @@ Three paths, pick one:
 
 After init, the skill offers to register gbrain as an MCP server for Claude Code (`claude mcp add gbrain -- gbrain serve`) so `gbrain search`, `gbrain put_page`, etc. show up as first-class typed tools — not bash shell-outs.
 
+**Keeping the brain current.** Run `/sync-gbrain` from any repo to re-index its code into gbrain (incremental by default, `--full` for a full reindex, `--dry-run` to preview). The skill registers the cwd as a federated source via `gbrain sources add`, runs `gbrain sync --strategy code`, and writes a `## GBrain Search Guidance` block to your project's CLAUDE.md so the agent prefers `gbrain search`/`code-def`/`code-refs` over Grep. The block is removed automatically if the capability check fails — no stale guidance pointing at tools that aren't installed.
+
 **Per-remote trust policy.** Each repo on your machine gets one of three tiers:
 
 - `read-write` — agent can search the brain AND write new pages back from this repo
@@ -464,9 +467,9 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
  /plan-domain-review, /plan-api-review, /plan-modernization-review, /plan-devex-review,
 /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
 /canary, /benchmark, /browse, /open-gstack-browser, /qa, /qa-only, /design-review,
-/devex-review, /setup-browser-cookies, /setup-deploy, /setup-gbrain, /retro, /investigate,
-/document-release, /codex, /cso, /autoplan, /pair-agent, /careful, /freeze, /guard, /unfreeze,
-/gstack-upgrade, /learn.
+/devex-review, /setup-browser-cookies, /setup-deploy, /setup-gbrain, /sync-gbrain,
+/retro, /investigate, /document-release, /codex, /cso, /autoplan, /pair-agent,
+/careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn.
 ```
 
 ## License
