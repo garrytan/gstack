@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Setup script: install openclaw and configure gstack skills + workspace connection
+
+set -e
+
+# Install openclaw (use yarnpkg registry as fallback if npm registry unreachable)
+if ! command -v openclaw &>/dev/null; then
+  echo "Installing openclaw..."
+  npm i -g openclaw --registry https://registry.yarnpkg.com || npm i -g openclaw
+fi
+
+echo "openclaw $(openclaw --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+
+# Run non-interactive onboarding (local mode, skip gateway health check)
+openclaw onboard --non-interactive --accept-risk --mode local --skip-health 2>/dev/null || true
+
+# Set default model to Anthropic claude-sonnet-4-6
+openclaw config set agents.defaults.model anthropic/claude-sonnet-4-6 2>/dev/null || true
+
+# Configure env secrets provider so gateway can resolve ANTHROPIC_API_KEY
+openclaw config patch --stdin <<'JSON'
+{
+  "secrets": {
+    "providers": {
+      "env": { "source": "env", "allowlist": ["ANTHROPIC_API_KEY"] }
+    }
+  }
+}
+JSON
+
+# Install gstack native OpenClaw skills into the agent workspace
+SKILLS_DIR="$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HOME/.openclaw/workspace")/skills"
+mkdir -p "$SKILLS_DIR"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+for skill_dir in "$REPO_DIR/skills"/*/; do
+  skill_name="$(basename "$skill_dir")"
+  mkdir -p "$SKILLS_DIR/$skill_name"
+  cp "$skill_dir/SKILL.md" "$SKILLS_DIR/$skill_name/"
+  echo "  Installed skill: $skill_name"
+done
+
+# Append gstack dispatch section to workspace AGENTS.md (idempotent)
+AGENTS_MD="$(openclaw config get agents.defaults.workspace 2>/dev/null || echo "$HOME/.openclaw/workspace")/AGENTS.md"
+if [ -f "$AGENTS_MD" ] && ! grep -q "Coding Tasks (gstack)" "$AGENTS_MD"; then
+  printf '\n---\n\n' >> "$AGENTS_MD"
+  cat "$REPO_DIR/agents-gstack-section.md" >> "$AGENTS_MD"
+  echo "  Updated AGENTS.md with gstack dispatch section"
+fi
+
+echo ""
+echo "openclaw + gstack connection ready."
+echo "Start the gateway with: openclaw gateway run"
+echo "Check skills with:      openclaw skills list"
