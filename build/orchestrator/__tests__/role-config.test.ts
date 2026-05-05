@@ -41,9 +41,17 @@ describe("role config defaults", () => {
     );
     expect(DEFAULT_ROLE_CONFIGS.reviewSecondary.command).toBeUndefined();
     expect(DEFAULT_ROLE_CONFIGS.qa.command).toBe("/qa");
+    expect(DEFAULT_ROLE_CONFIGS.ship.provider).toBe("gemini");
     expect(DEFAULT_ROLE_CONFIGS.ship.command).toBe("/ship");
+    expect(DEFAULT_ROLE_CONFIGS.land.provider).toBe("gemini");
     expect(DEFAULT_ROLE_CONFIGS.land.command).toBe("/land-and-deploy");
     expect(DEFAULT_ROLE_CONFIGS.contextSave.command).toBe("/context-save");
+  });
+
+  it("routes template-only plan location through gemini in configure.cm", () => {
+    const loaded = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+    expect((loaded.roles as any).planLocator.provider).toBe("gemini");
+    expect((loaded.roles as any).planLocator.model).toBeTruthy();
   });
 
   it("includes the featureReview role with codex/gpt-5.5 defaults", () => {

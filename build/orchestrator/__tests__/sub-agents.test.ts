@@ -8,6 +8,9 @@ import {
   buildCodexImplArgv,
   buildCodexReviewArgv,
   buildClaudeTaskArgv,
+  buildRoleTaskArgv,
+  runShip,
+  runSlashCommand,
 } from "../sub-agents";
 import fs from "node:fs";
 import os from "node:os";
@@ -522,5 +525,189 @@ describe("buildClaudeTaskArgv (claude role invocation shape)", () => {
     });
     const prompt = argv[argv.indexOf("-p") + 1];
     expect(prompt).toContain("/codex review");
+  });
+});
+
+describe("buildRoleTaskArgv", () => {
+  it("builds a configured /ship prompt with file-path I/O and yolo", () => {
+    const argv = buildRoleTaskArgv({
+      inputFilePath: "/tmp/ship-in.md",
+      outputFilePath: "/tmp/ship-out.md",
+      command: "/ship",
+      model: "role-model-under-test",
+    });
+    expect(argv).toContain("-p");
+    expect(argv).toContain("-m");
+    expect(argv[argv.indexOf("-m") + 1]).toBe("role-model-under-test");
+    expect(argv).toContain("--yolo");
+    const prompt = argv[argv.indexOf("-p") + 1];
+    expect(prompt).toContain("Read instructions at /tmp/ship-in.md");
+    expect(prompt).toContain("Run /ship");
+    expect(prompt).toContain("Write your complete output to /tmp/ship-out.md");
+  });
+
+  it("includes a gate verdict instruction when requested", () => {
+    const argv = buildRoleTaskArgv({
+      inputFilePath: "/tmp/role-in.md",
+      outputFilePath: "/tmp/role-out.md",
+      command: "/review",
+      model: "role-model-under-test",
+      gate: true,
+    });
+    const prompt = argv[argv.indexOf("-p") + 1];
+    expect(prompt).toContain("GATE PASS");
+    expect(prompt).toContain("GATE FAIL");
+    expect(prompt).toContain("Write your complete output to /tmp/role-out.md");
+  });
+});
+
+describe("runSlashCommand (gemini role dispatch)", () => {
+  it("runs configured slash-command roles through the gemini CLI", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-role-"));
+    const slug = `gemini-role-${process.pid}-${Date.now()}`;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeGemini = path.join(tmpDir, "gemini");
+      fs.writeFileSync(
+        fakeGemini,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+const match = prompt.match(/Write your complete output to (.+?\\.md)\\./);
+if (!match) {
+  console.error("missing output path in prompt");
+  process.exit(2);
+}
+fs.writeFileSync(match[1], "fake gemini ran /ship\\n");
+process.stdout.write(match[1]);
+`,
+      );
+      fs.chmodSync(fakeGemini, 0o755);
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "ship context");
+      fs.writeFileSync(outputFilePath, "");
+
+      const result = await runSlashCommand({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        logPrefix: "ship",
+        role: {
+          provider: "gemini",
+          model: "role-model-under-test",
+          reasoning: "high",
+          command: "/ship",
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("fake gemini ran /ship\n");
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe(
+        "fake gemini ran /ship\n",
+      );
+      expect(fs.existsSync(result.logPath)).toBe(true);
+      expect(fs.readFileSync(result.logPath, "utf8")).toContain(
+        path.join(".gemini", "tmp", "gstack", slug),
+      );
+      const stagingDir = path.join(
+        os.homedir(),
+        ".gemini",
+        "tmp",
+        "gstack",
+        slug,
+      );
+      const leftovers = fs.existsSync(stagingDir)
+        ? fs.readdirSync(stagingDir)
+        : [];
+      expect(leftovers).toEqual([]);
+    } finally {
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+});
+
+describe("runShip (gemini role dispatch)", () => {
+  it("runs ship then land slash-command roles through the configured CLI", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-ship-"));
+    const slug = `gemini-ship-${process.pid}-${Date.now()}`;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeGemini = path.join(tmpDir, "gemini");
+      const callsPath = path.join(tmpDir, "calls.txt");
+      fs.writeFileSync(
+        fakeGemini,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+const match = prompt.match(/Write your complete output to (.+?\\.md)\\./);
+if (!match) {
+  console.error("missing output path in prompt");
+  process.exit(2);
+}
+const command = prompt.includes("Run /land-and-deploy.")
+  ? "/land-and-deploy"
+  : prompt.includes("Run /ship.")
+    ? "/ship"
+    : "unknown";
+fs.appendFileSync(${JSON.stringify(callsPath)}, command + "\\n");
+fs.writeFileSync(match[1], "fake gemini ran " + command + "\\n");
+process.stdout.write(match[1]);
+`,
+      );
+      fs.chmodSync(fakeGemini, 0o755);
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const result = await runShip({
+        cwd: tmpDir,
+        slug,
+        ship: {
+          provider: "gemini",
+          model: "role-model-under-test",
+          reasoning: "high",
+          command: "/ship",
+        },
+        land: {
+          provider: "gemini",
+          model: "role-model-under-test",
+          reasoning: "high",
+          command: "/land-and-deploy",
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("fake gemini ran /land-and-deploy\n");
+      expect(fs.readFileSync(callsPath, "utf8")).toBe(
+        "/ship\n/land-and-deploy\n",
+      );
+      expect(fs.existsSync(result.logPath)).toBe(true);
+    } finally {
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 });

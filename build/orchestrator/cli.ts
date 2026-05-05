@@ -316,7 +316,7 @@ export function validateRoleProviders(
       );
     }
   }
-  for (const name of ["ship", "land", "contextSave"] as const) {
+  for (const name of ["contextSave"] as const) {
     if (args.roles[name].provider === "gemini") {
       errors.push(
         `--${roleFlagName(name)}-provider gemini is not supported for slash-command roles`,

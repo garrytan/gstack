@@ -71,6 +71,21 @@ test("build skill docs resolve gstack-build through _GSTACK_BUILD_CLI", () => {
   }
 });
 
+test("build skill docs route planLocator provider through gemini when configured", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("_LOCATOR_PROVIDER");
+    expect(content).toContain("gemini -p");
+    expect(content).toContain("-m \"$_LOCATOR_MODEL\" --yolo");
+  }
+});
+
 test("bin/gstack-build wrapper prints CLI help", () => {
   const wrapperPath = path.resolve(import.meta.dir, "../../../bin/gstack-build");
   const result = spawnSync(wrapperPath, ["--help"], {
