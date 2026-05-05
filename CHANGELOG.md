@@ -31,7 +31,7 @@ Two functional gaps closed in one ship: the cwd repo wasn't actually being index
 #### Changed
 - `bin/gstack-gbrain-sync.ts` `runCodeImport` rewritten to use `gbrain sources add` + `gbrain sync --strategy code` (incremental) or `gbrain reindex-code --yes` (`--full`) instead of `gbrain import`. State file written via tmp+rename for atomicity.
 - `setup-gbrain/SKILL.md.tmpl` Step 8 now writes both `## GBrain Configuration` AND `## GBrain Search Guidance` blocks, gated on Step 9 smoke test pass.
-- `scripts/resolvers/preamble/generate-brain-sync-block.ts` emits Variant A (4 lines, healthy) / Variant B (3 lines, empty corpus) / empty string (gbrain not configured). Reads cached cwd page_count from the state file (handles pretty + compact JSON via `tr -d '\n'` flatten).
+- `scripts/resolvers/preamble/generate-brain-sync-block.ts` emits Variant A (4 lines, healthy) / Variant B (3 lines, empty corpus) / empty string (gbrain not configured). Reads cached cwd page_count from the state file by matching the current repo `source_path`.
 - `test/gen-skill-docs.test.ts` plan-review preamble byte budget bumped 33000 → 35000 to absorb the new context-load block.
 - `test/gstack-gbrain-sync.test.ts` updated for native code surfaces (12 tests, was 8) — adds source-id derivation, dry-run no-lock, stale-lock takeover, fresh-lock blocking.
 - `test/skill-e2e-memory-pipeline.test.ts` updated to assert `would: gbrain sources add` instead of `would: gbrain import`.

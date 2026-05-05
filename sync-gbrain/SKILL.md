@@ -352,10 +352,10 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
     _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
     _CWD_PAGES=0
     if [ -f "$_SYNC_STATE" ]; then
-      # Flatten newlines so the regex works against pretty-printed JSON too.
-      _CWD_PAGES=$(tr -d '\n' < "$_SYNC_STATE" 2>/dev/null \
-        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \
-        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\+' | head -1)
+      _CWD_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+      _CWD_PAGES=$(jq -r --arg path "$_CWD_ROOT" \
+        '.last_stages[]? | select(.name=="code" and .detail.source_path==$path) | .detail.page_count // 0' \
+        "$_SYNC_STATE" 2>/dev/null | head -1)
       _CWD_PAGES=${_CWD_PAGES:-0}
     fi
     if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
@@ -784,8 +784,10 @@ tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
 After the sync run, query gbrain for the cwd source's page_count:
 
 ```bash
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+SOURCE_ID=$(jq -r --arg path "$ROOT" \
+  '.last_stages[]? | select(.name=="code" and .detail.source_path==$path) | .detail.source_id // empty' \
+  ~/.gstack/.gbrain-sync-state.json 2>/dev/null | head -1)
 PAGES=$(gbrain sources list --json 2>/dev/null \
   | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
   || echo 0)

@@ -367,10 +367,10 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
     _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
     _CWD_PAGES=0
     if [ -f "$_SYNC_STATE" ]; then
-      # Flatten newlines so the regex works against pretty-printed JSON too.
-      _CWD_PAGES=$(tr -d '\n' < "$_SYNC_STATE" 2>/dev/null \
-        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \
-        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\+' | head -1)
+      _CWD_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+      _CWD_PAGES=$(jq -r --arg path "$_CWD_ROOT" \
+        '.last_stages[]? | select(.name=="code" and .detail.source_path==$path) | .detail.page_count // 0' \
+        "$_SYNC_STATE" 2>/dev/null | head -1)
       _CWD_PAGES=${_CWD_PAGES:-0}
     fi
     if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then

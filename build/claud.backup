@@ -1,9 +1,9 @@
 {
   "roles": {
     "testWriter": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     },
     "primaryImpl": {
       "provider": "gemini",
@@ -21,15 +21,15 @@
       "reasoning": "high"
     },
     "review": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high",
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh",
       "command": "/review"
     },
     "reviewSecondary": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high",
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh",
       "command": "/codex review"
     },
     "qa": {
@@ -51,13 +51,13 @@
       "command": "/gstack-land-and-deploy"
     },
     "judge": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     },
     "contextSave": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "claude",
+      "model": "sonnet",
       "reasoning": "high",
       "command": "/context-save"
     },
@@ -67,18 +67,18 @@
       "reasoning": "xhigh"
     },
     "planLocator": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-haiku-4-5-20251001",
+      "reasoning": "low"
     },
     "planSynthesizer": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "claude",
+      "model": "claude-sonnet-4-6",
       "reasoning": "high"
     },
     "featureVerifier": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "claude",
+      "model": "claude-sonnet-4-6",
       "reasoning": "high"
     }
   },
