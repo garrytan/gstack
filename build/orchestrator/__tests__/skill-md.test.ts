@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -49,4 +50,38 @@ test("build skill and CLI do not hardcode default model names", () => {
   }
   expect(fs.readFileSync(files[0], "utf-8")).toContain("configure.cm");
   expect(fs.readFileSync(files[1], "utf-8")).toContain("configure.cm");
+});
+
+test("build skill docs resolve gstack-build through _GSTACK_BUILD_CLI", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("_GSTACK_BUILD_CLI");
+    expect(content).toContain("command -v gstack-build");
+    expect(content).toContain('"$_GSTACK_BUILD_CLI" "$_PLAN_FILE"');
+    expect(content).not.toContain('\ngstack-build "$_PLAN_FILE"');
+    expect(content).not.toContain(
+      'GSTACK_BUILD_GEMINI_TIMEOUT=1200000 gstack-build "$_PLAN_FILE"',
+    );
+  }
+});
+
+test("bin/gstack-build wrapper prints CLI help", () => {
+  const wrapperPath = path.resolve(import.meta.dir, "../../../bin/gstack-build");
+  const result = spawnSync(wrapperPath, ["--help"], {
+    cwd: path.resolve(import.meta.dir, "../../.."),
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  const out = result.stdout + result.stderr;
+
+  expect(result.status).toBe(0);
+  expect(out).toContain("gstack-build — code-driven phase orchestrator");
+  expect(out).toContain("Usage:");
+  expect(out).toContain("--dry-run");
 });

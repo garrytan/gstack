@@ -94,6 +94,7 @@ Invoke them by name (e.g., `/office-hours`).
 ```bash
 bun install              # install dependencies
 bun test                 # run free tests (no API spend)
+bun run test:build-skill # focused verification for /build skill changes
 bun run test:windows     # curated Windows-safe subset (runs on windows-latest)
 bun run build            # generate docs + compile binaries
 bun run gen:skill-docs   # regenerate SKILL.md files from templates
