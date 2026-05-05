@@ -31,7 +31,11 @@ object RssRepository {
             conn.connectTimeout = 12_000
             conn.readTimeout = 12_000
             conn.setRequestProperty("User-Agent", "ReelsCreator/1.0")
-            conn.inputStream.use { parseRss(it) }
+            try {
+                conn.inputStream.use { parseRss(it) }
+            } finally {
+                conn.disconnect()
+            }
         }
     }
 
