@@ -431,6 +431,18 @@ export function buildCodexReviewArgv(opts: {
   ];
 }
 
+const CODEX_TRANSPORT_FAILURE_RE =
+  /stream disconnected before completion|tls handshake eof|failed to connect to websocket|error sending request for url.*backend-api\/codex\/responses/i;
+
+export function isLikelyCodexTransportFailure(result: Pick<
+  SubAgentResult,
+  "stdout" | "stderr"
+>): boolean {
+  return CODEX_TRANSPORT_FAILURE_RE.test(
+    `${result.stdout}\n${result.stderr}`,
+  );
+}
+
 /**
  * Run one iteration of Codex review (i.e. `codex exec /gstack-review`).
  * Caller checks the verdict via parseVerdict(stdout) and decides whether
@@ -502,6 +514,24 @@ export async function runCodexReview(opts: {
       logDir(opts.slug),
       `phase-${opts.phaseNumber}-${opts.logPrefix ?? "codex"}-${opts.iteration}-retry.log`,
     );
+    const retryResult = await spawnCaptured({
+      bin: CODEX_BIN,
+      argv,
+      cwd: opts.cwd,
+      timeoutMs,
+      logPath: retryLog,
+      closeStdin: true,
+    });
+    retryResult.retries = 1;
+    cleanup();
+    return mergeOutputFile(retryResult, opts.outputFilePath);
+  }
+  if (result.exitCode !== 0 && isLikelyCodexTransportFailure(result)) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-${opts.logPrefix ?? "codex"}-${opts.iteration}-transport-retry.log`,
+    );
+    fs.writeFileSync(stagedOutput, "");
     const retryResult = await spawnCaptured({
       bin: CODEX_BIN,
       argv,
@@ -774,6 +804,7 @@ export async function runSlashCommand(opts: {
   };
   timeoutMs?: number;
   gate?: boolean;
+  sandbox?: CodexSandbox;
 }): Promise<SubAgentResult> {
   if (opts.role.provider === "claude") {
     return runClaudeTask({
@@ -817,6 +848,7 @@ export async function runSlashCommand(opts: {
     model: opts.role.model,
     reasoning: opts.role.reasoning,
     gate: opts.gate,
+    sandbox: opts.sandbox,
     logPrefix: opts.logPrefix,
     timeoutMs: opts.timeoutMs,
   });

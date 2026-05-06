@@ -45,6 +45,9 @@ gstack-build plans/example-impl-plan.md --no-resume
 3. Write failing tests first when the phase uses the TDD format.
 4. Implement until tests pass.
 5. Run recursive review gates until primary review, secondary review, and QA emit `GATE PASS`.
+   If a Codex review/QA gate fails with a known local sandbox-block signature
+   (browser, local socket, or localhost bind permission errors), retry that gate
+   once with `danger-full-access`.
 6. Flip the phase checkboxes in the plan.
 7. Persist state and continue to the next phase in the current feature.
 8. After a feature's phases are complete, run `/ship` and `/land-and-deploy`.
@@ -201,6 +204,10 @@ If tests fail after implementation, the test-fixer role gets recursive fix passe
 If any review gate emits `GATE FAIL`, the review loop runs again, capped by
 `GSTACK_BUILD_CODEX_MAX_ITER`. The phase cannot be marked complete until
 primary review, secondary review, and QA all produce `GATE PASS`.
+Codex review/QA gates normally use `workspace-write`; if that sandbox blocks
+local verification, the failed gate is retried once with `danger-full-access`.
+Set `GSTACK_BUILD_CODEX_REVIEW_SANDBOX` to choose an explicit sandbox and
+disable this automatic retry.
 
 ## Dual-Implementor Mode
 
@@ -403,6 +410,7 @@ config file.
 | `GSTACK_BUILD_JUDGE_TIMEOUT`      | Dual-impl judge timeout in milliseconds.                             |
 | `GSTACK_BUILD_JUDGE_MODEL`        | Claude model used for tournament judging.                            |
 | `GSTACK_BUILD_CODEX_IMPL_SANDBOX` | Codex implementor sandbox override.                                  |
+| `GSTACK_BUILD_CODEX_REVIEW_SANDBOX` | Codex review/QA sandbox override; explicit values disable automatic sandbox retry. |
 
 Role env vars use `GSTACK_BUILD_<ROLE>_<FIELD>`, where role is
 `TEST_WRITER`, `PRIMARY_IMPL`, `TEST_FIXER`, `SECONDARY_IMPL`, `REVIEW`,

@@ -67,6 +67,7 @@ import {
   parseVerdict,
   parseFailureCount,
   parseJudgeVerdict,
+  type CodexSandbox,
   type SubAgentResult,
 } from "./sub-agents";
 import {
@@ -1761,6 +1762,10 @@ async function runReviewGates(opts: {
   const runGate = async (
     name: "review" | "reviewSecondary" | "qa",
     role: RoleConfig,
+    attempt?: {
+      sandbox?: CodexSandbox;
+      suffix?: string;
+    },
   ) => {
     if (role.provider === "gemini") {
       return mockResult({
@@ -1768,9 +1773,10 @@ async function runReviewGates(opts: {
         stdout: `${name} role provider gemini is not supported for slash-command gates. GATE FAIL`,
       });
     }
+    const outputName = attempt?.suffix ? `${name}-${attempt.suffix}` : name;
     const outputFilePath = path.join(
       logDir(opts.slug),
-      `phase-${opts.phaseNumber}-${name}-${opts.iteration}-output.md`,
+      `phase-${opts.phaseNumber}-${outputName}-${opts.iteration}-output.md`,
     );
     fs.writeFileSync(outputFilePath, "");
     return runSlashCommand({
@@ -1780,7 +1786,7 @@ async function runReviewGates(opts: {
       slug: opts.slug,
       phaseNumber: opts.phaseNumber,
       iteration: opts.iteration,
-      logPrefix: name,
+      logPrefix: outputName,
       role: {
         provider: role.provider,
         model: role.model,
@@ -1788,16 +1794,41 @@ async function runReviewGates(opts: {
         command: role.command!,
       },
       gate: true,
+      sandbox: attempt?.sandbox,
     });
   };
 
   for (const { name, role } of plan.gates) {
-    const result = await runGate(name, role);
+    let result = await runGate(name, role);
     outputs.push(result);
     combined.push(
       `## ${name} (${roleLabel(role)})\n${result.stdout}\n${result.stderr}`,
     );
-    const verdict = parseVerdict(result.stdout + "\n" + result.stderr);
+    let verdict = parseVerdict(result.stdout + "\n" + result.stderr);
+    if (
+      isFailedGateResult(result, verdict) &&
+      shouldRetryCodexGateWithDangerFullAccess({
+        role,
+        result,
+        reviewSandboxEnv: process.env.GSTACK_BUILD_CODEX_REVIEW_SANDBOX,
+      })
+    ) {
+      const retryResult = await runGate(name, role, {
+        sandbox: "danger-full-access",
+        suffix: "sandbox-retry",
+      });
+      outputs.push(retryResult);
+      combined.push(
+        [
+          `## ${name} sandbox retry (codex:danger-full-access)`,
+          "The first Codex gate looked like workspace-write blocked local verification, so gstack-build reran this gate once with danger-full-access.",
+          retryResult.stdout,
+          retryResult.stderr,
+        ].join("\n"),
+      );
+      result = retryResult;
+      verdict = parseVerdict(retryResult.stdout + "\n" + retryResult.stderr);
+    }
     if (result.timedOut || result.exitCode !== 0 || verdict !== "pass") {
       return {
         result: mergeGateResults(outputs, combined, "GATE FAIL"),
@@ -1817,6 +1848,46 @@ async function runReviewGates(opts: {
       "GATE PASS",
     ),
   };
+}
+
+type Verdict = ReturnType<typeof parseVerdict>;
+
+function isFailedGateResult(result: SubAgentResult, verdict: Verdict): boolean {
+  return result.timedOut || result.exitCode !== 0 || verdict !== "pass";
+}
+
+const LOCAL_VERIFICATION_RE =
+  /\b(localhost|127\.0\.0\.1|::1|grpc|socket|bind|listen|port|chromium|chrome|playwright|browser)\b/;
+const LOCAL_BIND_PERMISSION_RE =
+  /\b(bind|listen)\b[\s\S]{0,160}\b(permission denied|operation not permitted|eacces|eperm)\b/;
+const SANDBOX_PERMISSION_RE =
+  /\b(permission denied|operation not permitted|eacces|eperm)\b/;
+
+export function isLikelyCodexWorkspaceSandboxFailure(
+  result: Pick<SubAgentResult, "stdout" | "stderr">,
+): boolean {
+  const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  const localVerificationSignal = LOCAL_VERIFICATION_RE.test(text);
+
+  if (/mach_port_rendezvous|bootstrap_check_in/.test(text)) return true;
+  if (LOCAL_BIND_PERMISSION_RE.test(text)) return true;
+  if (SANDBOX_PERMISSION_RE.test(text)) {
+    return localVerificationSignal;
+  }
+  if (/cannot bind[\s\S]{0,80}\blocalhost\b/.test(text)) return true;
+  return false;
+}
+
+export function shouldRetryCodexGateWithDangerFullAccess(opts: {
+  role: Pick<RoleConfig, "provider">;
+  result: Pick<SubAgentResult, "stdout" | "stderr">;
+  reviewSandboxEnv?: string;
+}): boolean {
+  return (
+    opts.role.provider === "codex" &&
+    !opts.reviewSandboxEnv &&
+    isLikelyCodexWorkspaceSandboxFailure(opts.result)
+  );
 }
 
 function mergeGateResults(

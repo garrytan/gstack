@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.26.5.0] - 2026-05-06
+
+## **`/build` survives transient Codex review transport drops without weakening sandbox policy.**
+
+Codex review, QA, and secondary review gates can now recover from the service disconnect path shown in the screenshot: `stream disconnected before completion`, TLS handshake EOFs, websocket connection failures, and Codex backend request-send failures. Those failures retry once inside `runCodexReview` with the same argv, cwd, model, prompt, and sandbox. Local sandbox blocks remain a separate path: only browser/socket/localhost permission failures can trigger the one-time `danger-full-access` gate retry.
+
+### What you can now do
+
+- **Resume `/build` review phases through transient Codex transport failures.** A dropped stream no longer fails the whole phase immediately; the Codex review runner retries once and writes the retry log as `phase-<n>-<prefix>-<iter>-transport-retry.log`.
+- **Keep stale partial review output from poisoning retry verdicts.** The staged Codex output file is cleared before the retry, so a failed first attempt cannot leave an old `GATE FAIL` report that masks a clean retry.
+- **Keep sandbox escalation precise.** Codex service/network failures are not treated as workspace sandbox failures, and transport retries do not switch to `danger-full-access`.
+
+### What gets safer
+
+- **Review transport failure classification is now unit-tested.** The suite detects stream/TLS failures and websocket failures, while rejecting normal `GATE FAIL` reports and local sandbox permission failures.
+- **The live retry protocol is covered with a fake Codex binary.** The test proves the first invocation can fail after writing stale output, the retry starts with an empty output file, the final result passes, `retries === 1`, and the retry log path includes `transport-retry`.
+
+### Itemized changes
+
+#### Fixed
+- `build/orchestrator/sub-agents.ts` — adds Codex transport failure classification and one same-sandbox retry for non-zero Codex review exits caused by transient service/network errors.
+- `build/orchestrator/cli.ts` — keeps local sandbox-block retry classification separate from Codex service disconnects and routes explicit retry sandbox overrides through `runSlashCommand`.
+
+#### Added
+- `build/orchestrator/__tests__/sub-agents.test.ts` — classifier coverage plus a fake-binary `runCodexReview` retry test.
+- `build/orchestrator/__tests__/cli.test.ts` — sandbox retry classifier coverage, including the guard that transport disconnects are not sandbox failures.
+
+#### Changed
+- `build/README.md` and `build/orchestrator/README.md` — document the Codex review/QA sandbox override and the local verification sandbox retry behavior.
+
 ## [1.26.4.0] - 2026-05-05
 
 ## **`/autoplan` review reports now reliably land at the bottom of the plan, even when an older copy lives mid-file.**

@@ -9,6 +9,8 @@ import {
   buildCodexReviewArgv,
   buildClaudeTaskArgv,
   buildRoleTaskArgv,
+  isLikelyCodexTransportFailure,
+  runCodexReview,
   runShip,
   runSlashCommand,
 } from "../sub-agents";
@@ -294,6 +296,45 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
   });
 });
 
+describe("isLikelyCodexTransportFailure", () => {
+  it("detects stream disconnects with TLS handshake EOF", () => {
+    expect(
+      isLikelyCodexTransportFailure({
+        stdout: "",
+        stderr:
+          "ERROR: stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses): tls handshake eof",
+      }),
+    ).toBe(true);
+  });
+
+  it("detects websocket connection failures", () => {
+    expect(
+      isLikelyCodexTransportFailure({
+        stdout: "",
+        stderr: "failed to connect to websocket: connection closed",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects normal review gate failures", () => {
+    expect(
+      isLikelyCodexTransportFailure({
+        stdout: "Review found a correctness issue.\nGATE FAIL",
+        stderr: "",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects local sandbox permission failures", () => {
+    expect(
+      isLikelyCodexTransportFailure({
+        stdout: "Chromium failed: mach_port_rendezvous Permission denied",
+        stderr: "",
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("buildCodexImplArgv (codex exec invocation shape)", () => {
   it("builds argv with exec + workspace-write default + worktree cwd", () => {
     const argv = buildCodexImplArgv({
@@ -491,6 +532,79 @@ describe("buildCodexReviewArgv (codex review invocation shape)", () => {
       });
       expect(argv).toContain("workspace-write");
     });
+  });
+});
+
+describe("runCodexReview transport retry", () => {
+  it("retries once on transient Codex transport failure using the same output protocol", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-review-"));
+    const slug = `codex-review-${process.pid}-${Date.now()}`;
+    const oldPath = process.env.PATH;
+    try {
+      const fakeCodex = path.join(tmpDir, "codex");
+      const callsPath = path.join(tmpDir, "calls.txt");
+      fs.writeFileSync(
+        fakeCodex,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[1] || "";
+const match = prompt.match(/Write your full review report to (.+?\\.md)\\./);
+if (!match) {
+  console.error("missing output path in prompt");
+  process.exit(2);
+}
+const outputPath = match[1];
+const callCount = fs.existsSync("${callsPath}") ? Number(fs.readFileSync("${callsPath}", "utf8")) : 0;
+fs.writeFileSync("${callsPath}", String(callCount + 1));
+if (callCount === 0) {
+  fs.writeFileSync(outputPath, "STALE GATE FAIL\\n");
+  console.error("ERROR: stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses): tls handshake eof");
+  process.exit(1);
+}
+if (fs.readFileSync(outputPath, "utf8") !== "") {
+  console.error("staged output was not cleared before retry");
+  process.exit(3);
+}
+fs.writeFileSync(outputPath, "GATE PASS\\n");
+process.stdout.write(outputPath);
+`,
+      );
+      fs.chmodSync(fakeCodex, 0o755);
+      process.env.PATH = `${tmpDir}${path.delimiter}${oldPath ?? ""}`;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "review context");
+      fs.writeFileSync(outputFilePath, "");
+
+      const result = await runCodexReview({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        phaseNumber: "1",
+        iteration: 1,
+        command: "/review",
+        logPrefix: "review",
+        gate: true,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.retries).toBe(1);
+      expect(result.logPath).toContain("transport-retry");
+      expect(result.stdout).toBe("GATE PASS\n");
+      expect(fs.readFileSync(callsPath, "utf8")).toBe("2");
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe("GATE PASS\n");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 });
 

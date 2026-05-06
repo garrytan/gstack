@@ -6,6 +6,8 @@ import {
   buildJudgePrompt,
   buildContextSaveBody,
   buildReviewGatePlan,
+  isLikelyCodexWorkspaceSandboxFailure,
+  shouldRetryCodexGateWithDangerFullAccess,
   parseArgs,
   validateRoleProviders,
   resolveProjectRoot,
@@ -138,6 +140,64 @@ describe('review gate planning', () => {
 
     expect(plan.gates.map((g) => g.name)).toEqual(['reviewSecondary']);
     expect(plan.missingRequired).toEqual(['review', 'qa']);
+  });
+});
+
+describe('Codex review gate sandbox retry classification', () => {
+  it('detects local browser/process permission failures from workspace-write', () => {
+    expect(
+      isLikelyCodexWorkspaceSandboxFailure({
+        stdout:
+          'Chromium failed: mach_port_rendezvous_mac.cc Permission denied (1100). GATE FAIL',
+        stderr: '',
+      }),
+    ).toBe(true);
+  });
+
+  it('detects localhost bind permission failures', () => {
+    expect(
+      isLikelyCodexWorkspaceSandboxFailure({
+        stdout: '',
+        stderr: 'grpc server cannot bind localhost:50051: EACCES',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not classify Codex service network disconnects as sandbox failures', () => {
+    expect(
+      isLikelyCodexWorkspaceSandboxFailure({
+        stdout: 'GATE FAIL',
+        stderr:
+          'ERROR: stream disconnected before completion: tls handshake eof while sending request to backend-api/codex/responses',
+      }),
+    ).toBe(false);
+  });
+
+  it('only retries Codex gates when sandbox env is not explicit', () => {
+    const result = {
+      stdout: 'Playwright browser launch failed: Operation not permitted',
+      stderr: '',
+    };
+
+    expect(
+      shouldRetryCodexGateWithDangerFullAccess({
+        role: { provider: 'codex' },
+        result,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRetryCodexGateWithDangerFullAccess({
+        role: { provider: 'codex' },
+        result,
+        reviewSandboxEnv: 'workspace-write',
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryCodexGateWithDangerFullAccess({
+        role: { provider: 'claude' },
+        result,
+      }),
+    ).toBe(false);
   });
 });
 

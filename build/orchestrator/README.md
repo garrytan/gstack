@@ -314,6 +314,7 @@ the repo copy. `GSTACK_BUILD_DEFAULTS_FILE` remains as a legacy alias.
 | `GSTACK_BUILD_JUDGE_TIMEOUT` | `600000` | Per-judge-call timeout in ms (10 min). Dual-impl only. |
 | `GSTACK_BUILD_JUDGE_MODEL` | role default | Model passed to `claude --model` for the judge. Dual-impl only. |
 | `GSTACK_BUILD_CODEX_IMPL_SANDBOX` | `workspace-write` | Sandbox mode for `runCodexImpl`. Set to `danger-full-access` to opt in to looser sandboxing (worktrees share .git/remotes — be aware). |
+| `GSTACK_BUILD_CODEX_REVIEW_SANDBOX` | `workspace-write` | Sandbox mode for Codex review/QA gates. If unset, known local sandbox-block failures retry once with `danger-full-access`; setting this env var disables that automatic retry. |
 
 ## Living plan storage
 
