@@ -553,8 +553,13 @@ create_agents_sidecar() {
     local src="$SOURCE_GSTACK_DIR/$asset"
     local dst="$agents_gstack/$asset"
     if [ -d "$src" ] || [ -f "$src" ]; then
+      if [ -d "$dst" ] && [ ! -L "$dst" ] && rmdir "$dst" 2>/dev/null; then
+        :
+      fi
       if [ -L "$dst" ] || [ ! -e "$dst" ]; then
         ln -snf "$src" "$dst"
+      elif [ -d "$dst" ] && [ ! -L "$dst" ]; then
+        log "warning: $dst exists and is not empty; leaving it in place"
       fi
     fi
   done
