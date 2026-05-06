@@ -3,7 +3,7 @@
 #
 # Output (one line, or nothing):
 #   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
-#   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
+#   UPGRADE_AVAILABLE <old> <new>   — remote VERSION is greater than local
 #   (nothing)                       — up to date, snoozed, disabled, or check skipped
 #
 # Env overrides (for testing):
@@ -99,6 +99,29 @@ check_snooze() {
   return 1  # snooze expired
 }
 
+version_gt() {
+  local left="$1"
+  local right="$2"
+  local IFS=.
+  local -a left_parts right_parts
+  read -r -a left_parts <<< "$left"
+  read -r -a right_parts <<< "$right"
+  local i l r
+  for i in 0 1 2 3; do
+    l="${left_parts[$i]:-0}"
+    r="${right_parts[$i]:-0}"
+    case "$l" in *[!0-9]*|'') l=0 ;; esac
+    case "$r" in *[!0-9]*|'') r=0 ;; esac
+    if [ "$l" -gt "$r" ]; then
+      return 0
+    fi
+    if [ "$l" -lt "$r" ]; then
+      return 1
+    fi
+  done
+  return 1
+}
+
 # ─── Step 1: Read local version ──────────────────────────────
 LOCAL=""
 if [ -f "$VERSION_FILE" ]; then
@@ -144,6 +167,10 @@ if [ -f "$CACHE_FILE" ]; then
         CACHED_OLD="$(echo "$CACHED" | awk '{print $2}')"
         if [ "$CACHED_OLD" = "$LOCAL" ]; then
           CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
+          if ! version_gt "$CACHED_NEW" "$LOCAL"; then
+            echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+            exit 0
+          fi
           if check_snooze "$CACHED_NEW"; then
             exit 0  # snoozed — stay quiet
           fi
@@ -190,12 +217,12 @@ if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
   exit 0
 fi
 
-if [ "$LOCAL" = "$REMOTE" ]; then
+if ! version_gt "$REMOTE" "$LOCAL"; then
   echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
   exit 0
 fi
 
-# Versions differ — upgrade available
+# Remote is greater than local — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet

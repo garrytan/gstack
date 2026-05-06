@@ -1413,6 +1413,18 @@ describe('CHANGELOG_WORKFLOW resolver', () => {
     expect(shipContent).toContain('### Added');
     expect(shipContent).toContain('### Fixed');
   });
+
+  test('ship docs preserve fork-local skill versioning rule', () => {
+    expect(shipContent).toContain('Fork versioning override');
+    expect(shipContent).toContain('FORK_LOCAL_SKILL_RELEASE=1');
+    expect(shipContent).toContain('Do not write a top-level `CHANGELOG.md` entry');
+    expect(shipContent).toContain('Do **not** edit top-level `VERSION`');
+    expect(shipContent).toContain('Do **not** edit `package.json.version`');
+    expect(shipContent).toContain('Do **not** call `bin/gstack-next-version`');
+    expect(shipContent).toContain('do **not** require or add a `v$NEW_VERSION` title prefix');
+    expect(shipContent).toContain('git diff --name-only origin/<base>');
+    expect(shipContent).not.toContain('git diff --name-only origin/<base>...HEAD');
+  });
 });
 
 // --- Parameterized resolver infrastructure tests ---

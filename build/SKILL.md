@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.20.0
+version: 1.21.0
 description: |
   gstack autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -725,7 +725,7 @@ PLAN MODE EXCEPTION — always allowed (it's the plan file).
 # /build — Autonomous Execution Loop
 
 You are the Execution Agent. The planning phase is over. Your job is to locate the source plan, synthesize a living plan via subagents, and hand off execution to the `gstack-build` CLI.
-**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.20.0").**
+**Before you do anything else, explicitly announce your version to the user (e.g., "Starting `/build` orchestrator v1.21.0").**
 
 **Always use the code-driven CLI.** Route all plans — even single-phase — to `gstack-build`. The LLM-driven loop stalls between phases even on 2-phase builds, and context compaction mid-build causes the agent to silently forget rules. Your role: locate plan → synthesize living plan → confirm with user → launch CLI → monitor.
 
@@ -804,6 +804,10 @@ Skip this entire step if in Reexamine or Resume Mode.
      claude)
        claude --model "$_LOCATOR_MODEL" -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative."
        ;;
+     codex)
+       _LOCATOR_REASONING=$(jq -r '.roles.planLocator.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+       codex exec "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative." -m "$_LOCATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_LOCATOR_REASONING\"" -C "$(pwd -P)"
+       ;;
      *)
        echo "unsupported planLocator provider: $_LOCATOR_PROVIDER" >&2
        exit 1
@@ -815,7 +819,7 @@ Skip this entire step if in Reexamine or Resume Mode.
    - If `planPath` is null: STOP, output "No plan file found — please specify one", and wait for the user.
    - If `isTodos` is true: treat unchecked `[ ]` items as the backlog. Ask the user which priority bands (P0, P1, P2, etc.) to execute before synthesizing the living plan.
 
-5. **Synthesize the living plan (Claude subagent)**: Delegate full plan synthesis to a fresh Claude subagent so the entire origin plan document is read off the main context. The subagent reads the source plan, synthesizes the living plan, writes it to disk, and returns only a compact summary.
+5. **Synthesize the living plan (configured subagent)**: Delegate full plan synthesis to the configured `planSynthesizer` provider so the entire origin plan document is read off the main context. The subagent reads the source plan, synthesizes the living plan, writes it to disk, and returns only a compact summary.
 
    Write `.llm-tmp/build-synthesis-input.md` (substitute actual values):
 
@@ -870,13 +874,29 @@ Skip this entire step if in Reexamine or Resume Mode.
    Return ONLY the path .llm-tmp/build-synthesis-output.md. No narrative.
    ```
 
-   Spawn (model read from configure.cm `planSynthesizer` role):
+   Spawn (provider/model read from configure.cm `planSynthesizer` role):
    ```bash
+   _SYNTH_PROVIDER=$(jq -r '.roles.planSynthesizer.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _SYNTH_MODEL=$(jq -r '.roles.planSynthesizer.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    ```
-   If `_SYNTH_MODEL` is empty, STOP — configure.cm is missing or malformed.
+   If `_SYNTH_PROVIDER` or `_SYNTH_MODEL` is empty, STOP — configure.cm is missing or malformed.
    ```bash
-   claude --model "$_SYNTH_MODEL" -p "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative."
+   case "$_SYNTH_PROVIDER" in
+     gemini)
+       gemini -p "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative." -m "$_SYNTH_MODEL" --yolo
+       ;;
+     claude)
+       claude --model "$_SYNTH_MODEL" -p "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative."
+       ;;
+     codex)
+       _SYNTH_REASONING=$(jq -r '.roles.planSynthesizer.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+       codex exec "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative." -m "$_SYNTH_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_SYNTH_REASONING\"" -C "$(pwd -P)"
+       ;;
+     *)
+       echo "unsupported planSynthesizer provider: $_SYNTH_PROVIDER" >&2
+       exit 1
+       ;;
+   esac
    ```
 
    Extract the plan path from the summary (deterministic shell extraction, not natural-language parsing):
@@ -1148,7 +1168,7 @@ If none of the above conditions fired, schedule the next wakeup at 60 seconds an
 
 ## Reexamine Mode: Parallel Audit Subagents
 
-When in Reexamine Mode, spawn one Claude subagent per feature block to audit and fix. The main agent only writes inputs, launches subagents, and collects reports — it never reads the full codebase or living plan content itself.
+When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feature block to audit and fix. The main agent only writes inputs, launches subagents, and collects reports — it never reads the full codebase or living plan content itself.
 
 1. **Locate the living plan**:
    ```bash
@@ -1189,13 +1209,39 @@ When in Reexamine Mode, spawn one Claude subagent per feature block to audit and
    Return ONLY the output file path. No narrative.
    ```
 
-   Spawn all subagents concurrently. Track PIDs to detect individual failures:
+   Spawn all subagents concurrently using the configured `featureVerifier` provider. Track PIDs to detect individual failures:
    ```bash
+   _REEXAMINE_PROVIDER=$(jq -r '.roles.featureVerifier.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+   _REEXAMINE_MODEL=$(jq -r '.roles.featureVerifier.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+   _REEXAMINE_REASONING=$(jq -r '.roles.featureVerifier.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+   if [ -z "$_REEXAMINE_PROVIDER" ] || [ -z "$_REEXAMINE_MODEL" ]; then
+     echo "configure.cm missing featureVerifier provider/model" >&2
+     exit 1
+   fi
+
+   _launch_reexamine_audit() {
+     _IDX="$1"
+     _PROMPT="Read .llm-tmp/build-reexamine-feature-${_IDX}-input.md. Audit (read-only). Write report to .llm-tmp/build-reexamine-feature-${_IDX}-output.md. Return ONLY the output path. No narrative."
+     case "$_REEXAMINE_PROVIDER" in
+       gemini)
+         gemini -p "$_PROMPT" -m "$_REEXAMINE_MODEL" --yolo > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         ;;
+       claude)
+         claude --model "$_REEXAMINE_MODEL" -p "$_PROMPT" > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         ;;
+       codex)
+         codex exec "$_PROMPT" -m "$_REEXAMINE_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_REEXAMINE_REASONING\"" -C "$(pwd -P)" > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         ;;
+       *)
+         echo "unsupported featureVerifier provider: $_REEXAMINE_PROVIDER" >&2
+         exit 1
+         ;;
+     esac
+   }
+
    # Launch one subagent per feature in parallel; track PIDs
-   claude -p "Read .llm-tmp/build-reexamine-feature-1-input.md. Audit (read-only). Write report to .llm-tmp/build-reexamine-feature-1-output.md. Return ONLY the output path." > .llm-tmp/spawn-1.log 2>&1 &
-   PID_1=$!
-   claude -p "Read .llm-tmp/build-reexamine-feature-2-input.md. Audit (read-only). Write report to .llm-tmp/build-reexamine-feature-2-output.md. Return ONLY the output path." > .llm-tmp/spawn-2.log 2>&1 &
-   PID_2=$!
+   _launch_reexamine_audit 1; PID_1=$!
+   _launch_reexamine_audit 2; PID_2=$!
    # ... one per feature
    wait $PID_1 || echo "WARN: subagent for feature 1 exited non-zero — check .llm-tmp/spawn-1.log"
    wait $PID_2 || echo "WARN: subagent for feature 2 exited non-zero — check .llm-tmp/spawn-2.log"
@@ -1226,7 +1272,7 @@ For EACH feature, once all phases in that feature are complete (and have been in
    - If `--skip-ship` IS in `$_FLAGS`: spawn the configured ship and land roles from `build/configure.cm`. Use the configured commands exactly. **CRITICAL: Do NOT substitute with raw `gh pr create` or `gh pr merge` commands. You MUST use the GStack skills.** Do NOT invoke the native `ship` tool. Wait for each sub-agent synchronously.
    - If `--skip-ship` is NOT in `$_FLAGS`: skip this step entirely. Proceed to step 3.2.
 
-2. **Feature Verification (Claude subagent)**: After shipping, delegate origin-plan coverage check to a fresh Claude subagent — the main agent never re-reads the full source plan.
+2. **Feature Verification (configured subagent)**: After shipping, delegate origin-plan coverage check to a fresh configured `featureVerifier` subagent — the main agent never re-reads the full source plan.
 
    Write `.llm-tmp/build-verify-feature-<N>-input.md` (substitute actual values):
    ```
@@ -1254,13 +1300,29 @@ For EACH feature, once all phases in that feature are complete (and have been in
    Return ONLY the output file path. No narrative.
    ```
 
-   Spawn (model read from configure.cm `featureVerifier` role):
+   Spawn (provider/model read from configure.cm `featureVerifier` role):
    ```bash
+   _VERIFIER_PROVIDER=$(jq -r '.roles.featureVerifier.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _VERIFIER_MODEL=$(jq -r '.roles.featureVerifier.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    ```
-   If `_VERIFIER_MODEL` is empty, STOP — configure.cm is missing or malformed.
+   If `_VERIFIER_PROVIDER` or `_VERIFIER_MODEL` is empty, STOP — configure.cm is missing or malformed.
    ```bash
-   claude --model "$_VERIFIER_MODEL" -p "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative."
+   case "$_VERIFIER_PROVIDER" in
+     gemini)
+       gemini -p "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo
+       ;;
+     claude)
+       claude --model "$_VERIFIER_MODEL" -p "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative."
+       ;;
+     codex)
+       _VERIFIER_REASONING=$(jq -r '.roles.featureVerifier.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+       codex exec "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_VERIFIER_REASONING\"" -C "$(pwd -P)"
+       ;;
+     *)
+       echo "unsupported featureVerifier provider: $_VERIFIER_PROVIDER" >&2
+       exit 1
+       ;;
+   esac
    ```
 
    Read `.llm-tmp/build-verify-feature-<N>-output.md`. If `VERIFICATION: GAPS`, record the issues in the living plan and restart that feature's implementation loop.
@@ -1291,13 +1353,29 @@ For EACH feature, once all phases in that feature are complete (and have been in
 
 After ALL features are complete:
 
-1. **Final Completion Exam (Claude subagent)**: Spawn a subagent to compare the full source plan against the complete git log and living plan. Write `.llm-tmp/build-final-exam-input.md` containing: source plan path, living plan path, and the output of `git log --oneline origin/main | head -40`. Spawn:
+1. **Final Completion Exam (configured subagent)**: Spawn a configured `featureVerifier` subagent to compare the full source plan against the complete git log and living plan. Write `.llm-tmp/build-final-exam-input.md` containing: source plan path, living plan path, and the output of `git log --oneline origin/main | head -40`. Spawn:
    ```bash
+   _VERIFIER_PROVIDER=$(jq -r '.roles.featureVerifier.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _VERIFIER_MODEL=$(jq -r '.roles.featureVerifier.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    ```
-   If `_VERIFIER_MODEL` is empty, STOP — configure.cm is missing or malformed.
+   If `_VERIFIER_PROVIDER` or `_VERIFIER_MODEL` is empty, STOP — configure.cm is missing or malformed.
    ```bash
-   claude --model "$_VERIFIER_MODEL" -p "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative."
+   case "$_VERIFIER_PROVIDER" in
+     gemini)
+       gemini -p "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo
+       ;;
+     claude)
+       claude --model "$_VERIFIER_MODEL" -p "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative."
+       ;;
+     codex)
+       _VERIFIER_REASONING=$(jq -r '.roles.featureVerifier.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+       codex exec "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_VERIFIER_REASONING\"" -C "$(pwd -P)"
+       ;;
+     *)
+       echo "unsupported featureVerifier provider: $_VERIFIER_PROVIDER" >&2
+       exit 1
+       ;;
+   esac
    ```
    Read the output. If `EXAM: GAPS`, convert each gap into an issue and restart the autonomous loop for that feature.
 

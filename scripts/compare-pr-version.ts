@@ -8,12 +8,11 @@
 //   argv[3] — optional PR number for log lines
 //
 // Design note: fail-open on util error. A gstack bug must never freeze the
-// merge queue. The gate enforces ONE rule: this PR must not claim the same
-// version as another open PR. Lower-than-the-util's-suggestion is fine if
-// the slot is unclaimed — that preserves monotonic version ordering on main
-// when this PR lands ahead of higher-numbered queued PRs. The util's output
-// is informational (the *recommended* slot for fresh /ship runs); the gate
-// only blocks actual collisions.
+// merge queue. The gate enforces two normal-release rules: VERSION must advance
+// past the base branch and this PR must not claim the same version as another
+// open PR. Lower-than-the-util's-suggestion is fine if the slot is unclaimed —
+// that preserves monotonic version ordering on main when this PR lands ahead of
+// higher-numbered queued PRs. The util's output is informational.
 
 import { readFileSync } from "node:fs";
 
@@ -39,6 +38,7 @@ if (parsed.offline === true) {
 
 // PR_VERSION is supplied via env (set by the workflow from `cat VERSION`).
 const prVersion = (process.env.PR_VERSION ?? "").trim();
+const forkVersionRepair = (process.env.FORK_VERSION_REPAIR ?? "").trim() === "true";
 const nextSlot = parsed.version;
 
 if (!prVersion) {
@@ -77,12 +77,20 @@ console.log(`  Queue (${claimed.length} open PRs claiming versions):`);
 if (claimedList) console.log(claimedList);
 console.log("::endgroup::");
 
-// Hard rule 1: this PR's VERSION must be strictly greater than the base
-// version, otherwise we're not actually bumping.
+// Hard rule 1: normal release PRs must strictly advance VERSION. Fork version
+// repairs may intentionally roll top-level metadata back, but equality is still
+// rejected because it is neither a release bump nor a repair rollback.
 const pBase = parseV((parsed.base_version ?? "").trim());
-if (pBase && cmp(pPR, pBase) <= 0) {
-  console.log(`::error::VERSION not bumped: ${tag} claims v${prVersion} but base is v${parsed.base_version}.`);
-  process.exit(1);
+if (pBase) {
+  const prVsBase = cmp(pPR, pBase);
+  if (prVsBase <= 0) {
+    if (forkVersionRepair && prVsBase < 0) {
+      console.log(`::notice::${tag} is a fork version repair; allowing rollback from base v${parsed.base_version} to v${prVersion}.`);
+    } else {
+      console.log(`::error::VERSION not bumped: ${tag} claims v${prVersion} but base is v${parsed.base_version}.`);
+      process.exit(1);
+    }
+  }
 }
 
 // Hard rule 2: no collision with another open PR's claimed VERSION.
@@ -94,12 +102,14 @@ if (collision) {
 }
 
 // Optional informational note: PR version is below the util's suggested next
-// slot. This is allowed — the suggested slot is a recommendation for /ship's
-// next run, but landing at a lower-but-unclaimed slot first preserves
-// monotonic ordering on main when this PR merges ahead of higher-numbered
-// queued PRs.
+// slot. Normal releases may do this when the slot is unclaimed; fork repairs
+// may do this only after the workflow detected an intentional rollback.
 if (cmp(pPR, pNext) < 0) {
-  console.log(`::notice::${tag} claims v${prVersion}, below util's suggestion v${nextSlot}. Slot is unclaimed; gate passes. If this PR lands ahead of queued PRs at higher slots, version ordering on main remains monotonic.`);
+  if (forkVersionRepair) {
+    console.log(`::notice::${tag} claims v${prVersion}, below util's suggestion v${nextSlot}. This is allowed for the detected fork version repair.`);
+  } else {
+    console.log(`::notice::${tag} claims v${prVersion}, below util's suggestion v${nextSlot}. Slot is unclaimed; gate passes. If this PR lands ahead of queued PRs at higher slots, version ordering on main remains monotonic.`);
+  }
 }
 
 console.log(`✓ ${tag} claims v${prVersion} — slot is free.`);

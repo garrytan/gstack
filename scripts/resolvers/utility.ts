@@ -392,6 +392,8 @@ export function generateCoAuthorTrailer(ctx: TemplateContext): string {
 export function generateChangelogWorkflow(_ctx: TemplateContext): string {
   return `## Step 13: CHANGELOG (auto-generate)
 
+**Fork-local/custom skill releases:** If Step 12 set \`FORK_LOCAL_SKILL_RELEASE=1\`, skip this step entirely. Do not write a top-level \`CHANGELOG.md\` entry, because the repo's \`## Fork versioning rule\` says fork-local skill changes are tracked by skill frontmatter \`version:\`, not by top-level release metadata.
+
 1. Read \`CHANGELOG.md\` header to know the format.
 
 2. **First, enumerate every commit on the branch:**

@@ -154,6 +154,17 @@ describe('gstack-update-check', () => {
     expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
   });
 
+  test('suppresses cached UPGRADE_AVAILABLE when cached remote is lower than local', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '1.26.7.0\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_AVAILABLE 1.26.7.0 1.26.3.0');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE 1.26.7.0');
+  });
+
   // ─── Path D3: Fresh cache, but local version changed ────────
   test('re-checks when local version does not match cached old version', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.4.0\n');
@@ -182,7 +193,7 @@ describe('gstack-update-check', () => {
   });
 
   // ─── Path F: Versions differ (remote fetch) ─────────────────
-  test('outputs UPGRADE_AVAILABLE when versions differ', () => {
+  test('outputs UPGRADE_AVAILABLE when remote version is greater than local', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
     writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
 
@@ -191,6 +202,17 @@ describe('gstack-update-check', () => {
     expect(stdout).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
     const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
     expect(cache).toContain('UPGRADE_AVAILABLE 0.3.3 0.4.0');
+  });
+
+  test('treats lower remote version as up to date', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '1.26.7.0\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '1.26.3.0\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE 1.26.7.0');
   });
 
   // ─── Path G: Invalid remote response ────────────────────────

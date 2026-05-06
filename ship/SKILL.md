@@ -2368,6 +2368,43 @@ already knows. A good test: would this insight save time in a future session? If
 
 ## Step 12: Version bump (auto-decide)
 
+**Fork versioning override (highest priority):** If `CLAUDE.md` contains a `## Fork versioning rule` section, inspect the branch diff before any top-level release metadata work:
+
+```bash
+FORK_LOCAL_SKILL_RELEASE=0
+if [ -f CLAUDE.md ] && grep -q '^## Fork versioning rule' CLAUDE.md; then
+  CHANGED_FILES=$(git diff --name-only origin/<base>)
+  if printf '%s\n' "$CHANGED_FILES" | grep -Eq '(^|/)SKILL\.md(\.tmpl)?$|^\.agent[s]/skills/|^build/'; then
+    echo "Fork versioning rule detected. If this diff is fork-local/custom skill work, do not bump top-level VERSION/package.json/CHANGELOG."
+    echo "$CHANGED_FILES"
+  fi
+fi
+```
+
+When the diff is fork-local/custom skill work (for example `build/SKILL.md.tmpl`, generated `build/SKILL.md`, host-specific generated skill output, tests/docs/config for those local skills), set `FORK_LOCAL_SKILL_RELEASE=1` and **skip the rest of Step 12**:
+
+- Do **not** edit top-level `VERSION`.
+- Do **not** edit `package.json.version`.
+- Do **not** call `bin/gstack-next-version`.
+- Do **not** create or rewrite a top-level `CHANGELOG.md` entry in Step 13.
+- Do bump the affected custom skill template frontmatter `version:` instead.
+
+Before continuing, verify every changed custom skill template has a bumped frontmatter version relative to `origin/<base>`:
+
+```bash
+for skill_tmpl in $(git diff --name-only origin/<base> | grep 'SKILL\.md\.tmpl$' || true); do
+  base_skill_version=$(git show "origin/<base>:$skill_tmpl" 2>/dev/null | awk '/^version:/{print $2; exit}' || true)
+  current_skill_version=$(awk '/^version:/{print $2; exit}' "$skill_tmpl")
+  if [ -n "$base_skill_version" ] && [ "$base_skill_version" = "$current_skill_version" ]; then
+    echo "ERROR: $skill_tmpl changed under the fork versioning rule but its frontmatter version stayed at $current_skill_version."
+    echo "Bump the skill-local version and regenerate skill docs before continuing."
+    exit 1
+  fi
+done
+```
+
+If the diff includes non-fork product/runtime work, leave `FORK_LOCAL_SKILL_RELEASE=0` and continue with the normal top-level version flow below.
+
 **Idempotency check:** Before bumping, classify the state by comparing `VERSION` against the base branch AND against `package.json`'s `version` field. Four states: FRESH (do bump), ALREADY_BUMPED (skip bump), DRIFT_STALE_PKG (sync pkg only, no re-bump), DRIFT_UNEXPECTED (stop and ask).
 
 ```bash
@@ -2509,6 +2546,8 @@ echo "Drift repaired: package.json synced to $REPAIR_VERSION. No version bump pe
 ---
 
 ## Step 13: CHANGELOG (auto-generate)
+
+**Fork-local/custom skill releases:** If Step 12 set `FORK_LOCAL_SKILL_RELEASE=1`, skip this step entirely. Do not write a top-level `CHANGELOG.md` entry, because the repo's `## Fork versioning rule` says fork-local skill changes are tracked by skill frontmatter `version:`, not by top-level release metadata.
 
 1. Read `CHANGELOG.md` header to know the format.
 
@@ -2684,7 +2723,8 @@ user via AskUserQuestion rather than destroying non-WIP commits.
    - **Infrastructure:** migrations, config changes, route additions
    - **Models & services:** new models, services, concerns (with their tests)
    - **Controllers & views:** controllers, views, JS/React components (with their tests)
-   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
+   - **VERSION + CHANGELOG + TODOS.md:** final commit for normal releases
+   - **Fork-local/custom skill releases:** no top-level VERSION/package.json/CHANGELOG metadata commit; include the skill-local frontmatter bump, regenerated skill docs, and related tests in the logical skill commit
 
 3. **Rules for splitting:**
    - A model and its test file go in the same commit
@@ -2699,7 +2739,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
    - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer. Skip this version-tagged metadata commit entirely when `FORK_LOCAL_SKILL_RELEASE=1`:
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -2799,7 +2839,9 @@ glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS"
 
 If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run.
 
-**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+**Normal releases:** Always update the PR title to start with `v$NEW_VERSION`. PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version first for every top-level release. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the normal release rule.
+
+**Fork-local/custom skill releases:** If `FORK_LOCAL_SKILL_RELEASE=1`, do **not** require or add a `v$NEW_VERSION` title prefix. `NEW_VERSION` is intentionally unset because top-level `VERSION` was not bumped. Use a normal title such as `<type>: <summary>`, update the PR body, print the URL, and continue to Step 20.
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
 2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
@@ -2876,9 +2918,10 @@ you missed it.>
 **If GitHub:**
 
 ```bash
-# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
+# Normal release PR title MUST start with v$NEW_VERSION.
+# Fork-local/custom skill releases MUST NOT invent a top-level version prefix.
 # (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body "$(cat <<'EOF'
+gh pr create --base <base> --title "<title per Step 19>" --body "$(cat <<'EOF'
 <PR body from above>
 EOF
 )"
@@ -2887,9 +2930,10 @@ EOF
 **If GitLab:**
 
 ```bash
-# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
+# Normal release MR title MUST start with v$NEW_VERSION.
+# Fork-local/custom skill releases MUST NOT invent a top-level version prefix.
 # (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
+glab mr create -b <base> -t "<title per Step 19>" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"

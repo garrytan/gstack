@@ -8,7 +8,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const content = fs.readFileSync(tmplPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.20.0')).toBe(true);
+  expect(content.includes('version: 1.21.0')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('Test Specification (test-writer role)')).toBe(true);
   expect(content.includes('exactly this durable sub-checkbox structure')).toBe(true);
@@ -26,7 +26,7 @@ test("generated SKILL.md reflects TDD changes", () => {
   const content = fs.readFileSync(skillPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.20.0')).toBe(true);
+  expect(content.includes('version: 1.21.0')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
   expect(content.includes('--project-root "$_PROJECT_ROOT"')).toBe(true);
@@ -108,6 +108,30 @@ test("build skill docs route planLocator provider through gemini when configured
     expect(content).toContain("_LOCATOR_PROVIDER");
     expect(content).toContain("gemini -p");
     expect(content).toContain("-m \"$_LOCATOR_MODEL\" --yolo");
+  }
+});
+
+test("build skill docs route template-only roles by provider", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("_SYNTH_PROVIDER");
+    expect(content).toContain("_VERIFIER_PROVIDER");
+    expect(content).toContain("unsupported planSynthesizer provider");
+    expect(content).toContain("unsupported featureVerifier provider");
+    expect(content).toContain("codex exec");
+    expect(content).toContain("-c \"model_reasoning_effort=\\\"");
+    expect(content).toContain('case "$_SYNTH_PROVIDER" in');
+    expect(content).toContain('case "$_VERIFIER_PROVIDER" in');
+    expect(content).not.toContain("Spawn (model read from configure.cm `planSynthesizer` role)");
+    expect(content).not.toContain("Spawn (model read from configure.cm `featureVerifier` role)");
+    expect(content).not.toContain("Claude subagent");
+    expect(content).not.toContain('claude -p "Read .llm-tmp/build-reexamine-feature');
   }
 });
 

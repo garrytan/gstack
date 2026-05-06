@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           PR_VERSION=$(cat VERSION | tr -d '[:space:]')
           BASE_REF="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "$BASE_REF" --depth=1 --quiet || true
+          git fetch origin "$BASE_REF:refs/remotes/origin/$BASE_REF" --depth=1 --quiet || true
           BASE_VERSION=$(git show "origin/$BASE_REF:VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0.0")
           {
             echo "pr_version=$PR_VERSION"
@@ -47,6 +47,15 @@ jobs:
         run: |
           LEVEL=$(bun run scripts/detect-bump.ts "${{ steps.versions.outputs.base_version }}" "${{ steps.versions.outputs.pr_version }}")
           echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+
+      - name: Detect fork version repair
+        id: fork_repair
+        run: |
+          IS_REPAIR=$(bun run scripts/detect-fork-version-repair.ts \
+            "${{ steps.versions.outputs.base_ref }}" \
+            "${{ steps.versions.outputs.base_version }}" \
+            "${{ steps.versions.outputs.pr_version }}")
+          echo "is_repair=$IS_REPAIR" >> "$GITHUB_OUTPUT"
 
       - name: Query queue (util) — fail-open on error
         env:
@@ -70,5 +79,6 @@ jobs:
       - name: Compare PR VERSION to next free slot
         env:
           PR_VERSION: ${{ steps.versions.outputs.pr_version }}
+          FORK_VERSION_REPAIR: ${{ steps.fork_repair.outputs.is_repair }}
         run: |
           bun run scripts/compare-pr-version.ts next.json "${{ github.event.pull_request.number }}"
