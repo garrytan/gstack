@@ -18,6 +18,16 @@
  * Filename keeps `auto-mode` for branch-history continuity. Auto-mode (the
  * AUTO_DECIDE preamble path when QUESTION_TUNING=true) is a related but
  * distinct silencing mechanism; both share the same fix surface.
+ *
+ * Note on report-at-bottom contract: the GSTACK REVIEW REPORT delete-then-
+ * append flow lives in `scripts/resolvers/review.ts` and is exercised when
+ * reviews actually run. The PTY harness can't drive autoplan through its
+ * review phases without auto-progression of AUQs (see runPlanSkillCounting),
+ * and `--disallowedTools AskUserQuestion` makes autoplan bail at the
+ * premise gate via the plan-file fallback before any review runs. The
+ * report-at-bottom prompt change is verified statically in
+ * `test/gen-skill-docs.test.ts` instead — that's the load-bearing
+ * verification for the contradictory-prompt fix.
  */
 
 import { describe, test, expect } from 'bun:test';

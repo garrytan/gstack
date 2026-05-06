@@ -1047,15 +1047,29 @@ Below the table, add these lines (omit any that are empty/not applicable):
 file you are allowed to edit in plan mode. The plan file review report is part of the
 plan's living status.
 
-- Search the plan file for a \`## GSTACK REVIEW REPORT\` section **anywhere** in the file
-  (not just at the end — content may have been added after it).
-- If found, **replace it** entirely using the Edit tool. Match from \`## GSTACK REVIEW REPORT\`
-  through either the next \`## \` heading or end of file, whichever comes first. This ensures
-  content added after the report section is preserved, not eaten. If the Edit fails
-  (e.g., concurrent edit changed the content), re-read the plan file and retry once.
-- If no such section exists, **append it** to the end of the plan file.
-- Always place it as the very last section in the plan file. If it was found mid-file,
-  move it: delete the old location and append at the end.
+The report must always be the LAST section of the plan file — never mid-file.
+Use a single delete-then-append flow:
+
+1. Read the plan file (Read tool) to see its full current content. Search the read
+   output for a \`## GSTACK REVIEW REPORT\` heading anywhere in the file.
+2. If found, use the Edit tool to DELETE the entire existing section. Match from
+   \`## GSTACK REVIEW REPORT\` through either the next \`## \` heading or end of
+   file, whichever comes first. Replace with the empty string. This applies
+   regardless of where the section currently lives — mid-file deletion is
+   intentional, not a special case. If the Edit fails (e.g., concurrent edit
+   changed the content), re-read the plan file and retry once.
+3. After the delete (or skipped, if no section existed), append the new
+   \`## GSTACK REVIEW REPORT\` section at the END of the file. Use the Edit
+   tool to match the file's current last paragraph and add the section after it,
+   or use Write to re-emit the whole file with the section at the end.
+4. Verify with the Read tool that \`## GSTACK REVIEW REPORT\` is the last
+   \`## \` heading in the file before continuing. If it isn't, repeat steps
+   2-3 once.
+
+Do NOT replace the section in place. The "replace mid-file" path is what allowed
+prior versions to leave the report mid-file when an older report already lived
+there — the user then sees a plan whose review report is not at the bottom and
+(correctly) rejects it.
 
 ---
 

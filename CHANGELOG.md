@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.26.4.0] - 2026-05-05
+
+## **`/autoplan` review reports now reliably land at the bottom of the plan, even when an older copy lives mid-file.**
+
+The `## GSTACK REVIEW REPORT` section had a write rule that contradicted itself: one bullet said "replace it entirely (in place)" while another said "always last section, move if mid-file." When the agent inherited a plan whose prior `/autoplan` run had landed before user-added sections, the in-place replace path won and the new report stayed mid-file. The user opened ExitPlanMode, saw their plan with no review at the bottom, and had to ask twice. Single delete-then-append rule now, with a Read-tool verification step before the next instruction runs.
+
+### What you can now do
+
+- **Run `/autoplan` against a plan that already has a stale `## GSTACK REVIEW REPORT` mid-file and trust the new report ends up at the bottom.** The instruction in `scripts/resolvers/review.ts` (which feeds `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/codex`, `/devex-review`) now reads as one rule: search for any existing report section, delete it wherever it lives, append a fresh report at end of file, verify with the Read tool that the report is the last `##` heading. No more contradiction for the agent to reconcile.
+
+### What gets safer
+
+- **Five static template assertions in `test/gen-skill-docs.test.ts` lock the prompt change against drift.** Each plan-review SKILL.md (4 of them) plus the source resolver are checked for the new "delete-then-append flow" / "never mid-file" / "Do NOT replace the section in place" markers AND the absence of the old "replace it** entirely using the Edit tool" / "If it was found mid-file, move it" bullets. Synthetic regression check confirmed: all 5 fail when the prompt is reverted, all 5 pass when restored. The tests are bound to the change, not to incidentally green output.
+
+### Itemized changes
+
+#### Changed
+- `scripts/resolvers/review.ts` — "Write to the plan file" subsection rewritten. Old contradictory pair ("replace it entirely" vs "always last / move if mid-file") collapsed into a single 4-step delete-then-append flow with explicit verification.
+- All 6 generated SKILL.md files refreshed to carry the new instruction: `plan-ceo-review`, `plan-design-review`, `plan-devex-review`, `plan-eng-review`, `codex`, `devex-review`.
+
+#### Added
+- `test/gen-skill-docs.test.ts` — new `GSTACK REVIEW REPORT delete-then-append flow` describe block: 4 SKILL.md target tests + 1 source resolver test. Static, deterministic, free.
+
+#### For contributors
+- The `/autoplan` E2E approach attempted in the plan was dropped after a paid run revealed that `--disallowedTools AskUserQuestion` makes autoplan bail at the Phase 1 premise gate via the plan-file fallback. The PTY harness can't drive autoplan through its review phases without auto-progression of AskUserQuestions. The static prompt-text test catches the load-bearing change without needing that infrastructure.
+
 ## [1.26.3.0] - 2026-05-03
 
 ## **`/sync-gbrain` keeps your brain current and teaches the agent when to use it.**
