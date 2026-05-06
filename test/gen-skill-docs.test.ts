@@ -69,6 +69,25 @@ function isRepoRootSymlink(candidateDir: string): boolean {
   }
 }
 
+function runGenSkillDocs(args: string[]) {
+  return Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', ...args], {
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+}
+
+function generateHostOrThrow(hostName: string) {
+  const result = runGenSkillDocs(['--host', hostName]);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `gen-skill-docs --host ${hostName} failed\n` +
+      result.stdout.toString() +
+      result.stderr.toString()
+    );
+  }
+}
+
 // Dynamic template discovery — matches the generator's findTemplates() behavior.
 // New skills automatically get test coverage without updating a static list.
 const ALL_SKILLS = (() => {
@@ -1580,9 +1599,7 @@ describe('Codex generation (--host codex)', () => {
   const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
 
   // .agents/ is gitignored (v0.11.2.0) — generate on demand for tests
-  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
-    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
-  });
+  generateHostOrThrow('codex');
 
   // Dynamic discovery of expected Codex skills: all templates except /codex
   // Also excludes skills where .agents/skills/{name} is a symlink back to the repo root
@@ -1711,11 +1728,7 @@ describe('Codex generation (--host codex)', () => {
   });
 
   test('--host codex --dry-run freshness', () => {
-    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
-      cwd: ROOT,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const result = runGenSkillDocs(['--host', 'codex', '--dry-run']);
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // Every Codex skill should be FRESH
@@ -1726,16 +1739,8 @@ describe('Codex generation (--host codex)', () => {
   });
 
   test('--host agents alias produces same output as --host codex', () => {
-    const codexResult = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
-      cwd: ROOT,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const agentsResult = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'agents', '--dry-run'], {
-      cwd: ROOT,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const codexResult = runGenSkillDocs(['--host', 'codex', '--dry-run']);
+    const agentsResult = runGenSkillDocs(['--host', 'agents', '--dry-run']);
     expect(codexResult.exitCode).toBe(0);
     expect(agentsResult.exitCode).toBe(0);
     // Both should produce the same output (same FRESH lines)
@@ -1897,6 +1902,36 @@ describe('Codex generation (--host codex)', () => {
     const codexContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(codexContent).not.toContain('Codex design voice');
   });
+
+  test('--host codex --dry-run does not create missing output or metadata', () => {
+    const tmpSkillName = `dry-run-no-write-${process.pid}-${Date.now()}`;
+    const tmpSkillDir = path.join(ROOT, tmpSkillName);
+    const outputDir = path.join(AGENTS_DIR, `gstack-${tmpSkillName}`);
+    fs.mkdirSync(tmpSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpSkillDir, 'SKILL.md.tmpl'),
+      [
+        '---',
+        `name: ${tmpSkillName}`,
+        'description: Use when verifying that dry-run checks report drift without writing Codex output.',
+        '---',
+        '',
+        '# Dry-run sentinel',
+        '',
+      ].join('\n')
+    );
+
+    try {
+      const result = runGenSkillDocs(['--host', 'codex', '--dry-run']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout.toString()).toContain(`STALE: .agents/skills/gstack-${tmpSkillName}/SKILL.md`);
+      expect(fs.existsSync(path.join(outputDir, 'SKILL.md'))).toBe(false);
+      expect(fs.existsSync(path.join(outputDir, 'agents', 'openai.yaml'))).toBe(false);
+    } finally {
+      fs.rmSync(tmpSkillDir, { recursive: true, force: true });
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── Factory generation tests ────────────────────────────────
@@ -1905,9 +1940,7 @@ describe('Factory generation (--host factory)', () => {
   const FACTORY_DIR = path.join(ROOT, '.factory', 'skills');
 
   // Generate Factory output for tests
-  Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'factory'], {
-    cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
-  });
+  generateHostOrThrow('factory');
 
   const FACTORY_SKILLS = (() => {
     const skills: Array<{ dir: string; factoryName: string }> = [];
@@ -2045,15 +2078,16 @@ describe('Parameterized host smoke tests', () => {
   for (const hostConfig of getExternalHosts()) {
     describe(`${hostConfig.displayName} (--host ${hostConfig.name})`, () => {
       const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
+      const requiredSkill = path.join(hostDir, 'gstack-claude', 'SKILL.md');
+
+      function ensureHostGenerated() {
+        if (!fs.existsSync(requiredSkill)) {
+          generateHostOrThrow(hostConfig.name);
+        }
+      }
 
       test('generates output that exists on disk', () => {
-        // Generated dir should exist (created by earlier bun run gen:skill-docs --host all)
-        if (!fs.existsSync(hostDir)) {
-          // Generate if not already done
-          Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', hostConfig.name], {
-            cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
-          });
-        }
+        ensureHostGenerated();
         expect(fs.existsSync(hostDir)).toBe(true);
         const skills = fs.readdirSync(hostDir).filter(d =>
           fs.existsSync(path.join(hostDir, d, 'SKILL.md'))
@@ -2094,6 +2128,7 @@ describe('Parameterized host smoke tests', () => {
       });
 
       test('generates Claude outside-voice skill for external hosts', () => {
+        ensureHostGenerated();
         const skillMd = path.join(hostDir, 'gstack-claude', 'SKILL.md');
         expect(fs.existsSync(skillMd)).toBe(true);
         const content = fs.readFileSync(skillMd, 'utf-8');
@@ -2104,10 +2139,8 @@ describe('Parameterized host smoke tests', () => {
       });
 
       test('--dry-run freshness check passes', () => {
-        const result = Bun.spawnSync(
-          ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', hostConfig.name, '--dry-run'],
-          { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' }
-        );
+        generateHostOrThrow(hostConfig.name);
+        const result = runGenSkillDocs(['--host', hostConfig.name, '--dry-run']);
         expect(result.exitCode).toBe(0);
         const output = result.stdout.toString();
         expect(output).not.toContain('STALE');
@@ -2126,9 +2159,10 @@ describe('Parameterized host smoke tests', () => {
 
 describe('--host all', () => {
   test('--host all generates for all registered hosts', () => {
-    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
-      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
-    });
+    for (const hostConfig of getExternalHosts()) {
+      generateHostOrThrow(hostConfig.name);
+    }
+    const result = runGenSkillDocs(['--host', 'all', '--dry-run']);
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // All hosts should appear in output

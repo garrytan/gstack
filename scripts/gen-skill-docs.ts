@@ -349,7 +349,9 @@ function processExternalHost(
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
   const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
-  fs.mkdirSync(outputDir, { recursive: true });
+  if (!DRY_RUN) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
   const outputPath = path.join(outputDir, 'SKILL.md');
 
   // Guard against symlink loops
@@ -390,11 +392,16 @@ function processExternalHost(
   }
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
-  if (hostConfig.generation.generateMetadata && !symlinkLoop) {
+  if (hostConfig.generation.generateMetadata && !symlinkLoop && !DRY_RUN) {
     const agentsDir = path.join(outputDir, 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
     const shortDescription = condenseOpenAIShortDescription(extractedDescription);
-    fs.writeFileSync(path.join(agentsDir, 'openai.yaml'), generateOpenAIYaml(name, shortDescription));
+    const metadataPath = path.join(agentsDir, 'openai.yaml');
+    const metadata = generateOpenAIYaml(name, shortDescription);
+    const existingMetadata = fs.existsSync(metadataPath) ? fs.readFileSync(metadataPath, 'utf-8') : null;
+    if (existingMetadata !== metadata) {
+      fs.writeFileSync(metadataPath, metadata);
+    }
   }
 
   return { content: result, outputPath, outputDir, symlinkLoop };
@@ -529,7 +536,10 @@ for (const currentHost of hostsToRun) {
           console.log(`FRESH: ${relOutput}`);
         }
       } else {
-        fs.writeFileSync(outputPath, content);
+        const existing = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
+        if (existing !== content) {
+          fs.writeFileSync(outputPath, content);
+        }
         console.log(`GENERATED: ${relOutput}`);
       }
 
@@ -643,12 +653,12 @@ The orchestrator will persist the plan link to its own memory/knowledge store.
   }
 }
 
-// --host all: report failures. Only exit(1) if claude failed.
-if (failures.length > 0 && HOST_ARG_VAL === 'all') {
+// Report all failures. Any host generation failure is actionable, including
+// --host all where external-host failures used to be easy to miss.
+if (failures.length > 0) {
   console.error(`\n${failures.length} host(s) failed: ${failures.map(f => f.host).join(', ')}`);
-  if (failures.some(f => f.host === 'claude')) process.exit(1);
+  process.exit(1);
 }
-// Single host dry-run failure already handled above
 
 // After all hosts processed, warn if prefix patches may need re-applying
 if (!DRY_RUN) {
