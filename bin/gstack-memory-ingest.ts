@@ -765,7 +765,7 @@ function gbrainPutPage(page: PageRecord): { ok: boolean; error?: string } {
   }
   try {
     const args = [
-      "put_page",
+      "put",
       "--slug", page.slug,
       "--title", page.title,
       "--type", page.type,
