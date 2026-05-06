@@ -38,14 +38,14 @@
       "command": "/qa"
     },
     "ship": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "reasoning": "high",
       "command": "/ship"
     },
     "land": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "reasoning": "high",
       "command": "/land-and-deploy"
     },
@@ -66,8 +66,8 @@
       "reasoning": "xhigh"
     },
     "planLocator": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "reasoning": "high"
     },
     "planSynthesizer": {

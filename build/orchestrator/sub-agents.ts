@@ -33,7 +33,6 @@ export type CodexSandbox =
 
 const MAX_BUFFER = 20 * 1024 * 1024;
 
-const GEMINI_BIN = process.env.GEMINI_BIN || "gemini";
 const CODEX_BIN = process.env.CODEX_BIN || "codex";
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 
@@ -49,6 +48,10 @@ const SHIP_TIMEOUT_MS = envNumberOrDefault(
   "GSTACK_BUILD_SHIP_TIMEOUT",
   BUILD_DEFAULTS.timeoutsMs.ship,
 );
+
+function geminiBin(): string {
+  return process.env.GEMINI_BIN || "gemini";
+}
 
 export type Verdict = "pass" | "fail" | "unclear";
 
@@ -137,9 +140,9 @@ function quote(s: string): string {
 }
 
 /**
- * Stage Gemini I/O files in ~/.gemini/tmp/<slug>/ — a path Gemini's --yolo
- * file tools accept, and one that never lives inside the user's project repo
- * (so crash-surviving leftovers can't be accidentally committed).
+ * Stage Gemini I/O files in ~/.gemini/tmp/gstack/<slug>/ — a path Gemini's
+ * --yolo file tools accept, and one that never lives inside the user's project
+ * repo (so crash-surviving leftovers can't be accidentally committed).
  *
  * Returns { stagedInput, stagedOutput, cleanup }.
  * Call cleanup() after spawnCaptured returns; it copies the output back to
@@ -159,6 +162,7 @@ function stageGeminiIO(opts: {
     process.env.HOME ?? "~",
     ".gemini",
     "tmp",
+    "gstack",
     opts.slug,
   );
   fs.mkdirSync(stagingDir, { recursive: true });
@@ -289,7 +293,7 @@ export async function runGemini(opts: {
   );
 
   let result = await spawnCaptured({
-    bin: GEMINI_BIN,
+    bin: geminiBin(),
     argv,
     cwd: opts.cwd,
     timeoutMs: GEMINI_TIMEOUT_MS,
@@ -304,7 +308,7 @@ export async function runGemini(opts: {
       `phase-${opts.phaseNumber}-gemini-${opts.iteration}-retry.log`,
     );
     const retryResult = await spawnCaptured({
-      bin: GEMINI_BIN,
+      bin: geminiBin(),
       argv,
       cwd: opts.cwd,
       timeoutMs: GEMINI_TIMEOUT_MS,
@@ -546,6 +550,104 @@ export function buildClaudeTaskArgv(opts: {
   return [...(opts.model ? ["--model", opts.model] : []), "-p", prompt];
 }
 
+/**
+ * Build argv for a file-path role task. Used for configured slash-command
+ * roles while preserving the same input/output protocol as Claude and Codex
+ * role invocations.
+ */
+export function buildRoleTaskArgv(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  command?: string;
+  model?: string;
+  gate?: boolean;
+}): string[] {
+  const commandLine = opts.command
+    ? `Run ${opts.command}.`
+    : "Do the requested work.";
+  const gateLine = opts.gate
+    ? `The report MUST include a final 'GATE PASS' or 'GATE FAIL' line on its own.`
+    : "";
+  const prompt = [
+    `Read instructions at ${opts.inputFilePath}.`,
+    commandLine,
+    `Do the work autonomously using your --yolo file tools.`,
+    `Write your complete output to ${opts.outputFilePath}.`,
+    gateLine,
+    `Return ONLY the output file path. No narrative.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return ["-p", prompt, ...(opts.model ? ["-m", opts.model] : []), "--yolo"];
+}
+
+export async function runRoleTask(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  slug: string;
+  phaseNumber?: string;
+  iteration?: number;
+  logPrefix: string;
+  command?: string;
+  model?: string;
+  gate?: boolean;
+  timeoutMs?: number;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+  const {
+    stagedInput,
+    stagedOutput,
+    cleanup: cleanupStaged,
+  } = stageGeminiIO({
+    slug: opts.slug,
+    phaseNumber: opts.phaseNumber ?? "ship",
+    iteration: opts.iteration ?? 1,
+    suffix: opts.logPrefix,
+    inputFilePath: opts.inputFilePath,
+    outputFilePath: opts.outputFilePath,
+  });
+  const argv = buildRoleTaskArgv({
+    inputFilePath: stagedInput,
+    outputFilePath: stagedOutput,
+    command: opts.command,
+    model: opts.model,
+    gate: opts.gate,
+  });
+  const logPath = path.join(
+    logDir(opts.slug),
+    opts.phaseNumber
+      ? `phase-${opts.phaseNumber}-${opts.logPrefix}-${opts.iteration ?? 1}.log`
+      : `${opts.logPrefix}.log`,
+  );
+
+  let result = await spawnCaptured({
+    bin: geminiBin(),
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs ?? GEMINI_TIMEOUT_MS,
+    logPath,
+    closeStdin: false,
+  });
+
+  if (result.timedOut) {
+    const retryLog = logPath.replace(/\.log$/, "-retry.log");
+    const retryResult = await spawnCaptured({
+      bin: geminiBin(),
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: opts.timeoutMs ?? GEMINI_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: false,
+    });
+    retryResult.retries = 1;
+    cleanupStaged();
+    return mergeOutputFile(retryResult, opts.outputFilePath);
+  }
+  cleanupStaged();
+  return mergeOutputFile(result, opts.outputFilePath);
+}
+
 export async function runClaudeTask(opts: {
   inputFilePath: string;
   outputFilePath: string;
@@ -600,13 +702,13 @@ export async function runShip(opts: {
   cwd: string;
   slug: string;
   ship: {
-    provider: "claude" | "codex";
+    provider: "claude" | "codex" | "gemini";
     model: string;
     reasoning: RoleReasoning;
     command: string;
   };
   land: {
-    provider: "claude" | "codex";
+    provider: "claude" | "codex" | "gemini";
     model: string;
     reasoning: RoleReasoning;
     command: string;
@@ -665,7 +767,7 @@ export async function runSlashCommand(opts: {
   iteration?: number;
   logPrefix: string;
   role: {
-    provider: "claude" | "codex";
+    provider: "claude" | "codex" | "gemini";
     model: string;
     reasoning: RoleReasoning;
     command: string;
@@ -685,6 +787,21 @@ export async function runSlashCommand(opts: {
       command: opts.role.command,
       model: opts.role.model,
       reasoning: opts.role.reasoning,
+      gate: opts.gate,
+      timeoutMs: opts.timeoutMs,
+    });
+  }
+  if (opts.role.provider === "gemini") {
+    return runRoleTask({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber,
+      iteration: opts.iteration,
+      logPrefix: opts.logPrefix,
+      command: opts.role.command,
+      model: opts.role.model,
       gate: opts.gate,
       timeoutMs: opts.timeoutMs,
     });
@@ -795,7 +912,7 @@ export async function runGeminiTestSpec(opts: {
   );
 
   let result = await spawnCaptured({
-    bin: GEMINI_BIN,
+    bin: geminiBin(),
     argv,
     cwd: opts.cwd,
     timeoutMs: GEMINI_TIMEOUT_MS,
@@ -809,7 +926,7 @@ export async function runGeminiTestSpec(opts: {
       `phase-${opts.phaseNumber}-gemini-testspec-${opts.iteration}-retry.log`,
     );
     const retryResult = await spawnCaptured({
-      bin: GEMINI_BIN,
+      bin: geminiBin(),
       argv,
       cwd: opts.cwd,
       timeoutMs: GEMINI_TIMEOUT_MS,

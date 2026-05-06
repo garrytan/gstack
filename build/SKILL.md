@@ -790,13 +790,25 @@ Skip this entire step if in Reexamine or Resume Mode.
    Return ONLY the output file path. No narrative.
    ```
 
-   Spawn the Haiku subagent (model read from configure.cm `planLocator` role):
+   Spawn the locator subagent (provider/model read from configure.cm `planLocator` role):
    ```bash
+   _LOCATOR_PROVIDER=$(jq -r '.roles.planLocator.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _LOCATOR_MODEL=$(jq -r '.roles.planLocator.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    ```
-   If `_LOCATOR_MODEL` is empty, STOP — configure.cm is missing or malformed. Run `ls ~/.claude/skills/gstack/build/configure.cm` to diagnose.
+   If `_LOCATOR_PROVIDER` or `_LOCATOR_MODEL` is empty, STOP — configure.cm is missing or malformed. Run `ls ~/.claude/skills/gstack/build/configure.cm` to diagnose.
    ```bash
-   claude --model "$_LOCATOR_MODEL" -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative."
+   case "$_LOCATOR_PROVIDER" in
+     gemini)
+       gemini -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative." -m "$_LOCATOR_MODEL" --yolo
+       ;;
+     claude)
+       claude --model "$_LOCATOR_MODEL" -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative."
+       ;;
+     *)
+       echo "unsupported planLocator provider: $_LOCATOR_PROVIDER" >&2
+       exit 1
+       ;;
+   esac
    ```
 
    Read `.llm-tmp/build-plan-locate-output.md`. Parse the JSON.

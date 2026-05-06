@@ -19,9 +19,6 @@ export async function shipAndDeploy(args: {
   shipRole: RoleConfig;
   landRole: RoleConfig;
 }): Promise<SubAgentResult> {
-  if (args.shipRole.provider === 'gemini' || args.landRole.provider === 'gemini') {
-    throw new Error('ship and land roles currently support claude or codex providers only');
-  }
   return runShip({
     cwd: args.cwd,
     slug: args.slug,
