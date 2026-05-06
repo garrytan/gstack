@@ -102,21 +102,20 @@ ship, and land.
 
 The skill's startup sequence:
 
-1. Delegate plan discovery to a Haiku subagent (role: `planLocator`) that
-   searches `*-gstack/inbox/living-plan/`, `inbox/`, `TODOS.md`, and fallback
-   locations in priority order. Output is a single JSON line written to
-   `.llm-tmp/build-plan-locate-output.md`.
-2. If a partially completed living plan exists, offer to resume (Resume Mode).
-   If the user asks to re-audit an implemented plan, enter Reexamine Mode.
-3. Synthesize the living plan by delegating to a fresh Claude subagent (role:
-   `planSynthesizer`) that reads the source plan and writes the grouped
-   feature-block living plan to `*-gstack/inbox/living-plan/`. It returns only
-   a compact summary via `.llm-tmp/build-synthesis-output.md`.
-4. Create `.llm-tmp/` for file-path I/O with sub-agents. All model handoffs
-   write inputs to disk and read outputs from disk — prompts stay small and logs
-   are inspectable after failure.
-5. Confirm the feature list with the user via `AskUserQuestion`, then launch
-   `gstack-build` in the background and monitor `~/.gstack/build-state/<slug>.json`.
+1. Detect whether the current directory is a workspace root with immediate
+   child repos. If so, the root repo is orchestration-only by default; child repos
+   are implementation targets. Single product repo invocation remains supported.
+2. Locate the workspace-level `*-gstack/inbox/` and
+   `*-gstack/inbox/living-plan/` directories. This chooses plan storage only; it
+   does not choose a plan file or target repo.
+3. Delegate plan discovery to the configured `planLocator` role, searching
+   `*-gstack/inbox/living-plan/`, `inbox/`, workspace `TODOS.md`, and child repo
+   `TODOS.md` fallbacks in priority order.
+4. Select one or more target child repos. If a source plan spans multiple child
+   repos, split it into one living plan per target repo and write
+   `.llm-tmp/build-run-manifest.json`.
+5. Confirm the manifest with the user, then launch `gstack-build` sequentially:
+   one target repo, one living plan, one `--project-root` at a time.
 
 After `gstack-build` reports each feature complete:
 

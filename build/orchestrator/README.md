@@ -43,13 +43,19 @@ or set `GSTACK_BUILD_CLI` explicitly.
 gstack-build <plan-file> [flags]
 ```
 
-When the plan lives in a sibling `*-gstack/inbox/living-plan/` or `*-gstack/inbox/` repo, run the command
-from the product repo and pass `--project-root "$(git rev-parse --show-toplevel)"`
-if there is any ambiguity. Completed living plans are moved to the sibling
-`archived/` directory after a successful non-dry-run build. Pass
-`--origin-plan <file>` when the living plan was synthesized from a separate
-source plan in `*-gstack/inbox/`; after the final completion exam passes, that
-origin plan is archived too.
+When the plan lives in a workspace-level `*-gstack/inbox/living-plan/` or
+`*-gstack/inbox/` repo, pass `--project-root <child-repo>` so commits, pushes,
+tests, and sub-agents run from the child repo, not the workspace root. Opening a
+workspace root that is itself a root repo is supported by `/build`; that root
+repo is ignored by default and treated as orchestration-only. Single product repo
+invocation remains supported by passing that product repo as `--project-root`.
+
+For source plans that touch multiple child repos, `/build` writes one living plan
+per target repo and invokes this CLI sequentially, one child repo at a time.
+Completed living plans are moved to the sibling `archived/` directory after a
+successful non-dry-run build. Pass `--origin-plan <file>` when the living plan
+was synthesized from a separate source plan in `*-gstack/inbox/`; after the final
+completion exam passes, that origin plan is archived too.
 
 The plan file is organized into semantic feature blocks. The `/build` skill
 should reorganize all origin-plan weeks, milestones, blocks, and phases into
@@ -311,13 +317,16 @@ the repo copy. `GSTACK_BUILD_DEFAULTS_FILE` remains as a legacy alias.
 
 ## Living plan storage
 
-`/build` writes synthesized living plans to the workspace's sibling
+`/build` writes synthesized living plans to the workspace-level
 `*-gstack/inbox/living-plan/` directory. Source plans to execute are searched
 first in `*-gstack/inbox/`. The product repo remains the execution root: tests,
 sub-agents, review, ship, and land all run from `--project-root` or the current
-git worktree. If `gstack-build` is invoked with a plan inside the `*-gstack` repo
-and cannot infer the product repo, it exits with instructions to rerun with
-`--project-root <repo>`.
+git worktree. When the current directory is a workspace root with child repos,
+the root repo is ignored by default and each child repo gets its own living plan.
+Multi-repo plans run sequentially, one living plan per target repo. If
+`gstack-build` is invoked with a plan inside the `*-gstack` repo and cannot infer
+the product repo, it exits with instructions to rerun with `--project-root
+<repo>`.
 
 ## File layout
 

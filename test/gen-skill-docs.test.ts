@@ -279,7 +279,7 @@ describe('gen-skill-docs', () => {
       const content = fs.readFileSync(file, 'utf-8');
       expect(content).toContain('_GSTACK_BUILD_CLI');
       expect(content).toContain('command -v gstack-build');
-      expect(content).toContain('"$_GSTACK_BUILD_CLI" "$_PLAN_FILE"');
+      expect(content).toContain('"$_GSTACK_BUILD_CLI" "$livingPlanPath"');
       expect(content).not.toContain('\ngstack-build "$_PLAN_FILE"');
       expect(content).not.toContain('GSTACK_BUILD_GEMINI_TIMEOUT=1200000 gstack-build "$_PLAN_FILE"');
     }
@@ -1751,7 +1751,7 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-build', 'SKILL.md'), 'utf-8');
     expect(content).toContain('_GSTACK_BUILD_CLI');
     expect(content).toContain('command -v gstack-build');
-    expect(content).toContain('"$_GSTACK_BUILD_CLI" "$_PLAN_FILE"');
+    expect(content).toContain('"$_GSTACK_BUILD_CLI" "$livingPlanPath"');
     expect(content).not.toContain('\ngstack-build "$_PLAN_FILE"');
     expect(content).not.toContain('GSTACK_BUILD_GEMINI_TIMEOUT=1200000 gstack-build "$_PLAN_FILE"');
   });

@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.21.0
+version: 1.21.1
 description: |
   gstack autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -738,25 +738,50 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 
 Skip this entire step if in Reexamine or Resume Mode.
 
-1. **Locate the sibling gstack repo**: Living plans MUST be stored in the workspace's sibling `*-gstack` repo, not in the product repo. Find it with:
-   ```bash
-   _GSTACK_REPOS=$(find .. -maxdepth 1 -type d -name '*-gstack' 2>/dev/null | sort)
-   _GSTACK_COUNT=$(printf '%s\n' "$_GSTACK_REPOS" | sed '/^$/d' | wc -l | tr -d ' ')
-   [ "$_GSTACK_COUNT" = "1" ] && GSTACK_REPO=$(printf '%s\n' "$_GSTACK_REPOS" | sed '/^$/d' | head -n 1)
-   ```
-   If exactly one match exists, set `GSTACK_REPO` to it. If multiple matches exist or none exists, STOP and ask the user to specify the correct `*-gstack` repo path. Create `$GSTACK_REPO/inbox/living-plan/` and `$GSTACK_REPO/archived/` if missing.
+1. **Discover workspace, gstack repo, and candidate product repos**:
+   `/build` supports two layouts:
+   - **Workspace-root mode**: the current directory is an orchestration workspace containing immediate child repos such as `mitosis-paper/`, `mitosis-prototype/`, and one workspace-level `*-gstack/` repo.
+   - **Single-product-repo mode**: the current directory is inside one product repo, and the `*-gstack/` repo is a sibling of that product repo.
 
-2. **Check for Resume**: Look for an existing `<gstack-repo>/inbox/living-plan/*-impl-plan-*.md` (also legacy `<gstack-repo>/living-plans/*-impl-plan-*.md`). If one exists and contains uncompleted phases, ask the user if they want to **resume** it. If yes, switch to Resume Mode.
-
-3. **Create First Feature Branch**: Create and check out a feature branch for the first living-plan feature block (e.g., `git checkout main && git pull && git checkout -b feat/your-feature-name`). Do NOT work directly on `main` or `master`. After each feature ships and lands, sync main and create the next feature branch before continuing.
-
-4. **Locate the source plan (Haiku subagent)**: Delegate plan discovery to a Haiku subagent — keeps the priority logic and any directory-listing output off the main context.
+   Ignore the workspace root git repo by default. If the current directory has immediate child git repos, treat the current directory as `WORKSPACE_ROOT` even when it also has its own `.git/`. Never run branch changes, commits, pushes, tests, or implementation subagents from the workspace root unless the user explicitly selects the root repo as a product repo.
 
    ```bash
    mkdir -p .llm-tmp
+   _CWD=$(pwd -P)
+   _CHILD_REPOS=$(find "$_CWD" -mindepth 1 -maxdepth 1 -type d ! -name '*-gstack' -exec test -d '{}/.git' ';' -print 2>/dev/null | sort)
+   _CHILD_REPO_COUNT=$(printf '%s\n' "$_CHILD_REPOS" | sed '/^$/d' | wc -l | tr -d ' ')
+
+   if [ "$_CHILD_REPO_COUNT" -gt 0 ] 2>/dev/null; then
+     _WORKSPACE_MODE="yes"
+     WORKSPACE_ROOT="$_CWD"
+     PRODUCT_REPO_CANDIDATES="$_CHILD_REPOS"
+   else
+     _WORKSPACE_MODE="no"
+     _PRODUCT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+     if [ -z "$_PRODUCT_ROOT" ]; then
+       echo "No child git repos found and current directory is not inside a git repo — please cd to a workspace root or product repo." >&2
+       exit 1
+     fi
+     WORKSPACE_ROOT=$(dirname "$_PRODUCT_ROOT")
+     PRODUCT_REPO_CANDIDATES="$_PRODUCT_ROOT"
+   fi
+
+   _GSTACK_REPOS=$(find "$WORKSPACE_ROOT" -maxdepth 1 -type d -name '*-gstack' 2>/dev/null | sort)
+   _GSTACK_COUNT=$(printf '%s\n' "$_GSTACK_REPOS" | sed '/^$/d' | wc -l | tr -d ' ')
+   [ "$_GSTACK_COUNT" = "1" ] && GSTACK_REPO=$(printf '%s\n' "$_GSTACK_REPOS" | sed '/^$/d' | head -n 1)
+   printf '%s\n' "$PRODUCT_REPO_CANDIDATES" > .llm-tmp/build-product-repo-candidates.txt
+   ```
+   If exactly one `*-gstack` match exists under `WORKSPACE_ROOT`, set `GSTACK_REPO` to it. If multiple matches exist or none exists, STOP and ask the user to specify the correct `*-gstack` repo path. Create `$GSTACK_REPO/inbox/`, `$GSTACK_REPO/inbox/living-plan/`, and `$GSTACK_REPO/archived/` if missing. This chooses plan storage only; it does not choose a plan file or target repo. Plans are stored in the workspace-level `*-gstack/inbox/`, never in product repos.
+   When reporting progress, say "scanning workspace `<WORKSPACE_ROOT>` for `*-gstack` and child product repos."
+
+2. **Check for Resume**: Look for existing `<gstack-repo>/inbox/living-plan/*-impl-plan-*.md` files (also legacy `<gstack-repo>/living-plans/*-impl-plan-*.md`). If one or more contain uncompleted phases, ask the user if they want to **resume** them. If yes, switch to Resume Mode and require/derive the matching target repo for each living plan before launching `gstack-build`.
+
+3. **Locate the source plan (configured subagent)**: Delegate plan discovery to the configured `planLocator` provider — keeps the priority logic and any directory-listing output off the main context. This is the plan-file lookup; it must not be described as the sibling scan.
+
+   ```bash
    eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
    _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
-   _CWD=$(pwd)
+   _CWD="$WORKSPACE_ROOT"
    ```
 
    Write `.llm-tmp/build-plan-locate-input.md` (substitute actual shell variable values for all placeholders):
@@ -768,19 +793,20 @@ Skip this entire step if in Reexamine or Resume Mode.
    GSTACK_REPO: <value of $GSTACK_REPO>
    SLUG: <value of $SLUG or "unknown">
    BRANCH: <value of $_BRANCH>
-   CWD: <value of $_CWD>
+   WORKSPACE_ROOT: <value of $WORKSPACE_ROOT>
+   PRODUCT_REPO_CANDIDATES: .llm-tmp/build-product-repo-candidates.txt
 
    Search in priority order (P1 = highest). Within a tier, pick the newest file by mtime.
    If a filename contains the branch name or repo slug, strongly prefer it within the same tier.
 
    P1: $GSTACK_REPO/inbox/living-plan/*-impl-plan-*.md
    P2: $GSTACK_REPO/inbox/*-plan-*.md  (skip if already matched P1)
-   P3: TODOS.md at CWD
+   P3: WORKSPACE_ROOT/TODOS.md
    P4: $GSTACK_REPO/living-plans/*-plan-*.md, $GSTACK_REPO/plans/*-plan-*.md,
-       CWD/plans/*-plan-*.md, CWD/.gstack/projects/*/*-plan-*.md
+       WORKSPACE_ROOT/plans/*-plan-*.md, WORKSPACE_ROOT/.gstack/projects/*/*-plan-*.md
    P5: ~/.gstack/projects/<SLUG>/*-plan-*.md, ~/.gstack/projects/<SLUG>/ceo-plans/*.md
    P6: $HOME/.claude/plans/*.md, $HOME/.codex/plans/*.md
-   P7: CWD/*/TODOS.md  (subdirectory fallback, lowest priority)
+   P7: immediate child repo TODOS.md files from PRODUCT_REPO_CANDIDATES (lowest priority)
 
    Run ls/find commands for each tier in order. Stop at the first tier that has a match.
 
@@ -819,22 +845,43 @@ Skip this entire step if in Reexamine or Resume Mode.
    - If `planPath` is null: STOP, output "No plan file found — please specify one", and wait for the user.
    - If `isTodos` is true: treat unchecked `[ ]` items as the backlog. Ask the user which priority bands (P0, P1, P2, etc.) to execute before synthesizing the living plan.
 
-5. **Synthesize the living plan (configured subagent)**: Delegate full plan synthesis to the configured `planSynthesizer` provider so the entire origin plan document is read off the main context. The subagent reads the source plan, synthesizes the living plan, writes it to disk, and returns only a compact summary.
+4. **Select target product repo(s)**: Target selection happens after source-plan discovery and before any branch work. Do not run `git checkout`, `git pull`, or branch creation here; `gstack-build` owns branch changes and receives the selected child repo through `--project-root`.
+
+   Selection rules:
+   - If `PRODUCT_REPO_CANDIDATES` has exactly one entry, use it.
+   - If multiple child repos exist and exactly one repo basename appears in the user request, plan filename, or source-plan title/overview, use that repo.
+   - If multiple child repos are relevant or ambiguous, ask once and allow selecting one or more child repos.
+   - If the source plan covers multiple child repos, split it into one living plan per target repo. Do not create one mixed living plan that changes multiple repos.
+
+   Write `.llm-tmp/build-target-repos.json`:
+   ```json
+   {
+     "workspaceRoot": "<absolute workspace root>",
+     "gstackRepo": "<absolute *-gstack repo>",
+     "repos": [
+       { "repoPath": "<absolute child repo path>", "repoSlug": "<child repo basename>" }
+     ]
+   }
+   ```
+
+5. **Synthesize living plan(s) and run manifest (configured subagent)**: Delegate full plan synthesis to the configured `planSynthesizer` provider so the entire origin plan document is read off the main context. The subagent reads the source plan and target repo list, writes one living plan per target repo, writes `.llm-tmp/build-run-manifest.json`, and returns only a compact summary.
 
    Write `.llm-tmp/build-synthesis-input.md` (substitute actual values):
 
    ```
    You are a living-plan synthesizer for gstack-build.
 
-   Source plan path: <planPath from step 4>
+   Source plan path: <planPath from step 3>
    GSTACK_REPO: <value of $GSTACK_REPO>
-   Project slug: <value of $SLUG>
+   WORKSPACE_ROOT: <value of $WORKSPACE_ROOT>
+   Target repos file: .llm-tmp/build-target-repos.json
    Today's date: <YYYYMMDD>
-   Living plan output path: <$GSTACK_REPO>/inbox/living-plan/<SLUG>-impl-plan-<YYYYMMDD>.md
+   Living plan output path pattern: <$GSTACK_REPO>/inbox/living-plan/<repoSlug>-impl-plan-<YYYYMMDD>.md
 
-   Read the source plan fully. Then write a comprehensive Living Implementation & Test Plan.
+   Read the source plan fully. Read .llm-tmp/build-target-repos.json. Then write comprehensive Living Implementation & Test Plans.
+   If the source plan covers multiple repos, split it into one living plan per target repo. Each living plan must contain only that repo's work and must preserve origin traces to the shared source plan.
 
-   The living plan MUST include:
+   Each living plan MUST include:
    - A feature-block checklist reorganizing ALL source-plan phases/tasks into semantic deliverable
      features. Even when the source plan has weeks/milestones, those are source material — group
      by deliverable feature. Only preserve an origin group as a feature when it naturally matches.
@@ -863,13 +910,26 @@ Skip this entire step if in Reexamine or Resume Mode.
 
    - A dedicated test plan strategy section.
 
-   After writing the living plan file, write a compact summary to
+   After writing all living plan files, write .llm-tmp/build-run-manifest.json:
+   {
+     "workspaceRoot": "<absolute workspace root>",
+     "gstackRepo": "<absolute *-gstack repo>",
+     "runs": [
+       {
+         "repoPath": "<absolute child repo path>",
+         "repoSlug": "<child repo basename>",
+         "livingPlanPath": "<absolute living plan path>",
+         "originPlanPath": "<absolute source plan path>"
+       }
+     ]
+   }
+
+   Then write a compact summary to
    .llm-tmp/build-synthesis-output.md in this exact format:
-   PLAN_PATH: <absolute path to the written living plan file>
-   FEATURE_COUNT: <N>
-   FEATURES:
-   - Feature 1: <name> (<M> phases)
-   - Feature 2: <name> (<M> phases)
+   MANIFEST_PATH: .llm-tmp/build-run-manifest.json
+   RUN_COUNT: <N>
+   RUNS:
+   - <repoSlug>: <absolute living plan path> (<F> features)
    ...
    Return ONLY the path .llm-tmp/build-synthesis-output.md. No narrative.
    ```
@@ -899,13 +959,13 @@ Skip this entire step if in Reexamine or Resume Mode.
    esac
    ```
 
-   Extract the plan path from the summary (deterministic shell extraction, not natural-language parsing):
+   Extract the manifest path from the summary (deterministic shell extraction, not natural-language parsing):
    ```bash
-   LIVING_PLAN_FILE=$(grep "^PLAN_PATH:" .llm-tmp/build-synthesis-output.md | cut -d' ' -f2-)
+   BUILD_RUN_MANIFEST=$(grep "^MANIFEST_PATH:" .llm-tmp/build-synthesis-output.md | cut -d' ' -f2-)
    ```
-   If `LIVING_PLAN_FILE` is empty, STOP — the synthesis subagent failed to write the output or used wrong format.
+   If `BUILD_RUN_MANIFEST` is empty or the file does not exist, STOP — the synthesis subagent failed to write the output or used wrong format.
 
-6. **Confirm with user**: Present the feature list from the synthesis summary, then use `AskUserQuestion` to ask the user to confirm before launching the CLI. Show: living plan file path, feature count, and each feature name with phase count.
+6. **Confirm with user**: Present the run list from the synthesis summary, then use `AskUserQuestion` to ask the user to confirm before launching the CLI. Show: manifest path, run count, each target repo, and each living plan path.
 
 ## CLI Monitoring Loop
 
@@ -948,25 +1008,25 @@ B) Print the command to run manually instead
 Net: A is right for unattended builds; B is right if you want to drive it yourself in a separate terminal.
 ```
 
-If B: print the exact command (`<resolved-gstack-build-cli> <plan-file> [flags]`) and exit. Do not enter the monitoring loop.
+If B: print the exact manifest loop from Step M2, including each `--project-root "$repoPath"` invocation, and exit. Do not enter the monitoring loop.
 
 If A: proceed to Step M2.
 
-### Step M2: Derive Slug, Set Up Paths, and Launch
+### Step M2: Resolve CLI, Set Up Manifest Runs, and Launch
 
 ```bash
-_PLAN_FILE=<plan-file>
-_ORIGIN_PLAN_FILE=<source-plan-file-if-separate-or-empty>
-_PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+BUILD_RUN_MANIFEST=${BUILD_RUN_MANIFEST:-.llm-tmp/build-run-manifest.json}
 _FLAGS="<any extra flags, e.g. --dual-impl --skip-ship>"
-_ORIGIN_FLAG=()
-[ -n "$_ORIGIN_PLAN_FILE" ] && [ "$_ORIGIN_PLAN_FILE" != "$_PLAN_FILE" ] && _ORIGIN_FLAG=(--origin-plan "$_ORIGIN_PLAN_FILE")
-_SLUG="build-$(basename "$_PLAN_FILE" .md)"
-_STATE_FILE="$HOME/.gstack/build-state/$_SLUG.json"
-_LOG_DIR="$HOME/.gstack/build-state/$_SLUG"
-mkdir -p "$_LOG_DIR"
-echo "SLUG: $_SLUG"
-echo "STATE: $_STATE_FILE"
+
+if [ ! -f "$BUILD_RUN_MANIFEST" ]; then
+  echo "ERROR: build run manifest not found: $BUILD_RUN_MANIFEST" >&2
+  exit 1
+fi
+_RUN_COUNT=$(jq '.runs | length' "$BUILD_RUN_MANIFEST")
+if [ "$_RUN_COUNT" -lt 1 ] 2>/dev/null; then
+  echo "ERROR: build run manifest has no runs: $BUILD_RUN_MANIFEST" >&2
+  exit 1
+fi
 
 _GSTACK_BUILD_CLI="${GSTACK_BUILD_CLI:-}"
 if [ -z "$_GSTACK_BUILD_CLI" ]; then
@@ -989,21 +1049,55 @@ if [ -z "$_GSTACK_BUILD_CLI" ] || [ ! -x "$_GSTACK_BUILD_CLI" ]; then
   exit 127
 fi
 echo "GSTACK_BUILD_CLI: $_GSTACK_BUILD_CLI"
+echo "BUILD_RUN_MANIFEST: $BUILD_RUN_MANIFEST"
+echo "RUN_COUNT: $_RUN_COUNT"
 ```
 
-Then launch in the background using `run_in_background: true` on the Bash tool:
+Then launch the manifest in the background using `run_in_background: true` on the Bash tool. Multi-repo builds run sequentially: one living plan per target repo, one `gstack-build --project-root` invocation at a time. Never run the CLI from the workspace root.
 ```bash
-"$_GSTACK_BUILD_CLI" "$_PLAN_FILE" --project-root "$_PROJECT_ROOT" "${_ORIGIN_FLAG[@]}" $_FLAGS 2>&1 | tee "$_LOG_DIR/agent-stdout.log"
+for i in $(seq 0 $((_RUN_COUNT - 1))); do
+  repoPath=$(jq -r ".runs[$i].repoPath" "$BUILD_RUN_MANIFEST")
+  repoSlug=$(jq -r ".runs[$i].repoSlug" "$BUILD_RUN_MANIFEST")
+  livingPlanPath=$(jq -r ".runs[$i].livingPlanPath" "$BUILD_RUN_MANIFEST")
+  originPlanPath=$(jq -r ".runs[$i].originPlanPath // empty" "$BUILD_RUN_MANIFEST")
+
+  if [ ! -d "$repoPath/.git" ]; then
+    echo "ERROR: target repo is not a child git repo: $repoPath" >&2
+    exit 1
+  fi
+
+  _ORIGIN_FLAG=()
+  [ -n "$originPlanPath" ] && [ "$originPlanPath" != "$livingPlanPath" ] && _ORIGIN_FLAG=(--origin-plan "$originPlanPath")
+  _SLUG="build-$(basename "$livingPlanPath" .md)"
+  _STATE_FILE="$HOME/.gstack/build-state/$_SLUG.json"
+  _LOG_DIR="$HOME/.gstack/build-state/$_SLUG"
+  mkdir -p "$_LOG_DIR"
+  echo "$i" > "$HOME/.gstack/build-state/build-active-run-index"
+  echo "RUN: $((i + 1))/$_RUN_COUNT $repoSlug"
+  echo "PLAN: $livingPlanPath"
+  echo "PROJECT_ROOT: $repoPath"
+  echo "STATE: $_STATE_FILE"
+
+  "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$repoPath" "${_ORIGIN_FLAG[@]}" $_FLAGS 2>&1 | tee "$_LOG_DIR/agent-stdout.log"
+done
 ```
 
-Store the slug and plan file path for use across poll ticks.
+Store the manifest path, active run index, slug, and living plan path for use across poll ticks.
 
 ### Step M3: Poll Loop (60-second cadence via ScheduleWakeup)
 
 Schedule the next wakeup immediately after launch, passing the same monitoring prompt context forward. On each wakeup, run the following state read:
 
 ```bash
-_SLUG="<slug>"
+BUILD_RUN_MANIFEST=<path to .llm-tmp/build-run-manifest.json>
+_ACTIVE_RUN_INDEX=$(cat "$HOME/.gstack/build-state/build-active-run-index" 2>/dev/null || echo 0)
+repoPath=$(jq -r ".runs[$_ACTIVE_RUN_INDEX].repoPath" "$BUILD_RUN_MANIFEST")
+repoSlug=$(jq -r ".runs[$_ACTIVE_RUN_INDEX].repoSlug" "$BUILD_RUN_MANIFEST")
+livingPlanPath=$(jq -r ".runs[$_ACTIVE_RUN_INDEX].livingPlanPath" "$BUILD_RUN_MANIFEST")
+originPlanPath=$(jq -r ".runs[$_ACTIVE_RUN_INDEX].originPlanPath // empty" "$BUILD_RUN_MANIFEST")
+_ORIGIN_FLAG=()
+[ -n "$originPlanPath" ] && [ "$originPlanPath" != "$livingPlanPath" ] && _ORIGIN_FLAG=(--origin-plan "$originPlanPath")
+_SLUG="build-$(basename "$livingPlanPath" .md)"
 _STATE_FILE="$HOME/.gstack/build-state/$_SLUG.json"
 _LOG_DIR="$HOME/.gstack/build-state/$_SLUG"
 
@@ -1022,7 +1116,7 @@ tail -5 "$HOME/.gstack/analytics/build-runs.jsonl" 2>/dev/null || true
 ```
 
 From the state JSON, extract and print a one-line heartbeat:
-`[Build monitor] Phase <currentPhaseIndex+1>/<total> — <human status label> | <committed_count> committed | last update <Xs ago> | elapsed <Xm>`
+`[Build monitor] <repoSlug> run <active+1>/<run_count> | Phase <currentPhaseIndex+1>/<total> — <human status label> | <committed_count> committed | last update <Xs ago> | elapsed <Xm>`
 
 Use this table to map `PhaseStatus` to a human label:
 
@@ -1049,7 +1143,16 @@ Then run the outcome checks below — in order, stop at the first that applies.
 
 #### On `completed === true`
 
-Print the final summary and exit the loop:
+If this is not the final manifest run, report the completed repo and continue monitoring the next run after the background launcher advances `build-active-run-index`. Only exit when the active run is the last manifest entry:
+```bash
+_RUN_COUNT=$(jq '.runs | length' "$BUILD_RUN_MANIFEST")
+if [ "$_ACTIVE_RUN_INDEX" -lt $((_RUN_COUNT - 1)) ] 2>/dev/null; then
+  echo "[Build monitor] $repoSlug complete; waiting for next manifest run."
+  # Schedule the next wakeup instead of exiting.
+fi
+```
+
+For the final run, print the final summary and exit the loop:
 ```
 ══════════════════════════════════════════════════════
 BUILD COMPLETE — <planBasename>
@@ -1073,7 +1176,7 @@ Completed:   <lastUpdatedAt>
 
    **Contains `"timed out"`** → auto-remediate:
    ```bash
-   GSTACK_BUILD_GEMINI_TIMEOUT=1200000 "$_GSTACK_BUILD_CLI" "$_PLAN_FILE" --project-root "$_PROJECT_ROOT" "${_ORIGIN_FLAG[@]}" $_FLAGS   # run_in_background: true
+   GSTACK_BUILD_GEMINI_TIMEOUT=1200000 "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$repoPath" "${_ORIGIN_FLAG[@]}" $_FLAGS   # run_in_background: true
    ```
    Report to user: "Gemini timed out on Phase <N>. Raised timeout to 20 min and resumed automatically." Continue monitoring.
 
@@ -1103,7 +1206,7 @@ Completed:   <lastUpdatedAt>
      ❌ No forward progress; you'll need to re-run manually later
    Net: Fix root cause first; resuming blind re-hits the same wall.
    ```
-   If A: `"$_GSTACK_BUILD_CLI" "$_PLAN_FILE" --project-root "$_PROJECT_ROOT" "${_ORIGIN_FLAG[@]}" $_FLAGS` (background) + continue monitoring.
+   If A: `"$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$repoPath" "${_ORIGIN_FLAG[@]}" $_FLAGS` (background) + continue monitoring.
    If B: exit the loop and print the manual resume command.
 
 #### On stale `lastUpdatedAt` (unchanged across 3 consecutive ticks ≈ 3 min)
@@ -1131,7 +1234,7 @@ When `_STALE_TICKS >= 3`:
 1. Check if the process is alive: `pgrep -f "gstack-build"`
 2. **Dead** (no process, no lock file): auto-resume.
    ```bash
-   "$_GSTACK_BUILD_CLI" "$_PLAN_FILE" --project-root "$_PROJECT_ROOT" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
+   "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$repoPath" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
    ```
    Report: "Build process appears to have crashed (state frozen, no process found). Auto-resumed." Reset `_STALE_TICKS` to 0. Continue monitoring.
 3. **Alive** (process running but state frozen): surface via `AskUserQuestion`:
@@ -1153,10 +1256,10 @@ When `_STALE_TICKS >= 3`:
    If A: schedule wakeup at 180s (instead of 60s), reset `_STALE_TICKS` to 0.
    If B:
    ```bash
-   # Scope the kill to this build's project root to avoid killing unrelated builds.
-   kill $(pgrep -f "gstack-build.*$_PROJECT_ROOT") 2>/dev/null || true
+   # Scope the kill to this build's target repo to avoid killing unrelated builds.
+   kill $(pgrep -f "gstack-build.*$repoPath") 2>/dev/null || true
    sleep 2
-   "$_GSTACK_BUILD_CLI" "$_PLAN_FILE" --project-root "$_PROJECT_ROOT" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
+   "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$repoPath" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
    ```
    Reset `_STALE_TICKS` to 0. Continue monitoring.
 
@@ -1170,14 +1273,25 @@ If none of the above conditions fired, schedule the next wakeup at 60 seconds an
 
 When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feature block to audit and fix. The main agent only writes inputs, launches subagents, and collects reports — it never reads the full codebase or living plan content itself.
 
-1. **Locate the living plan**:
+1. **Locate the living plan and target repo**:
    ```bash
-   GSTACK_REPO=$(find .. -maxdepth 1 -type d -name '*-gstack' 2>/dev/null | sort | head -1)
+   _CWD=$(pwd -P)
+   _CHILD_REPOS=$(find "$_CWD" -mindepth 1 -maxdepth 1 -type d ! -name '*-gstack' -exec test -d '{}/.git' ';' -print 2>/dev/null | sort)
+   _CHILD_REPO_COUNT=$(printf '%s\n' "$_CHILD_REPOS" | sed '/^$/d' | wc -l | tr -d ' ')
+   if [ "$_CHILD_REPO_COUNT" -gt 0 ] 2>/dev/null; then
+     WORKSPACE_ROOT="$_CWD"
+     PRODUCT_REPO_CANDIDATES="$_CHILD_REPOS"
+   else
+     repoPath=$(git rev-parse --show-toplevel)
+     WORKSPACE_ROOT=$(dirname "$repoPath")
+     PRODUCT_REPO_CANDIDATES="$repoPath"
+   fi
+   GSTACK_REPO=$(find "$WORKSPACE_ROOT" -maxdepth 1 -type d -name '*-gstack' 2>/dev/null | sort | head -1)
    LIVING_PLAN_FILE=$(find "$GSTACK_REPO/inbox/living-plan" -maxdepth 1 -type f -name "*-impl-plan-*.md" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)
    # Fall back to legacy location
    [ -z "$LIVING_PLAN_FILE" ] && LIVING_PLAN_FILE=$(find "$GSTACK_REPO/living-plans" -maxdepth 1 -type f -name "*-impl-plan-*.md" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)
    ```
-   If `LIVING_PLAN_FILE` is empty, STOP and ask the user to specify the plan path.
+   If `LIVING_PLAN_FILE` is empty, STOP and ask the user to specify the plan path. Select the matching child repo using the same workspace-aware target selection rules as Normal Mode. Run auditor subagents from that selected `repoPath`, never from the workspace root.
 
 2. **Extract feature list**: Run `grep "^## Feature" "$LIVING_PLAN_FILE"` to get feature headings only. Do NOT read the full plan. Build a list of `{ featureIndex, featureName }` tuples.
 
@@ -1191,7 +1305,7 @@ When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feat
    Feature: <feature name>
    Feature index: <N>
    Living plan path: <LIVING_PLAN_FILE>
-   Project root: <project root>
+   Project root: <repoPath>
 
    Steps:
    1. Read Feature <N> from the living plan (only that feature block — from "## Feature <N>"
@@ -1214,6 +1328,7 @@ When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feat
    _REEXAMINE_PROVIDER=$(jq -r '.roles.featureVerifier.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _REEXAMINE_MODEL=$(jq -r '.roles.featureVerifier.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _REEXAMINE_REASONING=$(jq -r '.roles.featureVerifier.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+   _REEXAMINE_TMP="$(pwd -P)/.llm-tmp"
    if [ -z "$_REEXAMINE_PROVIDER" ] || [ -z "$_REEXAMINE_MODEL" ]; then
      echo "configure.cm missing featureVerifier provider/model" >&2
      exit 1
@@ -1221,16 +1336,16 @@ When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feat
 
    _launch_reexamine_audit() {
      _IDX="$1"
-     _PROMPT="Read .llm-tmp/build-reexamine-feature-${_IDX}-input.md. Audit (read-only). Write report to .llm-tmp/build-reexamine-feature-${_IDX}-output.md. Return ONLY the output path. No narrative."
+     _PROMPT="Read $_REEXAMINE_TMP/build-reexamine-feature-${_IDX}-input.md. Audit (read-only). Write report to $_REEXAMINE_TMP/build-reexamine-feature-${_IDX}-output.md. Return ONLY the output path. No narrative."
      case "$_REEXAMINE_PROVIDER" in
        gemini)
-         gemini -p "$_PROMPT" -m "$_REEXAMINE_MODEL" --yolo > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         (cd "$repoPath" && gemini -p "$_PROMPT" -m "$_REEXAMINE_MODEL" --yolo) > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
          ;;
        claude)
-         claude --model "$_REEXAMINE_MODEL" -p "$_PROMPT" > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         (cd "$repoPath" && claude --model "$_REEXAMINE_MODEL" -p "$_PROMPT") > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
          ;;
        codex)
-         codex exec "$_PROMPT" -m "$_REEXAMINE_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_REEXAMINE_REASONING\"" -C "$(pwd -P)" > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         codex exec "$_PROMPT" -m "$_REEXAMINE_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_REEXAMINE_REASONING\"" -C "$repoPath" > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
          ;;
        *)
          echo "unsupported featureVerifier provider: $_REEXAMINE_PROVIDER" >&2
@@ -1316,7 +1431,7 @@ For EACH feature, once all phases in that feature are complete (and have been in
        ;;
      codex)
        _VERIFIER_REASONING=$(jq -r '.roles.featureVerifier.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
-       codex exec "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_VERIFIER_REASONING\"" -C "$(pwd -P)"
+       codex exec "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_VERIFIER_REASONING\"" -C "$repoPath"
        ;;
      *)
        echo "unsupported featureVerifier provider: $_VERIFIER_PROVIDER" >&2
@@ -1331,7 +1446,7 @@ For EACH feature, once all phases in that feature are complete (and have been in
    ```bash
    # _FEATURE_BRANCH must be set to the shipped feature branch (e.g. feat/my-feature-1)
    ~/.claude/skills/gstack/bin/gstack-build-phase-guardrail \
-     "$LIVING_PLAN_FILE" "$_FEATURE_BRANCH" "$_PROJECT_ROOT"
+     "$livingPlanPath" "$_FEATURE_BRANCH" "$repoPath"
    # must output: GUARDRAIL: PASS
    ```
    If it outputs `GUARDRAIL: FAIL: <reason>`, STOP and surface the error.
@@ -1353,29 +1468,54 @@ For EACH feature, once all phases in that feature are complete (and have been in
 
 After ALL features are complete:
 
-1. **Final Completion Exam (configured subagent)**: Spawn a configured `featureVerifier` subagent to compare the full source plan against the complete git log and living plan. Write `.llm-tmp/build-final-exam-input.md` containing: source plan path, living plan path, and the output of `git log --oneline origin/main | head -40`. Spawn:
+1. **Final Completion Exam (configured subagent)**: Spawn a configured `featureVerifier` subagent to compare the full source plan against the complete git log and living plan. For multi-repo runs, repeat this exam once per entry in `BUILD_RUN_MANIFEST`, using that run's `repoPath`, `livingPlanPath`, and `originPlanPath`. Run `git log` and all verifier subagents from the child repo, never the workspace root.
+   Write `.llm-tmp/build-final-exam-<repoSlug>-input.md` containing: source plan path, living plan path, target repo path, and the output of `(cd "$repoPath" && git log --oneline origin/main | head -40)`. Spawn:
    ```bash
+   BUILD_RUN_MANIFEST=${BUILD_RUN_MANIFEST:-.llm-tmp/build-run-manifest.json}
+   _FINAL_RUN_COUNT=$(jq '.runs | length' "$BUILD_RUN_MANIFEST" 2>/dev/null || echo 1)
    _VERIFIER_PROVIDER=$(jq -r '.roles.featureVerifier.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    _VERIFIER_MODEL=$(jq -r '.roles.featureVerifier.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
    ```
    If `_VERIFIER_PROVIDER` or `_VERIFIER_MODEL` is empty, STOP — configure.cm is missing or malformed.
    ```bash
+   for i in $(seq 0 $((_FINAL_RUN_COUNT - 1))); do
+     repoPath=$(jq -r ".runs[$i].repoPath // empty" "$BUILD_RUN_MANIFEST" 2>/dev/null)
+     repoSlug=$(jq -r ".runs[$i].repoSlug // \"repo-$i\"" "$BUILD_RUN_MANIFEST" 2>/dev/null)
+     livingPlanPath=$(jq -r ".runs[$i].livingPlanPath // empty" "$BUILD_RUN_MANIFEST" 2>/dev/null)
+     originPlanPath=$(jq -r ".runs[$i].originPlanPath // empty" "$BUILD_RUN_MANIFEST" 2>/dev/null)
+     _FINAL_EXAM_INPUT="$(pwd -P)/.llm-tmp/build-final-exam-${repoSlug}-input.md"
+     _FINAL_EXAM_OUTPUT="$(pwd -P)/.llm-tmp/build-final-exam-${repoSlug}-output.md"
+
+     if [ ! -d "$repoPath/.git" ]; then
+       echo "ERROR: final exam target repo is invalid: $repoPath" >&2
+       exit 1
+     fi
+
+     {
+       echo "Source plan path: ${originPlanPath:-$livingPlanPath}"
+       echo "Living plan path: $livingPlanPath"
+       echo "Target repo path: $repoPath"
+       echo "Recent landed commits:"
+       (cd "$repoPath" && git log --oneline origin/main | head -40)
+     } > "$_FINAL_EXAM_INPUT"
+
    case "$_VERIFIER_PROVIDER" in
      gemini)
-       gemini -p "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo
+       (cd "$repoPath" && gemini -p "Read final-exam instructions at $_FINAL_EXAM_INPUT. Read source plan and living plan. Compare against git log. Write result to $_FINAL_EXAM_OUTPUT: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo)
        ;;
      claude)
-       claude --model "$_VERIFIER_MODEL" -p "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative."
+       (cd "$repoPath" && claude --model "$_VERIFIER_MODEL" -p "Read final-exam instructions at $_FINAL_EXAM_INPUT. Read source plan and living plan. Compare against git log. Write result to $_FINAL_EXAM_OUTPUT: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative.")
        ;;
      codex)
        _VERIFIER_REASONING=$(jq -r '.roles.featureVerifier.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
-       codex exec "Read final-exam instructions at .llm-tmp/build-final-exam-input.md. Read source plan and living plan. Compare against git log. Write result to .llm-tmp/build-final-exam-output.md: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_VERIFIER_REASONING\"" -C "$(pwd -P)"
+       codex exec "Read final-exam instructions at $_FINAL_EXAM_INPUT. Read source plan and living plan. Compare against git log. Write result to $_FINAL_EXAM_OUTPUT: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_VERIFIER_REASONING\"" -C "$repoPath"
        ;;
      *)
        echo "unsupported featureVerifier provider: $_VERIFIER_PROVIDER" >&2
        exit 1
        ;;
    esac
+   done
    ```
    Read the output. If `EXAM: GAPS`, convert each gap into an issue and restart the autonomous loop for that feature.
 

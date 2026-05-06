@@ -8,12 +8,12 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const content = fs.readFileSync(tmplPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.21.0')).toBe(true);
+  expect(content.includes('version: 1.21.1')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('Test Specification (test-writer role)')).toBe(true);
   expect(content.includes('exactly this durable sub-checkbox structure')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
-  expect(content.includes('--project-root "$_PROJECT_ROOT"')).toBe(true);
+  expect(content.includes('--project-root "$repoPath"')).toBe(true);
   expect(content.includes('Archive Plans')).toBe(true);
   expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
   expect(content.includes('Feature Verification')).toBe(true);
@@ -26,10 +26,10 @@ test("generated SKILL.md reflects TDD changes", () => {
   const content = fs.readFileSync(skillPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.21.0')).toBe(true);
+  expect(content.includes('version: 1.21.1')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
-  expect(content.includes('--project-root "$_PROJECT_ROOT"')).toBe(true);
+  expect(content.includes('--project-root "$repoPath"')).toBe(true);
   expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
   expect(content.includes('Feature Verification')).toBe(true);
   expect(content.includes('Origin trace:')).toBe(true);
@@ -88,7 +88,7 @@ test("build skill docs resolve gstack-build through _GSTACK_BUILD_CLI", () => {
     const content = fs.readFileSync(file, "utf-8");
     expect(content).toContain("_GSTACK_BUILD_CLI");
     expect(content).toContain("command -v gstack-build");
-    expect(content).toContain('"$_GSTACK_BUILD_CLI" "$_PLAN_FILE"');
+    expect(content).toContain('"$_GSTACK_BUILD_CLI" "$livingPlanPath"');
     expect(content).not.toContain('\ngstack-build "$_PLAN_FILE"');
     expect(content).not.toContain(
       'GSTACK_BUILD_GEMINI_TIMEOUT=1200000 gstack-build "$_PLAN_FILE"',
@@ -108,6 +108,60 @@ test("build skill docs route planLocator provider through gemini when configured
     expect(content).toContain("_LOCATOR_PROVIDER");
     expect(content).toContain("gemini -p");
     expect(content).toContain("-m \"$_LOCATOR_MODEL\" --yolo");
+  }
+});
+
+test("build skill docs distinguish storage discovery from plan discovery", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("This chooses plan storage only");
+    expect(content).toContain("it does not choose a plan file or target repo");
+    expect(content).toContain("This is the plan-file lookup; it must not be described as the sibling scan");
+  }
+});
+
+test("build skill docs support workspace-root repo routing", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("Workspace-root mode");
+    expect(content).toContain("Ignore the workspace root git repo by default");
+    expect(content).toContain("workspace-level `*-gstack/inbox/`");
+    expect(content).toContain("split it into one living plan per target repo");
+    expect(content).toContain('"repoPath"');
+    expect(content).toContain('"livingPlanPath"');
+    expect(content).toContain('--project-root "$repoPath"');
+    expect(content).toContain("Run `git log` and all verifier subagents from the child repo, never the workspace root");
+    expect(content).toContain("build-final-exam-${repoSlug}-input.md");
+    expect(content).toContain("Only exit when the active run is the last manifest entry");
+    expect(content).toContain("waiting for next manifest run");
+  }
+});
+
+test("build docs describe workspace-root and sequential multi-repo runs", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../README.md"),
+    path.resolve(import.meta.dir, "../README.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("workspace root");
+    expect(content).toContain("child repos");
+    expect(content).toContain("root repo");
+    expect(content).toContain("one living plan per target repo");
+    expect(content).toContain("sequential");
   }
 });
 
