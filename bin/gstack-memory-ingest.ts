@@ -34,8 +34,9 @@
  * keep V1 ship-tight. See TODOS.md.
  *
  * V1.5 NOTE: When `gbrain put_file` ships in the gbrain CLI (cross-repo P0 TODO),
- * transcripts will route to Supabase Storage instead of put_page. Until then, all
- * content rides put_page; gbrain's native dedup keys on session_id.
+ * transcripts will route to Supabase Storage instead of the page-write path.
+ * Until then, all content rides `gbrain put <slug>` (stdin, YAML frontmatter for
+ * title/type/tags); gbrain's native dedup keys on session_id.
  */
 
 import {
@@ -745,14 +746,23 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   };
 }
 
-// ── Writer (calls gbrain put_page) ─────────────────────────────────────────
+// ── Writer (calls `gbrain put`) ────────────────────────────────────────────
 
 let _gbrainAvailability: boolean | null = null;
 function gbrainAvailable(): boolean {
   if (_gbrainAvailability !== null) return _gbrainAvailability;
   try {
     execSync("command -v gbrain", { stdio: "ignore" });
-    _gbrainAvailability = true;
+    // gbrain v0.27 retired the legacy `put_page` flag-form for `put <slug>`
+    // (content via stdin, metadata as YAML frontmatter). Probe `--help` for
+    // the `put` subcommand so we surface a single clean error here rather
+    // than failing every page with "Unknown command: put_page".
+    const help = execFileSync("gbrain", ["--help"], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    _gbrainAvailability = /(^|\s)put(\s|$)/m.test(help);
   } catch {
     _gbrainAvailability = false;
   }
@@ -761,18 +771,24 @@ function gbrainAvailable(): boolean {
 
 function gbrainPutPage(page: PageRecord): { ok: boolean; error?: string } {
   if (!gbrainAvailable()) {
-    return { ok: false, error: "gbrain CLI not in PATH" };
+    return { ok: false, error: "gbrain CLI not in PATH or missing `put` subcommand" };
   }
   try {
-    const args = [
-      "put_page",
-      "--slug", page.slug,
-      "--title", page.title,
-      "--type", page.type,
-      "--tags", page.tags.join(","),
+    // gbrain v0.27+ uses `put <slug>` (positional, content via stdin) instead
+    // of the legacy `put_page` flag-based form. Inject frontmatter into the
+    // body so title/type/tags survive when the caller did not prepend it.
+    const fmLines = [
+      "---",
+      `title: ${JSON.stringify(page.title)}`,
+      `type: ${page.type}`,
+      `tags: [${page.tags.map((t) => JSON.stringify(t)).join(", ")}]`,
+      "---",
+      "",
     ];
-    execFileSync("gbrain", args, {
-      input: page.body,
+    const hasFm = page.body.startsWith("---\n");
+    const bodyOut = hasFm ? page.body : fmLines.join("\n") + page.body;
+    execFileSync("gbrain", ["put", page.slug], {
+      input: bodyOut,
       encoding: "utf-8",
       timeout: 30000,
       stdio: ["pipe", "pipe", "pipe"],
