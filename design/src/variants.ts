@@ -6,8 +6,9 @@
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { ImageProviderOption, requireImageProvider } from "./auth";
 import { parseBrief } from "./brief";
+import { callImageGeneration } from "./image-provider";
 
 export interface VariantsOptions {
   brief?: string;
@@ -17,6 +18,7 @@ export interface VariantsOptions {
   size?: string;
   quality?: string;
   viewports?: string; // "desktop,tablet,mobile" — generates at multiple sizes
+  backend?: ImageProviderOption;
 }
 
 const STYLE_VARIATIONS = [
@@ -33,7 +35,7 @@ const STYLE_VARIATIONS = [
  * Generate a single variant with retry on 429.
  */
 async function generateVariant(
-  apiKey: string,
+  provider: Awaited<ReturnType<typeof requireImageProvider>>,
   prompt: string,
   outputPath: string,
   size: string,
@@ -54,43 +56,15 @@ async function generateVariant(
     const timeout = setTimeout(() => controller.abort(), 120_000);
 
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          input: prompt,
-          tools: [{ type: "image_generation", size, quality }],
-        }),
-        signal: controller.signal,
-      });
-
+      const result = await callImageGeneration(provider, prompt, size, quality, outputPath);
+      if (result.imageData) {
+        fs.writeFileSync(outputPath, Buffer.from(result.imageData, "base64"));
+      }
+      if (!fs.existsSync(outputPath)) {
+        clearTimeout(timeout);
+        return { path: outputPath, success: false, error: "No image output created" };
+      }
       clearTimeout(timeout);
-
-      if (response.status === 429) {
-        lastError = "Rate limited (429)";
-        continue;
-      }
-
-      if (!response.ok) {
-        const error = await response.text();
-        if (response.status === 403 && error.includes("organization must be verified")) {
-          return { path: outputPath, success: false, error: "OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify." };
-        }
-        return { path: outputPath, success: false, error: `API error (${response.status}): ${error.slice(0, 200)}` };
-      }
-
-      const data = await response.json() as any;
-      const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
-
-      if (!imageItem?.result) {
-        return { path: outputPath, success: false, error: "No image data in response" };
-      }
-
-      fs.writeFileSync(outputPath, Buffer.from(imageItem.result, "base64"));
       return { path: outputPath, success: true };
     } catch (err: any) {
       clearTimeout(timeout);
@@ -108,7 +82,7 @@ async function generateVariant(
  * Generate N variants with staggered parallel execution.
  */
 export async function variants(options: VariantsOptions): Promise<void> {
-  const apiKey = requireApiKey();
+  const provider = await requireImageProvider(options.backend);
   const baseBrief = options.briefFile
     ? parseBrief(options.briefFile, true)
     : parseBrief(options.brief!, false);
@@ -119,7 +93,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
 
   // If viewports specified, generate responsive variants instead of style variants
   if (options.viewports) {
-    await generateResponsiveVariants(apiKey, baseBrief, options.outputDir, options.viewports, quality);
+    await generateResponsiveVariants(provider, baseBrief, options.outputDir, options.viewports, quality);
     return;
   }
 
@@ -146,7 +120,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
       new Promise(resolve => setTimeout(resolve, delay))
         .then(() => {
           console.error(`  Starting variant ${String.fromCharCode(65 + i)}...`);
-          return generateVariant(apiKey, prompt, outputPath, size, quality);
+          return generateVariant(provider, prompt, outputPath, size, quality);
         })
     );
   }
@@ -190,7 +164,7 @@ const VIEWPORT_CONFIGS: Record<string, { size: string; suffix: string; desc: str
 };
 
 async function generateResponsiveVariants(
-  apiKey: string,
+  provider: Awaited<ReturnType<typeof requireImageProvider>>,
   baseBrief: string,
   outputDir: string,
   viewports: string,
@@ -220,7 +194,7 @@ async function generateResponsiveVariants(
       setTimeout(resolve, delay)
     ).then(() => {
       console.error(`  Starting ${config.desc}...`);
-      return generateVariant(apiKey, prompt, outputPath, config.size, quality);
+      return generateVariant(provider, prompt, outputPath, config.size, quality);
     });
   });
 

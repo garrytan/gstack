@@ -16,13 +16,13 @@ export const COMMANDS = new Map<string, {
 }>([
   ["generate", {
     description: "Generate a UI mockup from a design brief",
-    usage: "generate --brief \"...\" --output /path.png",
-    flags: ["--brief", "--brief-file", "--output", "--check", "--retry", "--size", "--quality"],
+    usage: "generate --brief \"...\" --output /path.png [--backend auto|codex|openai]",
+    flags: ["--brief", "--brief-file", "--output", "--check", "--retry", "--size", "--quality", "--backend"],
   }],
   ["variants", {
     description: "Generate N design variants from a brief",
-    usage: "variants --brief \"...\" --count 3 --output-dir /path/",
-    flags: ["--brief", "--brief-file", "--count", "--output-dir", "--size", "--quality", "--viewports"],
+    usage: "variants --brief \"...\" --count 3 --output-dir /path/ [--backend auto|codex|openai]",
+    flags: ["--brief", "--brief-file", "--count", "--output-dir", "--size", "--quality", "--viewports", "--backend"],
   }],
   ["iterate", {
     description: "Iterate on an existing mockup with feedback",

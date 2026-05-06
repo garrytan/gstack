@@ -60,7 +60,8 @@ function printUsage(): void {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log("\nAuth: Codex OAuth via `codex login`, ~/.gstack/openai.json, or OPENAI_API_KEY env var");
+  console.log("Backend: --backend auto|codex|openai (auto prefers Codex OAuth)");
   console.log("Setup: $D setup");
 }
 
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
         retry: flags.retry ? parseInt(flags.retry as string) : 0,
         size: flags.size as string,
         quality: flags.quality as string,
+        backend: flags.backend as any,
       });
       break;
 
@@ -175,6 +177,7 @@ async function main(): Promise<void> {
         size: flags.size as string,
         quality: flags.quality as string,
         viewports: flags.viewports as string,
+        backend: flags.backend as any,
       });
       break;
 
