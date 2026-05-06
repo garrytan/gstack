@@ -60,7 +60,10 @@ Living plans should regroup all source-plan weeks, milestones, blocks, and phase
 into deliverable feature sections. Legacy phase-only plans still run as one
 default feature.
 
-The preferred phase shape inside each feature is TDD-first:
+The preferred phase shape inside each feature is TDD-first. The durable
+markdown shape stays at three checkboxes, while the CLI enforces the full
+runtime lifecycle: Test Specification -> Verify Red -> Implementation -> Green
+tests -> Review/QA.
 
 ```markdown
 ## Feature 1: Parser workflow
@@ -71,7 +74,7 @@ Acceptance: Parser behavior satisfies the source plan.
 ### Phase 1.1: Parser tests
 
 - [ ] **Test Specification (Gemini Sub-agent)**: Write failing tests covering the parser behavior.
-- [ ] **Implementation (Gemini Sub-agent)**: Make the tests pass with minimal code.
+- [ ] **Implementation (Gemini Sub-agent)**: Make the tests pass with minimal code; the CLI runs the Green tests gate afterward.
 - [ ] **Review & QA (Codex Sub-agent)**: Run review and fix all findings.
 ```
 
@@ -431,18 +434,19 @@ corresponding env var overrides. To change their models, edit `configure.cm`.
 
 ## Testing
 
-Run the focused test suite:
+Run the dedicated deterministic build-skill gate:
 
 ```bash
-bun test build/orchestrator/__tests__/
+bun run test:build-skill
 ```
 
-The suite covers parser edge cases, state persistence, lock behavior, plan
-mutation, test command detection, verdict parsing, phase transitions, dry-run
-integration, startup gates, prompt shapes, and dual-implementor worktree flows.
+The gate runs the full orchestrator suite plus generated skill-doc contract
+tests. The matrix guard in `build/orchestrator/__tests__/coverage-matrix.test.ts`
+fails if a new build orchestrator module is added without explicit test
+ownership.
 
 After changing `build/SKILL.md.tmpl`, regenerate generated skill files:
 
 ```bash
-bun run gen:skill-docs --host codex
+bun run gen:skill-docs --host all
 ```

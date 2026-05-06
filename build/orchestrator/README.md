@@ -62,7 +62,7 @@ Acceptance: Login, logout, and session expiry satisfy the source plan.
 
 ### Phase 1.1: Auth tests
 - [ ] **Test Specification (Gemini Sub-agent)**: Write failing tests that cover...
-- [ ] **Implementation (Gemini Sub-agent)**: Make all failing tests pass...
+- [ ] **Implementation (Gemini Sub-agent)**: Make all failing tests pass; the CLI runs the Green tests gate afterward...
 - [ ] **Review & QA (review roles)**: Run /review, optional secondary review if configured, and /qa...
 ```
 
@@ -70,11 +70,14 @@ Legacy phase-only plans still run as a single feature named `Full plan`.
 
 Each phase supports two formats:
 
-**TDD format (recommended)** — 3 checkboxes per phase:
+**TDD format (required default for newly synthesized plans)** — 3 durable
+checkboxes per phase. The CLI-owned runtime gates between those checkboxes are
+Verify Red and Green tests, so the full lifecycle is Test Specification ->
+Verify Red -> Implementation -> Green tests -> Review/QA.
 ```markdown
 ### Phase 1: Skeleton + parser
 - [ ] **Test Specification (Gemini Sub-agent)**: Write failing tests that cover...
-- [ ] **Implementation (Gemini Sub-agent)**: Make all failing tests pass...
+- [ ] **Implementation (Gemini Sub-agent)**: Make all failing tests pass; the CLI runs the Green tests gate afterward...
 - [ ] **Review & QA (review roles)**: Run /review, optional secondary review if configured, and /qa...
 ```
 
@@ -85,7 +88,7 @@ Each phase supports two formats:
 - [ ] **Review & QA (review roles)**: Run /review, optional secondary review if configured, and /qa...
 ```
 
-Feature and phase numbers can be `N` or `N.M`. The orchestrator processes features in document order, and phases in document order within each feature. Phases missing the `**Implementation` or `**Review` checkbox are skipped with a warning. TDD format phases without a `**Test Specification` checkbox are treated as legacy and skip the Red/Green steps.
+Feature and phase numbers can be `N` or `N.M`. The orchestrator processes features in document order, and phases in document order within each feature. Phases missing the `**Implementation` or `**Review` checkbox are skipped with a warning. TDD format phases without a `**Test Specification` checkbox are treated as legacy and skip the Red/Green steps; keep that compatibility for old plans, but do not generate new living plans in the legacy shape.
 
 ## Feature Workflow
 
@@ -375,7 +378,11 @@ The state machine is the heart of the design and is deliberately a pure function
 
 ```bash
 cd ~/.claude/skills/gstack
-bun test build/orchestrator/__tests__/
+bun run test:build-skill
 ```
 
-229 tests across 12 files cover: parser edge cases (incl. dual-impl opt stamping), state persistence atomicity, lock contention, every phase-runner state transition (TDD + dual-impl tournament), plan mutator atomicity, ANSI-stripping verdict parser, gbrain frontmatter strip, detectTestCmd detection, prompt-builder shapes (test-spec, dual-impl, judge, fmtFixIter variants, fix history injection, HARDENING format), worktree primitives (createWorktrees / applyWinner / teardownWorktrees against a real temp git repo), parseFailureCount + parseJudgeVerdict + buildCodexImplArgv + parseJudgeVerdict HARDENING extraction, fail-closed paths, and dry-run integration for both single-impl TDD and `--dual-impl` modes.
+The dedicated gate runs `build/orchestrator/__tests__` plus
+`test/gen-skill-docs.test.ts`. `coverage-matrix.test.ts` is the ownership
+guard: every build orchestrator module and build-critical behavior must name
+deterministic tests, so future updates cannot silently bypass the `/build` TDD
+contract.

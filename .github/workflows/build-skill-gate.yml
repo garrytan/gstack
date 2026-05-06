@@ -1,0 +1,66 @@
+name: Build Skill TDD Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "build/**"
+      - "bin/gstack-build"
+      - "scripts/gen-skill-docs.ts"
+      - "scripts/discover-skills.ts"
+      - "scripts/host-config.ts"
+      - "scripts/models.ts"
+      - "scripts/resolvers/**"
+      - "hosts/**"
+      - "test/gen-skill-docs.test.ts"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/build-skill-gate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "build/**"
+      - "bin/gstack-build"
+      - "scripts/gen-skill-docs.ts"
+      - "scripts/discover-skills.ts"
+      - "scripts/host-config.ts"
+      - "scripts/models.ts"
+      - "scripts/resolvers/**"
+      - "hosts/**"
+      - "test/gen-skill-docs.test.ts"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/build-skill-gate.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: build-skill-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-skill-tdd-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate all host skill docs
+        run: bun run gen:skill-docs --host all
+
+      - name: Verify generated docs are fresh
+        run: |
+          git diff --exit-code || {
+            echo "Generated skill docs are stale. Run: bun run gen:skill-docs --host all"
+            exit 1
+          }
+
+      - name: Run deterministic build skill gate
+        run: bun run test:build-skill

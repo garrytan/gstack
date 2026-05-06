@@ -140,7 +140,11 @@ Skip this entire step if in Reexamine or Resume Mode.
      by deliverable feature. Only preserve an origin group as a feature when it naturally matches.
    - Traceability from every feature block back to the source plan sections it satisfies.
    - A phase-by-phase checklist inside each feature block using [ ] markdown checkboxes.
-   - For EVERY phase, exactly this sub-checkbox structure:
+   - For EVERY phase, use this TDD lifecycle in order: Test Specification →
+     Verify Red → Implementation → Green tests → Review/QA.
+   - Keep exactly this durable sub-checkbox structure so `gstack-build` can parse
+     and resume the plan. Verify Red and Green tests are CLI-owned gates, not
+     additional markdown checkboxes:
 
      ## Feature X: [Feature Name]
      Origin trace: [source plan sections/weeks/blocks covered]
@@ -148,10 +152,12 @@ Skip this entire step if in Reexamine or Resume Mode.
 
      ### Phase X: [Phase Name]
      - [ ] **Test Specification (test-writer role)**: Write failing tests covering the behavior
-       described below. Tests MUST fail before implementation begins. Cover happy path + key edge
-       cases using the project's existing test framework. Do NOT write any implementation code yet.
+       described below. Tests MUST fail during the CLI Verify Red gate before implementation
+       begins. Cover happy path + key edge cases using the project's existing test framework.
+       Do NOT write any implementation code yet.
      - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct
-       code. Do NOT change test assertions.
+       code. Do NOT change test assertions. After this checkbox runs, the CLI runs the Green
+       tests gate and invokes the configured test-fixer role until tests pass or the cap is hit.
      - [ ] **Review & QA (review roles)**: Run primary /review, optional secondary review
        if configured, and /qa; all required gates must pass.
 

@@ -11,7 +11,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   expect(content.includes('version: 1.20.0')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('Test Specification (test-writer role)')).toBe(true);
-  expect(content.includes('exactly this sub-checkbox structure')).toBe(true);
+  expect(content.includes('exactly this durable sub-checkbox structure')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
   expect(content.includes('--project-root "$_PROJECT_ROOT"')).toBe(true);
   expect(content.includes('Archive Plans')).toBe(true);
@@ -34,6 +34,31 @@ test("generated SKILL.md reflects TDD changes", () => {
   expect(content.includes('Feature Verification')).toBe(true);
   expect(content.includes('Origin trace:')).toBe(true);
   expect(content.includes('Parallel Phase Planner (`--parallel-phases N`)')).toBe(true);
+});
+
+test("build docs define TDD as Test Specification, Verify Red, Implementation, Green tests, Review/QA", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(import.meta.dir, "../../README.md"),
+    path.resolve(import.meta.dir, "../README.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("Test Specification");
+    expect(content).toContain("Verify Red");
+    expect(content).toContain("Implementation");
+    expect(content).toContain("Green tests");
+    expect(content).toContain("Review/QA");
+  }
+
+  for (const file of files.slice(0, 3)) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("Verify Red and Green tests are CLI-owned gates");
+    expect(content).toContain("additional markdown checkboxes");
+  }
 });
 
 test("build skill and CLI do not hardcode default model names", () => {

@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.26.7.0] - 2026-05-06
+
+### Added
+
+- `/build` now has a dedicated deterministic TDD coverage gate in CI. Build
+  changes run generated skill-doc freshness plus the full build orchestrator
+  suite before landing.
+- Build orchestrator tests now include a coverage matrix guard that maps every
+  orchestrator module and build-critical behavior to explicit deterministic test
+  owners.
+- `/build` skill docs now state the default TDD lifecycle for newly generated
+  living plans: Test Specification, Verify Red, Implementation, Green tests,
+  and Review/QA.
+
+### Changed
+
+- `test:build-skill` now runs the full build orchestrator test directory plus
+  generated skill-doc contract tests instead of a narrow hand-picked subset.
+- Build documentation now points contributors at the dedicated gate and the
+  `--host all` generated-doc workflow.
+
 ## [1.26.6.0] - 2026-05-06
 
 ### Changed
