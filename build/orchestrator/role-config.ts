@@ -24,7 +24,7 @@ export interface RoleConfigs {
   contextSave: RoleConfig;
   /**
    * Configurable post-implementation reviewer that fires once all phases
-   * of a feature commit. Default codex/gpt-5.5/xhigh — see /build skill
+   * of a feature commit. Default comes from build/configure.cm — see /build skill
    * docs for the FEATURE_PASS / FEATURE_NEEDS_PHASES / FEATURE_REDO
    * verdict contract.
    */

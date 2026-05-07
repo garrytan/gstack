@@ -196,7 +196,7 @@ Tournament selection: the configured primary and secondary implementors build ea
 
 **Prewritten test specs are supported** — if a phase has `[x] **Test Specification` already checked (user wrote the tests before running gstack), dual-impl runs `VERIFY_RED` first to confirm the tests fail, then spawns both implementors. If the prewritten tests pass trivially (before any implementation), the phase fails with a clear message: fix the tests so they fail, then re-run. **Legacy 2-checkbox plans** (no test spec checkbox at all) still skip dual-impl silently and use normal single-implementor behavior.
 
-**Required CLIs**: `gemini`, `codex`, and `claude` must all be on `PATH` (or set `GEMINI_BIN` / `CODEX_BIN` / `CLAUDE_BIN`). The orchestrator does not preflight check these — if Codex fails to produce committed work, `countCommitsSinceBase` returns 0 for the Codex side, making it ineligible. If only Gemini committed, it is auto-selected and dual-tests + judge are skipped (`selectedBy='auto'`). If neither committed, the phase fails. Install all three before running.
+**Required CLIs**: every provider configured for `primaryImpl`, `secondaryImpl`, and `judge` must be on `PATH` (or configured via that provider's `*_BIN` override). The orchestrator does not preflight check these — if one implementor fails to produce committed work, `countCommitsSinceBase` returns 0 for that side, making it ineligible. If only one side committed and its tests pass, it is auto-selected and dual-tests + judge are skipped (`selectedBy='auto'`). If neither committed, the phase fails.
 
 This eliminates single-model blind spots: if one implementor takes a structurally wrong approach, the other independent attempt may not, and the judge sees both diffs side-by-side.
 
@@ -210,8 +210,8 @@ gstack-build plans/...md --dual-impl
 1. Test Specification  — configured test-writer writes failing tests (Red)
 2. Verify Red          — confirm tests fail                            [unchanged]
 3. Dual Impl           — createWorktrees, then Promise.all of:
-                           - runGemini  in /tmp/gstack-dual-<slug>-pN-<ts>/gemini
-                           - runCodexImpl in /tmp/gstack-dual-<slug>-pN-<ts>/codex
+                           - primary role in /tmp/gstack-dual-<slug>-pN-<ts>/primary
+                           - secondary role in /tmp/gstack-dual-<slug>-pN-<ts>/secondary
                          Each commits to its own branch.
 4. Dual Fix Loops      — Promise.all of runDualImplFixLoop on both worktrees:
                          For each implementor:
@@ -219,8 +219,8 @@ gstack-build plans/...md --dual-impl
                            b. if tests fail: invoke fix agent (up to DEFAULT_MAX_TEST_ITERATIONS)
                               collecting per-iteration failure output into fixHistory
                            c. repeat until green or iterations exhausted
-                         SHA of worktree HEAD captured at test time (geminiTestedCommit /
-                         codexTestedCommit) — validated on resume; stale cache detected
+                         SHA of worktree HEAD captured at test time (testedCommit)
+                         — validated on resume; stale cache detected
                          fail-closed if HEAD has moved since tests ran.
                          Outcomes:
                            → both pass: judge decides (or test hygiene gate below)
@@ -231,7 +231,7 @@ gstack-build plans/...md --dual-impl
                          (**/__tests__/**) — if either implementor modified test assertions,
                          route to the configured judge instead of auto-deciding.
 5. Judge               — configured judge reads both diffs + test results + fixHistory,
-                         emits "WINNER: gemini|codex" + REASONING + HARDENING block
+                         emits "WINNER: primary|secondary" + REASONING + HARDENING block
                          (HARDENING: lists concrete bug surfaces from either side's
                          fix history; injected into the review prompt)
 6. Apply Winner        — cherry-pick winning branch's commits onto main cwd
@@ -245,7 +245,7 @@ gstack-build plans/...md --dual-impl
 
 ### Worktree isolation
 
-Each phase creates a fresh pair under `os.tmpdir()/gstack-dual-<slug>-p<N>-<timestamp>/`. Branches are named `gstack-dual-p<N>-{gemini|codex}-<timestamp>`. Cleanup behavior by outcome:
+Each phase creates a fresh pair under `os.tmpdir()/gstack-dual-<slug>-p<N>-<timestamp>/`. Branches are named `gstack-dual-p<N>-{primary|secondary}-<timestamp>`. Cleanup behavior by outcome:
 
 - **Successful Apply Winner** → worktrees torn down immediately.
 - **Apply Winner failure** (cherry-pick + patch both fail) → worktrees **preserved** for manual recovery; cwd tracking files are restored to HEAD via `git reset --hard HEAD` (only on the specific patch-apply failure branch; `git add` or `git commit` failures after a successful patch leave cwd dirty — check `git status` before recovery). Error message includes the worktree paths.
@@ -319,7 +319,7 @@ the repo copy. `GSTACK_BUILD_DEFAULTS_FILE` remains as a legacy alias.
 | `GSTACK_BUILD_SHIP_MODEL` | role default | Ship model. |
 | `GSTACK_BUILD_LAND_MODEL` | role default | Land model. |
 | `GSTACK_BUILD_CONTEXT_SAVE_MODEL` | role default | Context-save model. |
-| `GSTACK_BUILD_<ROLE>_PROVIDER` | role default | Provider override where supported; dual-impl requires Gemini primary, Codex secondary, Claude judge. |
+| `GSTACK_BUILD_<ROLE>_PROVIDER` | role default | Provider override where supported; dual-impl primary, secondary, and judge roles are model-agnostic. |
 | `GSTACK_BUILD_<ROLE>_REASONING` | role default | Role reasoning override. |
 | `GSTACK_BUILD_<ROLE>_COMMAND` | role default | Command override for review, QA, ship, land, and context-save roles. |
 | `GSTACK_BUILD_GEMINI_TIMEOUT` | `600000` | Per-Gemini-call timeout in ms (10 min). |
@@ -359,11 +359,11 @@ the product repo, it exits with instructions to rerun with `--project-root
     ├── phase-1-gemini-testspec-1-input.md
     ├── phase-1-gemini-testspec-1-output.md
     ├── phase-1-tests-1.log               Test runner stdout+stderr (VERIFY_RED)
-    ├── phase-1-gemini-1.log              Implementation Gemini stdout+stderr
+    ├── phase-1-dual-primary-1.log        Primary implementor stdout+stderr
     ├── phase-1-tests-1.log               Test runner stdout+stderr (post-impl)
-    ├── phase-1-gemini-fix-1.log          Fix-iteration stdout+stderr
-    ├── phase-1-codex-1.log
-    ├── phase-1-codex-2.log
+    ├── phase-1-dual-primary-fix1-1.log   Fix-iteration stdout+stderr
+    ├── phase-1-dual-secondary-1.log
+    ├── phase-1-dual-secondary-fix1-1.log
     └── ship.log
 
 ~/.gstack/analytics/build-runs.jsonl   Append-only activity log

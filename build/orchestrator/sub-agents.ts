@@ -25,6 +25,7 @@ import * as path from "node:path";
 import { logDir, ensureLogDir } from "./state";
 import type { RoleProvider, RoleReasoning } from "./role-config";
 import { BUILD_DEFAULTS, envNumberOrDefault } from "./build-config";
+import type { DualImplCandidateKey } from "./types";
 
 export type CodexSandbox =
   | "read-only"
@@ -1262,7 +1263,7 @@ export function parseFailureCount(output: string): number | undefined {
  * Parse the tournament judge's output for a verdict + reasoning.
  *
  * Expected format (anchored to start-of-line; case-insensitive on the value):
- *   WINNER: gemini|codex
+ *   WINNER: primary|secondary
  *   REASONING: <one paragraph>
  *
  * Returns `verdict: null` when no anchored WINNER line is found. Caller
@@ -1274,14 +1275,14 @@ export function parseFailureCount(output: string): number | undefined {
  * defect; null surfaces it instead.)
  */
 export function parseJudgeVerdict(output: string): {
-  verdict: "gemini" | "codex" | null;
+  verdict: DualImplCandidateKey | null;
   reasoning: string;
   hardeningNotes: string;
 } {
   const clean = stripAnsi(output || "").replace(/\r/g, "");
   // Anchored: WINNER must be at start of line. Avoids false matches like
-  // "I think the WINNER: gemini is better" embedded in narrative prose.
-  const winnerMatch = clean.match(/^\s*WINNER:\s*(gemini|codex)\b/im);
+  // "I think the WINNER: primary is better" embedded in narrative prose.
+  const winnerMatch = clean.match(/^\s*WINNER:\s*(primary|secondary)\b/im);
   if (!winnerMatch) {
     return {
       verdict: null,
@@ -1290,7 +1291,7 @@ export function parseJudgeVerdict(output: string): {
       hardeningNotes: "",
     };
   }
-  const verdict = winnerMatch[1].toLowerCase() as "gemini" | "codex";
+  const verdict = winnerMatch[1].toLowerCase() as DualImplCandidateKey;
 
   // REASONING: runs from marker to next anchored HARDENING section or EOS.
   // Lookahead on HARDENING: captures any inline value (e.g. "HARDENING: none"),
@@ -1367,7 +1368,7 @@ export function buildCodexImplArgv(opts: {
 export async function runCodexImpl(opts: {
   inputFilePath: string;
   outputFilePath: string;
-  /** The worktree cwd Codex should operate in (e.g. /tmp/gstack-dual-.../codex). */
+  /** The worktree cwd Codex should operate in (e.g. /tmp/gstack-dual-.../secondary). */
   cwd: string;
   slug: string;
   phaseNumber: string;
@@ -1441,7 +1442,7 @@ const JUDGE_TIMEOUT_MS = envNumberOrDefault(
 );
 
 /**
- * Run the configured Claude judge. Caller writes the full judge prompt
+ * Run the legacy Claude judge wrapper. Caller writes the full judge prompt
  * (task + tests + both diffs + both test results) to inputFilePath BEFORE calling.
  * The judge reads it, picks a winner, and writes verdict to outputFilePath.
  *
@@ -1465,7 +1466,7 @@ export async function runJudge(opts: {
     `Read judge prompt at ${opts.inputFilePath}.`,
     `Pick the better of the two implementations described inside.`,
     `Write your verdict to ${opts.outputFilePath} in this exact format:`,
-    `WINNER: gemini|codex`,
+    `WINNER: primary|secondary`,
     `REASONING: <one paragraph, concrete reasons>`,
     `Return ONLY the output file path. No narrative.`,
   ].join(" ");

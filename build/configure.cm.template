@@ -1,13 +1,23 @@
 {
   "roles": {
-    "testWriter": {
+    "planLocator": {
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
+      "reasoning": "high"
+    },
+    "planSynthesizer": {
       "provider": "claude",
       "model": "claude-opus-4-7",
       "reasoning": "xhigh"
     },
+    "testWriter": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high"
+    },
     "primaryImpl": {
       "provider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "model": "gemini-3-pro-preview",
       "reasoning": "high"
     },
     "testFixer": {
@@ -17,7 +27,7 @@
     },
     "secondaryImpl": {
       "provider": "codex",
-      "model": "gpt-5.3-codex",
+      "model": "gpt-5.3-codex-spark",
       "reasoning": "high"
     },
     "review": {
@@ -27,28 +37,27 @@
       "command": "/review"
     },
     "reviewSecondary": {
-      "provider": "claude",
-      "model": "claude-opus-4-7",
-      "reasoning": "xhigh",
-      "command": "/codex review"
-    },
-    "qa": {
       "provider": "codex",
       "model": "gpt-5.5",
+      "reasoning": "high"
+    },
+    "qa": {
+      "provider": "claude",
+      "model": "claude-sonnet-4-6",
       "reasoning": "high",
-      "command": "/gstack-qa"
+      "command": "/qa"
     },
     "ship": {
       "provider": "codex",
-      "model": "gpt-5.5",
+      "model": "gpt-codex-spark",
       "reasoning": "high",
-      "command": "/gstack-ship"
+      "command": "/ship"
     },
     "land": {
       "provider": "codex",
-      "model": "gpt-5.5",
+      "model": "gpt-codex-spark",
       "reasoning": "high",
-      "command": "/gstack-land-and-deploy"
+      "command": "/land-and-deploy"
     },
     "judge": {
       "provider": "claude",
@@ -57,29 +66,19 @@
     },
     "contextSave": {
       "provider": "claude",
-      "model": "sonnet",
+      "model": "claude-sonnet-4-6",
       "reasoning": "high",
       "command": "/context-save"
     },
     "featureReview": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "claude",
+      "model": "claude-opus-4-7",
       "reasoning": "xhigh"
-    },
-    "planLocator": {
-      "provider": "claude",
-      "model": "claude-haiku-4-5-20251001",
-      "reasoning": "low"
-    },
-    "planSynthesizer": {
-      "provider": "claude",
-      "model": "claude-sonnet-4-6",
-      "reasoning": "high"
     },
     "featureVerifier": {
       "provider": "claude",
-      "model": "claude-sonnet-4-6",
-      "reasoning": "high"
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     }
   },
   "limits": {
@@ -91,6 +90,7 @@
   },
   "timeoutsMs": {
     "gemini": 600000,
+    "kimi": 600000,
     "codex": 900000,
     "ship": 1800000,
     "test": 300000,

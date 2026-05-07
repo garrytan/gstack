@@ -16,7 +16,13 @@
  * we can unit-test every branch with a few lines and a mock result.
  */
 
-import type { PhaseState, Phase, DualImplTestResult } from "./types";
+import type {
+  DualImplCandidateKey,
+  DualImplState,
+  DualImplTestResult,
+  Phase,
+  PhaseState,
+} from "./types";
 import type { SubAgentResult, Verdict } from "./sub-agents";
 import { parseVerdict } from "./sub-agents";
 import { BUILD_DEFAULTS, envNumberOrDefault } from "./build-config";
@@ -69,6 +75,18 @@ export function isCodexConvergenceFailure(reason: string): boolean {
   return reason.startsWith(CODEX_CONVERGENCE_FAILURE_REASON_PREFIX);
 }
 
+function isLegacyDualImplState(dualImpl: unknown): boolean {
+  return (
+    !!dualImpl &&
+    typeof dualImpl === "object" &&
+    ("geminiWorktreePath" in dualImpl || "codexWorktreePath" in dualImpl)
+  );
+}
+
+function legacyDualImplError(): string {
+  return "Existing dual-impl state uses the old gemini/codex shape. Delete the stale build state or rerun this phase so gstack-build can create primary/secondary worktrees.";
+}
+
 function firstHygieneFailureLine(stdout: string): string | null {
   if (!stdout.includes("# Post-agent hygiene failure")) return null;
   for (const rawLine of stdout.split(/\r?\n/)) {
@@ -114,7 +132,11 @@ export type Action =
   | { type: "RUN_DUAL_IMPL"; phaseIndex: number; iteration: number }
   | { type: "RUN_DUAL_TESTS"; phaseIndex: number }
   | { type: "RUN_JUDGE"; phaseIndex: number }
-  | { type: "APPLY_WINNER"; phaseIndex: number; winner: "gemini" | "codex" }
+  | {
+      type: "APPLY_WINNER";
+      phaseIndex: number;
+      winner: DualImplCandidateKey;
+    }
   // Feature-level meta-review (fires after all phases of a feature commit).
   // Carries featureIndex (NOT phaseIndex) and the iteration counter so the
   // handler can build the prompt with prior verdict context.
@@ -323,16 +345,44 @@ export function decideNextAction(
       };
 
     case "dual_impl_done":
+      if (isLegacyDualImplState(phaseState.dualImpl)) {
+        return {
+          type: "FAIL",
+          phaseIndex: phaseState.index,
+          reason: legacyDualImplError(),
+        };
+      }
       return { type: "RUN_DUAL_TESTS", phaseIndex: phaseState.index };
 
     case "dual_tests_running":
+      if (isLegacyDualImplState(phaseState.dualImpl)) {
+        return {
+          type: "FAIL",
+          phaseIndex: phaseState.index,
+          reason: legacyDualImplError(),
+        };
+      }
       return { type: "RUN_DUAL_TESTS", phaseIndex: phaseState.index };
 
     case "dual_judge_pending":
     case "dual_judge_running":
+      if (isLegacyDualImplState(phaseState.dualImpl)) {
+        return {
+          type: "FAIL",
+          phaseIndex: phaseState.index,
+          reason: legacyDualImplError(),
+        };
+      }
       return { type: "RUN_JUDGE", phaseIndex: phaseState.index };
 
     case "dual_winner_pending": {
+      if (isLegacyDualImplState(phaseState.dualImpl)) {
+        return {
+          type: "FAIL",
+          phaseIndex: phaseState.index,
+          reason: legacyDualImplError(),
+        };
+      }
       const winner = phaseState.dualImpl?.selectedImplementor;
       if (!winner) {
         return {
@@ -364,27 +414,11 @@ export function decideNextAction(
  */
 export interface ApplyResultExtra {
   /** RUN_DUAL_IMPL: worktree paths + branches set up by createWorktrees() */
-  dualImplInit?: {
-    geminiWorktreePath: string;
-    codexWorktreePath: string;
-    geminiBranch: string;
-    codexBranch: string;
-    baseCommit: string;
-    /** Pre-computed by in-impl fix loops — lets RUN_DUAL_TESTS skip re-running tests. */
-    geminiTestResult?: DualImplTestResult;
-    codexTestResult?: DualImplTestResult;
-    geminiFixIterations?: number | null;
-    codexFixIterations?: number | null;
-    geminiFixHistory?: string;
-    codexFixHistory?: string;
-    geminiTestedCommit?: string;
-    codexTestedCommit?: string;
-  };
+  dualImplInit?: DualImplState;
   /** RUN_DUAL_TESTS: individual test outcomes for each worktree */
-  geminiTestResult?: DualImplTestResult;
-  codexTestResult?: DualImplTestResult;
+  candidateTestResults?: Record<DualImplCandidateKey, DualImplTestResult>;
   /** RUN_JUDGE: configured judge decision */
-  judgeVerdict?: "gemini" | "codex";
+  judgeVerdict?: DualImplCandidateKey;
   judgeReasoning?: string;
   judgeHardeningNotes?: string;
   /**
@@ -614,71 +648,100 @@ export function applyResult(
         "RUN_DUAL_IMPL requires dualImplInit (worktree paths/branches/baseCommit) in extra";
       return next;
     }
-    next.dualImpl = { ...(phaseState.dualImpl ?? {}), ...extra.dualImplInit };
+    next.dualImpl = extra.dualImplInit;
     next.status = "dual_impl_done";
     return next;
   }
 
   if (action.type === "RUN_DUAL_TESTS") {
-    const g = extra?.geminiTestResult;
-    const c = extra?.codexTestResult;
-    if (!g || !c) {
+    const candidateResults = extra?.candidateTestResults;
+    const primary = candidateResults?.primary;
+    const secondary = candidateResults?.secondary;
+    if (!primary || !secondary) {
       next.status = "failed";
       next.error =
-        "RUN_DUAL_TESTS requires geminiTestResult and codexTestResult in extra";
+        "RUN_DUAL_TESTS requires primary and secondary test results in extra";
       return next;
     }
     // Both timing out is treated as a hard failure — no test evidence to pick a winner.
-    if (g.timedOut && c.timedOut) {
-      next.dualImpl = {
-        ...(phaseState.dualImpl as any),
-        geminiTestResult: g,
-        codexTestResult: c,
-      };
+    if (primary.timedOut && secondary.timedOut) {
+      const dual = phaseState.dualImpl;
+      next.dualImpl = dual
+        ? {
+            ...dual,
+            candidates: {
+              primary: { ...dual.candidates.primary, testResult: primary },
+              secondary: {
+                ...dual.candidates.secondary,
+                testResult: secondary,
+              },
+            },
+          }
+        : dual;
       next.status = "failed";
       next.error =
         "Both dual-impl test runs timed out — cannot select a winner";
       return next;
     }
 
-    const gPass = g.testExitCode === 0 && !g.timedOut;
-    const cPass = c.testExitCode === 0 && !c.timedOut;
+    const primaryPass = primary.testExitCode === 0 && !primary.timedOut;
+    const secondaryPass =
+      secondary.testExitCode === 0 && !secondary.timedOut;
 
-    let selectedImplementor: "gemini" | "codex" | undefined;
+    let selectedImplementor: DualImplCandidateKey | undefined;
     let nextStatus: PhaseState["status"];
-    if (gPass && cPass) {
+    if (primaryPass && secondaryPass) {
       nextStatus = "dual_judge_pending";
-    } else if (gPass) {
-      selectedImplementor = "gemini";
+    } else if (primaryPass) {
+      selectedImplementor = "primary";
       nextStatus = "dual_winner_pending";
-    } else if (cPass) {
-      selectedImplementor = "codex";
+    } else if (secondaryPass) {
+      selectedImplementor = "secondary";
       nextStatus = "dual_winner_pending";
     } else {
       // Both failed (no timeouts). If failureCount is missing on both, fail closed —
       // we have no signal to choose a winner.
-      if (g.failureCount == null && c.failureCount == null) {
-        next.dualImpl = {
-          ...(phaseState.dualImpl as any),
-          geminiTestResult: g,
-          codexTestResult: c,
-        };
+      if (primary.failureCount == null && secondary.failureCount == null) {
+        const dual = phaseState.dualImpl;
+        next.dualImpl = dual
+          ? {
+              ...dual,
+              candidates: {
+                primary: { ...dual.candidates.primary, testResult: primary },
+                secondary: {
+                  ...dual.candidates.secondary,
+                  testResult: secondary,
+                },
+              },
+            }
+          : dual;
         next.status = "failed";
         next.error =
           "Both dual-impl test runs failed and failureCount is missing on both — cannot select winner";
         return next;
       }
-      const gFails = g.failureCount ?? Number.MAX_SAFE_INTEGER;
-      const cFails = c.failureCount ?? Number.MAX_SAFE_INTEGER;
-      // Ties (cFails === gFails) intentionally pick gemini — documented preference.
-      selectedImplementor = cFails < gFails ? "codex" : "gemini";
+      const primaryFails = primary.failureCount ?? Number.MAX_SAFE_INTEGER;
+      const secondaryFails =
+        secondary.failureCount ?? Number.MAX_SAFE_INTEGER;
+      // Ties intentionally pick primary — documented preference.
+      selectedImplementor =
+        secondaryFails < primaryFails ? "secondary" : "primary";
       nextStatus = "dual_winner_pending";
     }
 
+    const dual = phaseState.dualImpl;
     next.dualImpl = {
-      ...(phaseState.dualImpl as any),
-      geminiTestResult: g,
-      codexTestResult: c,
+      ...(dual as DualImplState),
+      candidates: {
+        primary: {
+          ...(dual as DualImplState).candidates.primary,
+          testResult: primary,
+        },
+        secondary: {
+          ...(dual as DualImplState).candidates.secondary,
+          testResult: secondary,
+        },
+      },
       ...(selectedImplementor && {
         selectedImplementor,
         selectedBy: "auto" as const,
@@ -701,7 +764,7 @@ export function applyResult(
       return next;
     }
     next.dualImpl = {
-      ...(phaseState.dualImpl as any),
+      ...(phaseState.dualImpl as DualImplState),
       judgeVerdict: verdict,
       judgeReasoning: extra?.judgeReasoning,
       judgeHardeningNotes: extra?.judgeHardeningNotes,
@@ -717,7 +780,7 @@ export function applyResult(
     // The CLI runs applyWinner() + teardownWorktrees() before calling this.
     // We just transition state — the cherry-pick + teardown have happened.
     next.dualImpl = {
-      ...(phaseState.dualImpl as any),
+      ...(phaseState.dualImpl as DualImplState),
       worktreesTornDownAt: new Date().toISOString(),
     };
     next.status = "impl_done";

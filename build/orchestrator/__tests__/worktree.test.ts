@@ -42,11 +42,11 @@ afterAll(() => {
 test("createWorktrees creates two directories with distinct branches", () => {
   const pair = createWorktrees({ cwd: repoPath, slug: "test", phaseNumber: "1" });
 
-  expect(fs.existsSync(pair.geminiWorktreePath)).toBe(true);
-  expect(fs.existsSync(pair.codexWorktreePath)).toBe(true);
-  expect(pair.geminiBranch).not.toBe(pair.codexBranch);
-  expect(pair.geminiBranch).toContain("gstack-dual");
-  expect(pair.codexBranch).toContain("gstack-dual");
+  expect(fs.existsSync(pair.candidates.primary.worktreePath)).toBe(true);
+  expect(fs.existsSync(pair.candidates.secondary.worktreePath)).toBe(true);
+  expect(pair.candidates.primary.branch).not.toBe(pair.candidates.secondary.branch);
+  expect(pair.candidates.primary.branch).toContain("gstack-dual");
+  expect(pair.candidates.secondary.branch).toContain("gstack-dual");
   expect(pair.baseCommit).toMatch(/^[0-9a-f]{7,40}$/);
 
   const state: DualImplState = { ...pair };
@@ -60,8 +60,8 @@ test("teardownWorktrees removes both worktrees and is idempotent (safe to call t
 
   teardownWorktrees({ cwd: repoPath, dualImpl: state });
 
-  expect(fs.existsSync(pair.geminiWorktreePath)).toBe(false);
-  expect(fs.existsSync(pair.codexWorktreePath)).toBe(false);
+  expect(fs.existsSync(pair.candidates.primary.worktreePath)).toBe(false);
+  expect(fs.existsSync(pair.candidates.secondary.worktreePath)).toBe(false);
 
   // Second call must not throw
   expect(() => teardownWorktrees({ cwd: repoPath, dualImpl: state })).not.toThrow();
@@ -76,15 +76,15 @@ test("teardownWorktrees removes both worktrees and is idempotent (safe to call t
 test("hygiene gate: git diff detects test file modification in winning worktree", () => {
   const pair = createWorktrees({ cwd: repoPath, slug: "test-hg1", phaseNumber: "4" });
 
-  // Add a test file to gemini's worktree and commit it — simulates impl that weakened tests
-  fs.writeFileSync(path.join(pair.geminiWorktreePath, "feature.test.ts"), "// weakened test\n");
-  git(["add", "."], pair.geminiWorktreePath);
-  git(["commit", "-m", "gemini modified tests"], pair.geminiWorktreePath);
+  // Add a test file to the primary worktree and commit it — simulates impl that weakened tests
+  fs.writeFileSync(path.join(pair.candidates.primary.worktreePath, "feature.test.ts"), "// weakened test\n");
+  git(["add", "."], pair.candidates.primary.worktreePath);
+  git(["commit", "-m", "primary modified tests"], pair.candidates.primary.worktreePath);
 
   // Reproduce the exact git diff command used by Fix #1 / Fix #2 hygiene gate
   const r = spawnSync(
     "git",
-    ["-C", pair.geminiWorktreePath, "diff", pair.baseCommit, "--",
+    ["-C", pair.candidates.primary.worktreePath, "diff", pair.baseCommit, "--",
       "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
     { encoding: "utf8" },
   );
@@ -99,13 +99,13 @@ test("hygiene gate: git diff is empty when winning worktree only modified non-te
   const pair = createWorktrees({ cwd: repoPath, slug: "test-hg2", phaseNumber: "5" });
 
   // Only add a source file (not a test file) — gate should not fire
-  fs.writeFileSync(path.join(pair.geminiWorktreePath, "feature.ts"), "export const x = 1;\n");
-  git(["add", "."], pair.geminiWorktreePath);
-  git(["commit", "-m", "gemini source-only impl"], pair.geminiWorktreePath);
+  fs.writeFileSync(path.join(pair.candidates.primary.worktreePath, "feature.ts"), "export const x = 1;\n");
+  git(["add", "."], pair.candidates.primary.worktreePath);
+  git(["commit", "-m", "primary source-only impl"], pair.candidates.primary.worktreePath);
 
   const r = spawnSync(
     "git",
-    ["-C", pair.geminiWorktreePath, "diff", pair.baseCommit, "--",
+    ["-C", pair.candidates.primary.worktreePath, "diff", pair.baseCommit, "--",
       "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js", "*/__tests__/**"],
     { encoding: "utf8" },
   );
@@ -119,14 +119,14 @@ test("hygiene gate: git diff is empty when winning worktree only modified non-te
 test("applyWinner cherry-picks commits from winning worktree branch onto main cwd", () => {
   const pair = createWorktrees({ cwd: repoPath, slug: "test-aw", phaseNumber: "3" });
 
-  // Make a new commit in the gemini worktree
-  fs.writeFileSync(path.join(pair.geminiWorktreePath, "winner.ts"), "export const x = 1;\n");
-  git(["add", "."], pair.geminiWorktreePath);
-  git(["commit", "-m", "gemini impl"], pair.geminiWorktreePath);
+  // Make a new commit in the primary worktree
+  fs.writeFileSync(path.join(pair.candidates.primary.worktreePath, "winner.ts"), "export const x = 1;\n");
+  git(["add", "."], pair.candidates.primary.worktreePath);
+  git(["commit", "-m", "primary impl"], pair.candidates.primary.worktreePath);
 
   const state: DualImplState = { ...pair };
 
-  const result = applyWinner({ cwd: repoPath, winner: "gemini", dualImpl: state });
+  const result = applyWinner({ cwd: repoPath, winner: "primary", dualImpl: state });
 
   expect(result.ok).toBe(true);
   // Winner's file should now exist in main cwd

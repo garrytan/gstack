@@ -101,36 +101,32 @@ export interface DualImplTestResult {
   failureCount?: number;
 }
 
-export interface DualImplState {
-  geminiWorktreePath: string;
-  codexWorktreePath: string;
-  geminiBranch: string;
-  codexBranch: string;
-  baseCommit: string;
-  geminiTestResult?: DualImplTestResult;
-  codexTestResult?: DualImplTestResult;
+export type DualImplCandidateKey = "primary" | "secondary";
+
+export interface DualImplCandidateState {
+  worktreePath: string;
+  branch: string;
+  provider?: string;
+  model?: string;
+  testResult?: DualImplTestResult;
   /**
-   * Number of recursive fix passes Gemini needed to reach its final test state.
+   * Number of recursive fix passes this implementor needed to reach its final test state.
    * 0 = passed on first try. null = fix loop did not run (impl crashed or no test command).
    */
-  geminiFixIterations?: number | null;
+  fixIterations?: number | null;
+  /** HEAD commit SHA in the worktree at the time tests last ran. Used to detect stale cached results on resume. */
+  testedCommit?: string;
   /**
-   * Number of recursive fix passes Codex needed to reach its final test state.
-   * 0 = passed on first try. null = fix loop did not run (impl crashed or no test command).
-   */
-  codexFixIterations?: number | null;
-  /** HEAD commit SHA in the Gemini worktree at the time tests last ran. Used to detect stale cached results on resume. */
-  geminiTestedCommit?: string;
-  /** HEAD commit SHA in the Codex worktree at the time tests last ran. */
-  codexTestedCommit?: string;
-  /**
-   * Formatted log of what test failures Gemini hit at each fix iteration.
+   * Formatted log of what test failures this implementor hit at each fix iteration.
    * Each entry = "--- Fix iteration N ---\n<truncated test output>".
    * Passed to the judge so it can see what bugs each model encountered and fixed.
    */
-  geminiFixHistory?: string;
-  /** Same as geminiFixHistory but for Codex. */
-  codexFixHistory?: string;
+  fixHistory?: string;
+}
+
+export interface DualImplState {
+  candidates: Record<DualImplCandidateKey, DualImplCandidateState>;
+  baseCommit: string;
   /**
    * Hardening notes emitted by the configured judge after seeing both fix histories.
    * Lists concrete issues from EITHER implementor's failure history that the
@@ -138,9 +134,9 @@ export interface DualImplState {
    */
   judgeHardeningNotes?: string;
   judgeLogPath?: string;
-  judgeVerdict?: "gemini" | "codex";
+  judgeVerdict?: DualImplCandidateKey;
   judgeReasoning?: string;
-  selectedImplementor?: "gemini" | "codex";
+  selectedImplementor?: DualImplCandidateKey;
   /** 'judge' = judge decided; 'auto' = one passed/fewer failures; winner was obvious */
   selectedBy?: "judge" | "auto";
   /** ISO timestamp when worktrees were torn down. */

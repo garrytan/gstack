@@ -308,7 +308,7 @@ Both gates are skipped when `--dry-run` or `--skip-ship` is active.
 
 ### Dual-Implementor Mode (`--dual-impl`)
 
-For tournament-selection builds, pass `--dual-impl` to `gstack-build`. The CLI owns the full dual-impl loop: worktree creation, parallel impl, tests, judge, apply winner, test+fix, review gates, QA. Deprecated aliases (`--gemini-model`, `--codex-model`, `--codex-review-model`) still work. Full guide in `build/orchestrator/README.md`.
+For tournament-selection builds, pass `--dual-impl` to `gstack-build`. The CLI owns the full model-agnostic dual-impl loop: worktree creation, parallel primary/secondary impl, tests, judge, apply winner, test+fix, review gates, QA. Deprecated aliases (`--gemini-model`, `--codex-model`, `--codex-review-model`) still work as primary/secondary/review model aliases. Full guide in `build/orchestrator/README.md`.
 
 ### Parallel Phase Planner (`--parallel-phases N`)
 
@@ -321,7 +321,7 @@ Before running, present a confirmation gate via `AskUserQuestion`:
 ```
 D<N> — Launch gstack-build and monitor?
 Project/branch/task: <plan file basename>, branch <_BRANCH>
-ELI10: This will start the autonomous build CLI in the background. It runs Gemini and Codex sub-agents for each phase — this can take hours. I'll watch it and report progress every 60 seconds, auto-recovering from timeouts and stale locks. Convergence failures and test failures will need your input.
+ELI10: This will start the autonomous build CLI in the background. It runs configured primary and secondary sub-agents for each dual-impl phase — this can take hours. I'll watch it and report progress every 60 seconds, auto-recovering from timeouts and stale locks. Convergence failures and test failures will need your input.
 Stakes if we pick wrong: Launching immediately starts modifying the branch. Aborting mid-run is safe (the CLI resumes), but re-running from scratch costs time.
 Recommendation: A) Launch and monitor — plan is approved and ready.
 Note: options differ in kind, not coverage — no completeness score.

@@ -2,8 +2,8 @@
  * Git worktree helpers for dual-implementor mode (--dual-impl).
  *
  * Each phase gets two isolated worktrees:
- *   /tmp/gstack-dual-<slug>-p<N>-<ts>/gemini  → branch gstack-dual-p<N>-gemini-<ts>
- *   /tmp/gstack-dual-<slug>-p<N>-<ts>/codex   → branch gstack-dual-p<N>-codex-<ts>
+ *   /tmp/gstack-dual-<slug>-p<N>-<ts>/primary   → branch gstack-dual-p<N>-primary-<ts>
+ *   /tmp/gstack-dual-<slug>-p<N>-<ts>/secondary → branch gstack-dual-p<N>-secondary-<ts>
  *
  * Both branches start at the current HEAD of the main cwd.
  * The winning branch's commits are cherry-picked back onto main cwd after judging.
@@ -13,14 +13,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import type { DualImplState } from "./types";
+import type { DualImplCandidateKey, DualImplState } from "./types";
 
 // Field names match DualImplState so callers can spread directly.
 export interface WorktreePair {
-  geminiWorktreePath: string;
-  codexWorktreePath: string;
-  geminiBranch: string;
-  codexBranch: string;
+  candidates: DualImplState["candidates"];
   baseCommit: string;
 }
 
@@ -52,33 +49,45 @@ export function createWorktrees(opts: {
   const { cwd, slug, phaseNumber } = opts;
   const ts = Date.now();
   const baseDir = path.join(os.tmpdir(), `gstack-dual-${slug}-p${phaseNumber}-${ts}`);
-  const geminiWorktreePath = path.join(baseDir, "gemini");
-  const codexWorktreePath = path.join(baseDir, "codex");
-  const geminiBranch = `gstack-dual-p${phaseNumber}-gemini-${ts}`;
-  const codexBranch = `gstack-dual-p${phaseNumber}-codex-${ts}`;
+  const primaryWorktreePath = path.join(baseDir, "primary");
+  const secondaryWorktreePath = path.join(baseDir, "secondary");
+  const primaryBranch = `gstack-dual-p${phaseNumber}-primary-${ts}`;
+  const secondaryBranch = `gstack-dual-p${phaseNumber}-secondary-${ts}`;
 
   const baseCommit = run(["rev-parse", "HEAD"], cwd);
 
-  fs.mkdirSync(geminiWorktreePath, { recursive: true });
-  fs.mkdirSync(codexWorktreePath, { recursive: true });
+  fs.mkdirSync(primaryWorktreePath, { recursive: true });
+  fs.mkdirSync(secondaryWorktreePath, { recursive: true });
 
   try {
-    run(["worktree", "add", "-b", geminiBranch, geminiWorktreePath, "HEAD"], cwd);
+    run(["worktree", "add", "-b", primaryBranch, primaryWorktreePath, "HEAD"], cwd);
   } catch (err) {
     fs.rmSync(baseDir, { recursive: true, force: true });
     throw err;
   }
 
   try {
-    run(["worktree", "add", "-b", codexBranch, codexWorktreePath, "HEAD"], cwd);
+    run(["worktree", "add", "-b", secondaryBranch, secondaryWorktreePath, "HEAD"], cwd);
   } catch (err) {
-    tryRun(["worktree", "remove", "--force", geminiWorktreePath], cwd);
-    tryRun(["branch", "-D", geminiBranch], cwd);
+    tryRun(["worktree", "remove", "--force", primaryWorktreePath], cwd);
+    tryRun(["branch", "-D", primaryBranch], cwd);
     fs.rmSync(baseDir, { recursive: true, force: true });
     throw err;
   }
 
-  return { geminiWorktreePath, codexWorktreePath, geminiBranch, codexBranch, baseCommit };
+  return {
+    candidates: {
+      primary: {
+        worktreePath: primaryWorktreePath,
+        branch: primaryBranch,
+      },
+      secondary: {
+        worktreePath: secondaryWorktreePath,
+        branch: secondaryBranch,
+      },
+    },
+    baseCommit,
+  };
 }
 
 /**
@@ -87,12 +96,17 @@ export function createWorktrees(opts: {
  */
 export function teardownWorktrees(opts: { cwd: string; dualImpl: DualImplState }): void {
   const { cwd, dualImpl } = opts;
-  const { geminiWorktreePath, codexWorktreePath, geminiBranch, codexBranch } = dualImpl;
 
-  for (const wt of [geminiWorktreePath, codexWorktreePath]) {
+  for (const wt of [
+    dualImpl.candidates.primary.worktreePath,
+    dualImpl.candidates.secondary.worktreePath,
+  ]) {
     tryRun(["worktree", "remove", "--force", wt], cwd);
   }
-  for (const branch of [geminiBranch, codexBranch]) {
+  for (const branch of [
+    dualImpl.candidates.primary.branch,
+    dualImpl.candidates.secondary.branch,
+  ]) {
     tryRun(["branch", "-D", branch], cwd);
   }
   tryRun(["worktree", "prune"], cwd);
@@ -104,12 +118,11 @@ export function teardownWorktrees(opts: { cwd: string; dualImpl: DualImplState }
  */
 export function applyWinner(opts: {
   cwd: string;
-  winner: "gemini" | "codex";
+  winner: DualImplCandidateKey;
   dualImpl: DualImplState;
 }): { ok: boolean; error?: string } {
   const { cwd, winner, dualImpl } = opts;
-  const worktreePath =
-    winner === "gemini" ? dualImpl.geminiWorktreePath : dualImpl.codexWorktreePath;
+  const worktreePath = dualImpl.candidates[winner].worktreePath;
   const { baseCommit } = dualImpl;
 
   // Get list of commits from baseCommit..HEAD in winner's worktree

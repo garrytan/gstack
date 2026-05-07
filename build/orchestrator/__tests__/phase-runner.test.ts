@@ -597,10 +597,16 @@ describe("Dual-implementor state machine transitions", () => {
 
   function minDualImpl(): DualImplState {
     return {
-      geminiWorktreePath: "/tmp/g",
-      codexWorktreePath: "/tmp/c",
-      geminiBranch: "g-branch",
-      codexBranch: "c-branch",
+      candidates: {
+        primary: {
+          worktreePath: "/tmp/primary",
+          branch: "primary-branch",
+        },
+        secondary: {
+          worktreePath: "/tmp/secondary",
+          branch: "secondary-branch",
+        },
+      },
       baseCommit: "abc123",
     };
   }
@@ -651,14 +657,14 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { geminiTestResult: passResult(), codexTestResult: passResult() },
+      { candidateTestResults: { primary: passResult(), secondary: passResult() } },
     );
     expect(next.status).toBe("dual_judge_pending");
     expect(decideNextAction(next).type).toBe("RUN_JUDGE");
   });
 
   // (d): one passes → auto-select + APPLY_WINNER
-  it("(d) gemini passes, codex fails → dual_winner_pending selectedBy=auto + APPLY_WINNER", () => {
+  it("(d) primary passes, secondary fails → dual_winner_pending selectedBy=auto + APPLY_WINNER", () => {
     const initial = basePhase({
       status: "dual_impl_done" as any,
       dualImpl: minDualImpl(),
@@ -667,18 +673,18 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { geminiTestResult: passResult(), codexTestResult: failResult(3) },
+      { candidateTestResults: { primary: passResult(), secondary: failResult(3) } },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("gemini");
+    expect(next.dualImpl?.selectedImplementor).toBe("primary");
     expect(next.dualImpl?.selectedBy).toBe("auto");
     const action = decideNextAction(next);
     expect(action.type).toBe("APPLY_WINNER");
-    if (action.type === "APPLY_WINNER") expect(action.winner).toBe("gemini");
+    if (action.type === "APPLY_WINNER") expect(action.winner).toBe("primary");
   });
 
   // (e): both fail → auto-select fewer-failures
-  it("(e) both fail → auto-select fewer-failures winner (codex has 2 < gemini 5)", () => {
+  it("(e) both fail → auto-select fewer-failures winner (secondary has 2 < primary 5)", () => {
     const initial = basePhase({
       status: "dual_impl_done" as any,
       dualImpl: minDualImpl(),
@@ -687,10 +693,10 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { geminiTestResult: failResult(5), codexTestResult: failResult(2) },
+      { candidateTestResults: { primary: failResult(5), secondary: failResult(2) } },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("codex");
+    expect(next.dualImpl?.selectedImplementor).toBe("secondary");
     expect(next.dualImpl?.selectedBy).toBe("auto");
   });
 
@@ -704,12 +710,12 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_JUDGE", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { judgeVerdict: "codex", judgeReasoning: "Codex solution is cleaner" },
+      { judgeVerdict: "secondary", judgeReasoning: "Secondary solution is cleaner" },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("codex");
+    expect(next.dualImpl?.selectedImplementor).toBe("secondary");
     expect(next.dualImpl?.selectedBy).toBe("judge");
-    expect(next.dualImpl?.judgeReasoning).toBe("Codex solution is cleaner");
+    expect(next.dualImpl?.judgeReasoning).toBe("Secondary solution is cleaner");
     expect(decideNextAction(next).type).toBe("APPLY_WINNER");
   });
 
@@ -723,8 +729,8 @@ describe("Dual-implementor state machine transitions", () => {
       { type: "RUN_JUDGE", phaseIndex: 0 } as any,
       geminiSuccess(),
       {
-        judgeVerdict: "gemini",
-        judgeReasoning: "Gemini is more idiomatic",
+        judgeVerdict: "primary",
+        judgeReasoning: "Primary is more idiomatic",
         judgeHardeningNotes: "Add edge case for null input",
       },
     );
@@ -739,13 +745,13 @@ describe("Dual-implementor state machine transitions", () => {
       status: "dual_winner_pending" as any,
       dualImpl: {
         ...minDualImpl(),
-        selectedImplementor: "gemini",
+        selectedImplementor: "primary",
         selectedBy: "auto",
       },
     });
     const next = applyResult(
       initial,
-      { type: "APPLY_WINNER", phaseIndex: 0, winner: "gemini" } as any,
+      { type: "APPLY_WINNER", phaseIndex: 0, winner: "primary" } as any,
       geminiSuccess(),
     );
     expect(next.status).toBe("impl_done");
@@ -792,17 +798,19 @@ describe("Dual-implementor state machine transitions", () => {
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
       {
-        geminiTestResult: {
-          worktreePath: "/g",
-          testExitCode: null,
-          testLogPath: "g.log",
-          timedOut: true,
-        },
-        codexTestResult: {
-          worktreePath: "/c",
-          testExitCode: null,
-          testLogPath: "c.log",
-          timedOut: true,
+        candidateTestResults: {
+          primary: {
+            worktreePath: "/primary",
+            testExitCode: null,
+            testLogPath: "primary.log",
+            timedOut: true,
+          },
+          secondary: {
+            worktreePath: "/secondary",
+            testExitCode: null,
+            testLogPath: "secondary.log",
+            timedOut: true,
+          },
         },
       },
     );
@@ -821,17 +829,19 @@ describe("Dual-implementor state machine transitions", () => {
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
       {
-        geminiTestResult: {
-          worktreePath: "/g",
-          testExitCode: 1,
-          testLogPath: "g.log",
-          timedOut: false,
-        },
-        codexTestResult: {
-          worktreePath: "/c",
-          testExitCode: 1,
-          testLogPath: "c.log",
-          timedOut: false,
+        candidateTestResults: {
+          primary: {
+            worktreePath: "/primary",
+            testExitCode: 1,
+            testLogPath: "primary.log",
+            timedOut: false,
+          },
+          secondary: {
+            worktreePath: "/secondary",
+            testExitCode: 1,
+            testLogPath: "secondary.log",
+            timedOut: false,
+          },
         },
       },
     );
@@ -839,8 +849,8 @@ describe("Dual-implementor state machine transitions", () => {
     expect(next.error).toMatch(/failureCount/);
   });
 
-  // Symmetric auto-select: codex passes, gemini fails (mirror of test (d))
-  it("codex passes, gemini fails → dual_winner_pending selectedImplementor=codex selectedBy=auto", () => {
+  // Symmetric auto-select: secondary passes, primary fails (mirror of test (d))
+  it("secondary passes, primary fails → dual_winner_pending selectedImplementor=secondary selectedBy=auto", () => {
     const initial = basePhase({
       status: "dual_impl_done" as any,
       dualImpl: minDualImpl(),
@@ -849,18 +859,18 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { geminiTestResult: failResult(3), codexTestResult: passResult() },
+      { candidateTestResults: { primary: failResult(3), secondary: passResult() } },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("codex");
+    expect(next.dualImpl?.selectedImplementor).toBe("secondary");
     expect(next.dualImpl?.selectedBy).toBe("auto");
     const action = decideNextAction(next);
     expect(action.type).toBe("APPLY_WINNER");
-    if (action.type === "APPLY_WINNER") expect(action.winner).toBe("codex");
+    if (action.type === "APPLY_WINNER") expect(action.winner).toBe("secondary");
   });
 
-  // One-side timeout: gemini timed out, codex passed → auto-select codex
-  it("gemini timed out, codex passed → auto-select codex", () => {
+  // One-side timeout: primary timed out, secondary passed → auto-select secondary
+  it("primary timed out, secondary passed → auto-select secondary", () => {
     const initial = basePhase({
       status: "dual_impl_done" as any,
       dualImpl: minDualImpl(),
@@ -870,22 +880,24 @@ describe("Dual-implementor state machine transitions", () => {
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
       {
-        geminiTestResult: {
-          worktreePath: "/g",
-          testExitCode: null,
-          testLogPath: "g.log",
-          timedOut: true,
+        candidateTestResults: {
+          primary: {
+            worktreePath: "/primary",
+            testExitCode: null,
+            testLogPath: "primary.log",
+            timedOut: true,
+          },
+          secondary: passResult(),
         },
-        codexTestResult: passResult(),
       },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("codex");
+    expect(next.dualImpl?.selectedImplementor).toBe("secondary");
     expect(next.dualImpl?.selectedBy).toBe("auto");
   });
 
-  // One-side timeout: codex timed out, gemini passed → auto-select gemini
-  it("codex timed out, gemini passed → auto-select gemini", () => {
+  // One-side timeout: secondary timed out, primary passed → auto-select primary
+  it("secondary timed out, primary passed → auto-select primary", () => {
     const initial = basePhase({
       status: "dual_impl_done" as any,
       dualImpl: minDualImpl(),
@@ -895,17 +907,19 @@ describe("Dual-implementor state machine transitions", () => {
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
       {
-        geminiTestResult: passResult(),
-        codexTestResult: {
-          worktreePath: "/c",
-          testExitCode: null,
-          testLogPath: "c.log",
-          timedOut: true,
+        candidateTestResults: {
+          primary: passResult(),
+          secondary: {
+            worktreePath: "/secondary",
+            testExitCode: null,
+            testLogPath: "secondary.log",
+            timedOut: true,
+          },
         },
       },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("gemini");
+    expect(next.dualImpl?.selectedImplementor).toBe("primary");
     expect(next.dualImpl?.selectedBy).toBe("auto");
   });
 
@@ -964,27 +978,27 @@ describe("Dual-implementor state machine transitions", () => {
     expect(next.error).toMatch(/judgeVerdict/);
   });
 
-  // APPLY_WINNER with winner=codex also lands in impl_done
-  it("APPLY_WINNER with winner=codex → impl_done (codex win uses same handoff state)", () => {
+  // APPLY_WINNER with winner=secondary also lands in impl_done
+  it("APPLY_WINNER with winner=secondary → impl_done (secondary win uses same handoff state)", () => {
     const initial = basePhase({
       status: "dual_winner_pending" as any,
       dualImpl: {
         ...minDualImpl(),
-        selectedImplementor: "codex",
+        selectedImplementor: "secondary",
         selectedBy: "judge",
       },
     });
     const next = applyResult(
       initial,
-      { type: "APPLY_WINNER", phaseIndex: 0, winner: "codex" } as any,
+      { type: "APPLY_WINNER", phaseIndex: 0, winner: "secondary" } as any,
       geminiSuccess(),
     );
     expect(next.status).toBe("impl_done");
     expect(next.dualImpl?.worktreesTornDownAt).toBeDefined();
   });
 
-  // Tie-breaking: both fail with equal failureCount → gemini (documented preference)
-  it("both fail with equal failureCount → gemini wins tie (documented preference)", () => {
+  // Tie-breaking: both fail with equal failureCount → primary (documented preference)
+  it("both fail with equal failureCount → primary wins tie (documented preference)", () => {
     const initial = basePhase({
       status: "dual_impl_done" as any,
       dualImpl: minDualImpl(),
@@ -993,10 +1007,26 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { geminiTestResult: failResult(3), codexTestResult: failResult(3) },
+      { candidateTestResults: { primary: failResult(3), secondary: failResult(3) } },
     );
     expect(next.status).toBe("dual_winner_pending");
-    expect(next.dualImpl?.selectedImplementor).toBe("gemini");
+    expect(next.dualImpl?.selectedImplementor).toBe("primary");
+  });
+
+  it("legacy gemini/codex dual state fails with rerun guidance", () => {
+    const state = basePhase({
+      status: "dual_impl_done" as any,
+      dualImpl: {
+        geminiWorktreePath: "/tmp/g",
+        codexWorktreePath: "/tmp/c",
+        geminiBranch: "g",
+        codexBranch: "c",
+        baseCommit: "abc123",
+      } as any,
+    });
+    const action = decideNextAction(state);
+    expect(action.type).toBe("FAIL");
+    if (action.type === "FAIL") expect(action.reason).toMatch(/old gemini\/codex shape/);
   });
 
   // Resume path: dual_tests_running → RUN_DUAL_TESTS

@@ -230,18 +230,18 @@ disable this automatic retry.
 
 1. Confirm or write failing tests.
 2. Create two temporary git worktrees.
-3. Run Gemini and Codex implementations in parallel.
+3. Run configured primary and secondary implementations in parallel.
 4. Run independent test-and-fix loops in each worktree.
 5. Choose a winner automatically when only one side passes.
 6. Otherwise ask the configured judge to review both diffs and test histories.
 7. Cherry-pick the winning commits back to the main working tree.
-8. Continue through the normal green-tests and Codex-review loop.
+8. Continue through the normal green-tests and review loop.
 
 Worktrees live under the OS temp directory with names like
 `gstack-dual-<slug>-p<N>-<timestamp>/`. Successful runs tear them down.
 Winner-apply failures preserve enough context for recovery.
 
-The judge must emit an anchored `WINNER: gemini` or `WINNER: codex` line. Missing
+The judge must emit an anchored `WINNER: primary` or `WINNER: secondary` line. Missing
 or malformed verdicts fail closed.
 
 ## State, Logs, and Resume
@@ -257,12 +257,12 @@ Local state is canonical:
     phase-1-gemini-testspec-1-output.md
     phase-1-gemini-testspec-1.log
     phase-1-tests-1.log
-    phase-1-gemini-1-input.md
-    phase-1-gemini-1-output.md
-    phase-1-gemini-1.log
-    phase-1-codex-1-input.md
-    phase-1-codex-1-output.md
-    phase-1-codex-1.log
+    phase-1-dual-primary-1-input.md
+    phase-1-dual-primary-1-output.md
+    phase-1-dual-primary-1.log
+    phase-1-dual-secondary-1-input.md
+    phase-1-dual-secondary-1-output.md
+    phase-1-dual-secondary-1.log
     ship.log
     land-and-deploy.log
 ```
@@ -377,7 +377,7 @@ the root cause, re-run the same `gstack-build` command to resume.
 | `--skip-ship`                  | Complete phases but skip final ship and deploy.                                                                                             |
 | `--no-resume`                  | Ignore existing state and start fresh.                                                                                                      |
 | `--no-gbrain`                  | Use only local JSON state.                                                                                                                  |
-| `--dual-impl`                  | Run Gemini and Codex implementations in parallel worktrees.                                                                                 |
+| `--dual-impl`                  | Run configured primary and secondary implementations in parallel worktrees.                                                                 |
 | `--test-writer-model <m>`      | Override failing-test writer model.                                                                                                         |
 | `--primary-impl-model <m>`     | Override primary implementor model.                                                                                                         |
 | `--test-fixer-model <m>`       | Override test-fixer model.                                                                                                                  |
@@ -387,7 +387,7 @@ the root cause, re-run the same `gstack-build` command to resume.
 | `--qa-model <m>`               | Override QA model.                                                                                                                          |
 | `--ship-model <m>`             | Override ship model.                                                                                                                        |
 | `--land-model <m>`             | Override land model.                                                                                                                        |
-| `--<role>-provider <p>`        | Override role provider (`claude`, `codex`, `gemini`, `kimi`) where supported. Dual-impl requires Gemini primary, Codex secondary, and Claude judge. |
+| `--<role>-provider <p>`        | Override role provider (`claude`, `codex`, `gemini`, `kimi`) where supported. Dual-impl primary, secondary, and judge roles are model-agnostic. |
 | `--<role>-reasoning <r>`       | Override role reasoning (`low`, `medium`, `high`, `xhigh`).                                                                                 |
 | `--<role>-command <cmd>`       | Override review, QA, ship, or land command.                                                                                                 |
 | `--test-cmd <cmd>`             | Override automatic test command detection.                                                                                                  |
