@@ -8,7 +8,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const content = fs.readFileSync(tmplPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.21.1')).toBe(true);
+  expect(content.includes('version: 1.21.2')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('Test Specification (test-writer role)')).toBe(true);
   expect(content.includes('exactly this durable sub-checkbox structure')).toBe(true);
@@ -26,7 +26,7 @@ test("generated SKILL.md reflects TDD changes", () => {
   const content = fs.readFileSync(skillPath, "utf-8");
 
   expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.21.1')).toBe(true);
+  expect(content.includes('version: 1.21.2')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
   expect(content.includes('--project-root "$repoPath"')).toBe(true);
@@ -93,6 +93,21 @@ test("build skill docs resolve gstack-build through _GSTACK_BUILD_CLI", () => {
     expect(content).not.toContain(
       'GSTACK_BUILD_GEMINI_TIMEOUT=1200000 gstack-build "$_PLAN_FILE"',
     );
+  }
+});
+
+test("build skill launch examples do not advertise --skip-ship", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain('_FLAGS=""');
+    expect(content).not.toMatch(/_FLAGS=.*--skip-ship/);
+    expect(content).toContain("Never add --skip-ship unless");
   }
 });
 

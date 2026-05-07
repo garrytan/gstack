@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.21.1
+version: 1.21.2
 description: |
   gstack autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -1016,7 +1016,9 @@ If A: proceed to Step M2.
 
 ```bash
 BUILD_RUN_MANIFEST=${BUILD_RUN_MANIFEST:-.llm-tmp/build-run-manifest.json}
-_FLAGS="<any extra flags, e.g. --dual-impl --skip-ship>"
+_FLAGS=""
+# Only set _FLAGS to user-requested CLI flags. Never add --skip-ship unless
+# the user explicitly asks to skip shipping and landing.
 
 if [ ! -f "$BUILD_RUN_MANIFEST" ]; then
   echo "ERROR: build run manifest not found: $BUILD_RUN_MANIFEST" >&2

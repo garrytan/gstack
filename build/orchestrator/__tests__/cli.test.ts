@@ -109,6 +109,18 @@ describe('--dual-impl flag wiring', () => {
   });
 });
 
+describe('--skip-ship flag wiring', () => {
+  it('parseArgs default -> skipShip=false', () => {
+    const args = parseArgs(['plan.md']);
+    expect(args.skipShip).toBe(false);
+  });
+
+  it('parseArgs([plan, --skip-ship]) sets skipShip=true', () => {
+    const args = parseArgs(['plan.md', '--skip-ship']);
+    expect(args.skipShip).toBe(true);
+  });
+});
+
 describe('review gate planning', () => {
   it('skips reviewSecondary when its command is unset', () => {
     const roles = {
@@ -758,6 +770,12 @@ describe('restartFeatureFromOriginIssues', () => {
       name: 'Auth',
       phaseIndexes: [0, 1],
       status: 'origin_verifying',
+      featureReview: {
+        iterations: 1,
+        outputLogPaths: ['/tmp/feature-review.log'],
+        outputFilePaths: ['/tmp/feature-review.md'],
+        finalVerdict: 'FEATURE_PASS',
+      },
     };
     return {
       feature,
@@ -805,6 +823,7 @@ describe('restartFeatureFromOriginIssues', () => {
     expect(feature.status).toBe('running');
     expect(feature.originVerificationAttempts).toBe(1);
     expect(feature.originIssueLogPaths).toEqual(['/tmp/origin-issues.md']);
+    expect(feature.featureReview).toBeUndefined();
     expect(state.phases[1].status).toBe('tests_green');
     expect(state.phases[1].codexReview).toBeUndefined();
     expect(state.phases[1].originIssueLogPath).toBe('/tmp/origin-issues.md');

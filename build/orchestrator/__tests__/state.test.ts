@@ -152,6 +152,32 @@ describe('freshState', () => {
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases: implDonePhase });
     expect(s.phases[0].status).toBe('impl_done');
   });
+
+  it('records launch options for audit and recovery', () => {
+    const s = freshState({
+      planFile: '/x/foo.md',
+      branch: 'main',
+      phases,
+      launch: {
+        argv: ['/x/foo.md', '--project-root', '/repo'],
+        projectRoot: '/repo',
+        originPlan: '/x/origin.md',
+        dryRun: false,
+        skipShip: false,
+        skipFeatureReview: false,
+        launchedAt: '2026-05-07T00:00:00.000Z',
+      },
+    });
+    expect(s.launch).toEqual({
+      argv: ['/x/foo.md', '--project-root', '/repo'],
+      projectRoot: '/repo',
+      originPlan: '/x/origin.md',
+      dryRun: false,
+      skipShip: false,
+      skipFeatureReview: false,
+      launchedAt: '2026-05-07T00:00:00.000Z',
+    });
+  });
 });
 
 describe('loadState / saveState round-trip', () => {
@@ -183,6 +209,27 @@ describe('loadState / saveState round-trip', () => {
     await new Promise((r) => setTimeout(r, 10));
     saveState(s, { noGbrain: true });
     expect(s.lastUpdatedAt).not.toBe(first);
+  });
+
+  it('persists launch options across save/load', () => {
+    const original = freshState({
+      planFile: '/x/foo.md',
+      branch: 'main',
+      phases,
+      launch: {
+        argv: ['/x/foo.md', '--skip-ship'],
+        projectRoot: '/repo',
+        dryRun: false,
+        skipShip: true,
+        skipFeatureReview: false,
+        launchedAt: '2026-05-07T00:00:00.000Z',
+      },
+    });
+    saveState(original, { noGbrain: true });
+    const reloaded = loadState(original.slug, { noGbrain: true });
+    expect(reloaded?.launch?.skipShip).toBe(true);
+    expect(reloaded?.launch?.argv).toEqual(['/x/foo.md', '--skip-ship']);
+    expect(reloaded?.launch?.projectRoot).toBe('/repo');
   });
 
   it('writes via temp+rename (no .tmp.* file left behind on success)', () => {

@@ -270,6 +270,23 @@ export interface FeatureState {
   error?: string;
 }
 
+export interface BuildLaunchOptions {
+  /** Raw argv passed to gstack-build, excluding the node/bun executable. */
+  argv: string[];
+  /** Resolved target repository root for this invocation. */
+  projectRoot: string;
+  /** Source/origin plan path, when this run was launched with --origin-plan. */
+  originPlan?: string;
+  /** True when this invocation is a simulation and must not write/ship. */
+  dryRun: boolean;
+  /** True only when --skip-ship was explicitly passed. */
+  skipShip: boolean;
+  /** True only when --skip-feature-review was explicitly passed. */
+  skipFeatureReview: boolean;
+  /** ISO timestamp for this specific launch/resume attempt. */
+  launchedAt: string;
+}
+
 export interface BuildState {
   /** Absolute path to the plan markdown. */
   planFile: string;
@@ -283,6 +300,8 @@ export interface BuildState {
   startedAt: string;
   /** ISO 8601, updated on every state write. */
   lastUpdatedAt: string;
+  /** Last CLI launch/resume options, persisted for audit/recovery. */
+  launch?: BuildLaunchOptions;
   /** Zero-based index of the next phase to run. */
   currentPhaseIndex: number;
   /** Zero-based index of the next feature to run. */

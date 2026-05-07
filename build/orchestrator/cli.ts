@@ -91,6 +91,7 @@ import {
   type ParallelPhasePlan,
 } from "./parallel-planner";
 import type {
+  BuildLaunchOptions,
   BuildState,
   Phase,
   DualImplTestResult,
@@ -1166,6 +1167,26 @@ function findNextFeatureIndex(
   return -1;
 }
 
+function featureReviewAlreadySatisfied(feature: FeatureState): boolean {
+  return feature.featureReview?.finalVerdict === "FEATURE_PASS";
+}
+
+function buildLaunchOptions(
+  args: Args,
+  projectRoot: string,
+  argv: string[],
+): BuildLaunchOptions {
+  return {
+    argv,
+    projectRoot,
+    ...(args.originPlan && { originPlan: args.originPlan }),
+    dryRun: args.dryRun,
+    skipShip: args.skipShip,
+    skipFeatureReview: args.skipFeatureReview,
+    launchedAt: new Date().toISOString(),
+  };
+}
+
 export function restartFeatureFromOriginIssues(args: {
   state: BuildState;
   feature: FeatureState;
@@ -1208,6 +1229,7 @@ export function restartFeatureFromOriginIssues(args: {
   args.state.phases[phaseIndex] = phaseState;
   args.state.currentPhaseIndex = phaseIndex;
   args.state.currentFeatureIndex = args.feature.index;
+  args.feature.featureReview = undefined;
   args.feature.status = "running";
   args.feature.error = `origin verification failed; restarting review loop for phase ${phaseState.number}`;
   return { restarted: true, phaseIndex };
@@ -4204,7 +4226,8 @@ function reconcileCommittedCheckboxes(
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const rawArgv = process.argv.slice(2);
+  const args = parseArgs(rawArgv);
 
   if (
     args.roles.secondaryImpl.model !==
@@ -4275,6 +4298,11 @@ async function main() {
     process.exit(2);
   }
   console.log(`Project root: ${projectRoot}`);
+  if (args.skipShip) {
+    console.log(
+      "\n⚠ --skip-ship active: shipping is disabled. Features will stop at origin_verified, and this build remains incomplete until rerun without --skip-ship.\n",
+    );
+  }
 
   const parentWorkspace = parentWorkspaceSnapshot(projectRoot);
 
@@ -4294,6 +4322,7 @@ async function main() {
   }
 
   const slug = deriveSlug(args.planFile);
+  const launch = buildLaunchOptions(args, projectRoot, rawArgv);
 
   // Sweep runs before the lock so that sibling unshipped branches are processed
   // regardless of whether this slug is already locked. Concurrent gstack-build
@@ -4329,6 +4358,7 @@ async function main() {
       branch: getCurrentBranch(projectRoot),
       features,
       phases,
+      launch,
       geminiModel: args.roles.primaryImpl.model,
       codexModel: args.roles.secondaryImpl.model,
       codexReviewModel: args.roles.reviewSecondary.model,
@@ -4358,6 +4388,7 @@ async function main() {
         branch: getCurrentBranch(projectRoot),
         features,
         phases,
+        launch,
         geminiModel: args.roles.primaryImpl.model,
         codexModel: args.roles.secondaryImpl.model,
         codexReviewModel: args.roles.reviewSecondary.model,
@@ -4366,6 +4397,8 @@ async function main() {
       saveState(state, { noGbrain: args.noGbrain, log: console.warn });
     }
   }
+  state.launch = launch;
+  saveState(state, { noGbrain: args.noGbrain, log: console.warn });
 
   // Reconcile plan-file checkboxes: any phase that reached `committed` via
   // direct JSON state patching (e.g., bypassing MARK_COMPLETE to escape a
@@ -4398,6 +4431,7 @@ async function main() {
     slug,
     plan: args.planFile,
     dryRun: args.dryRun,
+    skipShip: args.skipShip,
   });
 
   // Drive the loop.
@@ -4591,7 +4625,22 @@ async function main() {
         const skipReview =
           args.skipFeatureReview ||
           resumeAfterLanding ||
+          featureReviewAlreadySatisfied(featureState) ||
           shouldSkipFeatureReview(featureDef, state.phases);
+        if (
+          !args.skipFeatureReview &&
+          !resumeAfterLanding &&
+          featureReviewAlreadySatisfied(featureState)
+        ) {
+          logStatus({
+            slug,
+            featureNumber: featureState.number,
+            featureName: featureState.name,
+            step: "feature-review",
+            outcome: "already passed",
+            pauseState: "running",
+          });
+        }
         if (!skipReview) {
           const cap = args.featureReviewMaxIter;
           let reviewLoopAction: "ship" | "phases_added" | "redo" | "blocked" =
@@ -5108,6 +5157,8 @@ async function main() {
       slug,
       durationMs: Date.now() - startedAt,
       exitCode,
+      dryRun: args.dryRun,
+      skipShip: args.skipShip,
     });
   }
 

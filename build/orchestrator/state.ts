@@ -16,7 +16,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { BuildState, Feature, FeatureState, Phase, PhaseState } from './types';
+import type { BuildLaunchOptions, BuildState, Feature, FeatureState, Phase, PhaseState } from './types';
 import type { RoleConfigs } from './role-config';
 import { migrateLegacyModels } from './role-config';
 import { isGbrainAvailable, gbrainPut, gbrainGet } from './gbrain';
@@ -90,6 +90,7 @@ export function freshState(args: {
   branch: string;
   features?: Feature[];
   phases: Phase[];
+  launch?: BuildLaunchOptions;
   geminiModel?: string;
   codexModel?: string;
   codexReviewModel?: string;
@@ -147,6 +148,7 @@ export function freshState(args: {
     branch: args.branch,
     startedAt: now,
     lastUpdatedAt: now,
+    ...(args.launch && { launch: args.launch }),
     currentPhaseIndex: Math.max(0, phaseStates.findIndex((s) => s.status !== 'committed')),
     currentFeatureIndex,
     features: featureStates,

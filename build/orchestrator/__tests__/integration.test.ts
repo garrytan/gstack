@@ -576,8 +576,16 @@ test("--skip-ship leaves completed features ready to ship on a later resume", ()
 
     const stateFile = path.join(skipDir, ".gstack", "build-state", "build-skip-plan.json");
     const saved = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const out = result.stdout + result.stderr;
+    const analyticsFile = path.join(skipDir, ".gstack", "analytics", "build-runs.jsonl");
+    const analytics = fs
+      .readFileSync(analyticsFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
 
     expect(result.status).toBe(0);
+    expect(out).toContain("--skip-ship active: shipping is disabled");
     expect(saved.features[0].status).toBe("origin_verified");
     expect(saved.features[1].status).toBe("origin_verified");
     expect(saved.features[0].branch).not.toBe(saved.features[1].branch);
@@ -586,7 +594,218 @@ test("--skip-ship leaves completed features ready to ship on a later resume", ()
     expect(saved.features[0].completedAt).toBeUndefined();
     expect(saved.features[1].completedAt).toBeUndefined();
     expect(saved.completed).toBe(false);
+    expect(saved.launch.skipShip).toBe(true);
+    expect(saved.launch.dryRun).toBe(false);
+    expect(saved.launch.projectRoot).toBe(repo);
+    expect(analytics.some((event) => event.event === "start" && event.skipShip === true)).toBe(true);
+    expect(analytics.some((event) => event.event === "success" && event.skipShip === true)).toBe(true);
   } finally {
     fs.rmSync(skipDir, { recursive: true, force: true });
+  }
+});
+
+test("normal resume ships origin-verified features before starting later features", () => {
+  const resumeDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-resume-ship-feature-"));
+  try {
+    const repo = path.join(resumeDir, "repo");
+    const bare = path.join(resumeDir, "origin.git");
+    const binDir = path.join(resumeDir, "bin");
+    const callsFile = path.join(resumeDir, "ship-calls.log");
+    fs.mkdirSync(repo);
+    fs.mkdirSync(binDir);
+    expect(spawnSync("git", ["init", "-b", "main"], { cwd: repo }).status).toBe(0);
+    expect(spawnSync("git", ["init", "--bare", "-b", "main", bare]).status).toBe(0);
+    expect(spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: repo }).status).toBe(0);
+    expect(spawnSync("git", ["config", "user.name", "Test User"], { cwd: repo }).status).toBe(0);
+    fs.writeFileSync(path.join(repo, "README.md"), "# test\n");
+    expect(spawnSync("git", ["add", "README.md"], { cwd: repo }).status).toBe(0);
+    expect(spawnSync("git", ["commit", "-m", "init"], { cwd: repo }).status).toBe(0);
+    expect(spawnSync("git", ["remote", "add", "origin", bare], { cwd: repo }).status).toBe(0);
+    expect(spawnSync("git", ["push", "-u", "origin", "main"], { cwd: repo }).status).toBe(0);
+
+    const featureBranches = ["feat/resume-plan-1-one", "feat/resume-plan-2-two"];
+    for (const [idx, branch] of featureBranches.entries()) {
+      expect(spawnSync("git", ["checkout", "-b", branch, "main"], { cwd: repo }).status).toBe(0);
+      fs.writeFileSync(path.join(repo, `feature-${idx + 1}.txt`), `feature ${idx + 1}\n`);
+      expect(spawnSync("git", ["add", `feature-${idx + 1}.txt`], { cwd: repo }).status).toBe(0);
+      expect(spawnSync("git", ["commit", "-m", `feature ${idx + 1}`], { cwd: repo }).status).toBe(0);
+    }
+    expect(spawnSync("git", ["checkout", featureBranches[0]], { cwd: repo }).status).toBe(0);
+
+    const ghPath = path.join(binDir, "gh");
+    fs.writeFileSync(
+      ghPath,
+      "#!/bin/sh\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then echo 0; exit 0; fi\necho unexpected gh \"$@\" >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const geminiPath = path.join(binDir, "gemini");
+    fs.writeFileSync(
+      geminiPath,
+      `#!/bin/sh
+set -eu
+prompt=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-p" ]; then
+    shift
+    prompt="$1"
+  fi
+  shift || true
+done
+input=$(printf '%s\\n' "$prompt" | sed -n 's/.*Read instructions at \\(.*\\)\\. Run .*/\\1/p')
+output=$(printf '%s\\n' "$prompt" | sed -n 's/.*Write your complete output to \\(.*\\)\\. Return.*/\\1/p')
+branch=$(git rev-parse --abbrev-ref HEAD)
+if grep -q '/ship' "$input"; then
+  echo "ship:$branch" >> "$SHIP_CALLS_FILE"
+  git checkout main >/dev/null 2>&1
+  git merge --no-ff "$branch" -m "merge $branch" >/dev/null 2>&1
+  git push origin main >/dev/null 2>&1
+else
+  echo "land:$branch" >> "$SHIP_CALLS_FILE"
+fi
+[ -n "$output" ] && printf 'ok\\n' > "$output"
+`,
+      { mode: 0o755 },
+    );
+
+    const resumePlanFile = path.join(resumeDir, "resume-plan.md");
+    fs.writeFileSync(
+      resumePlanFile,
+      `# Resume Ship Plan
+
+## Feature 1: One
+
+### Phase 1.1: Done
+- [x] **Test Specification (Gemini Sub-agent)**: Existing tests.
+- [x] **Implementation (Gemini Sub-agent)**: Existing implementation.
+- [x] **Review & QA (Codex Sub-agent)**: Existing review.
+
+## Feature 2: Two
+
+### Phase 2.1: Done
+- [x] **Test Specification (Gemini Sub-agent)**: Existing tests.
+- [x] **Implementation (Gemini Sub-agent)**: Existing implementation.
+- [x] **Review & QA (Codex Sub-agent)**: Existing review.
+`,
+    );
+
+    const stateDir = path.join(resumeDir, ".gstack", "build-state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const stateFile = path.join(stateDir, "build-resume-plan.json");
+    const now = "2026-05-07T00:00:00.000Z";
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify(
+        {
+          planFile: resumePlanFile,
+          planBasename: "resume-plan",
+          slug: "build-resume-plan",
+          branch: featureBranches[0],
+          startedAt: now,
+          lastUpdatedAt: now,
+          currentPhaseIndex: 0,
+          currentFeatureIndex: 0,
+          features: [
+            {
+              index: 0,
+              number: "1",
+              name: "One",
+              phaseIndexes: [0],
+              status: "origin_verified",
+              branch: featureBranches[0],
+              featureReview: {
+                iterations: 1,
+                outputLogPaths: [],
+                outputFilePaths: [],
+                finalVerdict: "FEATURE_PASS",
+              },
+            },
+            {
+              index: 1,
+              number: "2",
+              name: "Two",
+              phaseIndexes: [1],
+              status: "origin_verified",
+              branch: featureBranches[1],
+              featureReview: {
+                iterations: 1,
+                outputLogPaths: [],
+                outputFilePaths: [],
+                finalVerdict: "FEATURE_PASS",
+              },
+            },
+          ],
+          phases: [
+            { index: 0, number: "1.1", name: "Done", status: "committed" },
+            { index: 1, number: "2.1", name: "Done", status: "committed" },
+          ],
+          completed: false,
+          geminiModel: "gemini",
+          codexModel: "codex",
+          codexReviewModel: "codex-review",
+        },
+        null,
+        2,
+      ),
+    );
+
+    const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+    const result = spawnSync(
+      "bun",
+      [
+        "run",
+        cliPath,
+        resumePlanFile,
+        "--project-root",
+        repo,
+        "--skip-clean-check",
+        "--no-gbrain",
+        "--ship-provider",
+        "gemini",
+        "--land-provider",
+        "gemini",
+        "--ship-command",
+        "/ship",
+        "--land-command",
+        "/land-and-deploy",
+      ],
+      {
+        env: {
+          ...process.env,
+          HOME: resumeDir,
+          GSTACK_HOME: path.join(resumeDir, ".gstack"),
+          PATH: `${binDir}:${process.env.PATH}`,
+          GEMINI_BIN: geminiPath,
+          SHIP_CALLS_FILE: callsFile,
+        },
+        encoding: "utf8",
+        timeout: 60_000,
+      },
+    );
+
+    const out = result.stdout + result.stderr;
+    const saved = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const calls = fs.readFileSync(callsFile, "utf8").trim().split("\n");
+    const feature1Ship = out.indexOf("[build-status] Feature 1 / ship-and-land");
+    const feature2Start = out.indexOf("[build-status] Feature 2 / feature-start");
+
+    expect(result.status).toBe(0);
+    expect(out).toContain("[build-status] Feature 1 / feature-review — already passed");
+    expect(feature1Ship).toBeGreaterThanOrEqual(0);
+    expect(feature2Start).toBeGreaterThan(feature1Ship);
+    expect(calls).toEqual([
+      `ship:${featureBranches[0]}`,
+      "land:main",
+      `ship:${featureBranches[1]}`,
+      "land:main",
+    ]);
+    expect(saved.features.map((feature: { status: string }) => feature.status)).toEqual([
+      "committed",
+      "committed",
+    ]);
+    expect(saved.completed).toBe(true);
+    expect(saved.launch.skipShip).toBe(false);
+    expect(saved.launch.projectRoot).toBe(repo);
+  } finally {
+    fs.rmSync(resumeDir, { recursive: true, force: true });
   }
 });
