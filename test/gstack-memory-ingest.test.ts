@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, statSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, statSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -263,5 +263,146 @@ describe("gstack-memory-ingest --limit", () => {
     const r = runScript(["--probe", "--limit", "0"]);
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("--limit requires a positive integer");
+  });
+});
+
+// ── Writer regression: gbrain v0.27+ uses `put`, not `put_page` ───────────
+
+/**
+ * Stand up a fake `gbrain` shim on PATH that:
+ *  - advertises `put` in `--help` output (so gbrainAvailable() passes)
+ *  - records `put <slug>` invocations + their stdin to a log
+ *  - rejects `put_page` with a non-zero exit, mimicking real gbrain v0.27+
+ *
+ * If the writer ever regresses to the legacy flag-form, the bulk pass will
+ * report 0 writes and the assertion on `Wrote: 1` will fail loudly.
+ */
+function installFakeGbrain(home: string): { binDir: string; logFile: string; stdinFile: string } {
+  const binDir = join(home, "fake-bin");
+  mkdirSync(binDir, { recursive: true });
+  const logFile = join(home, "gbrain-calls.log");
+  const stdinFile = join(home, "gbrain-stdin.log");
+  const script = `#!/usr/bin/env bash
+set -euo pipefail
+LOG="${logFile}"
+STDIN_LOG="${stdinFile}"
+case "\${1:-}" in
+  --help|-h)
+    cat <<EOF
+Usage: gbrain <command> [options]
+
+Commands:
+  put <slug>           Write a page (content via stdin, YAML frontmatter for metadata)
+  search <query>       Keyword search across pages
+  ask <question>       Hybrid semantic + keyword query
+EOF
+    exit 0
+    ;;
+  put)
+    if [ "\${2:-}" = "--help" ]; then
+      echo "Usage: gbrain put <slug>"
+      exit 0
+    fi
+    echo "put \${2:-}" >> "\$LOG"
+    {
+      echo "--- slug=\${2:-} ---"
+      cat
+      echo
+    } >> "\$STDIN_LOG"
+    exit 0
+    ;;
+  put_page|put-page)
+    echo "Unknown command: \$1" >&2
+    exit 2
+    ;;
+  *)
+    echo "Unknown command: \${1:-<empty>}" >&2
+    exit 2
+    ;;
+esac
+`;
+  const binPath = join(binDir, "gbrain");
+  writeFileSync(binPath, script, "utf-8");
+  chmodSync(binPath, 0o755);
+  return { binDir, logFile, stdinFile };
+}
+
+describe("gstack-memory-ingest writer (gbrain v0.27+ `put` interface)", () => {
+  it("invokes `gbrain put <slug>` with stdin body, not legacy `put_page`", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, logFile, stdinFile } = installFakeGbrain(home);
+
+    // Single Claude Code session fixture. --include-unattributed lets it write
+    // even though there's no resolvable git remote in /tmp.
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "abc123", session);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(logFile)).toBe(true);
+
+    const calls = readFileSync(logFile, "utf-8");
+    expect(calls).toContain("put ");
+    expect(calls).not.toContain("put_page");
+
+    // Body should ride stdin and carry frontmatter that gbrain can parse.
+    // The transcript builder prepends its own frontmatter (agent, session_id,
+    // etc.) but does NOT include title/type/tags — the writer injects those
+    // into the existing frontmatter so gbrain pages list/search/filter
+    // actually surface the page. Asserting all three guards against the
+    // exact regression that landed in v1.26.0.0 (writer ignored these fields
+    // entirely; pages landed empty-titled, un-typed, un-tagged).
+    const stdin = readFileSync(stdinFile, "utf-8");
+    expect(stdin).toContain("---");
+    expect(stdin).toMatch(/agent:\s+claude-code/);
+    expect(stdin).toMatch(/title:\s/);
+    expect(stdin).toMatch(/type:\s+transcript/);
+    expect(stdin).toMatch(/tags:/);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("fails fast when gbrain CLI is missing the `put` subcommand", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    // Fake gbrain that ONLY advertises legacy `put_page` (no `put`).
+    const binDir = join(home, "legacy-bin");
+    mkdirSync(binDir, { recursive: true });
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Commands:"; echo "  put_page    Write a page (legacy)"; exit 0 ;;
+  *) echo "Unknown command: \$1" >&2; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
+
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/bar"}\n`;
+    writeClaudeCodeSession(home, "tmp-bar", "def456", session);
+
+    const r = runScript(["--bulk", "--include-unattributed"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    // Bulk completes (the script is per-page tolerant), but every page
+    // surfaces the missing-`put` error rather than the old "Unknown command".
+    expect(r.stderr + r.stdout).toMatch(/missing `put` subcommand|gbrain CLI not in PATH/);
+
+    rmSync(home, { recursive: true, force: true });
   });
 });

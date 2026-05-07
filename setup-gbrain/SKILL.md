@@ -334,11 +334,17 @@ Before calling AskUserQuestion, verify:
 - [ ] You are calling the tool, not writing prose
 
 
-## GBrain Sync (skill start)
+## Artifacts Sync (skill start)
 
 ```bash
 _GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-_BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+# Prefer the v1.27.0.0 artifacts file; fall back to brain file for users
+# upgrading mid-stream before the migration script runs.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  _BRAIN_REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
@@ -371,13 +377,26 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   fi
 fi
 
-_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
+
+# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
+# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
+# own cadence. Read claude.json directly to keep this preamble fast (no
+# subprocess to claude CLI on every skill start).
+_GBRAIN_MCP_MODE="none"
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
+  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$_BRAIN_NEW_URL" ]; then
-    echo "BRAIN_SYNC: brain repo detected: $_BRAIN_NEW_URL"
-    echo "BRAIN_SYNC: run 'gstack-brain-restore' to pull your cross-machine memory (or 'gstack-config set gbrain_sync_mode off' to dismiss forever)"
+    echo "ARTIFACTS_SYNC: artifacts repo detected: $_BRAIN_NEW_URL"
+    echo "ARTIFACTS_SYNC: run 'gstack-brain-restore' to pull your cross-machine artifacts (or 'gstack-config set artifacts_sync_mode off' to dismiss forever)"
   fi
 fi
 
@@ -397,22 +416,27 @@ if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
 fi
 
-if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+  # Remote-MCP mode: local artifacts sync is a no-op (brain admin's server
+  # pulls from GitHub/GitLab). Show the user this is by design, not broken.
+  _GBRAIN_HOST=$(jq -r '.mcpServers.gbrain.url // empty' "$HOME/.claude.json" 2>/dev/null | sed -E 's|^https?://([^/:]+).*|\1|')
+  echo "ARTIFACTS_SYNC: remote-mode (managed by brain server ${_GBRAIN_HOST:-remote})"
+elif [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   _BRAIN_QUEUE_DEPTH=0
   [ -f "$_GSTACK_HOME/.brain-queue.jsonl" ] && _BRAIN_QUEUE_DEPTH=$(wc -l < "$_GSTACK_HOME/.brain-queue.jsonl" | tr -d ' ')
   _BRAIN_LAST_PUSH="never"
   [ -f "$_GSTACK_HOME/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(cat "$_GSTACK_HOME/.brain-last-push" 2>/dev/null || echo never)
-  echo "BRAIN_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+  echo "ARTIFACTS_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
 else
-  echo "BRAIN_SYNC: off"
+  echo "ARTIFACTS_SYNC: off"
 fi
 ```
 
 
 
-Privacy stop-gate: if output shows `BRAIN_SYNC: off`, `gbrain_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
+Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
 
-> gstack can publish your session memory to a private GitHub repo that GBrain indexes across machines. How much should sync?
+> gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
 
 Options:
 - A) Everything allowlisted (recommended)
@@ -423,11 +447,11 @@ After answer:
 
 ```bash
 # Chosen mode: full | artifacts-only | off
-"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode <choice>
-"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode_prompted true
+"$_BRAIN_CONFIG_BIN" set artifacts_sync_mode <choice>
+"$_BRAIN_CONFIG_BIN" set artifacts_sync_mode_prompted true
 ```
 
-If A/B and `~/.gstack/.git` is missing, ask whether to run `gstack-brain-init`. Do not block the skill.
+If A/B and `~/.gstack/.git` is missing, ask whether to run `gstack-artifacts-init`. Do not block the skill.
 
 At skill END before telemetry:
 
@@ -758,7 +782,12 @@ invocation flags here and skip to the matching step.
 ## Step 2: Pick a path (AskUserQuestion)
 
 Only fire this if Step 1 shows no existing working config AND no shortcut
-flag was passed. The question title: "Where should your brain live?"
+flag was passed. **Special case:** if `gbrain_mcp_mode=remote-http` in the
+detect output, an HTTP MCP is already registered — skip directly to Step 5a
+verification (re-test the registration) and Step 6 onward, treating this run
+as idempotent. Don't ask Step 2 again.
+
+The question title: "Where should your brain live?"
 
 Options (present based on detected state):
 
@@ -775,6 +804,11 @@ Options (present based on detected state):
   yourself; paste the URL back when ready.
 - **3 — PGLite local.** Zero accounts, ~30 seconds. Isolated brain on this
   Mac only. Best for try-first.
+- **4 — Remote gbrain MCP.** Someone else (or another machine of yours) is
+  already running `gbrain serve` with HTTP transport. You paste the MCP URL
+  + a bearer token; this skill registers it as your MCP. No local brain DB,
+  no local install needed. Recommended when the brain is shared across
+  machines or run by a teammate.
 - **Switch** (only if Step 1 detected an existing engine): "You already have
   a `<engine>` brain. Migrate it to the other engine?" → runs
   `gbrain migrate --to <other>` wrapped in `timeout 180s` (D9).
@@ -785,7 +819,11 @@ Do NOT silently pick; fire the AskUserQuestion.
 
 ## Step 3: Install gbrain CLI (if missing)
 
-Only if `gbrain_on_path=false`:
+**SKIP entirely on Path 4 (Remote MCP).** Path 4 doesn't need a local gbrain
+binary — all calls go through MCP to the remote server. Jump to Step 4 (the
+Path 4 subsection).
+
+For Paths 1, 2a, 2b, 3, switch — only if `gbrain_on_path=false`:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-gbrain-install
@@ -930,6 +968,64 @@ gbrain init --pglite --json
 
 Done. No network, no secrets.
 
+### Path 4 (Remote gbrain MCP — HTTP transport with bearer token)
+
+For users whose brain runs on another machine (Tailscale, ngrok, internal
+LAN, or a teammate's server). No local gbrain CLI install, no local DB.
+This skill registers the remote MCP and stops; ingestion + indexing happens
+on the brain host.
+
+**4a. Collect MCP URL.** Prompt the user:
+
+```
+Paste your gbrain MCP URL (e.g. https://wintermute.tail554574.ts.net:3131/mcp):
+```
+
+Read with plain `read -r` (no secret hygiene needed — the URL alone isn't
+a credential). Validate it starts with `https://` (require TLS for any
+non-loopback host); refuse `http://` for non-localhost.
+
+**4b. Collect bearer token via the secret-read helper (D10, never argv).**
+
+```bash
+. ~/.claude/skills/gstack/bin/gstack-gbrain-lib.sh
+read_secret_to_env GBRAIN_MCP_TOKEN "Paste bearer token: " \
+  --echo-redacted 's/.\{6\}$/***REDACTED***/'
+```
+
+**4c. Verify via gstack-gbrain-mcp-verify.** Run the helper; capture the
+classified JSON output:
+
+```bash
+verify_json=$(GBRAIN_MCP_TOKEN="$GBRAIN_MCP_TOKEN" \
+  ~/.claude/skills/gstack/bin/gstack-gbrain-mcp-verify "$MCP_URL")
+status=$(echo "$verify_json" | jq -r .status)
+```
+
+If `status != "success"`, the helper has already classified the failure
+into NETWORK / AUTH / MALFORMED and emitted a one-line remediation hint.
+Surface the hint above the raw error from `error_text` and **STOP** with
+a clear "fix and re-run /setup-gbrain" message. Do NOT continue to Step 5a
+on a failed verify — partial registration would leave the user with a
+half-broken state.
+
+Capture two values from the verify output for downstream steps:
+- `SERVER_VERSION` (e.g., `0.27.1`) — written to the CLAUDE.md block in Step 8.
+- `URL_FORM_SUPPORTED` (`true|false`) — passed to `gstack-artifacts-init` in
+  Step 7 to control which form of the brain-admin hookup command is printed.
+
+**4d. Skip Steps 3, 4 (other paths), 5 (local doctor), 7.5 (transcript ingest).**
+All four require a working local `gbrain` CLI that Path 4 does not install.
+The skill jumps straight to Step 5a (HTTP+bearer registration) → Step 6
+(per-remote policy) → Step 7 (artifacts repo) → Step 8 (CLAUDE.md) → Step 9
+(remote smoke test) → Step 10 (verdict).
+
+The bearer token (`GBRAIN_MCP_TOKEN`) stays in process env until Step 5a's
+`claude mcp add --header` consumes it; then `unset GBRAIN_MCP_TOKEN`
+immediately. Token security trade-off documented in
+`setup-gbrain/memory.md`: brief argv exposure during `claude mcp add`,
+resting state in `~/.claude.json` mode 0600.
+
 ### Switch (from detect's existing-engine state)
 
 ```bash
@@ -948,6 +1044,13 @@ holding a lock on the source brain. Close other workspaces and re-run
 
 ## Step 5: Verify gbrain doctor
 
+**SKIP entirely on Path 4 (Remote MCP).** The brain host runs its own
+doctor; we don't have local DB access to introspect. Step 4c's verify
+round-trip already proved the server is reachable, authed, and on a
+compatible MCP version.
+
+For Paths 1, 2a, 2b, 3, switch:
+
 ```bash
 doctor=$(gbrain doctor --json)
 status=$(echo "$doctor" | jq -r .status)
@@ -963,7 +1066,33 @@ doctor output and STOP.
 Only if `which claude` resolves. Ask: "Give Claude Code a typed tool surface
 for gbrain? (recommended yes)"
 
-If yes, register at **user scope** with an **absolute path** to the gbrain
+The registration form depends on the path picked in Step 2:
+
+### Path 4 (Remote MCP — HTTP transport with bearer)
+
+Tear down any prior registration (could be local-stdio from an old setup,
+or stale remote-http with a rotated token), then register with HTTP +
+bearer at user scope:
+
+```bash
+claude mcp remove gbrain -s user 2>/dev/null || true
+claude mcp remove gbrain 2>/dev/null || true
+claude mcp add --scope user --transport http gbrain "$MCP_URL" \
+  --header "Authorization: Bearer $GBRAIN_MCP_TOKEN"
+unset GBRAIN_MCP_TOKEN  # zero from process env after registration
+claude mcp list | grep gbrain  # verify: should show "✓ Connected"
+```
+
+**Token-storage note:** `claude mcp add --header "Authorization: Bearer ..."`
+puts the bearer on argv during process startup, briefly visible to `ps` for
+~10ms. The token's resting state is `~/.claude.json` (mode 0600 — Claude
+Code's own credential surface for every MCP server). This trade-off is
+documented in `setup-gbrain/memory.md`. If a future Claude Code release adds
+a stdin or env-var input form for headers, switch to that.
+
+### Paths 1, 2a, 2b, 3 (Local stdio)
+
+Register at **user scope** with an **absolute path** to the gbrain
 binary. User scope makes the MCP available in every Claude Code session on
 this machine, not just the current workspace. Absolute path avoids PATH
 resolution issues when Claude Code spawns `gbrain serve` as a subprocess.
@@ -971,19 +1100,17 @@ resolution issues when Claude Code spawns `gbrain serve` as a subprocess.
 ```bash
 GBRAIN_BIN=$(command -v gbrain)
 [ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
+claude mcp remove gbrain -s user 2>/dev/null || true
+claude mcp remove gbrain 2>/dev/null || true
 claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
 claude mcp list | grep gbrain  # verify: should show "✓ Connected"
 ```
 
-If the user already had a local-scope registration from an earlier run,
-remove it first so both scopes don't conflict:
-```bash
-claude mcp remove gbrain 2>/dev/null || true
-```
+### Both paths
 
 If `claude` is not on PATH: emit "MCP registration skipped — this skill is
-Claude-Code-targeted; register `gbrain serve` in your agent's MCP config
-manually." Continue to step 6.
+Claude-Code-targeted; register `gbrain serve` (or your remote MCP URL) in
+your agent's MCP config manually." Continue to step 6.
 
 **Heads-up for the user:** an already-open Claude Code session will not
 pick up the new MCP tools until restart. Tell them: "Restart any open
@@ -1025,30 +1152,53 @@ For `/setup-gbrain --repo` invocations, execute ONLY Step 6 and exit.
 
 ---
 
-## Step 7: Offer gstack-brain-sync + wire it into gbrain
+## Step 7: Offer artifacts sync + wire it into gbrain
 
-Separate AskUserQuestion: "Also sync your gstack session memory (learnings,
-plans, retros) to a private git repo that gbrain can index across machines?"
+Renamed from "session memory sync" in v1.27.0.0 — the on-disk concept is
+artifacts (CEO plans, designs, /investigate reports, retros) rather than
+"session memory," which was a confusing name for what was always a
+human-readable artifact bucket. Behavioral transcript ingest is its own
+step (7.5) with its own option set.
+
+Separate AskUserQuestion: "Also sync your gstack artifacts (CEO plans,
+designs, reports, retros) to a private git repo that gbrain can index
+across machines?"
 
 Options:
 - Yes, full sync (everything allowlisted)
 - Yes, artifacts-only (plans, designs, retros — skip behavioral data)
 - No thanks
 
-If yes:
+If yes, run the artifacts-init helper. It asks the user to pick a git host
+(GitHub via `gh`, GitLab via `glab`, or paste a URL manually), creates
+`gstack-artifacts-$USER` (private), and writes the canonical HTTPS URL to
+`~/.gstack-artifacts-remote.txt`. Pass `--url-form-supported` from Step 4c's
+verify output (Path 4) or `false` (Paths 1/2/3 — local mode doesn't probe):
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-brain-init
-~/.claude/skills/gstack/bin/gstack-config set gbrain_sync_mode artifacts-only
+URL_FORM=${URL_FORM_SUPPORTED:-false}
+~/.claude/skills/gstack/bin/gstack-artifacts-init --url-form-supported "$URL_FORM"
+~/.claude/skills/gstack/bin/gstack-config set artifacts_sync_mode artifacts-only
 # or "full" if user picked yes-full
 ```
 
-Then wire the brain repo into gbrain so its content is searchable from any
-gbrain client (this Claude Code session, future Macs, optional cloud agents).
-The helper creates a `git worktree` of `~/.gstack/`, registers it as a
-federated source on the user's gbrain (Supabase or PGLite), and runs an
-initial `gbrain sync`. Local-Mac only. No cloud agent required. Subsequent
-skill runs trigger incremental sync via the existing skill-end push hook.
+`gstack-artifacts-init` always prints a "Send this to your brain admin" block
+at the end with the exact `gbrain sources add` command. Per codex Finding #3:
+the skill never auto-executes server-side gbrain commands; even if the user
+IS the brain admin, copy-pasting the printed command is the consistent UX.
+
+### Path 4 (Remote MCP) — done after artifacts-init
+
+In remote mode, the local `gstack-gbrain-source-wireup` helper does NOT run
+(it shells out to a local `gbrain` CLI which Path 4 doesn't install). The
+brain admin runs the printed command on the brain host instead. Skip to Step 7.5.
+
+### Paths 1, 2a, 2b, 3 (Local stdio) — wire up the federated source
+
+Then wire the artifacts repo into gbrain so its content is searchable from
+any gbrain client. The helper creates a `git worktree` of `~/.gstack/`,
+registers it as a federated source via `gbrain sources add --path
+--federated`, and runs an initial `gbrain sync`. Local-Mac only.
 
 Capture the database URL out of `~/.gbrain/config.json` first and pass it
 explicitly so the wireup is robust against any other process rewriting
@@ -1077,6 +1227,15 @@ the prereq is fixed.
 ---
 
 ## Step 7.5: Transcript & memory ingest gate
+
+**SKIP entirely on Path 4 (Remote MCP).** Transcript ingest shells out to
+the local `gbrain` CLI which Path 4 doesn't install. Remote-mode users
+rely on the brain server's own ingest cadence — if your brain admin wants
+this machine's transcripts indexed, they pull from your `gstack-artifacts-$USER`
+repo (set up in Step 7) on whatever schedule they prefer. Set
+`gstack-config set transcript_ingest_mode off` and continue to Step 8.
+
+For Paths 1, 2a, 2b, 3:
 
 After memory sync is wired (Step 7) but before persisting the CLAUDE.md
 config (Step 8), offer to bring this Mac's coding-agent transcripts +
@@ -1147,15 +1306,37 @@ Step 8).
 
 ## Step 8: Persist `## GBrain Configuration` in CLAUDE.md
 
-Find-and-replace (or append) this section in CLAUDE.md:
+Find-and-replace (or append) the section. Block format depends on mode:
+
+### Path 4 (Remote MCP)
 
 ```markdown
 ## GBrain Configuration (configured by /setup-gbrain)
+- Mode: remote-http
+- MCP URL: {MCP_URL}
+- Server version: gbrain v{SERVER_VERSION}  (from Step 4c verify)
+- Setup date: {today}
+- MCP registered: yes (user scope)
+- Token: stored in ~/.claude.json (do not commit; never written to CLAUDE.md)
+- Artifacts repo: {gstack_artifacts_remote URL or "none"}
+- Artifacts sync: {off|artifacts-only|full}
+- Current repo policy: {read-write|read-only|deny|unset}
+```
+
+The bearer token is **never** written to CLAUDE.md (CLAUDE.md is checked
+in to git in many projects). It lives only in `~/.claude.json` where
+`claude mcp add` placed it.
+
+### Paths 1, 2a, 2b, 3 (Local stdio)
+
+```markdown
+## GBrain Configuration (configured by /setup-gbrain)
+- Mode: local-stdio
 - Engine: {pglite|postgres}
 - Config file: ~/.gbrain/config.json (mode 0600)
 - Setup date: {today}
 - MCP registered: {yes/no}
-- Memory sync: {off|artifacts-only|full}
+- Artifacts sync: {off|artifacts-only|full}
 - Current repo policy: {read-write|read-only|deny|unset}
 ```
 
@@ -1207,6 +1388,34 @@ the round-trip works.
 
 ## Step 9: Smoke test
 
+### Path 4 (Remote MCP)
+
+The `mcp__gbrain__*` tools aren't visible mid-session — they're loaded at
+Claude Code session start. So the live smoke test in this same skill run is
+informational: print the curl-equivalent the user can run after restarting
+Claude Code. The verify round-trip in Step 4c already proved the server is
+reachable + authed + on a compatible MCP version, so we don't re-test that.
+
+Print to stdout:
+
+```
+After restarting Claude Code, the `mcp__gbrain__*` tools become callable.
+Smoke test: ask the agent to run `mcp__gbrain__search` with any query
+("test page" works). You should see a JSON list of pages.
+
+To verify from the shell right now (without waiting for restart):
+  curl -s -X POST -H 'Content-Type: application/json' \
+       -H 'Accept: application/json, text/event-stream' \
+       -H 'Authorization: Bearer <YOUR_TOKEN>' \
+       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+       <YOUR_MCP_URL>
+```
+
+Do NOT print the actual token in the curl command — leave the placeholder
+`<YOUR_TOKEN>` so the snippet is safe to copy into chat / share.
+
+### Paths 1, 2a, 2b, 3 (Local stdio)
+
 ```bash
 SLUG="setup-gbrain-smoke-test-$(date +%s)"
 echo "Set up on $(date). Smoke test for /setup-gbrain." | gbrain put "$SLUG"
@@ -1227,15 +1436,37 @@ state, repairs only what's missing, and reports here.
 ```bash
 ~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null || true
 ~/.claude/skills/gstack/bin/gstack-config get transcript_ingest_mode 2>/dev/null || echo "off"
-~/.claude/skills/gstack/bin/gstack-config get gbrain_sync_mode 2>/dev/null || echo "off"
+~/.claude/skills/gstack/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo "off"
 [ -f ~/.gstack/.gbrain-sync-state.json ] && cat ~/.gstack/.gbrain-sync-state.json || echo "{}"
 ```
 
-Print the verdict block. Each row is `[OK]/[FIX]/[WARN]/[ERR]` — see
-template below; substitute your detect outputs:
+Read `gbrain_mcp_mode` from the detect output and pick the right verdict
+template. Each row is `[OK]/[FIX]/[WARN]/[ERR]`.
+
+### Path 4 (Remote MCP)
 
 ```
-gbrain status: GREEN
+gbrain status: GREEN  (mode: remote-http)
+
+  MCP ............. OK   {SERVER_NAME} v{SERVER_VERSION} at {MCP_URL}
+  Auth ............ OK   bearer accepted (verified via /tools/list)
+  Engine .......... N/A  remote mode
+  Doctor .......... N/A  remote mode (brain admin runs `gbrain doctor`)
+  Repo policy ..... OK   {read-write|read-only|deny}
+  Artifacts repo .. OK   {gstack_artifacts_remote URL}
+  Artifacts sync .. OK   {artifacts_sync_mode}
+  Transcripts ..... N/A  remote mode (ingest happens on brain host)
+  CLAUDE.md ....... OK
+  Smoke test ...... INFO printed for post-restart manual verification
+
+Restart Claude Code to pick up the `mcp__gbrain__*` tools.
+Re-run `/setup-gbrain` any time the bearer rotates or the URL moves.
+```
+
+### Paths 1, 2a, 2b, 3 (Local stdio)
+
+```
+gbrain status: GREEN  (mode: local-stdio)
 
   CLI ............. OK   <gbrain version>
   Engine .......... OK   <pglite|supabase> at <path>
@@ -1243,7 +1474,7 @@ gbrain status: GREEN
   MCP ............. OK   registered (user scope)
   Repo policy ..... OK   <read-write|read-only|deny>
   Code import ..... OK   <last_imported_head>
-  Memory sync ..... OK   <gbrain_sync_mode> to <remote>
+  Artifacts sync .. OK   <artifacts_sync_mode> to <remote>
   Transcripts ..... OK   <N> sessions, last ingest <when>
   CLAUDE.md ....... OK
   Smoke test ...... OK   put → search → delete round-trip

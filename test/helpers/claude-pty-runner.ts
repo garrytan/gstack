@@ -1550,3 +1550,167 @@ export async function runPlanSkillCounting(opts: {
     await session.close();
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// runPlanSkillFloorCheck — minimal "did the agent fire ANY AskUserQuestion?"
+// observer for gate-tier floor tests catching the May 2026 transcript bug
+// (model wrote plan + ExitPlanMode'd with reviewCount=0).
+//
+// Why this exists separately from runPlanSkillCounting: plan-mode AUQs render
+// every option on a single logical line via cursor-positioning escapes that
+// stripAnsi can't simulate. parseNumberedOptions therefore returns < 2 options
+// from those frames and never records a fingerprint. The full counting helper
+// works for periodic finding-count tests because their 25-min budgets give the
+// agent enough redraws that one frame eventually parses cleanly. Gate-tier
+// floor tests don't have that wall-time budget and need to exit early on the
+// first observation. This helper trades fingerprint precision for early-exit
+// reliability.
+//
+// Contract:
+//   - PASS  → outcome === 'auq_observed' (agent rendered any non-permission
+//             numbered-option list; we exit immediately and report success)
+//   - FAIL  → outcome === 'plan_ready' | 'completion_summary' | 'silent_write'
+//             (agent reached a terminal state without ever firing an AUQ —
+//             this IS the transcript bug)
+//   - SOFT  → outcome === 'timeout' (neither happened in budget; agent may
+//             just be slow — test should retry with a larger budget rather
+//             than treat as a hard regression)
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface PlanSkillFloorObservation {
+  /** True iff a review-phase AUQ render was observed. */
+  auqObserved: boolean;
+  outcome:
+    | 'auq_observed'
+    | 'plan_ready'
+    | 'silent_write'
+    | 'exited'
+    | 'timeout';
+  summary: string;
+  /** Visible TTY tail (last 3KB) at terminal time. */
+  evidence: string;
+  /** Wall time (ms) until the outcome was decided. */
+  elapsedMs: number;
+}
+
+/**
+ * Drive a plan-* skill in plan mode and exit at the first non-permission
+ * numbered-option render. See block comment above for the contract.
+ */
+export async function runPlanSkillFloorCheck(opts: {
+  /** Skill name, e.g. 'plan-eng-review'. Used for diagnostic strings only. */
+  skillName: string;
+  /** Slash command to send alone, e.g. '/plan-eng-review'. */
+  slashCommand: string;
+  /** Plan content sent as a follow-up message ~3s after the slash command. */
+  followUpPrompt: string;
+  /** Working directory. Default process.cwd(). */
+  cwd?: string;
+  /** Total budget. Default 600000 (10 min). Tests exit early on AUQ. */
+  timeoutMs?: number;
+  /** Extra env merged into the spawned `claude` process. */
+  env?: Record<string, string>;
+}): Promise<PlanSkillFloorObservation> {
+  const startedAt = Date.now();
+  const timeoutMs = opts.timeoutMs ?? 600_000;
+
+  const session = await launchClaudePty({
+    permissionMode: 'plan',
+    cwd: opts.cwd,
+    timeoutMs: timeoutMs + 60_000,
+    env: opts.env,
+  });
+
+  try {
+    await Bun.sleep(8000); // boot grace + auto-trust handler window
+    const since = session.mark();
+    session.send(`${opts.slashCommand}\r`);
+    await Bun.sleep(3000);
+    session.send(`${opts.followUpPrompt}\r`);
+
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await Bun.sleep(2000);
+      const visible = session.visibleSince(since);
+
+      if (session.exited()) {
+        return {
+          auqObserved: false,
+          outcome: 'exited',
+          summary: `claude exited (code=${session.exitCode()}) before any AUQ render`,
+          evidence: visible.slice(-3000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+      if (visible.includes('Unknown command:')) {
+        return {
+          auqObserved: false,
+          outcome: 'exited',
+          summary: `claude rejected ${opts.slashCommand} as unknown command`,
+          evidence: visible.slice(-3000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+
+      // Success: ANY non-permission numbered-option list is an AUQ render.
+      // The bug we're catching is "fired zero AUQs," so observing one is
+      // sufficient — we don't need to fingerprint or navigate past it.
+      if (
+        isNumberedOptionListVisible(visible) &&
+        !isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))
+      ) {
+        return {
+          auqObserved: true,
+          outcome: 'auq_observed',
+          summary: 'agent rendered an AskUserQuestion (floor met)',
+          evidence: visible.slice(-3000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+
+      // Silent write outside sanctioned dirs is the transcript-bug shape.
+      const writeRe = /⏺\s*(?:Write|Edit)\(([^)]+)\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = writeRe.exec(visible)) !== null) {
+        const target = m[1] ?? '';
+        const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
+        if (!sanctioned && !isNumberedOptionListVisible(visible)) {
+          return {
+            auqObserved: false,
+            outcome: 'silent_write',
+            summary: `Write/Edit to ${target} fired before any AskUserQuestion`,
+            evidence: visible.slice(-3000),
+            elapsedMs: Date.now() - startedAt,
+          };
+        }
+      }
+
+      // Reached terminal without AUQ → transcript-bug regression.
+      // Note: COMPLETION_SUMMARY_RE is intentionally NOT checked here — it
+      // matches "GSTACK REVIEW REPORT" anywhere in the buffer, including
+      // when the agent does recon by reading existing plan files (which
+      // contain that string as a generated section). The plan_ready check
+      // (claude's actual "Ready to execute" confirmation) is the reliable
+      // terminal signal for "agent finished without asking."
+      if (isPlanReadyVisible(visible)) {
+        return {
+          auqObserved: false,
+          outcome: 'plan_ready',
+          summary: 'agent reached plan_ready without firing any AskUserQuestion',
+          evidence: visible.slice(-3000),
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+    }
+
+    return {
+      auqObserved: false,
+      outcome: 'timeout',
+      summary: `no AUQ render and no terminal outcome within ${timeoutMs}ms`,
+      evidence: session.visibleSince(since).slice(-3000),
+      elapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    await session.close();
+  }
+}

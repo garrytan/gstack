@@ -44,7 +44,12 @@ CONFIG_BIN="$SCRIPT_DIR/gstack-config"
 
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 WORKTREE="${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}"
-REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+# v1.27.0.0+ canonical name; brain-remote is the legacy fallback during migration.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
 PLIST_PATH="$HOME/Library/LaunchAgents/com.gstack.brain-sync.plist"
 GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 

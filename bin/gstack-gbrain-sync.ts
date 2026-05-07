@@ -33,6 +33,7 @@ import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSyn
 import { join, dirname } from "path";
 import { execSync, execFileSync, spawnSync } from "child_process";
 import { homedir } from "os";
+import { createHash } from "crypto";
 
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
 import { sourcePageCount } from "../lib/gbrain-sources";
@@ -158,20 +159,51 @@ function originUrl(): string | null {
 }
 
 /**
- * Derive a stable source id for the cwd code corpus. Pattern: `gstack-code-<slug>`,
- * where <slug> comes from canonicalizeRemote() then `/` → `-` (e.g.,
- * `github.com/garrytan/gstack` → `gstack-code-github-com-garrytan-gstack`).
+ * Derive a stable source id for the cwd code corpus. Pattern: `gstack-code-<slug>`.
  *
- * Falls back to `gstack-code-<basename(repo)>` when there is no origin (local repo).
+ * gbrain enforces source ids to be 1-32 lowercase alnum chars with optional interior
+ * hyphens. We use the last two segments of the canonical remote (org/repo) and skip
+ * the host — `github.com` etc. is the same for nearly every user and just eats budget.
+ * If the resulting id still exceeds 32 chars, we keep the tail (most distinctive end)
+ * and append a 6-char hash of the full slug for collision resistance.
+ *
+ * Falls back to the repo basename when there is no origin (local repo).
  */
 function deriveCodeSourceId(repoPath: string): string {
   const remote = canonicalizeRemote(originUrl());
   if (remote) {
-    return `gstack-code-${remote.replace(/[\/\s]+/g, "-").replace(/-+/g, "-")}`;
+    const segs = remote.split("/").filter(Boolean);
+    const slugSource = segs.slice(-2).join("-");
+    return constrainSourceId("gstack-code", slugSource);
   }
-  // Fallback for repos without a remote.
   const base = repoPath.split("/").pop() || "repo";
-  return `gstack-code-${base.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-")}`;
+  return constrainSourceId("gstack-code", base);
+}
+
+/**
+ * Build a gbrain-valid source id (1-32 lowercase alnum + interior hyphens). Sanitizes
+ * `raw`, prefixes with `prefix`, and falls back to a hashed-tail form when total length
+ * would exceed 32 chars.
+ */
+function constrainSourceId(prefix: string, raw: string): string {
+  const MAX = 32;
+  const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  // Empty slug after sanitize (e.g. raw was all non-alnum like "___") would
+  // produce "${prefix}-" which fails gbrain's validator on the trailing
+  // hyphen. Fall back to a deterministic hash of the original input so the
+  // result is stable across runs of the same repo.
+  if (!slug) {
+    const hash = createHash("sha1").update(raw || "_empty").digest("hex").slice(0, 6);
+    return `${prefix}-${hash}`;
+  }
+  const full = `${prefix}-${slug}`;
+  if (full.length <= MAX) return full;
+  const hash = createHash("sha1").update(slug).digest("hex").slice(0, 6);
+  // Total budget: prefix + "-" + tail + "-" + hash
+  const tailBudget = MAX - prefix.length - 2 - hash.length;
+  if (tailBudget < 1) return `${prefix}-${hash}`;
+  const tail = slug.slice(-tailBudget).replace(/^-+|-+$/g, "");
+  return tail ? `${prefix}-${tail}-${hash}` : `${prefix}-${hash}`;
 }
 
 function gbrainAvailable(): boolean {

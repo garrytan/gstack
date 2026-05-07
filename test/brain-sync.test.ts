@@ -6,7 +6,7 @@
  *   - bin/gstack-brain-enqueue (atomicity, skip list, no-op gates)
  *   - bin/gstack-jsonl-merge (3-way, ts-sort, hash-fallback)
  *   - bin/gstack-brain-sync --once (drain, commit, push, secret-scan, skip-file)
- *   - bin/gstack-brain-init + --restore round-trip
+ *   - bin/gstack-artifacts-init + --restore round-trip
  *   - bin/gstack-brain-uninstall preserves user data
  *   - env isolation (GSTACK_HOME never bleeds into real ~/.gstack/config.yaml)
  *
@@ -69,30 +69,30 @@ afterEach(() => {
 // Config key validation + env isolation
 // ---------------------------------------------------------------
 describe('gstack-config gbrain keys', () => {
-  test('default gbrain_sync_mode is off', () => {
-    const r = run(['gstack-config', 'get', 'gbrain_sync_mode']);
+  test('default artifacts_sync_mode is off', () => {
+    const r = run(['gstack-config', 'get', 'artifacts_sync_mode']);
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe('off');
   });
 
-  test('default gbrain_sync_mode_prompted is false', () => {
-    const r = run(['gstack-config', 'get', 'gbrain_sync_mode_prompted']);
+  test('default artifacts_sync_mode_prompted is false', () => {
+    const r = run(['gstack-config', 'get', 'artifacts_sync_mode_prompted']);
     expect(r.stdout.trim()).toBe('false');
   });
 
   test('accepts full / artifacts-only / off', () => {
     for (const val of ['full', 'artifacts-only', 'off']) {
-      const set = run(['gstack-config', 'set', 'gbrain_sync_mode', val]);
+      const set = run(['gstack-config', 'set', 'artifacts_sync_mode', val]);
       expect(set.status).toBe(0);
-      const get = run(['gstack-config', 'get', 'gbrain_sync_mode']);
+      const get = run(['gstack-config', 'get', 'artifacts_sync_mode']);
       expect(get.stdout.trim()).toBe(val);
     }
   });
 
-  test('invalid gbrain_sync_mode value warns + defaults', () => {
-    const r = run(['gstack-config', 'set', 'gbrain_sync_mode', 'bogus']);
+  test('invalid artifacts_sync_mode value warns + defaults', () => {
+    const r = run(['gstack-config', 'set', 'artifacts_sync_mode', 'bogus']);
     expect(r.stderr).toContain('not recognized');
-    const get = run(['gstack-config', 'get', 'gbrain_sync_mode']);
+    const get = run(['gstack-config', 'get', 'artifacts_sync_mode']);
     expect(get.stdout.trim()).toBe('off');
   });
 
@@ -102,11 +102,11 @@ describe('gstack-config gbrain keys', () => {
     const realConfig = path.join(os.homedir(), '.gstack', 'config.yaml');
     const before = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : null;
 
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
 
     // The override actually took effect — temp config got the new value.
     const tempConfig = fs.readFileSync(path.join(tmpHome, 'config.yaml'), 'utf-8');
-    expect(tempConfig).toContain('gbrain_sync_mode: full');
+    expect(tempConfig).toContain('artifacts_sync_mode: full');
 
     // Real ~/.gstack/config.yaml must not be touched.
     const after = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : null;
@@ -133,7 +133,7 @@ describe('gstack-brain-enqueue', () => {
 
   test('enqueues when mode is full and .git exists', () => {
     fs.mkdirSync(path.join(tmpHome, '.git'), { recursive: true });
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     run(['gstack-brain-enqueue', 'projects/foo/learnings.jsonl']);
     const queue = fs.readFileSync(path.join(tmpHome, '.brain-queue.jsonl'), 'utf-8');
     expect(queue).toContain('projects/foo/learnings.jsonl');
@@ -144,7 +144,7 @@ describe('gstack-brain-enqueue', () => {
 
   test('skip list honored', () => {
     fs.mkdirSync(path.join(tmpHome, '.git'), { recursive: true });
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.writeFileSync(path.join(tmpHome, '.brain-skip.txt'), 'projects/foo/secret.jsonl\n');
     run(['gstack-brain-enqueue', 'projects/foo/secret.jsonl']);
     run(['gstack-brain-enqueue', 'projects/foo/ok.jsonl']);
@@ -155,7 +155,7 @@ describe('gstack-brain-enqueue', () => {
 
   test('concurrent enqueues all land (atomic append)', async () => {
     fs.mkdirSync(path.join(tmpHome, '.git'), { recursive: true });
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     const procs = [];
     for (let i = 0; i < 10; i++) {
       procs.push(new Promise<void>((resolve) => {
@@ -218,7 +218,7 @@ describe('gstack-jsonl-merge', () => {
 // ---------------------------------------------------------------
 describe('init + sync + restore round-trip', () => {
   test('init creates canonical files + registers drivers', () => {
-    const r = run(['gstack-brain-init', '--remote', bareRemote]);
+    const r = run(['gstack-artifacts-init', '--remote', bareRemote]);
     expect(r.status).toBe(0);
     expect(fs.existsSync(path.join(tmpHome, '.git'))).toBe(true);
     expect(fs.existsSync(path.join(tmpHome, '.gitignore'))).toBe(true);
@@ -232,18 +232,18 @@ describe('init + sync + restore round-trip', () => {
   });
 
   test('refuses init on different remote', () => {
-    run(['gstack-brain-init', '--remote', bareRemote]);
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
     const otherRemote = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-other-'));
     spawnSync('git', ['init', '--bare', '-q', '-b', 'main', otherRemote]);
-    const r = run(['gstack-brain-init', '--remote', otherRemote]);
+    const r = run(['gstack-artifacts-init', '--remote', otherRemote]);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('already a git repo pointing at');
     fs.rmSync(otherRemote, { recursive: true, force: true });
   });
 
   test('full sync: init → enqueue → --once → commit pushed', () => {
-    run(['gstack-brain-init', '--remote', bareRemote]);
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
     fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'),
       '{"skill":"x","insight":"y","ts":"2026-04-22T10:00:00Z"}\n');
@@ -257,8 +257,8 @@ describe('init + sync + restore round-trip', () => {
 
   test('restore round-trip: writes on machine A visible on machine B', () => {
     // Machine A.
-    run(['gstack-brain-init', '--remote', bareRemote]);
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.mkdirSync(path.join(tmpHome, 'projects', 'myproj'), { recursive: true });
     const aLearning = '{"skill":"x","insight":"machine A wisdom","ts":"2026-04-22T10:00:00Z"}\n';
     fs.writeFileSync(path.join(tmpHome, 'projects/myproj/learnings.jsonl'), aLearning);
@@ -296,8 +296,8 @@ describe('gstack-brain-sync secret scan', () => {
 
   for (const [name, content] of SECRETS) {
     test(`blocks ${name}`, () => {
-      run(['gstack-brain-init', '--remote', bareRemote]);
-      run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+      run(['gstack-artifacts-init', '--remote', bareRemote]);
+      run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
       fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
       fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'),
         `{"leaked":"${content}"}\n`);
@@ -314,8 +314,8 @@ describe('gstack-brain-sync secret scan', () => {
   }
 
   test('--skip-file unblocks specific file', () => {
-    run(['gstack-brain-init', '--remote', bareRemote]);
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
     const leakPath = 'projects/p/leaked.jsonl';
     fs.writeFileSync(path.join(tmpHome, leakPath),
@@ -335,7 +335,7 @@ describe('gstack-brain-sync secret scan', () => {
 // ---------------------------------------------------------------
 describe('gstack-brain-uninstall', () => {
   test('removes sync config but preserves learnings/project data', () => {
-    run(['gstack-brain-init', '--remote', bareRemote]);
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
     fs.mkdirSync(path.join(tmpHome, 'projects', 'user-data'), { recursive: true });
     const preservedContent = '{"keep":"me","ts":"2026-04-22T12:00:00Z"}\n';
     fs.writeFileSync(path.join(tmpHome, 'projects/user-data/learnings.jsonl'), preservedContent);
@@ -349,7 +349,7 @@ describe('gstack-brain-uninstall', () => {
     const preserved = fs.readFileSync(path.join(tmpHome, 'projects/user-data/learnings.jsonl'), 'utf-8');
     expect(preserved).toBe(preservedContent);
     // Config key reset.
-    const mode = run(['gstack-config', 'get', 'gbrain_sync_mode']);
+    const mode = run(['gstack-config', 'get', 'artifacts_sync_mode']);
     expect(mode.stdout.trim()).toBe('off');
   });
 });
@@ -359,8 +359,8 @@ describe('gstack-brain-uninstall', () => {
 // ---------------------------------------------------------------
 describe('gstack-brain-sync --discover-new', () => {
   test('enqueues new allowlisted files; idempotent on re-run', () => {
-    run(['gstack-brain-init', '--remote', bareRemote]);
-    run(['gstack-config', 'set', 'gbrain_sync_mode', 'full']);
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.mkdirSync(path.join(tmpHome, 'retros'), { recursive: true });
     fs.writeFileSync(path.join(tmpHome, 'retros/week-1.md'), '# retro\n');
     run(['gstack-brain-sync', '--discover-new']);

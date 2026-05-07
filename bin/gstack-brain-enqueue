@@ -10,7 +10,7 @@
 # preamble at skill START and END boundaries.
 #
 # No-op when:
-#   - gbrain_sync_mode is off (the default)
+#   - artifacts_sync_mode is off (the default)
 #   - ~/.gstack/.git doesn't exist (feature not initialized)
 #   - <file-path> matches a line in ~/.gstack/.brain-skip.txt
 #
@@ -36,7 +36,7 @@ SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
 
 # Check sync mode. off → silent no-op.
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
-MODE=$("$SCRIPT_DIR/gstack-config" get gbrain_sync_mode 2>/dev/null || echo off)
+MODE=$("$SCRIPT_DIR/gstack-config" get artifacts_sync_mode 2>/dev/null || echo off)
 [ "$MODE" = "off" ] && exit 0
 
 # User-maintained skip list (for secret-scan false positives).

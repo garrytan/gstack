@@ -1,5 +1,253 @@
 # Changelog
 
+## [1.27.1.0] - 2026-05-06
+
+## **Plan-mode reviews now refuse to dump findings without asking. Four gate-tier tests catch the regression on every PR.**
+
+The four `/plan-*-review` skills (eng, ceo, design, devex) gain an
+anti-shortcut clause baked in via a single shared resolver. The clause
+names the May 2026 transcript-bug failure mode directly: model explores,
+finds issues, dumps every finding into one plan write, calls
+ExitPlanMode without firing AskUserQuestion. The new clause closes that
+loophole: "the plan file is the OUTPUT of the interactive review, not a
+substitute for it." Future tightening edits one resolver, all four
+skills update on the next gen-skill-docs.
+
+Four gate-tier E2E tests catch the regression class on every PR that
+touches the four templates, the shared resolver, or the seeds fixture.
+Each test drives the matching skill against a small "forcing finding"
+seed and asserts the agent fires at least one AskUserQuestion before
+reaching plan_ready. ~1-3 min wall time per test, ~$2-6 total per CI
+hit. Eng floor: 59s. CEO floor: 197s. All four pass against the new
+template.
+
+### The numbers that matter
+
+Verified end-to-end via live PTY runs against `claude` plan mode:
+
+| Surface | Before | After | Δ |
+|---|---|---|---|
+| Plan-mode reviews with anti-shortcut clause | 0/4 | 4/4 | full coverage of plan-* family |
+| Gate-tier regression tests for the transcript-bug class | 0 | 4 | one per skill |
+| Wall time per floor test (typical) | n/a | 30s-3m | early exit on first AUQ render |
+| Cost per gate run (when triggered) | n/a | ~$2-6 | diff-gated; only fires on relevant edits |
+| Lines added / deleted | — | +450 / −3 | additive; no breaking changes |
+
+The floor tests use a focused observer (`runPlanSkillFloorCheck`) that
+exits at the first non-permission numbered-option render. Existing
+periodic finding-count tests use `runPlanSkillCounting` for full
+fingerprint analysis on a 25-min budget; the floor variant trades
+fingerprint precision for early-exit reliability so it fits gate-tier
+constraints. Both helpers live side-by-side in
+`test/helpers/claude-pty-runner.ts`.
+
+### What this means for the four review skills
+
+Every plan-* review now has a structural rule against the precise
+failure mode the transcript exhibited. The anti-shortcut clause
+appears in the rendered prompt right after the existing Anti-skip
+rule, so it's read alongside the per-section STOP gates v1.26.2.0
+already added. If a future model regression revives the bug, the
+gate-tier floor test fires with full PTY evidence on the next PR.
+
+### Itemized changes
+
+#### Added
+- **`generateAntiShortcutClause` resolver** in `scripts/resolvers/review.ts`,
+  registered as `{{ANTI_SHORTCUT_CLAUSE}}` in the `RESOLVERS` map.
+  Plan-* SKILL.md.tmpl files include it via one placeholder line.
+- **`runPlanSkillFloorCheck` PTY helper** in
+  `test/helpers/claude-pty-runner.ts` — minimal "did the agent fire ANY
+  AskUserQuestion?" observer with early exit on first non-permission
+  numbered-option render.
+- **Four gate-tier finding-floor E2E tests** in
+  `test/skill-e2e-plan-{eng,ceo,design,devex}-finding-floor.test.ts`,
+  each using the shared `runPlanSkillFloorCheck` helper.
+- **Four forcing-finding seeds** in `test/fixtures/forcing-finding-seeds.ts`,
+  one per skill, each engineered to surface at least one finding under
+  that skill's review focus.
+
+#### Changed
+- **All four `plan-*-review` SKILL.md** files now include the
+  anti-shortcut clause immediately after the `**Anti-skip rule:**`
+  paragraph. Anchored on the paragraph (not the surrounding heading)
+  so the same insertion works across all four templates regardless of
+  their differing section labels.
+- **`test/helpers/touchfiles.ts`** adds 4 entries to `E2E_TOUCHFILES`
+  and `E2E_TIERS=gate`. The new entries depend on the matching skill
+  template, the shared resolver, the seeds fixture, and the PTY
+  runner helper.
+- **`test/touchfiles.test.ts`** count assertion bumped 21→22 with
+  explicit `plan-ceo-finding-floor` containment.
+
+## [1.27.0.0] - 2026-05-06
+
+## **`/setup-gbrain` connects to a remote brain in one paste. Brain repo renamed to gstack-artifacts.**
+
+`/setup-gbrain` now has a fourth path: paste a remote MCP URL plus a bearer
+token, and the skill registers it as your gbrain MCP without provisioning a
+local brain DB. No PGLite to install, no Supabase project to set up. Just
+point this Mac at a brain that already runs somewhere else (Tailscale node,
+ngrok endpoint, internal LAN, a teammate's server) and you have search +
+write working in one Claude Code session restart. The same flow optionally
+provisions a private `gstack-artifacts-$USER` repo on GitHub OR GitLab so
+the remote brain can ingest your CEO plans, designs, and reports as a
+federated source. The renamed repo replaces `gstack-brain-$USER` with a
+clearer name; existing users get a journaled, interruption-safe migration
+that handles the GitHub repo rename, the on-disk file moves, the config
+key rewrite, and the gbrain federated-source swap (add-new-before-remove-old,
+no downtime window).
+
+### The numbers that matter
+
+Verified end-to-end against a live remote brain (wintermute on Tailscale,
+gbrain v0.27.1, 96K pages) plus the new test suite:
+
+| Surface | Before | After | Δ |
+|---|---|---|---|
+| `/setup-gbrain` paths | 3 (Supabase / PGLite / Switch) | 4 (Supabase / PGLite / Switch / Remote MCP) | +1 path, no local install required |
+| Time to working remote MCP | manual `claude mcp add --transport http`, then skip the rest of the skill | one Path 4 walkthrough, full verify + artifact-repo provision | ~30 sec setup, agent guided |
+| Verify failure modes classified | none (raw curl error) | NETWORK / AUTH / MALFORMED, each with one-line remediation hint | 3 buckets, 0 wrong-layer debugging |
+| Migration interruption safety | partial-state on Ctrl-C | journal at `.migrations/v1.27.0.0.journal`, resumes from the next un-done step | 6-step atomic rollback |
+| Rename blast radius | one bin script | bin + scripts/ + 8 generated SKILL.md surfaces | grep regression test guards every caller |
+| Tests added | — | 59 unit + 2 gate-tier E2E + 4 regression | full coverage of the rename + Path 4 prose contract |
+
+| Path 4 step | What runs | Local dependency |
+|---|---|---|
+| Step 4c verify | `gstack-gbrain-mcp-verify $URL` (curl POST initialize) | none |
+| Step 5a register | `claude mcp add --scope user --transport http gbrain $URL --header "Authorization: Bearer $TOKEN"` | claude CLI |
+| Step 7 artifacts | `gstack-artifacts-init` (gh OR glab OR manual URL paste) | gh / glab / git |
+| Step 8 CLAUDE.md | mode-aware block; token NEVER written to CLAUDE.md (only `~/.claude.json`) | filesystem |
+| Step 9 smoke test | prints curl-equivalent for post-restart manual verification | none |
+
+The verify helper's `Accept: application/json, text/event-stream` requirement
+is a regression-tested invariant. Every MCP server that ships HTTP transport
+returns 406 Not Acceptable without both values; missing this header costs
+about 10 minutes of debugging per fresh setup.
+
+### What this means for users running gbrain across machines
+
+If you have a brain on a different Mac, a Tailscale-connected server, or a
+teammate runs one for the team, you no longer need a local install on every
+client. One paste of URL + bearer registers the MCP at user scope; restart
+Claude Code and `mcp__gbrain__search` and friends become callable. The
+artifacts repo is per-user (private), so each developer pushes their own
+plans/designs/reports without crossing trust surfaces. Renaming
+`gstack-brain-$USER` to `gstack-artifacts-$USER` is automatic if you accept
+the migration prompt; everything keeps working if you decline.
+
+Existing local-mode users (PGLite or Supabase) see no behavior change beyond
+the rename. The path you picked in `/setup-gbrain` Step 2 still runs end to
+end, just under the new "artifacts" terminology.
+
+### Itemized changes
+
+#### Added
+
+- **`/setup-gbrain` Path 4 (Remote MCP).** Step 2 gains a fourth option:
+  paste an HTTPS MCP URL plus a bearer token. The skill verifies via
+  `gstack-gbrain-mcp-verify` (NETWORK / AUTH / MALFORMED classifier with
+  one-line remediation hints), registers via `claude mcp add --scope user
+  --transport http gbrain --header "Authorization: Bearer ..."`, then
+  skips local install / doctor / transcript ingest because Path 4 has
+  no local dependencies. Steps 5, 5a, 7, 8, 9, 10 all branch on mode.
+  Idempotent re-run skips Step 2 entirely when `gbrain_mcp_mode=remote-http`
+  is already detected.
+- **`bin/gstack-gbrain-mcp-verify`** (new). POSTs `initialize` to a remote
+  MCP URL with the bearer from `$GBRAIN_MCP_TOKEN` (never argv) and
+  classifies failures into NETWORK / AUTH / MALFORMED with concrete
+  remediation hints. Probes `tools/list` for forward-compat with future
+  gbrain releases that ship `mcp__gbrain__sources_add` (returns
+  `sources_add_url_supported: true|false`).
+- **`bin/gstack-artifacts-init`** (new). Replaces `gstack-brain-init`. Asks
+  the user to pick GitHub (auto via `gh`), GitLab (auto via `glab`), or
+  manual URL paste. Creates `gstack-artifacts-$USER` (private), stores the
+  HTTPS URL canonically in `~/.gstack-artifacts-remote.txt`, and prints the
+  brain-admin hookup command labeled "Send this to your brain admin" (always
+  prints, never auto-executes — see `setup-gbrain/memory.md` for why).
+- **`bin/gstack-artifacts-url`** (new). Small helper for HTTPS↔SSH
+  conversion plus host / owner-repo extraction. Mirrors the spirit of
+  `gstack-slug` so URL-format string-mangling lives in one place.
+- **`gbrain_mcp_mode` field in `gstack-gbrain-detect` output.** 3-tier
+  fallback: `claude mcp get gbrain --json` → `claude mcp list` text-grep →
+  `~/.claude.json` jq read. Defense in depth: if Anthropic moves the file
+  format, the first two tiers absorb it.
+- **`gstack-upgrade/migrations/v1.27.0.0.sh`**. Six-step journaled migration
+  for the brain → artifacts rename. Each step writes its name to
+  `~/.gstack/.migrations/v1.27.0.0.journal` on success; re-entry resumes
+  from the next un-done step. On final success, journal is replaced by
+  `v1.27.0.0.done`. User opt-out writes a `skipped-by-user` marker so the
+  prompt doesn't fire again until `/setup-gbrain --rerun-migration`.
+- **`setup-gbrain/memory.md`** has a new "Path 4: Remote MCP setup"
+  section covering the bearer storage trade-off, the always-print
+  brain-admin hookup pattern, the CLAUDE.md block format (no token), and
+  token-rotation guidance.
+
+#### Changed
+
+- **`gbrain_sync_mode` config key renamed to `artifacts_sync_mode`.** Hard
+  rename, no dual-read alias. The migration script rewrites the key in
+  `~/.gstack/config.yaml` and any "## GBrain Configuration" block in
+  CLAUDE.md. Internal callers updated:
+  `bin/gstack-config`, `bin/gstack-gbrain-detect`, `bin/gstack-brain-sync`,
+  `bin/gstack-brain-enqueue`, `bin/gstack-brain-uninstall`,
+  `bin/gstack-timeline-log`, `scripts/resolvers/preamble/generate-brain-sync-block.ts`.
+- **Preamble `BRAIN_SYNC: ...` line renamed to `ARTIFACTS_SYNC: ...`** and
+  branches on `gbrain_mcp_mode`. In remote-http mode it emits
+  `ARTIFACTS_SYNC: remote-mode (managed by brain server <host>)` to make
+  clear that local sync is a no-op by design.
+- **`bin/gstack-brain-restore`, `bin/gstack-gbrain-source-wireup`, and
+  `bin/gstack-brain-uninstall`** read `~/.gstack-artifacts-remote.txt` with
+  `~/.gstack-brain-remote.txt` as a migration-window fallback. Once the
+  v1.27.0.0 migration runs, only the artifacts file remains.
+- **`/sync-gbrain` is a graceful no-op in remote-http mode** (V1). Prints a
+  one-line note pointing at the brain server and exits cleanly. Local-mode
+  users see no change.
+
+#### Removed
+
+- **`bin/gstack-brain-init` deleted.** Replaced by `bin/gstack-artifacts-init`.
+  Anyone running the old name post-upgrade gets a clean "command not found"
+  rather than a silent rename — per the gstack rule "avoid backwards-
+  compatibility hacks." Existing users on disk have their state migrated by
+  v1.27.0.0.sh.
+- **`test/gstack-brain-init-gh-mock.test.ts` deleted.** Replaced by
+  `test/gstack-artifacts-init.test.ts` covering the same gh-mock pattern
+  plus the new GitLab branch and the brain-admin printout.
+
+#### For contributors
+
+- **59 new unit tests + 2 gate-tier E2E tests + 4 regression tests.**
+  Highlights:
+  - `test/gstack-gbrain-mcp-verify.test.ts` (13 tests) covers each error
+    class via mocked curl, asserts the dual `Accept` header is set on
+    every call, regression-tests the token-never-on-stdout invariant.
+  - `test/gstack-artifacts-init.test.ts` (16 tests) covers gh / glab /
+    both / neither provider selection, HTTPS canonical storage, the
+    URL-form-supported branch in the brain-admin printout, and idempotent
+    re-run.
+  - `test/gstack-gbrain-detect-mcp-mode.test.ts` (19 tests) verifies each
+    of the 3 detection tiers in isolation, plus the schema-regression
+    check that `/sync-gbrain`'s parser doesn't break on the new fields.
+  - `test/migrations-v1.27.0.0.test.ts` (11 tests) covers all six
+    migration steps including journal-resume, idempotent re-run, the
+    add-before-remove ordering for source swap, and the remote-MCP
+    print-only branch.
+  - `test/no-stale-gstack-brain-refs.test.ts` greps the broader tree
+    (bin, scripts, *.tmpl, generated *.md, test/) for stale identifiers.
+  - `test/post-rename-doc-regen.test.ts` confirms gen-skill-docs output
+    has no `gstack-brain` strings post-rename.
+  - `test/setup-gbrain-path4-structure.test.ts` is a fast structural lint
+    that catches AUQ-pacing regressions in the Path 4 prose without
+    spending eval tokens.
+- **`scripts/resolvers/preamble/generate-brain-sync-block.ts`** detects
+  remote-http mode by reading `~/.claude.json` directly (no claude
+  subprocess on every preamble — the hot path stays fast).
+- **`test/helpers/touchfiles.ts`** wires `setup-gbrain-remote` and
+  `setup-gbrain-bad-token` into the gate-tier E2E selection.
+- **Preamble byte budget ratcheted from 35K to 36.5K** to honor the
+  remote-mode probe in `generate-brain-sync-block.ts`.
+
 ## [1.26.7.0] - 2026-05-07
 
 ## **`/build --dual-impl` is now model-agnostic instead of hardwired to Gemini versus Codex.**
@@ -94,6 +342,47 @@ Codex review, QA, and secondary review gates can now recover from the service di
 
 #### Changed
 - `build/README.md` and `build/orchestrator/README.md` — document the Codex review/QA sandbox override and the local verification sandbox retry behavior.
+
+## [1.26.5.0] - 2026-05-06
+
+## **The v1.26 memory feature now actually works on a fresh `/setup-gbrain` install, and `/sync-gbrain --full` actually registers github-hosted code sources.**
+
+Two fix-wave bugs closed in one ship. Until this version, the headline v1.26 features ended setup green but did nothing: every transcript page failed `Unknown command: put_page`, and every `github.com/<org>/<repo>` repo got rejected for an invalid source id. After upgrade, clean-install transcripts land in gbrain with title/type/tags intact, and any github-hosted repo registers a code source on the first try.
+
+### The numbers that matter
+
+Both numbers come from running the binaries against the real gbrain v0.25.1 install on this machine, against `origin/main` first (buggy) and the merged branch second.
+
+| Surface | Before (v1.26.4.0) | After (v1.26.5.0) | Δ |
+|---|---|---|---|
+| Memory-ingest writer verb | `gbrain put_page --slug ... --title ...` (CLI rejects: `Unknown command`) | `gbrain put <slug>` with frontmatter (CLI accepts) | from 100% fail to 0% fail |
+| Transcript pages with title/type/tags | none — fields rode CLI flags that no gbrain version accepts | injected into existing frontmatter on every page | search/filter by `--type transcript` actually returns results now |
+| Source id derived for `github.com/garrytan/gstack` | `gstack-code-github.com-garrytan-gstack` (38 chars, contains `.`, fails gbrain `[a-z0-9-]{1,32}` validator) | `gstack-code-garrytan-gstack` (27 chars, valid) | 100% of github-hosted repos go from rejected to accepted |
+| Availability probe failure mode | every page errors with `Unknown command: put_page` | one clean error: `gbrain CLI not in PATH or missing put subcommand` | log spam goes from N copies to 1 |
+| Available `gbrainPutPage()` timeout | 30 s (auto-link reconciliation hits 30 s on dense brains) | 60 s | brains with hundreds of existing pages stop hitting the ceiling on every put |
+| `gbrainPutPage()` error surface | `Command failed:` (Node truncates 1 MB stderr) | first 300 chars of `err.stderr` | debugging stops requiring strace; the failure is visible |
+
+The `gbrain put` verb has existed since v0.18.2 and was always the right CLI surface. The `put_page` shape was the MCP tool name leaking into the CLI path. The hybrid writer now handles both transcript pages (existing frontmatter from `buildTranscriptPage`, inject title/type/tags into it) and raw artifact pages (no frontmatter, wrap with new frontmatter).
+
+### What this means for new users
+
+Run `/setup-gbrain` on a clean install, choose any path, and Step 7.5 actually populates the brain with your transcripts plus their metadata. Run `/sync-gbrain --full` on any github-hosted repo and the code stage registers the source instead of failing the `sources add` validator. The headline v1.26 features finally do the thing they shipped to do.
+
+### Itemized changes
+
+#### Fixed
+- `bin/gstack-memory-ingest.ts:gbrainPutPage` — switched the writer from the legacy flag-based `gbrain put_page --slug X --title Y --type Z --tags T` form to the CLI surface `gbrain put <slug>` (positional slug, content via stdin, metadata in YAML frontmatter). Two-branch hybrid: when the page body already starts with frontmatter (transcript pages from `buildTranscriptPage`, which prepends agent/session_id/cwd/git_remote/etc. but no title/type/tags), inject title/type/tags into the existing block before the closing `---`. When the body has no frontmatter (raw artifact pages: design-docs, learnings, builder-profile-entries), wrap with a fresh frontmatter carrying the same fields. Either branch produces a page that gbrain's pages list, search, and tag filters actually surface. Contributed by @smithjoshua (PR #1328: base writer + 60 s timeout + 16 MB maxBuffer + stderr first-line surface) and the artifact-wrap branch added on top here.
+- `bin/gstack-memory-ingest.ts:gbrainAvailable` — adds a `gbrain --help` probe with a regex anchored on the indented subcommand format (`/^\s+put\s/m`). Replaces the previous `command -v` only check. If a future gbrain renames or removes `put`, the writer fails fast with one clean error per ingest pass instead of N copies of `Unknown command: put_page`. Contributed by @AZ-1224 (PR #1341: probe origin); regex tightening added on top here per Codex P2 plan-review feedback.
+- `bin/gstack-gbrain-sync.ts:deriveCodeSourceId` — drops the host segment from canonical remote URLs (the same `github.com-` prefix on every user's id was eating 12 chars of the 32-char gbrain budget for nothing) and falls back to a 6-char sha1 hash on the slug tail when org/repo names still exceed the limit. Every `github.com/<org>/<repo>` derives a gbrain-valid id on the first try. Contributed by @radubach (PR #1330).
+- `bin/gstack-gbrain-sync.ts:constrainSourceId` — handles the empty-slug edge case (input sanitizes to all non-alnum chars). Pre-fix the function returned `${prefix}-` which fails gbrain's validator on the trailing hyphen; now falls back to a deterministic sha1-prefixed id. Surfaced via the new `basename-sanitizes-to-empty` regression test added in this version per Codex plan-review.
+
+#### Added
+- `test/gstack-memory-ingest.test.ts` — two regression tests stand up a fake `gbrain` shim on PATH and run the real `--bulk` ingest pipeline against a planted Claude Code session. The first asserts the writer hits `gbrain put <slug>` (not `put_page`) and that title, type, AND tags arrive in the put stdin. The second points the writer at a legacy-only shim and asserts the availability probe surfaces a single missing-subcommand error instead of N per-page failures. Contributed by @AZ-1224 (PR #1341); the assertions for title/type/tags arriving in stdin are added on top here. The strengthened test surfaced a deeper issue in PR #1328's inject branch: it searched for `\n---\n` (with trailing newline) but `buildTranscriptPage` joins frontmatter without a trailing newline, so the search never matched. Two-line fix on top: search for `\n---` only.
+- `test/gstack-gbrain-sync.test.ts` — four cases from PR #1330 (dot-host, SCP-style remote, multi-dot host, long org/repo forcing hash-truncate) plus two new edge cases this version (no-origin fallback path; basename-sanitizes-to-empty). Each test spawns the CLI inside a temp git repo and asserts the derived id passes gbrain's validator regex. Contributed by @radubach for the four core cases.
+
+#### For contributors
+- Codex outside-voice plan review caught three P1 ship-blockers in the originally proposed merge (the no-frontmatter-wrap branch from PR #1341 alone would have silently dropped title/type/tags from every transcript page — its own tests passed because they only asserted `agent: claude-code`). The plan pivoted from `merge #1341 + cherry-pick from #1328` to `merge #1328 + hybrid writer + cherry-pick #1341's tests, strengthened`. Two-pass live smoke against real gbrain (where the database connects) confirmed source-id length goes 38 → 27 chars; memory-ingest writer correctness was verified by the strengthened shim tests against a real `gbrain` CLI process.
+- Two follow-up TODOs filed: P2 to bump the `bin/gstack-gbrain-install` pin in lockstep with gstack memory-feature releases (issue #1305 part 2), P3 to handle source-id cross-host collisions (`github.com/acme/foo` and `gitlab.com/acme/foo` currently collapse to the same id; rare but silent).
 
 ## [1.26.4.0] - 2026-05-05
 

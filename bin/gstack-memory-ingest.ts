@@ -34,8 +34,9 @@
  * keep V1 ship-tight. See TODOS.md.
  *
  * V1.5 NOTE: When `gbrain put_file` ships in the gbrain CLI (cross-repo P0 TODO),
- * transcripts will route to Supabase Storage instead of put_page. Until then, all
- * content rides put_page; gbrain's native dedup keys on session_id.
+ * transcripts will route to Supabase Storage instead of the page-write path.
+ * Until then, all content rides `gbrain put <slug>` (stdin, YAML frontmatter for
+ * title/type/tags); gbrain's native dedup keys on session_id.
  */
 
 import {
@@ -745,14 +746,25 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   };
 }
 
-// ── Writer (calls gbrain put_page) ─────────────────────────────────────────
+// ── Writer (calls `gbrain put`) ────────────────────────────────────────────
 
 let _gbrainAvailability: boolean | null = null;
 function gbrainAvailable(): boolean {
   if (_gbrainAvailability !== null) return _gbrainAvailability;
   try {
     execSync("command -v gbrain", { stdio: "ignore" });
-    _gbrainAvailability = true;
+    // gbrain v0.27 retired the legacy `put_page` flag-form for `put <slug>`
+    // (content via stdin, metadata as YAML frontmatter). Probe `--help` for
+    // the `put` subcommand so we surface a single clean error here rather
+    // than failing every page with "Unknown command: put_page". The regex
+    // anchors on the indented subcommand format gbrain's help actually uses
+    // ("  put   ..."), not any whitespace-bordered "put" word in prose.
+    const help = execFileSync("gbrain", ["--help"], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    _gbrainAvailability = /^\s+put\s/m.test(help);
   } catch {
     _gbrainAvailability = false;
   }
@@ -761,25 +773,63 @@ function gbrainAvailable(): boolean {
 
 function gbrainPutPage(page: PageRecord): { ok: boolean; error?: string } {
   if (!gbrainAvailable()) {
-    return { ok: false, error: "gbrain CLI not in PATH" };
+    return { ok: false, error: "gbrain CLI not in PATH or missing `put` subcommand" };
+  }
+  // gbrain v0.27+ uses `put <slug>` (positional, content via stdin) instead
+  // of the legacy `put_page` flag form. Metadata rides as YAML frontmatter:
+  //  - When the page body already starts with frontmatter (transcripts), inject
+  //    title/type/tags into the existing block so gbrain's frontmatter parser
+  //    picks them up.
+  //  - When the page body has no frontmatter (raw artifacts: design-docs,
+  //    learnings, builder-profile-entries), wrap with a fresh frontmatter
+  //    carrying the same fields. Without this branch, artifact pages would
+  //    land in gbrain with empty title/type/tags.
+  let body = page.body;
+  if (body.startsWith("---\n")) {
+    // Locate the closing --- delimiter. buildTranscriptPage joins with "\n"
+    // and does not append a trailing newline, so the close fence looks like
+    // "...\n---" followed directly by body content (no "\n---\n" pattern).
+    // Match the close on "\n---" only — the inject lands BEFORE the close
+    // fence, inside the frontmatter block, regardless of what follows it.
+    const end = body.indexOf("\n---", 4);
+    if (end > 0) {
+      const inject = [
+        `title: ${JSON.stringify(page.title)}`,
+        `type: ${page.type}`,
+        `tags:`,
+        ...page.tags.map((t) => `  - ${t}`),
+      ].join("\n");
+      body = body.slice(0, end) + "\n" + inject + body.slice(end);
+    }
+  } else {
+    body = [
+      "---",
+      `title: ${JSON.stringify(page.title)}`,
+      `type: ${page.type}`,
+      `tags: [${page.tags.map((t) => JSON.stringify(t)).join(", ")}]`,
+      "---",
+      "",
+      body,
+    ].join("\n");
   }
   try {
-    const args = [
-      "put_page",
-      "--slug", page.slug,
-      "--title", page.title,
-      "--type", page.type,
-      "--tags", page.tags.join(","),
-    ];
-    execFileSync("gbrain", args, {
-      input: page.body,
+    execFileSync("gbrain", ["put", page.slug], {
+      input: body,
       encoding: "utf-8",
-      timeout: 30000,
+      // Bumped from 30s: auto-link reconciliation on dense transcripts hits
+      // 30s once the brain has a few hundred existing pages.
+      timeout: 60000,
+      // Bumped from default 1MB: without this, gbrain's actual stderr gets
+      // truncated and callers see only "Command failed:" with no detail.
+      maxBuffer: 16 * 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe"],
     });
     return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } catch (err: any) {
+    const stderr = err?.stderr?.toString?.() ?? "";
+    const stdout = err?.stdout?.toString?.() ?? "";
+    const detail = stderr || stdout || (err instanceof Error ? err.message : String(err));
+    return { ok: false, error: detail.split("\n")[0].slice(0, 300) };
   }
 }
 
