@@ -78,6 +78,7 @@ import {
 } from "./plan-mutator";
 import {
   buildFeatureReviewPrompt,
+  classifyFeatureReviewTimeout,
   parseFeatureReviewVerdict,
   shouldSkipFeatureReview,
   type ParsedFeatureVerdict,
@@ -141,6 +142,8 @@ export interface Args {
   skipSweep: boolean;
   /** Original source plan to verify and archive after the living plan completes. */
   originPlan?: string;
+  /** Allow running directly from a workspace root that contains child git repos. */
+  allowWorkspaceRoot: boolean;
   /**
    * Skip the per-feature meta-review pass that fires after all phases of
    * a feature commit. Default off — review runs unless the skip heuristic
@@ -179,6 +182,7 @@ export function parseArgs(argv: string[]): Args {
     skipCleanCheck: false,
     skipSweep: false,
     originPlan: undefined,
+    allowWorkspaceRoot: false,
     skipFeatureReview: false,
     featureReviewMaxIter: DEFAULT_FEATURE_REVIEW_MAX_ITER,
   };
@@ -193,6 +197,7 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--skip-ship") args.skipShip = true;
     else if (a === "--skip-clean-check") args.skipCleanCheck = true;
     else if (a === "--skip-sweep") args.skipSweep = true;
+    else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
     else if (a === "--skip-feature-review") args.skipFeatureReview = true;
     else if (a === "--feature-review-max-iter") {
       const next = argv[++i];
@@ -417,6 +422,160 @@ export function resolveProjectRoot(opts: {
   );
 }
 
+export function validateProjectRootSelection(
+  projectRoot: string,
+  allowWorkspaceRoot: boolean,
+): string {
+  const resolved = path.resolve(projectRoot);
+  if (!allowWorkspaceRoot && hasImmediateChildGitRepos(resolved)) {
+    throw new Error(
+      `project root looks like a workspace root with child repos: ${resolved}\n` +
+        `rerun with --project-root <child-repo>, or pass --allow-workspace-root to intentionally build the root repo`,
+    );
+  }
+  return resolved;
+}
+
+function hasImmediateChildGitRepos(dir: string): boolean {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .some((entry) => {
+      if (!entry.isDirectory()) return false;
+      if (entry.name === ".git") return false;
+      return fs.existsSync(path.join(dir, entry.name, ".git"));
+    });
+}
+
+export interface GitSnapshot {
+  head: string | null;
+  status: string[];
+}
+
+export interface HygieneVerdict {
+  ok: boolean;
+  errors: string[];
+}
+
+export function captureGitSnapshot(cwd: string): GitSnapshot {
+  const headR = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  });
+  const statusR = spawnSync(
+    "git",
+    ["status", "--porcelain", "--untracked-files=all"],
+    { cwd, encoding: "utf8" },
+  );
+  return {
+    head: headR.status === 0 ? headR.stdout.trim() || null : null,
+    status:
+      statusR.status === 0
+        ? (statusR.stdout || "").split("\n").filter(Boolean).sort()
+        : [`<git error: ${(statusR.stderr || "").trim() || "git status failed"}>`],
+  };
+}
+
+export function validatePostAgentHygiene(opts: {
+  cwd: string;
+  before: GitSnapshot;
+  outputFilePath?: string;
+  requireNonEmptyOutput?: boolean;
+  requireNewCommit?: boolean;
+  label: string;
+}): HygieneVerdict {
+  const after = captureGitSnapshot(opts.cwd);
+  const errors: string[] = [];
+
+  if (opts.requireNonEmptyOutput && opts.outputFilePath) {
+    let content = "";
+    try {
+      content = fs.readFileSync(opts.outputFilePath, "utf8");
+    } catch (err) {
+      errors.push(
+        `${opts.label} could not read output summary ${opts.outputFilePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (content.trim() === "") {
+      errors.push(`${opts.label} left an empty output summary: ${opts.outputFilePath}`);
+    }
+  }
+
+  if (opts.requireNewCommit && after.head === opts.before.head) {
+    errors.push(`${opts.label} did not create a new commit`);
+  }
+
+  const allowedStatus = /^\?\? \.llm-tmp(\/|$)/;
+  const dirty = after.status.filter((line) => !allowedStatus.test(line));
+  if (dirty.length > 0) {
+    errors.push(
+      `${opts.label} left the working tree dirty:\n${dirty.map((line) => `  ${line}`).join("\n")}`,
+    );
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateParentWorkspaceUnchanged(opts: {
+  before: GitSnapshot | null;
+  workspaceRoot: string | null;
+  label: string;
+}): HygieneVerdict {
+  if (!opts.before || !opts.workspaceRoot) return { ok: true, errors: [] };
+  const after = captureGitSnapshot(opts.workspaceRoot);
+  const beforeStatus = opts.before.status.join("\n");
+  const afterStatus = after.status.join("\n");
+  const errors: string[] = [];
+  if (after.head !== opts.before.head) {
+    errors.push(`${opts.label} changed workspace root HEAD`);
+  }
+  if (afterStatus !== beforeStatus) {
+    errors.push(`${opts.label} changed workspace root status`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function parentWorkspaceSnapshot(projectRoot: string): {
+  workspaceRoot: string | null;
+  snapshot: GitSnapshot | null;
+} {
+  const parent = path.dirname(path.resolve(projectRoot));
+  if (parent === path.resolve(projectRoot)) {
+    return { workspaceRoot: null, snapshot: null };
+  }
+  if (!fs.existsSync(path.join(parent, ".git"))) {
+    return { workspaceRoot: null, snapshot: null };
+  }
+  return { workspaceRoot: parent, snapshot: captureGitSnapshot(parent) };
+}
+
+export function hygieneFailureResult(message: string, logPath: string): SubAgentResult {
+  const parsed = path.parse(logPath);
+  const hygieneLogPath = path.join(
+    parsed.dir,
+    `${parsed.name || "agent"}-hygiene.log`,
+  );
+  const body = [
+    "# Post-agent hygiene failure",
+    "",
+    message,
+    "",
+    `Original agent log: ${logPath}`,
+    "",
+    "GATE FAIL",
+    "",
+  ].join("\n");
+  if (parsed.dir) {
+    fs.mkdirSync(parsed.dir, { recursive: true });
+  }
+  fs.writeFileSync(hygieneLogPath, body);
+  return mockResult({
+    exitCode: 1,
+    stdout: body,
+    stderr: "",
+    logPath: hygieneLogPath,
+  });
+}
+
 export function archiveLivingPlan(planFile: string): string | null {
   const resolved = path.resolve(planFile);
   const livingDir = path.dirname(resolved);
@@ -526,6 +685,7 @@ Flags:
   --codex-review-model <m>         Deprecated alias for --review-secondary-model.
   --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
   --project-root <dir> Run sub-agents/tests from this repo root. Required when a living plan is stored in an ambiguous *-gstack repo.
+  --allow-workspace-root  Allow --project-root to be a workspace root with immediate child git repos.
   --origin-plan <file> Original source plan. Verified after each feature and archived after final completion.
   --max-codex-iter N   Cap recursive Codex iterations (default ${DEFAULT_MAX_CODEX_ITERATIONS}).
   -h, --help           Show this help.
@@ -752,8 +912,14 @@ function logActivity(event: Record<string, any>) {
     JSON.stringify({ ts: new Date().toISOString(), ...event }) + "\n";
   try {
     fs.appendFileSync(path.join(dir, "build-runs.jsonl"), line);
-  } catch {
-    // never sink the orchestrator
+  } catch (err) {
+    if (process.env.GSTACK_BUILD_DEBUG) {
+      console.warn(
+        `gstack-build: could not write analytics log: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 }
 
@@ -1723,6 +1889,10 @@ async function runReviewGates(opts: {
   slug: string;
   phaseNumber: string;
   iteration: number;
+  parentWorkspace?: {
+    workspaceRoot: string | null;
+    snapshot: GitSnapshot | null;
+  };
 }): Promise<{ result: SubAgentResult; mergedReportPath: string }> {
   const outputs: SubAgentResult[] = [];
   const combined: string[] = [];
@@ -1799,7 +1969,15 @@ async function runReviewGates(opts: {
   };
 
   for (const { name, role } of plan.gates) {
+    const before = captureGitSnapshot(opts.cwd);
     let result = await runGate(name, role);
+    result = applyGateHygiene({
+      result,
+      before,
+      cwd: opts.cwd,
+      label: `${name} gate`,
+      parentWorkspace: opts.parentWorkspace,
+    });
     outputs.push(result);
     combined.push(
       `## ${name} (${roleLabel(role)})\n${result.stdout}\n${result.stderr}`,
@@ -1817,17 +1995,24 @@ async function runReviewGates(opts: {
         sandbox: "danger-full-access",
         suffix: "sandbox-retry",
       });
-      outputs.push(retryResult);
+      const checkedRetryResult = applyGateHygiene({
+        result: retryResult,
+        before,
+        cwd: opts.cwd,
+        label: `${name} sandbox retry gate`,
+        parentWorkspace: opts.parentWorkspace,
+      });
+      outputs.push(checkedRetryResult);
       combined.push(
         [
           `## ${name} sandbox retry (codex:danger-full-access)`,
           "The first Codex gate looked like workspace-write blocked local verification, so gstack-build reran this gate once with danger-full-access.",
-          retryResult.stdout,
-          retryResult.stderr,
+          checkedRetryResult.stdout,
+          checkedRetryResult.stderr,
         ].join("\n"),
       );
-      result = retryResult;
-      verdict = parseVerdict(retryResult.stdout + "\n" + retryResult.stderr);
+      result = checkedRetryResult;
+      verdict = parseVerdict(result.stdout + "\n" + result.stderr);
     }
     if (result.timedOut || result.exitCode !== 0 || verdict !== "pass") {
       return {
@@ -1854,6 +2039,70 @@ type Verdict = ReturnType<typeof parseVerdict>;
 
 function isFailedGateResult(result: SubAgentResult, verdict: Verdict): boolean {
   return result.timedOut || result.exitCode !== 0 || verdict !== "pass";
+}
+
+function applyGateHygiene(opts: {
+  result: SubAgentResult;
+  before: GitSnapshot;
+  cwd: string;
+  label: string;
+  parentWorkspace?: {
+    workspaceRoot: string | null;
+    snapshot: GitSnapshot | null;
+  };
+}): SubAgentResult {
+  if (opts.result.timedOut || opts.result.exitCode !== 0) return opts.result;
+  const checks = [
+    validatePostAgentHygiene({
+      cwd: opts.cwd,
+      before: opts.before,
+      label: opts.label,
+    }),
+    validateParentWorkspaceUnchanged({
+      before: opts.parentWorkspace?.snapshot ?? null,
+      workspaceRoot: opts.parentWorkspace?.workspaceRoot ?? null,
+      label: opts.label,
+    }),
+  ];
+  const errors = checks.flatMap((check) => check.errors);
+  if (errors.length === 0) return opts.result;
+  return hygieneFailureResult(errors.join("\n"), opts.result.logPath);
+}
+
+function applyMutableAgentHygiene(opts: {
+  result: SubAgentResult;
+  before: GitSnapshot | null;
+  cwd: string;
+  label: string;
+  outputFilePath?: string;
+  requireNonEmptyOutput?: boolean;
+  requireNewCommit?: boolean;
+  parentWorkspace?: {
+    workspaceRoot: string | null;
+    snapshot: GitSnapshot | null;
+  };
+}): SubAgentResult {
+  if (!opts.before || opts.result.timedOut || opts.result.exitCode !== 0) {
+    return opts.result;
+  }
+  const checks = [
+    validatePostAgentHygiene({
+      cwd: opts.cwd,
+      before: opts.before,
+      outputFilePath: opts.outputFilePath,
+      requireNonEmptyOutput: opts.requireNonEmptyOutput,
+      requireNewCommit: opts.requireNewCommit,
+      label: opts.label,
+    }),
+    validateParentWorkspaceUnchanged({
+      before: opts.parentWorkspace?.snapshot ?? null,
+      workspaceRoot: opts.parentWorkspace?.workspaceRoot ?? null,
+      label: opts.label,
+    }),
+  ];
+  const errors = checks.flatMap((check) => check.errors);
+  if (errors.length === 0) return opts.result;
+  return hygieneFailureResult(errors.join("\n"), opts.result.logPath);
 }
 
 const LOCAL_VERIFICATION_RE =
@@ -2246,6 +2495,10 @@ async function runFeatureReviewIteration(args: {
   roles: RoleConfigs;
   dryRun: boolean;
   noGbrain: boolean;
+  parentWorkspace?: {
+    workspaceRoot: string | null;
+    snapshot: GitSnapshot | null;
+  };
 }): Promise<{
   verdict: ParsedFeatureVerdict;
   action: "ship" | "phases_added" | "redo" | "unclear";
@@ -2311,6 +2564,7 @@ async function runFeatureReviewIteration(args: {
   fs.writeFileSync(inputFilePath, promptBody);
   fs.writeFileSync(outputFilePath, "");
 
+  const before = args.dryRun ? null : captureGitSnapshot(args.cwd);
   let result: SubAgentResult;
   if (args.dryRun) {
     // Default dry-run verdict: PASS so the orchestrator walks the happy
@@ -2336,6 +2590,13 @@ async function runFeatureReviewIteration(args: {
       logPrefix: "feature-review",
     });
   }
+  result = applyMutableAgentHygiene({
+    result,
+    before,
+    cwd: args.cwd,
+    label: "feature review",
+    parentWorkspace: args.parentWorkspace,
+  });
 
   // Persist iteration onto featureState.featureReview.
   if (!args.featureState.featureReview) {
@@ -2349,6 +2610,7 @@ async function runFeatureReviewIteration(args: {
   fr.iterations += 1;
   fr.outputLogPaths.push(result.logPath);
   fr.outputFilePaths!.push(outputFilePath);
+  delete fr.timeoutEvidence;
 
   // Read the artifact (mergeOutputFile populated result.stdout from
   // outputFilePath, but the file itself is the canonical source for
@@ -2359,13 +2621,29 @@ async function runFeatureReviewIteration(args: {
   } catch {
     artifactRaw = result.stdout || "";
   }
-  const verdict = parseFeatureReviewVerdict(artifactRaw);
+  let verdict = parseFeatureReviewVerdict(artifactRaw);
   fr.finalVerdict =
     verdict.verdict === "UNCLEAR"
       ? "TIMEOUT" // surface unclear as the closest existing enum so dashboards don't choke
       : (verdict.verdict as any);
 
-  if (result.timedOut || result.exitCode !== 0) {
+  let timedOutWithStructuredVerdict = false;
+  if (result.timedOut) {
+    const timeoutClassification = classifyFeatureReviewTimeout(artifactRaw);
+    verdict = timeoutClassification.verdict;
+    if (timeoutClassification.kind === "structured-verdict") {
+      fr.finalVerdict = verdict.verdict as any;
+      timedOutWithStructuredVerdict = true;
+    } else {
+      fr.finalVerdict = "TIMEOUT";
+      if (timeoutClassification.kind === "pass-evidence-timeout") {
+        fr.timeoutEvidence = "pass";
+      }
+      return { verdict, action: "unclear", outputFilePath };
+    }
+  }
+
+  if (!timedOutWithStructuredVerdict && result.exitCode !== 0) {
     fr.finalVerdict = "TIMEOUT";
     return { verdict, action: "unclear", outputFilePath };
   }
@@ -2428,8 +2706,20 @@ async function runPhase(args: {
   maxCodexIter: number;
   testCmd?: string;
   roles: RoleConfigs;
+  parentWorkspace: {
+    workspaceRoot: string | null;
+    snapshot: GitSnapshot | null;
+  };
 }): Promise<"done" | "failed"> {
-  const { state, phase, cwd, noGbrain, dryRun, maxCodexIter } = args;
+  const {
+    state,
+    phase,
+    cwd,
+    noGbrain,
+    dryRun,
+    maxCodexIter,
+    parentWorkspace,
+  } = args;
   let phaseState = state.phases[phase.index];
 
   while (true) {
@@ -2619,6 +2909,7 @@ async function runPhase(args: {
         logDir(state.slug),
         `phase-${phase.number}-gemini-${action.iteration}-output.md`,
       );
+      const before = dryRun ? null : captureGitSnapshot(cwd);
       let result: SubAgentResult;
       if (dryRun) {
         result = mockResult({
@@ -2648,6 +2939,16 @@ async function runPhase(args: {
           logPrefix: "primary-impl",
         });
       }
+      result = applyMutableAgentHygiene({
+        result,
+        before,
+        cwd,
+        label: "primary implementor",
+        outputFilePath,
+        requireNonEmptyOutput: true,
+        requireNewCommit: true,
+        parentWorkspace,
+      });
       phaseState = applyResult(phaseState, action, result, { outputFilePath });
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
@@ -2662,6 +2963,7 @@ async function runPhase(args: {
         logDir(state.slug),
         `phase-${phase.number}-gemini-rerun-${action.iteration}-output.md`,
       );
+      const before = dryRun ? null : captureGitSnapshot(cwd);
       let result: SubAgentResult;
       if (dryRun) {
         result = mockResult({
@@ -2717,6 +3019,16 @@ async function runPhase(args: {
           logPrefix: "primary-impl-rerun",
         });
       }
+      result = applyMutableAgentHygiene({
+        result,
+        before,
+        cwd,
+        label: "primary implementor rerun",
+        outputFilePath,
+        requireNonEmptyOutput: true,
+        requireNewCommit: true,
+        parentWorkspace,
+      });
       phaseState = applyResult(phaseState, action, result, { outputFilePath });
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
@@ -2779,6 +3091,7 @@ async function runPhase(args: {
           slug: state.slug,
           phaseNumber: phase.number,
           iteration: action.iteration,
+          parentWorkspace,
         });
         result = gateRun.result;
       }
@@ -2904,6 +3217,11 @@ async function runPhase(args: {
       console.log(
         `  → Test fixer ${roleLabel(args.roles.testFixer)}: iter ${action.iteration}`,
       );
+      const outputFilePath = path.join(
+        logDir(state.slug),
+        `phase-${phase.number}-gemini-fix-${action.iteration}-output.md`,
+      );
+      const before = dryRun ? null : captureGitSnapshot(cwd);
       let result: SubAgentResult;
       if (dryRun) {
         result = mockResult({
@@ -2914,10 +3232,6 @@ async function runPhase(args: {
         const inputFilePath = path.join(
           logDir(state.slug),
           `phase-${phase.number}-gemini-fix-${action.iteration}-input.md`,
-        );
-        const outputFilePath = path.join(
-          logDir(state.slug),
-          `phase-${phase.number}-gemini-fix-${action.iteration}-output.md`,
         );
         fs.writeFileSync(
           inputFilePath,
@@ -2935,6 +3249,16 @@ async function runPhase(args: {
           logPrefix: "gemini-fix",
         });
       }
+      result = applyMutableAgentHygiene({
+        result,
+        before,
+        cwd,
+        label: "test fixer",
+        outputFilePath,
+        requireNonEmptyOutput: true,
+        requireNewCommit: true,
+        parentWorkspace,
+      });
       phaseState = applyResult(phaseState, action, result);
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
@@ -3942,11 +4266,17 @@ async function main() {
       planFile: args.planFile,
       projectRoot: args.projectRoot,
     });
+    projectRoot = validateProjectRootSelection(
+      projectRoot,
+      args.allowWorkspaceRoot,
+    );
   } catch (err) {
     console.error((err as Error).message);
     process.exit(2);
   }
   console.log(`Project root: ${projectRoot}`);
+
+  const parentWorkspace = parentWorkspaceSnapshot(projectRoot);
 
   // Skip both startup gates when running in simulation mode or skipping ship.
   const runStartupGates = !args.dryRun && !args.skipShip;
@@ -4217,6 +4547,7 @@ async function main() {
               maxCodexIter: args.maxCodexIter,
               testCmd: args.testCmd,
               roles: args.roles,
+              parentWorkspace,
             });
 
             if (outcome === "failed") {
@@ -4300,9 +4631,15 @@ async function main() {
                 );
                 // Fall through into the loop body for one more cycle.
               } else {
-                const reason = alreadyExtended
-                  ? `feature-review failed to converge after ${cap} + 1 (user-approved) cycles`
-                  : `feature-review failed to converge after ${cap} cycles (user declined extension)`;
+                const timeoutWithPassEvidence =
+                  featureState.featureReview?.timeoutEvidence === "pass";
+                const reason = timeoutWithPassEvidence
+                  ? alreadyExtended
+                    ? `feature-review tooling timeout with pass evidence after ${cap} + 1 (user-approved) cycles`
+                    : `feature-review tooling timeout with pass evidence after ${cap} cycles (user declined extension)`
+                  : alreadyExtended
+                    ? `feature-review failed to converge after ${cap} + 1 (user-approved) cycles`
+                    : `feature-review failed to converge after ${cap} cycles (user declined extension)`;
                 console.error(`\n✗ Feature ${featureState.number}: ${reason}`);
                 const lastReportPath =
                   featureState.featureReview?.outputFilePaths?.at(-1);
@@ -4353,6 +4690,7 @@ async function main() {
               roles: args.roles,
               dryRun: args.dryRun,
               noGbrain: args.noGbrain,
+              parentWorkspace,
             });
             console.log(
               `  feature-review verdict: ${out.verdict.verdict} (${out.outputFilePath})`,
@@ -4789,7 +5127,7 @@ export function checkWorkingTreeClean(cwd: string): {
     return { clean: false, dirty: [`<git error: ${msg}>`] };
   }
   const lines = (r.stdout || "").split("\n").filter(Boolean);
-  const dirty = lines.filter((l: string) => !l.startsWith("??"));
+  const dirty = lines;
   return { clean: dirty.length === 0, dirty };
 }
 

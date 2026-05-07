@@ -42,14 +42,16 @@ describe('checkWorkingTreeClean', () => {
     expect(result.dirty[0]).toMatch(/M README\.md/);
   });
 
-  it('repo with ONLY an untracked file (not git added) → { clean: true }', () => {
+  it('repo with ONLY an untracked file (not git added) → { clean: false }', () => {
     fs.writeFileSync(path.join(tempDir, 'README.md'), 'init');
     spawnSync('git', ['add', '.'], { cwd: tempDir });
     spawnSync('git', ['commit', '-m', 'init'], { cwd: tempDir });
 
     fs.writeFileSync(path.join(tempDir, 'untracked.ts'), 'untracked');
 
-    expect(checkWorkingTreeClean(tempDir)).toEqual({ clean: true, dirty: [] });
+    const result = checkWorkingTreeClean(tempDir);
+    expect(result.clean).toBe(false);
+    expect(result.dirty).toEqual(['?? untracked.ts']);
   });
 
   it('repo with a staged (git add) file → { clean: false }', () => {

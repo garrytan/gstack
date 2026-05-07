@@ -47,8 +47,10 @@ When the plan lives in a workspace-level `*-gstack/inbox/living-plan/` or
 `*-gstack/inbox/` repo, pass `--project-root <child-repo>` so commits, pushes,
 tests, and sub-agents run from the child repo, not the workspace root. Opening a
 workspace root that is itself a root repo is supported by `/build`; that root
-repo is ignored by default and treated as orchestration-only. Single product repo
-invocation remains supported by passing that product repo as `--project-root`.
+repo is ignored by default and treated as orchestration-only. Direct CLI
+execution against the root repo requires `--allow-workspace-root`. Single
+product repo invocation remains supported by passing that product repo as
+`--project-root`.
 
 For source plans that touch multiple child repos, `/build` writes one living plan
 per target repo and invokes this CLI sequentially, one child repo at a time.
@@ -324,6 +326,7 @@ first in `*-gstack/inbox/`. The product repo remains the execution root: tests,
 sub-agents, review, ship, and land all run from `--project-root` or the current
 git worktree. When the current directory is a workspace root with child repos,
 the root repo is ignored by default and each child repo gets its own living plan.
+Direct CLI execution against that root repo requires `--allow-workspace-root`.
 Multi-repo plans run sequentially, one living plan per target repo. If
 `gstack-build` is invoked with a plan inside the `*-gstack` repo and cannot infer
 the product repo, it exits with instructions to rerun with `--project-root

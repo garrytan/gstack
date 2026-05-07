@@ -11,6 +11,7 @@ import {
   buildRoleTaskArgv,
   isLikelyCodexTransportFailure,
   runCodexReview,
+  runTests,
   runShip,
   runSlashCommand,
 } from "../sub-agents";
@@ -86,6 +87,59 @@ describe("detectTestCmd", () => {
     expect(detectTestCmd(tmpDir)).toBe("npm test");
   });
 
+  it('maps a raw package script with local binaries to "npm test" by default', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest run" } }),
+    );
+    expect(detectTestCmd(tmpDir)).toBe("npm test");
+  });
+
+  it('uses pnpm test when pnpm-lock.yaml exists and package script is raw', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest run" } }),
+    );
+    fs.writeFileSync(path.join(tmpDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    expect(detectTestCmd(tmpDir)).toBe("pnpm test");
+  });
+
+  it('uses bun run test when bun.lock exists and package script is raw', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest run" } }),
+    );
+    fs.writeFileSync(path.join(tmpDir, "bun.lock"), "");
+    expect(detectTestCmd(tmpDir)).toBe("bun run test");
+  });
+
+  it('uses yarn test when packageManager declares yarn and package script is raw', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        packageManager: "yarn@4.5.0",
+        scripts: { test: "vitest run" },
+      }),
+    );
+    expect(detectTestCmd(tmpDir)).toBe("yarn test");
+  });
+
+  it('uses bun run test when packageManager declares bun and package script is raw', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        packageManager: "bun@1.3.12",
+        scripts: { test: "vitest run" },
+      }),
+    );
+    expect(detectTestCmd(tmpDir)).toBe("bun run test");
+  });
+
   it('returns "pytest" when pytest.ini exists', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
     fs.writeFileSync(path.join(tmpDir, "pytest.ini"), "[pytest]");
@@ -116,6 +170,30 @@ describe("detectTestCmd", () => {
   it("returns null when no known files exist", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
     expect(detectTestCmd(tmpDir)).toBeNull();
+  });
+});
+
+describe("runTests", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir && fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs commands through a shell so quoted arguments survive", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-tests-"));
+    const result = await runTests({
+      testCmd:
+        "node -e \"if (process.argv[1] !== 'hello world') process.exit(7)\" \"hello world\"",
+      cwd: tmpDir,
+      slug: "run-tests-quoted",
+      phaseNumber: "1",
+      iteration: 1,
+    });
+
+    expect(result.exitCode).toBe(0);
   });
 });
 

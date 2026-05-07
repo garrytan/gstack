@@ -13,6 +13,7 @@ import * as path from "node:path";
 import {
   buildFeatureReviewPrompt,
   parseFeatureReviewVerdict,
+  classifyFeatureReviewTimeout,
   shouldSkipFeatureReview,
   isPathInLogDir,
   FEATURE_VERDICT_PASS,
@@ -184,6 +185,79 @@ FEATURE_PASS
       "##   VERDICT  \n\n   FEATURE_PASS   \n",
     );
     expect(r.verdict).toBe("FEATURE_PASS");
+  });
+});
+
+describe("classifyFeatureReviewTimeout", () => {
+  it("honors a valid structured verdict even when the process timed out", () => {
+    const classification = classifyFeatureReviewTimeout(`
+## VERDICT
+FEATURE_PASS
+
+## Findings
+- focused and full tests passed
+`);
+
+    expect(classification.kind).toBe("structured-verdict");
+    expect(classification.verdict.verdict).toBe("FEATURE_PASS");
+  });
+
+  it("recognizes pass evidence without pretending it is a structured verdict", () => {
+    const classification = classifyFeatureReviewTimeout(`
+The review reran focused adapter tests and full adapter tests.
+38 passed. No findings were found before the process timed out.
+`);
+
+    expect(classification.kind).toBe("pass-evidence-timeout");
+    expect(classification.verdict.verdict).toBe("UNCLEAR");
+  });
+
+  it("allows zero-failed summaries as pass evidence", () => {
+    const classification = classifyFeatureReviewTimeout(`
+The review reran the adapter suite.
+38 passed, 0 failed. No findings were found before timeout.
+`);
+
+    expect(classification.kind).toBe("pass-evidence-timeout");
+    expect(classification.verdict.verdict).toBe("UNCLEAR");
+  });
+
+  it("classifies ordinary missing-verdict output as unclear timeout", () => {
+    const classification = classifyFeatureReviewTimeout("still thinking...");
+    expect(classification.kind).toBe("unclear-timeout");
+    expect(classification.verdict.verdict).toBe("UNCLEAR");
+  });
+
+  it("does not treat mixed pass and fail output as pass evidence", () => {
+    const classification = classifyFeatureReviewTimeout(`
+The review reran the adapter suite.
+38 passed, 2 failed. No findings were found before timeout.
+`);
+
+    expect(classification.kind).toBe("unclear-timeout");
+    expect(classification.verdict.verdict).toBe("UNCLEAR");
+  });
+
+  it("rejects explicit failure markers even with pass and no-findings evidence", () => {
+    const markers = [
+      "GATE FAIL",
+      "1 test failed",
+      "test is failing",
+      "AssertionError: expected true",
+      "Traceback (most recent call last):",
+      "error: command failed",
+    ];
+
+    for (const marker of markers) {
+      const classification = classifyFeatureReviewTimeout(`
+The review reran the adapter suite.
+38 passed. No findings were found before timeout.
+${marker}
+`);
+
+      expect(classification.kind).toBe("unclear-timeout");
+      expect(classification.verdict.verdict).toBe("UNCLEAR");
+    }
   });
 });
 

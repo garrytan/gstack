@@ -11,6 +11,11 @@ import {
   parseArgs,
   validateRoleProviders,
   resolveProjectRoot,
+  validateProjectRootSelection,
+  captureGitSnapshot,
+  validatePostAgentHygiene,
+  validateParentWorkspaceUnchanged,
+  hygieneFailureResult,
   archiveLivingPlan,
   archiveOriginPlan,
   buildOriginVerificationBody,
@@ -350,6 +355,11 @@ describe('--gemini-model / --codex-model flag wiring', () => {
     expect(path.isAbsolute(args.projectRoot!)).toBe(true);
   });
 
+  it('--allow-workspace-root defaults false and can be enabled explicitly', () => {
+    expect(parseArgs(['plan.md']).allowWorkspaceRoot).toBe(false);
+    expect(parseArgs(['plan.md', '--allow-workspace-root']).allowWorkspaceRoot).toBe(true);
+  });
+
   it('provider validation rejects unsupported slash-command and dual-impl providers', () => {
     const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
     args.roles.qa.provider = 'gemini';
@@ -367,6 +377,142 @@ describe('--gemini-model / --codex-model flag wiring', () => {
       '--secondary-impl-provider must be codex when --dual-impl is enabled',
       '--judge-provider must be claude when --dual-impl is enabled',
     ]);
+  });
+});
+
+describe('post-agent hygiene helpers', () => {
+  function git(args: string[], cwd: string) {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    if (r.status !== 0) {
+      throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+    }
+    return r.stdout.trim();
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hygiene-'));
+    git(['init', '--initial-branch=main'], tmpDir);
+    git(['config', 'user.email', 'test@test.com'], tmpDir);
+    git(['config', 'user.name', 'Test User'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), 'init\n');
+    git(['add', '.'], tmpDir);
+    git(['commit', '-m', 'init'], tmpDir);
+  });
+
+  it('rejects a successful implementor run with an empty summary', () => {
+    const before = captureGitSnapshot(tmpDir!);
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.writeFileSync(summary, '');
+    fs.writeFileSync(path.join(tmpDir!, 'change.txt'), 'change\n');
+    git(['add', '.'], tmpDir!);
+    git(['commit', '-m', 'change'], tmpDir!);
+
+    const verdict = validatePostAgentHygiene({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      requireNonEmptyOutput: true,
+      requireNewCommit: true,
+      label: 'primary implementor',
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.errors.join('\n')).toMatch(/empty output summary/);
+  });
+
+  it('rejects a successful implementor run that leaves an untracked file and no commit', () => {
+    const before = captureGitSnapshot(tmpDir!);
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.writeFileSync(summary, 'done\n');
+    fs.writeFileSync(path.join(tmpDir!, 'rewrite.py'), 'print("oops")\n');
+
+    const verdict = validatePostAgentHygiene({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      requireNonEmptyOutput: true,
+      requireNewCommit: true,
+      label: 'primary implementor',
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.errors.join('\n')).toMatch(/did not create a new commit/);
+    expect(verdict.errors.join('\n')).toMatch(/\?\? rewrite\.py/);
+  });
+
+  it('accepts a committed clean implementor run with a non-empty summary', () => {
+    const before = captureGitSnapshot(tmpDir!);
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.writeFileSync(summary, 'changed README and committed\n');
+    fs.writeFileSync(path.join(tmpDir!, 'README.md'), 'changed\n');
+    git(['add', 'README.md'], tmpDir!);
+    git(['commit', '-m', 'change readme'], tmpDir!);
+
+    const verdict = validatePostAgentHygiene({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      requireNonEmptyOutput: true,
+      requireNewCommit: true,
+      label: 'primary implementor',
+    });
+
+    expect(verdict).toEqual({ ok: true, errors: [] });
+  });
+
+  it('writes hygiene failures to a dedicated sibling log', () => {
+    const originalLog = path.join(tmpDir!, '.llm-tmp', 'phase-1-primary-impl-1.log');
+    fs.mkdirSync(path.dirname(originalLog), { recursive: true });
+    fs.writeFileSync(originalLog, 'original agent output\n');
+
+    const result = hygieneFailureResult(
+      'primary implementor did not create a new commit',
+      originalLog,
+    );
+    const expectedLog = path.join(
+      tmpDir!,
+      '.llm-tmp',
+      'phase-1-primary-impl-1-hygiene.log',
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.logPath).toBe(expectedLog);
+    expect(result.stdout).toContain('# Post-agent hygiene failure');
+    expect(result.stdout).toContain('primary implementor did not create a new commit');
+    expect(result.stdout).toContain(`Original agent log: ${originalLog}`);
+    expect(fs.readFileSync(expectedLog, 'utf8')).toBe(result.stdout);
+  });
+
+  it('detects parent workspace root HEAD and status changes', () => {
+    const workspace = path.join(tmpDir!, 'parent-workspace');
+    const child = path.join(workspace, 'app');
+    fs.mkdirSync(child, { recursive: true });
+    git(['init', '--initial-branch=main'], workspace);
+    git(['config', 'user.email', 'test@test.com'], workspace);
+    git(['config', 'user.name', 'Test User'], workspace);
+    fs.writeFileSync(path.join(workspace, 'README.md'), 'root\n');
+    git(['add', 'README.md'], workspace);
+    git(['commit', '-m', 'root init'], workspace);
+    git(['init', '--initial-branch=main'], child);
+
+    const before = captureGitSnapshot(workspace);
+    fs.writeFileSync(path.join(workspace, 'README.md'), 'root changed\n');
+    git(['add', 'README.md'], workspace);
+    git(['commit', '-m', 'root change'], workspace);
+    fs.writeFileSync(path.join(workspace, 'root-scratch.txt'), 'dirty\n');
+
+    const verdict = validateParentWorkspaceUnchanged({
+      before,
+      workspaceRoot: workspace,
+      label: 'primary implementor',
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.errors.join('\n')).toContain('changed workspace root HEAD');
+    expect(verdict.errors.join('\n')).toContain('changed workspace root status');
   });
 });
 
@@ -407,6 +553,17 @@ describe('plan storage helpers', () => {
     fs.writeFileSync(plan, '# plan\n');
 
     expect(resolveProjectRoot({ planFile: plan, projectRoot: project })).toBe(project);
+  });
+
+  it('rejects a workspace root with child repos unless explicitly allowed', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-workspace-'));
+    const child = path.join(tmpDir, 'app');
+    fs.mkdirSync(child, { recursive: true });
+    spawnSync('git', ['init'], { cwd: tmpDir, stdio: 'ignore' });
+    spawnSync('git', ['init'], { cwd: child, stdio: 'ignore' });
+
+    expect(() => validateProjectRootSelection(tmpDir, false)).toThrow(/workspace root/i);
+    expect(validateProjectRootSelection(tmpDir, true)).toBe(tmpDir);
   });
 
   it('requires --project-root when invoked from an ambiguous *-gstack repo', () => {
