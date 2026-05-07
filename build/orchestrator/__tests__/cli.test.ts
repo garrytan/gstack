@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   buildGeminiTestSpecPrompt,
-  buildCodexImplPromptBody,
+  buildDualImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
   buildContextSaveBody,
@@ -13,6 +13,7 @@ import {
   resolveProjectRoot,
   validateProjectRootSelection,
   captureGitSnapshot,
+  recoverMutableAgentCommit,
   validatePostAgentHygiene,
   validateParentWorkspaceUnchanged,
   hygieneFailureResult,
@@ -399,7 +400,7 @@ describe('--gemini-model / --codex-model flag wiring', () => {
     expect(parseArgs(['plan.md', '--allow-workspace-root']).allowWorkspaceRoot).toBe(true);
   });
 
-  it('provider validation rejects unsupported slash-command and dual-impl providers', () => {
+  it('provider validation rejects unsupported slash-command providers but allows model-agnostic dual-impl', () => {
     const args = parseArgs([
       'plan.md',
       '--dual-impl',
@@ -419,10 +420,21 @@ describe('--gemini-model / --codex-model flag wiring', () => {
     expect(validateRoleProviders(args)).toEqual([
       '--qa-provider kimi is not supported for slash-command gates',
       '--context-save-provider kimi is not supported for slash-command roles',
-      '--primary-impl-provider must be gemini when --dual-impl is enabled',
-      '--secondary-impl-provider must be codex when --dual-impl is enabled',
-      '--judge-provider must be claude when --dual-impl is enabled',
     ]);
+  });
+
+  it('provider validation accepts non-Gemini/Codex/Claude dual-impl roles', () => {
+    const args = parseArgs([
+      'plan.md',
+      '--dual-impl',
+      '--primary-impl-provider',
+      'codex',
+      '--secondary-impl-provider',
+      'claude',
+      '--judge-provider',
+      'gemini',
+    ]);
+    expect(validateRoleProviders(args)).toEqual([]);
   });
 });
 
@@ -486,6 +498,59 @@ describe('post-agent hygiene helpers', () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.errors.join('\n')).toMatch(/did not create a new commit/);
     expect(verdict.errors.join('\n')).toMatch(/\?\? rewrite\.py/);
+  });
+
+  it('recovers a sandboxed implementor by host-committing summary-listed files and cleaning cache noise', () => {
+    fs.mkdirSync(path.join(tmpDir!, 'pkg', '__pycache__'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir!, 'pkg', '__pycache__', 'mod.pyc'), 'old-cache\n');
+    git(['add', 'pkg/__pycache__/mod.pyc'], tmpDir!);
+    git(['commit', '-m', 'track cache fixture'], tmpDir!);
+
+    const before = captureGitSnapshot(tmpDir!);
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir!, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir!, 'README.md'), 'changed\n');
+    fs.writeFileSync(path.join(tmpDir!, 'src', 'feature.ts'), 'export const x = 1;\n');
+    fs.writeFileSync(path.join(tmpDir!, 'pkg', '__pycache__', 'mod.pyc'), 'new-cache\n');
+    fs.writeFileSync(
+      summary,
+      [
+        '# Primary implementor summary',
+        '',
+        '## Files changed',
+        '- `README.md` — update docs.',
+        '- `src/feature.ts` — add feature code.',
+        '',
+        '## Commit',
+        '- Conventional commit message: `feat: add recovered feature`',
+      ].join('\n'),
+    );
+
+    const recovery = recoverMutableAgentCommit({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      label: 'primary implementor',
+    });
+
+    expect(recovery.recovered).toBe(true);
+    expect(git(['rev-list', '--count', `${before.head}..HEAD`], tmpDir!)).toBe('1');
+    expect(git(['log', '-1', '--pretty=%s'], tmpDir!)).toBe('feat: add recovered feature');
+    const committedFiles = git(['show', '--name-only', '--pretty=', 'HEAD'], tmpDir!).split('\n');
+    expect(committedFiles).toContain('README.md');
+    expect(committedFiles).toContain('src/feature.ts');
+    expect(committedFiles).not.toContain('pkg/__pycache__/mod.pyc');
+
+    const verdict = validatePostAgentHygiene({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      requireNonEmptyOutput: true,
+      requireNewCommit: true,
+      label: 'primary implementor',
+    });
+    expect(verdict).toEqual({ ok: true, errors: [] });
   });
 
   it('accepts a committed clean implementor run with a non-empty summary', () => {
@@ -763,21 +828,38 @@ describe('buildOriginVerificationBody', () => {
   });
 });
 
-describe('buildCodexImplPromptBody (dual-impl Codex implementation prompt)', () => {
+describe('buildDualImplPromptBody (dual-impl implementation prompt)', () => {
   it('contains "implement"', () => {
-    const body = buildCodexImplPromptBody(basePhase, 'plan.md');
+    const body = buildDualImplPromptBody({
+      phase: basePhase,
+      planFile: 'plan.md',
+      candidate: 'primary',
+      opponent: 'secondary',
+    });
     expect(body.toLowerCase()).toMatch(/implement/);
   });
 
   it('contains "do NOT change test assertions"', () => {
-    const body = buildCodexImplPromptBody(basePhase, 'plan.md');
+    const body = buildDualImplPromptBody({
+      phase: basePhase,
+      planFile: 'plan.md',
+      candidate: 'primary',
+      opponent: 'secondary',
+    });
     expect(body).toMatch(/do NOT change test assertions/i);
   });
 
-  it('contains the phase name and plan file', () => {
-    const body = buildCodexImplPromptBody(basePhase, 'plan.md');
+  it('contains the phase name, plan file, and candidate labels', () => {
+    const body = buildDualImplPromptBody({
+      phase: basePhase,
+      planFile: 'plan.md',
+      candidate: 'primary',
+      opponent: 'secondary',
+    });
     expect(body).toContain(basePhase.name);
     expect(body).toContain('plan.md');
+    expect(body).toContain('primary implementor');
+    expect(body).toContain('secondary implementor');
   });
 });
 
@@ -997,37 +1079,47 @@ describe('buildJudgePrompt (tournament judge prompt)', () => {
     };
   }
 
-  it('contains the WINNER format instructions', () => {
-    const prompt = buildJudgePrompt({
+  function promptWith(overrides: Partial<Parameters<typeof buildJudgePrompt>[0]['candidates']> = {}) {
+    return buildJudgePrompt({
       phase: basePhase,
-      geminiDiff: 'diff --git a/foo b/foo\n+gemini code',
-      codexDiff: 'diff --git a/foo b/foo\n+codex code',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
+      candidates: {
+        primary: {
+          label: 'Primary',
+          provider: 'codex',
+          model: 'gpt-5.5',
+          diff: 'PRIMARY_DIFF_MARKER',
+          testResult: pass(),
+          ...overrides.primary,
+        },
+        secondary: {
+          label: 'Secondary',
+          provider: 'claude',
+          model: 'claude-opus-4-7',
+          diff: 'SECONDARY_DIFF_MARKER',
+          testResult: pass(),
+          ...overrides.secondary,
+        },
+      },
     });
+  }
+
+  it('contains the WINNER format instructions', () => {
+    const prompt = promptWith();
     expect(prompt).toContain('WINNER:');
+    expect(prompt).toContain('WINNER: primary');
     expect(prompt).toContain('REASONING:');
   });
 
-  it('contains both Gemini and Codex sections with their diffs', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'GEMINI_DIFF_MARKER',
-      codexDiff: 'CODEX_DIFF_MARKER',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-    });
-    expect(prompt).toMatch(/Gemini[\s\S]*GEMINI_DIFF_MARKER/);
-    expect(prompt).toMatch(/Codex[\s\S]*CODEX_DIFF_MARKER/);
+  it('contains primary and secondary sections with provider/model metadata and diffs', () => {
+    const prompt = promptWith();
+    expect(prompt).toMatch(/Primary implementor \(codex:gpt-5\.5\)[\s\S]*PRIMARY_DIFF_MARKER/);
+    expect(prompt).toMatch(/Secondary implementor \(claude:claude-opus-4-7\)[\s\S]*SECONDARY_DIFF_MARKER/);
   });
 
   it('reflects test exit codes for each implementor', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: { ...pass(), testExitCode: 0 },
-      codexTestResult: { ...pass(), testExitCode: 1, failureCount: 3 },
+    const prompt = promptWith({
+      primary: { testResult: { ...pass(), testExitCode: 0 } },
+      secondary: { testResult: { ...pass(), testExitCode: 1, failureCount: 3 } },
     });
     expect(prompt).toMatch(/exit/i);
     expect(prompt.toLowerCase()).toMatch(/0/);
@@ -1036,12 +1128,9 @@ describe('buildJudgePrompt (tournament judge prompt)', () => {
 
   it('truncates diffs longer than 40000 chars with a [truncated] marker', () => {
     const hugeDiff = 'x'.repeat(40001);
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: hugeDiff,
-      codexDiff: 'short',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
+    const prompt = promptWith({
+      primary: { diff: hugeDiff },
+      secondary: { diff: 'short' },
     });
     expect(prompt).toContain('[...truncated');
     expect(prompt).toContain('x'.repeat(40000));
@@ -1049,107 +1138,62 @@ describe('buildJudgePrompt (tournament judge prompt)', () => {
   });
 
   it('fmtFixIter: undefined omits fix iteration text from prompt', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-    });
+    const prompt = promptWith();
     expect(prompt).not.toContain('Fix iterations:');
     expect(prompt).not.toContain('Fix loop:');
   });
 
   it('fmtFixIter: null emits fix loop not run message', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-      geminiFixIterations: null,
-      codexFixIterations: null,
+    const prompt = promptWith({
+      primary: { fixIterations: null },
+      secondary: { fixIterations: null },
     });
     expect(prompt).toContain('Fix loop: not run');
   });
 
   it('fmtFixIter: 0 emits passed on first try', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-      geminiFixIterations: 0,
-      codexFixIterations: 0,
+    const prompt = promptWith({
+      primary: { fixIterations: 0 },
+      secondary: { fixIterations: 0 },
     });
     expect(prompt).toContain('passed on first try');
   });
 
   it('fmtFixIter: N>0 emits required N fix passes', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-      geminiFixIterations: 3,
-      codexFixIterations: 1,
+    const prompt = promptWith({
+      primary: { fixIterations: 3 },
+      secondary: { fixIterations: 1 },
     });
     expect(prompt).toContain('required 3 fix passes');
     expect(prompt).toContain('required 1 fix pass');
   });
 
-  it('injects geminiFixHistory section into prompt when provided', () => {
+  it('injects primary fix history section into prompt when provided', () => {
     const history = '--- Fix iteration 1 ---\nTestFailed: expected x got y';
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-      geminiFixIterations: 1,
-      geminiFixHistory: history,
+    const prompt = promptWith({
+      primary: { fixIterations: 1, fixHistory: history },
     });
-    expect(prompt).toContain('Gemini fix history');
+    expect(prompt).toContain('Primary fix history');
     expect(prompt).toContain('TestFailed');
   });
 
-  it('injects codexFixHistory section into prompt when provided', () => {
+  it('injects secondary fix history section into prompt when provided', () => {
     const history = '--- Fix iteration 1 ---\nAssertionError: expected 0 got 1';
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-      codexFixIterations: 1,
-      codexFixHistory: history,
+    const prompt = promptWith({
+      secondary: { fixIterations: 1, fixHistory: history },
     });
-    expect(prompt).toContain('Codex fix history');
+    expect(prompt).toContain('Secondary fix history');
     expect(prompt).toContain('AssertionError');
   });
 
-  it('omits fix history section heading when geminiFixHistory is absent', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-    });
-    expect(prompt).not.toContain('## Gemini fix history');
-    expect(prompt).not.toContain('## Codex fix history');
+  it('omits fix history section heading when fix history is absent', () => {
+    const prompt = promptWith();
+    expect(prompt).not.toContain('## Primary fix history');
+    expect(prompt).not.toContain('## Secondary fix history');
   });
 
   it('includes HARDENING format instruction in verdict section', () => {
-    const prompt = buildJudgePrompt({
-      phase: basePhase,
-      geminiDiff: 'g',
-      codexDiff: 'c',
-      geminiTestResult: pass(),
-      codexTestResult: pass(),
-    });
+    const prompt = promptWith();
     expect(prompt).toContain('HARDENING:');
   });
 });

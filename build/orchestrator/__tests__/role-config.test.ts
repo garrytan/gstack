@@ -64,13 +64,13 @@ describe("role config defaults", () => {
     );
   });
 
-  it("includes the featureReview role with codex/gpt-5.5 defaults", () => {
-    // The configurable post-implementation reviewer. Default codex/gpt-5.5/xhigh
+  it("includes the featureReview role with claude/opus defaults", () => {
+    // The configurable post-implementation reviewer. Default claude/opus/xhigh
     // — surfaced via --feature-review-{provider,model,reasoning} CLI flags
     // and GSTACK_BUILD_FEATURE_REVIEW_{PROVIDER,MODEL,REASONING} env vars.
     expect(DEFAULT_ROLE_CONFIGS.featureReview).toBeDefined();
-    expect(DEFAULT_ROLE_CONFIGS.featureReview.provider).toBe("codex");
-    expect(DEFAULT_ROLE_CONFIGS.featureReview.model).toBe("gpt-5.5");
+    expect(DEFAULT_ROLE_CONFIGS.featureReview.provider).toBe("claude");
+    expect(DEFAULT_ROLE_CONFIGS.featureReview.model).toBe("claude-opus-4-7");
     expect(DEFAULT_ROLE_CONFIGS.featureReview.reasoning).toBe("xhigh");
     // No `command` field — featureReview is a direct sub-agent invocation,
     // not a slash-command gate (review/qa/ship/land all carry .command).

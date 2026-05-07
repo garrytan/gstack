@@ -245,19 +245,19 @@ describe("parseFailureCount (dual-impl test outcome scoring)", () => {
 });
 
 describe("parseJudgeVerdict (tournament judge output)", () => {
-  it("extracts WINNER: gemini + REASONING from valid output", () => {
+  it("extracts WINNER: primary + REASONING from valid output", () => {
     const out =
-      "Reviewing both implementations...\nWINNER: gemini\nREASONING: cleaner code, fewer abstractions\n";
+      "Reviewing both implementations...\nWINNER: primary\nREASONING: cleaner code, fewer abstractions\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("gemini");
+    expect(result.verdict).toBe("primary");
     expect(result.reasoning).toContain("cleaner code");
   });
 
-  it("extracts WINNER: codex + REASONING from valid output", () => {
+  it("extracts WINNER: secondary + REASONING from valid output", () => {
     const out =
-      "WINNER: codex\nREASONING: handles edge cases better and is more concise";
+      "WINNER: secondary\nREASONING: handles edge cases better and is more concise";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("codex");
+    expect(result.verdict).toBe("secondary");
     expect(result.reasoning).toContain("edge cases");
   });
 
@@ -268,23 +268,28 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
     expect(result.reasoning).toMatch(/no anchored WINNER|fail-closed/i);
   });
 
+  it("rejects legacy gemini/codex winner values", () => {
+    expect(parseJudgeVerdict("WINNER: gemini\nREASONING: ok").verdict).toBeNull();
+    expect(parseJudgeVerdict("WINNER: codex\nREASONING: ok").verdict).toBeNull();
+  });
+
   it("returns verdict=null when WINNER appears mid-sentence (must be anchored)", () => {
-    const out = "I think the WINNER: gemini is the better choice here.";
+    const out = "I think the WINNER: primary is the better choice here.";
     const result = parseJudgeVerdict(out);
     expect(result.verdict).toBeNull();
   });
 
   it("handles missing REASONING (still extracts verdict)", () => {
-    const out = "WINNER: codex\n";
+    const out = "WINNER: secondary\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("codex");
+    expect(result.verdict).toBe("secondary");
     expect(result.reasoning).toBe("");
   });
 
   it("case-insensitive WINNER value", () => {
-    const out = "WINNER: GEMINI\nREASONING: ok";
+    const out = "WINNER: PRIMARY\nREASONING: ok";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("gemini");
+    expect(result.verdict).toBe("primary");
   });
 
   it("returns verdict=null for empty string (P2-3: emptyFileIsError stdout='' path)", () => {
@@ -306,9 +311,9 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
 
   it("extracts HARDENING notes when all three sections are present", () => {
     const out =
-      "WINNER: gemini\nREASONING: cleaner implementation\nHARDENING:\n- Handle null input in processPayment\n- Guard against empty worktree path\n";
+      "WINNER: primary\nREASONING: cleaner implementation\nHARDENING:\n- Handle null input in processPayment\n- Guard against empty worktree path\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("gemini");
+    expect(result.verdict).toBe("primary");
     expect(result.reasoning).toContain("cleaner implementation");
     expect(result.hardeningNotes).toContain("Handle null input");
     expect(result.hardeningNotes).toContain(
@@ -317,15 +322,15 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
   });
 
   it("returns empty hardeningNotes when HARDENING section is absent", () => {
-    const out = "WINNER: codex\nREASONING: fewer abstractions\n";
+    const out = "WINNER: secondary\nREASONING: fewer abstractions\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("codex");
+    expect(result.verdict).toBe("secondary");
     expect(result.hardeningNotes).toBe("");
   });
 
   it("REASONING does not bleed into HARDENING section", () => {
     const out =
-      "WINNER: gemini\nREASONING: good structure\nHARDENING:\n- edge case A\n";
+      "WINNER: primary\nREASONING: good structure\nHARDENING:\n- edge case A\n";
     const result = parseJudgeVerdict(out);
     expect(result.reasoning).not.toContain("edge case A");
     expect(result.hardeningNotes).toContain("edge case A");
@@ -333,29 +338,29 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
 
   it("extracts HARDENING when it appears before REASONING (order variation)", () => {
     const out =
-      "WINNER: codex\nHARDENING:\n- null check missing\nREASONING: overall better approach\n";
+      "WINNER: secondary\nHARDENING:\n- null check missing\nREASONING: overall better approach\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("codex");
+    expect(result.verdict).toBe("secondary");
     expect(result.hardeningNotes).toContain("null check missing");
     expect(result.reasoning).toContain("overall better approach");
   });
 
   it("parses correctly when input has Windows CRLF line endings", () => {
     const out =
-      "WINNER: gemini\r\nREASONING: clean impl\r\nHARDENING:\r\n- guard null path\r\n";
+      "WINNER: primary\r\nREASONING: clean impl\r\nHARDENING:\r\n- guard null path\r\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("gemini");
+    expect(result.verdict).toBe("primary");
     expect(result.reasoning).toContain("clean impl");
     expect(result.hardeningNotes).toContain("guard null path");
   });
 
   it("HARDENING: -> none identified inline sentinel is captured and does not bleed into REASONING", () => {
     const out =
-      "WINNER: codex\n" +
+      "WINNER: secondary\n" +
       "REASONING: both implementations are clean with no major differences.\n" +
       "HARDENING: -> none identified\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("codex");
+    expect(result.verdict).toBe("secondary");
     expect(result.reasoning).not.toContain("none identified");
     expect(result.hardeningNotes).toContain("none identified");
   });
@@ -364,12 +369,12 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
     // Fix #3: tightened regex requires HARDENING: to be standalone or bullet-prefixed.
     // A sentence containing "HARDENING:" as prose should not end the REASONING block.
     const out =
-      "WINNER: gemini\n" +
+      "WINNER: primary\n" +
       "REASONING: The key concern is HARDENING: this is prose, not a section. More text here.\n" +
       "HARDENING:\n" +
       "- actual hardening note\n";
     const result = parseJudgeVerdict(out);
-    expect(result.verdict).toBe("gemini");
+    expect(result.verdict).toBe("primary");
     expect(result.reasoning).toContain("HARDENING: this is prose");
     expect(result.hardeningNotes).toContain("actual hardening note");
   });
