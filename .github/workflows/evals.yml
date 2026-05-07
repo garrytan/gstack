@@ -13,19 +13,43 @@ env:
   EVALS_TIER: gate
 
 jobs:
-  # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
-  build-image:
-    runs-on: ubicloud-standard-2
+  meta:
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     outputs:
       image-tag: ${{ steps.meta.outputs.tag }}
+      push_allowed: ${{ steps.meta.outputs.push_allowed }}
     steps:
       - uses: actions/checkout@v4
 
       - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}" >> "$GITHUB_OUTPUT"
+        env:
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          BASE_IMAGE: ghcr.io/${{ github.repository }}/ci
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          IMAGE_HASH: ${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}
+        run: |
+          if [ "$IS_FORK_PR" = "true" ]; then
+            IMAGE="ghcr.io/$HEAD_REPOSITORY/ci"
+            echo "Fork PR detected — reusing the fork-owned prebuilt image for the current Dockerfile/package.json/bun.lock hash because GITHUB_TOKEN cannot push org packages from cross-repo PRs."
+            echo "push_allowed=false" >> "$GITHUB_OUTPUT"
+          else
+            IMAGE="$BASE_IMAGE"
+            echo "push_allowed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$IMAGE:$IMAGE_HASH" >> "$GITHUB_OUTPUT"
+
+  # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
+  build-image:
+    runs-on: ubicloud-standard-2
+    needs: meta
+    if: needs.meta.outputs.push_allowed == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: docker/login-action@v3
         with:
@@ -36,14 +60,14 @@ jobs:
       - name: Check if image exists
         id: check
         run: |
-          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+          if docker manifest inspect ${{ needs.meta.outputs.image-tag }} > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - if: steps.check.outputs.exists == 'false'
-        run: cp package.json .github/docker/
+        run: cp package.json bun.lock .github/docker/
 
       - if: steps.check.outputs.exists == 'false'
         uses: docker/build-push-action@v6
@@ -52,14 +76,45 @@ jobs:
           file: .github/docker/Dockerfile.ci
           push: true
           tags: |
-            ${{ steps.meta.outputs.tag }}
+            ${{ needs.meta.outputs.image-tag }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            USE_HETZNER_MIRROR=${{ github.repository == 'garrytan/gstack' && 'true' || 'false' }}
+
+  verify-fork-image:
+    runs-on: ubicloud-standard-2
+    needs: meta
+    if: needs.meta.outputs.push_allowed != 'true'
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure fork-owned image exists
+        run: |
+          if ! docker manifest inspect ${{ needs.meta.outputs.image-tag }} > /dev/null 2>&1; then
+            echo "::error::Required fork-owned prebuilt CI image for this Dockerfile/package.json/bun.lock hash is missing in GHCR. Run Build CI Image in the fork, then rerun this check."
+            exit 1
+          fi
 
   evals:
     runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-2' }}
-    needs: build-image
+    needs: [meta, build-image, verify-fork-image]
+    if: >-
+      always() &&
+      needs.meta.result == 'success' &&
+      contains(fromJSON('["success","skipped"]'), needs.build-image.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.verify-fork-image.result)
+    permissions:
+      contents: read
+      packages: read
     container:
-      image: ${{ needs.build-image.outputs.image-tag }}
+      image: ${{ needs.meta.outputs.image-tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -113,7 +168,9 @@ jobs:
       # Restore pre-installed node_modules from Docker image via symlink (~0s vs ~15s install)
       - name: Restore deps
         run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+          if [ -d /opt/node_modules_cache ] \
+            && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1 \
+            && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
             ln -s /opt/node_modules_cache node_modules
           else
             bun install
@@ -153,12 +210,9 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write
+    outputs:
+      body: ${{ steps.render.outputs.body }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
       - name: Download all eval artifacts
         uses: actions/download-artifact@v4
         with:
@@ -166,14 +220,14 @@ jobs:
           path: /tmp/eval-results
           merge-multiple: true
 
-      - name: Post PR comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build eval summary
+        id: render
         run: |
           # shellcheck disable=SC2086,SC2059
           RESULTS=$(find /tmp/eval-results -name '*.json' 2>/dev/null | sort)
           if [ -z "$RESULTS" ]; then
             echo "No eval results found"
+            printf 'body=\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -228,7 +282,32 @@ jobs:
           $(echo -e "$FAILURES")"
           fi
 
-          # Update existing comment or create new one
+          printf '%s\n' "$BODY" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo 'body<<EOF'
+            printf '%s\n' "$BODY"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  comment-report:
+    runs-on: ubicloud-standard-2
+    needs: report
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.report.result == 'success' &&
+      needs.report.outputs.body != ''
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post PR comment
+        env:
+          BODY: ${{ needs.report.outputs.body }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1)
 
@@ -236,5 +315,6 @@ jobs:
             gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
               -X PATCH -f body="$BODY"
           else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="$BODY"
           fi

@@ -491,34 +491,83 @@ cleanup_prefixed_claude_symlinks() {
   fi
 }
 
-# ─── Helper: link generated Codex skills into a skills parent directory ──
-# Installs from .agents/skills/gstack-* (the generated Codex-format skills)
-# instead of source dirs (which have Claude paths).
-link_codex_skill_dirs() {
+# ─── Generic helpers for symlink-generated external hosts ─────────────────────
+host_generated_skills_dir() {
   local gstack_dir="$1"
-  local skills_dir="$2"
-  local agents_dir="$gstack_dir/.agents/skills"
-  local linked=()
+  local host="$2"
+  local host_subdir
+  host_subdir="$(cd "$gstack_dir" && bun run scripts/host-config-export.ts get "$host" hostSubdir)"
+  printf '%s/%s/skills' "$gstack_dir" "$host_subdir"
+}
 
-  if [ ! -d "$agents_dir" ]; then
-    echo "  Generating .agents/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host codex )
+create_host_runtime_root() {
+  local host="$1"
+  local gstack_dir="$2"
+  local host_gstack="$3"
+  local generated_dir
+  local asset
+  local src
+  local dst
+
+  generated_dir="$(host_generated_skills_dir "$gstack_dir" "$host")"
+
+  if [ -L "$host_gstack" ]; then
+    rm -f "$host_gstack"
+  elif [ -d "$host_gstack" ] && [ "$host_gstack" != "$gstack_dir" ]; then
+    rm -rf "$host_gstack"
   fi
 
-  if [ ! -d "$agents_dir" ]; then
-    echo "  warning: .agents/skills/ generation failed — run 'bun run gen:skill-docs --host codex' manually" >&2
+  mkdir -p "$host_gstack"
+
+  if [ ! -d "$generated_dir" ]; then
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host "$host" )
+  fi
+
+  if [ -f "$generated_dir/gstack/SKILL.md" ]; then
+    ln -snf "$generated_dir/gstack/SKILL.md" "$host_gstack/SKILL.md"
+  fi
+
+  while IFS= read -r asset; do
+    [ -n "$asset" ] || continue
+    src="$gstack_dir/$asset"
+    dst="$host_gstack/$asset"
+    if [ -d "$src" ] || [ -f "$src" ]; then
+      mkdir -p "$(dirname "$dst")"
+      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
+        ln -snf "$src" "$dst"
+      fi
+    fi
+  done < <(cd "$gstack_dir" && bun run scripts/host-config-export.ts symlinks "$host")
+}
+
+link_host_skill_dirs() {
+  local host="$1"
+  local gstack_dir="$2"
+  local skills_dir="$3"
+  local generated_dir
+  local linked=()
+  local skill_dir
+  local skill_name
+  local target
+
+  generated_dir="$(host_generated_skills_dir "$gstack_dir" "$host")"
+
+  if [ ! -d "$generated_dir" ]; then
+    echo "  Generating $host skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host "$host" )
+  fi
+
+  if [ ! -d "$generated_dir" ]; then
+    echo "  warning: $generated_dir generation failed — run 'bun run gen:skill-docs --host $host' manually" >&2
     return 1
   fi
 
-  for skill_dir in "$agents_dir"/gstack*/; do
+  for skill_dir in "$generated_dir"/gstack*/; do
+    [ -d "$skill_dir" ] || continue
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
-      # Skip the sidecar directory — it contains runtime asset symlinks (bin/,
-      # browse/), not a skill. Linking it would overwrite the root gstack
-      # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
-      # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then
         ln -snf "$skill_dir" "$target"
         linked+=("$skill_name")
@@ -528,239 +577,116 @@ link_codex_skill_dirs() {
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
   fi
+}
+
+create_host_sidecar() {
+  local host="$1"
+  local repo_root="$2"
+  local sidecar_json
+  local sidecar_path
+  local sidecar_root
+  local asset
+  local src
+  local dst
+
+  sidecar_json="$(cd "$repo_root" && bun run scripts/host-config-export.ts get "$host" sidecar 2>/dev/null || true)"
+  [ -n "$sidecar_json" ] || return 0
+
+  sidecar_path="$(python3 - "$sidecar_json" <<'PY'
+import json, sys
+print(json.loads(sys.argv[1]).get('path', ''))
+PY
+)"
+  [ -n "$sidecar_path" ] || return 0
+
+  sidecar_root="$repo_root/$sidecar_path"
+  mkdir -p "$sidecar_root"
+
+  while IFS= read -r asset; do
+    [ -n "$asset" ] || continue
+    src="$repo_root/$asset"
+    dst="$sidecar_root/$asset"
+    if [ -d "$src" ] || [ -f "$src" ]; then
+      mkdir -p "$(dirname "$dst")"
+      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
+        ln -snf "$src" "$dst"
+      fi
+    fi
+  done < <(python3 - "$sidecar_json" <<'PY'
+import json, sys
+for item in json.loads(sys.argv[1]).get('symlinks', []):
+    print(item)
+PY
+)
+}
+
+# ─── Helper: link generated Codex skills into a skills parent directory ──
+# Generated Codex skills live under .agents/skills/gstack*.
+# Skip the gstack sidecar directory: [ "$skill_name" = "gstack" ] && continue
+link_codex_skill_dirs() {
+  # Generated Codex skills live under .agents/skills/gstack*.
+  # Skip the gstack sidecar directory: [ "$skill_name" = "gstack" ] && continue
+  # linked[@]} accumulation happens inside link_host_skill_dirs.
+  link_host_skill_dirs codex "$1" "$2"
 }
 
 # ─── Helper: create .agents/skills/gstack/ sidecar symlinks ──────────
-# Codex/Gemini/Cursor read skills from .agents/skills/. We link runtime
-# assets (bin/, browse/dist/, review/, qa/, etc.) so skill templates can
-# resolve paths like $SKILL_ROOT/review/design-checklist.md.
+# Sidecar runtime assets: bin browse review qa ETHOS.md.
 create_agents_sidecar() {
-  local repo_root="$1"
-  local agents_gstack="$repo_root/.agents/skills/gstack"
-  mkdir -p "$agents_gstack"
-
-  # Sidecar directories that skills reference at runtime
-  for asset in bin browse review qa; do
-    local src="$SOURCE_GSTACK_DIR/$asset"
-    local dst="$agents_gstack/$asset"
-    if [ -d "$src" ] || [ -f "$src" ]; then
-      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
-        ln -snf "$src" "$dst"
-      fi
-    fi
-  done
-
-  # Sidecar files that skills reference at runtime
-  for file in ETHOS.md; do
-    local src="$SOURCE_GSTACK_DIR/$file"
-    local dst="$agents_gstack/$file"
-    if [ -f "$src" ]; then
-      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
-        ln -snf "$src" "$dst"
-      fi
-    fi
-  done
+  create_host_sidecar codex "$1"
 }
 
 # ─── Helper: create a minimal ~/.codex/skills/gstack runtime root ───────────
-# Codex scans ~/.codex/skills recursively. Exposing the whole repo here causes
-# duplicate skills because source SKILL.md files and generated Codex skills are
-# both discoverable. Keep this directory limited to runtime assets + root skill.
+# Runtime assets exposed for Codex:
+#   gstack/SKILL.md
+#   browse/dist
+#   browse/bin
+#   gstack-upgrade/SKILL.md
+#   review/checklist.md
+#   review/design-checklist.md
+#   review/greptile-triage.md
+#   review/TODOS-format.md
 create_codex_runtime_root() {
-  local gstack_dir="$1"
-  local codex_gstack="$2"
-  local agents_dir="$gstack_dir/.agents/skills"
-
-  if [ -L "$codex_gstack" ]; then
-    rm -f "$codex_gstack"
-  elif [ -d "$codex_gstack" ] && [ "$codex_gstack" != "$gstack_dir" ]; then
-    # Old direct installs left a real directory here with stale source skills.
-    # Remove it so we start fresh with only the minimal runtime assets.
-    rm -rf "$codex_gstack"
-  fi
-
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
-
-  if [ -f "$agents_dir/gstack/SKILL.md" ]; then
-    ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
-  fi
-  if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$codex_gstack/bin"
-  fi
-  if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
-  fi
-  if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
-  fi
-  if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
-  fi
-  # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$codex_gstack/review/$f"
-    fi
-  done
-  # ETHOS.md — referenced by "Search Before Building" in all skill preambles
-  if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
-  fi
+  create_host_runtime_root codex "$1" "$2"
 }
 
+# Runtime assets exposed for Factory:
+#   gstack/SKILL.md
+#   browse/dist
+#   browse/bin
+#   gstack-upgrade/SKILL.md
+#   review/checklist.md
+#   review/TODOS-format.md
 create_factory_runtime_root() {
-  local gstack_dir="$1"
-  local factory_gstack="$2"
-  local factory_dir="$gstack_dir/.factory/skills"
-
-  if [ -L "$factory_gstack" ]; then
-    rm -f "$factory_gstack"
-  elif [ -d "$factory_gstack" ] && [ "$factory_gstack" != "$gstack_dir" ]; then
-    rm -rf "$factory_gstack"
-  fi
-
-  mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
-
-  if [ -f "$factory_dir/gstack/SKILL.md" ]; then
-    ln -snf "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
-  fi
-  if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$factory_gstack/bin"
-  fi
-  if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
-  fi
-  if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
-  fi
-  if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
-  fi
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$factory_gstack/review/$f"
-    fi
-  done
-  if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
-  fi
+  create_host_runtime_root factory "$1" "$2"
 }
 
+# Runtime assets exposed for OpenCode:
+#   gstack/SKILL.md
+#   browse/dist
+#   browse/bin
+#   design/dist
+#   gstack-upgrade/SKILL.md
+#   review/checklist.md
+#   review/design-checklist.md
+#   review/greptile-triage.md
+#   review/TODOS-format.md
+#   review/specialists
+#   qa/templates
+#   qa/references
+#   plan-devex-review/dx-hall-of-fame.md
 create_opencode_runtime_root() {
-  local gstack_dir="$1"
-  local opencode_gstack="$2"
-  local opencode_dir="$gstack_dir/.opencode/skills"
-
-  if [ -L "$opencode_gstack" ]; then
-    rm -f "$opencode_gstack"
-  elif [ -d "$opencode_gstack" ] && [ "$opencode_gstack" != "$gstack_dir" ]; then
-    rm -rf "$opencode_gstack"
-  fi
-
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
-
-  if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
-    ln -snf "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
-  fi
-  if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$opencode_gstack/bin"
-  fi
-  if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
-  fi
-  if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$opencode_gstack/browse/bin"
-  fi
-  if [ -d "$gstack_dir/design/dist" ]; then
-    ln -snf "$gstack_dir/design/dist" "$opencode_gstack/design/dist"
-  fi
-  if [ -f "$opencode_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
-  fi
-  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
-    if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$opencode_gstack/review/$f"
-    fi
-  done
-  if [ -d "$gstack_dir/review/specialists" ]; then
-    ln -snf "$gstack_dir/review/specialists" "$opencode_gstack/review/specialists"
-  fi
-  if [ -d "$gstack_dir/qa/templates" ]; then
-    ln -snf "$gstack_dir/qa/templates" "$opencode_gstack/qa/templates"
-  fi
-  if [ -d "$gstack_dir/qa/references" ]; then
-    ln -snf "$gstack_dir/qa/references" "$opencode_gstack/qa/references"
-  fi
-  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
-    ln -snf "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$opencode_gstack/plan-devex-review/dx-hall-of-fame.md"
-  fi
-  if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
-  fi
+  create_host_runtime_root opencode "$1" "$2"
 }
 
+# Generated Factory skills live under .factory/skills/gstack*.
 link_factory_skill_dirs() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local factory_dir="$gstack_dir/.factory/skills"
-  local linked=()
-
-  if [ ! -d "$factory_dir" ]; then
-    echo "  Generating .factory/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host factory )
-  fi
-
-  if [ ! -d "$factory_dir" ]; then
-    echo "  warning: .factory/skills/ generation failed — run 'bun run gen:skill-docs --host factory' manually" >&2
-    return 1
-  fi
-
-  for skill_dir in "$factory_dir"/gstack*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "gstack" ] && continue
-      target="$skills_dir/$skill_name"
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
-        linked+=("$skill_name")
-      fi
-    fi
-  done
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
-  fi
+  link_host_skill_dirs factory "$1" "$2"
 }
 
+# Generated OpenCode skills live under .opencode/skills/gstack*.
 link_opencode_skill_dirs() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local opencode_dir="$gstack_dir/.opencode/skills"
-  local linked=()
-
-  if [ ! -d "$opencode_dir" ]; then
-    echo "  Generating .opencode/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host opencode )
-  fi
-
-  if [ ! -d "$opencode_dir" ]; then
-    echo "  warning: .opencode/skills/ generation failed — run 'bun run gen:skill-docs --host opencode' manually" >&2
-    return 1
-  fi
-
-  for skill_dir in "$opencode_dir"/gstack*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "gstack" ] && continue
-      target="$skills_dir/$skill_name"
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
-        linked+=("$skill_name")
-      fi
-    fi
-  done
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
-  fi
+  link_host_skill_dirs opencode "$1" "$2"
 }
 
 # 4. Install for Claude (default)
