@@ -157,6 +157,26 @@ test("build skill docs distinguish storage discovery from plan discovery", () =>
   }
 });
 
+test("build skill docs use explicit source plan paths before spawning locator", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("explicit source-plan paths");
+    expect(content).toContain("rm -f .llm-tmp/build-plan-locate-output.md");
+    expect(content).toContain("_USED_EXPLICIT_PLAN");
+    expect(content).toContain("_EXPLICIT_PLAN_PATH");
+    expect(content).toContain(".llm-tmp/build-plan-locate-output.md");
+    expect(content).toContain("skip the `planLocator` subagent");
+    expect(content).toContain("Only spawn `planLocator` when no explicit valid plan path is available");
+    expect(content).toContain("Do not treat a pre-existing locator output file as evidence");
+  }
+});
+
 test("build skill docs support workspace-root repo routing", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),

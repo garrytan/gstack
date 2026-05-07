@@ -1,18 +1,18 @@
 {
   "roles": {
     "testWriter": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     },
     "primaryImpl": {
-      "provider": "kimi",
-      "model": "kimi-code/kimi-for-coding",
+      "provider": "codex",
+      "model": "gpt-5.3-codex-spark",
       "reasoning": "high"
     },
     "testFixer": {
       "provider": "codex",
-      "model": "gpt-5.5",
+      "model": "gpt-5.3-codex-spark",
       "reasoning": "high"
     },
     "secondaryImpl": {
@@ -21,9 +21,9 @@
       "reasoning": "high"
     },
     "review": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high",
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh",
       "command": "/review"
     },
     "reviewSecondary": {
@@ -39,20 +39,20 @@
     },
     "ship": {
       "provider": "codex",
-      "model": "gpt-5.5",
+      "model": "gpt-5.3-codex-spark",
       "reasoning": "high",
       "command": "/ship"
     },
     "land": {
       "provider": "codex",
-      "model": "gpt-5.5",
+      "model": "gpt-5.3-codex-spark",
       "reasoning": "high",
       "command": "/land-and-deploy"
     },
     "judge": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     },
     "contextSave": {
       "provider": "codex",
@@ -61,8 +61,8 @@
       "command": "/context-save"
     },
     "featureReview": {
-      "provider": "codex",
-      "model": "gpt-5.5",
+      "provider": "claude",
+      "model": "claude-opus-4-7",
       "reasoning": "xhigh"
     },
     "planLocator": {
@@ -71,14 +71,14 @@
       "reasoning": "high"
     },
     "planSynthesizer": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     },
     "featureVerifier": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high"
+      "provider": "claude",
+      "model": "claude-opus-4-7",
+      "reasoning": "xhigh"
     }
   },
   "limits": {

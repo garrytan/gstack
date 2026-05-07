@@ -698,13 +698,13 @@ describe("buildClaudeTaskArgv (claude role invocation shape)", () => {
       inputFilePath: "/tmp/review-in.md",
       outputFilePath: "/tmp/review-out.md",
       command: "/review",
-      model: "claude-role-model-under-test",
+      model: "role-model-under-test",
       reasoning: "xhigh",
       gate: true,
     });
     expect(argv).toContain("--model");
     expect(argv[argv.indexOf("--model") + 1]).toBe(
-      "claude-role-model-under-test",
+      "role-model-under-test",
     );
     const prompt = argv[argv.indexOf("-p") + 1];
     expect(prompt).toContain("Use xhigh thinking");
@@ -717,7 +717,7 @@ describe("buildClaudeTaskArgv (claude role invocation shape)", () => {
       inputFilePath: "/tmp/review-in.md",
       outputFilePath: "/tmp/review-out.md",
       command: "/codex review",
-      model: "claude-role-model-under-test",
+      model: "role-model-under-test",
       reasoning: "xhigh",
       gate: true,
     });
@@ -767,7 +767,7 @@ describe("buildKimiTaskArgv", () => {
       inputFilePath: "/tmp/kimi-stage/ship-in.md",
       outputFilePath: "/tmp/kimi-stage/ship-out.md",
       command: "/ship",
-      model: "kimi-code/kimi-for-coding",
+      model: "kimi-model-under-test",
       gate: true,
     });
     expect(argv).toContain("--work-dir");
@@ -775,7 +775,7 @@ describe("buildKimiTaskArgv", () => {
     expect(argv).toContain("--add-dir");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe("/tmp/kimi-stage");
     expect(argv).toContain("-m");
-    expect(argv[argv.indexOf("-m") + 1]).toBe("kimi-code/kimi-for-coding");
+    expect(argv[argv.indexOf("-m") + 1]).toBe("kimi-model-under-test");
     expect(argv).toContain("--yolo");
     expect(argv).toContain("--print");
     expect(argv).toContain("--final-message-only");
@@ -829,7 +829,7 @@ process.stdout.write(match[1]);
         logPrefix: "ship",
         role: {
           provider: "kimi",
-          model: "kimi-code/kimi-for-coding",
+          model: "kimi-model-under-test",
           reasoning: "high",
           command: "/ship",
         },

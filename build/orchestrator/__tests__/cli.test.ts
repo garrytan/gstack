@@ -321,16 +321,16 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 
   it('parseArgs with --gemini-model sets geminiModel', () => {
-    const args = parseArgs(['plan.md', '--gemini-model', 'gemini-3.1-pro-preview']);
-    expect(args.geminiModel).toBe('gemini-3.1-pro-preview');
+    const args = parseArgs(['plan.md', '--gemini-model', 'primary-model-under-test']);
+    expect(args.geminiModel).toBe('primary-model-under-test');
   });
 
   it('parseArgs with --codex-model sets codexModel', () => {
-    const args = parseArgs(['plan.md', '--codex-model', 'gpt-5.4']);
-    expect(args.codexModel).toBe('gpt-5.4');
+    const args = parseArgs(['plan.md', '--codex-model', 'secondary-model-under-test']);
+    expect(args.codexModel).toBe('secondary-model-under-test');
   });
 
-  it('parseArgs default -> model defaults are baked in (no flags needed)', () => {
+  it('parseArgs default -> model defaults come from configure.cm (no flags needed)', () => {
     const args = parseArgs(['plan.md']);
     expect(args.geminiModel).toBe(DEFAULT_ROLE_CONFIGS.primaryImpl.model);
     expect(args.codexModel).toBe(DEFAULT_ROLE_CONFIGS.secondaryImpl.model);
@@ -341,8 +341,8 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 
   it('--codex-review-model overrides the review model default', () => {
-    const args = parseArgs(['plan.md', '--codex-review-model', 'gpt-5.4']);
-    expect(args.codexReviewModel).toBe('gpt-5.4');
+    const args = parseArgs(['plan.md', '--codex-review-model', 'review-model-under-test']);
+    expect(args.codexReviewModel).toBe('review-model-under-test');
   });
 
   it('--help text mentions --codex-review-model', () => {
@@ -352,13 +352,13 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   it('parseArgs accepts all three model flags together', () => {
     const args = parseArgs([
       'plan.md',
-      '--gemini-model', 'gemini-3.2-pro',
-      '--codex-model', 'gpt-5.3-codex',
-      '--codex-review-model', 'gpt-5.4',
+      '--gemini-model', 'primary-model-under-test',
+      '--codex-model', 'secondary-model-under-test',
+      '--codex-review-model', 'review-model-under-test',
     ]);
-    expect(args.geminiModel).toBe('gemini-3.2-pro');
-    expect(args.codexModel).toBe('gpt-5.3-codex');
-    expect(args.codexReviewModel).toBe('gpt-5.4');
+    expect(args.geminiModel).toBe('primary-model-under-test');
+    expect(args.codexModel).toBe('secondary-model-under-test');
+    expect(args.codexReviewModel).toBe('review-model-under-test');
   });
 
   it('parseArgs model flags combine correctly with --dual-impl', () => {
@@ -379,14 +379,14 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   it('new role flags override defaults', () => {
     const args = parseArgs([
       'plan.md',
-      '--review-secondary-model', 'claude-custom',
+      '--review-secondary-model', 'review-secondary-model-under-test',
       '--review-secondary-command', '/custom second opinion',
-      '--ship-model', 'gpt-5.4',
+      '--ship-model', 'ship-model-under-test',
       '--ship-reasoning', 'medium',
     ]);
-    expect(args.roles.reviewSecondary.model).toBe('claude-custom');
+    expect(args.roles.reviewSecondary.model).toBe('review-secondary-model-under-test');
     expect(args.roles.reviewSecondary.command).toBe('/custom second opinion');
-    expect(args.roles.ship.model).toBe('gpt-5.4');
+    expect(args.roles.ship.model).toBe('ship-model-under-test');
     expect(args.roles.ship.reasoning).toBe('medium');
   });
 
@@ -1086,7 +1086,7 @@ describe('buildJudgePrompt (tournament judge prompt)', () => {
         primary: {
           label: 'Primary',
           provider: 'codex',
-          model: 'gpt-5.5',
+          model: 'primary-model-under-test',
           diff: 'PRIMARY_DIFF_MARKER',
           testResult: pass(),
           ...overrides.primary,
@@ -1094,7 +1094,7 @@ describe('buildJudgePrompt (tournament judge prompt)', () => {
         secondary: {
           label: 'Secondary',
           provider: 'claude',
-          model: 'claude-opus-4-7',
+          model: 'secondary-model-under-test',
           diff: 'SECONDARY_DIFF_MARKER',
           testResult: pass(),
           ...overrides.secondary,
@@ -1112,8 +1112,8 @@ describe('buildJudgePrompt (tournament judge prompt)', () => {
 
   it('contains primary and secondary sections with provider/model metadata and diffs', () => {
     const prompt = promptWith();
-    expect(prompt).toMatch(/Primary implementor \(codex:gpt-5\.5\)[\s\S]*PRIMARY_DIFF_MARKER/);
-    expect(prompt).toMatch(/Secondary implementor \(claude:claude-opus-4-7\)[\s\S]*SECONDARY_DIFF_MARKER/);
+    expect(prompt).toMatch(/Primary implementor \(codex:primary-model-under-test\)[\s\S]*PRIMARY_DIFF_MARKER/);
+    expect(prompt).toMatch(/Secondary implementor \(claude:secondary-model-under-test\)[\s\S]*SECONDARY_DIFF_MARKER/);
   });
 
   it('reflects test exit codes for each implementor', () => {

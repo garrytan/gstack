@@ -105,6 +105,34 @@ Skip this entire step if in Reexamine or Resume Mode.
    _CWD="$WORKSPACE_ROOT"
    ```
 
+   First handle explicit source-plan paths from the current user message or conversation context. If the user/context already names one concrete Markdown plan path, verify it before using it:
+
+   ```bash
+   rm -f .llm-tmp/build-plan-locate-output.md
+   _USED_EXPLICIT_PLAN="no"
+   _EXPLICIT_PLAN_PATH=""  # set this only when the current user message/context contains a concrete plan path
+   if [ -n "$_EXPLICIT_PLAN_PATH" ]; then
+     case "$_EXPLICIT_PLAN_PATH" in
+       /*) _EXPLICIT_PLAN_ABS="$_EXPLICIT_PLAN_PATH" ;;
+       *) _EXPLICIT_PLAN_ABS="$WORKSPACE_ROOT/$_EXPLICIT_PLAN_PATH" ;;
+     esac
+     if [ -f "$_EXPLICIT_PLAN_ABS" ]; then
+       _PLAN_TYPE="source-plan"
+       _IS_TODOS="false"
+       if [ "$(basename "$_EXPLICIT_PLAN_ABS")" = "TODOS.md" ]; then
+         _PLAN_TYPE="todos"
+         _IS_TODOS="true"
+       fi
+       jq -nc --arg planPath "$_EXPLICIT_PLAN_ABS" --arg type "$_PLAN_TYPE" --argjson isTodos "$_IS_TODOS" \
+         '{planPath:$planPath,type:$type,isTodos:$isTodos}' > .llm-tmp/build-plan-locate-output.md
+       _USED_EXPLICIT_PLAN="yes"
+       echo "Using explicit source plan: $_EXPLICIT_PLAN_ABS"
+     fi
+   fi
+   ```
+
+   If `_USED_EXPLICIT_PLAN` is `yes`, skip the `planLocator` subagent and continue at "Read `.llm-tmp/build-plan-locate-output.md`." Only spawn `planLocator` when no explicit valid plan path is available, or when the user/context gives multiple ambiguous paths. Do not treat a pre-existing locator output file as evidence; this step removes stale locator output before checking explicit paths.
+
    Write `.llm-tmp/build-plan-locate-input.md` (substitute actual shell variable values for all placeholders):
 
    ```

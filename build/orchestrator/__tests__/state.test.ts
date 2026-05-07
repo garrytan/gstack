@@ -286,17 +286,17 @@ describe('loadState / saveState round-trip', () => {
       lastUpdatedAt: new Date().toISOString(), currentPhaseIndex: 0,
       phases: [{ index: 0, number: '1', name: 'Foo', status: 'pending' }],
       completed: false,
-      geminiModel: 'gemini-old',
-      codexModel: 'codex-old',
-      codexReviewModel: 'review-old',
+      geminiModel: 'legacy-primary-model',
+      codexModel: 'legacy-secondary-model',
+      codexReviewModel: 'legacy-review-model',
     };
     fs.mkdirSync(path.dirname(statePath(slug)), { recursive: true });
     fs.writeFileSync(statePath(slug), JSON.stringify(oldState));
     const loaded = loadState(slug, { noGbrain: true });
     expect(loaded).not.toBeNull();
-    expect(loaded!.roleConfigs!.primaryImpl.model).toBe('gemini-old');
-    expect(loaded!.roleConfigs!.secondaryImpl.model).toBe('codex-old');
-    expect(loaded!.roleConfigs!.reviewSecondary.model).toBe('review-old');
+    expect(loaded!.roleConfigs!.primaryImpl.model).toBe('legacy-primary-model');
+    expect(loaded!.roleConfigs!.secondaryImpl.model).toBe('legacy-secondary-model');
+    expect(loaded!.roleConfigs!.reviewSecondary.model).toBe('legacy-review-model');
   });
 });
 
