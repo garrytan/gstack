@@ -16,6 +16,7 @@ The build orchestrator now treats dual-implementation tournaments as configured 
 
 - Legacy persisted gemini/codex dual-impl state now fails with rerun guidance instead of being partially interpreted as the new state shape.
 - Judge output rejects stale `WINNER: gemini` and `WINNER: codex` values, requiring `WINNER: primary` or `WINNER: secondary`.
+- Sandboxed provider runs that can edit files but cannot write `.git` are recovered by the host, staging only summary-listed paths and cleaning generated cache noise before continuing.
 - The focused build-skill gate covers provider validation, state transitions, worktree setup, judge parsing, and generated docs.
 
 ### Itemized changes
@@ -30,6 +31,9 @@ The build orchestrator now treats dual-implementation tournaments as configured 
 - `build/orchestrator/__tests__/cli.test.ts` — coverage for provider-agnostic dual-impl validation, prompts, and judge prompt formatting.
 - `build/orchestrator/__tests__/phase-runner.test.ts` — coverage for primary/secondary state transitions and legacy-state failure guidance.
 - `build/orchestrator/__tests__/sub-agents.test.ts` and `worktree.test.ts` — coverage for primary/secondary judge parsing and worktree naming.
+
+#### Fixed
+- `build/orchestrator/cli.ts` — recovers successful mutable agent runs when provider sandboxes block commits, using the agent summary as the allowlist for host-side staging.
 
 ## [1.26.6.0] - 2026-05-07
 

@@ -1,8 +1,8 @@
 /**
  * Feature-level meta-review (F2).
  *
- * After every phase of a feature commits, an optional reviewer (default
- * codex/gpt-5.5) runs against the full feature context: plan body, every
+ * After every phase of a feature commits, the configured featureReview role
+ * runs against the full feature context: plan body, every
  * phase's status + artifacts + iteration counts, all commits made during
  * the feature. The reviewer returns one of three verdicts:
  *

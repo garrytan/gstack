@@ -548,6 +548,209 @@ export function validatePostAgentHygiene(opts: {
   return { ok: errors.length === 0, errors };
 }
 
+function parsePorcelainPath(line: string): string {
+  const raw = line.slice(3).trim();
+  const renamed = raw.includes(" -> ") ? raw.split(" -> ").pop() || raw : raw;
+  return renamed.replace(/^"|"$/g, "");
+}
+
+function isAllowedTmpPath(filePath: string): boolean {
+  return filePath === ".llm-tmp" || filePath.startsWith(".llm-tmp/");
+}
+
+function isGeneratedCachePath(filePath: string): boolean {
+  return (
+    filePath.endsWith(".pyc") ||
+    filePath.includes("/__pycache__/") ||
+    filePath.startsWith("__pycache__/") ||
+    filePath.includes("/.pytest_cache/") ||
+    filePath.startsWith(".pytest_cache/") ||
+    filePath.includes("/.mypy_cache/") ||
+    filePath.startsWith(".mypy_cache/")
+  );
+}
+
+function safeRelativePath(filePath: string): string | null {
+  const normalized = path.posix.normalize(filePath.replace(/\\/g, "/"));
+  if (
+    !normalized ||
+    normalized === "." ||
+    normalized.startsWith("../") ||
+    normalized === ".." ||
+    path.isAbsolute(filePath)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function extractSummaryFilePaths(summary: string): string[] {
+  const paths = new Set<string>();
+  const backtickRe = /`([^`\n]+)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = backtickRe.exec(summary))) {
+    const value = match[1].trim();
+    if (
+      !value ||
+      /\s/.test(value) ||
+      !/[./]/.test(value) ||
+      value.startsWith("http://") ||
+      value.startsWith("https://")
+    ) {
+      continue;
+    }
+    const safe = safeRelativePath(value);
+    if (safe && !isAllowedTmpPath(safe) && !isGeneratedCachePath(safe)) {
+      paths.add(safe);
+    }
+  }
+  return [...paths].sort();
+}
+
+function extractCommitMessage(summary: string, label: string): string {
+  const patterns = [
+    /conventional commit message:\s*`([^`\n]+)`/i,
+    /commit message:\s*`([^`\n]+)`/i,
+    /conventional commit message:\s*([^\n]+)/i,
+    /commit message:\s*([^\n]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = summary.match(pattern);
+    if (!match) continue;
+    const cleaned = match[1]
+      .replace(/^[-*\s]+/, "")
+      .replace(/^["'`]|["'`]$/g, "")
+      .trim();
+    if (cleaned && cleaned.length <= 160) return cleaned;
+  }
+  return `chore: recover ${label} changes [gstack]`;
+}
+
+function hasMeaningfulDirtyChanges(cwd: string): boolean {
+  const status = captureGitSnapshot(cwd).status;
+  return status.some((line) => {
+    const filePath = parsePorcelainPath(line);
+    return !isAllowedTmpPath(filePath) && !isGeneratedCachePath(filePath);
+  });
+}
+
+function cleanupGeneratedCacheChanges(cwd: string): string[] {
+  const status = captureGitSnapshot(cwd).status;
+  const cleaned: string[] = [];
+  for (const line of status) {
+    const filePath = parsePorcelainPath(line);
+    if (!isGeneratedCachePath(filePath)) continue;
+    if (line.startsWith("?? ")) {
+      fs.rmSync(path.join(cwd, filePath), { recursive: true, force: true });
+    } else {
+      spawnSync("git", ["restore", "--", filePath], {
+        cwd,
+        encoding: "utf8",
+      });
+    }
+    cleaned.push(filePath);
+  }
+  return cleaned;
+}
+
+export function recoverMutableAgentCommit(opts: {
+  cwd: string;
+  before: GitSnapshot;
+  outputFilePath?: string;
+  label: string;
+}): { recovered: boolean; commit?: string; errors: string[]; cleaned: string[] } {
+  const after = captureGitSnapshot(opts.cwd);
+  if (after.head !== opts.before.head) {
+    return { recovered: false, errors: [], cleaned: [] };
+  }
+  if (!hasMeaningfulDirtyChanges(opts.cwd)) {
+    return { recovered: false, errors: [], cleaned: [] };
+  }
+
+  let summary = "";
+  if (opts.outputFilePath) {
+    try {
+      summary = fs.readFileSync(opts.outputFilePath, "utf8");
+    } catch (err) {
+      return {
+        recovered: false,
+        errors: [
+          `${opts.label} recovery could not read output summary ${opts.outputFilePath}: ${err instanceof Error ? err.message : String(err)}`,
+        ],
+        cleaned: [],
+      };
+    }
+  }
+  if (summary.trim() === "") {
+    return { recovered: false, errors: [], cleaned: [] };
+  }
+
+  const dirtyPaths = new Set(after.status.map(parsePorcelainPath));
+  const files = extractSummaryFilePaths(summary).filter((filePath) => {
+    const abs = path.join(opts.cwd, filePath);
+    return fs.existsSync(abs) || dirtyPaths.has(filePath);
+  });
+  if (files.length === 0) {
+    return {
+      recovered: false,
+      errors: [`${opts.label} recovery found no safe changed file paths in the output summary`],
+      cleaned: [],
+    };
+  }
+
+  const add = spawnSync("git", ["add", "--", ...files], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+  });
+  if (add.status !== 0) {
+    return {
+      recovered: false,
+      errors: [
+        `${opts.label} recovery could not stage summary-listed files: ${(add.stderr || add.stdout || "").trim()}`,
+      ],
+      cleaned: [],
+    };
+  }
+
+  const staged = spawnSync("git", ["diff", "--cached", "--quiet"], {
+    cwd: opts.cwd,
+  });
+  if (staged.status === 0) {
+    return {
+      recovered: false,
+      errors: [`${opts.label} recovery staged no changes from summary-listed files`],
+      cleaned: [],
+    };
+  }
+
+  const message = extractCommitMessage(summary, opts.label);
+  const commit = spawnSync("git", ["commit", "-m", message], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+  });
+  if (commit.status !== 0) {
+    return {
+      recovered: false,
+      errors: [
+        `${opts.label} recovery could not create host commit: ${(commit.stderr || commit.stdout || "").trim()}`,
+      ],
+      cleaned: [],
+    };
+  }
+
+  const head = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+  });
+  const cleaned = cleanupGeneratedCacheChanges(opts.cwd);
+  return {
+    recovered: true,
+    commit: head.status === 0 ? head.stdout.trim() : undefined,
+    errors: [],
+    cleaned,
+  };
+}
+
 export function validateParentWorkspaceUnchanged(opts: {
   before: GitSnapshot | null;
   workspaceRoot: string | null;
@@ -2229,6 +2432,14 @@ function applyMutableAgentHygiene(opts: {
   if (!opts.before || opts.result.timedOut || opts.result.exitCode !== 0) {
     return opts.result;
   }
+  const recovery = opts.requireNewCommit
+    ? recoverMutableAgentCommit({
+        cwd: opts.cwd,
+        before: opts.before,
+        outputFilePath: opts.outputFilePath,
+        label: opts.label,
+      })
+    : { recovered: false, errors: [] as string[], cleaned: [] as string[] };
   const checks = [
     validatePostAgentHygiene({
       cwd: opts.cwd,
@@ -2244,7 +2455,10 @@ function applyMutableAgentHygiene(opts: {
       label: opts.label,
     }),
   ];
-  const errors = checks.flatMap((check) => check.errors);
+  const errors = [
+    ...recovery.errors,
+    ...checks.flatMap((check) => check.errors),
+  ];
   if (errors.length === 0) return opts.result;
   return hygieneFailureResult(errors.join("\n"), opts.result.logPath);
 }
@@ -2461,6 +2675,7 @@ async function runDualImplFixLoop(opts: {
     fs.writeFileSync(fixInput, fixBody);
     fs.writeFileSync(fixOutput, "");
 
+    const beforeFix = captureGitSnapshot(worktreePath);
     const fixResult = await runRoleTask({
       role,
       inputFilePath: fixInput,
@@ -2476,6 +2691,18 @@ async function runDualImplFixLoop(opts: {
     if (fixResult.timedOut || fixResult.exitCode !== 0) {
       failureLog.push(
         `--- Fix pass ${i} FAILED (model exited ${fixResult.exitCode ?? "killed"}, timedOut=${fixResult.timedOut}) — no changes committed ---`,
+      );
+      break;
+    }
+    const recovery = recoverMutableAgentCommit({
+      cwd: worktreePath,
+      before: beforeFix,
+      outputFilePath: fixOutput,
+      label: `${candidate} fix pass ${i}`,
+    });
+    if (recovery.errors.length > 0) {
+      failureLog.push(
+        `--- Fix pass ${i} hygiene recovery FAILED ---\n${recovery.errors.join("\n")}`,
       );
       break;
     }
@@ -2499,24 +2726,6 @@ async function runDualImplFixLoop(opts: {
 
     const fixHistoryStr = failureLog.join("\n\n");
     if (testRun.exitCode === 0 && !testRun.timedOut) {
-      // Auto-commit any tracked dirty changes so `testedCommit` (HEAD) matches
-      // what tests actually ran against. Dirty worktrees cause SHA stale-cache
-      // detection to fail-closed on resume.
-      const dirty = spawnSync("git", ["diff", "HEAD", "--quiet"], {
-        cwd: worktreePath,
-      });
-      if (dirty.status !== 0) {
-        spawnSync("git", ["add", "-u"], { cwd: worktreePath });
-        spawnSync(
-          "git",
-          [
-            "commit",
-            "-m",
-            `chore: auto-commit staged changes after green tests (fix pass ${i}) [gstack-dual]`,
-          ],
-          { cwd: worktreePath },
-        );
-      }
       return { testResult, fixIterations: i, fixHistory: fixHistoryStr };
     }
     failureLog.push(
@@ -3526,6 +3735,7 @@ async function runPhase(args: {
           );
           fs.writeFileSync(outputPath, "");
 
+          const before = captureGitSnapshot(candidateState.worktreePath);
           const implResult = await runRoleTask({
             role,
             inputFilePath: inputPath,
@@ -3536,6 +3746,34 @@ async function runPhase(args: {
             iteration: it,
             logPrefix: `dual-${candidate}`,
           });
+          if (!implResult.timedOut && implResult.exitCode === 0) {
+            const recovery = recoverMutableAgentCommit({
+              cwd: candidateState.worktreePath,
+              before,
+              outputFilePath: outputPath,
+              label: `${candidate} implementor`,
+            });
+            if (recovery.errors.length > 0) {
+              const recoveredResult = hygieneFailureResult(
+                recovery.errors.join("\n"),
+                implResult.logPath,
+              );
+              const failTest: DualImplTestResult = {
+                worktreePath: candidateState.worktreePath,
+                testExitCode: 1,
+                testLogPath: recoveredResult.logPath,
+                timedOut: false,
+              };
+              return {
+                candidate,
+                implResult: recoveredResult,
+                testResult: failTest,
+                fixIterations: null,
+                fixHistory: "",
+                testedCommit: undefined,
+              };
+            }
+          }
           if (implResult.timedOut || implResult.exitCode !== 0) {
             const failTest: DualImplTestResult = {
               worktreePath: candidateState.worktreePath,

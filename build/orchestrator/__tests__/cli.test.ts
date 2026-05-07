@@ -13,6 +13,7 @@ import {
   resolveProjectRoot,
   validateProjectRootSelection,
   captureGitSnapshot,
+  recoverMutableAgentCommit,
   validatePostAgentHygiene,
   validateParentWorkspaceUnchanged,
   hygieneFailureResult,
@@ -497,6 +498,59 @@ describe('post-agent hygiene helpers', () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.errors.join('\n')).toMatch(/did not create a new commit/);
     expect(verdict.errors.join('\n')).toMatch(/\?\? rewrite\.py/);
+  });
+
+  it('recovers a sandboxed implementor by host-committing summary-listed files and cleaning cache noise', () => {
+    fs.mkdirSync(path.join(tmpDir!, 'pkg', '__pycache__'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir!, 'pkg', '__pycache__', 'mod.pyc'), 'old-cache\n');
+    git(['add', 'pkg/__pycache__/mod.pyc'], tmpDir!);
+    git(['commit', '-m', 'track cache fixture'], tmpDir!);
+
+    const before = captureGitSnapshot(tmpDir!);
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir!, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir!, 'README.md'), 'changed\n');
+    fs.writeFileSync(path.join(tmpDir!, 'src', 'feature.ts'), 'export const x = 1;\n');
+    fs.writeFileSync(path.join(tmpDir!, 'pkg', '__pycache__', 'mod.pyc'), 'new-cache\n');
+    fs.writeFileSync(
+      summary,
+      [
+        '# Primary implementor summary',
+        '',
+        '## Files changed',
+        '- `README.md` — update docs.',
+        '- `src/feature.ts` — add feature code.',
+        '',
+        '## Commit',
+        '- Conventional commit message: `feat: add recovered feature`',
+      ].join('\n'),
+    );
+
+    const recovery = recoverMutableAgentCommit({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      label: 'primary implementor',
+    });
+
+    expect(recovery.recovered).toBe(true);
+    expect(git(['rev-list', '--count', `${before.head}..HEAD`], tmpDir!)).toBe('1');
+    expect(git(['log', '-1', '--pretty=%s'], tmpDir!)).toBe('feat: add recovered feature');
+    const committedFiles = git(['show', '--name-only', '--pretty=', 'HEAD'], tmpDir!).split('\n');
+    expect(committedFiles).toContain('README.md');
+    expect(committedFiles).toContain('src/feature.ts');
+    expect(committedFiles).not.toContain('pkg/__pycache__/mod.pyc');
+
+    const verdict = validatePostAgentHygiene({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      requireNonEmptyOutput: true,
+      requireNewCommit: true,
+      label: 'primary implementor',
+    });
+    expect(verdict).toEqual({ ok: true, errors: [] });
   });
 
   it('accepts a committed clean implementor run with a non-empty summary', () => {
