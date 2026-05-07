@@ -1,16 +1,23 @@
 /**
- * Auth resolution for OpenAI API access.
+ * Auth resolution for API access.
  *
- * Resolution order:
+ * OpenAI resolution order:
  * 1. ~/.gstack/openai.json → { "api_key": "sk-..." }
  * 2. OPENAI_API_KEY environment variable
  * 3. null (caller handles guided setup or fallback)
+ *
+ * Ark (Seedream) resolution order:
+ * 1. ~/.gstack/ark.json → { "api_key": "..." }
+ * 2. ARK_API_KEY environment variable
+ * 3. null
  */
 
 import fs from "fs";
 import path from "path";
 
-const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "openai.json");
+const GSTACK_DIR = path.join(process.env.HOME || "~", ".gstack");
+const CONFIG_PATH = path.join(GSTACK_DIR, "openai.json");
+const ARK_CONFIG_PATH = path.join(GSTACK_DIR, "ark.json");
 
 export function resolveApiKey(): string | null {
   // 1. Check ~/.gstack/openai.json
@@ -45,7 +52,7 @@ export function saveApiKey(key: string): void {
 }
 
 /**
- * Get API key or exit with setup instructions.
+ * Get OpenAI API key or exit with setup instructions.
  */
 export function requireApiKey(): string {
   const key = resolveApiKey();
@@ -60,4 +67,39 @@ export function requireApiKey(): string {
     process.exit(1);
   }
   return key;
+}
+
+// ---------------------------------------------------------------------------
+// Ark (Volcengine) — used by Seedream provider
+// ---------------------------------------------------------------------------
+
+export function resolveArkApiKey(): string | null {
+  // 1. Check ~/.gstack/ark.json
+  try {
+    if (fs.existsSync(ARK_CONFIG_PATH)) {
+      const content = fs.readFileSync(ARK_CONFIG_PATH, "utf-8");
+      const config = JSON.parse(content);
+      if (config.api_key && typeof config.api_key === "string") {
+        return config.api_key;
+      }
+    }
+  } catch {
+    // Fall through to env var
+  }
+
+  // 2. Check environment variable
+  if (process.env.ARK_API_KEY) {
+    return process.env.ARK_API_KEY;
+  }
+
+  return null;
+}
+
+/**
+ * Save an Ark API key to ~/.gstack/ark.json with 0600 permissions.
+ */
+export function saveArkApiKey(key: string): void {
+  fs.mkdirSync(GSTACK_DIR, { recursive: true });
+  fs.writeFileSync(ARK_CONFIG_PATH, JSON.stringify({ api_key: key }, null, 2));
+  fs.chmodSync(ARK_CONFIG_PATH, 0o600);
 }

@@ -25,6 +25,7 @@ import { evolve } from "./evolve";
 import { generateDesignToCodePrompt } from "./design-to-code";
 import { serve } from "./serve";
 import { gallery } from "./gallery";
+import { resolveProvider } from "./providers";
 
 function parseArgs(argv: string[]): { command: string; flags: Record<string, string | boolean> } {
   const args = argv.slice(2); // skip bun/node and script path
@@ -60,7 +61,11 @@ function printUsage(): void {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log("\nProviders: openai (default), seedream");
+  console.log("  --provider seedream  or  GSTACK_DESIGN_PROVIDER=seedream");
+  console.log("\nAuth:");
+  console.log("  OpenAI:   ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log("  Seedream: ~/.gstack/ark.json or ARK_API_KEY env var");
   console.log("Setup: $D setup");
 }
 
@@ -125,6 +130,7 @@ async function main(): Promise<void> {
         retry: flags.retry ? parseInt(flags.retry as string) : 0,
         size: flags.size as string,
         quality: flags.quality as string,
+        provider: resolveProvider(flags.provider as string),
       });
       break;
 
@@ -175,6 +181,7 @@ async function main(): Promise<void> {
         size: flags.size as string,
         quality: flags.quality as string,
         viewports: flags.viewports as string,
+        provider: resolveProvider(flags.provider as string),
       });
       break;
 
@@ -183,6 +190,7 @@ async function main(): Promise<void> {
         session: flags.session as string,
         feedback: flags.feedback as string,
         output: (flags.output as string) || "/tmp/gstack-iterate.png",
+        provider: resolveProvider(flags.provider as string),
       });
       break;
 
@@ -235,6 +243,7 @@ async function main(): Promise<void> {
         screenshot: flags.screenshot as string,
         brief: flags.brief as string,
         output: (flags.output as string) || "/tmp/gstack-evolved.png",
+        provider: resolveProvider(flags.provider as string),
       });
       break;
 

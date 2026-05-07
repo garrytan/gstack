@@ -1,13 +1,14 @@
 /**
- * Generate UI mockups via OpenAI Responses API with image_generation tool.
+ * Generate UI mockups via pluggable image provider.
+ * Supports OpenAI (Responses API) and Seedream (Volcengine Ark).
  */
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
+import { type ProviderName, createProvider } from "./providers";
 
 export interface GenerateOptions {
   brief?: string;
@@ -17,85 +18,23 @@ export interface GenerateOptions {
   retry?: number;
   size?: string;
   quality?: string;
+  provider?: ProviderName;
 }
 
 export interface GenerateResult {
   outputPath: string;
   sessionFile: string;
   responseId: string;
+  provider: string;
   checkResult?: { pass: boolean; issues: string };
-}
-
-/**
- * Call OpenAI Responses API with image_generation tool.
- * Returns the response ID and base64 image data.
- */
-async function callImageGeneration(
-  apiKey: string,
-  prompt: string,
-  size: string,
-  quality: string,
-): Promise<{ responseId: string; imageData: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        input: prompt,
-        tools: [{
-          type: "image_generation",
-          size,
-          quality,
-        }],
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      if (response.status === 403 && error.includes("organization must be verified")) {
-        throw new Error(
-          "OpenAI organization verification required.\n"
-          + "Go to https://platform.openai.com/settings/organization to verify.\n"
-          + "After verification, wait up to 15 minutes for access to propagate.",
-        );
-      }
-      throw new Error(`API error (${response.status}): ${error.slice(0, 200)}`);
-    }
-
-    const data = await response.json() as any;
-
-    const imageItem = data.output?.find((item: any) =>
-      item.type === "image_generation_call"
-    );
-
-    if (!imageItem?.result) {
-      throw new Error(
-        `No image data in response. Output types: ${data.output?.map((o: any) => o.type).join(", ") || "none"}`
-      );
-    }
-
-    return {
-      responseId: data.id,
-      imageData: imageItem.result,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 /**
  * Generate a single mockup from a brief.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
-  const apiKey = requireApiKey();
+  const providerName = options.provider || "openai";
+  const provider = createProvider(providerName);
 
   // Parse the brief
   const prompt = options.briefFile
@@ -115,7 +54,9 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
 
     // Generate the image
     const startTime = Date.now();
-    const { responseId, imageData } = await callImageGeneration(apiKey, prompt, size, quality);
+    const { id: responseId, imageData } = await provider.generateImage({
+      prompt, size, quality,
+    });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
     // Write to disk
@@ -127,15 +68,16 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
     // Create session
     const session = createSession(responseId, prompt, options.output);
 
-    console.error(`Generated (${elapsed}s, ${(imageBuffer.length / 1024).toFixed(0)}KB) → ${options.output}`);
+    console.error(`Generated via ${providerName} (${elapsed}s, ${(imageBuffer.length / 1024).toFixed(0)}KB) → ${options.output}`);
 
     lastResult = {
       outputPath: options.output,
       sessionFile: sessionPath(session.id),
       responseId,
+      provider: providerName,
     };
 
-    // Quality check if requested
+    // Quality check if requested (always uses OpenAI vision)
     if (options.check) {
       const checkResult = await checkMockup(options.output, prompt);
       lastResult.checkResult = checkResult;
