@@ -43,34 +43,36 @@ describe("role config defaults", () => {
     );
     expect(DEFAULT_ROLE_CONFIGS.reviewSecondary.command).toBeUndefined();
     expect(DEFAULT_ROLE_CONFIGS.qa.command).toBe("/qa");
-    expect(DEFAULT_ROLE_CONFIGS.primaryImpl.provider).toBe("kimi");
+    expect(DEFAULT_ROLE_CONFIGS.testWriter.provider).toBe("codex");
+    expect(DEFAULT_ROLE_CONFIGS.testWriter.model).toBe("gpt-5.5");
+    expect(DEFAULT_ROLE_CONFIGS.primaryImpl.provider).toBe("gemini");
     expect(DEFAULT_ROLE_CONFIGS.primaryImpl.model).toBe(
-      "kimi-code/kimi-for-coding",
+      "gemini-3-pro-preview",
     );
     expect(DEFAULT_ROLE_CONFIGS.ship.provider).toBe("codex");
-    expect(DEFAULT_ROLE_CONFIGS.ship.model).toBe("gpt-5.5");
+    expect(DEFAULT_ROLE_CONFIGS.ship.model).toBe("gpt-codex-spark");
     expect(DEFAULT_ROLE_CONFIGS.ship.command).toBe("/ship");
     expect(DEFAULT_ROLE_CONFIGS.land.provider).toBe("codex");
-    expect(DEFAULT_ROLE_CONFIGS.land.model).toBe("gpt-5.5");
+    expect(DEFAULT_ROLE_CONFIGS.land.model).toBe("gpt-codex-spark");
     expect(DEFAULT_ROLE_CONFIGS.land.command).toBe("/land-and-deploy");
     expect(DEFAULT_ROLE_CONFIGS.contextSave.command).toBe("/context-save");
   });
 
-  it("routes template-only plan location through kimi in configure.cm", () => {
+  it("routes template-only plan location through gemini in configure.cm", () => {
     const loaded = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
-    expect((loaded.roles as any).planLocator.provider).toBe("kimi");
+    expect((loaded.roles as any).planLocator.provider).toBe("gemini");
     expect((loaded.roles as any).planLocator.model).toBe(
-      "kimi-code/kimi-for-coding",
+      "gemini-3-pro-preview",
     );
   });
 
-  it("includes the featureReview role with codex/gpt-5.5 defaults", () => {
-    // The configurable post-implementation reviewer. Default codex/gpt-5.5/xhigh
+  it("includes the featureReview role with claude/opus defaults", () => {
+    // The configurable post-implementation reviewer. Default claude/opus/xhigh
     // — surfaced via --feature-review-{provider,model,reasoning} CLI flags
     // and GSTACK_BUILD_FEATURE_REVIEW_{PROVIDER,MODEL,REASONING} env vars.
     expect(DEFAULT_ROLE_CONFIGS.featureReview).toBeDefined();
-    expect(DEFAULT_ROLE_CONFIGS.featureReview.provider).toBe("codex");
-    expect(DEFAULT_ROLE_CONFIGS.featureReview.model).toBe("gpt-5.5");
+    expect(DEFAULT_ROLE_CONFIGS.featureReview.provider).toBe("claude");
+    expect(DEFAULT_ROLE_CONFIGS.featureReview.model).toBe("claude-opus-4-7");
     expect(DEFAULT_ROLE_CONFIGS.featureReview.reasoning).toBe("xhigh");
     // No `command` field — featureReview is a direct sub-agent invocation,
     // not a slash-command gate (review/qa/ship/land all carry .command).

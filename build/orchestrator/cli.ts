@@ -62,10 +62,11 @@ import {
   runKimi,
   runClaudeTask,
   runSlashCommand,
+  runRoleTask as runGeminiRoleTask,
   detectTestCmd,
   runTests,
   runCodexImpl,
-  runJudge,
+  runCodexReview,
   parseVerdict,
   parseFailureCount,
   parseJudgeVerdict,
@@ -96,6 +97,8 @@ import type {
   BuildLaunchOptions,
   BuildState,
   Phase,
+  DualImplCandidateKey,
+  DualImplState,
   DualImplTestResult,
   SubAgentInvocation,
 } from "./types";
@@ -116,6 +119,33 @@ import { BUILD_DEFAULTS } from "./build-config";
 
 const DEFAULT_MAX_ORIGIN_VERIFICATION_ITERATIONS =
   BUILD_DEFAULTS.limits.originVerificationMaxIterations;
+const DEFAULT_JUDGE_TIMEOUT_MS = Number(
+  process.env.GSTACK_BUILD_JUDGE_TIMEOUT || BUILD_DEFAULTS.timeoutsMs.judge,
+);
+const DUAL_CANDIDATES = ["primary", "secondary"] as const;
+
+function candidateLabel(key: DualImplCandidateKey): string {
+  return key === "primary" ? "Primary" : "Secondary";
+}
+
+function candidateRole(
+  roles: RoleConfigs,
+  key: DualImplCandidateKey,
+): RoleConfig {
+  return key === "primary" ? roles.primaryImpl : roles.secondaryImpl;
+}
+
+function isLegacyDualImplState(dualImpl: unknown): boolean {
+  return (
+    !!dualImpl &&
+    typeof dualImpl === "object" &&
+    ("geminiWorktreePath" in dualImpl || "codexWorktreePath" in dualImpl)
+  );
+}
+
+function legacyDualImplError(): string {
+  return "Existing dual-impl state uses the old gemini/codex shape. Delete the stale build state or rerun this phase so gstack-build can create primary/secondary worktrees.";
+}
 
 export interface Args {
   mode: "build" | "merge";
@@ -350,21 +380,6 @@ export function validateRoleProviders(
   if (args.dualImpl) {
     if (args.parallelPhases > 1) {
       errors.push("--parallel-phases cannot be combined with --dual-impl yet");
-    }
-    if (args.roles.primaryImpl.provider !== "gemini") {
-      errors.push(
-        "--primary-impl-provider must be gemini when --dual-impl is enabled",
-      );
-    }
-    if (args.roles.secondaryImpl.provider !== "codex") {
-      errors.push(
-        "--secondary-impl-provider must be codex when --dual-impl is enabled",
-      );
-    }
-    if (args.roles.judge.provider !== "claude") {
-      errors.push(
-        "--judge-provider must be claude when --dual-impl is enabled",
-      );
     }
   }
   return errors;
@@ -685,7 +700,7 @@ Flags:
                        hard-fail (F4 will swap this for an interactive
                        prompt to allow a 4th cycle).
   --feature-review-model <m>       Default: ${DEFAULT_ROLE_CONFIGS.featureReview.model}.
-  --dual-impl          Tournament mode: Gemini and Codex implement in parallel
+  --dual-impl          Tournament mode: primary and secondary implement in parallel
                        (isolated git worktrees), the configured judge picks the winner
                        is cherry-picked back. Existing TDD pipeline runs after.
   --parallel-phases N  Opt-in planner for independent phases inside one feature.
@@ -700,7 +715,7 @@ Flags:
   --ship-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.ship.model}.
   --land-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.land.model}.
   --context-save-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.contextSave.model}.
-  --<role>-provider <p>            claude|codex|gemini|kimi. Some workflows require fixed providers.
+  --<role>-provider <p>            claude|codex|gemini|kimi. Dual-impl implementors and judge are model-agnostic.
   --<role>-reasoning <r>           low|medium|high|xhigh.
   --<role>-command <cmd>           For review, review-secondary, qa, ship, land, context-save.
   --gemini-model <m>               Deprecated alias for --primary-impl-model.
@@ -1634,12 +1649,15 @@ export function buildGeminiTestSpecPrompt(
   ].join("\n");
 }
 
-export function buildCodexImplPromptBody(
-  phase: Phase,
-  planFile: string,
-): string {
+export function buildDualImplPromptBody(opts: {
+  phase: Phase;
+  planFile: string;
+  candidate: DualImplCandidateKey;
+  opponent: DualImplCandidateKey;
+}): string {
+  const { phase, planFile, candidate, opponent } = opts;
   return [
-    `# Phase ${phase.number}: ${phase.name} — Codex Implementation (dual-impl tournament)`,
+    `# Phase ${phase.number}: ${phase.name} — ${candidate} implementation (dual-impl tournament)`,
     ``,
     `Plan file: ${planFile}`,
     ``,
@@ -1649,7 +1667,7 @@ export function buildCodexImplPromptBody(
     ``,
     `## Instructions`,
     ``,
-    `You are competing against Gemini in a tournament. Both of you are implementing this phase`,
+    `You are the ${candidate} implementor competing against the ${opponent} implementor in a tournament. Both of you are implementing this phase`,
     `independently in isolated git worktrees. After both finish, the configured judge will pick the better`,
     `implementation.`,
     ``,
@@ -1664,19 +1682,20 @@ export function buildCodexImplPromptBody(
 
 export function buildJudgePrompt(opts: {
   phase: Phase;
-  geminiDiff: string;
-  codexDiff: string;
-  geminiTestResult: DualImplTestResult;
-  codexTestResult: DualImplTestResult;
-  geminiFixIterations?: number | null;
-  codexFixIterations?: number | null;
-  /** Truncated test-failure output at each fix iteration for Gemini. */
-  geminiFixHistory?: string;
-  /** Truncated test-failure output at each fix iteration for Codex. */
-  codexFixHistory?: string;
+  candidates: Record<
+    DualImplCandidateKey,
+    {
+      label: string;
+      provider: string;
+      model: string;
+      diff: string;
+      testResult: DualImplTestResult;
+      fixIterations?: number | null;
+      fixHistory?: string;
+    }
+  >;
 }): string {
-  const { phase, geminiDiff, codexDiff, geminiTestResult, codexTestResult } =
-    opts;
+  const { phase } = opts;
   // 40 000 chars ≈ 500 lines × 80 chars — matches the design spec cap.
   const trim = (s: string, max = 40000) =>
     s.length <= max
@@ -1697,40 +1716,36 @@ export function buildJudgePrompt(opts: {
     return `Fix iterations: ${n} (required ${n} fix pass${n === 1 ? "" : "es"} to reach this state)`;
   };
 
+  const fmtCandidate = (key: DualImplCandidateKey) => {
+    const candidate = opts.candidates[key];
+    return [
+      `## ${candidate.label} implementor (${candidate.provider}:${candidate.model}) implementation (diff from base)`,
+      ``,
+      "```diff",
+      trim(candidate.diff),
+      "```",
+      ``,
+      `## ${candidate.label} test result`,
+      fmtTest(candidate.testResult),
+      fmtFixIter(candidate.fixIterations),
+      candidate.fixHistory
+        ? `\n## ${candidate.label} fix history (what failed at each iteration)\n\n${trimHistory(candidate.fixHistory)}`
+        : "",
+    ].join("\n");
+  };
+
   return [
     `You are a code quality judge. Two implementations of the same task were produced`,
-    `independently by Gemini and Codex, each running their own recursive test-fix loop.`,
+    `independently by the primary and secondary implementors, each running their own recursive test-fix loop.`,
     `Compare them and pick the better one.`,
     ``,
     `## Task: Phase ${phase.number} — ${phase.name}`,
     ``,
     phase.body.trim(),
     ``,
-    `## Gemini implementation (diff from base)`,
+    fmtCandidate("primary"),
     ``,
-    "```diff",
-    trim(geminiDiff),
-    "```",
-    ``,
-    `## Gemini test result`,
-    fmtTest(geminiTestResult),
-    fmtFixIter(opts.geminiFixIterations),
-    opts.geminiFixHistory
-      ? `\n## Gemini fix history (what failed at each iteration)\n\n${trimHistory(opts.geminiFixHistory)}`
-      : "",
-    ``,
-    `## Codex implementation (diff from base)`,
-    ``,
-    "```diff",
-    trim(codexDiff),
-    "```",
-    ``,
-    `## Codex test result`,
-    fmtTest(codexTestResult),
-    fmtFixIter(opts.codexFixIterations),
-    opts.codexFixHistory
-      ? `\n## Codex fix history (what failed at each iteration)\n\n${trimHistory(opts.codexFixHistory)}`
-      : "",
+    fmtCandidate("secondary"),
     ``,
     `## Your verdict`,
     ``,
@@ -1753,7 +1768,7 @@ export function buildJudgePrompt(opts: {
     ``,
     `Respond EXACTLY in this format — each keyword must be at the start of its own line:`,
     ``,
-    `WINNER: gemini`,
+    `WINNER: primary`,
     `REASONING: <one paragraph, concrete reasons — cite line counts, fix iterations, specific`,
     `code patterns that influenced your decision>`,
     `HARDENING: <bullet list of every concrete bug or edge case that appeared in EITHER`,
@@ -1762,7 +1777,7 @@ export function buildJudgePrompt(opts: {
     `AND issues from the losing side that the winner may not have encountered. If there are no`,
     `failure histories or all issues are trivially handled, write "-> none identified".>`,
     ``,
-    `Replace 'gemini' with 'codex' if Codex wins. Use lowercase. The WINNER line must`,
+    `Replace 'primary' with 'secondary' if the secondary implementor wins. Use lowercase. The WINNER line must`,
     `be at the start of its line — do not embed it in prose.`,
   ].join("\n");
 }
@@ -1935,6 +1950,79 @@ async function runRoleTask(opts: {
     logPrefix: opts.logPrefix,
     model: opts.role.model,
     reasoning: opts.role.reasoning,
+  });
+}
+
+async function runJudgeRole(opts: {
+  role: RoleConfig;
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+}): Promise<SubAgentResult> {
+  const command =
+    "Judge the two implementations described in the instructions. Do not edit files.";
+  if (opts.role.provider === "gemini") {
+    return runGeminiRoleTask({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber,
+      iteration: 1,
+      logPrefix: "judge",
+      command,
+      model: opts.role.model,
+      gate: false,
+      timeoutMs: DEFAULT_JUDGE_TIMEOUT_MS,
+    });
+  }
+  if (opts.role.provider === "kimi") {
+    return runKimi({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber,
+      iteration: 1,
+      logPrefix: "judge",
+      command,
+      model: opts.role.model,
+      gate: false,
+      timeoutMs: DEFAULT_JUDGE_TIMEOUT_MS,
+    });
+  }
+  if (opts.role.provider === "codex") {
+    return runCodexReview({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber,
+      iteration: 1,
+      logPrefix: "judge",
+      command,
+      model: opts.role.model,
+      reasoning: opts.role.reasoning,
+      sandbox: "read-only",
+      gate: false,
+      timeoutMs: DEFAULT_JUDGE_TIMEOUT_MS,
+    });
+  }
+  return runClaudeTask({
+    inputFilePath: opts.inputFilePath,
+    outputFilePath: opts.outputFilePath,
+    cwd: opts.cwd,
+    slug: opts.slug,
+    phaseNumber: opts.phaseNumber,
+    iteration: 1,
+    logPrefix: "judge",
+    command,
+    model: opts.role.model,
+    reasoning: opts.role.reasoning,
+    gate: false,
+    timeoutMs: DEFAULT_JUDGE_TIMEOUT_MS,
   });
 }
 
@@ -2261,14 +2349,15 @@ function writeMergedReport(
 
 /**
  * After an implementor's initial pass, run tests and fix recursively in that
- * worktree until green or maxFixIter exhausted. Both Gemini and Codex loops
+ * worktree until green or maxFixIter exhausted. Both candidate loops
  * run inside Promise.all — they are fully concurrent and independent.
  *
  * Returns the final DualImplTestResult and the number of fix passes that ran
  * (0 = passed on first try, N = needed N fix passes).
  */
 async function runDualImplFixLoop(opts: {
-  model: "gemini" | "codex";
+  candidate: DualImplCandidateKey;
+  role: RoleConfig;
   worktreePath: string;
   phase: Phase;
   planFile: string;
@@ -2277,16 +2366,14 @@ async function runDualImplFixLoop(opts: {
   phaseNumber: string;
   testCmd: string | null;
   maxFixIter: number;
-  geminiModel?: string;
-  codexModel?: string;
-  codexReasoning?: RoleConfig["reasoning"];
 }): Promise<{
   testResult: DualImplTestResult;
   fixIterations: number | null;
   fixHistory: string;
 }> {
   const {
-    model,
+    candidate,
+    role,
     worktreePath,
     phase,
     planFile,
@@ -2295,9 +2382,6 @@ async function runDualImplFixLoop(opts: {
     phaseNumber,
     testCmd,
     maxFixIter,
-    geminiModel,
-    codexModel,
-    codexReasoning,
   } = opts;
 
   if (!testCmd) {
@@ -2325,7 +2409,7 @@ async function runDualImplFixLoop(opts: {
     slug,
     phaseNumber,
     iteration: 1,
-    logSuffix: `${model}-pre`,
+    logSuffix: `${candidate}-pre`,
   });
   let testResult: DualImplTestResult = {
     worktreePath,
@@ -2345,18 +2429,18 @@ async function runDualImplFixLoop(opts: {
   for (let i = 1; i <= maxFixIter; i++) {
     const fixInput = path.join(
       ld,
-      `phase-${phaseNumber}-dual-${model}-fix${i}-input.md`,
+      `phase-${phaseNumber}-dual-${candidate}-fix${i}-input.md`,
     );
     const fixOutput = path.join(
       ld,
-      `phase-${phaseNumber}-dual-${model}-fix${i}-output.md`,
+      `phase-${phaseNumber}-dual-${candidate}-fix${i}-output.md`,
     );
 
     const fixBody = [
-      `# Phase ${phase.number}: ${phase.name} — Fix Failing Tests (dual-impl ${model}, pass ${i})`,
+      `# Phase ${phase.number}: ${phase.name} — Fix Failing Tests (dual-impl ${candidate}, pass ${i})`,
       ``,
       `Plan file: ${planFile}`,
-      model === "gemini" ? `Branch: ${branch}` : ``,
+      `Branch: ${branch}`,
       ``,
       `## Failing test output`,
       ``,
@@ -2377,31 +2461,16 @@ async function runDualImplFixLoop(opts: {
     fs.writeFileSync(fixInput, fixBody);
     fs.writeFileSync(fixOutput, "");
 
-    let fixResult: SubAgentResult;
-    if (model === "gemini") {
-      fixResult = await runGemini({
-        inputFilePath: fixInput,
-        outputFilePath: fixOutput,
-        cwd: worktreePath,
-        slug,
-        phaseNumber,
-        iteration: i,
-        logPrefix: `dual-gemini-fix${i}`,
-        model: geminiModel,
-      });
-    } else {
-      fixResult = await runCodexImpl({
-        inputFilePath: fixInput,
-        outputFilePath: fixOutput,
-        cwd: worktreePath,
-        slug,
-        phaseNumber,
-        iteration: i,
-        logPrefix: `dual-codex-fix${i}`,
-        model: codexModel,
-        reasoning: codexReasoning,
-      });
-    }
+    const fixResult = await runRoleTask({
+      role,
+      inputFilePath: fixInput,
+      outputFilePath: fixOutput,
+      cwd: worktreePath,
+      slug,
+      phaseNumber,
+      iteration: i,
+      logPrefix: `dual-${candidate}-fix${i}`,
+    });
     // If the model itself failed, there are no new commits — running tests again
     // would produce identical failures and waste the remaining fix budget.
     if (fixResult.timedOut || fixResult.exitCode !== 0) {
@@ -2418,7 +2487,7 @@ async function runDualImplFixLoop(opts: {
       slug,
       phaseNumber,
       iteration: i + 1,
-      logSuffix: `${model}-fix${i}`,
+      logSuffix: `${candidate}-fix${i}`,
     });
     testResult = {
       worktreePath,
@@ -3327,7 +3396,7 @@ async function runPhase(args: {
 
     if (action.type === "RUN_DUAL_IMPL") {
       console.log(
-        `  → Dual Impl: spawning Gemini + Codex in parallel worktrees (iter ${action.iteration})`,
+        `  → Dual Impl: spawning primary + secondary implementors in parallel worktrees (iter ${action.iteration})`,
       );
       let result: SubAgentResult;
       if (dryRun) {
@@ -3337,10 +3406,20 @@ async function runPhase(args: {
         });
         phaseState = applyResult(phaseState, action, result, {
           dualImplInit: {
-            geminiWorktreePath: "/tmp/dryrun-gemini",
-            codexWorktreePath: "/tmp/dryrun-codex",
-            geminiBranch: "dryrun-gemini",
-            codexBranch: "dryrun-codex",
+            candidates: {
+              primary: {
+                worktreePath: "/tmp/dryrun-primary",
+                branch: "dryrun-primary",
+                provider: args.roles.primaryImpl.provider,
+                model: args.roles.primaryImpl.model,
+              },
+              secondary: {
+                worktreePath: "/tmp/dryrun-secondary",
+                branch: "dryrun-secondary",
+                provider: args.roles.secondaryImpl.provider,
+                model: args.roles.secondaryImpl.model,
+              },
+            },
             baseCommit: "dryrun-base",
           },
         });
@@ -3353,11 +3432,18 @@ async function runPhase(args: {
 
       // If a prior run crashed between createWorktrees and saveState, phaseState.dualImpl
       // already holds the orphaned paths — tear them down before creating a fresh pair.
-      if (phaseState.dualImpl?.geminiWorktreePath) {
+      if (isLegacyDualImplState(phaseState.dualImpl)) {
+        phaseState.status = "failed";
+        phaseState.error = legacyDualImplError();
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
+      if (phaseState.dualImpl?.candidates) {
         console.log(
           `  ↩ Tearing down orphaned worktrees from interrupted prior run…`,
         );
-        teardownWorktrees({ cwd, dualImpl: phaseState.dualImpl as any });
+        teardownWorktrees({ cwd, dualImpl: phaseState.dualImpl });
       }
 
       let pair;
@@ -3386,12 +3472,20 @@ async function runPhase(args: {
       // commit-validation throw) doesn't leak the worktrees. (Phase 4 review,
       // MEDIUM: cleanup guard.)
       const dualState = {
-        geminiWorktreePath: pair.geminiWorktreePath,
-        codexWorktreePath: pair.codexWorktreePath,
-        geminiBranch: pair.geminiBranch,
-        codexBranch: pair.codexBranch,
+        candidates: {
+          primary: {
+            ...pair.candidates.primary,
+            provider: args.roles.primaryImpl.provider,
+            model: args.roles.primaryImpl.model,
+          },
+          secondary: {
+            ...pair.candidates.secondary,
+            provider: args.roles.secondaryImpl.provider,
+            model: args.roles.secondaryImpl.model,
+          },
+        },
         baseCommit: pair.baseCommit,
-      };
+      } satisfies DualImplState;
 
       // Persist worktree paths immediately so that if we crash before applyResult
       // saves them, the next resume finds them and can tear down the orphaned pair.
@@ -3401,203 +3495,138 @@ async function runPhase(args: {
 
       let dualImplOk = false;
       try {
-        const implPromptBody = buildGeminiPromptBody(
-          phase,
-          state.planFile,
-          state.branch,
-        );
-        const codexPromptBody = buildCodexImplPromptBody(phase, state.planFile);
-
         const slug = state.slug;
         const phaseN = phase.number;
         const it = action.iteration;
 
-        const geminiInputPath = path.join(
-          logDir(slug),
-          `phase-${phaseN}-dual-gemini-${it}-input.md`,
-        );
-        const geminiOutputPath = path.join(
-          logDir(slug),
-          `phase-${phaseN}-dual-gemini-${it}-output.md`,
-        );
-        const codexInputPath = path.join(
-          logDir(slug),
-          `phase-${phaseN}-dual-codex-${it}-input.md`,
-        );
-        const codexOutputPath = path.join(
-          logDir(slug),
-          `phase-${phaseN}-dual-codex-${it}-output.md`,
-        );
-
-        fs.writeFileSync(geminiInputPath, implPromptBody);
-        fs.writeFileSync(geminiOutputPath, "");
-        fs.writeFileSync(codexInputPath, codexPromptBody);
-        fs.writeFileSync(codexOutputPath, "");
-
-        // Run both in parallel — each model has its own recursive fix loop so it
-        // arrives at the judge having already converged as far as it can.
         const dualTestCmd = args.testCmd ?? detectTestCmd(cwd);
-        const [
-          {
-            implResult: gRes,
-            testResult: gFinalTest,
-            fixIterations: gFixIter,
-            fixHistory: gFixHistory,
-            testedCommit: gTestedCommit,
-          },
-          {
-            implResult: cRes,
-            testResult: cFinalTest,
-            fixIterations: cFixIter,
-            fixHistory: cFixHistory,
-            testedCommit: cTestedCommit,
-          },
-        ] = await Promise.all([
-          (async () => {
-            const implResult = await runGemini({
-              inputFilePath: geminiInputPath,
-              outputFilePath: geminiOutputPath,
-              cwd: pair.geminiWorktreePath,
+
+        const runCandidate = async (candidate: DualImplCandidateKey) => {
+          const opponent: DualImplCandidateKey =
+            candidate === "primary" ? "secondary" : "primary";
+          const role = candidateRole(args.roles, candidate);
+          const candidateState = dualState.candidates[candidate];
+          const inputPath = path.join(
+            logDir(slug),
+            `phase-${phaseN}-dual-${candidate}-${it}-input.md`,
+          );
+          const outputPath = path.join(
+            logDir(slug),
+            `phase-${phaseN}-dual-${candidate}-${it}-output.md`,
+          );
+
+          fs.writeFileSync(
+            inputPath,
+            buildDualImplPromptBody({
+              phase,
+              planFile: state.planFile,
+              candidate,
+              opponent,
+            }),
+          );
+          fs.writeFileSync(outputPath, "");
+
+          const implResult = await runRoleTask({
+            role,
+            inputFilePath: inputPath,
+            outputFilePath: outputPath,
+            cwd: candidateState.worktreePath,
+            slug,
+            phaseNumber: phaseN,
+            iteration: it,
+            logPrefix: `dual-${candidate}`,
+          });
+          if (implResult.timedOut || implResult.exitCode !== 0) {
+            const failTest: DualImplTestResult = {
+              worktreePath: candidateState.worktreePath,
+              testExitCode: 1,
+              testLogPath: implResult.logPath,
+              timedOut: implResult.timedOut,
+            };
+            return {
+              candidate,
+              implResult,
+              testResult: failTest,
+              fixIterations: null,
+              fixHistory: "",
+              testedCommit: undefined,
+            };
+          }
+          const { testResult, fixIterations, fixHistory } =
+            await runDualImplFixLoop({
+              candidate,
+              role,
+              worktreePath: candidateState.worktreePath,
+              phase,
+              planFile: state.planFile,
+              branch: candidateState.branch,
               slug,
               phaseNumber: phaseN,
-              iteration: it,
-              logPrefix: "dual-gemini",
-              model: args.roles.primaryImpl.model,
+              testCmd: dualTestCmd,
+              maxFixIter: DEFAULT_MAX_TEST_ITERATIONS,
             });
-            if (implResult.timedOut || implResult.exitCode !== 0) {
-              const failTest: DualImplTestResult = {
-                worktreePath: pair.geminiWorktreePath,
-                testExitCode: 1,
-                testLogPath: implResult.logPath,
-                timedOut: implResult.timedOut,
-              };
-              return {
-                implResult,
-                testResult: failTest,
-                fixIterations: null,
-                fixHistory: "",
-                testedCommit: undefined,
-              };
-            }
-            const { testResult, fixIterations, fixHistory } =
-              await runDualImplFixLoop({
-                model: "gemini",
-                worktreePath: pair.geminiWorktreePath,
-                phase,
-                planFile: state.planFile,
-                branch: state.branch,
-                slug,
-                phaseNumber: phaseN,
-                testCmd: dualTestCmd,
-                maxFixIter: DEFAULT_MAX_TEST_ITERATIONS,
-                geminiModel: args.roles.primaryImpl.model,
-              });
-            const gHeadR = spawnSync(
-              "git",
-              ["-C", pair.geminiWorktreePath, "rev-parse", "HEAD"],
-              { encoding: "utf8" },
-            );
-            return {
-              implResult,
-              testResult,
-              fixIterations,
-              fixHistory,
-              testedCommit: gHeadR.stdout.trim() || undefined,
-            };
-          })(),
-          (async () => {
-            const implResult = await runCodexImpl({
-              inputFilePath: codexInputPath,
-              outputFilePath: codexOutputPath,
-              cwd: pair.codexWorktreePath,
-              slug,
-              phaseNumber: phaseN,
-              iteration: it,
-              model: args.roles.secondaryImpl.model,
-              reasoning: args.roles.secondaryImpl.reasoning,
-            });
-            if (implResult.timedOut || implResult.exitCode !== 0) {
-              const failTest: DualImplTestResult = {
-                worktreePath: pair.codexWorktreePath,
-                testExitCode: 1,
-                testLogPath: implResult.logPath,
-                timedOut: implResult.timedOut,
-              };
-              return {
-                implResult,
-                testResult: failTest,
-                fixIterations: null,
-                fixHistory: "",
-                testedCommit: undefined,
-              };
-            }
-            const { testResult, fixIterations, fixHistory } =
-              await runDualImplFixLoop({
-                model: "codex",
-                worktreePath: pair.codexWorktreePath,
-                phase,
-                planFile: state.planFile,
-                branch: state.branch,
-                slug,
-                phaseNumber: phaseN,
-                testCmd: dualTestCmd,
-                maxFixIter: DEFAULT_MAX_TEST_ITERATIONS,
-                codexModel: args.roles.secondaryImpl.model,
-                codexReasoning: args.roles.secondaryImpl.reasoning,
-              });
-            const cHeadR = spawnSync(
-              "git",
-              ["-C", pair.codexWorktreePath, "rev-parse", "HEAD"],
-              { encoding: "utf8" },
-            );
-            return {
-              implResult,
-              testResult,
-              fixIterations,
-              fixHistory,
-              testedCommit: cHeadR.stdout.trim() || undefined,
-            };
-          })(),
+          const headResult = spawnSync(
+            "git",
+            ["-C", candidateState.worktreePath, "rev-parse", "HEAD"],
+            { encoding: "utf8" },
+          );
+          return {
+            candidate,
+            implResult,
+            testResult,
+            fixIterations,
+            fixHistory,
+            testedCommit: headResult.stdout.trim() || undefined,
+          };
+        };
+
+        const [primaryResult, secondaryResult] = await Promise.all([
+          runCandidate("primary"),
+          runCandidate("secondary"),
         ]);
 
         // Validate each implementor produced committed work — uncommitted edits
         // would pass tests but applyWinner would have nothing to cherry-pick.
-        // (Phase 4 review, HIGH; refined Phase 5 /codex review P2.)
-        const gCommits = countCommitsSinceBase(
-          pair.geminiWorktreePath,
+        // (Phase 4 review, HIGH; refined Phase 5 review P2.)
+        const primaryCommits = countCommitsSinceBase(
+          dualState.candidates.primary.worktreePath,
           pair.baseCommit,
         );
-        const cCommits = countCommitsSinceBase(
-          pair.codexWorktreePath,
+        const secondaryCommits = countCommitsSinceBase(
+          dualState.candidates.secondary.worktreePath,
           pair.baseCommit,
         );
 
         // null = git rev-list failed (worktree may be broken) — fail closed rather than
         // silently treating it as "0 commits" and auto-selecting the other side.
-        if (gCommits === null || cCommits === null) {
+        if (primaryCommits === null || secondaryCommits === null) {
           phaseState.status = "failed";
-          phaseState.error = `Failed to count commits since base — cannot determine implementation eligibility (gemini=${gCommits}, codex=${cCommits})`;
+          phaseState.error = `Failed to count commits since base — cannot determine implementation eligibility (primary=${primaryCommits}, secondary=${secondaryCommits})`;
           state.phases[phase.index] = phaseState;
           saveState(state, { noGbrain, log: console.warn });
           continue;
         }
 
-        const gCommitted = gCommits > 0;
-        const cCommitted = cCommits > 0;
+        const primaryCommitted = primaryCommits > 0;
+        const secondaryCommitted = secondaryCommits > 0;
 
         // Catastrophic = BOTH timed out, OR both exited non-zero, OR neither committed.
         // One-sided timeout is NOT catastrophic — if only one side timed out but the
         // other committed work, the auto-select logic below handles it (committed side wins).
-        const bothTimedOut = gRes.timedOut && cRes.timedOut;
-        const bothExitNonZero = gRes.exitCode !== 0 && cRes.exitCode !== 0;
-        const neitherCommitted = !gCommitted && !cCommitted;
+        const bothTimedOut =
+          primaryResult.implResult.timedOut &&
+          secondaryResult.implResult.timedOut;
+        const bothExitNonZero =
+          primaryResult.implResult.exitCode !== 0 &&
+          secondaryResult.implResult.exitCode !== 0;
+        const neitherCommitted = !primaryCommitted && !secondaryCommitted;
 
         if (bothTimedOut || bothExitNonZero || neitherCommitted) {
           phaseState.status = "failed";
           phaseState.error =
             `Dual implementation failed: ` +
-            `gemini exit=${gRes.exitCode} timedOut=${gRes.timedOut} commits=${gCommits}; ` +
-            `codex exit=${cRes.exitCode} timedOut=${cRes.timedOut} commits=${cCommits}`;
+            `primary exit=${primaryResult.implResult.exitCode} timedOut=${primaryResult.implResult.timedOut} commits=${primaryCommits}; ` +
+            `secondary exit=${secondaryResult.implResult.exitCode} timedOut=${secondaryResult.implResult.timedOut} commits=${secondaryCommits}`;
           state.phases[phase.index] = phaseState;
           saveState(state, { noGbrain, log: console.warn });
           // dualImplOk stays false → finally block will tear down.
@@ -3607,57 +3636,65 @@ async function runPhase(args: {
         // Synthetic success result for applyResult's exit-code check.
         const synthetic = mockResult({
           exitCode: 0,
-          stdout: `gemini ok (${gCommits} commits, ${gFixIter} fix iter)\ncodex ok (${cCommits} commits, ${cFixIter} fix iter)`,
-          logPath: gRes.logPath,
+          stdout: `primary ok (${primaryCommits} commits, ${primaryResult.fixIterations} fix iter)\nsecondary ok (${secondaryCommits} commits, ${secondaryResult.fixIterations} fix iter)`,
+          logPath: primaryResult.implResult.logPath,
         });
         phaseState = applyResult(phaseState, action, synthetic, {
           dualImplInit: {
             ...dualState,
-            geminiTestResult: gFinalTest,
-            codexTestResult: cFinalTest,
-            geminiFixIterations: gFixIter,
-            codexFixIterations: cFixIter,
-            geminiFixHistory: gFixHistory,
-            codexFixHistory: cFixHistory,
-            geminiTestedCommit: gTestedCommit,
-            codexTestedCommit: cTestedCommit,
+            candidates: {
+              primary: {
+                ...dualState.candidates.primary,
+                testResult: primaryResult.testResult,
+                fixIterations: primaryResult.fixIterations,
+                fixHistory: primaryResult.fixHistory,
+                testedCommit: primaryResult.testedCommit,
+              },
+              secondary: {
+                ...dualState.candidates.secondary,
+                testResult: secondaryResult.testResult,
+                fixIterations: secondaryResult.fixIterations,
+                fixHistory: secondaryResult.fixHistory,
+                testedCommit: secondaryResult.testedCommit,
+              },
+            },
           },
         });
 
-        // /codex review P2 — if exactly one side committed, the other is ineligible
+        // Review P2 — if exactly one side committed, the other is ineligible
         // (tests would pass on uncommitted edits but applyWinner can't cherry-pick).
         // Skip RUN_DUAL_TESTS + RUN_JUDGE entirely; auto-select the committed side.
-        if (gCommitted && !cCommitted) {
-          if (gFinalTest.testExitCode !== 0) {
+        if (primaryCommitted && !secondaryCommitted) {
+          if (primaryResult.testResult.testExitCode !== 0) {
             phaseState.status = "failed";
-            phaseState.error = `Gemini auto-selected (codex=0 commits) but tests are failing (exit=${gFinalTest.testExitCode}) — worktrees will be torn down; re-run gstack-build to retry this phase`;
+            phaseState.error = `Primary auto-selected (secondary=0 commits) but tests are failing (exit=${primaryResult.testResult.testExitCode}) — worktrees will be torn down; re-run gstack-build to retry this phase`;
             state.phases[phase.index] = phaseState;
             saveState(state, { noGbrain, log: console.warn });
             continue;
           }
           console.log(
-            `  ⚠ Codex did not commit (gemini=${gCommits} commits, codex=0) — auto-selecting gemini, skipping tests + judge`,
+            `  ⚠ Secondary did not commit (primary=${primaryCommits} commits, secondary=0) — auto-selecting primary, skipping tests + judge`,
           );
           phaseState.dualImpl = {
-            ...(phaseState.dualImpl as any),
-            selectedImplementor: "gemini",
+            ...(phaseState.dualImpl as DualImplState),
+            selectedImplementor: "primary",
             selectedBy: "auto",
           };
           phaseState.status = "dual_winner_pending";
-        } else if (!gCommitted && cCommitted) {
-          if (cFinalTest.testExitCode !== 0) {
+        } else if (!primaryCommitted && secondaryCommitted) {
+          if (secondaryResult.testResult.testExitCode !== 0) {
             phaseState.status = "failed";
-            phaseState.error = `Codex auto-selected (gemini=0 commits) but tests are failing (exit=${cFinalTest.testExitCode}) — worktrees will be torn down; re-run gstack-build to retry this phase`;
+            phaseState.error = `Secondary auto-selected (primary=0 commits) but tests are failing (exit=${secondaryResult.testResult.testExitCode}) — worktrees will be torn down; re-run gstack-build to retry this phase`;
             state.phases[phase.index] = phaseState;
             saveState(state, { noGbrain, log: console.warn });
             continue;
           }
           console.log(
-            `  ⚠ Gemini did not commit (gemini=0, codex=${cCommits} commits) — auto-selecting codex, skipping tests + judge`,
+            `  ⚠ Primary did not commit (primary=0, secondary=${secondaryCommits} commits) — auto-selecting secondary, skipping tests + judge`,
           );
           phaseState.dualImpl = {
-            ...(phaseState.dualImpl as any),
-            selectedImplementor: "codex",
+            ...(phaseState.dualImpl as DualImplState),
+            selectedImplementor: "secondary",
             selectedBy: "auto",
           };
           phaseState.status = "dual_winner_pending";
@@ -3671,10 +3708,7 @@ async function runPhase(args: {
           phaseState.dualImpl?.selectedBy === "auto"
         ) {
           const winner = phaseState.dualImpl.selectedImplementor;
-          const winnerPath =
-            winner === "gemini"
-              ? pair.geminiWorktreePath
-              : pair.codexWorktreePath;
+          const winnerPath = dualState.candidates[winner].worktreePath;
           const testDiff = spawnSync(
             "git",
             [
@@ -3697,7 +3731,7 @@ async function runPhase(args: {
               `  ⚠ Auto-selected ${winner} modified test files — routing to judge instead of auto-selecting`,
             );
             phaseState.dualImpl = {
-              ...(phaseState.dualImpl as any),
+              ...(phaseState.dualImpl as DualImplState),
               selectedImplementor: undefined,
               selectedBy: undefined,
             };
@@ -3741,47 +3775,68 @@ async function runPhase(args: {
         saveState(state, { noGbrain, log: console.warn });
         continue;
       }
+      if (isLegacyDualImplState(dual)) {
+        phaseState.status = "failed";
+        phaseState.error = legacyDualImplError();
+        state.phases[phase.index] = phaseState;
+        saveState(state, { noGbrain, log: console.warn });
+        continue;
+      }
 
-      let geminiTR: DualImplTestResult;
-      let codexTR: DualImplTestResult;
+      let candidateTestResults: Record<
+        DualImplCandidateKey,
+        DualImplTestResult
+      >;
 
       if (dryRun) {
-        geminiTR = {
-          worktreePath: dual.geminiWorktreePath,
-          testExitCode: 0,
-          testLogPath: "dryrun",
-          timedOut: false,
-          failureCount: 0,
+        candidateTestResults = {
+          primary: {
+            worktreePath: dual.candidates.primary.worktreePath,
+            testExitCode: 0,
+            testLogPath: "dryrun",
+            timedOut: false,
+            failureCount: 0,
+          },
+          secondary: {
+            worktreePath: dual.candidates.secondary.worktreePath,
+            testExitCode: 0,
+            testLogPath: "dryrun",
+            timedOut: false,
+            failureCount: 0,
+          },
         };
-        codexTR = {
-          worktreePath: dual.codexWorktreePath,
-          testExitCode: 0,
-          testLogPath: "dryrun",
-          timedOut: false,
-          failureCount: 0,
-        };
-      } else if (dual.geminiTestResult && dual.codexTestResult) {
+      } else if (
+        dual.candidates.primary.testResult &&
+        dual.candidates.secondary.testResult
+      ) {
         // Fix loops already ran during impl phase — validate worktree HEADs still match
         // the commit we tested (detect stale state on resume after a crash).
-        const gHead = spawnSync(
-          "git",
-          ["-C", dual.geminiWorktreePath, "rev-parse", "HEAD"],
-          { encoding: "utf8" },
-        ).stdout.trim();
-        const cHead = spawnSync(
-          "git",
-          ["-C", dual.codexWorktreePath, "rev-parse", "HEAD"],
-          { encoding: "utf8" },
-        ).stdout.trim();
-        const gStale =
-          !gHead ||
-          (dual.geminiTestedCommit && gHead !== dual.geminiTestedCommit);
-        const cStale =
-          !cHead ||
-          (dual.codexTestedCommit && cHead !== dual.codexTestedCommit);
-        if (gStale || cStale) {
+        const heads = Object.fromEntries(
+          DUAL_CANDIDATES.map((candidate) => [
+            candidate,
+            spawnSync(
+              "git",
+              [
+                "-C",
+                dual.candidates[candidate].worktreePath,
+                "rev-parse",
+                "HEAD",
+              ],
+              { encoding: "utf8" },
+            ).stdout.trim(),
+          ]),
+        ) as Record<DualImplCandidateKey, string>;
+        const stale = Object.fromEntries(
+          DUAL_CANDIDATES.map((candidate) => [
+            candidate,
+            !heads[candidate] ||
+              (!!dual.candidates[candidate].testedCommit &&
+                heads[candidate] !== dual.candidates[candidate].testedCommit),
+          ]),
+        ) as Record<DualImplCandidateKey, boolean>;
+        if (stale.primary || stale.secondary) {
           console.warn(
-            `  ⚠ Dual Tests: worktree HEAD changed since cached results (gemini: ${dual.geminiTestedCommit} → ${gHead}, codex: ${dual.codexTestedCommit} → ${cHead}) — re-running tests`,
+            `  ⚠ Dual Tests: worktree HEAD changed since cached results (primary: ${dual.candidates.primary.testedCommit} → ${heads.primary}, secondary: ${dual.candidates.secondary.testedCommit} → ${heads.secondary}) — re-running tests`,
           );
           // Re-run tests inline since cached results are stale.
           // Reuse the existing testCmd detection below.
@@ -3790,61 +3845,65 @@ async function runPhase(args: {
             console.warn(
               "  ⚠ no test command detected for dual-tests; assuming both green",
             );
-            geminiTR = {
-              worktreePath: dual.geminiWorktreePath,
-              testExitCode: 0,
-              testLogPath: "no-test-cmd",
-              timedOut: false,
-              failureCount: 0,
-            };
-            codexTR = {
-              worktreePath: dual.codexWorktreePath,
-              testExitCode: 0,
-              testLogPath: "no-test-cmd",
-              timedOut: false,
-              failureCount: 0,
+            candidateTestResults = {
+              primary: {
+                worktreePath: dual.candidates.primary.worktreePath,
+                testExitCode: 0,
+                testLogPath: "no-test-cmd",
+                timedOut: false,
+                failureCount: 0,
+              },
+              secondary: {
+                worktreePath: dual.candidates.secondary.worktreePath,
+                testExitCode: 0,
+                testLogPath: "no-test-cmd",
+                timedOut: false,
+                failureCount: 0,
+              },
             };
           } else {
-            const [g2, c2] = await Promise.all([
-              runTests({
+            const [primaryRun, secondaryRun] = await Promise.all(
+              DUAL_CANDIDATES.map((candidate) =>
+                runTests({
                 testCmd,
-                cwd: dual.geminiWorktreePath,
+                  cwd: dual.candidates[candidate].worktreePath,
                 slug: state.slug,
                 phaseNumber: phase.number,
                 iteration: 1,
-                logSuffix: "gemini-rerun",
+                  logSuffix: `${candidate}-rerun`,
               }),
-              runTests({
-                testCmd,
-                cwd: dual.codexWorktreePath,
-                slug: state.slug,
-                phaseNumber: phase.number,
-                iteration: 1,
-                logSuffix: "codex-rerun",
-              }),
-            ]);
-            geminiTR = {
-              worktreePath: dual.geminiWorktreePath,
-              testExitCode: g2.exitCode,
-              testLogPath: g2.logPath,
-              timedOut: g2.timedOut,
-              failureCount: parseFailureCount(g2.stdout + "\n" + g2.stderr),
-            };
-            codexTR = {
-              worktreePath: dual.codexWorktreePath,
-              testExitCode: c2.exitCode,
-              testLogPath: c2.logPath,
-              timedOut: c2.timedOut,
-              failureCount: parseFailureCount(c2.stdout + "\n" + c2.stderr),
+              ),
+            );
+            candidateTestResults = {
+              primary: {
+                worktreePath: dual.candidates.primary.worktreePath,
+                testExitCode: primaryRun.exitCode,
+                testLogPath: primaryRun.logPath,
+                timedOut: primaryRun.timedOut,
+                failureCount: parseFailureCount(
+                  primaryRun.stdout + "\n" + primaryRun.stderr,
+                ),
+              },
+              secondary: {
+                worktreePath: dual.candidates.secondary.worktreePath,
+                testExitCode: secondaryRun.exitCode,
+                testLogPath: secondaryRun.logPath,
+                timedOut: secondaryRun.timedOut,
+                failureCount: parseFailureCount(
+                  secondaryRun.stdout + "\n" + secondaryRun.stderr,
+                ),
+              },
             };
           }
         } else {
           // SHAs match — cached results are still valid.
           console.log(
-            `  → Dual Tests: reusing pre-computed results from fix loops (gemini fix iter=${dual.geminiFixIterations ?? "n/a"}, codex fix iter=${dual.codexFixIterations ?? "n/a"})`,
+            `  → Dual Tests: reusing pre-computed results from fix loops (primary fix iter=${dual.candidates.primary.fixIterations ?? "n/a"}, secondary fix iter=${dual.candidates.secondary.fixIterations ?? "n/a"})`,
           );
-          geminiTR = dual.geminiTestResult;
-          codexTR = dual.codexTestResult;
+          candidateTestResults = {
+            primary: dual.candidates.primary.testResult,
+            secondary: dual.candidates.secondary.testResult,
+          };
         }
       } else {
         const testCmd = args.testCmd ?? detectTestCmd(cwd);
@@ -3853,63 +3912,64 @@ async function runPhase(args: {
           console.warn(
             "  ⚠ no test command detected for dual-tests; assuming both green",
           );
-          geminiTR = {
-            worktreePath: dual.geminiWorktreePath,
-            testExitCode: 0,
-            testLogPath: "no-test-cmd",
-            timedOut: false,
-            failureCount: 0,
-          };
-          codexTR = {
-            worktreePath: dual.codexWorktreePath,
-            testExitCode: 0,
-            testLogPath: "no-test-cmd",
-            timedOut: false,
-            failureCount: 0,
+          candidateTestResults = {
+            primary: {
+              worktreePath: dual.candidates.primary.worktreePath,
+              testExitCode: 0,
+              testLogPath: "no-test-cmd",
+              timedOut: false,
+              failureCount: 0,
+            },
+            secondary: {
+              worktreePath: dual.candidates.secondary.worktreePath,
+              testExitCode: 0,
+              testLogPath: "no-test-cmd",
+              timedOut: false,
+              failureCount: 0,
+            },
           };
         } else {
-          const [g, c] = await Promise.all([
-            runTests({
+          const [primaryRun, secondaryRun] = await Promise.all(
+            DUAL_CANDIDATES.map((candidate) =>
+              runTests({
               testCmd,
-              cwd: dual.geminiWorktreePath,
+                cwd: dual.candidates[candidate].worktreePath,
               slug: state.slug,
               phaseNumber: phase.number,
               iteration: 1,
-              logSuffix: "gemini",
+                logSuffix: candidate,
             }),
-            runTests({
-              testCmd,
-              cwd: dual.codexWorktreePath,
-              slug: state.slug,
-              phaseNumber: phase.number,
-              iteration: 1,
-              logSuffix: "codex",
-            }),
-          ]);
-          geminiTR = {
-            worktreePath: dual.geminiWorktreePath,
-            testExitCode: g.exitCode,
-            testLogPath: g.logPath,
-            timedOut: g.timedOut,
-            failureCount: parseFailureCount(g.stdout + "\n" + g.stderr),
-          };
-          codexTR = {
-            worktreePath: dual.codexWorktreePath,
-            testExitCode: c.exitCode,
-            testLogPath: c.logPath,
-            timedOut: c.timedOut,
-            failureCount: parseFailureCount(c.stdout + "\n" + c.stderr),
+            ),
+          );
+          candidateTestResults = {
+            primary: {
+              worktreePath: dual.candidates.primary.worktreePath,
+              testExitCode: primaryRun.exitCode,
+              testLogPath: primaryRun.logPath,
+              timedOut: primaryRun.timedOut,
+              failureCount: parseFailureCount(
+                primaryRun.stdout + "\n" + primaryRun.stderr,
+              ),
+            },
+            secondary: {
+              worktreePath: dual.candidates.secondary.worktreePath,
+              testExitCode: secondaryRun.exitCode,
+              testLogPath: secondaryRun.logPath,
+              timedOut: secondaryRun.timedOut,
+              failureCount: parseFailureCount(
+                secondaryRun.stdout + "\n" + secondaryRun.stderr,
+              ),
+            },
           };
         }
       }
 
       const synthetic = mockResult({
         exitCode: 0,
-        stdout: `g=${geminiTR.testExitCode} c=${codexTR.testExitCode}`,
+        stdout: `primary=${candidateTestResults.primary.testExitCode} secondary=${candidateTestResults.secondary.testExitCode}`,
       });
       phaseState = applyResult(phaseState, action, synthetic, {
-        geminiTestResult: geminiTR,
-        codexTestResult: codexTR,
+        candidateTestResults,
       });
 
       // Test hygiene: if applyResult auto-selected a winner based on test outcome alone,
@@ -3922,10 +3982,7 @@ async function runPhase(args: {
         phaseState.dualImpl?.baseCommit
       ) {
         const winner = phaseState.dualImpl.selectedImplementor;
-        const winnerPath =
-          winner === "gemini"
-            ? dual.geminiWorktreePath
-            : dual.codexWorktreePath;
+        const winnerPath = dual.candidates[winner].worktreePath;
         const testDiff = spawnSync(
           "git",
           [
@@ -3948,7 +4005,7 @@ async function runPhase(args: {
             `  ⚠ Auto-selected ${winner} modified test files — routing to judge instead of auto-selecting`,
           );
           phaseState.dualImpl = {
-            ...(phaseState.dualImpl as any),
+            ...(phaseState.dualImpl as DualImplState),
             selectedImplementor: undefined,
             selectedBy: undefined,
           };
@@ -3980,49 +4037,57 @@ async function runPhase(args: {
         `  → Judge: deciding between primary and secondary implementors`,
       );
       const dual = phaseState.dualImpl;
-      if (!dual || !dual.geminiTestResult || !dual.codexTestResult) {
+      if (
+        !dual ||
+        isLegacyDualImplState(dual) ||
+        !dual.candidates.primary.testResult ||
+        !dual.candidates.secondary.testResult
+      ) {
         // Corrupted state — tear down worktrees if we have enough info.
-        if (dual && !dryRun) {
+        if (dual && !dryRun && !isLegacyDualImplState(dual)) {
           try {
             teardownWorktrees({ cwd, dualImpl: dual });
           } catch {}
         }
         phaseState.status = "failed";
         phaseState.error =
-          "RUN_JUDGE reached without dual test results — orchestrator bug";
+          isLegacyDualImplState(dual)
+            ? legacyDualImplError()
+            : "RUN_JUDGE reached without dual test results — orchestrator bug";
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;
       }
 
-      let verdict: "gemini" | "codex" | null;
+      let verdict: DualImplCandidateKey | null;
       let reasoning = "";
       let hardeningNotes = "";
       let logPath = "dryrun";
 
       if (dryRun) {
-        verdict = "gemini";
-        reasoning = "[dry-run] judge would pick gemini";
+        verdict = "primary";
+        reasoning = "[dry-run] judge would pick primary";
         hardeningNotes = "";
       } else {
-        const geminiDiff = readWorktreeDiff(
-          dual.geminiWorktreePath,
-          dual.baseCommit,
-        );
-        const codexDiff = readWorktreeDiff(
-          dual.codexWorktreePath,
-          dual.baseCommit,
-        );
+        const diffs = Object.fromEntries(
+          DUAL_CANDIDATES.map((candidate) => [
+            candidate,
+            readWorktreeDiff(
+              dual.candidates[candidate].worktreePath,
+              dual.baseCommit,
+            ),
+          ]),
+        ) as Record<DualImplCandidateKey, string | null>;
 
         // Fail-closed if either diff couldn't be read — judge would see empty
         // evidence and pick arbitrarily. (Phase 4 review, HIGH.)
-        if (geminiDiff === null || codexDiff === null) {
+        if (diffs.primary === null || diffs.secondary === null) {
           teardownWorktrees({ cwd, dualImpl: dual });
           phaseState.status = "failed";
           phaseState.error =
             `Failed to read worktree diff before judge: ` +
-            `gemini=${geminiDiff === null ? "failed" : "ok"}, ` +
-            `codex=${codexDiff === null ? "failed" : "ok"}`;
+            `primary=${diffs.primary === null ? "failed" : "ok"}, ` +
+            `secondary=${diffs.secondary === null ? "failed" : "ok"}`;
           state.phases[phase.index] = phaseState;
           saveState(state, { noGbrain, log: console.warn });
           continue;
@@ -4040,26 +4105,43 @@ async function runPhase(args: {
           inputPath,
           buildJudgePrompt({
             phase,
-            geminiDiff,
-            codexDiff,
-            geminiTestResult: dual.geminiTestResult,
-            codexTestResult: dual.codexTestResult,
-            geminiFixIterations: dual.geminiFixIterations,
-            codexFixIterations: dual.codexFixIterations,
-            geminiFixHistory: dual.geminiFixHistory,
-            codexFixHistory: dual.codexFixHistory,
+            candidates: {
+              primary: {
+                label: candidateLabel("primary"),
+                provider:
+                  dual.candidates.primary.provider ??
+                  args.roles.primaryImpl.provider,
+                model: dual.candidates.primary.model ?? args.roles.primaryImpl.model,
+                diff: diffs.primary,
+                testResult: dual.candidates.primary.testResult,
+                fixIterations: dual.candidates.primary.fixIterations,
+                fixHistory: dual.candidates.primary.fixHistory,
+              },
+              secondary: {
+                label: candidateLabel("secondary"),
+                provider:
+                  dual.candidates.secondary.provider ??
+                  args.roles.secondaryImpl.provider,
+                model:
+                  dual.candidates.secondary.model ??
+                  args.roles.secondaryImpl.model,
+                diff: diffs.secondary,
+                testResult: dual.candidates.secondary.testResult,
+                fixIterations: dual.candidates.secondary.fixIterations,
+                fixHistory: dual.candidates.secondary.fixHistory,
+              },
+            },
           }),
         );
         fs.writeFileSync(outputPath, "");
 
-        const judgeRes = await runJudge({
+        const judgeRes = await runJudgeRole({
+          role: args.roles.judge,
           inputFilePath: inputPath,
           outputFilePath: outputPath,
           cwd,
           slug: state.slug,
           phaseNumber: phase.number,
-          model: args.roles.judge.model,
-          reasoning: args.roles.judge.reasoning,
         });
         logPath = judgeRes.logPath;
         const parsed = parseJudgeVerdict(judgeRes.stdout);
@@ -4101,10 +4183,7 @@ async function runPhase(args: {
       // Test hygiene gate (judge path): fail closed if winner modified test files.
       // Same gate as auto-select path — judge can't catch test-weakening the same way.
       if (!dryRun) {
-        const winnerPath =
-          verdict === "gemini"
-            ? dual.geminiWorktreePath
-            : dual.codexWorktreePath;
+        const winnerPath = dual.candidates[verdict].worktreePath;
         const hygieneDiff = spawnSync(
           "git",
           [
@@ -4144,10 +4223,12 @@ async function runPhase(args: {
         `  → Apply Winner: ${action.winner} (cherry-picking onto main cwd)`,
       );
       const dual = phaseState.dualImpl;
-      if (!dual) {
+      if (!dual || isLegacyDualImplState(dual)) {
         phaseState.status = "failed";
         phaseState.error =
-          "APPLY_WINNER reached without dualImpl state — orchestrator bug";
+          isLegacyDualImplState(dual)
+            ? legacyDualImplError()
+            : "APPLY_WINNER reached without dualImpl state — orchestrator bug";
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;
@@ -4171,11 +4252,11 @@ async function runPhase(args: {
         phaseState.error =
           `applyWinner(${action.winner}) failed: ${applyError ?? "unknown"}\n` +
           `  Worktrees PRESERVED for recovery:\n` +
-          `    gemini: ${dual.geminiWorktreePath} (branch ${dual.geminiBranch})\n` +
-          `    codex:  ${dual.codexWorktreePath} (branch ${dual.codexBranch})\n` +
+          `    primary:   ${dual.candidates.primary.worktreePath} (branch ${dual.candidates.primary.branch})\n` +
+          `    secondary: ${dual.candidates.secondary.worktreePath} (branch ${dual.candidates.secondary.branch})\n` +
           `  Inspect, fix, then re-run. Manual cleanup when done:\n` +
-          `    git worktree remove --force ${dual.geminiWorktreePath} && git branch -D ${dual.geminiBranch}\n` +
-          `    git worktree remove --force ${dual.codexWorktreePath} && git branch -D ${dual.codexBranch}`;
+          `    git worktree remove --force ${dual.candidates.primary.worktreePath} && git branch -D ${dual.candidates.primary.branch}\n` +
+          `    git worktree remove --force ${dual.candidates.secondary.worktreePath} && git branch -D ${dual.candidates.secondary.branch}`;
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;
