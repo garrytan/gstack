@@ -99,7 +99,14 @@ describe('--dual-impl flag wiring', () => {
   });
 
   it('parseArgs([plan, --dual-impl]) sets dualImpl=true when judge is Claude-compatible', () => {
-    const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
+    const args = parseArgs([
+      'plan.md',
+      '--dual-impl',
+      '--primary-impl-provider',
+      'gemini',
+      '--judge-provider',
+      'claude',
+    ]);
     expect(args.dualImpl).toBe(true);
   });
 
@@ -118,6 +125,19 @@ describe('--skip-ship flag wiring', () => {
   it('parseArgs([plan, --skip-ship]) sets skipShip=true', () => {
     const args = parseArgs(['plan.md', '--skip-ship']);
     expect(args.skipShip).toBe(true);
+  });
+});
+
+describe('merge subcommand wiring', () => {
+  it('parseArgs([merge]) selects merge mode without a plan file', () => {
+    const args = parseArgs(['merge']);
+    expect(args.mode).toBe('merge');
+    expect(args.planFile).toBe('');
+  });
+
+  it('--help text documents merge mode', () => {
+    expect(HELP_TEXT).toContain('gstack-build merge [flags]');
+    expect(HELP_TEXT).toContain('Review/fix/ship/land unmerged feat/* branches');
   });
 });
 
@@ -341,7 +361,14 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 
   it('parseArgs model flags combine correctly with --dual-impl', () => {
-    const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
+    const args = parseArgs([
+      'plan.md',
+      '--dual-impl',
+      '--primary-impl-provider',
+      'gemini',
+      '--judge-provider',
+      'claude',
+    ]);
     expect(args.dualImpl).toBe(true);
     expect(args.geminiModel).toBe(DEFAULT_ROLE_CONFIGS.primaryImpl.model);
     expect(args.codexModel).toBe(DEFAULT_ROLE_CONFIGS.secondaryImpl.model);
@@ -373,18 +400,25 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 
   it('provider validation rejects unsupported slash-command and dual-impl providers', () => {
-    const args = parseArgs(['plan.md', '--dual-impl', '--judge-provider', 'claude']);
-    args.roles.qa.provider = 'gemini';
+    const args = parseArgs([
+      'plan.md',
+      '--dual-impl',
+      '--primary-impl-provider',
+      'gemini',
+      '--judge-provider',
+      'claude',
+    ]);
+    args.roles.qa.provider = 'kimi';
     args.roles.ship.provider = 'gemini';
     args.roles.land.provider = 'gemini';
-    args.roles.contextSave.provider = 'gemini';
+    args.roles.contextSave.provider = 'kimi';
     args.roles.primaryImpl.provider = 'codex';
     args.roles.secondaryImpl.provider = 'claude';
     args.roles.judge.provider = 'codex';
 
     expect(validateRoleProviders(args)).toEqual([
-      '--qa-provider gemini is not supported for slash-command gates',
-      '--context-save-provider gemini is not supported for slash-command roles',
+      '--qa-provider kimi is not supported for slash-command gates',
+      '--context-save-provider kimi is not supported for slash-command roles',
       '--primary-impl-provider must be gemini when --dual-impl is enabled',
       '--secondary-impl-provider must be codex when --dual-impl is enabled',
       '--judge-provider must be claude when --dual-impl is enabled',

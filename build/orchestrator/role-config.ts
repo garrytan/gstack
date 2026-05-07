@@ -1,6 +1,6 @@
 import { BUILD_DEFAULTS } from "./build-config";
 
-export type RoleProvider = "claude" | "codex" | "gemini";
+export type RoleProvider = "claude" | "codex" | "gemini" | "kimi";
 export type RoleReasoning = "low" | "medium" | "high" | "xhigh";
 
 export interface RoleConfig {
@@ -97,9 +97,14 @@ export function applyRoleOverride(
 }
 
 export function parseProvider(value: string, label: string): RoleProvider {
-  if (value === "claude" || value === "codex" || value === "gemini")
+  if (
+    value === "claude" ||
+    value === "codex" ||
+    value === "gemini" ||
+    value === "kimi"
+  )
     return value;
-  throw new Error(`${label} must be one of: claude, codex, gemini`);
+  throw new Error(`${label} must be one of: claude, codex, gemini, kimi`);
 }
 
 export function parseReasoning(value: string, label: string): RoleReasoning {

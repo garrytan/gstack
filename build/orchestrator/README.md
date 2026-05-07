@@ -110,7 +110,20 @@ For each feature block, the orchestrator:
 
 Every atomic feature/phase/gate transition writes a `status` event to `~/.gstack/analytics/build-runs.jsonl` and prints a `[build-status]` line so monitors can observe progress and pause on unresolved issues.
 
-After all features complete, the final exam verifies there are no incomplete phases/features and, for shipped runs, no unmerged remote `feat/*` branches remain. Only then are the living plan and optional origin plan archived.
+After all features complete, the final exam verifies there are no incomplete phases/features and, for shipped runs, no unmerged local or remote `feat/*` branches remain. Only then are the living plan and optional origin plan archived.
+
+## Merge Mode
+
+`gstack-build merge` is the CLI-backed `/build merge` cleanup path. It requires
+no plan file. It scans all unmerged local and remote `feat/*` branches, runs the
+configured review/fix/ship/land loop for each branch, and fails closed on the
+first branch that cannot be reviewed clean, fixed within the review cap,
+shipped, or landed.
+
+```bash
+gstack-build merge --project-root /path/to/product-repo
+gstack-build merge --project-root /path/to/product-repo --dry-run
+```
 
 ## TDD Workflow
 
@@ -166,6 +179,9 @@ gstack-build plans/...md --no-resume
 
 # Local JSON only, no gbrain mirror:
 gstack-build plans/...md --no-gbrain
+
+# Review/fix/ship/land leftover feat/* branches:
+gstack-build merge --project-root /path/to/product-repo
 ```
 
 ### Resume after interrupt
@@ -374,10 +390,10 @@ Exit codes: `0` clean run, `1` phase failed, `2` bad args, `3` lock contention, 
 ## Architecture
 
 ```
-cli.ts          driver loop, signal handling, lock, activity log
+cli.ts          driver loop, merge mode, signal handling, lock, activity log
 parser.ts       plan markdown → Phase[]
 phase-runner.ts pure state machine (decideNextAction, applyResult)
-sub-agents.ts   gemini/codex/claude CLI wrappers with retries; detectTestCmd; runTests
+sub-agents.ts   gemini/kimi/codex/claude CLI wrappers with retries; detectTestCmd; runTests
 plan-mutator.ts atomic [ ] → [x] checkbox flip (impl, review, test-spec)
 state.ts        ~/.gstack/build-state/<slug>.json + gbrain mirror
 gbrain.ts       gbrain CLI wrapper (best-effort, never throws)

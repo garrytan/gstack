@@ -6,8 +6,8 @@
       "reasoning": "high"
     },
     "primaryImpl": {
-      "provider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
       "reasoning": "high"
     },
     "testFixer": {
@@ -38,14 +38,14 @@
       "command": "/qa"
     },
     "ship": {
-      "provider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "provider": "codex",
+      "model": "gpt-5.5",
       "reasoning": "high",
       "command": "/ship"
     },
     "land": {
-      "provider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "provider": "codex",
+      "model": "gpt-5.5",
       "reasoning": "high",
       "command": "/land-and-deploy"
     },
@@ -66,8 +66,8 @@
       "reasoning": "xhigh"
     },
     "planLocator": {
-      "provider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
       "reasoning": "high"
     },
     "planSynthesizer": {
@@ -90,6 +90,7 @@
   },
   "timeoutsMs": {
     "gemini": 600000,
+    "kimi": 600000,
     "codex": 900000,
     "ship": 1800000,
     "test": 300000,
