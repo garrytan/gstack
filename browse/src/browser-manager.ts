@@ -16,6 +16,7 @@
  */
 
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { readFileSync } from 'node:fs';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
@@ -185,7 +186,24 @@ export class BrowserManager {
     // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
     // are typically disabled in containers. Detect container environment and
     // add --no-sandbox automatically.
-    if (process.env.CI || process.env.CONTAINER) {
+    //
+    // Linux AppArmor: Ubuntu 23.10+ ships with
+    // kernel.apparmor_restrict_unprivileged_userns=1 by default, which blocks
+    // Chromium's userns sandbox even outside containers. Detect this kernel-
+    // level restriction so headless browse works on stock Ubuntu desktops and
+    // Raspberry Pi OS without manual env tricks.
+    //
+    // BROWSE_NO_SANDBOX=1 lets users force-disable the sandbox explicitly.
+    let needsNoSandbox = !!(process.env.CI || process.env.CONTAINER || process.env.BROWSE_NO_SANDBOX);
+    if (!needsNoSandbox && process.platform === 'linux') {
+      try {
+        const v = readFileSync('/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 'utf8').trim();
+        if (v === '1') needsNoSandbox = true;
+      } catch {
+        // /proc file absent or unreadable → assume sandbox is fine
+      }
+    }
+    if (needsNoSandbox) {
       launchArgs.push('--no-sandbox');
     }
 
