@@ -22,6 +22,7 @@ export interface BuildLimits {
 
 export interface BuildTimeoutsMs {
   gemini: number;
+  kimi: number;
   codex: number;
   ship: number;
   test: number;
@@ -57,7 +58,7 @@ const ROLE_KEYS: RoleKey[] = [
   "featureReview",
 ];
 
-const PROVIDERS: RoleProvider[] = ["claude", "codex", "gemini"];
+const PROVIDERS: RoleProvider[] = ["claude", "codex", "gemini", "kimi"];
 const REASONING: RoleReasoning[] = ["low", "medium", "high", "xhigh"];
 
 export function loadBuildDefaults(
@@ -99,10 +100,10 @@ export function loadBuildDefaults(
     withMigratedNumberSection(
       config.timeoutsMs,
       "timeoutsMs",
-      ["featureReview"],
+      ["kimi", "featureReview"],
       filePath,
     ),
-    ["gemini", "codex", "ship", "test", "judge", "featureReview"],
+    ["gemini", "kimi", "codex", "ship", "test", "judge", "featureReview"],
     `${filePath}:timeoutsMs`,
   ) as unknown as BuildTimeoutsMs;
 
