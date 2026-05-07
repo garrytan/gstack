@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { checkWorkingTreeClean, findUnmergedLocalFeatBranches, findUnshippedFeatBranches, verifyNoUnmergedFeatBranches } from '../cli';
+import { checkWorkingTreeClean, findMergeCandidateBranches, findUnmergedLocalFeatBranches, findUnshippedFeatBranches, verifyNoUnmergedFeatBranches } from '../cli';
 
 describe('checkWorkingTreeClean', () => {
   let tempDir: string;
@@ -109,6 +109,23 @@ describe('findUnshippedFeatBranches', () => {
     expect(result).toEqual(['feat/a']);
   });
 
+  it('remote branch discovery uses origin/master when origin/main is absent', () => {
+    spawnSync('git', ['checkout', '-B', 'master'], { cwd: mainDir });
+    spawnSync('git', ['push', '-u', 'origin', 'master'], { cwd: mainDir });
+    spawnSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/master'], { cwd: bareDir });
+    spawnSync('git', ['push', 'origin', '--delete', 'main'], { cwd: mainDir });
+
+    spawnSync('git', ['checkout', '-b', 'feat/on-master'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'on-master.ts'), 'feat on master');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat on master'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/on-master'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'master'], { cwd: mainDir });
+
+    const result = findUnshippedFeatBranches(mainDir, 'master');
+    expect(result).toEqual(['feat/on-master']);
+  });
+
   it('remote has origin/feat/b (merged to main) → returns []', () => {
     spawnSync('git', ['checkout', '-b', 'feat/b'], { cwd: mainDir });
     fs.writeFileSync(path.join(mainDir, 'feat-b.ts'), 'feat b');
@@ -149,6 +166,62 @@ describe('findUnshippedFeatBranches', () => {
 
     const result = findUnmergedLocalFeatBranches(mainDir, 'main');
     expect(result).toEqual(['feat/local-only']);
+  });
+
+  it('merge candidates include de-duped local and remote unmerged feat branches', () => {
+    spawnSync('git', ['checkout', '-b', 'feat/remote-only'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'remote-only.ts'), 'remote');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat remote only'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/remote-only'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+    spawnSync('git', ['branch', '-D', 'feat/remote-only'], { cwd: mainDir });
+
+    spawnSync('git', ['checkout', '-b', 'feat/local-only'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'local-only.ts'), 'local');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat local only'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+
+    spawnSync('git', ['checkout', '-b', 'feat/both'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'both.ts'), 'both');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat both'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/both'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+
+    const result = findMergeCandidateBranches(mainDir, 'main');
+    expect(result.map((b) => b.name)).toEqual([
+      'feat/both',
+      'feat/local-only',
+      'feat/remote-only',
+    ]);
+    expect(result.find((b) => b.name === 'feat/both')?.hasLocal).toBe(true);
+    expect(result.find((b) => b.name === 'feat/both')?.hasRemote).toBe(true);
+    expect(result.find((b) => b.name === 'feat/local-only')?.hasLocal).toBe(true);
+    expect(result.find((b) => b.name === 'feat/local-only')?.hasRemote).toBe(false);
+    expect(result.find((b) => b.name === 'feat/remote-only')?.hasLocal).toBe(false);
+    expect(result.find((b) => b.name === 'feat/remote-only')?.hasRemote).toBe(true);
+  });
+
+  it('merge candidates can include the current unmerged feat branch for explicit merge mode', () => {
+    spawnSync('git', ['checkout', '-b', 'feat/current'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'current.ts'), 'current');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat current'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/current'], { cwd: mainDir });
+
+    const startupSweepResult = findMergeCandidateBranches(mainDir, 'feat/current');
+    expect(startupSweepResult.map((b) => b.name)).not.toContain('feat/current');
+
+    const mergeModeResult = findMergeCandidateBranches(mainDir, 'feat/current', {
+      includeCurrent: true,
+    });
+    expect(mergeModeResult).toContainEqual({
+      name: 'feat/current',
+      hasLocal: true,
+      hasRemote: true,
+    });
   });
 
   it('strict final exam check fails closed when fetch cannot verify remote branches', () => {

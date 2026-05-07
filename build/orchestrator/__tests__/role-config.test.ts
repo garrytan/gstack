@@ -4,6 +4,7 @@ import {
   applyEnvRoleConfig,
   cloneRoleConfigs,
   migrateLegacyModels,
+  parseProvider,
 } from "../role-config";
 import {
   BUILD_DEFAULTS,
@@ -21,6 +22,7 @@ describe("role config defaults", () => {
     expect(loaded.roles.primaryImpl.model).toBeTruthy();
     expect(loaded.limits.codexMaxIterations).toBe(5);
     expect(loaded.timeoutsMs.gemini).toBe(600000);
+    expect(loaded.timeoutsMs.kimi).toBe(600000);
     expect(BUILD_DEFAULTS.roles.primaryImpl.model).toBe(
       loaded.roles.primaryImpl.model,
     );
@@ -41,17 +43,25 @@ describe("role config defaults", () => {
     );
     expect(DEFAULT_ROLE_CONFIGS.reviewSecondary.command).toBeUndefined();
     expect(DEFAULT_ROLE_CONFIGS.qa.command).toBe("/qa");
-    expect(DEFAULT_ROLE_CONFIGS.ship.provider).toBe("gemini");
+    expect(DEFAULT_ROLE_CONFIGS.primaryImpl.provider).toBe("kimi");
+    expect(DEFAULT_ROLE_CONFIGS.primaryImpl.model).toBe(
+      "kimi-code/kimi-for-coding",
+    );
+    expect(DEFAULT_ROLE_CONFIGS.ship.provider).toBe("codex");
+    expect(DEFAULT_ROLE_CONFIGS.ship.model).toBe("gpt-5.5");
     expect(DEFAULT_ROLE_CONFIGS.ship.command).toBe("/ship");
-    expect(DEFAULT_ROLE_CONFIGS.land.provider).toBe("gemini");
+    expect(DEFAULT_ROLE_CONFIGS.land.provider).toBe("codex");
+    expect(DEFAULT_ROLE_CONFIGS.land.model).toBe("gpt-5.5");
     expect(DEFAULT_ROLE_CONFIGS.land.command).toBe("/land-and-deploy");
     expect(DEFAULT_ROLE_CONFIGS.contextSave.command).toBe("/context-save");
   });
 
-  it("routes template-only plan location through gemini in configure.cm", () => {
+  it("routes template-only plan location through kimi in configure.cm", () => {
     const loaded = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
-    expect((loaded.roles as any).planLocator.provider).toBe("gemini");
-    expect((loaded.roles as any).planLocator.model).toBeTruthy();
+    expect((loaded.roles as any).planLocator.provider).toBe("kimi");
+    expect((loaded.roles as any).planLocator.model).toBe(
+      "kimi-code/kimi-for-coding",
+    );
   });
 
   it("includes the featureReview role with codex/gpt-5.5 defaults", () => {
@@ -122,6 +132,7 @@ describe("role config precedence helpers", () => {
       const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
       delete (defaults.roles as any).featureReview;
       delete (defaults.limits as any).featureReviewMaxIterations;
+      delete (defaults.timeoutsMs as any).kimi;
       delete (defaults.timeoutsMs as any).featureReview;
       fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
       const loaded = loadBuildDefaults(file);
@@ -129,6 +140,7 @@ describe("role config precedence helpers", () => {
         DEFAULT_ROLE_CONFIGS.featureReview,
       );
       expect(loaded.limits.featureReviewMaxIterations).toBe(3);
+      expect(loaded.timeoutsMs.kimi).toBe(600000);
       expect(loaded.timeoutsMs.featureReview).toBe(1200000);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -144,6 +156,16 @@ describe("role config precedence helpers", () => {
     expect(roles.featureReview.provider).toBe("claude");
     expect(roles.featureReview.model).toBe("claude-opus-4-7");
     expect(roles.featureReview.reasoning).toBe("high");
+  });
+
+  it("accepts kimi as a role provider", () => {
+    expect(parseProvider("kimi", "provider")).toBe("kimi");
+    const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
+      GSTACK_BUILD_PRIMARY_IMPL_PROVIDER: "kimi",
+      GSTACK_BUILD_PRIMARY_IMPL_MODEL: "kimi-code/kimi-for-coding",
+    });
+    expect(roles.primaryImpl.provider).toBe("kimi");
+    expect(roles.primaryImpl.model).toBe("kimi-code/kimi-for-coding");
   });
 
   it("rejects invalid config files", () => {

@@ -120,6 +120,8 @@ test("dry-run with --dual-impl announces Dual Impl, Judge, and Apply Winner", ()
       planFile,
       "--dry-run",
       "--dual-impl",
+      "--primary-impl-provider",
+      "gemini",
       "--judge-provider",
       "claude",
       "--test-cmd",

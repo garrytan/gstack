@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.21.2
+version: 1.21.3
 description: |
   gstack autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -20,6 +20,8 @@ triggers:
   - build the feature
   - build the plan
   - start coding
+  - build merge
+  - merge branches
   - reexamine
   - audit the plan
 ---
@@ -733,6 +735,21 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 - **Normal Mode**: Locate the source plan, synthesize a new living plan, create the first feature branch, then launch the CLI. (Default)
 - **Resume Mode**: Triggered if a partially completed living plan exists in `*-gstack/inbox/living-plan/`, or if the user explicitly asks to resume. Skip Steps 1.4–1.6. Identify the active feature branch, check it out, then proceed to the CLI Monitoring Loop.
 - **Reexamine Mode**: Triggered if the user asks to "reexamine", "audit", or "rerun the full process" for an implemented plan. Skip Steps 1.4–1.6. Locate the existing living plan and proceed to **Reexamine Mode: Parallel Audit Subagents** below.
+- **Merge Mode**: Triggered if the user asks `/build merge`, "build merge", or to merge leftover feature branches. Skip plan discovery and launch `gstack-build merge` for the selected product repo.
+
+## Merge Mode: Review/Fix/Ship/Land Leftover Branches
+
+Use this mode when the user asks `/build merge` or wants past build branches merged. The CLI owns the durable loop: it scans all unmerged `feat/*` branches, checks out one branch at a time, runs configured `/review`, invokes the configured `testFixer` role until review passes or the review cap is hit, then runs configured `/ship` and `/land-and-deploy`. It repeats until no unmerged `feat/*` branches remain. This is a review/fix/ship/land cleanup path, not a normal implementation-plan run.
+
+1. Resolve the target product repo using the same workspace-root vs single-product-repo rules from Step 1.1. If multiple child product repos are plausible, ask the user to choose the repo before launching.
+2. Resolve `_GSTACK_BUILD_CLI` exactly as in Step M2.
+3. Confirm with the user that merge mode will mutate branches and may open/land PRs.
+4. Launch:
+   ```bash
+   "$_GSTACK_BUILD_CLI" merge --project-root "$repoPath"
+   ```
+   Include only user-requested flags such as `--dry-run`, `--skip-clean-check`, role overrides, or `--max-codex-iter`. Do not pass a plan file. Do not run raw `git merge`, `gh pr create`, or `gh pr merge`; the CLI must use the configured GStack `/review`, `/ship`, and `/land-and-deploy` skills.
+5. Monitor the CLI output. If it exits nonzero, report the blocked branch and point to the merge logs under `~/.gstack/build-state/build-merge-*/`. Do not continue manually.
 
 ## Step 1: Set Up & Synthesize Living Plan (Normal Mode)
 
@@ -826,6 +843,9 @@ Skip this entire step if in Reexamine or Resume Mode.
    case "$_LOCATOR_PROVIDER" in
      gemini)
        gemini -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative." -m "$_LOCATOR_MODEL" --yolo
+       ;;
+     kimi)
+       kimi --work-dir "$(pwd -P)" --add-dir "$(pwd -P)/.llm-tmp" -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative." -m "$_LOCATOR_MODEL" --yolo --print --final-message-only
        ;;
      claude)
        claude --model "$_LOCATOR_MODEL" -p "Read instructions at .llm-tmp/build-plan-locate-input.md. Run the discovery commands. Write result JSON to .llm-tmp/build-plan-locate-output.md. Return ONLY the output file path. No narrative."
@@ -945,6 +965,9 @@ Skip this entire step if in Reexamine or Resume Mode.
      gemini)
        gemini -p "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative." -m "$_SYNTH_MODEL" --yolo
        ;;
+     kimi)
+       kimi --work-dir "$(pwd -P)" --add-dir "$(pwd -P)/.llm-tmp" -p "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative." -m "$_SYNTH_MODEL" --yolo --print --final-message-only
+       ;;
      claude)
        claude --model "$_SYNTH_MODEL" -p "Read synthesis instructions at .llm-tmp/build-synthesis-input.md. Read the source plan. Write the living plan. Write the summary to .llm-tmp/build-synthesis-output.md. Return ONLY the output path. No narrative."
        ;;
@@ -975,7 +998,7 @@ Use this execution path for all plans — Normal Mode (after Step 1.6 confirmati
 
 Before launching, `gstack-build` runs two preflight checks:
 1. **Pre-build clean check** — exits 1 if any tracked file is modified or staged. Commit or stash before building. Bypass with `--skip-clean-check`.
-2. **Unshipped feat/* sweep** — scans `origin` for any `feat/*` branch not merged into `origin/main`, runs `/ship + /land-and-deploy` on each, and returns. Bypass with `--skip-sweep`.
+2. **Unshipped feat/* sweep** — scans unmerged remote `origin/feat/*` branches and runs the same review/fix/ship/land engine as `gstack-build merge`. Bypass with `--skip-sweep`. Local-only branches are handled by explicit Merge Mode so resume runs do not accidentally ship their own in-progress local branches.
 
 Both gates are skipped when `--dry-run` or `--skip-ship` is active.
 
@@ -1343,6 +1366,9 @@ When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feat
        gemini)
          (cd "$repoPath" && gemini -p "$_PROMPT" -m "$_REEXAMINE_MODEL" --yolo) > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
          ;;
+       kimi)
+         (cd "$repoPath" && kimi --work-dir "$repoPath" --add-dir "$repoPath/.llm-tmp" -p "$_PROMPT" -m "$_REEXAMINE_MODEL" --yolo --print --final-message-only) > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
+         ;;
        claude)
          (cd "$repoPath" && claude --model "$_REEXAMINE_MODEL" -p "$_PROMPT") > ".llm-tmp/spawn-${_IDX}.log" 2>&1 &
          ;;
@@ -1428,6 +1454,9 @@ For EACH feature, once all phases in that feature are complete (and have been in
      gemini)
        gemini -p "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo
        ;;
+     kimi)
+       kimi --work-dir "$repoPath" --add-dir "$repoPath/.llm-tmp" -p "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo --print --final-message-only
+       ;;
      claude)
        claude --model "$_VERIFIER_MODEL" -p "Read instructions at .llm-tmp/build-verify-feature-<N>-input.md. Read the relevant plan sections and git log. Write gap report to .llm-tmp/build-verify-feature-<N>-output.md. Return ONLY the output path. No narrative."
        ;;
@@ -1504,6 +1533,9 @@ After ALL features are complete:
    case "$_VERIFIER_PROVIDER" in
      gemini)
        (cd "$repoPath" && gemini -p "Read final-exam instructions at $_FINAL_EXAM_INPUT. Read source plan and living plan. Compare against git log. Write result to $_FINAL_EXAM_OUTPUT: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo)
+       ;;
+     kimi)
+       (cd "$repoPath" && kimi --work-dir "$repoPath" --add-dir "$(dirname "$_FINAL_EXAM_INPUT")" -p "Read final-exam instructions at $_FINAL_EXAM_INPUT. Read source plan and living plan. Compare against git log. Write result to $_FINAL_EXAM_OUTPUT: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative." -m "$_VERIFIER_MODEL" --yolo --print --final-message-only)
        ;;
      claude)
        (cd "$repoPath" && claude --model "$_VERIFIER_MODEL" -p "Read final-exam instructions at $_FINAL_EXAM_INPUT. Read source plan and living plan. Compare against git log. Write result to $_FINAL_EXAM_OUTPUT: EXAM: PASS | GAPS followed by gap list. Return ONLY the output path. No narrative.")

@@ -23,7 +23,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logDir, ensureLogDir } from "./state";
-import type { RoleReasoning } from "./role-config";
+import type { RoleProvider, RoleReasoning } from "./role-config";
 import { BUILD_DEFAULTS, envNumberOrDefault } from "./build-config";
 
 export type CodexSandbox =
@@ -35,10 +35,15 @@ const MAX_BUFFER = 20 * 1024 * 1024;
 
 const CODEX_BIN = process.env.CODEX_BIN || "codex";
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
+const KIMI_BIN = process.env.KIMI_BIN || "kimi";
 
 const GEMINI_TIMEOUT_MS = envNumberOrDefault(
   "GSTACK_BUILD_GEMINI_TIMEOUT",
   BUILD_DEFAULTS.timeoutsMs.gemini,
+);
+const KIMI_TIMEOUT_MS = envNumberOrDefault(
+  "GSTACK_BUILD_KIMI_TIMEOUT",
+  BUILD_DEFAULTS.timeoutsMs.kimi,
 );
 const CODEX_TIMEOUT_MS = envNumberOrDefault(
   "GSTACK_BUILD_CODEX_TIMEOUT",
@@ -51,6 +56,10 @@ const SHIP_TIMEOUT_MS = envNumberOrDefault(
 
 function geminiBin(): string {
   return process.env.GEMINI_BIN || "gemini";
+}
+
+function kimiBin(): string {
+  return process.env.KIMI_BIN || KIMI_BIN;
 }
 
 export type Verdict = "pass" | "fail" | "unclear";
@@ -194,6 +203,57 @@ function stageGeminiIO(opts: {
 }
 
 /**
+ * Stage Kimi I/O outside the project repo, then grant the staging directory via
+ * `--add-dir`. This mirrors Gemini's repo-safe staging while using Kimi's
+ * workspace-scoping flags.
+ */
+function stageKimiIO(opts: {
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+  suffix: string;
+  inputFilePath: string;
+  outputFilePath: string;
+}): {
+  stagingDir: string;
+  stagedInput: string;
+  stagedOutput: string;
+  cleanup: () => void;
+} {
+  const stagingDir = path.join(
+    process.env.HOME ?? "~",
+    ".kimi",
+    "tmp",
+    "gstack",
+    opts.slug,
+  );
+  fs.mkdirSync(stagingDir, { recursive: true });
+
+  const base = `gstack-kimi-${opts.phaseNumber}-${opts.iteration}-${opts.suffix}`;
+  const stagedInput = path.join(stagingDir, `${base}-input.md`);
+  const stagedOutput = path.join(stagingDir, `${base}-output.md`);
+
+  fs.copyFileSync(opts.inputFilePath, stagedInput);
+  fs.writeFileSync(stagedOutput, "");
+
+  const cleanup = () => {
+    try {
+      fs.unlinkSync(stagedInput);
+    } catch {}
+    try {
+      if (fs.existsSync(stagedOutput) && fs.statSync(stagedOutput).size > 0) {
+        fs.copyFileSync(stagedOutput, opts.outputFilePath);
+      }
+    } catch {}
+    try {
+      fs.unlinkSync(stagedOutput);
+    } catch {}
+  };
+
+  return { stagingDir, stagedInput, stagedOutput, cleanup };
+}
+
+/**
  * Stage Codex I/O inside the workspace cwd (.llm-tmp/) so the workspace-write
  * sandbox can write the output file. The real outputFilePath (typically inside
  * ~/.gstack/build-state/) is outside the sandbox boundary and is silently
@@ -314,6 +374,120 @@ export async function runGemini(opts: {
       argv,
       cwd: opts.cwd,
       timeoutMs: GEMINI_TIMEOUT_MS,
+      logPath: retryLog,
+      closeStdin: false,
+    });
+    retryResult.retries = 1;
+    cleanupStaged();
+    return mergeOutputFile(retryResult, opts.outputFilePath);
+  }
+  cleanupStaged();
+  return mergeOutputFile(result, opts.outputFilePath);
+}
+
+export function buildKimiTaskArgv(opts: {
+  workDir: string;
+  addDir: string;
+  inputFilePath: string;
+  outputFilePath: string;
+  command?: string;
+  model?: string;
+  gate?: boolean;
+}): string[] {
+  const commandLine = opts.command
+    ? `Run ${opts.command}.`
+    : "Do the requested work.";
+  const gateLine = opts.gate
+    ? `The report MUST include a final 'GATE PASS' or 'GATE FAIL' line on its own.`
+    : "";
+  const prompt = [
+    `Read instructions at ${opts.inputFilePath}.`,
+    commandLine,
+    `Do the work autonomously using your --yolo file tools.`,
+    `Write your complete output to ${opts.outputFilePath}.`,
+    gateLine,
+    `Return ONLY the output file path. No narrative.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [
+    "--work-dir",
+    opts.workDir,
+    "--add-dir",
+    opts.addDir,
+    "-p",
+    prompt,
+    ...(opts.model ? ["-m", opts.model] : []),
+    "--yolo",
+    "--print",
+    "--final-message-only",
+  ];
+}
+
+export async function runKimi(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  slug: string;
+  phaseNumber: string;
+  iteration: number;
+  model?: string;
+  logPrefix?: string;
+  command?: string;
+  gate?: boolean;
+  timeoutMs?: number;
+}): Promise<SubAgentResult> {
+  ensureLogDir(opts.slug);
+
+  const {
+    stagingDir,
+    stagedInput,
+    stagedOutput,
+    cleanup: cleanupStaged,
+  } = stageKimiIO({
+    slug: opts.slug,
+    phaseNumber: opts.phaseNumber,
+    iteration: opts.iteration,
+    suffix: opts.logPrefix ?? "impl",
+    inputFilePath: opts.inputFilePath,
+    outputFilePath: opts.outputFilePath,
+  });
+
+  const argv = buildKimiTaskArgv({
+    workDir: opts.cwd,
+    addDir: stagingDir,
+    inputFilePath: stagedInput,
+    outputFilePath: stagedOutput,
+    command: opts.command,
+    model: opts.model,
+    gate: opts.gate,
+  });
+
+  const prefix = opts.logPrefix ?? "kimi";
+  const logPath = path.join(
+    logDir(opts.slug),
+    `phase-${opts.phaseNumber}-${prefix}-${opts.iteration}.log`,
+  );
+
+  let result = await spawnCaptured({
+    bin: kimiBin(),
+    argv,
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs ?? KIMI_TIMEOUT_MS,
+    logPath,
+    closeStdin: false,
+  });
+
+  if (result.timedOut) {
+    const retryLog = path.join(
+      logDir(opts.slug),
+      `phase-${opts.phaseNumber}-kimi-${opts.iteration}-retry.log`,
+    );
+    const retryResult = await spawnCaptured({
+      bin: kimiBin(),
+      argv,
+      cwd: opts.cwd,
+      timeoutMs: opts.timeoutMs ?? KIMI_TIMEOUT_MS,
       logPath: retryLog,
       closeStdin: false,
     });
@@ -734,13 +908,13 @@ export async function runShip(opts: {
   cwd: string;
   slug: string;
   ship: {
-    provider: "claude" | "codex" | "gemini";
+    provider: RoleProvider;
     model: string;
     reasoning: RoleReasoning;
     command: string;
   };
   land: {
-    provider: "claude" | "codex" | "gemini";
+    provider: RoleProvider;
     model: string;
     reasoning: RoleReasoning;
     command: string;
@@ -799,7 +973,7 @@ export async function runSlashCommand(opts: {
   iteration?: number;
   logPrefix: string;
   role: {
-    provider: "claude" | "codex" | "gemini";
+    provider: RoleProvider;
     model: string;
     reasoning: RoleReasoning;
     command: string;
@@ -832,6 +1006,21 @@ export async function runSlashCommand(opts: {
       slug: opts.slug,
       phaseNumber: opts.phaseNumber,
       iteration: opts.iteration,
+      logPrefix: opts.logPrefix,
+      command: opts.role.command,
+      model: opts.role.model,
+      gate: opts.gate,
+      timeoutMs: opts.timeoutMs,
+    });
+  }
+  if (opts.role.provider === "kimi") {
+    return runKimi({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber ?? "ship",
+      iteration: opts.iteration ?? 1,
       logPrefix: opts.logPrefix,
       command: opts.role.command,
       model: opts.role.model,

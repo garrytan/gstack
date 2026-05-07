@@ -36,6 +36,7 @@ gstack-build plans/example-impl-plan.md --dry-run --skip-ship
 gstack-build plans/example-impl-plan.md --skip-ship
 gstack-build plans/example-impl-plan.md --dual-impl
 gstack-build plans/example-impl-plan.md --no-resume
+gstack-build merge --project-root /path/to/product-repo
 ```
 
 ## High-Level Flow
@@ -56,6 +57,17 @@ gstack-build plans/example-impl-plan.md --no-resume
 
 The CLI owns the full durable loop. The skill prompt's role is plan discovery,
 synthesis, user confirmation, CLI launch, and post-feature monitoring.
+
+## Merge Mode
+
+`/build merge` launches `gstack-build merge`, a cleanup mode for leftover
+feature branches from previous build runs. It scans all unmerged local and
+remote `feat/*` branches, checks out each branch, runs configured `/review`,
+uses the configured `testFixer` role to fix review findings until the existing
+review cap is reached, then runs configured `/ship` and `/land-and-deploy`.
+The loop is fail-closed for direct merge runs: the first branch that cannot be
+reviewed clean, fixed, shipped, or landed stops the command with logs under
+`~/.gstack/build-state/build-merge-*/`.
 
 ## Plan Format
 
@@ -165,9 +177,11 @@ The CLI has two preflight gates before phase execution:
   Untracked files are ignored. Use `--skip-clean-check` only when the dirty
   state is intentional.
 - Unshipped `feat/*` sweep: remote `origin/feat/*` branches not merged into
-  `origin/main` are checked out and passed through `/ship` plus
-  `/land-and-deploy`. The sweep is capped and failures warn rather than sink the
-  current build. Use `--skip-sweep` when this is not appropriate.
+  the default branch are checked out and passed through the same review/fix/
+  ship/land engine as `gstack-build merge`. Local-only branches are handled by
+  explicit merge mode so resume runs do not accidentally ship their own
+  in-progress branches. Sweep failures warn rather than sink the current build.
+  Use `--skip-sweep` when this is not appropriate.
 
 Both gates are skipped by `--dry-run` and `--skip-ship`.
 
@@ -373,7 +387,7 @@ the root cause, re-run the same `gstack-build` command to resume.
 | `--qa-model <m>`               | Override QA model.                                                                                                                          |
 | `--ship-model <m>`             | Override ship model.                                                                                                                        |
 | `--land-model <m>`             | Override land model.                                                                                                                        |
-| `--<role>-provider <p>`        | Override role provider (`claude`, `codex`, `gemini`) where supported. Dual-impl requires Gemini primary, Codex secondary, and Claude judge. |
+| `--<role>-provider <p>`        | Override role provider (`claude`, `codex`, `gemini`, `kimi`) where supported. Dual-impl requires Gemini primary, Codex secondary, and Claude judge. |
 | `--<role>-reasoning <r>`       | Override role reasoning (`low`, `medium`, `high`, `xhigh`).                                                                                 |
 | `--<role>-command <cmd>`       | Override review, QA, ship, or land command.                                                                                                 |
 | `--test-cmd <cmd>`             | Override automatic test command detection.                                                                                                  |
