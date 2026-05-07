@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.26.7.0] - 2026-05-07
+
+## **`/build --dual-impl` is now model-agnostic instead of hardwired to Gemini versus Codex.**
+
+The build orchestrator now treats dual-implementation tournaments as configured primary and secondary roles. Implementors can be backed by Claude, Codex, Gemini, or Kimi, and the judge can use any supported provider while preserving isolated worktrees, recursive fix loops, judge hardening notes, and fail-closed resume behavior.
+
+### What you can now do
+
+- Configure primary, secondary, and judge roles independently for `--dual-impl` instead of being forced into Gemini primary, Codex secondary, and Claude judge.
+- Resume new dual-impl runs through generic `primary` / `secondary` state, worktree names, logs, and judge verdicts.
+- Keep old `--gemini-model`, `--codex-model`, and `--codex-review-model` flags working as compatibility aliases for primary, secondary, and review models.
+
+### What gets safer
+
+- Legacy persisted gemini/codex dual-impl state now fails with rerun guidance instead of being partially interpreted as the new state shape.
+- Judge output rejects stale `WINNER: gemini` and `WINNER: codex` values, requiring `WINNER: primary` or `WINNER: secondary`.
+- The focused build-skill gate covers provider validation, state transitions, worktree setup, judge parsing, and generated docs.
+
+### Itemized changes
+
+#### Changed
+- `build/orchestrator/cli.ts` — routes dual implementors and judges through provider-aware dispatch, generic prompts, generic fix loops, and primary/secondary result handling.
+- `build/orchestrator/phase-runner.ts`, `types.ts`, and `worktree.ts` — replace gemini/codex dual state with candidate-keyed primary/secondary state.
+- `build/configure.cm` — updates default build routing for the configured model mix used by this branch.
+- `build/README.md`, `build/orchestrator/README.md`, and `build/SKILL.md.tmpl` — document model-agnostic dual-impl behavior and regenerated skill output.
+
+#### Added
+- `build/orchestrator/__tests__/cli.test.ts` — coverage for provider-agnostic dual-impl validation, prompts, and judge prompt formatting.
+- `build/orchestrator/__tests__/phase-runner.test.ts` — coverage for primary/secondary state transitions and legacy-state failure guidance.
+- `build/orchestrator/__tests__/sub-agents.test.ts` and `worktree.test.ts` — coverage for primary/secondary judge parsing and worktree naming.
+
 ## [1.26.6.0] - 2026-05-07
 
 ## **`/build` now catches dirty agent handoffs and classifies review timeouts more precisely.**
