@@ -69,6 +69,31 @@ export function isCodexConvergenceFailure(reason: string): boolean {
   return reason.startsWith(CODEX_CONVERGENCE_FAILURE_REASON_PREFIX);
 }
 
+function firstHygieneFailureLine(stdout: string): string | null {
+  if (!stdout.includes("# Post-agent hygiene failure")) return null;
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (
+      line === "" ||
+      line === "# Post-agent hygiene failure" ||
+      line === "GATE FAIL" ||
+      line.startsWith("Original agent log:")
+    ) {
+      continue;
+    }
+    return line;
+  }
+  return "post-agent hygiene failure";
+}
+
+function geminiExitError(prefix: string, result: SubAgentResult): string {
+  const hygieneLine = firstHygieneFailureLine(result.stdout);
+  if (hygieneLine) {
+    return `${prefix} hygiene failed: ${hygieneLine}; see ${result.logPath}`;
+  }
+  return `${prefix} exited ${result.exitCode}; see ${result.logPath}`;
+}
+
 export type Action =
   | { type: "RUN_GEMINI"; phaseIndex: number; iteration: number }
   | {
@@ -403,7 +428,7 @@ export function applyResult(
     }
     if (result.exitCode !== 0) {
       next.status = "failed";
-      next.error = `Gemini exited ${result.exitCode}; see ${result.logPath}`;
+      next.error = geminiExitError("Gemini", result);
       next.gemini.error = next.error;
       return next;
     }
@@ -488,7 +513,10 @@ export function applyResult(
     }
     if (result.exitCode !== 0) {
       next.status = "failed";
-      next.error = `Gemini re-run (from review feedback) exited ${result.exitCode}; see ${result.logPath}`;
+      next.error = geminiExitError(
+        "Gemini re-run (from review feedback)",
+        result,
+      );
       return next;
     }
     next.status = "impl_done";

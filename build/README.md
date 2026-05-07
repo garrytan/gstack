@@ -107,7 +107,8 @@ The skill's startup sequence:
 
 1. Detect whether the current directory is a workspace root with immediate
    child repos. If so, the root repo is orchestration-only by default; child repos
-   are implementation targets. Single product repo invocation remains supported.
+   are implementation targets. Direct CLI execution against that root requires
+   `--allow-workspace-root`; single product repo invocation remains supported.
 2. Locate the workspace-level `*-gstack/inbox/` and
    `*-gstack/inbox/living-plan/` directories. This chooses plan storage only; it
    does not choose a plan file or target repo.

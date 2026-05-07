@@ -83,6 +83,7 @@ function spawnCaptured(args: {
   timeoutMs: number;
   logPath: string;
   closeStdin: boolean;
+  shell?: boolean;
 }): Promise<SubAgentResult> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
@@ -94,6 +95,7 @@ function spawnCaptured(args: {
         maxBuffer: MAX_BUFFER,
         timeout: args.timeoutMs,
         cwd: args.cwd,
+        shell: args.shell,
       },
       (err, stdout, stderr) => {
         // Detect timeout via Node's own kill flag (fires before our +1000ms setTimeout).
@@ -886,7 +888,15 @@ export function detectTestCmd(cwd: string): string | null {
       const pkg = JSON.parse(
         fs.readFileSync(path.join(cwd, "package.json"), "utf8"),
       );
-      if (pkg.scripts && pkg.scripts.test) return pkg.scripts.test;
+      const testScript =
+        typeof pkg.scripts?.test === "string" ? pkg.scripts.test.trim() : "";
+      if (testScript) {
+        if (/^(bun|npm|pnpm|yarn)\s+(run\s+)?test\b/.test(testScript)) {
+          return testScript;
+        }
+        const packageManager = detectPackageManager(cwd, pkg);
+        return packageManager === "bun" ? "bun run test" : `${packageManager} test`;
+      }
     } catch {
       console.warn(
         "  ⚠ package.json is not valid JSON; skipping npm/bun test detection",
@@ -901,6 +911,20 @@ export function detectTestCmd(cwd: string): string | null {
   if (fs.existsSync(path.join(cwd, "go.mod"))) return "go test ./...";
   if (fs.existsSync(path.join(cwd, "Cargo.toml"))) return "cargo test";
   return null;
+}
+
+function detectPackageManager(cwd: string, pkg: any): "bun" | "pnpm" | "yarn" | "npm" {
+  const pm =
+    typeof pkg.packageManager === "string" ? pkg.packageManager : "";
+  if (pm.startsWith("bun@")) return "bun";
+  if (pm.startsWith("pnpm@")) return "pnpm";
+  if (pm.startsWith("yarn@")) return "yarn";
+  if (pm.startsWith("npm@")) return "npm";
+  if (fs.existsSync(path.join(cwd, "bun.lockb"))) return "bun";
+  if (fs.existsSync(path.join(cwd, "bun.lock"))) return "bun";
+  if (fs.existsSync(path.join(cwd, "pnpm-lock.yaml"))) return "pnpm";
+  if (fs.existsSync(path.join(cwd, "yarn.lock"))) return "yarn";
+  return "npm";
 }
 
 export async function runGeminiTestSpec(opts: {
@@ -983,9 +1007,7 @@ export async function runTests(opts: {
   logSuffix?: string;
 }): Promise<SubAgentResult> {
   ensureLogDir(opts.slug);
-  const parts = opts.testCmd.trim().split(/\s+/);
-  const bin = parts[0];
-  const argv = parts.slice(1);
+  const cmd = opts.testCmd.trim();
 
   const suffix = opts.logSuffix ? `-${opts.logSuffix}` : "";
   const logPath = path.join(
@@ -994,8 +1016,8 @@ export async function runTests(opts: {
   );
 
   return spawnCaptured({
-    bin,
-    argv,
+    bin: cmd,
+    argv: [],
     cwd: opts.cwd,
     timeoutMs: envNumberOrDefault(
       "GSTACK_BUILD_TEST_TIMEOUT",
@@ -1003,6 +1025,7 @@ export async function runTests(opts: {
     ),
     logPath,
     closeStdin: true,
+    shell: true,
   });
 }
 

@@ -49,6 +49,16 @@ export interface ParsedFeatureVerdict {
   findings: string;
 }
 
+export type FeatureReviewTimeoutKind =
+  | "structured-verdict"
+  | "pass-evidence-timeout"
+  | "unclear-timeout";
+
+export interface FeatureReviewTimeoutClassification {
+  kind: FeatureReviewTimeoutKind;
+  verdict: ParsedFeatureVerdict;
+}
+
 /**
  * Parse the reviewer's structured output. Tolerant of whitespace / heading
  * variation; anchored on the `## VERDICT` heading and the first matching
@@ -90,6 +100,36 @@ export function parseFeatureReviewVerdict(raw: string): ParsedFeatureVerdict {
   const findings = extractSection(raw, "Findings").trim();
 
   return { verdict, phasesToRedo, additionalPhasesMd, findings };
+}
+
+export function classifyFeatureReviewTimeout(
+  raw: string,
+): FeatureReviewTimeoutClassification {
+  const verdict = parseFeatureReviewVerdict(raw);
+  if (verdict.verdict !== "UNCLEAR") {
+    return { kind: "structured-verdict", verdict };
+  }
+  const lower = raw.toLowerCase();
+  const hasPassEvidence =
+    /\b\d+\s+passed\b/.test(lower) ||
+    /\ball\s+(focused\s+)?tests?\s+passed\b/.test(lower) ||
+    /\bgate\s+pass\b/.test(lower);
+  const hasNoFindings =
+    /\bno\s+(new\s+)?findings\b/.test(lower) ||
+    /\bno\s+issues?\b/.test(lower) ||
+    /\bfound\s+no\s+new\b/.test(lower);
+  const hasFailureEvidence =
+    /\b[1-9]\d*\s+failed\b/.test(lower) ||
+    /\bfailing\b/.test(lower) ||
+    /\bgate\s+fail\b/.test(lower) ||
+    /\bassertionerror\b/.test(lower) ||
+    /\btraceback\b/.test(lower) ||
+    /\berror:/.test(lower) ||
+    /\btests?\s+failed\b/.test(lower);
+  if (hasPassEvidence && hasNoFindings && !hasFailureEvidence) {
+    return { kind: "pass-evidence-timeout", verdict };
+  }
+  return { kind: "unclear-timeout", verdict };
 }
 
 /**

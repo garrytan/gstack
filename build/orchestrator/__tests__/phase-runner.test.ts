@@ -155,6 +155,31 @@ describe("applyResult — Gemini", () => {
     expect(next.error).toMatch(/exited 1/);
   });
 
+  it("post-agent hygiene failure preserves the actionable message", () => {
+    const initial = basePhase({ status: "pending" });
+    const action = decideNextAction(initial);
+    const next = applyResult(initial, action as any, {
+      ...geminiFailure(),
+      logPath: "/tmp/phase-1-primary-impl-1-hygiene.log",
+      stdout: [
+        "# Post-agent hygiene failure",
+        "",
+        "primary implementor did not create a new commit",
+        "",
+        "Original agent log: /tmp/phase-1-primary-impl-1.log",
+        "",
+        "GATE FAIL",
+        "",
+      ].join("\n"),
+    });
+
+    expect(next.status).toBe("failed");
+    expect(next.error).toContain("Gemini hygiene failed");
+    expect(next.error).toContain("primary implementor did not create a new commit");
+    expect(next.error).toContain("/tmp/phase-1-primary-impl-1-hygiene.log");
+    expect(next.gemini?.error).toBe(next.error);
+  });
+
   it("does not mutate input PhaseState", () => {
     const initial = basePhase({ status: "pending" });
     const action = decideNextAction(initial);
@@ -1254,6 +1279,40 @@ describe("applyResult — RUN_GEMINI_FROM_REVIEW", () => {
     );
     expect(next.status).toBe("failed");
     expect(next.error).toMatch(/exited 2/);
+  });
+
+  it("post-agent hygiene failure from rerun preserves the actionable message", () => {
+    const initial = basePhase({
+      status: "codex_running",
+      codexReview: {
+        iterations: 2,
+        outputLogPaths: ["/tmp/r1.log", "/tmp/r2.log"],
+      },
+    });
+    const next = applyResult(
+      initial,
+      reviewRerunAction(),
+      rerunResult({
+        exitCode: 1,
+        logPath: "/tmp/phase-1-primary-impl-rerun-3-hygiene.log",
+        stdout: [
+          "# Post-agent hygiene failure",
+          "",
+          "primary implementor rerun left the working tree dirty:",
+          "  ?? rewrite.py",
+          "",
+          "Original agent log: /tmp/phase-1-primary-impl-rerun-3.log",
+          "",
+          "GATE FAIL",
+          "",
+        ].join("\n"),
+      }),
+    );
+
+    expect(next.status).toBe("failed");
+    expect(next.error).toContain("Gemini re-run (from review feedback) hygiene failed");
+    expect(next.error).toContain("primary implementor rerun left the working tree dirty");
+    expect(next.error).toContain("/tmp/phase-1-primary-impl-rerun-3-hygiene.log");
   });
 
   it("does not mutate input PhaseState", () => {

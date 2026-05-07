@@ -238,6 +238,8 @@ export interface FeatureReviewState {
     | "FEATURE_REDO"
     | "FEATURE_BLOCKED"
     | "TIMEOUT";
+  /** Set when a timed-out review artifact had pass-like test/no-findings evidence but no parseable sentinel. */
+  timeoutEvidence?: "pass";
   /** Phase indexes the reviewer asked us to reset (FEATURE_REDO). */
   phasesReset?: number[];
   /** Count of phases the reviewer appended to the plan (FEATURE_NEEDS_PHASES). */
