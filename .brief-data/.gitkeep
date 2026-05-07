@@ -1,0 +1,3 @@
+# This directory holds the snapshot.json produced by bin/brief-snapshot.
+# Run ./bin/brief-snapshot on your Mac to populate it.
+# See docs/BRIEF_WEB_SETUP.md for full setup.

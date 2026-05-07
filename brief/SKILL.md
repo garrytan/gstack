@@ -32,47 +32,71 @@ first meeting.
 
 ## Step 0 — Preflight
 
-Before anything else, verify the two data sources are reachable. Run this
-bash and read the output:
+This skill runs in two environments:
+
+- **On a Mac** with `gcalcli` + Granola MCP available — pulls live data.
+- **On Claude Code on the web** (sandbox) — reads a pre-generated snapshot
+  pushed from the user's Mac via `bin/brief-snapshot`.
+
+Detect which environment you're in. Run this bash:
 
 ```bash
-echo "--- gcalcli ---"
-if command -v gcalcli >/dev/null 2>&1; then
-  echo "GCALCLI: present"
-  gcalcli list 2>/dev/null | head -3 && echo "GCALCLI_AUTH: ok" || echo "GCALCLI_AUTH: failed"
+echo "--- snapshot ---"
+SNAPSHOT_PATH=""
+for candidate in \
+  "$(git rev-parse --show-toplevel 2>/dev/null)/.brief-data/snapshot.json" \
+  "/home/user/gstack_robertf/.brief-data/snapshot.json" \
+  "$HOME/code/gstack_robertf/.brief-data/snapshot.json"; do
+  if [ -n "$candidate" ] && [ -s "$candidate" ]; then
+    SNAPSHOT_PATH="$candidate"
+    break
+  fi
+done
+if [ -n "$SNAPSHOT_PATH" ]; then
+  echo "SNAPSHOT: $SNAPSHOT_PATH"
+  AGE_S=$(( $(date +%s) - $(stat -c %Y "$SNAPSHOT_PATH" 2>/dev/null || stat -f %m "$SNAPSHOT_PATH") ))
+  echo "SNAPSHOT_AGE_SECONDS: $AGE_S"
 else
-  echo "GCALCLI: missing"
+  echo "SNAPSHOT: none"
 fi
 
-echo "--- granola mcp ---"
-# Look for any granola MCP tool name in the running session.
-# This is informational — you'll inspect your tool list directly below.
-echo "GRANOLA_MCP: check your tool list for any tool prefixed mcp__granola__ or similar"
+echo "--- live tools ---"
+if command -v gcalcli >/dev/null 2>&1 && gcalcli list >/dev/null 2>&1; then
+  echo "GCALCLI: ok"
+else
+  echo "GCALCLI: unavailable"
+fi
+echo "GRANOLA_MCP: check your tool list for mcp__granola__* tools"
 ```
 
-After the bash runs, **inspect your own tool list** for any tool whose name
-contains `granola`. The Granola MCP exposes a search-like tool (the exact name
-depends on the MCP server version — common names: `mcp__granola__search_notes`,
-`mcp__granola__list_notes`, `mcp__granola__get_notes_for_attendee`). You will
-use it in Step 2.
+### Decision tree
 
-### Failure modes (handle BEFORE Step 1)
+After running the bash above:
 
-- **GCALCLI: missing** — print this verbatim to the user and stop:
+- **If `SNAPSHOT` is a path AND `SNAPSHOT_AGE_SECONDS` is < 86400 (24h):**
+  read the snapshot file with the Read tool. **Skip Step 1 and Step 2** — the
+  snapshot already contains the meetings + attendee_history. Go to Step 3 to
+  render. If the snapshot's `today` field doesn't match today's date, treat it
+  as stale and continue to live tools.
+- **If `SNAPSHOT` exists but is stale (>24h) AND live tools work:** prefer live
+  tools (Step 1 and Step 2). The snapshot is only a fallback for headless web
+  use.
+- **If `SNAPSHOT: none` AND live tools work** (Mac case): proceed to Step 1
+  with live tools.
+- **If `SNAPSHOT: none` AND live tools unavailable** (web sandbox without a
+  pushed snapshot): print this verbatim and stop:
+
+  > No snapshot found, and no live calendar/Granola access in this environment.
+  > To use /brief on Claude Code on the web, run `./bin/brief-snapshot` on your
+  > Mac first. That generates `.brief-data/snapshot.json` and pushes it to this
+  > repo. Then re-run /brief here.
+
+- **GCALCLI: unavailable on a Mac** (live use): print install instructions and
+  stop:
 
   > `gcalcli` is not installed. The /brief skill needs it to read your calendar.
   > Install with: `brew install gcalcli && gcalcli init` (macOS) or
   > `pip install gcalcli && gcalcli init` (other). Re-run /brief after auth.
-
-- **GCALCLI_AUTH: failed** — print this verbatim and stop:
-
-  > `gcalcli` is installed but not authenticated to a Google account. Run:
-  > `gcalcli init` and follow the OAuth flow. Re-run /brief after.
-
-- **No granola tool in your tool list** — proceed in calendar-only mode (see
-  Step 3). Don't fail. Note in the output that Granola context is unavailable.
-
-If both are healthy, continue.
 
 ---
 
@@ -131,6 +155,21 @@ finer-grained visibility controls.)
   person's section with `Granola lookup failed` instead of dropping them.
 - If Granola MCP errors for ALL attendees → fall back to calendar-only mode
   for the rest of the brief (Step 3 handles this).
+
+---
+
+## Step 2.5 — Render from snapshot (web path)
+
+If Step 0 selected the snapshot path, the JSON has the structure produced by
+`bin/brief-snapshot`. Read it once (Read tool), then jump to Step 3 with
+`meetings` and `attendee_history` populated from the JSON. Mention the
+snapshot's `generated_at` time in the brief output, like:
+
+```
+Today, Wednesday May 7  (snapshot generated 6 minutes ago on Mac)
+```
+
+Don't re-fetch from live tools — that's the whole point of the snapshot path.
 
 ---
 

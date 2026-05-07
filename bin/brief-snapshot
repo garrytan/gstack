@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# bin/brief-snapshot — Mac-side data sync for the web /brief skill.
+#
+# Spawns Claude Code in print mode on this Mac (where gcalcli + Granola MCP
+# both work), asks it to produce a structured snapshot of today's calendar +
+# attendee history, writes the result to .brief-data/snapshot.json, and pushes
+# to the remote so Claude Code on the web picks it up via the SessionStart
+# hook.
+#
+# Run manually:
+#   ./bin/brief-snapshot
+#
+# Or set up launchd auto-run (see bin/install-brief-launchd.sh).
+#
+# Requires (on the Mac running this):
+#   - claude CLI on PATH
+#   - gcalcli installed and authed (gcalcli list works)
+#   - Granola MCP server registered (claude mcp list shows granola, healthy)
+#   - this repo cloned locally with git remote write access
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SNAPSHOT_DIR="$REPO_DIR/.brief-data"
+SNAPSHOT_FILE="$SNAPSHOT_DIR/snapshot.json"
+TODAY=$(date +%Y-%m-%d)
+
+mkdir -p "$SNAPSHOT_DIR"
+cd "$REPO_DIR"
+
+# Sanity checks — fail fast with actionable messages.
+if ! command -v claude >/dev/null 2>&1; then
+  echo "ERROR: 'claude' CLI not found on PATH." >&2
+  echo "  Install Claude Code first: https://docs.anthropic.com/en/docs/claude-code" >&2
+  exit 1
+fi
+
+if ! command -v gcalcli >/dev/null 2>&1; then
+  echo "ERROR: 'gcalcli' not found. Install with: brew install gcalcli && gcalcli init" >&2
+  exit 1
+fi
+
+if ! gcalcli list >/dev/null 2>&1; then
+  echo "ERROR: gcalcli is installed but not authenticated. Run: gcalcli init" >&2
+  exit 1
+fi
+
+if ! claude mcp list 2>&1 | grep -qi granola; then
+  echo "WARN: granola MCP not registered. Snapshot will have calendar only, no past context." >&2
+  # Continue — calendar-only snapshot is still useful.
+fi
+
+# Ask Claude to gather data and write the snapshot file directly.
+# Using --print mode so we get a clean exit when done.
+PROMPT=$(cat <<'EOF'
+You are generating a daily brief snapshot. Do this exactly:
+
+1. Run: gcalcli agenda --tsv --details=description --details=attendees \
+     "$(date +%Y-%m-%d)" "$(date -v+1d +%Y-%m-%d)"
+   to get today's meetings.
+
+2. For EACH unique attendee email across today's meetings, query the Granola
+   MCP server (look for tools whose name contains "granola") for that person's
+   3 most recent prior notes. Pull: date, title, summary, action items.
+
+3. Build a JSON object with this exact schema:
+   {
+     "generated_at": "<ISO 8601 UTC timestamp now>",
+     "today": "<YYYY-MM-DD>",
+     "meetings": [
+       {
+         "start_time": "HH:MM",
+         "end_time": "HH:MM",
+         "title": "...",
+         "attendees": [
+           {"email": "...", "name": "..."}
+         ]
+       }
+     ],
+     "attendee_history": {
+       "<email>": [
+         {
+           "date": "YYYY-MM-DD",
+           "title": "...",
+           "summary": "<1-2 sentence summary>",
+           "action_items": ["..."]
+         }
+       ]
+     }
+   }
+
+4. Write the JSON to .brief-data/snapshot.json using the Write tool. Format
+   with 2-space indent. Do NOT print the JSON to stdout. Do NOT add any prose,
+   explanations, or markdown fences. Just write the file.
+
+5. After writing, print exactly one line: "snapshot written".
+
+If there are NO meetings today, write a snapshot with empty meetings + empty
+attendee_history. Still write the file. Still print "snapshot written".
+
+If the Granola MCP is unavailable, populate attendee_history with empty arrays
+per attendee email. Still write the file. Still print "snapshot written".
+EOF
+)
+
+echo "[brief-snapshot] generating $SNAPSHOT_FILE..."
+claude --print --permission-mode bypassPermissions \
+  --append-system-prompt "You are running headless. No questions. Use tools and exit when done." \
+  "$PROMPT"
+
+if [ ! -s "$SNAPSHOT_FILE" ]; then
+  echo "ERROR: snapshot file was not created at $SNAPSHOT_FILE" >&2
+  exit 1
+fi
+
+# Sanity-check the JSON is valid and has the right shape.
+if ! python3 -c "import json,sys; d=json.load(open('$SNAPSHOT_FILE')); assert 'meetings' in d, 'missing meetings'; assert 'attendee_history' in d, 'missing attendee_history'; print(f'  meetings: {len(d[\"meetings\"])}, attendee history entries: {len(d[\"attendee_history\"])}')" 2>&1; then
+  echo "ERROR: snapshot.json is not valid JSON or has wrong shape." >&2
+  echo "       Inspect $SNAPSHOT_FILE manually." >&2
+  exit 1
+fi
+
+# Commit + push.
+git add "$SNAPSHOT_FILE"
+if git diff --cached --quiet; then
+  echo "[brief-snapshot] no changes; snapshot is identical to last commit"
+else
+  git commit -m "chore: brief snapshot for $TODAY" --no-verify >/dev/null
+  echo "[brief-snapshot] committed; pushing..."
+  git push
+  echo "[brief-snapshot] done. open Claude Code on the web and run /brief"
+fi
