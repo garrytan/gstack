@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.26.6.0] - 2026-05-07
+
+## **`/build` now catches dirty agent handoffs and classifies review timeouts more precisely.**
+
+The build orchestrator now treats a successful sub-agent exit as only one part of success. Implementor and review handoffs must leave useful output, commit when required, keep the child repo clean, and avoid mutating a parent workspace. This closes the class of failures where `/build` could continue after an agent claimed success while leaving scratch files, empty summaries, or changes in the wrong repo.
+
+### What you can now do
+
+- Run `/build` from nested workspaces with an explicit child project root, while workspace roots with immediate child repos are rejected unless `--allow-workspace-root` is set.
+- Let `/build` fail fast when implementors or review gates leave dirty repo state, miss required commits, or produce empty handoff summaries.
+- Run raw package `test` scripts through the detected package manager, including Bun-managed repos via `bun run test`.
+
+### What gets safer
+
+- Feature-review timeouts with pass evidence and no findings are preserved as tooling timeouts, while positive failure counts and explicit failure markers still stay conservative.
+- Test commands now run through the shell so quoted arguments survive.
+- Startup clean checks now include untracked files, preventing generated scratch files from slipping through the clean-worktree gate.
+
+### Itemized changes
+
+#### Added
+- `build/orchestrator/cli.ts` — post-agent hygiene snapshotting, parent-workspace mutation checks, and workspace-root selection validation.
+- `build/orchestrator/__tests__/cli.test.ts` — coverage for hygiene failures, parent workspace mutation detection, and `--allow-workspace-root`.
+- `build/orchestrator/__tests__/feature-review.test.ts` — timeout classification coverage for `0 failed`, positive failures, and explicit failure markers.
+
+#### Fixed
+- `build/orchestrator/sub-agents.ts` — maps raw package scripts to `bun run test`, `pnpm test`, `yarn test`, or `npm test` while preserving explicit test runner commands.
+- `build/orchestrator/feature-review.ts` — replaces broad `failed` timeout rejection with positive failure-count detection so `0 failed` can still count as pass evidence.
+- `build/orchestrator/phase-runner.ts` — surfaces hygiene failure messages directly in phase errors.
+
 ## [1.26.5.0] - 2026-05-06
 
 ## **`/build` survives transient Codex review transport drops without weakening sandbox policy.**
