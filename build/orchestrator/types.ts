@@ -261,6 +261,8 @@ export interface FeatureState {
   issueLogPath?: string;
   originIssueLogPaths?: string[];
   originVerificationAttempts?: number;
+  /** Files that conflicted while syncing the owned feature branch with base before shipping. */
+  baseSyncConflictFiles?: string[];
   /** Meta-review state (populated when feature-level review fires). */
   featureReview?: FeatureReviewState;
   error?: string;
@@ -271,6 +273,16 @@ export interface BuildLaunchOptions {
   argv: string[];
   /** Resolved target repository root for this invocation. */
   projectRoot: string;
+  /** Original checkout root when this run executes inside a private worktree. */
+  baseProjectRoot?: string;
+  /** Durable run identity. When present, state slug is build-<runId>. */
+  runId?: string;
+  /** Prefix used for branches owned by this run. */
+  branchPrefix?: string;
+  /** Active-run registry directory used to protect branches owned by sibling runs. */
+  activeRunRegistry?: string;
+  /** Persisted state slug for wrong-run resume detection. */
+  stateSlug?: string;
   /** Source/origin plan path, when this run was launched with --origin-plan. */
   originPlan?: string;
   /** True when this invocation is a simulation and must not write/ship. */

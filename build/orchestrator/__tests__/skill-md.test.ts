@@ -13,7 +13,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   expect(content.includes('Test Specification (test-writer role)')).toBe(true);
   expect(content.includes('exactly this durable sub-checkbox structure')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
-  expect(content.includes('--project-root "$repoPath"')).toBe(true);
+  expect(content.includes('--project-root "$worktreePath"')).toBe(true);
   expect(content.includes('Archive Plans')).toBe(true);
   expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
   expect(content.includes('Feature Verification')).toBe(true);
@@ -29,7 +29,7 @@ test("generated SKILL.md reflects TDD changes", () => {
   expect(content.includes('version: 1.21.3')).toBe(true);
   expect(content.includes('tests_red')).toBe(true);
   expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
-  expect(content.includes('--project-root "$repoPath"')).toBe(true);
+  expect(content.includes('--project-root "$worktreePath"')).toBe(true);
   expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
   expect(content.includes('Feature Verification')).toBe(true);
   expect(content.includes('Origin trace:')).toBe(true);
@@ -167,10 +167,12 @@ test("build skill docs use explicit source plan paths before spawning locator", 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
     expect(content).toContain("explicit source-plan paths");
-    expect(content).toContain("rm -f .llm-tmp/build-plan-locate-output.md");
+    expect(content).toContain('rm -f "$BUILD_TMP_DIR/build-plan-locate-output.md"');
     expect(content).toContain("_USED_EXPLICIT_PLAN");
-    expect(content).toContain("_EXPLICIT_PLAN_PATH");
-    expect(content).toContain(".llm-tmp/build-plan-locate-output.md");
+    expect(content).toContain("_EXPLICIT_SOURCE_PLAN_PATHS");
+    expect(content).not.toContain("_EXPLICIT_PLAN_PATH=");
+    expect(content).toContain("build-selected-source-plans.json");
+    expect(content).toContain("$BUILD_TMP_DIR/build-plan-locate-output.md");
     expect(content).toContain("skip the `planLocator` subagent");
     expect(content).toContain("Only spawn `planLocator` when no explicit valid plan path is available");
     expect(content).toContain("Do not treat a pre-existing locator output file as evidence");
@@ -192,12 +194,125 @@ test("build skill docs support workspace-root repo routing", () => {
     expect(content).toContain("split it into one living plan per target repo");
     expect(content).toContain('"repoPath"');
     expect(content).toContain('"livingPlanPath"');
-    expect(content).toContain('--project-root "$repoPath"');
+    expect(content).toContain('--project-root "$worktreePath"');
     expect(content).toContain("Run `git log` and all verifier subagents from the child repo, never the workspace root");
     expect(content).toContain("build-final-exam-${repoSlug}-input.md");
-    expect(content).toContain("Only exit when the active run is the last manifest entry");
-    expect(content).toContain("waiting for next manifest run");
+    expect(content).toContain("Only exit when every manifest entry");
+    expect(content).toContain("launch all manifest runs concurrently");
   }
+});
+
+test("build skill docs describe safe parallel manifest v2 runs", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("manifest v2");
+    expect(content).toContain(".llm-tmp/build-runs/<runGroupId>");
+    expect(content).toContain("--all-inbox");
+    expect(content).toContain("_ALL_INBOX_REQUESTED");
+    expect(content).toContain("$GSTACK_REPO/inbox/.claims");
+    expect(content).toContain("set -C");
+    expect(content).toContain("runGroupId");
+    expect(content).toContain("runIds");
+    expect(content).toContain("no global `build-active-run-index`");
+    expect(content).toContain("--run-id \"$runId\"");
+    expect(content).toContain("--base-project-root \"$repoPath\"");
+    expect(content).toContain("--branch-prefix \"$branchPrefix\"");
+    expect(content).toContain("active-runs");
+    expect(content).toContain("refs/remotes/origin/HEAD");
+    expect(content).toContain("_VERIFY_BASE_REF");
+    expect(content).toContain("_FINAL_BASE_REF");
+    expect(content).toContain('git log --oneline "$_FINAL_BASE_REF"');
+    expect(content).toContain("Remote base ref:");
+    expect(content).toContain('git -C "$worktreePath" rev-parse --is-inside-work-tree');
+    expect(content).toContain("worktree path exists but is not a git worktree");
+    expect(content).toContain('git worktree add -b "$_FIRST_BRANCH" "$worktreePath" "$_BASE_COMMIT"');
+    expect(content).not.toContain('-d "$worktreePath/.git"');
+    expect(content).not.toContain("sed 's#^origin/##'");
+    expect(content).toContain('status:"claimed"');
+    expect(content).toContain('--arg status "manifested"');
+    expect(content).toContain('--arg status "running"');
+    expect(content).toContain('_mark_run_claim_status "completed" "completedAt"');
+    expect(content).toContain('_mark_run_claim_status "failed" "failedAt"');
+    expect(content).toContain("runStatuses");
+    expect(content).toContain('.runStatuses[$runId]');
+    expect(content).toContain(". as $claim");
+    expect(content).toContain('all($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "completed")');
+    expect(content).toContain('all($claim.runIds[]; (($claim.runStatuses[.]?.status // "") | IN("completed","failed")))');
+    expect(content).toContain('any($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "failed")');
+    expect(content).not.toContain('all(.runIds[]; (.runStatuses[.]?.status // "") == "completed")');
+    expect(content).not.toContain('. + {status:$status,updatedAt:$updatedAt} + {($timeField):$updatedAt}');
+    expect(content).toContain('git -C "$repoPath" worktree remove "$worktreePath"');
+    expect(content).toContain("worktree cleanup failed for completed run");
+    expect(content).toContain("preserving the worktree for debugging");
+    expect(content).toContain('--arg status "cancelled"');
+    expect(content).toContain("pidFiles");
+    expect(content).toContain("stdoutLogs");
+    expect(content).toContain("_prepare_claim_for_selection");
+    expect(content).toContain("unknown source-plan claim status");
+    expect(content).not.toContain('[ -e "$_CLAIM_PATH" ] && continue');
+  }
+});
+
+test("source-plan claim aggregation jq keeps the claim root while iterating run ids", () => {
+  const jqProgram = `
+    .runStatuses = (.runStatuses // {}) |
+    .runStatuses[$runId] = ({status:$runStatus,updatedAt:$updatedAt} + {($timeField):$updatedAt}) |
+    . as $claim |
+    .status =
+      if ($claim.runIds | type) != "array" or ($claim.runIds | length) == 0 then $runStatus
+      elif all($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "completed") then "completed"
+      elif all($claim.runIds[]; (($claim.runStatuses[.]?.status // "") | IN("completed","failed"))) and any($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "failed") then "failed"
+      else "running"
+      end |
+    .updatedAt = $updatedAt |
+    if .status == "completed" then .completedAt = $updatedAt
+    elif .status == "failed" then .failedAt = $updatedAt
+    else del(.completedAt, .failedAt)
+    end
+  `;
+
+  const result = spawnSync(
+    "jq",
+    [
+      "--arg",
+      "runId",
+      "run-a",
+      "--arg",
+      "runStatus",
+      "completed",
+      "--arg",
+      "updatedAt",
+      "2026-05-08T00:00:00Z",
+      "--arg",
+      "timeField",
+      "completedAt",
+      jqProgram,
+    ],
+    {
+      input: JSON.stringify({
+        status: "running",
+        runIds: ["run-a", "run-b"],
+        runStatuses: {
+          "run-b": {
+            status: "running",
+            updatedAt: "2026-05-08T00:00:00Z",
+          },
+        },
+      }),
+      encoding: "utf8",
+    },
+  );
+
+  expect(result.status).toBe(0);
+  const claim = JSON.parse(result.stdout);
+  expect(claim.status).toBe("running");
+  expect(claim.runStatuses["run-a"].status).toBe("completed");
 });
 
 test("build docs describe workspace-root and sequential multi-repo runs", () => {

@@ -6,6 +6,7 @@ const ROOT = path.resolve(import.meta.dir, "../../..");
 const ORCHESTRATOR_DIR = path.resolve(import.meta.dir, "..");
 
 const MODULE_TEST_OWNERS: Record<string, string[]> = {
+  "active-runs.ts": ["active-runs.test.ts", "startup.test.ts"],
   "backfill-checkboxes.ts": ["backfill-checkboxes.test.ts"],
   "build-config.ts": ["role-config.test.ts"],
   "cli.ts": [
@@ -67,7 +68,7 @@ const FEATURE_MATRIX = [
   },
   {
     feature: "Startup safety gates, state persistence, locks, and gbrain mirror",
-    tests: ["startup.test.ts", "state.test.ts", "gbrain.test.ts"],
+    tests: ["startup.test.ts", "state.test.ts", "gbrain.test.ts", "active-runs.test.ts"],
   },
   {
     feature: "Generated /build skill and documentation contract",

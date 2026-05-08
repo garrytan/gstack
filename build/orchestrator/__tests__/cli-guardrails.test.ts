@@ -202,9 +202,9 @@ describe('verifyPostShip', () => {
     expect(report.join('\n')).toContain('⚠ dirty');
   });
 
-  it('reports in sync when local HEAD matches origin/main', async () => {
+  it('reports in sync when local HEAD matches the remote base', async () => {
     const { report } = await verifyPostShip(repoPath, 'main');
-    expect(report.join('\n')).toContain('Main sync:   ✅ in sync');
+    expect(report.join('\n')).toContain('Base sync:   ✅ in sync with origin/main');
   });
 
   it('reports HEAD mismatch and sets ok=false when local is ahead of origin', async () => {
@@ -217,6 +217,33 @@ describe('verifyPostShip', () => {
     git(['push', 'origin', 'main'], repoPath);
     expect(ok).toBe(false);
     expect(report.join('\n')).toContain('⚠ local HEAD');
+  });
+
+  it('uses origin/HEAD for post-ship checks when the default branch is not main', async () => {
+    const nonMainTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-post-ship-develop-'));
+    const nonMainBare = path.join(nonMainTmp, 'origin.git');
+    const nonMainRepo = path.join(nonMainTmp, 'repo');
+    try {
+      fs.mkdirSync(nonMainBare, { recursive: true });
+      git(['init', '--bare', '--initial-branch=develop'], nonMainBare);
+      git(['clone', nonMainBare, nonMainRepo], nonMainTmp);
+      git(['config', 'user.email', 'test@test.com'], nonMainRepo);
+      git(['config', 'user.name', 'Test User'], nonMainRepo);
+      fs.writeFileSync(path.join(nonMainRepo, 'README.md'), 'develop\n');
+      git(['add', '.'], nonMainRepo);
+      git(['commit', '-m', 'develop init'], nonMainRepo);
+      git(['push', '-u', 'origin', 'develop'], nonMainRepo);
+      git(['fetch', 'origin'], nonMainRepo);
+      git(['remote', 'set-head', 'origin', '-a'], nonMainRepo);
+
+      const { report } = await verifyPostShip(nonMainRepo, 'develop');
+      const out = report.join('\n');
+
+      expect(out).toContain('Branches:    ✅ no unmerged feat/* on origin/develop');
+      expect(out).toContain('Base sync:   ✅ in sync with origin/develop');
+    } finally {
+      fs.rmSync(nonMainTmp, { recursive: true, force: true });
+    }
   });
 
   it('reports no unmerged feat/* branches when branch list is clean', async () => {

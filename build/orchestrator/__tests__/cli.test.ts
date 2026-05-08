@@ -21,11 +21,15 @@ import {
   archiveOriginPlan,
   buildOriginVerificationBody,
   ensureFeatureBranch,
+  detectRemoteBaseRef,
+  syncLandedBase,
+  syncFeatureBranchWithBase,
+  validateResumeLaunch,
   restartFeatureFromOriginIssues,
   HELP_TEXT,
 } from '../cli';
 import type { BuildState, FeatureState, Phase, DualImplTestResult } from '../types';
-import { statePath } from '../state';
+import { lockPath, statePath } from '../state';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -126,6 +130,68 @@ describe('--skip-ship flag wiring', () => {
   it('parseArgs([plan, --skip-ship]) sets skipShip=true', () => {
     const args = parseArgs(['plan.md', '--skip-ship']);
     expect(args.skipShip).toBe(true);
+  });
+});
+
+describe('lock cleanup', () => {
+  it('releases the run lock if provisional active-run registration fails before state exists', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-lock-cleanup-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: tmpDir, stdio: 'ignore' });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const ok = true;\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpDir });
+    spawnSync('git', ['commit', '-m', 'initial'], { cwd: tmpDir, stdio: 'ignore' });
+
+    const plan = path.join(tmpDir, 'plan.md');
+    fs.writeFileSync(
+      plan,
+      `# Plan
+
+## Features
+
+### Feature 1: Lock cleanup
+
+## Phases
+
+### Phase 1: Lock cleanup
+- [ ] **Test Specification (Gemini Sub-agent)**: Write failing tests.
+- [ ] **Implementation (Codex Sub-agent)**: Implement the fix.
+- [ ] **Review (Codex Review Sub-agent)**: Review the implementation.
+`,
+    );
+    const registryParentFile = path.join(tmpDir, 'registry-parent');
+    fs.writeFileSync(registryParentFile, 'not a directory\n');
+    const impossibleRegistry = path.join(registryParentFile, 'active-runs');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve('build/orchestrator/cli.ts'),
+        plan,
+        '--project-root',
+        tmpDir,
+        '--dry-run',
+        '--run-id',
+        'lock-cleanup',
+        '--branch-prefix',
+        'lock-cleanup',
+        '--active-run-registry',
+        impossibleRegistry,
+        '--no-gbrain',
+      ],
+      {
+        cwd: path.resolve('.'),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GSTACK_BUILD_STATE_DIR: tmpStateDir!,
+        },
+      },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(fs.existsSync(lockPath('build-lock-cleanup'))).toBe(false);
   });
 });
 
@@ -323,6 +389,24 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   it('parseArgs with --gemini-model sets geminiModel', () => {
     const args = parseArgs(['plan.md', '--gemini-model', 'primary-model-under-test']);
     expect(args.geminiModel).toBe('primary-model-under-test');
+  });
+  it('parseArgs accepts manifest run identity flags', () => {
+    const registry = path.join(os.tmpdir(), 'active-runs');
+    const args = parseArgs([
+      'plan.md',
+      '--run-id',
+      'run-1',
+      '--base-project-root',
+      '.',
+      '--branch-prefix',
+      'repo-run-1',
+      '--active-run-registry',
+      registry,
+    ]);
+    expect(args.runId).toBe('run-1');
+    expect(args.baseProjectRoot).toBe(path.resolve('.'));
+    expect(args.branchPrefix).toBe('repo-run-1');
+    expect(args.activeRunRegistry).toBe(path.resolve(registry));
   });
 
   it('parseArgs with --codex-model sets codexModel', () => {
@@ -809,6 +893,77 @@ describe('plan storage helpers', () => {
   });
 });
 
+describe('remote base detection', () => {
+  function git(args: string[], cwd: string) {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    if (r.status !== 0) {
+      throw new Error(`git ${args.join(' ')} failed: ${r.stderr || r.stdout}`);
+    }
+    return r.stdout.trim();
+  }
+
+  function setupOriginHeadRepo() {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-origin-head-'));
+    const repo = path.join(tmpDir, 'repo');
+    const bare = path.join(tmpDir, 'origin.git');
+    fs.mkdirSync(repo, { recursive: true });
+    fs.mkdirSync(bare, { recursive: true });
+    git(['init', '--bare', '--initial-branch=develop'], bare);
+    git(['symbolic-ref', 'HEAD', 'refs/heads/develop'], bare);
+    git(['init', '--initial-branch=main'], repo);
+    git(['config', 'user.email', 'test@test.com'], repo);
+    git(['config', 'user.name', 'Test User'], repo);
+    git(['remote', 'add', 'origin', bare], repo);
+    fs.writeFileSync(path.join(repo, 'README.md'), 'main\n');
+    git(['add', '.'], repo);
+    git(['commit', '-m', 'main init'], repo);
+    git(['push', '-u', 'origin', 'main'], repo);
+    git(['checkout', '-b', 'develop'], repo);
+    fs.writeFileSync(path.join(repo, 'default.txt'), 'develop default\n');
+    git(['add', '.'], repo);
+    git(['commit', '-m', 'develop default'], repo);
+    git(['push', '-u', 'origin', 'develop'], repo);
+    git(['fetch', 'origin'], repo);
+    git(['remote', 'set-head', 'origin', '-a'], repo);
+    return repo;
+  }
+
+  it('resolves origin/HEAD before main or master', () => {
+    const repo = setupOriginHeadRepo();
+    expect(detectRemoteBaseRef(repo)).toBe('origin/develop');
+  });
+
+  it('syncFeatureBranchWithBase merges the origin/HEAD default branch', () => {
+    const repo = setupOriginHeadRepo();
+    git(['checkout', 'main'], repo);
+    git(['checkout', '-b', 'feat/work'], repo);
+    fs.writeFileSync(path.join(repo, 'feature.txt'), 'feature\n');
+    git(['add', '.'], repo);
+    git(['commit', '-m', 'feature work'], repo);
+
+    const result = syncFeatureBranchWithBase(repo, 'feat/work');
+
+    expect(result.ok).toBe(true);
+    expect(result.baseRef).toBe('origin/develop');
+    expect(fs.readFileSync(path.join(repo, 'default.txt'), 'utf8')).toBe(
+      'develop default\n',
+    );
+  });
+
+  it('syncLandedBase checks out and pulls the origin/HEAD default branch', () => {
+    const repo = setupOriginHeadRepo();
+    git(['checkout', 'main'], repo);
+
+    const result = syncLandedBase(repo);
+
+    expect(result).toEqual({ ok: true, branch: 'develop' });
+    expect(git(['branch', '--show-current'], repo)).toBe('develop');
+    expect(fs.readFileSync(path.join(repo, 'default.txt'), 'utf8')).toBe(
+      'develop default\n',
+    );
+  });
+});
+
 describe('buildOriginVerificationBody', () => {
   it('asks for a GATE PASS / GATE FAIL origin-plan check', () => {
     const body = buildOriginVerificationBody({
@@ -1065,6 +1220,78 @@ describe('ensureFeatureBranch', () => {
     expect(feature.branch).toBe('feat/auth-followup-1');
     expect(state.branch).toBe('feat/auth-followup-1');
     fs.rmSync(statePath(slug), { force: true });
+  });
+
+  it('uses branchPrefix for owned feature branches', () => {
+    const slug = `test-prefix-${Date.now()}`;
+    const feature: FeatureState = {
+      index: 0,
+      number: '1',
+      name: 'Auth',
+      phaseIndexes: [],
+      status: 'running',
+    };
+    const state = stateForBranchTest(slug, feature);
+    state.launch = {
+      argv: ['plan.md'],
+      projectRoot: '/repo',
+      runId: 'run-1',
+      branchPrefix: 'repo-run-1',
+      activeRunRegistry: path.join(os.tmpdir(), 'active-runs'),
+      dryRun: true,
+      skipShip: false,
+      skipFeatureReview: false,
+      launchedAt: '2026-04-30T00:00:00.000Z',
+      stateSlug: slug,
+    };
+
+    expect(ensureFeatureBranch({
+      cwd: process.cwd(),
+      state,
+      feature,
+      dryRun: true,
+      noGbrain: true,
+    })).toBe(true);
+    expect(feature.branch).toBe('feat/repo-run-1-1-auth');
+    expect(state.branch).toBe('feat/repo-run-1-1-auth');
+    fs.rmSync(statePath(slug), { force: true });
+  });
+});
+
+describe('validateResumeLaunch', () => {
+  function launch(projectRoot = '/repo') {
+    return {
+      argv: ['/plans/plan.md'],
+      projectRoot,
+      baseProjectRoot: '/base',
+      runId: 'run-1',
+      branchPrefix: 'repo-run-1',
+      activeRunRegistry: '/registry',
+      dryRun: false,
+      skipShip: false,
+      skipFeatureReview: false,
+      launchedAt: '2026-04-30T00:00:00.000Z',
+      stateSlug: 'build-run-1',
+    };
+  }
+
+  it('refuses mismatched plan path or project root', () => {
+    const state: BuildState = {
+      planFile: '/plans/plan.md',
+      planBasename: 'plan',
+      slug: 'build-run-1',
+      branch: 'main',
+      startedAt: '2026-04-30T00:00:00.000Z',
+      lastUpdatedAt: '2026-04-30T00:00:00.000Z',
+      currentPhaseIndex: 0,
+      features: [],
+      phases: [],
+      completed: false,
+    };
+    state.launch = launch();
+
+    expect(() => validateResumeLaunch(state, launch(), '/plans/other.md')).toThrow(/wrong-plan\/wrong-repo/);
+    expect(() => validateResumeLaunch(state, launch('/other-repo'), '/plans/plan.md')).toThrow(/projectRoot/);
   });
 });
 

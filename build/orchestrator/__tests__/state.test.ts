@@ -4,6 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   deriveSlug,
+  deriveRunSlug,
+  deriveStateSlug,
   statePath,
   lockPath,
   freshState,
@@ -74,6 +76,11 @@ describe('deriveSlug', () => {
   it('handles uppercase .MD', () => {
     expect(deriveSlug('foo.MD')).toBe('build-foo');
   });
+  it('uses run id state slugs when provided', () => {
+    expect(deriveRunSlug('run:one/alpha')).toBe('build-run-one-alpha');
+    expect(deriveStateSlug('/x/same.md', 'run-a')).toBe('build-run-a');
+    expect(deriveStateSlug('/y/same.md', 'run-b')).toBe('build-run-b');
+  });
 });
 
 describe('freshState', () => {
@@ -82,6 +89,13 @@ describe('freshState', () => {
     expect(s.phases[0].status).toBe('pending');
     expect(s.phases[1].status).toBe('committed');
     expect(s.features![0].status).toBe('pending');
+  });
+  it('run-id state slugs do not collide for same basename plans', () => {
+    const a = freshState({ planFile: '/x/foo.md', branch: 'main', phases, runId: 'run-a' });
+    const b = freshState({ planFile: '/y/foo.md', branch: 'main', phases, runId: 'run-b' });
+    expect(a.slug).toBe('build-run-a');
+    expect(b.slug).toBe('build-run-b');
+    expect(a.slug).not.toBe(b.slug);
   });
   it('points currentPhaseIndex at first non-committed', () => {
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases });

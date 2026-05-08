@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { checkWorkingTreeClean, findMergeCandidateBranches, findUnmergedLocalFeatBranches, findUnshippedFeatBranches, verifyNoUnmergedFeatBranches } from '../cli';
+import { activeOwnedBranches, writeActiveRunRecord } from '../active-runs';
 
 describe('checkWorkingTreeClean', () => {
   let tempDir: string;
@@ -224,6 +225,104 @@ describe('findUnshippedFeatBranches', () => {
     });
   });
 
+  it('startup sweep and merge candidate discovery can skip active-run branches', () => {
+    spawnSync('git', ['checkout', '-b', 'feat/active'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'active.ts'), 'active');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat active'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/active'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+
+    const ignored = new Set(['feat/active']);
+    expect(findUnshippedFeatBranches(mainDir, 'main', { ignoreBranches: ignored })).toEqual([]);
+    expect(findMergeCandidateBranches(mainDir, 'main', {
+      includeCurrent: true,
+      ignoreBranches: ignored,
+    })).toEqual([]);
+  });
+
+  it('startup sweep skips provisional active-run bootstrap branches before state exists', () => {
+    spawnSync('git', ['checkout', '-b', 'feat/repo-run-bootstrap'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'bootstrap.ts'), 'bootstrap');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat bootstrap'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/repo-run-bootstrap'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-provisional-'));
+    try {
+      writeActiveRunRecord(registryDir, {
+        runId: 'repo-run',
+        stateSlug: 'build-repo-run',
+        repoPath: mainDir,
+        baseProjectRoot: mainDir,
+        planFile: '/plans/source.md',
+        branchPrefix: 'repo-run',
+        pid: process.pid,
+        status: 'running',
+        startedAt: '2026-05-08T00:00:00.000Z',
+        lastUpdatedAt: '2026-05-08T00:00:00.000Z',
+        branches: ['feat/repo-run-bootstrap'],
+      });
+
+      const ignored = activeOwnedBranches(registryDir, {
+        projectRoot: mainDir,
+        baseProjectRoot: mainDir,
+      });
+      expect(ignored).toEqual(new Set(['feat/repo-run-bootstrap']));
+      expect(findUnshippedFeatBranches(mainDir, 'main', {
+        ignoreBranches: ignored,
+      })).toEqual([]);
+      expect(findMergeCandidateBranches(mainDir, 'main', {
+        includeCurrent: true,
+        ignoreBranches: ignored,
+      })).toEqual([]);
+    } finally {
+      fs.rmSync(registryDir, { recursive: true, force: true });
+    }
+  });
+
+  it('active-run skips from another repo do not hide current repo branches', () => {
+    spawnSync('git', ['checkout', '-b', 'feat/active'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'active.ts'), 'active');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat active'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/active'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+
+    const registryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'startup-active-runs-'));
+    try {
+      writeActiveRunRecord(registryDir, {
+        runId: 'other-repo-run',
+        stateSlug: 'build-other-repo-run',
+        repoPath: path.join(os.tmpdir(), 'other-repo'),
+        planFile: '/plans/other.md',
+        pid: process.pid,
+        status: 'running',
+        startedAt: '2026-05-08T00:00:00.000Z',
+        lastUpdatedAt: '2026-05-08T00:00:00.000Z',
+        branches: ['feat/active'],
+      });
+
+      const ignoredForCurrentRepo = activeOwnedBranches(registryDir, {
+        projectRoot: mainDir,
+      });
+      expect(ignoredForCurrentRepo).toEqual(new Set());
+      expect(findUnshippedFeatBranches(mainDir, 'main', {
+        ignoreBranches: ignoredForCurrentRepo,
+      })).toEqual(['feat/active']);
+      expect(findMergeCandidateBranches(mainDir, 'main', {
+        includeCurrent: true,
+        ignoreBranches: ignoredForCurrentRepo,
+      }).map((branch) => branch.name)).toEqual(['feat/active']);
+      expect(verifyNoUnmergedFeatBranches(mainDir, 'main', {
+        ignoreBranches: ignoredForCurrentRepo,
+      }).ok).toBe(false);
+    } finally {
+      fs.rmSync(registryDir, { recursive: true, force: true });
+    }
+  });
+
   it('strict final exam check fails closed when fetch cannot verify remote branches', () => {
     spawnSync('git', ['remote', 'set-url', 'origin', path.join(bareDir, 'missing.git')], { cwd: mainDir });
 
@@ -269,6 +368,24 @@ describe('findUnshippedFeatBranches', () => {
 
     const ignored = verifyNoUnmergedFeatBranches(mainDir, 'main', {
       ignoreLocalBranches: ['feat/squashed'],
+    });
+    expect(ignored).toEqual({ ok: true, branches: [] });
+  });
+
+  it('strict final exam ignores active branches owned by other runs', () => {
+    spawnSync('git', ['checkout', '-b', 'feat/active'], { cwd: mainDir });
+    fs.writeFileSync(path.join(mainDir, 'active.ts'), 'active');
+    spawnSync('git', ['add', '.'], { cwd: mainDir });
+    spawnSync('git', ['commit', '-m', 'feat active'], { cwd: mainDir });
+    spawnSync('git', ['push', 'origin', 'feat/active'], { cwd: mainDir });
+    spawnSync('git', ['checkout', 'main'], { cwd: mainDir });
+
+    const blocked = verifyNoUnmergedFeatBranches(mainDir, 'main');
+    expect(blocked.ok).toBe(false);
+    expect(blocked.branches).toContain('origin/feat/active');
+
+    const ignored = verifyNoUnmergedFeatBranches(mainDir, 'main', {
+      ignoreBranches: new Set(['feat/active']),
     });
     expect(ignored).toEqual({ ok: true, branches: [] });
   });

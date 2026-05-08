@@ -42,6 +42,19 @@ export function deriveSlug(planFile: string): string {
   return `build-${noExt}`;
 }
 
+export function deriveRunSlug(runId: string): string {
+  const safe =
+    runId
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'run';
+  return `build-${safe}`;
+}
+
+export function deriveStateSlug(planFile: string, runId?: string): string {
+  return runId ? deriveRunSlug(runId) : deriveSlug(planFile);
+}
+
 export function statePath(slug: string): string {
   return path.join(stateDir(), `${slug}.json`);
 }
@@ -88,6 +101,7 @@ export function ensureLogDir(slug: string): void {
 export function freshState(args: {
   planFile: string;
   branch: string;
+  runId?: string;
   features?: Feature[];
   phases: Phase[];
   launch?: BuildLaunchOptions;
@@ -96,7 +110,7 @@ export function freshState(args: {
   codexReviewModel?: string;
   roleConfigs?: RoleConfigs;
 }): BuildState {
-  const slug = deriveSlug(args.planFile);
+  const slug = deriveStateSlug(args.planFile, args.runId ?? args.launch?.runId);
   const planBasename = path.basename(args.planFile).replace(/\.md$/i, '');
   const now = new Date().toISOString();
   const phaseStates: PhaseState[] = args.phases.map((p) => ({

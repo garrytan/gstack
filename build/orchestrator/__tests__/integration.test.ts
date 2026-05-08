@@ -811,3 +811,49 @@ fi
     fs.rmSync(resumeDir, { recursive: true, force: true });
   }
 });
+
+test("two same-basename plans with run ids cannot load each other's state", () => {
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-run-id-isolation-"));
+  try {
+    const planADir = path.join(runDir, "a");
+    const planBDir = path.join(runDir, "b");
+    fs.mkdirSync(planADir, { recursive: true });
+    fs.mkdirSync(planBDir, { recursive: true });
+    const planA = path.join(planADir, "same-plan.md");
+    const planB = path.join(planBDir, "same-plan.md");
+    fs.writeFileSync(planA, TDD_PLAN);
+    fs.writeFileSync(planB, TDD_PLAN.replace("Foundation", "Other Foundation"));
+    const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+    const env = {
+      ...process.env,
+      HOME: runDir,
+      GSTACK_HOME: path.join(runDir, ".gstack"),
+    };
+
+    const first = spawnSync(
+      "bun",
+      ["run", cliPath, planA, "--dry-run", "--run-id", "run-a", "--no-gbrain", "--no-resume"],
+      { env, encoding: "utf8", timeout: 30_000 },
+    );
+    const second = spawnSync(
+      "bun",
+      ["run", cliPath, planB, "--dry-run", "--run-id", "run-b", "--no-gbrain", "--no-resume"],
+      { env, encoding: "utf8", timeout: 30_000 },
+    );
+
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    const stateA = JSON.parse(
+      fs.readFileSync(path.join(runDir, ".gstack", "build-state", "build-run-a.json"), "utf8"),
+    );
+    const stateB = JSON.parse(
+      fs.readFileSync(path.join(runDir, ".gstack", "build-state", "build-run-b.json"), "utf8"),
+    );
+    expect(stateA.planFile).toBe(planA);
+    expect(stateB.planFile).toBe(planB);
+    expect(stateA.slug).toBe("build-run-a");
+    expect(stateB.slug).toBe("build-run-b");
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});

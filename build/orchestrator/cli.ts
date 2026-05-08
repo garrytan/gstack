@@ -36,14 +36,21 @@ import { parsePlan, isPhaseComplete } from "./parser";
 import {
   freshState,
   loadState,
-  saveState,
+  saveState as persistBuildState,
   acquireLock,
   releaseLock,
   readLockInfo,
   ensureLogDir,
-  deriveSlug,
+  deriveStateSlug,
   logDir,
 } from "./state";
+import {
+  activeOwnedBranches,
+  defaultActiveRunRegistryDir,
+  removeActiveRunRecord,
+  writeActiveRunRecord,
+  type ActiveRunStatus,
+} from "./active-runs";
 import {
   decideNextAction,
   applyResult,
@@ -124,6 +131,98 @@ const DEFAULT_JUDGE_TIMEOUT_MS = Number(
 );
 const DUAL_CANDIDATES = ["primary", "secondary"] as const;
 
+function saveState(
+  state: BuildState,
+  opts: { noGbrain?: boolean; log?: (msg: string) => void } = {},
+): void {
+  persistBuildState(state, opts);
+  updateActiveRunFromState(state, "running");
+}
+
+function ownedBranchesFromState(state: BuildState): string[] {
+  const branches = new Set<string>();
+  if (state.branch?.startsWith("feat/")) branches.add(state.branch);
+  for (const feature of state.features ?? []) {
+    if (feature.branch?.startsWith("feat/")) branches.add(feature.branch);
+  }
+  return [...branches].sort((a, b) => a.localeCompare(b));
+}
+
+function inferActiveRunStatus(
+  state: BuildState,
+  fallback: ActiveRunStatus,
+): ActiveRunStatus {
+  if (state.completed) return "completed";
+  if (state.failedAtPhase != null || state.failureReason) return "failed";
+  if (
+    (state.features ?? []).some((feature) =>
+      ["paused", "failed", "feature_blocked"].includes(feature.status),
+    )
+  ) {
+    return "paused";
+  }
+  return fallback;
+}
+
+function updateActiveRunFromState(
+  state: BuildState,
+  fallback: ActiveRunStatus,
+): void {
+  const launch = state.launch;
+  if (!launch?.runId || !launch.activeRunRegistry) return;
+  const existingStartedAt = state.startedAt;
+  writeActiveRunRecord(launch.activeRunRegistry, {
+    runId: launch.runId,
+    stateSlug: state.slug,
+    repoPath: launch.projectRoot,
+    ...(launch.baseProjectRoot && { baseProjectRoot: launch.baseProjectRoot }),
+    planFile: state.planFile,
+    ...(launch.branchPrefix && { branchPrefix: launch.branchPrefix }),
+    pid: process.pid,
+    status: inferActiveRunStatus(state, fallback),
+    startedAt: existingStartedAt,
+    lastUpdatedAt: state.lastUpdatedAt,
+    branches: ownedBranchesFromState(state),
+  });
+}
+
+function provisionalOwnedBranches(
+  launch: BuildLaunchOptions,
+  currentBranchName: string,
+): string[] {
+  const branches = new Set<string>();
+  if (currentBranchName.startsWith("feat/")) branches.add(currentBranchName);
+  if (launch.branchPrefix) {
+    branches.add(`feat/${safeBranchPart(launch.branchPrefix)}-bootstrap`);
+  }
+  return [...branches].sort((a, b) => a.localeCompare(b));
+}
+
+function writeProvisionalActiveRunRecord(args: {
+  launch: BuildLaunchOptions;
+  slug: string;
+  planFile: string;
+  currentBranchName: string;
+  status?: ActiveRunStatus;
+}): void {
+  const { launch } = args;
+  if (!launch.runId || !launch.activeRunRegistry) return;
+  const now = new Date().toISOString();
+  writeActiveRunRecord(launch.activeRunRegistry, {
+    runId: launch.runId,
+    stateSlug: launch.stateSlug ?? args.slug,
+    repoPath: launch.projectRoot,
+    ...(launch.baseProjectRoot && { baseProjectRoot: launch.baseProjectRoot }),
+    planFile: args.planFile,
+    ...(launch.branchPrefix && { branchPrefix: launch.branchPrefix }),
+    pid: process.pid,
+    status: args.status ?? "running",
+    startedAt: now,
+    lastUpdatedAt: now,
+    branches: provisionalOwnedBranches(launch, args.currentBranchName),
+  });
+}
+
 function candidateLabel(key: DualImplCandidateKey): string {
   return key === "primary" ? "Primary" : "Secondary";
 }
@@ -176,6 +275,14 @@ export interface Args {
   skipSweep: boolean;
   /** Original source plan to verify and archive after the living plan completes. */
   originPlan?: string;
+  /** Durable run identity used by manifest/worktree launches. */
+  runId?: string;
+  /** Original checkout root when this run executes inside an isolated worktree. */
+  baseProjectRoot?: string;
+  /** Prefix for branches owned by this build. */
+  branchPrefix?: string;
+  /** Directory containing active-run registry JSON records. */
+  activeRunRegistry: string;
   /** Allow running directly from a workspace root that contains child git repos. */
   allowWorkspaceRoot: boolean;
   /**
@@ -217,6 +324,10 @@ export function parseArgs(argv: string[]): Args {
     skipCleanCheck: false,
     skipSweep: false,
     originPlan: undefined,
+    runId: undefined,
+    baseProjectRoot: undefined,
+    branchPrefix: undefined,
+    activeRunRegistry: defaultActiveRunRegistryDir(),
     allowWorkspaceRoot: false,
     skipFeatureReview: false,
     featureReviewMaxIter: DEFAULT_FEATURE_REVIEW_MAX_ITER,
@@ -303,6 +414,34 @@ export function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.projectRoot = path.resolve(next);
+    } else if (a === "--base-project-root") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--base-project-root requires a value");
+        process.exit(2);
+      }
+      args.baseProjectRoot = path.resolve(next);
+    } else if (a === "--run-id") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--run-id requires a value");
+        process.exit(2);
+      }
+      args.runId = next;
+    } else if (a === "--branch-prefix") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--branch-prefix requires a value");
+        process.exit(2);
+      }
+      args.branchPrefix = next;
+    } else if (a === "--active-run-registry") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--active-run-registry requires a value");
+        process.exit(2);
+      }
+      args.activeRunRegistry = path.resolve(next);
     } else if (a === "--origin-plan") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
@@ -926,6 +1065,10 @@ Flags:
   --codex-review-model <m>         Deprecated alias for --review-secondary-model.
   --test-cmd <cmd>     Override test command (default: auto-detect from package.json/pytest.ini/go.mod/Cargo.toml).
   --project-root <dir> Run sub-agents/tests from this repo root. Required when a living plan is stored in an ambiguous *-gstack repo.
+  --run-id <id>        Durable manifest/worktree run id. State slug becomes build-<id>.
+  --base-project-root <dir> Original checkout root when --project-root is an isolated worktree.
+  --branch-prefix <prefix> Prefix for branches owned by this run.
+  --active-run-registry <dir> Active-run registry (default ~/.gstack/build-state/active-runs).
   --allow-workspace-root  Allow --project-root to be a workspace root with immediate child git repos.
   --origin-plan <file> Original source plan. Verified after each feature and archived after final completion.
   --max-codex-iter N   Cap recursive Codex iterations (default ${DEFAULT_MAX_CODEX_ITERATIONS}).
@@ -1054,6 +1197,7 @@ export async function verifyPostShip(
 
   const run = (cmd: string, args: string[], timeoutMs = 15_000) =>
     spawnSync(cmd, args, { encoding: "utf8", cwd, timeout: timeoutMs });
+  const baseRef = detectRemoteBaseRef(cwd);
 
   // 1. No open PRs for the feature branch
   const openPR = run(
@@ -1099,7 +1243,7 @@ export async function verifyPostShip(
       `  Branches:    ⚠ git fetch failed — cannot verify (check network/auth)`,
     );
   } else {
-    const unmerged = run("git", ["branch", "-r", "--no-merged", "origin/main"]);
+    const unmerged = run("git", ["branch", "-r", "--no-merged", baseRef]);
     const unmergedFeat = (unmerged.stdout || "")
       .split("\n")
       .map((l: string) => l.trim())
@@ -1110,7 +1254,7 @@ export async function verifyPostShip(
       issues.push(`unmerged feat branches: ${unmergedFeat.join(", ")}`);
       lines.push(`  Branches:    ⚠ unmerged: ${unmergedFeat.join(", ")}`);
     } else {
-      lines.push(`  Branches:    ✅ no unmerged feat/* on origin/main`);
+      lines.push(`  Branches:    ✅ no unmerged feat/* on ${baseRef}`);
     }
   }
 
@@ -1123,24 +1267,24 @@ export async function verifyPostShip(
     lines.push(`  Working tree: ✅ clean`);
   }
 
-  // 4. Current HEAD on main matches origin/main (fail-closed: mismatch or unknown → issue)
+  // 4. Current HEAD matches the remote base (fail-closed: mismatch or unknown → issue)
   const localHeadR = run("git", ["rev-parse", "HEAD"]);
-  const remoteHeadR = run("git", ["rev-parse", "origin/main"]);
+  const remoteHeadR = run("git", ["rev-parse", baseRef]);
   const localHead = localHeadR.status === 0 ? localHeadR.stdout?.trim() : null;
   const remoteHead =
     remoteHeadR.status === 0 ? remoteHeadR.stdout?.trim() : null;
   if (!localHead || !remoteHead) {
     issues.push("could not determine HEAD — rev-parse failed");
-    lines.push(`  Main sync:   ⚠ could not determine HEAD (rev-parse failed)`);
+    lines.push(`  Base sync:   ⚠ could not determine HEAD (rev-parse failed)`);
   } else if (localHead !== remoteHead) {
     issues.push(
-      `local HEAD ${localHead.slice(0, 7)} ≠ origin/main ${remoteHead.slice(0, 7)}`,
+      `local HEAD ${localHead.slice(0, 7)} ≠ ${baseRef} ${remoteHead.slice(0, 7)}`,
     );
     lines.push(
-      `  Main sync:   ⚠ local HEAD ${localHead.slice(0, 7)} ≠ origin/main ${remoteHead.slice(0, 7)}`,
+      `  Base sync:   ⚠ local HEAD ${localHead.slice(0, 7)} ≠ ${baseRef} ${remoteHead.slice(0, 7)}`,
     );
   } else {
-    lines.push(`  Main sync:   ✅ in sync`);
+    lines.push(`  Base sync:   ✅ in sync with ${baseRef}`);
   }
 
   return { ok: issues.length === 0, report: lines };
@@ -1186,6 +1330,21 @@ function featureSlug(feature: FeatureState): string {
   );
 }
 
+function safeBranchPart(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72) || "run"
+  );
+}
+
+function ownedFeatureBranch(state: BuildState, feature: FeatureState): string {
+  const prefix = safeBranchPart(state.launch?.branchPrefix ?? state.planBasename);
+  return `feat/${prefix}-${featureSlug(feature)}`;
+}
+
 function currentBranch(cwd: string): string {
   const r = spawnSync("git", ["branch", "--show-current"], {
     cwd,
@@ -1220,7 +1379,7 @@ function ensureOriginRetryBranch(args: {
   }
   const baseBranch = (
     args.feature.branch ||
-    `feat/${args.state.planBasename}-${featureSlug(args.feature)}`
+    ownedFeatureBranch(args.state, args.feature)
   ).replace(/-followup-\d+$/, "");
   const branch = `${baseBranch}-followup-${args.feature.originVerificationAttempts ?? 1}`;
   const checkout = spawnSync("git", ["checkout", "-b", branch], {
@@ -1304,7 +1463,7 @@ export function ensureFeatureBranch(args: {
   const onBase = existing === base || existing === "";
   const createFeatureBranch = onBase || existing.startsWith("feat/");
   const branch = createFeatureBranch
-    ? `feat/${args.state.planBasename}-${featureSlug(args.feature)}`
+    ? ownedFeatureBranch(args.state, args.feature)
     : existing;
   args.feature.branch = branch;
   args.state.branch = branch;
@@ -1362,17 +1521,20 @@ export function ensureFeatureBranch(args: {
   return true;
 }
 
-function syncLandedBase(cwd: string): {
+export function syncLandedBase(cwd: string): {
   ok: boolean;
   branch?: string;
   error?: string;
 } {
-  const mainExists =
-    spawnSync("git", ["rev-parse", "--verify", "origin/main"], {
-      cwd,
-      encoding: "utf8",
-    }).status === 0;
-  const base = mainExists ? "main" : "master";
+  const fetch = spawnSync("git", ["fetch", "origin"], {
+    cwd,
+    encoding: "utf8",
+  });
+  if (fetch.status !== 0) {
+    return { ok: false, error: fetch.stderr || fetch.stdout };
+  }
+  const baseRef = detectRemoteBaseRef(cwd);
+  const base = baseRef.replace(/^origin\//, "");
   const checkout = spawnSync("git", ["checkout", base], {
     cwd,
     encoding: "utf8",
@@ -1392,6 +1554,49 @@ function syncLandedBase(cwd: string): {
     return { ok: false, branch: base, error: pull.stderr || pull.stdout };
   }
   return { ok: true, branch: base };
+}
+
+export function syncFeatureBranchWithBase(
+  cwd: string,
+  branch: string,
+): { ok: boolean; baseRef?: string; conflicts?: string[]; error?: string } {
+  const fetch = spawnSync("git", ["fetch", "origin"], {
+    cwd,
+    encoding: "utf8",
+  });
+  if (fetch.status !== 0) {
+    return { ok: false, error: fetch.stderr || fetch.stdout };
+  }
+  const baseRef = detectRemoteBaseRef(cwd);
+  const checkout = spawnSync("git", ["checkout", branch], {
+    cwd,
+    encoding: "utf8",
+  });
+  if (checkout.status !== 0) {
+    return { ok: false, baseRef, error: checkout.stderr || checkout.stdout };
+  }
+  const merge = spawnSync("git", ["merge", "--no-edit", baseRef], {
+    cwd,
+    encoding: "utf8",
+  });
+  if (merge.status === 0) return { ok: true, baseRef };
+
+  const conflictResult = spawnSync(
+    "git",
+    ["diff", "--name-only", "--diff-filter=U"],
+    { cwd, encoding: "utf8" },
+  );
+  const conflicts = (conflictResult.stdout || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  spawnSync("git", ["merge", "--abort"], { cwd, encoding: "utf8" });
+  return {
+    ok: false,
+    baseRef,
+    conflicts,
+    error: merge.stderr || merge.stdout || "merge conflict",
+  };
 }
 
 function findNextFeatureIndex(
@@ -1416,15 +1621,56 @@ function buildLaunchOptions(
   projectRoot: string,
   argv: string[],
 ): BuildLaunchOptions {
+  const stateSlug = deriveStateSlug(args.planFile, args.runId);
   return {
     argv,
     projectRoot,
+    stateSlug,
+    ...(args.baseProjectRoot && { baseProjectRoot: args.baseProjectRoot }),
+    ...(args.runId && { runId: args.runId }),
+    ...(args.branchPrefix && { branchPrefix: args.branchPrefix }),
+    activeRunRegistry: args.activeRunRegistry,
     ...(args.originPlan && { originPlan: args.originPlan }),
     dryRun: args.dryRun,
     skipShip: args.skipShip,
     skipFeatureReview: args.skipFeatureReview,
     launchedAt: new Date().toISOString(),
   };
+}
+
+function resolveForCompare(p: string | undefined): string | undefined {
+  return p ? path.resolve(p) : undefined;
+}
+
+export function validateResumeLaunch(
+  state: BuildState,
+  launch: BuildLaunchOptions,
+  currentPlanFile: string,
+): void {
+  const mismatches: string[] = [];
+  if (resolveForCompare(state.planFile) !== resolveForCompare(currentPlanFile)) {
+    mismatches.push(`planFile ${state.planFile} != ${currentPlanFile}`);
+  }
+  const stateLaunch = state.launch;
+  if (stateLaunch?.projectRoot && resolveForCompare(stateLaunch.projectRoot) !== resolveForCompare(launch.projectRoot)) {
+    mismatches.push(`projectRoot ${stateLaunch.projectRoot} != ${launch.projectRoot}`);
+  }
+  if (stateLaunch?.baseProjectRoot || launch.baseProjectRoot) {
+    if (resolveForCompare(stateLaunch?.baseProjectRoot) !== resolveForCompare(launch.baseProjectRoot)) {
+      mismatches.push(`baseProjectRoot ${stateLaunch?.baseProjectRoot ?? "<unset>"} != ${launch.baseProjectRoot ?? "<unset>"}`);
+    }
+  }
+  if ((stateLaunch?.runId ?? undefined) !== (launch.runId ?? undefined)) {
+    mismatches.push(`runId ${stateLaunch?.runId ?? "<unset>"} != ${launch.runId ?? "<unset>"}`);
+  }
+  if ((stateLaunch?.stateSlug ?? state.slug) !== (launch.stateSlug ?? state.slug)) {
+    mismatches.push(`stateSlug ${stateLaunch?.stateSlug ?? state.slug} != ${launch.stateSlug ?? state.slug}`);
+  }
+  if (mismatches.length > 0) {
+    throw new Error(
+      `wrong-plan/wrong-repo resume refused for ${state.slug}: ${mismatches.join("; ")}`,
+    );
+  }
 }
 
 export function restartFeatureFromOriginIssues(args: {
@@ -4679,23 +4925,12 @@ async function main() {
     }
   }
 
-  const slug = deriveSlug(args.planFile);
+  const slug = deriveStateSlug(args.planFile, args.runId);
   const launch = buildLaunchOptions(args, projectRoot, rawArgv);
 
-  // Sweep runs before the lock so that sibling unshipped branches are processed
-  // regardless of whether this slug is already locked. Concurrent gstack-build
-  // invocations are rare in practice; warn-and-continue handles sweep failures.
-  const currentBranchForSweep = getCurrentBranch(projectRoot);
-  if (!args.skipSweep && runStartupGates) {
-    await sweepUnshippedFeatBranches(
-      projectRoot,
-      currentBranchForSweep,
-      slug,
-      args.roles,
-    );
-  }
-
-  // Lock contention check.
+  // Lock before writing the provisional active-run record so a duplicate
+  // runId launch cannot overwrite a live registry record before it discovers
+  // the existing lock.
   if (!acquireLock(slug)) {
     const info = readLockInfo(slug);
     console.error(
@@ -4705,45 +4940,43 @@ async function main() {
     );
     process.exit(3);
   }
+  let state: BuildState | undefined;
+  let currentBranchForSweep = "unknown";
+  const startedAt = Date.now();
+  let exitCode = 1;
 
-  ensureLogDir(slug);
+  try {
+    ensureLogDir(slug);
 
-  // Load or create state. --no-resume forces a fresh start.
-  let state: BuildState;
-  if (args.noResume) {
-    state = freshState({
-      planFile: args.planFile,
-      branch: getCurrentBranch(projectRoot),
-      features,
-      phases,
+    currentBranchForSweep = getCurrentBranch(projectRoot);
+    writeProvisionalActiveRunRecord({
       launch,
-      geminiModel: args.roles.primaryImpl.model,
-      codexModel: args.roles.secondaryImpl.model,
-      codexReviewModel: args.roles.reviewSecondary.model,
-      roleConfigs: args.roles,
+      slug,
+      planFile: args.planFile,
+      currentBranchName: currentBranchForSweep,
     });
-    saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-  } else {
-    const loaded = loadState(slug, {
-      noGbrain: args.noGbrain,
-      log: console.warn,
-    });
-    if (loaded) {
-      console.log(`\nresuming state from ${loaded.lastUpdatedAt}`);
-      state = loaded;
-      if (JSON.stringify(loaded.roleConfigs) !== JSON.stringify(args.roles)) {
-        console.warn(
-          "[warn] CLI/env role config differs from resumed state; using current config",
-        );
-        state.roleConfigs = args.roles;
-        state.geminiModel = args.roles.primaryImpl.model;
-        state.codexModel = args.roles.secondaryImpl.model;
-        state.codexReviewModel = args.roles.reviewSecondary.model;
-      }
-    } else {
+
+    // Sweep only after this run has registered its owned bootstrap/current
+    // branches, so sibling build processes skip this run's branch ownership.
+    if (!args.skipSweep && runStartupGates) {
+      await sweepUnshippedFeatBranches(
+        projectRoot,
+        currentBranchForSweep,
+        slug,
+        args.roles,
+        args.activeRunRegistry,
+        args.baseProjectRoot,
+      );
+    }
+
+    let setupFailed = false;
+
+    // Load or create state. --no-resume forces a fresh start.
+    if (args.noResume) {
       state = freshState({
         planFile: args.planFile,
         branch: getCurrentBranch(projectRoot),
+        runId: args.runId,
         features,
         phases,
         launch,
@@ -4753,52 +4986,92 @@ async function main() {
         roleConfigs: args.roles,
       });
       saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+    } else {
+      const loaded = loadState(slug, {
+        noGbrain: args.noGbrain,
+        log: console.warn,
+      });
+      if (loaded) {
+        console.log(`\nresuming state from ${loaded.lastUpdatedAt}`);
+        try {
+          validateResumeLaunch(loaded, launch, args.planFile);
+        } catch (err) {
+          console.error(`\n✗ ${(err as Error).message}\n`);
+          exitCode = 2;
+          setupFailed = true;
+        }
+        if (!setupFailed) {
+          state = loaded;
+          if (JSON.stringify(loaded.roleConfigs) !== JSON.stringify(args.roles)) {
+            console.warn(
+              "[warn] CLI/env role config differs from resumed state; using current config",
+            );
+            state.roleConfigs = args.roles;
+            state.geminiModel = args.roles.primaryImpl.model;
+            state.codexModel = args.roles.secondaryImpl.model;
+            state.codexReviewModel = args.roles.reviewSecondary.model;
+          }
+        }
+      } else {
+        state = freshState({
+          planFile: args.planFile,
+          branch: getCurrentBranch(projectRoot),
+          runId: args.runId,
+          features,
+          phases,
+          launch,
+          geminiModel: args.roles.primaryImpl.model,
+          codexModel: args.roles.secondaryImpl.model,
+          codexReviewModel: args.roles.reviewSecondary.model,
+          roleConfigs: args.roles,
+        });
+        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+      }
     }
-  }
-  state.launch = launch;
-  saveState(state, { noGbrain: args.noGbrain, log: console.warn });
 
-  // Reconcile plan-file checkboxes: any phase that reached `committed` via
-  // direct JSON state patching (e.g., bypassing MARK_COMPLETE to escape a
-  // stuck Codex review loop) will have its checkboxes still unchecked.
-  // This runs at startup so the markdown always reflects the JSON truth.
-  if (!args.dryRun) {
-    reconcileCommittedCheckboxes(args.planFile, phases, state);
-  }
+    if (!setupFailed && state) {
+      state.launch = launch;
+      saveState(state, { noGbrain: args.noGbrain, log: console.warn });
 
-  // SIGINT — release lock, save state, exit 130.
-  let interrupted = false;
-  const onSignal = () => {
-    if (interrupted) return;
-    interrupted = true;
-    console.error("\n[interrupted] saving state and releasing lock...");
-    try {
-      saveState(state, { noGbrain: args.noGbrain });
-    } catch {
-      // ignore
-    }
-    releaseLock(slug);
-    process.exit(130);
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
+      // Reconcile plan-file checkboxes: any phase that reached `committed` via
+      // direct JSON state patching (e.g., bypassing MARK_COMPLETE to escape a
+      // stuck Codex review loop) will have its checkboxes still unchecked.
+      // This runs at startup so the markdown always reflects the JSON truth.
+      if (!args.dryRun) {
+        reconcileCommittedCheckboxes(args.planFile, phases, state);
+      }
 
-  const startedAt = Date.now();
-  logActivity({
-    event: "start",
-    slug,
-    plan: args.planFile,
-    dryRun: args.dryRun,
-    skipShip: args.skipShip,
-  });
+      // SIGINT — release lock, save state, exit 130.
+      let interrupted = false;
+      const onSignal = () => {
+        if (interrupted) return;
+        interrupted = true;
+        console.error("\n[interrupted] saving state and releasing lock...");
+        try {
+          if (state) saveState(state, { noGbrain: args.noGbrain });
+        } catch {
+          // ignore
+        }
+        releaseLock(slug);
+        process.exit(130);
+      };
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
 
-  // Drive the loop.
-  const cwd = projectRoot;
+      logActivity({
+        event: "start",
+        slug,
+        plan: args.planFile,
+        dryRun: args.dryRun,
+        skipShip: args.skipShip,
+      });
 
-  let exitCode = 0;
-  try {
-    let rerunAutonomousLoop = false;
-    do {
+      // Drive the loop.
+      const cwd = projectRoot;
+
+      exitCode = 0;
+      let rerunAutonomousLoop = false;
+      do {
       rerunAutonomousLoop = false;
       while (true) {
         const skipUnshippedVerified = args.skipShip || args.dryRun;
@@ -5204,6 +5477,45 @@ async function main() {
         }
 
         if (!resumeAfterLanding && !args.skipShip && !args.dryRun) {
+          const branchForShip = featureState.branch || state.branch;
+          const baseSync = syncFeatureBranchWithBase(cwd, branchForShip);
+          if (!baseSync.ok) {
+            featureState.status = "paused";
+            featureState.baseSyncConflictFiles = baseSync.conflicts ?? [];
+            featureState.error =
+              baseSync.conflicts && baseSync.conflicts.length > 0
+                ? `base sync conflict before ship against ${baseSync.baseRef}: ${baseSync.conflicts.join(", ")}`
+                : `base sync failed before ship against ${baseSync.baseRef ?? "origin base"}: ${baseSync.error}`;
+            const conflictLogPath = path.join(
+              logDir(slug),
+              `feature-${featureState.number}-base-sync-conflict.md`,
+            );
+            fs.writeFileSync(
+              conflictLogPath,
+              [
+                `# Base Sync Conflict — Feature ${featureState.number}`,
+                "",
+                `Branch: ${branchForShip}`,
+                `Base: ${baseSync.baseRef ?? "unknown"}`,
+                "",
+                "## Conflicts",
+                "",
+                ...(featureState.baseSyncConflictFiles.length > 0
+                  ? featureState.baseSyncConflictFiles.map((file) => `- ${file}`)
+                  : ["- <none reported>"]),
+                "",
+                "## Error",
+                "",
+                "```",
+                baseSync.error ?? "",
+                "```",
+              ].join("\n"),
+            );
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+            console.error(`✗ ${featureState.error}; see ${conflictLogPath}`);
+            exitCode = 1;
+            break;
+          }
           featureState.status = "shipping";
           saveState(state, { noGbrain: args.noGbrain, log: console.warn });
           logStatus({
@@ -5388,6 +5700,10 @@ async function main() {
             currentBranch(cwd),
             {
               ignoreLocalBranches: shippedLocalBranches,
+              ignoreBranches: activeOwnedBranches(args.activeRunRegistry, {
+                projectRoot: cwd,
+                baseProjectRoot: args.baseProjectRoot,
+              }),
             },
           );
           if (!branchExam.ok) {
@@ -5508,7 +5824,30 @@ async function main() {
         }
       }
     }
+    }
   } finally {
+    try {
+      if (state?.launch?.runId && state.launch.activeRunRegistry) {
+        if (exitCode === 0 && state.completed) {
+          updateActiveRunFromState(state, "completed");
+          removeActiveRunRecord(state.launch.activeRunRegistry, state.launch.runId);
+        } else {
+          updateActiveRunFromState(state, exitCode === 0 ? "paused" : "failed");
+        }
+      } else if (launch.runId && launch.activeRunRegistry) {
+        writeProvisionalActiveRunRecord({
+          launch,
+          slug,
+          planFile: args.planFile,
+          currentBranchName: currentBranchForSweep,
+          status: "failed",
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `  ⚠ could not update active-run registry: ${(err as Error).message}`,
+      );
+    }
     releaseLock(slug);
     logActivity({
       event: exitCode === 0 ? "success" : "failed",
@@ -5543,6 +5882,7 @@ export function checkWorkingTreeClean(cwd: string): {
 export function findUnshippedFeatBranches(
   cwd: string,
   currentBranch: string,
+  opts: { ignoreBranches?: Iterable<string> } = {},
 ): string[] {
   const fetchR = spawnSync("git", ["fetch", "--prune", "origin"], {
     cwd,
@@ -5565,17 +5905,20 @@ export function findUnshippedFeatBranches(
     );
     return [];
   }
+  const ignoreBranches = new Set(opts.ignoreBranches ?? []);
   return (r.stdout || "")
     .split("\n")
     .map((l: string) => l.trim())
     .filter((l: string) => l.startsWith("origin/feat/"))
     .map((l: string) => l.replace(/^origin\//, ""))
-    .filter((b: string) => b !== currentBranch);
+    .filter((b: string) => b !== currentBranch)
+    .filter((b: string) => !ignoreBranches.has(b));
 }
 
 export function findUnmergedLocalFeatBranches(
   cwd: string,
   currentBranch: string,
+  opts: { ignoreBranches?: Iterable<string> } = {},
 ): string[] {
   const baseRef = detectRemoteBaseRef(cwd);
   const r = spawnSync(
@@ -5589,11 +5932,13 @@ export function findUnmergedLocalFeatBranches(
     );
     return [];
   }
+  const ignoreBranches = new Set(opts.ignoreBranches ?? []);
   return (r.stdout || "")
     .split("\n")
     .map((l: string) => l.replace(/^\*/, "").trim())
     .filter((l: string) => l.startsWith("feat/"))
-    .filter((b: string) => b !== currentBranch);
+    .filter((b: string) => b !== currentBranch)
+    .filter((b: string) => !ignoreBranches.has(b));
 }
 
 export interface MergeCandidateBranch {
@@ -5605,11 +5950,19 @@ export interface MergeCandidateBranch {
 export function findMergeCandidateBranches(
   cwd: string,
   currentBranch: string,
-  opts: { includeCurrent?: boolean } = {},
+  opts: { includeCurrent?: boolean; ignoreBranches?: Iterable<string> } = {},
 ): MergeCandidateBranch[] {
   const branchToExclude = opts.includeCurrent ? "" : currentBranch;
-  const remote = new Set(findUnshippedFeatBranches(cwd, branchToExclude));
-  const local = new Set(findUnmergedLocalFeatBranches(cwd, branchToExclude));
+  const remote = new Set(
+    findUnshippedFeatBranches(cwd, branchToExclude, {
+      ignoreBranches: opts.ignoreBranches,
+    }),
+  );
+  const local = new Set(
+    findUnmergedLocalFeatBranches(cwd, branchToExclude, {
+      ignoreBranches: opts.ignoreBranches,
+    }),
+  );
   return [...new Set([...remote, ...local])]
     .sort((a, b) => a.localeCompare(b))
     .map((name) => ({
@@ -5619,7 +5972,15 @@ export function findMergeCandidateBranches(
     }));
 }
 
-function detectRemoteBaseRef(cwd: string): string {
+export function detectRemoteBaseRef(cwd: string): string {
+  const originHead = spawnSync(
+    "git",
+    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+    { cwd, encoding: "utf8" },
+  );
+  const originHeadRef = (originHead.stdout || "").trim();
+  if (originHead.status === 0 && originHeadRef) return originHeadRef;
+
   for (const ref of ["origin/main", "origin/master"]) {
     const r = spawnSync("git", ["rev-parse", "--verify", ref], {
       cwd,
@@ -5633,7 +5994,7 @@ function detectRemoteBaseRef(cwd: string): string {
 export function verifyNoUnmergedFeatBranches(
   cwd: string,
   currentBranch: string,
-  opts: { ignoreLocalBranches?: string[] } = {},
+  opts: { ignoreLocalBranches?: string[]; ignoreBranches?: Iterable<string> } = {},
 ): { ok: boolean; branches: string[]; error?: string } {
   void currentBranch;
   const fetchR = spawnSync("git", ["fetch", "--prune", "origin"], {
@@ -5675,13 +6036,18 @@ export function verifyNoUnmergedFeatBranches(
     };
   }
 
+  const ignoredBranches = new Set(opts.ignoreBranches ?? []);
   const remoteBranches = (remoteR.stdout || "")
     .split("\n")
     .map((l: string) => l.trim())
     .filter((l: string) => l.startsWith("origin/feat/"))
     .map((l: string) => l.replace(/^origin\//, ""))
+    .filter((b: string) => !ignoredBranches.has(b))
     .map((b: string) => `origin/${b}`);
-  const ignoredLocalBranches = new Set(opts.ignoreLocalBranches ?? []);
+  const ignoredLocalBranches = new Set([
+    ...(opts.ignoreLocalBranches ?? []),
+    ...ignoredBranches,
+  ]);
   const localBranches = (localR.stdout || "")
     .split("\n")
     .map((l: string) => l.replace(/^\*/, "").trim())
@@ -5696,9 +6062,26 @@ async function sweepUnshippedFeatBranches(
   currentBranch: string,
   slug: string,
   roles: RoleConfigs,
+  activeRunRegistry: string,
+  baseProjectRoot?: string,
 ): Promise<void> {
-  const local = new Set(findUnmergedLocalFeatBranches(cwd, currentBranch));
-  const candidates = findUnshippedFeatBranches(cwd, currentBranch)
+  const ignored = activeOwnedBranches(activeRunRegistry, {
+    projectRoot: cwd,
+    baseProjectRoot,
+  });
+  if (ignored.size > 0) {
+    console.log(
+      `\n▶ Skipping active-run branches during startup sweep: ${[...ignored].sort().join(", ")}`,
+    );
+  }
+  const local = new Set(
+    findUnmergedLocalFeatBranches(cwd, currentBranch, {
+      ignoreBranches: ignored,
+    }),
+  );
+  const candidates = findUnshippedFeatBranches(cwd, currentBranch, {
+    ignoreBranches: ignored,
+  })
     .sort((a, b) => a.localeCompare(b))
     .map((name) => ({
       name,
@@ -5793,8 +6176,18 @@ async function runMergeMode(args: Args): Promise<number> {
 
   const startingBranch = getCurrentBranch(projectRoot);
   try {
+    const activeBranches = activeOwnedBranches(args.activeRunRegistry, {
+      projectRoot,
+      baseProjectRoot: args.baseProjectRoot,
+    });
+    if (activeBranches.size > 0) {
+      console.log(
+        `Skipping active-run branches: ${[...activeBranches].sort().join(", ")}`,
+      );
+    }
     const candidates = findMergeCandidateBranches(projectRoot, startingBranch, {
       includeCurrent: true,
+      ignoreBranches: activeBranches,
     });
     if (candidates.length === 0) {
       console.log("No unmerged feat/* branches found.");
@@ -5822,6 +6215,10 @@ async function runMergeMode(args: Args): Promise<number> {
 
     const remaining = findMergeCandidateBranches(projectRoot, startingBranch, {
       includeCurrent: true,
+      ignoreBranches: activeOwnedBranches(args.activeRunRegistry, {
+        projectRoot,
+        baseProjectRoot: args.baseProjectRoot,
+      }),
     });
     if (remaining.length > 0) {
       console.error(
