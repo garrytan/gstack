@@ -194,16 +194,15 @@ export class BrowserManager {
     // Extensions only work in headed mode, so we use an off-screen window.
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
     const { STEALTH_LAUNCH_ARGS } = await import('./stealth');
-    const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS];
+    const launchArgs: string[] = [
+      ...STEALTH_LAUNCH_ARGS,
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+    ];
     let useHeadless = true;
 
     // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
-    // are typically disabled in containers. Detect container environment and
-    // add --no-sandbox automatically.
-    if (process.env.CI || process.env.CONTAINER) {
-      launchArgs.push('--no-sandbox');
-    }
-
+    // are typically disabled in containers. --no-sandbox already added above.
     if (extensionsDir) {
       launchArgs.push(
         `--disable-extensions-except=${extensionsDir}`,
@@ -276,6 +275,8 @@ export class BrowserManager {
     const extensionPath = this.findExtensionPath();
     const launchArgs = [
       '--hide-crash-restore-bubble',
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
       // Anti-bot-detection: remove the navigator.webdriver flag that Playwright sets.
       // Sites like Google and NYTimes check this to block automation browsers.
       '--disable-blink-features=AutomationControlled',
