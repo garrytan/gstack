@@ -138,14 +138,27 @@ fi
 # ---------------------------------------------------------------------------
 # Detect host (gh / glab / manual) for steps 1 + 5
 # ---------------------------------------------------------------------------
-detect_host() {
+read_existing_remote_url() {
   # Read the canonical-form remote URL (the legacy file in the migration window).
   local url=""
   if [ -f "$OLD_REMOTE_TXT" ]; then
     url=$(head -1 "$OLD_REMOTE_TXT" 2>/dev/null | tr -d '[:space:]' || echo "")
   elif [ -f "$NEW_REMOTE_TXT" ]; then
     url=$(head -1 "$NEW_REMOTE_TXT" 2>/dev/null | tr -d '[:space:]' || echo "")
+  elif [ -d "$GSTACK_HOME/.git" ]; then
+    url=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null | tr -d '[:space:]' || echo "")
   fi
+  echo "$url"
+}
+
+rewrite_remote_url() {
+  local old_url="$1"
+  echo "$old_url" | sed "s|/${OLD_REPO_NAME}|/${NEW_REPO_NAME}|; s|:${OLD_REPO_NAME}|:${NEW_REPO_NAME}|; s|\\.git$||"
+}
+
+detect_host() {
+  local url
+  url=$(read_existing_remote_url)
   if echo "$url" | grep -q 'github\.com'; then
     echo "github"
   elif echo "$url" | grep -q 'gitlab'; then
@@ -175,6 +188,7 @@ detect_mcp_mode() {
 }
 
 MCP_MODE=$(detect_mcp_mode)
+MIGRATION_INCOMPLETE=0
 
 # ---------------------------------------------------------------------------
 # Step 1: gh/glab repo rename
@@ -233,20 +247,20 @@ fi
 # ---------------------------------------------------------------------------
 if ! journal_done "remote_txt_renamed"; then
   echo "  [v1.27.0.0] step 2: rename ~/.gstack-brain-remote.txt → ~/.gstack-artifacts-remote.txt" >&2
-  if [ -f "$OLD_REMOTE_TXT" ] && [ ! -f "$NEW_REMOTE_TXT" ]; then
+  OLD_URL=$(read_existing_remote_url)
+  if [ -n "$OLD_URL" ]; then
     # Update the URL inside if the rename happened on the host: replace
     # gstack-brain-$USER with gstack-artifacts-$USER in the URL.
-    OLD_URL=$(head -1 "$OLD_REMOTE_TXT" 2>/dev/null)
-    NEW_URL=$(echo "$OLD_URL" | sed "s|/${OLD_REPO_NAME}|/${NEW_REPO_NAME}|; s|:${OLD_REPO_NAME}|:${NEW_REPO_NAME}|")
+    NEW_URL=$(rewrite_remote_url "$OLD_URL")
     echo "$NEW_URL" > "$NEW_REMOTE_TXT"
     chmod 600 "$NEW_REMOTE_TXT"
     rm -f "$OLD_REMOTE_TXT"
-    echo "    moved + URL rewritten: $OLD_URL → $NEW_URL" >&2
-  elif [ -f "$NEW_REMOTE_TXT" ]; then
-    echo "    new file already exists — no-op" >&2
-    rm -f "$OLD_REMOTE_TXT" 2>/dev/null || true
+    if [ -d "$GSTACK_HOME/.git" ]; then
+      git -C "$GSTACK_HOME" remote set-url origin "$NEW_URL" 2>/dev/null || true
+    fi
+    echo "    remote URL rewritten: $OLD_URL → $NEW_URL" >&2
   else
-    echo "    no $OLD_REMOTE_TXT to migrate — no-op" >&2
+    echo "    no artifacts remote URL to migrate — no-op" >&2
   fi
   mark_done "remote_txt_renamed"
 fi
@@ -310,24 +324,61 @@ EOF
     mark_done "sources_swapped"
   elif command -v gbrain >/dev/null 2>&1 && [ -d "$GSTACK_HOME/.git" ]; then
     # Local CLI mode. Sources point at the worktree path; rename the source
-    # ID add-then-remove. The actual on-disk worktree path stays the same.
+    # ID add-then-remove. Real gbrain refuses overlapping source paths, so the
+    # migration uses a distinct artifacts worktree for the new source while the
+    # old source remains registered.
     WORKTREE="${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}"
-    if gbrain sources list 2>/dev/null | grep -q "$OLD_SOURCE_ID"; then
-      if gbrain sources add "$NEW_SOURCE_ID" --path "$WORKTREE" --federated 2>/dev/null; then
-        echo "    added $NEW_SOURCE_ID" >&2
+    NEW_WORKTREE="${GSTACK_ARTIFACTS_WORKTREE:-$HOME/.gstack-artifacts-worktree}"
+    ensure_detached_worktree() {
+      local target="$1"
+      if [ -d "$target/.git" ] || [ -f "$target/.git" ]; then
+        return 0
+      fi
+      if [ -e "$target" ]; then
+        echo "    WARNING: $target exists but is not a git worktree" >&2
+        return 1
+      fi
+      local sha
+      sha=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null) || return 1
+      git -C "$GSTACK_HOME" worktree prune 2>/dev/null || true
+      git -C "$GSTACK_HOME" worktree add --detach "$target" "$sha" >/dev/null 2>&1
+    }
+    SOURCES_LIST=""
+    SOURCE_LIST_OK=1
+    SOURCES_LIST=$(gbrain sources list 2>/dev/null) || SOURCE_LIST_OK=0
+    if [ "$SOURCE_LIST_OK" = "0" ]; then
+      echo "    WARNING: failed to list gbrain sources. Source swap will retry on the next run." >&2
+      MIGRATION_INCOMPLETE=1
+    elif echo "$SOURCES_LIST" | grep -q "$OLD_SOURCE_ID"; then
+      if echo "$SOURCES_LIST" | grep -q "$NEW_SOURCE_ID"; then
+        echo "    $NEW_SOURCE_ID already registered — no add needed" >&2
         if gbrain sources remove "$OLD_SOURCE_ID" --yes 2>/dev/null; then
           echo "    removed $OLD_SOURCE_ID" >&2
+          mark_done "sources_swapped"
         else
           echo "    WARNING: failed to remove $OLD_SOURCE_ID; both registered. Run manually:" >&2
           echo "    gbrain sources remove $OLD_SOURCE_ID --yes" >&2
+          MIGRATION_INCOMPLETE=1
+        fi
+      elif ensure_detached_worktree "$NEW_WORKTREE" \
+          && gbrain sources add "$NEW_SOURCE_ID" --path "$NEW_WORKTREE" --federated 2>/dev/null; then
+        echo "    added $NEW_SOURCE_ID at $NEW_WORKTREE" >&2
+        if gbrain sources remove "$OLD_SOURCE_ID" --yes 2>/dev/null; then
+          echo "    removed $OLD_SOURCE_ID" >&2
+          mark_done "sources_swapped"
+        else
+          echo "    WARNING: failed to remove $OLD_SOURCE_ID; both registered. Run manually:" >&2
+          echo "    gbrain sources remove $OLD_SOURCE_ID --yes" >&2
+          MIGRATION_INCOMPLETE=1
         fi
       else
         echo "    WARNING: failed to add $NEW_SOURCE_ID. Old source still registered." >&2
+        MIGRATION_INCOMPLETE=1
       fi
     else
       echo "    no $OLD_SOURCE_ID source registered — no-op" >&2
+      mark_done "sources_swapped"
     fi
-    mark_done "sources_swapped"
   else
     echo "    gbrain CLI not available or no ~/.gstack/.git — skipping" >&2
     mark_done "sources_swapped"
@@ -337,6 +388,11 @@ fi
 # ---------------------------------------------------------------------------
 # Step 6: finalize (touchfile + clear journal)
 # ---------------------------------------------------------------------------
+if [ "$MIGRATION_INCOMPLETE" = "1" ]; then
+  echo "  [v1.27.0.0] migration incomplete; unfinished steps will retry on the next run." >&2
+  exit 0
+fi
+
 touch "$DONE"
 rm -f "$JOURNAL"
 

@@ -45,19 +45,51 @@ exit 0
   fs.writeFileSync(path.join(fakeBinDir, 'gh'), script, { mode: 0o755 });
 }
 
-function makeFakeGbrain(opts: { hasOldSource?: boolean; addSucceeds?: boolean; removeSucceeds?: boolean } = {}) {
+function makeFakeGit(opts: { remoteUrl?: string } = {}) {
+  const remoteUrl = opts.remoteUrl ?? '';
+  const callLog = path.join(fakeBinDir, 'git-calls.log');
+  const script = `#!/bin/bash
+echo "git $@" >> "${callLog}"
+if [ "$1" = "-C" ]; then
+  shift 2
+fi
+case "$1 $2" in
+  "rev-parse HEAD") echo "deadbeef"; exit 0 ;;
+  "worktree prune") exit 0 ;;
+  "remote get-url") ${remoteUrl ? `echo "${remoteUrl}"; exit 0` : 'exit 1'} ;;
+  "remote set-url") exit 0 ;;
+  "worktree add")
+    # git worktree add --detach <target> <sha>
+    target="$4"
+    mkdir -p "$target"
+    touch "$target/.git"
+    exit 0
+    ;;
+esac
+exit 0
+`;
+  fs.writeFileSync(path.join(fakeBinDir, 'git'), script, { mode: 0o755 });
+}
+
+function makeFakeGbrain(opts: { hasOldSource?: boolean; listSucceeds?: boolean; addSucceeds?: boolean; removeSucceeds?: boolean; rejectOldPathOverlap?: boolean } = {}) {
   const hasOld = opts.hasOldSource ?? true;
+  const listOk = opts.listSucceeds ?? true;
   const addOk = opts.addSucceeds ?? true;
   const rmOk = opts.removeSucceeds ?? true;
+  const rejectOldPathOverlap = opts.rejectOldPathOverlap ?? false;
   const callLog = path.join(fakeBinDir, 'gbrain-calls.log');
   const script = `#!/bin/bash
 echo "gbrain $@" >> "${callLog}"
 case "$1 $2" in
   "sources list")
+    ${listOk ? '' : 'exit 1'}
     ${hasOld ? `echo "gstack-brain-testuser ~/.gstack-brain-worktree"` : 'true'}
     exit 0
     ;;
-  "sources add") ${addOk ? 'exit 0' : 'exit 1'} ;;
+  "sources add")
+    ${rejectOldPathOverlap ? `if echo "$@" | grep -q -- "--path ${tmpHome}/.gstack-brain-worktree"; then exit 1; fi` : ''}
+    ${addOk ? 'exit 0' : 'exit 1'}
+    ;;
   "sources remove") ${rmOk ? 'exit 0' : 'exit 1'} ;;
 esac
 exit 0
@@ -166,6 +198,24 @@ describe('v1.27.0.0 migration — GitHub host (non-interactive)', () => {
     expect(r.code).toBe(0);
     expect(r.stderr).toContain('already named');
   });
+
+  test('falls back to ~/.gstack origin when legacy remote file is missing', () => {
+    fs.rmSync(path.join(tmpHome, '.gstack-brain-remote.txt'), { force: true });
+    fs.mkdirSync(path.join(tmpHome, '.gstack/.git'), { recursive: true });
+    makeFakeGit({ remoteUrl: 'https://github.com/testuser/gstack-brain-testuser.git' });
+
+    const r = run();
+    expect(r.code).toBe(0);
+
+    const ghLog = fs.readFileSync(path.join(fakeBinDir, 'gh-calls.log'), 'utf-8');
+    expect(ghLog).toMatch(/gh repo (rename|edit)/);
+    const gitLog = fs.readFileSync(path.join(fakeBinDir, 'git-calls.log'), 'utf-8');
+    expect(gitLog).toContain('git -C');
+    expect(gitLog).toContain('remote get-url origin');
+    expect(gitLog).toContain('remote set-url origin https://github.com/testuser/gstack-artifacts-testuser');
+    const newUrl = fs.readFileSync(path.join(tmpHome, '.gstack-artifacts-remote.txt'), 'utf-8').trim();
+    expect(newUrl).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+  });
 });
 
 describe('v1.27.0.0 migration — interruption resume', () => {
@@ -233,18 +283,38 @@ describe('v1.27.0.0 migration — local CLI sources swap (codex Finding #6 order
     );
     fs.mkdirSync(path.join(tmpHome, '.gstack/.git'), { recursive: true }); // brain repo present
     makeFakeGh({});
+    makeFakeGit();
     makeFakeGbrain({ hasOldSource: true });
 
     const r = run();
     expect(r.code).toBe(0);
 
     const log = fs.readFileSync(path.join(fakeBinDir, 'gbrain-calls.log'), 'utf-8');
+    expect(log).toContain(`--path ${tmpHome}/.gstack-artifacts-worktree`);
     const addIdx = log.indexOf('gbrain sources add gstack-artifacts-testuser');
     const removeIdx = log.indexOf('gbrain sources remove gstack-brain-testuser');
     expect(addIdx).toBeGreaterThan(-1);
     expect(removeIdx).toBeGreaterThan(-1);
     // Critical: add must come BEFORE remove (no downtime window).
     expect(addIdx).toBeLessThan(removeIdx);
+  });
+
+  test('uses a distinct artifacts worktree so real gbrain overlap guard allows add', () => {
+    fs.writeFileSync(
+      path.join(tmpHome, '.gstack-brain-remote.txt'),
+      'https://github.com/testuser/gstack-brain-testuser\n'
+    );
+    fs.mkdirSync(path.join(tmpHome, '.gstack/.git'), { recursive: true });
+    makeFakeGh({});
+    makeFakeGit();
+    makeFakeGbrain({ hasOldSource: true, rejectOldPathOverlap: true });
+
+    const r = run();
+    expect(r.code).toBe(0);
+
+    const log = fs.readFileSync(path.join(fakeBinDir, 'gbrain-calls.log'), 'utf-8');
+    expect(log).toContain(`--path ${tmpHome}/.gstack-artifacts-worktree`);
+    expect(log).toContain('gbrain sources remove gstack-brain-testuser --yes');
   });
 
   test('add fails → old source stays registered (no silent loss)', () => {
@@ -254,6 +324,7 @@ describe('v1.27.0.0 migration — local CLI sources swap (codex Finding #6 order
     );
     fs.mkdirSync(path.join(tmpHome, '.gstack/.git'), { recursive: true });
     makeFakeGh({});
+    makeFakeGit();
     makeFakeGbrain({ addSucceeds: false });
 
     const r = run();
@@ -262,6 +333,29 @@ describe('v1.27.0.0 migration — local CLI sources swap (codex Finding #6 order
     const log = fs.readFileSync(path.join(fakeBinDir, 'gbrain-calls.log'), 'utf-8');
     // Remove was NOT called because add failed.
     expect(log).not.toMatch(/gbrain sources remove/);
+    expect(r.stderr).toContain('migration incomplete');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(false);
+    const journal = fs.readFileSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.journal'), 'utf-8');
+    expect(journal).not.toContain('sources_swapped');
+  });
+
+  test('source list fails → migration stays retryable instead of assuming absent', () => {
+    fs.writeFileSync(
+      path.join(tmpHome, '.gstack-brain-remote.txt'),
+      'https://github.com/testuser/gstack-brain-testuser\n'
+    );
+    fs.mkdirSync(path.join(tmpHome, '.gstack/.git'), { recursive: true });
+    makeFakeGh({});
+    makeFakeGit();
+    makeFakeGbrain({ listSucceeds: false });
+
+    const r = run();
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain('failed to list gbrain sources');
+    expect(r.stderr).toContain('migration incomplete');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(false);
+    const journal = fs.readFileSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.journal'), 'utf-8');
+    expect(journal).not.toContain('sources_swapped');
   });
 });
 
