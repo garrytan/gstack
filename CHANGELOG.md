@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.1.0] - 2026-05-08
+
+### Fixed
+- **Forge Code skills now actually load.** The 1.29.0 install wrote skills to `~/.forgecode/skills/`, but Forge Code 2.x discovers user skills from `~/.agents/skills/`. `forge list skill` would report only the four built-in skills even after a clean install. Setup now installs to `~/.agents/skills/gstack-*` and the runtime root at `~/.agents/skills/gstack/`. Existing installs at the legacy `~/.forgecode/skills/` location are migrated (cleaned up) on the next `./setup --host forgecode` run.
+- `hosts/forgecode.ts`: `globalRoot` and `pathRewrites` now point at `.agents/skills/gstack` so paths baked into generated SKILL.md files resolve at runtime.
+- README + uninstall snippet updated to include `~/.agents/skills/gstack*`.
+
 ## [1.29.0.0] - 2026-05-08
 
 ## **Forge Code is now a first-class gstack host. Run `./setup --host forgecode` and your skills land in `.forgecode/skills/`.**

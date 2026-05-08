@@ -6,8 +6,12 @@ const forgecode: HostConfig = {
   cliCommand: 'forge',
   cliAliases: ['forge-code'],
 
-  globalRoot: '.forgecode/skills/gstack',
-  localSkillRoot: '.forgecode/skills/gstack',
+  // Forge Code 2.x discovers user skills from ~/.agents/skills/. The repo-side
+  // build output stays under .forgecode/ (see hostSubdir) but the install path
+  // (globalRoot) and embedded SKILL.md path references must point at the real
+  // discovery location.
+  globalRoot: '.agents/skills/gstack',
+  localSkillRoot: '.agents/skills/gstack',
   hostSubdir: '.forgecode',
   usesEnvVars: true,
 
@@ -23,9 +27,9 @@ const forgecode: HostConfig = {
   },
 
   pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.forgecode/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.forgecode/skills/gstack' },
-    { from: '.claude/skills', to: '.forgecode/skills' },
+    { from: '~/.claude/skills/gstack', to: '~/.agents/skills/gstack' },
+    { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
+    { from: '.claude/skills', to: '.agents/skills' },
     { from: 'CLAUDE.md', to: 'AGENTS.md' },
   ],
   toolRewrites: {

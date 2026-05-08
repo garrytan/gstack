@@ -2303,8 +2303,10 @@ describe('setup script validation', () => {
 
   test('setup supports --host forgecode with install section and Forge Code skill path vars', () => {
     expect(setupContent).toContain('INSTALL_FORGECODE=');
-    expect(setupContent).toContain('FORGECODE_SKILLS="$HOME/.forgecode/skills"');
+    expect(setupContent).toContain('FORGECODE_SKILLS="$HOME/.agents/skills"');
     expect(setupContent).toContain('FORGECODE_GSTACK="$FORGECODE_SKILLS/gstack"');
+    // Migration from legacy ~/.forgecode/skills/ install path
+    expect(setupContent).toContain('FORGECODE_LEGACY_SKILLS="$HOME/.forgecode/skills"');
   });
 
   test('setup installs Forge Code skills into a nested gstack runtime root', () => {

@@ -24,8 +24,9 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
-FORGECODE_SKILLS="$HOME/.forgecode/skills"
+FORGECODE_SKILLS="$HOME/.agents/skills"
 FORGECODE_GSTACK="$FORGECODE_SKILLS/gstack"
+FORGECODE_LEGACY_SKILLS="$HOME/.forgecode/skills"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -853,10 +854,19 @@ link_forgecode_skill_dirs() {
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
-        linked+=("$skill_name")
+      # Forge Code's skill discovery does not follow top-level symlinked
+      # directories — only real directories whose immediate child is SKILL.md
+      # are picked up. Mirror the Claude install pattern: real dir + symlinked
+      # SKILL.md inside.
+      if [ -L "$target" ]; then
+        rm -f "$target"
       fi
+      mkdir -p "$target"
+      if [ -L "$target/SKILL.md" ] || [ -e "$target/SKILL.md" ]; then
+        rm -f "$target/SKILL.md"
+      fi
+      ln -snf "$skill_dir/SKILL.md" "$target/SKILL.md"
+      linked+=("$skill_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
@@ -1038,6 +1048,35 @@ fi
 
 # 6d. Install for Forge Code
 if [ "$INSTALL_FORGECODE" -eq 1 ]; then
+  # Migration: Forge Code 2.x reads user skills from ~/.agents/skills/, not
+  # ~/.forgecode/skills/. Clean up any prior gstack install at the legacy
+  # path so `forge list skill` doesn't see stale entries.
+  if [ -d "$FORGECODE_LEGACY_SKILLS" ]; then
+    _forge_legacy_removed=()
+    for _legacy in "$FORGECODE_LEGACY_SKILLS"/gstack "$FORGECODE_LEGACY_SKILLS"/gstack-*; do
+      [ -e "$_legacy" ] || [ -L "$_legacy" ] || continue
+      # Only remove entries that point into a gstack repo (avoid nuking unrelated content).
+      if [ -L "$_legacy" ]; then
+        _legacy_target="$(readlink "$_legacy" 2>/dev/null || true)"
+        case "$_legacy_target" in *gstack*|*".forgecode/skills"*) rm -f "$_legacy"; _forge_legacy_removed+=("$(basename "$_legacy")") ;; esac
+      elif [ -d "$_legacy" ]; then
+        if [ -L "$_legacy/SKILL.md" ]; then
+          _legacy_target="$(readlink "$_legacy/SKILL.md" 2>/dev/null || true)"
+          case "$_legacy_target" in *gstack*) rm -rf "$_legacy"; _forge_legacy_removed+=("$(basename "$_legacy")") ;; esac
+        elif [ -f "$_legacy/SKILL.md" ] && grep -q 'gstack' "$_legacy/SKILL.md" 2>/dev/null; then
+          rm -rf "$_legacy"
+          _forge_legacy_removed+=("$(basename "$_legacy")")
+        fi
+      fi
+    done
+    if [ ${#_forge_legacy_removed[@]} -gt 0 ]; then
+      log "  migrated legacy Forge Code install (~/.forgecode/skills/): removed ${_forge_legacy_removed[*]}"
+    fi
+    # Remove the legacy parent dir if it's now empty
+    rmdir "$FORGECODE_LEGACY_SKILLS" 2>/dev/null || true
+    rmdir "$HOME/.forgecode" 2>/dev/null || true
+  fi
+
   mkdir -p "$FORGECODE_SKILLS"
   create_forgecode_runtime_root "$SOURCE_GSTACK_DIR" "$FORGECODE_GSTACK"
   link_forgecode_skill_dirs "$SOURCE_GSTACK_DIR" "$FORGECODE_SKILLS"
