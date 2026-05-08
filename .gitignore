@@ -17,6 +17,7 @@ bin/gstack-global-discover
 .cursor/
 .openclaw/
 .hermes/
+.forgecode/
 .gbrain/
 .context/
 extension/.auth.json
