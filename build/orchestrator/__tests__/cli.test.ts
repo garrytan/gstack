@@ -4,7 +4,6 @@ import {
   buildDualImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
-  buildContextSaveBody,
   buildReviewGatePlan,
   isLikelyCodexWorkspaceSandboxFailure,
   isLikelyCodexContextWindowFailure,
@@ -78,6 +77,25 @@ const basePhase: Phase = {
   reviewDone: false,
   dualImpl: false,
 };
+
+function expectParseArgsExit(argv: string[], message: string): void {
+  const originalExit = process.exit;
+  const originalError = console.error;
+  const errors: string[] = [];
+  console.error = (msg?: unknown) => {
+    errors.push(String(msg));
+  };
+  process.exit = ((code?: number) => {
+    throw new Error(`exit:${code}`);
+  }) as never;
+  try {
+    expect(() => parseArgs(argv)).toThrow('exit:2');
+    expect(errors.join('\n')).toContain(message);
+  } finally {
+    process.exit = originalExit;
+    console.error = originalError;
+  }
+}
 
 describe('buildGeminiTestSpecPrompt', () => {
   it('contains "write failing tests"', () => {
@@ -433,6 +451,20 @@ describe('--skip-clean-check / --skip-sweep flags', () => {
   it('HELP_TEXT contains --skip-sweep', () => {
     expect(HELP_TEXT).toContain('--skip-sweep');
   });
+
+  it('parseArgs rejects removed context-save CLI flags', () => {
+    expect(parseArgs(['plan.md'])).not.toHaveProperty('skipContextSave');
+    expect(HELP_TEXT).not.toContain('--skip-context-save');
+    expect(HELP_TEXT).not.toContain('--context-save-model');
+    expectParseArgsExit(
+      ['plan.md', '--skip-context-save'],
+      'unknown flag: --skip-context-save',
+    );
+    expectParseArgsExit(
+      ['plan.md', '--context-save-model', 'model-under-test'],
+      'unknown flag: --context-save-model',
+    );
+  });
 });
 
 describe('--gemini-model / --codex-model flag wiring', () => {
@@ -554,14 +586,12 @@ describe('--gemini-model / --codex-model flag wiring', () => {
     args.roles.qa.provider = 'kimi';
     args.roles.ship.provider = 'gemini';
     args.roles.land.provider = 'gemini';
-    args.roles.contextSave.provider = 'kimi';
     args.roles.primaryImpl.provider = 'codex';
     args.roles.secondaryImpl.provider = 'claude';
     args.roles.judge.provider = 'codex';
 
     expect(validateRoleProviders(args)).toEqual([
       '--qa-provider kimi is not supported for slash-command gates',
-      '--context-save-provider kimi is not supported for slash-command roles',
     ]);
   });
 
@@ -822,32 +852,6 @@ describe('post-agent hygiene helpers', () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.errors.join('\n')).toContain('changed workspace root HEAD');
     expect(verdict.errors.join('\n')).toContain('changed workspace root status');
-  });
-});
-
-describe('buildContextSaveBody', () => {
-  it('asks the configured context-save role to preserve phase boundary state', () => {
-    const state: BuildState = {
-      planFile: '/repo/plan.md',
-      planBasename: 'plan',
-      slug: 'build-plan',
-      branch: 'main',
-      startedAt: '2026-04-30T00:00:00.000Z',
-      lastUpdatedAt: '2026-04-30T00:00:00.000Z',
-      currentPhaseIndex: 0,
-      phases: [],
-      completed: false,
-    };
-
-    const body = buildContextSaveBody({
-      state,
-      phase: basePhase,
-      cwd: '/repo',
-    });
-
-    expect(body).toContain('phase boundary context save');
-    expect(body).toContain('Completed phase: 1 — Auth middleware');
-    expect(body).toContain('Do not make code changes, commits, branch changes, or plan edits.');
   });
 });
 

@@ -506,16 +506,6 @@ export function validateRoleProviders(
       );
     }
   }
-  for (const name of ["contextSave"] as const) {
-    if (
-      args.roles[name].provider === "gemini" ||
-      args.roles[name].provider === "kimi"
-    ) {
-      errors.push(
-        `--${roleFlagName(name)}-provider ${args.roles[name].provider} is not supported for slash-command roles`,
-      );
-    }
-  }
   if (args.dualImpl) {
     if (args.parallelPhases > 1) {
       errors.push("--parallel-phases cannot be combined with --dual-impl yet");
@@ -1077,10 +1067,9 @@ Flags:
   --qa-model <m>                   Default: ${DEFAULT_ROLE_CONFIGS.qa.model}.
   --ship-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.ship.model}.
   --land-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.land.model}.
-  --context-save-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.contextSave.model}.
   --<role>-provider <p>            claude|codex|gemini|kimi. Dual-impl implementors and judge are model-agnostic.
   --<role>-reasoning <r>           low|medium|high|xhigh.
-  --<role>-command <cmd>           For review, review-secondary, qa, ship, land, context-save.
+  --<role>-command <cmd>           For review, review-secondary, qa, ship, and land.
   --gemini-model <m>               Deprecated alias for --primary-impl-model.
   --codex-model <m>                Deprecated alias for --secondary-impl-model.
   --codex-review-model <m>         Deprecated alias for --review-secondary-model.
@@ -2269,95 +2258,6 @@ export function buildGeminiFixPrompt(phase: Phase, planFile: string): string {
   ].join("\n");
 }
 
-export function buildContextSaveBody(args: {
-  state: BuildState;
-  phase: Phase;
-  cwd: string;
-}): string {
-  return [
-    `# gstack-build phase boundary context save`,
-    ``,
-    `Repository: ${args.cwd}`,
-    `Plan file: ${args.state.planFile}`,
-    `State slug: ${args.state.slug}`,
-    `Build branch: ${args.state.branch}`,
-    ``,
-    `Completed phase: ${args.phase.number} — ${args.phase.name}`,
-    `Feature: ${args.phase.featureNumber} — ${args.phase.featureName}`,
-    ``,
-    `Task`,
-    ``,
-    `Save the current working context so another session can resume if the context window is compacted.`,
-    `Do not make code changes, commits, branch changes, or plan edits.`,
-  ].join("\n");
-}
-
-function invocationFromResult(result: SubAgentResult): SubAgentInvocation {
-  return {
-    startedAt: new Date(Date.now() - result.durationMs).toISOString(),
-    completedAt: new Date().toISOString(),
-    outputLogPath: result.logPath,
-    retries: result.retries,
-    exitCode: result.exitCode ?? undefined,
-    ...(result.timedOut || result.exitCode !== 0
-      ? {
-          error: result.timedOut
-            ? "context-save timed out"
-            : `context-save exited ${result.exitCode}`,
-        }
-      : {}),
-  };
-}
-
-async function runPhaseContextSave(args: {
-  state: BuildState;
-  phase: Phase;
-  cwd: string;
-  role: RoleConfig;
-}): Promise<SubAgentResult> {
-  if (args.role.provider === "gemini") {
-    return mockResult({
-      exitCode: 1,
-      stdout: "context-save role provider gemini is not supported",
-    });
-  }
-
-  const inputFilePath = path.join(
-    logDir(args.state.slug),
-    `phase-${args.phase.number}-context-save-input.md`,
-  );
-  const outputFilePath = path.join(
-    logDir(args.state.slug),
-    `phase-${args.phase.number}-context-save-output.md`,
-  );
-  fs.writeFileSync(
-    inputFilePath,
-    buildContextSaveBody({
-      state: args.state,
-      phase: args.phase,
-      cwd: args.cwd,
-    }),
-  );
-  fs.writeFileSync(outputFilePath, "");
-
-  return runSlashCommand({
-    inputFilePath,
-    outputFilePath,
-    cwd: args.cwd,
-    slug: args.state.slug,
-    phaseNumber: args.phase.number,
-    iteration: 1,
-    logPrefix: "context-save",
-    role: {
-      provider: args.role.provider,
-      model: args.role.model,
-      reasoning: args.role.reasoning,
-      command: args.role.command || "/context-save",
-    },
-    gate: false,
-  });
-}
-
 function summarizePhase(
   phaseNumber: string,
   phaseName: string,
@@ -3102,7 +3002,6 @@ function resetPhaseStateForRedo(state: BuildState, phaseIndex: number): void {
   delete (ps as any).geminiTestSpec;
   delete (ps as any).testRun;
   delete (ps as any).testFix;
-  delete (ps as any).contextSave;
   delete (ps as any).originIssueLogPath;
   delete (ps as any).committedAt;
   delete (ps as any).error;
@@ -3511,30 +3410,6 @@ async function runPhase(args: {
       state.phases[phase.index] = phaseState;
       state.currentPhaseIndex = phase.index + 1;
       saveState(state, { noGbrain, log: console.warn });
-      if (dryRun) {
-        console.log(
-          `  → Context save ${roleLabel(args.roles.contextSave)}: skipped in dry-run`,
-        );
-      } else {
-        console.log(`  → Context save ${roleLabel(args.roles.contextSave)}`);
-        const contextSaveResult = await runPhaseContextSave({
-          state,
-          phase,
-          cwd: args.cwd,
-          role: args.roles.contextSave,
-        });
-        phaseState = {
-          ...phaseState,
-          contextSave: invocationFromResult(contextSaveResult),
-        };
-        state.phases[phase.index] = phaseState;
-        saveState(state, { noGbrain, log: console.warn });
-        if (contextSaveResult.timedOut || contextSaveResult.exitCode !== 0) {
-          console.warn(
-            `  ⚠ context-save failed; see ${contextSaveResult.logPath}`,
-          );
-        }
-      }
       printPhaseReport(phase, phaseState, args.nextPhaseName, args.cwd);
       return "done";
     }

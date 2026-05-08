@@ -54,12 +54,6 @@
       "model": "claude-opus-4-7",
       "reasoning": "xhigh"
     },
-    "contextSave": {
-      "provider": "codex",
-      "model": "gpt-5.5",
-      "reasoning": "high",
-      "command": "/context-save"
-    },
     "featureReview": {
       "provider": "claude",
       "model": "claude-opus-4-7",

@@ -199,8 +199,6 @@ export interface PhaseState {
     outputLogPaths: string[];
   };
   codexReview?: CodexReviewState;
-  /** Best-effort context-save invocation after the phase is committed. */
-  contextSave?: SubAgentInvocation;
   /** Origin-plan verification issue report that must be fixed during the next review loop. */
   originIssueLogPath?: string;
   /** Dual-implementor tournament state (populated when --dual-impl is active). */

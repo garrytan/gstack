@@ -21,7 +21,6 @@ export interface RoleConfigs {
   ship: RoleConfig;
   land: RoleConfig;
   judge: RoleConfig;
-  contextSave: RoleConfig;
   /**
    * Configurable post-implementation reviewer that fires once all phases
    * of a feature commit. Default comes from build/configure.cm — see /build skill
@@ -42,7 +41,6 @@ export const ROLE_DEFINITIONS = [
   ["ship", "ship", "GSTACK_BUILD_SHIP"],
   ["land", "land", "GSTACK_BUILD_LAND"],
   ["judge", "judge", "GSTACK_BUILD_JUDGE"],
-  ["contextSave", "context-save", "GSTACK_BUILD_CONTEXT_SAVE"],
   ["featureReview", "feature-review", "GSTACK_BUILD_FEATURE_REVIEW"],
 ] as const satisfies readonly [keyof RoleConfigs, string, string][];
 

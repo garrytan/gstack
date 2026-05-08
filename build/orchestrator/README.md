@@ -136,7 +136,8 @@ When a phase has a `**Test Specification` checkbox, the orchestrator runs a 7-st
 4. Test+Fix Loop       — run tests; if failing, configured test-fixer role fixes; repeat (cap: GSTACK_BUILD_TEST_MAX_ITER)
 5. Review + QA         — configured review, review-secondary, and QA roles; all require GATE PASS
 6. Update Plan         — flip all 3 checkboxes [x]
-7. Context save        — configured context-save role
+7. Host context save   — `/build` saves context from the current host LLM
+                         session; the CLI has no configured context-save role
 ```
 
 ### Test command detection
@@ -318,10 +319,9 @@ the repo copy. `GSTACK_BUILD_DEFAULTS_FILE` remains as a legacy alias.
 | `GSTACK_BUILD_QA_MODEL` | role default | QA model. |
 | `GSTACK_BUILD_SHIP_MODEL` | role default | Ship model. |
 | `GSTACK_BUILD_LAND_MODEL` | role default | Land model. |
-| `GSTACK_BUILD_CONTEXT_SAVE_MODEL` | role default | Context-save model. |
 | `GSTACK_BUILD_<ROLE>_PROVIDER` | role default | Provider override where supported; dual-impl primary, secondary, and judge roles are model-agnostic. |
 | `GSTACK_BUILD_<ROLE>_REASONING` | role default | Role reasoning override. |
-| `GSTACK_BUILD_<ROLE>_COMMAND` | role default | Command override for review, QA, ship, land, and context-save roles. |
+| `GSTACK_BUILD_<ROLE>_COMMAND` | role default | Command override for review, QA, ship, and land roles. |
 | `GSTACK_BUILD_GEMINI_TIMEOUT` | `600000` | Per-Gemini-call timeout in ms (10 min). |
 | `GSTACK_BUILD_CODEX_TIMEOUT` | `900000` | Per-Codex-iteration timeout in ms (15 min). |
 | `GSTACK_BUILD_SHIP_TIMEOUT` | `1800000` | Final ship-step timeout in ms (30 min). |

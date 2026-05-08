@@ -288,7 +288,6 @@ is still running.
 - `secondaryImpl` acts as the second implementor in `--dual-impl`.
 - `judge` judges dual-implementor tournaments.
 - `qa`, `ship`, and `land` run QA and release commands.
-- `contextSave` saves build context between phases.
 
 Three additional roles are **template-only** — they are consumed by the skill
 prompt via `jq` and are intentionally absent from the CLI's `ROLE_DEFINITIONS`.
@@ -298,6 +297,10 @@ They have no CLI flags or env var overrides:
 - `planSynthesizer` — synthesizes the living plan from the source plan.
 - `featureVerifier` — checks origin-plan coverage after each feature ships and
   runs the final completion exam.
+
+`/context-save` is host-owned `/build` behavior, not a configured build role:
+Codex-running `/build` saves Codex context, and Claude-running `/build` saves
+Claude context.
 
 All role providers, models, reasoning levels, and commands are configured in
 `build/configure.cm`. If a role lookup returns empty (via `jq -r '... // empty'`),
@@ -414,7 +417,7 @@ config file.
 | `GSTACK_BUILD_<ROLE>_PROVIDER`    | Role provider override where supported.                              |
 | `GSTACK_BUILD_<ROLE>_MODEL`       | Role model override.                                                 |
 | `GSTACK_BUILD_<ROLE>_REASONING`   | Role reasoning override.                                             |
-| `GSTACK_BUILD_<ROLE>_COMMAND`     | Command override for review, QA, ship, land, and context-save roles. |
+| `GSTACK_BUILD_<ROLE>_COMMAND`     | Command override for review, QA, ship, and land roles.               |
 | `GSTACK_BUILD_GEMINI_TIMEOUT`     | Gemini call timeout in milliseconds.                                 |
 | `GSTACK_BUILD_CODEX_TIMEOUT`      | Codex call timeout in milliseconds.                                  |
 | `GSTACK_BUILD_SHIP_TIMEOUT`       | Final ship/deploy timeout in milliseconds.                           |

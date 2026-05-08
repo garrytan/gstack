@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   DEFAULT_ROLE_CONFIGS,
+  ROLE_DEFINITIONS,
   applyEnvRoleConfig,
   cloneRoleConfigs,
   migrateLegacyModels,
@@ -58,6 +59,13 @@ describe("role config defaults", () => {
     expect(DEFAULT_ROLE_CONFIGS.featureReview.command).toBeUndefined();
   });
 
+  it("does not expose contextSave as a configured build role", () => {
+    const loaded = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+    expect((loaded.roles as any).contextSave).toBeUndefined();
+    expect((DEFAULT_ROLE_CONFIGS as any).contextSave).toBeUndefined();
+    expect(ROLE_DEFINITIONS.some(([key]) => key === ("contextSave" as any))).toBe(false);
+  });
+
   it("exposes featureReviewMaxIterations and featureReview timeout in BUILD_DEFAULTS", () => {
     // The default cap on per-feature meta-review cycles. After this count,
     // the orchestrator pauses and prompts the user via stdin readline.
@@ -86,22 +94,6 @@ describe("role config precedence helpers", () => {
     }
   });
 
-  it("fills new roles when loading an older alternate config file", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-build-config-"));
-    try {
-      const file = path.join(dir, "configure.cm");
-      const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
-      delete (defaults.roles as any).contextSave;
-      fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
-      const loaded = loadBuildDefaults(file);
-      expect(loaded.roles.contextSave).toEqual(
-        DEFAULT_ROLE_CONFIGS.contextSave,
-      );
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it("backfills featureReview role + new limits/timeouts for pre-feature-review user configs", () => {
     // Real-world scenario: a user installed gstack before the feature-level
     // review existed and edited their configure.cm. On upgrade, they hit
@@ -123,6 +115,26 @@ describe("role config precedence helpers", () => {
       expect(loaded.limits.featureReviewMaxIterations).toBe(3);
       expect(loaded.timeoutsMs.kimi).toBe(600000);
       expect(loaded.timeoutsMs.featureReview).toBe(1200000);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops legacy contextSave role entries when loading older alternate config files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-build-config-"));
+    try {
+      const file = path.join(dir, "configure.cm");
+      const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+      (defaults.roles as any).contextSave = {
+        provider: "codex",
+        model: "legacy-context-save-model",
+        reasoning: "medium",
+        command: "/context-save",
+      };
+      fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
+
+      const loaded = loadBuildDefaults(file);
+      expect((loaded.roles as any).contextSave).toBeUndefined();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -184,7 +196,7 @@ describe("role config precedence helpers", () => {
       },
     });
     expect(roles.primaryImpl.model).toBe("old-primary-model");
-    expect(roles.contextSave).toEqual(DEFAULT_ROLE_CONFIGS.contextSave);
+    expect((roles as any).contextSave).toBeUndefined();
   });
 
   it("migrates old model fields into roleConfigs", () => {

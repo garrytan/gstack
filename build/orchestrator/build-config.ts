@@ -54,7 +54,6 @@ const ROLE_KEYS: RoleKey[] = [
   "ship",
   "land",
   "judge",
-  "contextSave",
   "featureReview",
 ];
 
@@ -120,9 +119,7 @@ function withMigratedRoles(value: unknown, filePath: string): unknown {
   // is already present (user explicitly set it).
   const isLoadingDefault =
     path.resolve(filePath) === path.resolve(DEFAULT_BUILD_CONFIG_FILE);
-  if (!roles.contextSave && !isLoadingDefault) {
-    roles.contextSave = readDefaultRole("contextSave");
-  }
+  delete roles.contextSave;
   if (!roles.featureReview && !isLoadingDefault) {
     roles.featureReview = readDefaultRole("featureReview");
   }

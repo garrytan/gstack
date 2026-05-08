@@ -96,6 +96,29 @@ test("build skill docs resolve gstack-build through _GSTACK_BUILD_CLI", () => {
   }
 });
 
+test("build skill keeps context-save owned by the host build session", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).not.toContain("--skip-context-save");
+    expect(content).toContain("Host-session context save");
+    expect(content).toContain("HOST_CONTEXT_SAVE_REQUIRED");
+    expect(content).toContain("Codex must invoke `/context-save`");
+    expect(content).toContain("Claude must invoke `/context-save`");
+    expect(content).toContain("Do not route this through");
+    expect(content).toContain("never a\nconfigured build role");
+    expect(content).toContain('printf \'%s\\n\' "$_STATE_JSON"\n    _HOST_CONTEXT_SAVE_COUNT_FILE=');
+    expect(content).toContain("countFile=$_HOST_CONTEXT_SAVE_COUNT_FILE");
+    expect(content).toContain("then write `<committed_count>` to the emitted");
+    expect(content).not.toContain('echo "$_COMMITTED_COUNT" > "$_HOST_CONTEXT_SAVE_COUNT_FILE"');
+  }
+});
+
 test("build skill documents CLI-backed merge mode", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),

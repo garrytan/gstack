@@ -1277,7 +1277,6 @@ BUILD_RUN_MANIFEST=${BUILD_RUN_MANIFEST:-$BUILD_TMP_DIR/build-run-manifest.json}
 _FLAGS=""
 # Only set _FLAGS to user-requested CLI flags. Never add --skip-ship unless
 # the user explicitly asks to skip shipping and landing.
-
 if [ ! -f "$BUILD_RUN_MANIFEST" ]; then
   echo "ERROR: build run manifest not found: $BUILD_RUN_MANIFEST" >&2
   exit 1
@@ -1463,7 +1462,15 @@ for i in $(seq 0 $((_RUN_COUNT - 1))); do
     echo "STATE_FILE_MISSING"
     ls "$HOME/.gstack/build-state/$_SLUG.lock" 2>/dev/null && echo "LOCK_EXISTS" || echo "LOCK_MISSING"
   else
-    cat "$_STATE_FILE"
+    _STATE_JSON=$(cat "$_STATE_FILE")
+    printf '%s\n' "$_STATE_JSON"
+    _HOST_CONTEXT_SAVE_COUNT_FILE="$_LOG_DIR/.host-context-save-count"
+    _PREV_HOST_CONTEXT_SAVE_COUNT=$(cat "$_HOST_CONTEXT_SAVE_COUNT_FILE" 2>/dev/null || echo 0)
+    _COMMITTED_COUNT=$(printf '%s\n' "$_STATE_JSON" | python3 -c "import sys,json; print(sum(1 for p in json.load(sys.stdin).get('phases',[]) if p.get('status') == 'committed'))" 2>/dev/null || echo 0)
+    if [ "$_COMMITTED_COUNT" -gt "$_PREV_HOST_CONTEXT_SAVE_COUNT" ] 2>/dev/null; then
+      mkdir -p "$_LOG_DIR"
+      echo "HOST_CONTEXT_SAVE_REQUIRED repo=$repoSlug run=$runId committed=$_COMMITTED_COUNT countFile=$_HOST_CONTEXT_SAVE_COUNT_FILE"
+    fi
   fi
 
   _PID=$(cat "$pidFile" 2>/dev/null || echo "")
@@ -1499,6 +1506,23 @@ Use this table to map `PhaseStatus` to a human label:
 | `dual_winner_pending` | applying winner |
 
 Then run the outcome checks below — in order, stop at the first that applies.
+
+#### Host-session context save
+
+`/context-save` belongs to the LLM currently executing this `/build` skill. If
+Codex is running `/build`, Codex must invoke `/context-save`; if Claude is running
+`/build`, Claude must invoke `/context-save`. Do not route this through
+`configure.cm`, `claude -p`, `codex exec`, or a background subagent. Those child
+processes cannot see this monitor conversation. `/context-save` is never a
+configured build role.
+
+The polling shell emits `HOST_CONTEXT_SAVE_REQUIRED` when a run's committed phase
+count increased since the prior poll. When it does, immediately run the
+host-native `/context-save "gstack-build <repoSlug> <runId> phase <committed_count>"`
+skill in this same session, then write `<committed_count>` to the emitted
+`countFile` before scheduling the next wakeup. If the host cannot invoke skills
+natively, report that limitation once and write the count file to avoid a noisy
+loop; do not spawn a cross-provider substitute.
 
 #### On `completed === true`
 
