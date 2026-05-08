@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 
 const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "openai.json");
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 export function resolveApiKey(): string | null {
   // 1. Check ~/.gstack/openai.json
@@ -60,4 +61,18 @@ export function requireApiKey(): string {
     process.exit(1);
   }
   return key;
+}
+
+export function resolveOpenAIBaseUrl(): string {
+  const baseUrl = process.env.OPENAI_BASE_URL?.trim();
+  if (!baseUrl) {
+    return DEFAULT_OPENAI_BASE_URL;
+  }
+
+  return baseUrl.replace(/\/+$/, "");
+}
+
+export function openaiUrl(endpoint: string): string {
+  const normalized = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${resolveOpenAIBaseUrl()}${normalized}`;
 }
