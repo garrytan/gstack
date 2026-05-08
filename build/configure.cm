@@ -6,13 +6,13 @@
       "reasoning": "xhigh"
     },
     "primaryImpl": {
-      "provider": "codex",
-      "model": "gpt-5.3-codex-spark",
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
       "reasoning": "high"
     },
     "testFixer": {
-      "provider": "codex",
-      "model": "gpt-5.3-codex-spark",
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
       "reasoning": "high"
     },
     "secondaryImpl": {
