@@ -103,8 +103,10 @@ describe('selectTests', () => {
     // auto-decide-preserved also depend on plan-ceo-review/**
     expect(result.selected).toContain('autoplan-auto-mode');
     expect(result.selected).toContain('auto-decide-preserved');
-    expect(result.selected.length).toBe(21);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
+    // v1.27+ gate-tier reviewCount-floor regression for transcript bug
+    expect(result.selected).toContain('plan-ceo-finding-floor');
+    expect(result.selected.length).toBe(22);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 22);
   });
 
   test('global touchfile triggers ALL tests', () => {

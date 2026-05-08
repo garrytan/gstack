@@ -88,6 +88,42 @@
 
 ---
 
+### P2: Bump gbrain install-pin in lockstep with gstack memory-feature releases (#1305 part 2)
+
+**What:** `bin/gstack-gbrain-install` pins gbrain to commit `08b3698` (v0.18.2). When gstack ships features that depend on newer gbrain ops or schema (e.g. v1.26.0 manifests + `code-def`/`code-refs`/`reindex-code`), the pin doesn't move with it. Fresh `/setup-gbrain` installs an old gbrain that fails `gbrain doctor` schema_version checks (24 vs latest 32+) until the user manually upgrades.
+
+**Why:** Filed in #1305 alongside the `put_page` CLI bug. Out of scope for the v1.26.5.0 fix wave (separate release-coordination concern: which gbrain version we install vs. how we call it). The install-pin should either (a) auto-bump whenever gstack releases features that need newer gbrain, or (b) detect a stale pin during preamble and either auto-upgrade gbrain or print a one-line FIX hint.
+
+**Pros:** Closes the "fresh-install paper-cut" path. New users land on a healthy schema. Reduces support noise on `/setup-gbrain` flows. Makes the gstack/gbrain release contract visible.
+
+**Cons:** Adds release-cadence coupling between gstack and gbrain. Needs a policy: pin = "minimum version that still works" vs "latest known good." If gbrain ships a breaking change to `put` shape and gstack doesn't update the pin, fresh installs break in a new way.
+
+**Context:** Issue #1305 part 1 (the `put_page` CLI verb bug) was handled in v1.26.5.0. Part 2 (this TODO) is the install-pin staleness. Pin lives in `bin/gstack-gbrain-install` near the top as a constant. Easiest minimal fix: ship the pin as a tracked release artifact (e.g. write it from `package.json` at build time) and add a doctor-style preamble check.
+
+**Effort:** S (human: ~2 days / CC: ~3 hours)
+**Priority:** P2
+**Depends on:** Nothing.
+
+---
+
+### P3: Source-id host-collision risk in `deriveCodeSourceId` (cross-host duplicate org/repo)
+
+**What:** v1.26.5.0's `deriveCodeSourceId` drops the host segment to fit gbrain's 32-char source-id budget. This means `github.com/acme/foo` and `gitlab.com/acme/foo` collapse to the same `gstack-code-acme-foo`. `ensureSourceRegisteredSync()` in `bin/gstack-gbrain-sync.ts:323` will silently re-register the source when `local_path` differs, evicting one side.
+
+**Why:** Vanishingly rare in practice — same `<org>/<repo>` shape across both github.com and gitlab.com on the same machine almost never happens. But the failure mode is silent (one repo evicts the other in the brain), and the user has no signal anything is wrong.
+
+**Pros:** Closes the silent-eviction edge. Two viable approaches: short host marker (`gh-` / `gl-` / `bb-`) eats 3 chars but keeps cross-host uniqueness; OR include a 3-char hash of the host alongside the org-repo.
+
+**Cons:** Source IDs change shape again — anyone with existing registrations on v1.26.5.0 gets a one-time re-register. Net break-even because the current scheme also changed from v1.26.4.0.
+
+**Context:** Filed in #1320 / #1322 / #1323 / #1331 (the underlying source-id validation bugs), addressed in v1.26.5.0 by dropping host segment + hash-truncating. Cross-host collision was a known accepted tradeoff in PR #1330's design ("vanishingly rare in practice"). Codex outside-voice plan review surfaced it as a long-tail concern; this TODO captures it for a future bump.
+
+**Effort:** XS (human: ~4 hours / CC: ~30 min)
+**Priority:** P3
+**Depends on:** Nothing.
+
+---
+
 ### P3: GBrain skillpack publishing for domain skills
 
 **What:** Domain skills are agent-authored notes per hostname. Right now they're per-machine or per-agent-repo. The natural compounding extension: publish curated skill packs to GBrain (`gstack-brain-sync`) so others can subscribe. "Louise's LinkedIn skills" or "Garry's GitHub skills" become packs anyone can pull.
@@ -1526,7 +1562,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** Write a postinstall script that patches Playwright's CDP layer to suppress `Runtime.enable` and use `addBinding` for context ID discovery, same approach as rebrowser-patches. Eliminates the `navigator.webdriver`, `cdc_` markers, and other CDP artifacts that sites like Google use to detect automation.
 
-**Why:** Our current stealth patches (UA override, navigator.webdriver=false, fake plugins) work on most sites but Google still triggers captchas. The real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
+**Why:** Our current stealth narrows to `navigator.webdriver` masking + ChromeDriver `cdc_` runtime cleanup + Permissions API patch (v1.28.0.0 narrowed it from also faking plugins/languages, since modern fingerprinters punish inconsistent fakes more than they punish admitted defaults). That's enough for most sites but Google still triggers captchas, because the real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
 
 **Context:** Full analysis of rebrowser-patches source: patches 6 files in `playwright-core/lib/server/` (crConnection.js, crDevTools.js, crPage.js, crServiceWorker.js, frames.js, page.js). Key technique: suppress `Runtime.enable` (the main CDP detection vector), use `Runtime.addBinding` + `CustomEvent` trick to discover execution context IDs without it. Our extension communicates via Chrome extension APIs, not CDP Runtime, so it should be unaffected. Write E2E tests that verify: (1) extension still loads and connects, (2) Google.com loads without captcha, (3) sidebar chat still works.
 

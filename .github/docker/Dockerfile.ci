@@ -77,17 +77,26 @@ RUN npx playwright install-deps chromium
 # render in DejaVu Sans. playwright install-deps happens to pull this in today,
 # but the dep is implicit and could change — install explicitly so upgrades
 # can't silently regress rendering.
+#
+# Xvfb is also installed here so the browse --headed integration tests
+# (headed-xvfb, headed-orphan-cleanup) can exercise the Linux container
+# auto-spawn path on every CI run. Without Xvfb in the image, the most
+# common production --headed path goes untested.
 RUN for i in 1 2 3; do \
-      apt-get update && apt-get install -y --no-install-recommends fonts-liberation fontconfig && break || \
+      apt-get update && apt-get install -y --no-install-recommends fonts-liberation fontconfig xvfb x11-utils && break || \
       (echo "fonts-liberation install retry $i/3"; sleep 10); \
     done \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-install dependencies (cached layer — only rebuilds when package.json changes)
-COPY package.json /workspace/
+# Pre-install dependencies (cached layer — only rebuilds when package.json or
+# bun.lock changes). Copy BOTH so install is deterministic and matches local
+# resolution. Without bun.lock here, bun install resolved transitive deps
+# differently in CI vs local (observed on v1.28.0.0: socks landed but
+# smart-buffer + ip-address didn't make it into the cached node_modules).
+COPY package.json bun.lock /workspace/
 WORKDIR /workspace
-RUN bun install && rm -rf /tmp/*
+RUN bun install --frozen-lockfile && rm -rf /tmp/*
 
 # Install Playwright Chromium to a shared location accessible by all users
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers

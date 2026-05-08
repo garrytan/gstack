@@ -313,15 +313,17 @@ describe('gen-skill-docs', () => {
     ];
 
     // Plan skills carry the same preamble surface as other tier-≥2 skills
-    // (Brain Sync, Context Recovery, Routing Injection are load-bearing
+    // (Artifacts Sync, Context Recovery, Routing Injection are load-bearing
     // functionality, not optional). Budget is set to current size + small
     // headroom; ratchet down if a future slim trims real bytes.
     // Ratcheted from 33000 → 35000 when the gbrain context-load block was
-    // added to generate-brain-sync-block.ts (per /sync-gbrain plan §4).
+    // added (per /sync-gbrain plan §4). Ratcheted 35000 → 36500 in v1.27.0.0
+    // when generate-brain-sync-block.ts gained the gbrain_mcp_mode probe +
+    // remote-mode ARTIFACTS_SYNC status line (Path 4 of /setup-gbrain).
     for (const skill of reviewSkills) {
       const content = fs.readFileSync(skill.path, 'utf-8');
       const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
-      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(35_000);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(36_500);
     }
   });
 

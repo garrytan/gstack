@@ -66,6 +66,22 @@ Before doing anything, check that /setup-gbrain has been run on this Mac.
 ~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null
 ```
 
+**Remote-MCP mode (Path 4 of /setup-gbrain):** if `gbrain_mcp_mode=remote-http`,
+this skill is a graceful no-op. The brain server's own indexing cadence
+handles code import + search refresh; this Mac doesn't run a local gbrain
+CLI to drive `gbrain sources add` / `sync --strategy code`. Print:
+
+> "Remote MCP detected (Path 4). /sync-gbrain is local-mode-only in V1.
+> Your brain server (`<host>` from claude.json) handles indexing on its own
+> cadence. If indexing seems stale, ping your brain admin or trigger a
+> manual sync there. To wire `/sync-gbrain` through MCP tools (when gbrain
+> ships `mcp__gbrain__sources_add` and friends), see the v1.27.0.0+
+> follow-on TODO."
+
+Then exit cleanly. Do NOT proceed to Step 2.
+
+For local-stdio mode and unconfigured states:
+
 If `gbrain_on_path=false` OR `gbrain_config_exists=false` OR CLAUDE.md does
 not contain `## GBrain Configuration (configured by /setup-gbrain)`, STOP and
 tell the user:
@@ -226,7 +242,7 @@ gbrain status: GREEN
   Capability ...... OK   write+search round-trip
   CWD source ...... OK   <gstack-code-{repo_slug}> (page_count=<N>)
   ~/.gstack source. OK   <gstack-brain-{user}> (page_count=<N>) — managed by /setup-gbrain
-  Memory sync ..... OK   <gbrain_sync_mode>
+  Memory sync ..... OK   <artifacts_sync_mode>
   CLAUDE.md ....... OK   ## GBrain Search Guidance present
   Last sync ....... OK   <last_sync from state file>
 

@@ -70,7 +70,7 @@ sync_active() {
     return 1
   fi
   local mode
-  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
   [ "$mode" = "off" ] && return 1
   return 0
 }
@@ -236,7 +236,7 @@ subcmd_once() {
   echo "$$" > "$lock_dir/pid" 2>/dev/null || true
 
   local mode
-  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
 
   local paths_file
   paths_file=$(mktemp /tmp/brain-sync-paths.XXXXXX) || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
@@ -334,7 +334,7 @@ subcmd_status() {
   local last_push="never"
   [ -f "$LAST_PUSH_FILE" ] && last_push=$(cat "$LAST_PUSH_FILE" 2>/dev/null || echo never)
   local mode
-  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
   printf '{"queue_depth":%s,"last_push":"%s","mode":"%s"}\n' "$queue_depth" "$last_push" "$mode"
 }
 

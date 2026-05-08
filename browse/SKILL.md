@@ -271,11 +271,17 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
-## GBrain Sync (skill start)
+## Artifacts Sync (skill start)
 
 ```bash
 _GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-_BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+# Prefer the v1.27.0.0 artifacts file; fall back to brain file for users
+# upgrading mid-stream before the migration script runs.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  _BRAIN_REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
@@ -308,13 +314,26 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   fi
 fi
 
-_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || echo off)
+_BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
+
+# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
+# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
+# own cadence. Read claude.json directly to keep this preamble fast (no
+# subprocess to claude CLI on every skill start).
+_GBRAIN_MCP_MODE="none"
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
+  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$_BRAIN_NEW_URL" ]; then
-    echo "BRAIN_SYNC: brain repo detected: $_BRAIN_NEW_URL"
-    echo "BRAIN_SYNC: run 'gstack-brain-restore' to pull your cross-machine memory (or 'gstack-config set gbrain_sync_mode off' to dismiss forever)"
+    echo "ARTIFACTS_SYNC: artifacts repo detected: $_BRAIN_NEW_URL"
+    echo "ARTIFACTS_SYNC: run 'gstack-brain-restore' to pull your cross-machine artifacts (or 'gstack-config set artifacts_sync_mode off' to dismiss forever)"
   fi
 fi
 
@@ -334,22 +353,27 @@ if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
 fi
 
-if [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+  # Remote-MCP mode: local artifacts sync is a no-op (brain admin's server
+  # pulls from GitHub/GitLab). Show the user this is by design, not broken.
+  _GBRAIN_HOST=$(jq -r '.mcpServers.gbrain.url // empty' "$HOME/.claude.json" 2>/dev/null | sed -E 's|^https?://([^/:]+).*|\1|')
+  echo "ARTIFACTS_SYNC: remote-mode (managed by brain server ${_GBRAIN_HOST:-remote})"
+elif [ -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   _BRAIN_QUEUE_DEPTH=0
   [ -f "$_GSTACK_HOME/.brain-queue.jsonl" ] && _BRAIN_QUEUE_DEPTH=$(wc -l < "$_GSTACK_HOME/.brain-queue.jsonl" | tr -d ' ')
   _BRAIN_LAST_PUSH="never"
   [ -f "$_GSTACK_HOME/.brain-last-push" ] && _BRAIN_LAST_PUSH=$(cat "$_GSTACK_HOME/.brain-last-push" 2>/dev/null || echo never)
-  echo "BRAIN_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
+  echo "ARTIFACTS_SYNC: mode=$_BRAIN_SYNC_MODE | last_push=$_BRAIN_LAST_PUSH | queue=$_BRAIN_QUEUE_DEPTH"
 else
-  echo "BRAIN_SYNC: off"
+  echo "ARTIFACTS_SYNC: off"
 fi
 ```
 
 
 
-Privacy stop-gate: if output shows `BRAIN_SYNC: off`, `gbrain_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
+Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
 
-> gstack can publish your session memory to a private GitHub repo that GBrain indexes across machines. How much should sync?
+> gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
 
 Options:
 - A) Everything allowlisted (recommended)
@@ -360,11 +384,11 @@ After answer:
 
 ```bash
 # Chosen mode: full | artifacts-only | off
-"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode <choice>
-"$_BRAIN_CONFIG_BIN" set gbrain_sync_mode_prompted true
+"$_BRAIN_CONFIG_BIN" set artifacts_sync_mode <choice>
+"$_BRAIN_CONFIG_BIN" set artifacts_sync_mode_prompted true
 ```
 
-If A/B and `~/.gstack/.git` is missing, ask whether to run `gstack-brain-init`. Do not block the skill.
+If A/B and `~/.gstack/.git` is missing, ask whether to run `gstack-artifacts-init`. Do not block the skill.
 
 At skill END before telemetry:
 
@@ -655,6 +679,42 @@ $B resume
 The browser preserves all state (cookies, localStorage, tabs) across the handoff.
 After `resume`, you get a fresh snapshot of wherever the user left off.
 
+## Headed Mode + Proxy + Anti-Bot Sites
+
+For sites that block headless browsers, fingerprint Playwright defaults, or require routing through an authenticated SOCKS5 proxy (residential VPN, etc.), browse exposes three coordinated flags:
+
+```bash
+# Headed mode — visible Chromium window. Auto-spawns Xvfb on Linux
+# containers without DISPLAY (no extra setup needed on Debian/Ubuntu).
+browse --headed goto https://example.com
+
+# SOCKS5 with auth (Chromium can't prompt for SOCKS5 creds itself —
+# browse runs a local 127.0.0.1 bridge that handles the auth handshake).
+browse --proxy socks5://user:pass@residential.proxy.host:1080 goto https://example.com
+
+# HTTP/HTTPS proxy (passes through to Chromium directly):
+browse --proxy http://corp-proxy:3128 goto https://example.com
+
+# Browser-triggered file download (Content-Disposition, redirect chain,
+# anti-bot CDN — falls back from page.request.fetch() to browser native
+# download handler):
+browse download "https://protected.example.com/file" /tmp/file.bin --navigate
+
+# Combined: headed + proxy + navigate-download
+browse --headed --proxy socks5://user:pass@host:1080 \
+  download "https://protected.example.com/file" /tmp/file.bin --navigate
+```
+
+**Credential policy.** Pass creds via either the URL (`socks5://user:pass@host`) OR the env vars `BROWSE_PROXY_USER` and `BROWSE_PROXY_PASS` — never both. Browse refuses with a clear hint when both are set, because silent override creates "works on my machine" debugging traps.
+
+**Daemon discipline.** Browse runs as a long-lived daemon. `--proxy` and `--headed` change daemon-startup config, so they only apply on a fresh daemon. If a daemon is already running with different config, browse refuses and tells you to `browse disconnect` first. No silent restart that would drop tab state, cookies, or logged-in sessions.
+
+**Stealth.** When `--headed` or `--proxy` are set, browse masks `navigator.webdriver` (the obvious automation tell) via Chromium's `--disable-blink-features=AutomationControlled` plus a small init script. We do NOT fake `navigator.plugins`, `navigator.languages`, or `window.chrome` — modern fingerprinters check those for consistency, and synthesizing fixed values can flag MORE bot-like, not less.
+
+**Container support.** `--headed` on Linux without `DISPLAY` automatically picks a free X display (`:99`, `:100`, ...) and spawns Xvfb. Cleanup on `browse disconnect` validates the recorded PID's `/proc/<pid>/cmdline` matches `Xvfb` AND start-time matches before sending any signal — no PID-reuse footguns. Standard Debian/Ubuntu containers work out of the box; minimal images (alpine, distroless) may also need fonts/dbus/gtk libs for headed Chromium to render.
+
+**Failure modes.** SOCKS5 upstream rejected or unreachable → fail-fast at startup with a redacted error after 3 retries (5s budget). Mid-stream upstream drop → browse kills the affected client connection only; no transport retries (which could corrupt browser traffic). Mismatched daemon config → exit 1 with a `browse disconnect` hint.
+
 ## Snapshot Flags
 
 The snapshot is your primary tool for understanding and interacting with pages.
@@ -762,7 +822,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | Command | Description |
 |---------|-------------|
 | `archive [path]` | Save complete page as MHTML via CDP |
-| `download <url|@ref> [path] [--base64]` | Download URL or media element to disk using browser cookies |
+| `download <url|@ref> [path] [--base64] [--navigate]` | Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites) |
 | `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
 
 ### Interaction

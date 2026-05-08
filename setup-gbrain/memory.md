@@ -176,3 +176,101 @@ the recovery path is:
    on the brain remote for hard-delete from history
 4. File a gitleaks issue with the pattern (or extend the gitleaks config
    at `~/.gitleaks.toml`).
+
+## Path 4: Remote MCP setup (v1.27.0.0+)
+
+If you don't run gbrain locally — you have a teammate or another machine
+running `gbrain serve` over HTTP, accessible via Tailscale, ngrok, or
+internal LAN — `/setup-gbrain` Path 4 is the one-paste flow.
+
+You provide:
+- The MCP URL (e.g., `https://wintermute.tail554574.ts.net:3131/mcp`)
+- A bearer token (issued by the brain admin via `gbrain access-token issue`)
+
+What `/setup-gbrain` does:
+1. Verifies the URL + token via `gstack-gbrain-mcp-verify`. Three failure
+   modes get classified with one-line remediation hints:
+   **NETWORK** ("check Tailscale/DNS"), **AUTH** ("rotate token"),
+   **MALFORMED** ("Accept-header gotcha — pass both `application/json`
+   AND `text/event-stream`").
+2. Registers the MCP at user scope:
+   ```
+   claude mcp add --scope user --transport http gbrain "$URL" \
+     --header "Authorization: Bearer $TOKEN"
+   ```
+3. Skips local install, local doctor, transcript ingest, and federated
+   source registration. All four require a local `gbrain` CLI that Path 4
+   doesn't install.
+4. Optionally provisions a `gstack-artifacts-$USER` private repo on
+   GitHub or GitLab and prints the one-line `gbrain sources add` command
+   for your brain admin to run on the brain host.
+
+### Token storage trade-off
+
+The bearer token lives in `~/.claude.json` (mode 0600), where Claude Code
+stores every MCP server's credentials. During `claude mcp add --header
+"Authorization: Bearer $TOKEN"`, the token is briefly visible in
+process argv (~10ms) — visible to `ps` running concurrently. The window
+is small but it's not zero.
+
+Mitigations we've considered:
+- **Stdin or env-var input form for headers** — would close the argv
+  window. As of Claude Code v1.0.x, the CLI doesn't expose either.
+  When it does, `/setup-gbrain` Path 4 will switch automatically.
+- **Keychain storage** — explicitly out of scope (the token's resting
+  state in `~/.claude.json` is the existing trust surface for every MCP
+  credential; expanding to Keychain would touch every MCP server, not
+  just gbrain).
+
+### Why Path 4 is "always print" for the brain-admin hookup
+
+`gstack-artifacts-init` always prints the `gbrain sources add` command
+labeled "Send this to your brain admin" — even when the user IS the
+brain admin (consistent UX, no mode-detection fragility).
+
+A previous design proposed probing whether the user's bearer has admin
+scope (via a benign MCP write call like `add_tag`) and auto-executing
+the source registration when scope was sufficient. The design review
+flagged that page-write doesn't actually prove source-management
+permission — those are different scopes in any sensible auth model.
+Until gbrain ships:
+- a `mcp__gbrain__whoami` capability tool that returns the bearer's
+  scope set, AND
+- a `mcp__gbrain__sources_add` MCP tool with admin-scope gating
+
+we always print the command rather than pretending we know who has
+permission to run it.
+
+### CLAUDE.md block in Path 4
+
+Distinct from local-stdio mode. Token is **never** written to CLAUDE.md
+(many projects check CLAUDE.md into git). The block records the URL,
+the verified server version, the artifacts repo URL (if provisioned),
+and the per-repo trust policy.
+
+```markdown
+## GBrain Configuration (configured by /setup-gbrain)
+- Mode: remote-http
+- MCP URL: https://wintermute.tail554574.ts.net:3131/mcp
+- Server version: gbrain v0.27.1
+- Setup date: 2026-05-06
+- MCP registered: yes (user scope)
+- Token: stored in ~/.claude.json (do not commit; never written to CLAUDE.md)
+- Artifacts repo: github.com/garrytan/gstack-artifacts-garrytan (private)
+- Artifacts sync: artifacts-only
+- Current repo policy: read-write
+```
+
+### Token rotation
+
+Server-side. When verify hits `AUTH` (e.g., the brain admin rotated the
+token), the helper says: "rotate token on the brain host, re-run
+/setup-gbrain." On wintermute or wherever your gbrain server lives:
+
+```
+gbrain access-token rotate    # invalidates old, issues new
+```
+
+(See `gstack/setup-gbrain/SKILL.md.tmpl` for the full Path 4 flow plus
+the gbrain enhancement requests around scoped tokens that would let
+gstack auto-rotate in V2.)

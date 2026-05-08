@@ -30,7 +30,13 @@ set -euo pipefail
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_BIN="$SCRIPT_DIR/gstack-config"
-REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+# v1.27.0.0+ canonical name; brain-remote is the legacy fallback during the
+# migration window. The migration script renames the file in place.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
 
 REMOTE_URL="${1:-}"
 if [ -z "$REMOTE_URL" ]; then
