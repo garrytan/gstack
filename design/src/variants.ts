@@ -6,8 +6,9 @@
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { resolveApiKey } from "./auth";
 import { parseBrief } from "./brief";
+import { writeLocalFallbackManifest, writeLocalFallbackMockup } from "./local-fallback";
 
 export interface VariantsOptions {
   brief?: string;
@@ -108,14 +109,23 @@ async function generateVariant(
  * Generate N variants with staggered parallel execution.
  */
 export async function variants(options: VariantsOptions): Promise<void> {
-  const apiKey = requireApiKey();
   const baseBrief = options.briefFile
     ? parseBrief(options.briefFile, true)
     : parseBrief(options.brief!, false);
 
+  const apiKey = resolveApiKey();
   const quality = options.quality || "high";
 
   fs.mkdirSync(options.outputDir, { recursive: true });
+
+  if (!apiKey) {
+    if (options.viewports) {
+      generateLocalResponsiveVariants(baseBrief, options.outputDir, options.viewports);
+      return;
+    }
+    generateLocalStyleVariants(baseBrief, options.outputDir, options.count, options.size);
+    return;
+  }
 
   // If viewports specified, generate responsive variants instead of style variants
   if (options.viewports) {
@@ -180,6 +190,89 @@ export async function variants(options: VariantsOptions): Promise<void> {
     failed: failed.length,
     paths: succeeded,
     errors: failed,
+  }, null, 2));
+}
+
+function generateLocalStyleVariants(
+  baseBrief: string,
+  outputDir: string,
+  requestedCount: number,
+  size?: string,
+): void {
+  const count = Math.min(requestedCount, 7);
+  const paths: string[] = [];
+
+  console.error(`No OpenAI API key found; generating ${count} local SVG fallback variants...`);
+  for (let i = 0; i < count; i++) {
+    const variation = STYLE_VARIATIONS[i] || "";
+    const prompt = variation
+      ? `${baseBrief}\n\nStyle direction: ${variation}`
+      : baseBrief;
+    const outputPath = path.join(outputDir, `variant-${String.fromCharCode(65 + i)}.png`);
+    const written = writeLocalFallbackMockup(prompt, outputPath, i, size || "1536x1024");
+    console.error(`  OK ${path.basename(outputPath)} (${(written.bytes / 1024).toFixed(0)}KB SVG fallback)`);
+    paths.push(outputPath);
+  }
+
+  const manifestPath = writeLocalFallbackManifest(outputDir, {
+    mode: "style-variants",
+    count,
+    paths,
+  });
+
+  console.log(JSON.stringify({
+    outputDir,
+    count,
+    succeeded: paths.length,
+    failed: 0,
+    paths,
+    errors: [],
+    fallback: true,
+    manifestPath,
+  }, null, 2));
+}
+
+function generateLocalResponsiveVariants(
+  baseBrief: string,
+  outputDir: string,
+  viewports: string,
+): void {
+  const viewportList = viewports.split(",").map(v => v.trim().toLowerCase());
+  const configs = viewportList.map(v => VIEWPORT_CONFIGS[v]).filter(Boolean);
+
+  if (configs.length === 0) {
+    console.error(`No valid viewports. Use: desktop, tablet, mobile`);
+    process.exit(1);
+  }
+
+  const paths: string[] = [];
+  console.error(`No OpenAI API key found; generating local SVG fallback responsive variants: ${configs.map(c => c.desc).join(", ")}...`);
+
+  configs.forEach((config, i) => {
+    const prompt = `${baseBrief}\n\nViewport: ${config.desc}. Adapt the layout for this screen size. ${
+      config.suffix === "mobile" ? "Use a single-column layout, larger touch targets, and mobile navigation patterns." :
+      config.suffix === "tablet" ? "Use a responsive layout that works for medium screens." :
+      ""
+    }`;
+    const outputPath = path.join(outputDir, `responsive-${config.suffix}.png`);
+    const written = writeLocalFallbackMockup(prompt, outputPath, i, config.size);
+    console.error(`  OK ${path.basename(outputPath)} (${(written.bytes / 1024).toFixed(0)}KB SVG fallback)`);
+    paths.push(outputPath);
+  });
+
+  const manifestPath = writeLocalFallbackManifest(outputDir, {
+    mode: "responsive-variants",
+    viewports: viewportList,
+    paths,
+  });
+
+  console.log(JSON.stringify({
+    outputDir,
+    viewports: viewportList,
+    succeeded: paths.length,
+    paths,
+    fallback: true,
+    manifestPath,
   }, null, 2));
 }
 

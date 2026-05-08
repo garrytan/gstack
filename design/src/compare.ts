@@ -14,6 +14,19 @@ export interface CompareOptions {
   output: string;
 }
 
+function imageMimeType(imgPath: string, data: Buffer): string {
+  const head = data.subarray(0, 160).toString("utf8").trimStart();
+  if (head.startsWith("<?xml") || head.startsWith("<svg")) {
+    return "image/svg+xml";
+  }
+
+  const ext = path.extname(imgPath).slice(1).toLowerCase();
+  if (ext === "svg") return "image/svg+xml";
+  if (ext === "jpg") return "image/jpeg";
+  if (ext === "jpeg") return "image/jpeg";
+  return `image/${ext || "png"}`;
+}
+
 /**
  * Generate the comparison board HTML page.
  */
@@ -23,8 +36,9 @@ export function generateCompareHtml(images: string[]): string {
   const variantCards = images.map((imgPath, i) => {
     const label = variantLabels[i] || `${i + 1}`;
     // Embed images as base64 data URIs for self-contained HTML
-    const imgData = fs.readFileSync(imgPath).toString("base64");
-    const ext = path.extname(imgPath).slice(1) || "png";
+    const imageBuffer = fs.readFileSync(imgPath);
+    const imgData = imageBuffer.toString("base64");
+    const mimeType = imageMimeType(imgPath, imageBuffer);
 
     return `
     <div class="variant" data-variant="${label}">
@@ -32,7 +46,7 @@ export function generateCompareHtml(images: string[]): string {
         <span class="variant-label">Option ${label}</span>
         <span class="variant-desc" id="variant-desc-${label}">Design direction ${label}</span>
       </div>
-      <img src="data:image/${ext};base64,${imgData}" alt="Option ${label}" />
+      <img src="data:${mimeType};base64,${imgData}" alt="Option ${label}" />
       <div class="variant-controls">
         <label class="pick-label">
           <input type="radio" name="preferred" value="${label}" />

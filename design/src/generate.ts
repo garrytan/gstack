@@ -4,10 +4,11 @@
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { resolveApiKey } from "./auth";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
+import { writeLocalFallbackMockup } from "./local-fallback";
 
 export interface GenerateOptions {
   brief?: string;
@@ -95,16 +96,39 @@ async function callImageGeneration(
  * Generate a single mockup from a brief.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
-  const apiKey = requireApiKey();
-
   // Parse the brief
   const prompt = options.briefFile
     ? parseBrief(options.briefFile, true)
     : parseBrief(options.brief!, false);
 
+  const apiKey = resolveApiKey();
   const size = options.size || "1536x1024";
   const quality = options.quality || "high";
   const maxRetries = options.retry ?? 0;
+
+  if (!apiKey) {
+    const startTime = Date.now();
+    const written = writeLocalFallbackMockup(prompt, options.output, 0, size);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const responseId = `local-fallback-${Date.now()}`;
+    const session = createSession(responseId, prompt, options.output);
+    const result: GenerateResult = {
+      outputPath: options.output,
+      sessionFile: sessionPath(session.id),
+      responseId,
+    };
+
+    if (options.check) {
+      result.checkResult = {
+        pass: true,
+        issues: "Local SVG fallback generated without vision quality check because no OpenAI API key is configured.",
+      };
+    }
+
+    console.error(`No OpenAI API key found; generated local SVG fallback (${elapsed}s, ${(written.bytes / 1024).toFixed(0)}KB) -> ${options.output}`);
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
 
   let lastResult: GenerateResult | null = null;
 

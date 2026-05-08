@@ -268,7 +268,7 @@ async function resolveImagePaths(input: string): Promise<string[]> {
     const glob = new Bun.Glob(input);
     const paths: string[] = [];
     for await (const match of glob.scan({ absolute: true })) {
-      if (match.endsWith(".png") || match.endsWith(".jpg") || match.endsWith(".jpeg")) {
+      if (match.endsWith(".png") || match.endsWith(".jpg") || match.endsWith(".jpeg") || match.endsWith(".svg")) {
         paths.push(match);
       }
     }
