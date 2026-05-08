@@ -40,7 +40,8 @@ export function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EPERM") return true;
     return false;
   }
 }
@@ -84,8 +85,13 @@ export function readActiveRunRecords(registryDir: string): ActiveRunRecord[] {
       ) {
         records.push(parsed);
       }
-    } catch {
+    } catch (err) {
       // Ignore corrupt registry records. They should not block unrelated builds.
+      if (process.env.GSTACK_DEBUG) {
+        console.warn(
+          `[active-runs] ignoring unreadable registry record ${filePath}: ${(err as Error).message}`,
+        );
+      }
     }
   }
   return records;

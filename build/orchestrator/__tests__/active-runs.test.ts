@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   activeOwnedBranches,
+  isPidAlive,
   readActiveRunRecords,
   removeActiveRunRecord,
   writeActiveRunRecord,
@@ -63,6 +64,20 @@ describe("active-run registry", () => {
     );
 
     expect(activeOwnedBranches(dir)).toEqual(new Set(["feat/live"]));
+  });
+
+  it("treats EPERM from process liveness checks as alive", () => {
+    const originalKill = process.kill;
+    (process as any).kill = () => {
+      const err = new Error("operation not permitted") as NodeJS.ErrnoException;
+      err.code = "EPERM";
+      throw err;
+    };
+    try {
+      expect(isPidAlive(123)).toBe(true);
+    } finally {
+      process.kill = originalKill;
+    }
   });
 
   it("scopes active owned branches to the requested repo identity", () => {

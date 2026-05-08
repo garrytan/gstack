@@ -7,6 +7,8 @@ import {
   buildContextSaveBody,
   buildReviewGatePlan,
   isLikelyCodexWorkspaceSandboxFailure,
+  isLikelyCodexContextWindowFailure,
+  shouldRetryPrimaryImplWithSecondary,
   shouldRetryCodexGateWithDangerFullAccess,
   parseArgs,
   validateRoleProviders,
@@ -26,6 +28,7 @@ import {
   syncFeatureBranchWithBase,
   validateResumeLaunch,
   restartFeatureFromOriginIssues,
+  phaseTableStatus,
   HELP_TEXT,
 } from '../cli';
 import type { BuildState, FeatureState, Phase, DualImplTestResult } from '../types';
@@ -305,6 +308,61 @@ describe('Codex review gate sandbox retry classification', () => {
   });
 });
 
+describe('Codex primary implementor context overflow fallback', () => {
+  const primaryRole = {
+    provider: 'codex',
+    model: 'gpt-5.3-codex-spark',
+    reasoning: 'high',
+  } as const;
+  const secondaryRole = {
+    provider: 'gemini',
+    model: 'gemini-2.5-pro',
+    reasoning: 'high',
+  } as const;
+
+  it('detects Codex context-window overflow errors', () => {
+    expect(
+      isLikelyCodexContextWindowFailure({
+        stdout: '',
+        stderr:
+          "ERROR: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+      }),
+    ).toBe(true);
+  });
+
+  it('retries a clean failed primary implementation with the configured secondary implementor', () => {
+    expect(
+      shouldRetryPrimaryImplWithSecondary({
+        primaryRole,
+        secondaryRole,
+        result: {
+          stdout: '',
+          stderr: "ERROR: Codex ran out of room in the model's context window.",
+          exitCode: 1,
+          timedOut: false,
+        },
+        hasDirtyChanges: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not retry when the failed primary already changed files', () => {
+    expect(
+      shouldRetryPrimaryImplWithSecondary({
+        primaryRole,
+        secondaryRole,
+        result: {
+          stdout: '',
+          stderr: "ERROR: Codex ran out of room in the model's context window.",
+          exitCode: 1,
+          timedOut: false,
+        },
+        hasDirtyChanges: true,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe('--parallel-phases flag wiring', () => {
   it('--help text mentions --parallel-phases', () => {
     expect(HELP_TEXT).toContain('--parallel-phases');
@@ -522,6 +580,19 @@ describe('--gemini-model / --codex-model flag wiring', () => {
   });
 });
 
+describe('phase table display', () => {
+  it('prints completed phases as committed, matching persisted state values', () => {
+    expect(
+      phaseTableStatus({
+        ...basePhase,
+        testSpecDone: true,
+        implementationDone: true,
+        reviewDone: true,
+      }),
+    ).toBe('committed');
+  });
+});
+
 describe('post-agent hygiene helpers', () => {
   function git(args: string[], cwd: string) {
     const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -635,6 +706,49 @@ describe('post-agent hygiene helpers', () => {
       label: 'primary implementor',
     });
     expect(verdict).toEqual({ ok: true, errors: [] });
+  });
+
+  it('recovers uncommitted files listed as markdown links in agent summaries', () => {
+    const before = captureGitSnapshot(tmpDir!);
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir!, 'sequencer', 'rpc'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir!, 'sequencer', 'rpc', 'rpc_test.go'), 'package rpc\n');
+    git(['add', 'sequencer/rpc/rpc_test.go'], tmpDir!);
+    git(['commit', '-m', 'test fixture'], tmpDir!);
+    const beforeImpl = captureGitSnapshot(tmpDir!);
+    fs.writeFileSync(path.join(tmpDir!, 'sequencer', 'rpc', 'server.go'), 'package rpc\n');
+    fs.writeFileSync(
+      summary,
+      [
+        '# Phase 1.2 primary-impl output',
+        '',
+        '## Files changed',
+        `- [sequencer/rpc/server.go](${path.join(tmpDir!, 'sequencer', 'rpc', 'server.go')}): add RPC server.`,
+        '',
+        '## Tests run',
+        '- `sequencer/rpc/rpc_test.go`: not run.',
+        '',
+        '## Commit SHA',
+        '- Conventional commit message: `feat(sequencer/rpc): add json-rpc ingress handlers`',
+      ].join('\n'),
+    );
+
+    const recovery = recoverMutableAgentCommit({
+      cwd: tmpDir!,
+      before: beforeImpl,
+      outputFilePath: summary,
+      label: 'primary implementor',
+    });
+
+    expect(before.head).not.toBe(beforeImpl.head);
+    expect(recovery.recovered).toBe(true);
+    expect(git(['log', '-1', '--pretty=%s'], tmpDir!)).toBe(
+      'feat(sequencer/rpc): add json-rpc ingress handlers',
+    );
+    const committedFiles = git(['show', '--name-only', '--pretty=', 'HEAD'], tmpDir!).split('\n');
+    expect(committedFiles).toContain('sequencer/rpc/server.go');
+    expect(committedFiles).not.toContain('sequencer/rpc/rpc_test.go');
   });
 
   it('accepts a committed clean implementor run with a non-empty summary', () => {

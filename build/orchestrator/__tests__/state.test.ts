@@ -271,6 +271,22 @@ describe('loadState / saveState round-trip', () => {
     expect(loaded!.phases[0].status).toBe('impl_done');
   });
 
+  it('loadState migrates display-only done status → committed for manual recovery compatibility', () => {
+    const slug = 'build-done-status-migration-test';
+    const oldState = {
+      planFile: '/x/foo.md', planBasename: 'foo', slug,
+      branch: 'main', startedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(), currentPhaseIndex: 0,
+      phases: [{ index: 0, number: '1', name: 'Foo', status: 'done' }],
+      completed: false,
+    };
+    fs.mkdirSync(path.dirname(statePath(slug)), { recursive: true });
+    fs.writeFileSync(statePath(slug), JSON.stringify(oldState));
+    const loaded = loadState(slug, { noGbrain: true });
+    expect(loaded).not.toBeNull();
+    expect(loaded!.phases[0].status).toBe('committed');
+  });
+
   it('loadState keeps legacy all-phase-done state unshipped when completed=false', () => {
     const slug = 'build-legacy-unshipped-test';
     const oldState = {

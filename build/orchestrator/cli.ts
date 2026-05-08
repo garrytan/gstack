@@ -723,25 +723,46 @@ function safeRelativePath(filePath: string): string | null {
   return normalized;
 }
 
-function extractSummaryFilePaths(summary: string): string[] {
+function normalizeSummaryPath(value: string, cwd: string): string | null {
+  const trimmed = value.trim();
+  if (
+    !trimmed ||
+    /\s/.test(trimmed) ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://")
+  ) {
+    return null;
+  }
+  const withoutFragment = trimmed.split("#", 1)[0];
+  const relative = path.isAbsolute(withoutFragment)
+    ? path.relative(cwd, withoutFragment)
+    : withoutFragment;
+  const safe = safeRelativePath(relative);
+  if (!safe || isAllowedTmpPath(safe) || isGeneratedCachePath(safe)) {
+    return null;
+  }
+  return safe;
+}
+
+function extractSummaryFilePaths(summary: string, cwd: string): string[] {
   const paths = new Set<string>();
+  const addCandidate = (value: string) => {
+    const safe = normalizeSummaryPath(value, cwd);
+    if (safe) paths.add(safe);
+  };
+
+  const markdownLinkRe = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
+  let linkMatch: RegExpExecArray | null;
+  while ((linkMatch = markdownLinkRe.exec(summary))) {
+    addCandidate(linkMatch[1]);
+    addCandidate(linkMatch[2]);
+  }
+
   const backtickRe = /`([^`\n]+)`/g;
   let match: RegExpExecArray | null;
   while ((match = backtickRe.exec(summary))) {
     const value = match[1].trim();
-    if (
-      !value ||
-      /\s/.test(value) ||
-      !/[./]/.test(value) ||
-      value.startsWith("http://") ||
-      value.startsWith("https://")
-    ) {
-      continue;
-    }
-    const safe = safeRelativePath(value);
-    if (safe && !isAllowedTmpPath(safe) && !isGeneratedCachePath(safe)) {
-      paths.add(safe);
-    }
+    if (/[./]/.test(value)) addCandidate(value);
   }
   return [...paths].sort();
 }
@@ -825,7 +846,7 @@ export function recoverMutableAgentCommit(opts: {
   }
 
   const dirtyPaths = new Set(after.status.map(parsePorcelainPath));
-  const files = extractSummaryFilePaths(summary).filter((filePath) => {
+  const files = extractSummaryFilePaths(summary, opts.cwd).filter((filePath) => {
     const abs = path.join(opts.cwd, filePath);
     return fs.existsSync(abs) || dirtyPaths.has(filePath);
   });
@@ -1088,6 +1109,12 @@ function printHelp() {
   console.log(HELP_TEXT);
 }
 
+export function phaseTableStatus(phase: Phase): "committed" | "partial" | "pending" {
+  if (isPhaseComplete(phase)) return "committed";
+  if (phase.implementationDone || phase.reviewDone) return "partial";
+  return "pending";
+}
+
 function printPhaseTable(phases: Phase[]) {
   if (phases.length === 0) {
     console.log("(no phases parsed)");
@@ -1104,10 +1131,7 @@ function printPhaseTable(phases: Phase[]) {
   for (const p of phases) {
     const impl = p.implementationDone ? " ✓ " : " · ";
     const rev = p.reviewDone ? " ✓  " : " ·  ";
-    let status: string;
-    if (isPhaseComplete(p)) status = "done";
-    else if (p.implementationDone || p.reviewDone) status = "partial";
-    else status = "pending";
+    const status = phaseTableStatus(p);
     console.log(
       `  ${p.number.padEnd(numWidth)}  ${p.name.padEnd(nameWidth)}  ${impl}   ${rev} ${status}`,
     );
@@ -2731,6 +2755,42 @@ export function isLikelyCodexWorkspaceSandboxFailure(
   return false;
 }
 
+export function isLikelyCodexContextWindowFailure(
+  result: Pick<SubAgentResult, "stdout" | "stderr">,
+): boolean {
+  const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  return (
+    /ran out of room in the model'?s context window/.test(text) ||
+    /context[_ -]?length[_ -]?exceeded/.test(text) ||
+    /maximum context length/.test(text) ||
+    /\bcontext window\b[\s\S]{0,120}\b(limit|overflow|exceeded|too large)\b/.test(text)
+  );
+}
+
+function sameRoleConfig(a: RoleConfig, b: RoleConfig): boolean {
+  return (
+    a.provider === b.provider &&
+    a.model === b.model &&
+    (a.reasoning ?? "") === (b.reasoning ?? "")
+  );
+}
+
+export function shouldRetryPrimaryImplWithSecondary(opts: {
+  primaryRole: RoleConfig;
+  secondaryRole: RoleConfig;
+  result: Pick<SubAgentResult, "stdout" | "stderr" | "exitCode" | "timedOut">;
+  hasDirtyChanges: boolean;
+}): boolean {
+  return (
+    opts.primaryRole.provider === "codex" &&
+    opts.result.exitCode !== 0 &&
+    !opts.result.timedOut &&
+    isLikelyCodexContextWindowFailure(opts.result) &&
+    !opts.hasDirtyChanges &&
+    !sameRoleConfig(opts.primaryRole, opts.secondaryRole)
+  );
+}
+
 export function shouldRetryCodexGateWithDangerFullAccess(opts: {
   role: Pick<RoleConfig, "provider">;
   result: Pick<SubAgentResult, "stdout" | "stderr">;
@@ -3518,6 +3578,29 @@ async function runPhase(args: {
           iteration: action.iteration,
           logPrefix: "primary-impl",
         });
+        if (
+          shouldRetryPrimaryImplWithSecondary({
+            primaryRole: args.roles.primaryImpl,
+            secondaryRole: args.roles.secondaryImpl,
+            result,
+            hasDirtyChanges: hasMeaningfulDirtyChanges(cwd),
+          })
+        ) {
+          console.warn(
+            `  ⚠ Primary implementor hit Codex context window limit before changing files; retrying with secondary implementor ${roleLabel(args.roles.secondaryImpl)}`,
+          );
+          fs.writeFileSync(outputFilePath, "");
+          result = await runRoleTask({
+            role: args.roles.secondaryImpl,
+            inputFilePath,
+            outputFilePath,
+            cwd,
+            slug: state.slug,
+            phaseNumber: phase.number,
+            iteration: action.iteration,
+            logPrefix: "secondary-impl-fallback",
+          });
+        }
       }
       result = applyMutableAgentHygiene({
         result,
@@ -3598,6 +3681,29 @@ async function runPhase(args: {
           iteration: action.iteration,
           logPrefix: "primary-impl-rerun",
         });
+        if (
+          shouldRetryPrimaryImplWithSecondary({
+            primaryRole: args.roles.primaryImpl,
+            secondaryRole: args.roles.secondaryImpl,
+            result,
+            hasDirtyChanges: hasMeaningfulDirtyChanges(cwd),
+          })
+        ) {
+          console.warn(
+            `  ⚠ Primary implementor re-run hit Codex context window limit before changing files; retrying with secondary implementor ${roleLabel(args.roles.secondaryImpl)}`,
+          );
+          fs.writeFileSync(outputFilePath, "");
+          result = await runRoleTask({
+            role: args.roles.secondaryImpl,
+            inputFilePath,
+            outputFilePath,
+            cwd,
+            slug: state.slug,
+            phaseNumber: phase.number,
+            iteration: action.iteration,
+            logPrefix: "secondary-impl-rerun-fallback",
+          });
+        }
       }
       result = applyMutableAgentHygiene({
         result,
@@ -5826,6 +5932,7 @@ async function main() {
     }
     }
   } finally {
+    let activeRunRegistryUpdateFailed = false;
     try {
       if (state?.launch?.runId && state.launch.activeRunRegistry) {
         if (exitCode === 0 && state.completed) {
@@ -5844,11 +5951,15 @@ async function main() {
         });
       }
     } catch (err) {
+      activeRunRegistryUpdateFailed = true;
       console.warn(
         `  ⚠ could not update active-run registry: ${(err as Error).message}`,
       );
     }
     releaseLock(slug);
+    if (activeRunRegistryUpdateFailed && exitCode === 0) {
+      exitCode = 1;
+    }
     logActivity({
       event: exitCode === 0 ? "success" : "failed",
       slug,

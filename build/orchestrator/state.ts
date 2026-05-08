@@ -73,7 +73,11 @@ function ensureStateDir(): void {
 
 function migrateState(state: BuildState): BuildState {
   state.phases = state.phases.map((ph) =>
-    (ph.status as string) === 'gemini_done' ? { ...ph, status: 'impl_done' } : ph
+    (ph.status as string) === 'gemini_done'
+      ? { ...ph, status: 'impl_done' }
+      : (ph.status as string) === 'done'
+      ? { ...ph, status: 'committed' }
+      : ph
   );
   state.roleConfigs = migrateLegacyModels(state);
   if (!state.features) {
