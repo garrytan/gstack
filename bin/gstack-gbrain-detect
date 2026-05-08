@@ -110,8 +110,8 @@ if command -v claude >/dev/null 2>&1; then
       mcommand=$(echo "$mcp_get_json" | jq -r '.command // empty' 2>/dev/null)
       murl=$(echo "$mcp_get_json" | jq -r '.url // empty' 2>/dev/null)
       case "$mtype" in
-        http|sse) gbrain_mcp_mode="remote-http" ;;
-        stdio)    gbrain_mcp_mode="local-stdio" ;;
+        url|http|sse) gbrain_mcp_mode="remote-http" ;;
+        stdio)        gbrain_mcp_mode="local-stdio" ;;
         *)
           # Newer claude versions may emit just url + command; infer.
           if [ -n "$murl" ]; then gbrain_mcp_mode="remote-http"
