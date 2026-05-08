@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Claude Code / Codex
+# gstack setup — build browser binary + register skills with Claude Code / Codex / Forge Code
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+FORGECODE_SKILLS="$HOME/.forgecode/skills"
+FORGECODE_GSTACK="$FORGECODE_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -43,7 +45,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, forgecode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -56,7 +58,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|forgecode|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -91,7 +93,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, forgecode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -155,14 +157,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_FORGECODE=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v forge >/dev/null 2>&1 && INSTALL_FORGECODE=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_FORGECODE" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -175,6 +179,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "forgecode" ]; then
+  INSTALL_FORGECODE=1
 fi
 
 migrate_direct_codex_install() {
@@ -318,6 +324,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .forgecode/ Forge Code skill docs
+if [ "$INSTALL_FORGECODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .forgecode/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host forgecode
   )
 fi
 
@@ -699,6 +715,59 @@ create_opencode_runtime_root() {
   fi
 }
 
+create_forgecode_runtime_root() {
+  local gstack_dir="$1"
+  local forgecode_gstack="$2"
+  local forgecode_dir="$gstack_dir/.forgecode/skills"
+
+  if [ -L "$forgecode_gstack" ]; then
+    rm -f "$forgecode_gstack"
+  elif [ -d "$forgecode_gstack" ] && [ "$forgecode_gstack" != "$gstack_dir" ]; then
+    rm -rf "$forgecode_gstack"
+  fi
+
+  mkdir -p "$forgecode_gstack" "$forgecode_gstack/browse" "$forgecode_gstack/design" "$forgecode_gstack/gstack-upgrade" "$forgecode_gstack/review" "$forgecode_gstack/qa" "$forgecode_gstack/plan-devex-review"
+
+  if [ -f "$forgecode_dir/gstack/SKILL.md" ]; then
+    ln -snf "$forgecode_dir/gstack/SKILL.md" "$forgecode_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    ln -snf "$gstack_dir/bin" "$forgecode_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    ln -snf "$gstack_dir/browse/dist" "$forgecode_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    ln -snf "$gstack_dir/browse/bin" "$forgecode_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    ln -snf "$gstack_dir/design/dist" "$forgecode_gstack/design/dist"
+  fi
+  if [ -f "$forgecode_dir/gstack-upgrade/SKILL.md" ]; then
+    ln -snf "$forgecode_dir/gstack-upgrade/SKILL.md" "$forgecode_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      ln -snf "$gstack_dir/review/$f" "$forgecode_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    ln -snf "$gstack_dir/review/specialists" "$forgecode_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    ln -snf "$gstack_dir/qa/templates" "$forgecode_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    ln -snf "$gstack_dir/qa/references" "$forgecode_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
+    ln -snf "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$forgecode_gstack/plan-devex-review/dx-hall-of-fame.md"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    ln -snf "$gstack_dir/ETHOS.md" "$forgecode_gstack/ETHOS.md"
+  fi
+}
+
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -748,6 +817,38 @@ link_opencode_skill_dirs() {
   fi
 
   for skill_dir in "$opencode_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -snf "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+link_forgecode_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local forgecode_dir="$gstack_dir/.forgecode/skills"
+  local linked=()
+
+  if [ ! -d "$forgecode_dir" ]; then
+    echo "  Generating .forgecode/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host forgecode )
+  fi
+
+  if [ ! -d "$forgecode_dir" ]; then
+    echo "  warning: .forgecode/skills/ generation failed — run 'bun run gen:skill-docs --host forgecode' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$forgecode_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
@@ -933,6 +1034,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Forge Code
+if [ "$INSTALL_FORGECODE" -eq 1 ]; then
+  mkdir -p "$FORGECODE_SKILLS"
+  create_forgecode_runtime_root "$SOURCE_GSTACK_DIR" "$FORGECODE_GSTACK"
+  link_forgecode_skill_dirs "$SOURCE_GSTACK_DIR" "$FORGECODE_SKILLS"
+  echo "gstack ready (forgecode)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  forgecode skills: $FORGECODE_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

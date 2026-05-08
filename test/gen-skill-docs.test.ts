@@ -2247,16 +2247,17 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|forgecode', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|forgecode|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
+  test('auto mode detects claude, codex, kiro, opencode, and forge binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v forge');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2292,6 +2293,21 @@ describe('setup script validation', () => {
   test('setup installs OpenCode skills into a nested gstack runtime root', () => {
     expect(setupContent).toContain('create_opencode_runtime_root');
     expect(setupContent).toContain('.opencode/skills');
+    expect(setupContent).toContain('review/specialists');
+    expect(setupContent).toContain('qa/templates');
+    expect(setupContent).toContain('qa/references');
+    expect(setupContent).toContain('dx-hall-of-fame.md');
+  });
+
+  test('setup supports --host forgecode with install section and Forge Code skill path vars', () => {
+    expect(setupContent).toContain('INSTALL_FORGECODE=');
+    expect(setupContent).toContain('FORGECODE_SKILLS="$HOME/.forgecode/skills"');
+    expect(setupContent).toContain('FORGECODE_GSTACK="$FORGECODE_SKILLS/gstack"');
+  });
+
+  test('setup installs Forge Code skills into a nested gstack runtime root', () => {
+    expect(setupContent).toContain('create_forgecode_runtime_root');
+    expect(setupContent).toContain('.forgecode/skills');
     expect(setupContent).toContain('review/specialists');
     expect(setupContent).toContain('qa/templates');
     expect(setupContent).toContain('qa/references');
