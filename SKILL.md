@@ -862,7 +862,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | Command | Description |
 |---------|-------------|
 | `archive [path]` | Save complete page as MHTML via CDP |
-| `download <url|@ref> [path] [--base64]` | Download URL or media element to disk using browser cookies |
+| `download <url|@ref> [path] [--base64] [--navigate]` | Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites) |
 | `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
 
 ### Interaction
