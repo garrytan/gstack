@@ -131,6 +131,10 @@ const DEFAULT_JUDGE_TIMEOUT_MS = Number(
   process.env.GSTACK_BUILD_JUDGE_TIMEOUT || BUILD_DEFAULTS.timeoutsMs.judge,
 );
 const DUAL_CANDIDATES = ["primary", "secondary"] as const;
+const REPO_BOUNDARY_INSTRUCTIONS = [
+  "Repository boundary rule: do not edit git submodules or nested repositories unless this phase explicitly names that submodule as in scope.",
+  "If the phase names a component or directory that does not exist in this repository, stop and report a plan mismatch in your output summary instead of substituting a similar-looking submodule or dependency.",
+];
 
 function saveState(
   state: BuildState,
@@ -286,6 +290,10 @@ export interface Args {
   activeRunRegistry: string;
   /** Allow running directly from a workspace root that contains child git repos. */
   allowWorkspaceRoot: boolean;
+  /** Submodule roots that mutable-agent recovery may stage as gitlinks after explicit operator review. */
+  allowSubmoduleRecovery: string[];
+  /** Mark a phase committed after manual recovery without rerunning earlier phase steps. */
+  markPhaseCommitted?: string;
   /**
    * Skip the per-feature meta-review pass that fires after all phases of
    * a feature commit. Default off — review runs unless the skip heuristic
@@ -340,6 +348,8 @@ export function parseArgs(argv: string[]): Args {
     branchPrefix: undefined,
     activeRunRegistry: defaultActiveRunRegistryDir(),
     allowWorkspaceRoot: false,
+    allowSubmoduleRecovery: [],
+    markPhaseCommitted: undefined,
     skipFeatureReview: false,
     featureReviewMaxIter: DEFAULT_FEATURE_REVIEW_MAX_ITER,
     monitorManifest: undefined,
@@ -361,6 +371,26 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--skip-sweep") args.skipSweep = true;
     else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
     else if (a === "--skip-feature-review") args.skipFeatureReview = true;
+    else if (a === "--allow-submodule-recovery") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--allow-submodule-recovery requires a submodule path");
+        process.exit(2);
+      }
+      const safe = safeRelativePath(next);
+      if (!safe) {
+        console.error(`--allow-submodule-recovery expects a relative path, got: ${next}`);
+        process.exit(2);
+      }
+      args.allowSubmoduleRecovery.push(safe);
+    } else if (a === "--mark-phase-committed") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--mark-phase-committed requires a phase number");
+        process.exit(2);
+      }
+      args.markPhaseCommitted = next;
+    }
     else if (a === "--manifest") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
@@ -789,6 +819,52 @@ function safeRelativePath(filePath: string): string | null {
   return normalized;
 }
 
+function normalizeAllowedSubmodulePath(filePath: string): string | null {
+  const safe = safeRelativePath(filePath);
+  return safe ? safe.replace(/\/+$/g, "") : null;
+}
+
+function listSubmodulePaths(cwd: string): string[] {
+  const gitmodules = path.join(cwd, ".gitmodules");
+  if (!fs.existsSync(gitmodules)) return [];
+  const result = spawnSync(
+    "git",
+    ["config", "--file", ".gitmodules", "--get-regexp", "path"],
+    { cwd, encoding: "utf8" },
+  );
+  if (result.status !== 0) return [];
+  return (result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^[^\s]+\s+/, ""))
+    .map(normalizeAllowedSubmodulePath)
+    .filter((value): value is string => !!value)
+    .sort((a, b) => b.length - a.length);
+}
+
+function enclosingSubmodulePath(
+  filePath: string,
+  submodulePaths: string[],
+): string | null {
+  return (
+    submodulePaths.find(
+      (submodulePath) =>
+        filePath === submodulePath || filePath.startsWith(`${submodulePath}/`),
+    ) ?? null
+  );
+}
+
+function submoduleHasDirtyWorktree(cwd: string, submodulePath: string): string | null {
+  const result = spawnSync("git", ["status", "--porcelain"], {
+    cwd: path.join(cwd, submodulePath),
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    return (result.stderr || result.stdout || "could not inspect submodule").trim();
+  }
+  const dirty = (result.stdout || "").trim();
+  return dirty || null;
+}
+
 function normalizeSummaryPath(value: string, cwd: string): string | null {
   const trimmed = value.trim();
   if (
@@ -884,6 +960,7 @@ export function recoverMutableAgentCommit(opts: {
   before: GitSnapshot;
   outputFilePath?: string;
   label: string;
+  allowSubmoduleRecovery?: string[];
 }): { recovered: boolean; commit?: string; errors: string[]; cleaned: string[] } {
   const after = captureGitSnapshot(opts.cwd);
   if (after.head !== opts.before.head) {
@@ -924,7 +1001,52 @@ export function recoverMutableAgentCommit(opts: {
     };
   }
 
-  const add = spawnSync("git", ["add", "--", ...files], {
+  const submodulePaths = listSubmodulePaths(opts.cwd);
+  const allowedSubmodules = new Set(
+    (opts.allowSubmoduleRecovery ?? [])
+      .map(normalizeAllowedSubmodulePath)
+      .filter((value): value is string => !!value),
+  );
+  const parentFiles: string[] = [];
+  const submodulesToStage = new Set<string>();
+  const submoduleErrors: string[] = [];
+  for (const filePath of files) {
+    const submodulePath = enclosingSubmodulePath(filePath, submodulePaths);
+    if (!submodulePath) {
+      parentFiles.push(filePath);
+      continue;
+    }
+    if (!allowedSubmodules.has(submodulePath)) {
+      submoduleErrors.push(
+        `${opts.label} recovery found summary-listed submodule path ${filePath}. ` +
+          `Refusing to stage submodule ${submodulePath}; verify the submodule commit, ` +
+          `then rerun with --allow-submodule-recovery ${submodulePath}.`,
+      );
+      continue;
+    }
+    const dirty = submoduleHasDirtyWorktree(opts.cwd, submodulePath);
+    if (dirty) {
+      submoduleErrors.push(
+        `${opts.label} recovery cannot stage submodule ${submodulePath} because its working tree is dirty:\n${dirty}`,
+      );
+      continue;
+    }
+    submodulesToStage.add(submodulePath);
+  }
+  if (submoduleErrors.length > 0) {
+    return { recovered: false, errors: submoduleErrors, cleaned: [] };
+  }
+
+  const stagedPaths = [...new Set([...parentFiles, ...submodulesToStage])].sort();
+  if (stagedPaths.length === 0) {
+    return {
+      recovered: false,
+      errors: [`${opts.label} recovery found no parent-repo paths to stage`],
+      cleaned: [],
+    };
+  }
+
+  const add = spawnSync("git", ["add", "--", ...stagedPaths], {
     cwd: opts.cwd,
     encoding: "utf8",
   });
@@ -1163,6 +1285,13 @@ Flags:
   --branch-prefix <prefix> Prefix for branches owned by this run.
   --active-run-registry <dir> Active-run registry (default ~/.gstack/build-state/active-runs).
   --allow-workspace-root  Allow --project-root to be a workspace root with immediate child git repos.
+  --allow-submodule-recovery <path>
+                       Allow mutable-agent recovery to stage this submodule gitlink
+                       after you have verified the submodule commit is intended.
+                       Repeat for multiple submodules.
+  --mark-phase-committed <phase>
+                       Mark a manually recovered phase committed without rerunning
+                       test-spec, implementation, tests, or review steps.
   --origin-plan <file> Original source plan. Verified after each feature and archived after final completion.
   --max-codex-iter N   Cap recursive Codex iterations (default ${DEFAULT_MAX_CODEX_ITERATIONS}).
   -h, --help           Show this help.
@@ -1967,6 +2096,8 @@ function buildGeminiPromptBody(
     `7. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
     `8. Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
     `9. Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
+    `10. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+    `11. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
   ];
 
   if (reviewFeedback) {
@@ -2204,8 +2335,10 @@ export function buildGeminiTestSpecPrompt(
     `   Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
     `2. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
     `3. Cover: happy path + key edge cases using the project's existing test framework.`,
-    `4. Commit the failing tests to the current branch.`,
-    `5. Write your output summary to the output file path (provided in shell prompt).`,
+    `4. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+    `5. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+    `6. Commit the failing tests to the current branch.`,
+    `7. Write your output summary to the output file path (provided in shell prompt).`,
   ].join("\n");
 }
 
@@ -2236,7 +2369,9 @@ export function buildDualImplPromptBody(opts: {
     `3. Write minimal correct code. Avoid over-engineering.`,
     `4. Commit your changes to the current branch with a clear conventional-commit message.`,
     `5. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
-    `6. Write your output summary to the output file path (provided in the shell prompt).`,
+    `6. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+    `7. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+    `8. Write your output summary to the output file path (provided in the shell prompt).`,
   ].join("\n");
 }
 
@@ -2351,6 +2486,8 @@ export function buildGeminiFixPrompt(phase: Phase, planFile: string): string {
     `## Instructions`,
     ``,
     `Tests are failing after implementation — fix the code to make them pass, do NOT change test assertions.`,
+    REPO_BOUNDARY_INSTRUCTIONS[0],
+    REPO_BOUNDARY_INSTRUCTIONS[1],
     ``,
     `Write your output summary to the output file path (provided in shell prompt).`,
   ].join("\n");
@@ -2692,6 +2829,7 @@ function applyMutableAgentHygiene(opts: {
   outputFilePath?: string;
   requireNonEmptyOutput?: boolean;
   requireNewCommit?: boolean;
+  allowSubmoduleRecovery?: string[];
   parentWorkspace?: {
     workspaceRoot: string | null;
     snapshot: GitSnapshot | null;
@@ -2700,12 +2838,19 @@ function applyMutableAgentHygiene(opts: {
   if (!opts.before || opts.result.timedOut || opts.result.exitCode !== 0) {
     return opts.result;
   }
+  const preCleaned = cleanupGeneratedCacheChanges(opts.cwd);
+  if (preCleaned.length > 0) {
+    console.warn(
+      `  ⚠ cleaned generated cache changes before ${opts.label} hygiene: ${preCleaned.join(", ")}`,
+    );
+  }
   const recovery = opts.requireNewCommit
     ? recoverMutableAgentCommit({
         cwd: opts.cwd,
         before: opts.before,
         outputFilePath: opts.outputFilePath,
         label: opts.label,
+        allowSubmoduleRecovery: opts.allowSubmoduleRecovery,
       })
     : { recovered: false, errors: [] as string[], cleaned: [] as string[] };
   const checks = [
@@ -2884,6 +3029,7 @@ async function runDualImplFixLoop(opts: {
   phaseNumber: string;
   testCmd: string | null;
   maxFixIter: number;
+  allowSubmoduleRecovery?: string[];
 }): Promise<{
   testResult: DualImplTestResult;
   fixIterations: number | null;
@@ -2970,6 +3116,8 @@ async function runDualImplFixLoop(opts: {
       ``,
       `Fix the implementation to make the above tests pass.`,
       `Do NOT change test assertions — only modify implementation files.`,
+      REPO_BOUNDARY_INSTRUCTIONS[0],
+      REPO_BOUNDARY_INSTRUCTIONS[1],
       `Commit your fix when done.`,
       `Write your output summary to the output file path (provided in shell prompt).`,
     ]
@@ -3003,6 +3151,7 @@ async function runDualImplFixLoop(opts: {
       before: beforeFix,
       outputFilePath: fixOutput,
       label: `${candidate} fix pass ${i}`,
+      allowSubmoduleRecovery: opts.allowSubmoduleRecovery,
     });
     if (recovery.errors.length > 0) {
       failureLog.push(
@@ -3105,6 +3254,75 @@ function resetPhaseStateForRedo(state: BuildState, phaseIndex: number): void {
   delete (ps as any).error;
   delete (ps as any).redSpecAttempts;
   delete (ps as any).dualImpl;
+}
+
+export function markPhaseCommittedAfterManualRecovery(args: {
+  state: BuildState;
+  phases: Phase[];
+  phaseNumber: string;
+  planFile: string;
+  dryRun?: boolean;
+}): { ok: true; phaseIndex: number } | { ok: false; error: string } {
+  const phase = args.phases.find((p) => p.number === args.phaseNumber);
+  if (!phase) {
+    return { ok: false, error: `phase not found: ${args.phaseNumber}` };
+  }
+  const phaseState = args.state.phases[phase.index];
+  if (!phaseState) {
+    return {
+      ok: false,
+      error: `state for phase ${args.phaseNumber} is missing`,
+    };
+  }
+  if (phaseState.number !== phase.number) {
+    return {
+      ok: false,
+      error: `state/plan phase mismatch at index ${phase.index}: plan has ${phase.number}, state has ${phaseState.number}`,
+    };
+  }
+
+  if (!args.dryRun) {
+    if (phase.testSpecCheckboxLine !== -1) {
+      const specFlip = flipTestSpecCheckbox(args.planFile, phase);
+      if (specFlip.error) {
+        return {
+          ok: false,
+          error: `plan test-spec checkbox flip failed: ${specFlip.error}`,
+        };
+      }
+    }
+    const flips = flipPhaseCheckboxes({
+      planFile: args.planFile,
+      implementationLine: phase.implementationCheckboxLine,
+      reviewLine: phase.reviewCheckboxLine,
+    });
+    if (flips.implementation.error || flips.review.error) {
+      return {
+        ok: false,
+        error: `plan checkbox flip failed: impl=${flips.implementation.error || "ok"}; review=${flips.review.error || "ok"}`,
+      };
+    }
+  }
+
+  const clearsBuildFailure =
+    args.state.failedAtPhase === phase.index ||
+    (args.state.failedAtPhase == null && phaseState.status === "failed");
+  args.state.phases[phase.index] = markCommitted(phaseState);
+  args.state.currentPhaseIndex = findNextPhaseIndex(args.state.phases);
+  if (args.state.failedAtPhase === phase.index) {
+    delete args.state.failedAtPhase;
+  }
+  if (clearsBuildFailure) {
+    delete args.state.failureReason;
+  }
+  const feature = args.state.features?.[phase.featureIndex];
+  if (feature && clearsBuildFailure) {
+    if (feature.status === "paused" || feature.status === "failed") {
+      feature.status = "running";
+    }
+    delete feature.error;
+  }
+  return { ok: true, phaseIndex: phase.index };
 }
 
 /**
@@ -3343,6 +3561,7 @@ async function runPhase(args: {
   maxCodexIter: number;
   testCmd?: string;
   roles: RoleConfigs;
+  allowSubmoduleRecovery: string[];
   parentWorkspace: {
     workspaceRoot: string | null;
     snapshot: GitSnapshot | null;
@@ -3583,6 +3802,7 @@ async function runPhase(args: {
         outputFilePath,
         requireNonEmptyOutput: true,
         requireNewCommit: true,
+        allowSubmoduleRecovery: args.allowSubmoduleRecovery,
         parentWorkspace,
       });
       phaseState = applyResult(phaseState, action, result, { outputFilePath });
@@ -3686,6 +3906,7 @@ async function runPhase(args: {
         outputFilePath,
         requireNonEmptyOutput: true,
         requireNewCommit: true,
+        allowSubmoduleRecovery: args.allowSubmoduleRecovery,
         parentWorkspace,
       });
       phaseState = applyResult(phaseState, action, result, { outputFilePath });
@@ -3916,6 +4137,7 @@ async function runPhase(args: {
         outputFilePath,
         requireNonEmptyOutput: true,
         requireNewCommit: true,
+        allowSubmoduleRecovery: args.allowSubmoduleRecovery,
         parentWorkspace,
       });
       phaseState = applyResult(phaseState, action, result);
@@ -4077,6 +4299,7 @@ async function runPhase(args: {
               before,
               outputFilePath: outputPath,
               label: `${candidate} implementor`,
+              allowSubmoduleRecovery: args.allowSubmoduleRecovery,
             });
             if (recovery.errors.length > 0) {
               const recoveredResult = hygieneFailureResult(
@@ -4127,6 +4350,7 @@ async function runPhase(args: {
               phaseNumber: phaseN,
               testCmd: dualTestCmd,
               maxFixIter: DEFAULT_MAX_TEST_ITERATIONS,
+              allowSubmoduleRecovery: args.allowSubmoduleRecovery,
             });
           const headResult = spawnSync(
             "git",
@@ -5171,6 +5395,26 @@ async function main() {
       }
     }
 
+    if (!setupFailed && state && args.markPhaseCommitted) {
+      const marked = markPhaseCommittedAfterManualRecovery({
+        state,
+        phases,
+        phaseNumber: args.markPhaseCommitted,
+        planFile: args.planFile,
+        dryRun: args.dryRun,
+      });
+      if (!marked.ok) {
+        console.error(`\n✗ --mark-phase-committed failed: ${marked.error}\n`);
+        exitCode = 2;
+        setupFailed = true;
+      } else {
+        console.log(
+          `\n✓ Marked phase ${args.markPhaseCommitted} committed after manual recovery.`,
+        );
+        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+      }
+    }
+
     if (!setupFailed && state) {
       state.launch = launch;
       saveState(state, { noGbrain: args.noGbrain, log: console.warn });
@@ -5370,6 +5614,7 @@ async function main() {
               maxCodexIter: args.maxCodexIter,
               testCmd: args.testCmd,
               roles: args.roles,
+              allowSubmoduleRecovery: args.allowSubmoduleRecovery,
               parentWorkspace,
             });
 
@@ -6265,6 +6510,7 @@ async function sweepUnshippedFeatBranches(
         roles,
         maxReviewIterations: DEFAULT_MAX_CODEX_ITERATIONS,
         dryRun: false,
+        allowSubmoduleRecovery: [],
       });
       if (!ok) {
         console.warn(`  ⚠ merge sweep failed for ${branch.name} — continuing`);
@@ -6372,6 +6618,7 @@ async function runMergeMode(args: Args): Promise<number> {
         roles: args.roles,
         maxReviewIterations: args.maxCodexIter,
         dryRun: false,
+        allowSubmoduleRecovery: args.allowSubmoduleRecovery,
       });
       if (!ok) return 1;
     }
@@ -6412,6 +6659,7 @@ async function processMergeBranch(args: {
   roles: RoleConfigs;
   maxReviewIterations: number;
   dryRun: boolean;
+  allowSubmoduleRecovery: string[];
 }): Promise<boolean> {
   const branch = args.candidate.name;
   console.log(`\n▶ merge branch ${branch}`);
@@ -6454,6 +6702,7 @@ async function processMergeBranch(args: {
       iteration: iter,
       role: args.roles.testFixer,
       reviewReportPath: lastReviewReportPath,
+      allowSubmoduleRecovery: args.allowSubmoduleRecovery,
     });
     if (!fixed) return false;
   }
@@ -6559,6 +6808,7 @@ async function runMergeFixer(args: {
   iteration: number;
   role: RoleConfig;
   reviewReportPath: string | null;
+  allowSubmoduleRecovery: string[];
 }): Promise<boolean> {
   const inputFilePath = path.join(
     logDir(args.slug),
@@ -6596,6 +6846,7 @@ async function runMergeFixer(args: {
     outputFilePath,
     requireNonEmptyOutput: true,
     requireNewCommit: true,
+    allowSubmoduleRecovery: args.allowSubmoduleRecovery,
   });
   if (result.timedOut || result.exitCode !== 0) {
     console.error(`  ✗ merge fixer failed for ${args.branch} (exit ${result.exitCode})`);

@@ -298,6 +298,14 @@ describe("markCommitted", () => {
     expect(after.committedAt).toBeDefined();
     expect(before.status).toBe("review_clean"); // input unchanged
   });
+
+  it("clears stale phase errors when marking committed", () => {
+    const before = basePhase({ status: "review_clean", error: "old hygiene failure" });
+    const after = markCommitted(before);
+    expect(after.status).toBe("committed");
+    expect(after.error).toBeUndefined();
+    expect(before.error).toBe("old hygiene failure");
+  });
 });
 
 describe("findNextPhaseIndex", () => {

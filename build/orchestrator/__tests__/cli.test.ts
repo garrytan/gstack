@@ -27,6 +27,7 @@ import {
   syncFeatureBranchWithBase,
   validateResumeLaunch,
   restartFeatureFromOriginIssues,
+  markPhaseCommittedAfterManualRecovery,
   phaseTableStatus,
   HELP_TEXT,
 } from '../cli';
@@ -117,6 +118,12 @@ describe('buildGeminiTestSpecPrompt', () => {
     const prompt = buildGeminiTestSpecPrompt(basePhase, 'plan.md');
     expect(prompt).toContain('plan.md');
   });
+
+  it('tells test writers not to substitute submodules for missing components', () => {
+    const prompt = buildGeminiTestSpecPrompt(basePhase, 'plan.md');
+    expect(prompt).toContain('do not edit git submodules');
+    expect(prompt).toContain('report a plan mismatch');
+  });
 });
 
 describe('--dual-impl flag wiring', () => {
@@ -151,6 +158,25 @@ describe('--skip-ship flag wiring', () => {
   it('parseArgs([plan, --skip-ship]) sets skipShip=true', () => {
     const args = parseArgs(['plan.md', '--skip-ship']);
     expect(args.skipShip).toBe(true);
+  });
+});
+
+describe('manual recovery flags', () => {
+  it('help text documents manual phase and submodule recovery flags', () => {
+    expect(HELP_TEXT).toContain('--allow-submodule-recovery');
+    expect(HELP_TEXT).toContain('--mark-phase-committed');
+  });
+
+  it('parses --allow-submodule-recovery and --mark-phase-committed', () => {
+    const args = parseArgs([
+      'plan.md',
+      '--allow-submodule-recovery',
+      'op-node',
+      '--mark-phase-committed',
+      '2.3',
+    ]);
+    expect(args.allowSubmoduleRecovery).toEqual(['op-node']);
+    expect(args.markPhaseCommitted).toBe('2.3');
   });
 });
 
@@ -1027,6 +1053,92 @@ describe('post-agent hygiene helpers', () => {
     expect(committedFiles).not.toContain('sequencer/rpc/rpc_test.go');
   });
 
+  it('fails closed when recovery sees submodule-internal summary paths without explicit allowlist', () => {
+    const subRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-submodule-src-'));
+    git(['init', '--initial-branch=main'], subRepo);
+    git(['config', 'user.email', 'test@test.com'], subRepo);
+    git(['config', 'user.name', 'Test User'], subRepo);
+    fs.writeFileSync(path.join(subRepo, 'lib.go'), 'package lib\n');
+    git(['add', 'lib.go'], subRepo);
+    git(['commit', '-m', 'submodule init'], subRepo);
+
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'add', subRepo, 'vendor/lib'], tmpDir!);
+    git(['commit', '-am', 'add submodule'], tmpDir!);
+    const before = captureGitSnapshot(tmpDir!);
+    const subPath = path.join(tmpDir!, 'vendor', 'lib');
+    git(['config', 'user.email', 'test@test.com'], subPath);
+    git(['config', 'user.name', 'Test User'], subPath);
+    fs.writeFileSync(path.join(subPath, 'lib.go'), 'package lib\nconst X = 1\n');
+    git(['add', 'lib.go'], subPath);
+    git(['commit', '-m', 'change submodule'], subPath);
+
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.writeFileSync(
+      summary,
+      [
+        '# Summary',
+        '- `vendor/lib/lib.go` — changed submodule code.',
+        '- Conventional commit message: `feat: recover submodule pointer`',
+      ].join('\n'),
+    );
+
+    const recovery = recoverMutableAgentCommit({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      label: 'primary implementor',
+    });
+
+    expect(recovery.recovered).toBe(false);
+    expect(recovery.errors.join('\n')).toContain('Refusing to stage submodule vendor/lib');
+    expect(git(['rev-parse', 'HEAD'], tmpDir!)).toBe(before.head);
+  });
+
+  it('stages only an explicitly allowed clean submodule gitlink during recovery', () => {
+    const subRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-submodule-src-'));
+    git(['init', '--initial-branch=main'], subRepo);
+    git(['config', 'user.email', 'test@test.com'], subRepo);
+    git(['config', 'user.name', 'Test User'], subRepo);
+    fs.writeFileSync(path.join(subRepo, 'lib.go'), 'package lib\n');
+    git(['add', 'lib.go'], subRepo);
+    git(['commit', '-m', 'submodule init'], subRepo);
+
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'add', subRepo, 'vendor/lib'], tmpDir!);
+    git(['commit', '-am', 'add submodule'], tmpDir!);
+    const before = captureGitSnapshot(tmpDir!);
+    const subPath = path.join(tmpDir!, 'vendor', 'lib');
+    git(['config', 'user.email', 'test@test.com'], subPath);
+    git(['config', 'user.name', 'Test User'], subPath);
+    fs.writeFileSync(path.join(subPath, 'lib.go'), 'package lib\nconst X = 1\n');
+    git(['add', 'lib.go'], subPath);
+    git(['commit', '-m', 'change submodule'], subPath);
+
+    const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
+    fs.mkdirSync(path.dirname(summary), { recursive: true });
+    fs.writeFileSync(
+      summary,
+      [
+        '# Summary',
+        '- `vendor/lib/lib.go` — changed submodule code.',
+        '- Conventional commit message: `feat: recover submodule pointer`',
+      ].join('\n'),
+    );
+
+    const recovery = recoverMutableAgentCommit({
+      cwd: tmpDir!,
+      before,
+      outputFilePath: summary,
+      label: 'primary implementor',
+      allowSubmoduleRecovery: ['vendor/lib'],
+    });
+
+    expect(recovery.recovered).toBe(true);
+    expect(git(['log', '-1', '--pretty=%s'], tmpDir!)).toBe('feat: recover submodule pointer');
+    const committedFiles = git(['show', '--name-only', '--pretty=', 'HEAD'], tmpDir!).split('\n');
+    expect(committedFiles).toEqual(['vendor/lib']);
+  });
+
   it('accepts a committed clean implementor run with a non-empty summary', () => {
     const before = captureGitSnapshot(tmpDir!);
     const summary = path.join(tmpDir!, '.llm-tmp', 'summary.md');
@@ -1477,6 +1589,238 @@ describe('restartFeatureFromOriginIssues', () => {
     expect(restart.restarted).toBe(false);
     expect(feature.status).toBe('paused');
     expect(feature.error).toContain('still failing after 1 auto-fix attempts');
+  });
+});
+
+describe('markPhaseCommittedAfterManualRecovery', () => {
+  it('marks a failed phase committed without deleting test artifacts or rerunning the phase', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-manual-recovery-'));
+    const planFile = path.join(tmpDir, 'plan.md');
+    fs.writeFileSync(
+      planFile,
+      [
+        '# Plan',
+        '',
+        '## Feature 1: Auth',
+        '',
+        '### Phase 1.1: Middleware',
+        '- [ ] **Test Specification (Gemini Sub-agent)**: Write failing tests.',
+        '- [ ] **Implementation (Codex Sub-agent)**: Implement.',
+        '- [ ] **Review (Codex Sub-agent)**: Review.',
+        '',
+      ].join('\n'),
+    );
+    const phase: Phase = {
+      ...basePhase,
+      number: '1.1',
+      name: 'Middleware',
+      testSpecCheckboxLine: 6,
+      implementationCheckboxLine: 7,
+      reviewCheckboxLine: 8,
+    };
+    const feature: FeatureState = {
+      index: 0,
+      number: '1',
+      name: 'Auth',
+      phaseIndexes: [0],
+      status: 'paused',
+      error: 'old phase failure',
+    };
+    const state: BuildState = {
+      planFile,
+      planBasename: 'plan',
+      slug: 'build-plan',
+      branch: 'feat/auth',
+      startedAt: '2026-05-08T00:00:00.000Z',
+      lastUpdatedAt: '2026-05-08T00:00:00.000Z',
+      currentPhaseIndex: 0,
+      currentFeatureIndex: 0,
+      features: [feature],
+      phases: [
+        {
+          index: 0,
+          number: '1.1',
+          name: 'Middleware',
+          status: 'failed',
+          error: 'old hygiene failure',
+          geminiTestSpec: {
+            startedAt: '2026-05-08T00:00:00.000Z',
+            outputLogPath: '/tmp/testspec.log',
+            outputFilePath: '/tmp/testspec.md',
+            retries: 0,
+          },
+        },
+      ],
+      failedAtPhase: 0,
+      failureReason: 'old hygiene failure',
+      completed: false,
+    };
+
+    const result = markPhaseCommittedAfterManualRecovery({
+      state,
+      phases: [phase],
+      phaseNumber: '1.1',
+      planFile,
+    });
+
+    expect(result).toEqual({ ok: true, phaseIndex: 0 });
+    expect(state.phases[0].status).toBe('committed');
+    expect(state.phases[0].error).toBeUndefined();
+    expect(state.phases[0].geminiTestSpec).toBeDefined();
+    expect(state.failedAtPhase).toBeUndefined();
+    expect(state.failureReason).toBeUndefined();
+    expect(feature.status).toBe('running');
+    expect(feature.error).toBeUndefined();
+    const updatedPlan = fs.readFileSync(planFile, 'utf8');
+    expect(updatedPlan).toContain('- [x] **Test Specification');
+    expect(updatedPlan).toContain('- [x] **Implementation');
+    expect(updatedPlan).toContain('- [x] **Review');
+  });
+
+  it('does not clear an unrelated recorded failure when marking a different phase', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-manual-recovery-other-'));
+    const planFile = path.join(tmpDir, 'plan.md');
+    fs.writeFileSync(
+      planFile,
+      [
+        '# Plan',
+        '',
+        '### Phase 1.1: First',
+        '- [ ] **Implementation (Codex Sub-agent)**: Implement.',
+        '- [ ] **Review (Codex Sub-agent)**: Review.',
+        '',
+        '### Phase 1.2: Second',
+        '- [ ] **Implementation (Codex Sub-agent)**: Implement.',
+        '- [ ] **Review (Codex Sub-agent)**: Review.',
+        '',
+      ].join('\n'),
+    );
+    const phases: Phase[] = [
+      {
+        ...basePhase,
+        index: 0,
+        number: '1.1',
+        name: 'First',
+        testSpecCheckboxLine: -1,
+        implementationCheckboxLine: 4,
+        reviewCheckboxLine: 5,
+      },
+      {
+        ...basePhase,
+        index: 1,
+        number: '1.2',
+        name: 'Second',
+        testSpecCheckboxLine: -1,
+        implementationCheckboxLine: 8,
+        reviewCheckboxLine: 9,
+      },
+    ];
+    const state: BuildState = {
+      planFile,
+      planBasename: 'plan',
+      slug: 'build-plan',
+      branch: 'feat/auth',
+      startedAt: '2026-05-08T00:00:00.000Z',
+      lastUpdatedAt: '2026-05-08T00:00:00.000Z',
+      currentPhaseIndex: 0,
+      currentFeatureIndex: 0,
+      features: [
+        {
+          index: 0,
+          number: '1',
+          name: 'Full plan',
+          phaseIndexes: [0, 1],
+          status: 'paused',
+          error: 'phase 1.2 failed',
+        },
+      ],
+      phases: [
+        { index: 0, number: '1.1', name: 'First', status: 'review_clean' },
+        { index: 1, number: '1.2', name: 'Second', status: 'failed' },
+      ],
+      failedAtPhase: 1,
+      failureReason: 'phase 1.2 failed',
+      completed: false,
+    };
+
+    const result = markPhaseCommittedAfterManualRecovery({
+      state,
+      phases,
+      phaseNumber: '1.1',
+      planFile,
+    });
+
+    expect(result).toEqual({ ok: true, phaseIndex: 0 });
+    expect(state.failedAtPhase).toBe(1);
+    expect(state.failureReason).toBe('phase 1.2 failed');
+    expect(state.features[0].status).toBe('paused');
+    expect(state.features[0].error).toBe('phase 1.2 failed');
+  });
+
+  it('fails closed when the parsed plan phase no longer matches persisted state at that index', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-manual-recovery-mismatch-'));
+    const planFile = path.join(tmpDir, 'plan.md');
+    fs.writeFileSync(
+      planFile,
+      [
+        '# Plan',
+        '',
+        '### Phase 1.1: First',
+        '- [ ] **Implementation (Codex Sub-agent)**: Implement.',
+        '- [ ] **Review (Codex Sub-agent)**: Review.',
+        '',
+      ].join('\n'),
+    );
+    const phase: Phase = {
+      ...basePhase,
+      index: 0,
+      number: '1.1',
+      name: 'First',
+      testSpecCheckboxLine: -1,
+      implementationCheckboxLine: 4,
+      reviewCheckboxLine: 5,
+    };
+    const state: BuildState = {
+      planFile,
+      planBasename: 'plan',
+      slug: 'build-plan',
+      branch: 'feat/auth',
+      startedAt: '2026-05-08T00:00:00.000Z',
+      lastUpdatedAt: '2026-05-08T00:00:00.000Z',
+      currentPhaseIndex: 0,
+      currentFeatureIndex: 0,
+      features: [
+        {
+          index: 0,
+          number: '1',
+          name: 'Full plan',
+          phaseIndexes: [0],
+          status: 'paused',
+        },
+      ],
+      phases: [
+        { index: 0, number: '9.9', name: 'Stale phase', status: 'failed' },
+      ],
+      failedAtPhase: 0,
+      failureReason: 'old failure',
+      completed: false,
+    };
+
+    const result = markPhaseCommittedAfterManualRecovery({
+      state,
+      phases: [phase],
+      phaseNumber: '1.1',
+      planFile,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'state/plan phase mismatch at index 0: plan has 1.1, state has 9.9',
+    });
+    expect(state.phases[0].status).toBe('failed');
+    const unchangedPlan = fs.readFileSync(planFile, 'utf8');
+    expect(unchangedPlan).toContain('- [ ] **Implementation');
+    expect(unchangedPlan).toContain('- [ ] **Review');
   });
 });
 

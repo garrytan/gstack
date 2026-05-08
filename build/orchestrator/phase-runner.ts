@@ -796,11 +796,13 @@ export function applyResult(
  * flipped the checkboxes. Pure transition.
  */
 export function markCommitted(phaseState: PhaseState): PhaseState {
-  return {
+  const next: PhaseState = {
     ...phaseState,
     status: "committed",
     committedAt: new Date().toISOString(),
   };
+  delete next.error;
+  return next;
 }
 
 /**

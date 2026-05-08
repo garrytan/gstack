@@ -1223,6 +1223,12 @@ Before launching, `gstack-build` runs two preflight checks:
 
 Both gates are skipped when `--dry-run` or `--skip-ship` is active.
 
+### Manual Recovery and Submodule Boundaries
+
+If a phase was manually repaired after a hygiene failure, use `gstack-build <plan> --mark-phase-committed <phase>` to mark that phase committed without rerunning Test Specification, Implementation, Green tests, or Review/QA. This is for build-state recovery only; do not use `--reset-phase` when the phase artifacts are already valid.
+
+Mutable-agent recovery is parent-repo first. If an agent reports files inside a git submodule, the CLI fails closed by default and preserves the worktree. Only after verifying the submodule commit is intended, rerun with `--allow-submodule-recovery <submodule-path>`; the CLI stages only the submodule gitlink in the parent repo, not submodule-internal files. Do not edit target-repo cache history or dependency submodules as part of build-skill recovery unless the plan explicitly scopes that target repo work.
+
 ### Dual-Implementor Mode (`--dual-impl`)
 
 For tournament-selection builds, pass `--dual-impl` to `gstack-build`. The CLI owns the full model-agnostic dual-impl loop: worktree creation, parallel primary/secondary impl, tests, judge, apply winner, test+fix, review gates, QA. Deprecated aliases (`--gemini-model`, `--codex-model`, `--codex-review-model`) still work as primary/secondary/review model aliases. Full guide in `build/orchestrator/README.md`.

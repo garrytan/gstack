@@ -279,6 +279,23 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
   }
 });
 
+test("build skill docs describe manual recovery and submodule fail-closed boundaries", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("--mark-phase-committed <phase>");
+    expect(content).toContain("--allow-submodule-recovery <submodule-path>");
+    expect(content).toContain("fails closed by default");
+    expect(content).toContain("stages only the submodule gitlink");
+    expect(content).toContain("do not use `--reset-phase` when the phase artifacts are already valid");
+  }
+});
+
 test("source-plan claim aggregation jq keeps the claim root while iterating run ids", () => {
   const jqProgram = `
     .runStatuses = (.runStatuses // {}) |
