@@ -856,8 +856,10 @@ link_forgecode_skill_dirs() {
       target="$skills_dir/$skill_name"
       # Forge Code's skill discovery does not follow top-level symlinked
       # directories — only real directories whose immediate child is SKILL.md
-      # are picked up. Mirror the Claude install pattern: real dir + symlinked
-      # SKILL.md inside.
+      # are picked up. Mirror the Claude install pattern: real dir + SKILL.md
+      # inside. We COPY (not symlink) SKILL.md so the install can patch the
+      # `name:` field to match the prefixed parent directory without mutating
+      # the build output (which would break the freshness check).
       if [ -L "$target" ]; then
         rm -f "$target"
       fi
@@ -865,10 +867,28 @@ link_forgecode_skill_dirs() {
       if [ -L "$target/SKILL.md" ] || [ -e "$target/SKILL.md" ]; then
         rm -f "$target/SKILL.md"
       fi
-      ln -snf "$skill_dir/SKILL.md" "$target/SKILL.md"
+      cp "$skill_dir/SKILL.md" "$target/SKILL.md"
       linked+=("$skill_name")
     fi
   done
+
+  # Patch name: frontmatter in the INSTALLED copies so each name matches its
+  # prefixed parent directory. Forge Code is lenient about the mismatch but
+  # other harnesses that share ~/.agents/skills/ (e.g. pi) reject it as a
+  # conflict. Only touch our own gstack-* entries; leave any sibling skills
+  # (find-skills, etc.) alone. Build output under .forgecode/skills/ stays
+  # unmodified.
+  for _name in "${linked[@]}"; do
+    _target_md="$skills_dir/$_name/SKILL.md"
+    [ -f "$_target_md" ] || continue
+    _cur=$(grep --color=never -m1 '^name:' "$_target_md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+    [ -z "$_cur" ] && continue
+    [ "$_cur" = "$_name" ] && continue
+    case "$_cur" in gstack-*) continue ;; esac
+    _tmp="$(mktemp "${_target_md}.XXXXXX")"
+    sed "1,/^---$/s/^name:[[:space:]]*${_cur}\$/name: ${_name}/" "$_target_md" > "$_tmp" && mv "$_tmp" "$_target_md"
+  done
+
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
   fi

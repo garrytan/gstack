@@ -14,7 +14,7 @@ for skill_dir in "$GSTACK_DIR"/*/; do
   [ -f "$skill_dir/SKILL.md" ] || continue
   dir_name="$(basename "$skill_dir")"
   [ "$dir_name" = "node_modules" ] && continue
-  cur=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+  cur=$(grep --color=never -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
   [ -z "$cur" ] && continue
   [ "$cur" = "gstack" ] && continue  # never prefix root skill
   if [ "$DO_PREFIX" -eq 1 ]; then
