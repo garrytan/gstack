@@ -293,6 +293,33 @@ export interface BuildLaunchOptions {
   launchedAt: string;
 }
 
+export interface BuildRunManifestRun {
+  runId: string;
+  repoPath: string;
+  repoSlug: string;
+  sourcePlanPath?: string;
+  livingPlanPath: string;
+  originPlanPath?: string;
+  worktreePath: string;
+  stateSlug: string;
+  branchPrefix: string;
+  pidFile: string;
+  stdoutLog: string;
+  /** Exact argv used to launch or resume this run. Executable is element 0. */
+  launchCommand: string[];
+  /** Explicit environment overrides for launchCommand. */
+  launchEnv?: Record<string, string>;
+}
+
+export interface BuildRunManifest {
+  manifestId: string;
+  runGroupId: string;
+  tmpDir: string;
+  workspaceRoot?: string;
+  gstackRepo?: string;
+  runs: BuildRunManifestRun[];
+}
+
 export interface BuildState {
   /** Absolute path to the plan markdown. */
   planFile: string;

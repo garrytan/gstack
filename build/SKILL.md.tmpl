@@ -413,11 +413,13 @@ Skip this entire step if in Reexamine or Resume Mode.
          "livingPlanPath": "<absolute living plan path>",
          "originPlanPath": "<absolute source plan path>",
          "worktreePath": "~/.gstack/build-worktrees/<repoSlug>/<runId>",
-         "stateSlug": "build-<runId>",
-         "branchPrefix": "<repoSlug>-<runId>",
-         "pidFile": "<absolute $BUILD_TMP_DIR>/<runId>/gstack-build.pid",
-         "stdoutLog": "<absolute $BUILD_TMP_DIR>/<runId>/agent-stdout.log"
-       }
+        "stateSlug": "build-<runId>",
+        "branchPrefix": "<repoSlug>-<runId>",
+        "pidFile": "<absolute $BUILD_TMP_DIR>/<runId>/gstack-build.pid",
+        "stdoutLog": "<absolute $BUILD_TMP_DIR>/<runId>/agent-stdout.log",
+        "launchCommand": ["<filled by Step M2 before launch>"],
+        "launchEnv": {}
+      }
      ]
    }
 
@@ -642,14 +644,33 @@ for i in $(seq 0 $((_RUN_COUNT - 1))); do
   echo "PROJECT_ROOT: $worktreePath"
   echo "STATE: $_STATE_FILE"
 
+  _LAUNCH_COMMAND=(
+    "$_GSTACK_BUILD_CLI" "$livingPlanPath"
+    --project-root "$worktreePath"
+    --base-project-root "$repoPath"
+    --run-id "$runId"
+    --branch-prefix "$branchPrefix"
+    --active-run-registry "$HOME/.gstack/build-state/active-runs"
+  )
+  [ -n "$originPlanPath" ] && [ "$originPlanPath" != "$livingPlanPath" ] && _LAUNCH_COMMAND+=("${_ORIGIN_FLAG[@]}")
+  if [ -n "$_FLAGS" ]; then
+    # User-requested flags must be explicit CLI tokens. Do not reconstruct this in the monitor.
+    read -r -a _USER_FLAGS <<< "$_FLAGS"
+    _LAUNCH_COMMAND+=("${_USER_FLAGS[@]}")
+  fi
+  _LAUNCH_COMMAND+=(--skip-clean-check)
+  _LAUNCH_COMMAND_JSON=$(printf '%s\0' "${_LAUNCH_COMMAND[@]}" | jq -Rs 'split("\u0000")[:-1]')
+  _LAUNCH_ENV_JSON=$(jq -cn '{}')
+  _MANIFEST_TMP="$BUILD_RUN_MANIFEST.tmp.$runId"
+  jq --arg runId "$runId" \
+    --argjson launchCommand "$_LAUNCH_COMMAND_JSON" \
+    --argjson launchEnv "$_LAUNCH_ENV_JSON" \
+    '(.runs[] | select(.runId == $runId)) += {launchCommand:$launchCommand,launchEnv:$launchEnv}' \
+    "$BUILD_RUN_MANIFEST" > "$_MANIFEST_TMP"
+  mv "$_MANIFEST_TMP" "$BUILD_RUN_MANIFEST"
+
   (
-    "$_GSTACK_BUILD_CLI" "$livingPlanPath" \
-      --project-root "$worktreePath" \
-      --base-project-root "$repoPath" \
-      --run-id "$runId" \
-      --branch-prefix "$branchPrefix" \
-      --active-run-registry "$HOME/.gstack/build-state/active-runs" \
-      "${_ORIGIN_FLAG[@]}" $_FLAGS 2>&1 | tee "$stdoutLog"
+    "${_LAUNCH_COMMAND[@]}" 2>&1 | tee "$stdoutLog"
     echo "$?" > "$_RUN_DIR/exit-code"
   ) &
   echo "$!" > "$pidFile"
@@ -679,260 +700,56 @@ _mark_manifest_claims_running() {
 _mark_manifest_claims_running
 ```
 
-Store the manifest path and run group id for use across poll ticks. Monitor reads manifest v2 and each run's PID/state files. There is no global `build-active-run-index`.
+Store the manifest path and run group id for the foreground monitor. Monitor reads manifest v2 and each run's PID/state files. There is no global `build-active-run-index`.
 
-### Step M3: Poll Loop (60-second cadence via ScheduleWakeup)
+### Step M3: Foreground CLI Monitor
 
-Schedule the next wakeup immediately after launch, passing the same monitoring prompt context forward. On each wakeup, run the following state read:
+Do not use host scheduled wakeups for build polling. After launch, keep this host turn alive by running the CLI-owned foreground monitor:
 
 ```bash
-BUILD_RUN_MANIFEST=<path to .llm-tmp/build-runs/<runGroupId>/build-run-manifest.json>
-_RUN_COUNT=$(jq '.runs | length' "$BUILD_RUN_MANIFEST")
-for i in $(seq 0 $((_RUN_COUNT - 1))); do
-  runId=$(jq -r ".runs[$i].runId" "$BUILD_RUN_MANIFEST")
-  repoPath=$(jq -r ".runs[$i].repoPath" "$BUILD_RUN_MANIFEST")
-  repoSlug=$(jq -r ".runs[$i].repoSlug" "$BUILD_RUN_MANIFEST")
-  livingPlanPath=$(jq -r ".runs[$i].livingPlanPath" "$BUILD_RUN_MANIFEST")
-  sourcePlanPath=$(jq -r ".runs[$i].sourcePlanPath // .runs[$i].originPlanPath // empty" "$BUILD_RUN_MANIFEST")
-  originPlanPath=$(jq -r ".runs[$i].originPlanPath // empty" "$BUILD_RUN_MANIFEST")
-  worktreePath=$(jq -r ".runs[$i].worktreePath" "$BUILD_RUN_MANIFEST")
-  branchPrefix=$(jq -r ".runs[$i].branchPrefix" "$BUILD_RUN_MANIFEST")
-  pidFile=$(jq -r ".runs[$i].pidFile" "$BUILD_RUN_MANIFEST")
-  _ORIGIN_FLAG=()
-  [ -n "$originPlanPath" ] && [ "$originPlanPath" != "$livingPlanPath" ] && _ORIGIN_FLAG=(--origin-plan "$originPlanPath")
-  _SLUG="build-$runId"
-  _STATE_FILE="$HOME/.gstack/build-state/$_SLUG.json"
-  _LOG_DIR="$HOME/.gstack/build-state/$_SLUG"
-
-  _mark_run_claim_status() {
-    _CLAIM_STATUS="$1"
-    _CLAIM_TIME_FIELD="$2"
-    [ -n "$sourcePlanPath" ] || return 0
-    [ "$(dirname "$sourcePlanPath")" = "$GSTACK_REPO/inbox" ] || return 0
-    _CLAIM_PATH="$GSTACK_REPO/inbox/.claims/$(basename "$sourcePlanPath").json"
-    [ -f "$_CLAIM_PATH" ] || return 0
-    _CLAIM_TIME_VALUE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    jq --arg runId "$runId" \
-      --arg runStatus "$_CLAIM_STATUS" \
-      --arg updatedAt "$_CLAIM_TIME_VALUE" \
-      --arg timeField "$_CLAIM_TIME_FIELD" \
-      '
-      .runStatuses = (.runStatuses // {}) |
-      .runStatuses[$runId] = ({status:$runStatus,updatedAt:$updatedAt} + {($timeField):$updatedAt}) |
-      . as $claim |
-      .status =
-        if ($claim.runIds | type) != "array" or ($claim.runIds | length) == 0 then $runStatus
-        elif all($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "completed") then "completed"
-        elif all($claim.runIds[]; (($claim.runStatuses[.]?.status // "") | IN("completed","failed"))) and any($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "failed") then "failed"
-        else "running"
-        end |
-      .updatedAt = $updatedAt |
-      if .status == "completed" then .completedAt = $updatedAt
-      elif .status == "failed" then .failedAt = $updatedAt
-      else del(.completedAt, .failedAt)
-      end
-      ' \
-      "$_CLAIM_PATH" > "$_CLAIM_PATH.tmp"
-    mv "$_CLAIM_PATH.tmp" "$_CLAIM_PATH"
-  }
-
-  echo "RUN_INDEX=$i RUN_ID=$runId REPO=$repoSlug WORKTREE=$worktreePath"
-  if [ ! -f "$_STATE_FILE" ]; then
-    echo "STATE_FILE_MISSING"
-    ls "$HOME/.gstack/build-state/$_SLUG.lock" 2>/dev/null && echo "LOCK_EXISTS" || echo "LOCK_MISSING"
-  else
-    _STATE_JSON=$(cat "$_STATE_FILE")
-    printf '%s\n' "$_STATE_JSON"
-    _HOST_CONTEXT_SAVE_COUNT_FILE="$_LOG_DIR/.host-context-save-count"
-    _PREV_HOST_CONTEXT_SAVE_COUNT=$(cat "$_HOST_CONTEXT_SAVE_COUNT_FILE" 2>/dev/null || echo 0)
-    _COMMITTED_COUNT=$(printf '%s\n' "$_STATE_JSON" | python3 -c "import sys,json; print(sum(1 for p in json.load(sys.stdin).get('phases',[]) if p.get('status') == 'committed'))" 2>/dev/null || echo 0)
-    if [ "$_COMMITTED_COUNT" -gt "$_PREV_HOST_CONTEXT_SAVE_COUNT" ] 2>/dev/null; then
-      mkdir -p "$_LOG_DIR"
-      echo "HOST_CONTEXT_SAVE_REQUIRED repo=$repoSlug run=$runId committed=$_COMMITTED_COUNT countFile=$_HOST_CONTEXT_SAVE_COUNT_FILE"
-    fi
-  fi
-
-  _PID=$(cat "$pidFile" 2>/dev/null || echo "")
-  [ -n "$_PID" ] && kill -0 "$_PID" 2>/dev/null && echo "PROCESS_ALIVE $_PID" || echo "PROCESS_NOT_FOUND $runId"
-done
-
-# Recent activity log
-tail -5 "$HOME/.gstack/analytics/build-runs.jsonl" 2>/dev/null || true
+BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
+_MONITOR_EXIT=$?
 ```
 
-From the state JSON, extract and print a one-line heartbeat:
-`[Build monitor] <repoSlug> <runId> | Phase <currentPhaseIndex+1>/<total> — <human status label> | <committed_count> committed | last update <Xs ago> | elapsed <Xm>`
+The monitor emits compact JSON lines. Every line has `event`, `timestamp`, and `message`; run events also include `runId`, `repoSlug`, `stateSlug`, `status`, `pidFile`, `stateFile`, and `stdoutLog`. Terminal events and exit codes are:
 
-Use this table to map `PhaseStatus` to a human label:
+The `status` field is the current CLI phase status when available, including normal TDD states such as `tests_red`, `gemini_running`, `tests_green`, and `committed`.
 
-| `status` | Display |
-|---|---|
-| `pending` | waiting |
-| `test_spec_running` | test-writer writing tests |
-| `test_spec_done` | tests written |
-| `tests_red` | tests verified red |
-| `gemini_running` | primary implementor running |
-| `impl_done` | implementation done |
-| `test_fix_running` | test-fixer fixing tests |
-| `tests_green` | tests passing |
-| `codex_running` | review gates running |
-| `review_clean` | review clean |
-| `committed` | committed ✓ |
-| `failed` | FAILED |
-| `dual_impl_running` | dual-impl in progress |
-| `dual_tests_running` | dual-impl tests running |
-| `dual_judge_running` | configured judge running |
-| `dual_winner_pending` | applying winner |
+| Exit | Event |
+|---:|---|
+| 0 | `ALL_RUNS_COMPLETE` |
+| 10 | `HOST_CONTEXT_SAVE_REQUIRED` |
+| 11 | `USER_ACTION_REQUIRED` |
+| 12 | `MONITOR_REENTER` |
+| 20 | `RUN_FAILED` |
+| 30 | `MONITOR_ERROR` |
 
-Then run the outcome checks below — in order, stop at the first that applies.
+The monitor owns executable recovery:
+- It marks source-plan claims completed or failed using `runStatuses`, and only sets top-level claim status terminal when all `runIds` are terminal.
+- It removes a completed run's worktree only after `git -C "$worktreePath" rev-parse --is-inside-work-tree` succeeds, using `git -C "$repoPath" worktree remove "$worktreePath"`. Failure paths preserve worktrees for debugging.
+- It auto-resumes stale dead runs only from manifest `launchCommand` and `launchEnv`, after matching `runId`, `stateSlug`, `projectRoot`, `baseProjectRoot`, PID file, and active-run registry identity. It never uses broad `pgrep`.
+- If process identity is ambiguous, it emits `USER_ACTION_REQUIRED` instead of killing or resuming anything.
 
 #### Host-session context save
 
-`/context-save` belongs to the LLM currently executing this `/build` skill. If
-Codex is running `/build`, Codex must invoke `/context-save`; if Claude is running
-`/build`, Claude must invoke `/context-save`. Do not route this through
-`configure.cm`, `claude -p`, `codex exec`, or a background subagent. Those child
-processes cannot see this monitor conversation. `/context-save` is never a
-configured build role.
+`/context-save` belongs to the LLM currently executing this `/build` skill. If Codex is running `/build`, Codex must invoke `/context-save`; if Claude is running `/build`, Claude must invoke `/context-save`. Do not route this through `configure.cm`, `claude -p`, `codex exec`, or a background subagent. Those child processes cannot see this monitor conversation. `/context-save` is never a configured build role.
 
-The polling shell emits `HOST_CONTEXT_SAVE_REQUIRED` when a run's committed phase
-count increased since the prior poll. When it does, immediately run the
-host-native `/context-save "gstack-build <repoSlug> <runId> phase <committed_count>"`
-skill in this same session, then write `<committed_count>` to the emitted
-`countFile` before scheduling the next wakeup. If the host cannot invoke skills
-natively, report that limitation once and write the count file to avoid a noisy
-loop; do not spawn a cross-provider substitute.
-
-#### On `completed === true`
-
-Report the completed repo, mark its claim completed, remove only that run's worktree after successful completion, and keep monitoring any other incomplete manifest runs. Only exit when every manifest entry has `completed === true` or a terminal user-aborted state.
-```bash
-_mark_run_claim_status "completed" "completedAt"
-if git -C "$worktreePath" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  if ! git -C "$repoPath" worktree remove "$worktreePath"; then
-    echo "WARN: worktree cleanup failed for completed run $runId: $worktreePath" >&2
-  fi
-fi
-```
-
-For the final run, print the final summary and exit the loop:
-```
-══════════════════════════════════════════════════════
-BUILD COMPLETE — <planBasename>
-Phases:      <count committed> committed
-Branch:      <branch>
-Started:     <startedAt>
-Completed:   <lastUpdatedAt>
-══════════════════════════════════════════════════════
-```
-
-#### On `failedAtPhase !== undefined` (phase failure)
-
-1. Capture `_FAILED_PHASE = state.failedAtPhase` and `_REASON = state.failureReason`, then mark the matching source-plan claim failed for this run while preserving the worktree for debugging.
-   ```bash
-   _mark_run_claim_status "failed" "failedAt"
-   ```
-2. Find and read the most recent logs for that phase:
-   ```bash
-   if [ -n "${ZSH_VERSION:-}" ]; then setopt +o nomatch; fi
-   find "$_LOG_DIR" -maxdepth 1 -type f -name "phase-${_FAILED_PHASE}-*.log" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -3
-   # read the last 80 lines of each
-   ```
-3. Classify by `_REASON`:
-
-   **Contains `"timed out"`** → auto-remediate:
-   ```bash
-   GSTACK_BUILD_GEMINI_TIMEOUT=1200000 "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$worktreePath" --base-project-root "$repoPath" --run-id "$runId" --branch-prefix "$branchPrefix" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
-   ```
-   Report to user: "Gemini timed out on Phase <N>. Raised timeout to 20 min and resumed automatically." Continue monitoring.
-
-   **Contains `"lock"` or `"lock contention"`** → check if stale:
-   ```bash
-   # Lock file format: first line = PID, second line = ISO timestamp (plain text, not JSON)
-   _LOCK_PID=$(head -1 "$HOME/.gstack/build-state/$_SLUG.lock" 2>/dev/null | tr -d '[:space:]' || echo "")
-   [ -n "$_LOCK_PID" ] && kill -0 "$_LOCK_PID" 2>/dev/null && echo "PROCESS_ALIVE" || echo "PROCESS_DEAD"
-   ```
-   If dead: `rm -f "$HOME/.gstack/build-state/$_SLUG.lock"` then relaunch in background + continue monitoring.
-   If alive: surface to user (another instance is actually running — do not remove the lock).
-
-   **All other failures** → escalate via `AskUserQuestion`:
-   ```
-   D<N> — Phase <failedAtPhase+1> failed: <one-line failureReason>
-   Project/branch/task: <planBasename>, branch <branch>
-   ELI10: The build stopped at Phase <N>. The error (shown in log excerpt below) usually means Gemini couldn't converge on working code, or tests and implementation are in conflict. You'll need to look at the log, fix the root cause, then resume.
-   [last 30 lines of most relevant log]
-   Stakes if we pick wrong: Resuming without fixing the root cause just re-hits the same error.
-   Recommendation: A) Fix then resume — because resuming without a fix is a no-op.
-   Note: options differ in kind, not coverage — no completeness score.
-   A) I've fixed it — resume now (recommended)
-     ✅ Picks up from exact failure point — no phase work is re-done
-     ❌ Only works if the root cause is actually resolved
-   B) Abort this build
-     ✅ Clean stop; branch and state are preserved for manual recovery
-     ❌ No forward progress; you'll need to re-run manually later
-   Net: Fix root cause first; resuming blind re-hits the same wall.
-   ```
-   If A: `"$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$worktreePath" --base-project-root "$repoPath" --run-id "$runId" --branch-prefix "$branchPrefix" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check` (background) + continue monitoring.
-   If B: exit the loop and print the manual resume command.
-
-#### On stale `lastUpdatedAt` (unchanged across 3 consecutive ticks ≈ 3 min)
-
-ScheduleWakeup fires into a fresh LLM turn — shell variables do not survive between ticks. Use a temp file to persist the stale counter:
+When the final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`, immediately run the host-native `/context-save "gstack-build <repoSlug> <runId> phase <committed>"` skill in this same session. Then write the emitted `committed` value to the emitted `countFile`, and immediately re-enter:
 
 ```bash
-_MONITOR_STATE="$_LOG_DIR/.monitor-state"
-_PREV_UPDATED=$(cat "$_MONITOR_STATE" 2>/dev/null || echo "")
-_CUR_UPDATED=$(echo "$_STATE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastUpdatedAt',''))" 2>/dev/null || echo "")
-
-if [ "$_CUR_UPDATED" = "$_PREV_UPDATED" ] && [ -n "$_PREV_UPDATED" ]; then
-  _STALE_FILE="$_LOG_DIR/.stale-ticks"
-  _STALE_TICKS=$(( $(cat "$_STALE_FILE" 2>/dev/null || echo 0) + 1 ))
-  echo "$_STALE_TICKS" > "$_STALE_FILE"
-else
-  echo "$_CUR_UPDATED" > "$_MONITOR_STATE"
-  echo "0" > "$_LOG_DIR/.stale-ticks"
-  _STALE_TICKS=0
-fi
+printf '%s\n' "<committed from JSON>" > "<countFile from JSON>"
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
 ```
 
-When `_STALE_TICKS >= 3`:
+If the host cannot invoke skills natively, report that limitation once and write the count file to avoid a noisy loop; do not spawn a cross-provider substitute.
 
-1. Check only this run's PID from `pidFile`: `[ -n "$_PID" ] && kill -0 "$_PID"`.
-2. **Dead** (no process, no lock file): auto-resume.
-   ```bash
-   "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$worktreePath" --base-project-root "$repoPath" --run-id "$runId" --branch-prefix "$branchPrefix" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
-   ```
-   Report: "Build process appears to have crashed (state frozen, no process found). Auto-resumed." Reset `_STALE_TICKS` to 0. Continue monitoring.
-3. **Alive** (process running but state frozen): surface via `AskUserQuestion`:
-   ```
-   D<N> — Build appears hung on Phase <N>: <status>
-   Project/branch/task: <planBasename>, branch <branch>
-   ELI10: The build process is still running but hasn't updated its state in 3+ minutes. This usually means it's waiting on a Gemini or Codex sub-agent that hasn't returned — often a slow network call or a very large implementation task. Killing it and resuming restarts the current phase from scratch.
-   Stakes if we pick wrong: Killing a still-working sub-agent discards its partial work and restarts the phase.
-   Recommendation: A) Wait 3 more minutes — sub-agents on large phases can legitimately take this long.
-   Note: options differ in kind, not coverage — no completeness score.
-   A) Wait 3 more minutes (recommended)
-     ✅ If the sub-agent is just slow, all work is preserved
-     ❌ If truly hung, wastes another 3 minutes before you can act
-   B) Kill the process and resume
-     ✅ Forces a clean restart of the stuck phase; usually unblocks immediately
-     ❌ Loses any partial sub-agent work on the current phase
-   Net: Wait one more round first; kill if it's still frozen after that.
-   ```
-   If A: schedule wakeup at 180s (instead of 60s), reset `_STALE_TICKS` to 0.
-   If B:
-   ```bash
-   # Scope the kill to this run's PID file to avoid killing unrelated builds.
-   _PID=$(cat "$pidFile" 2>/dev/null || echo "")
-   [ -n "$_PID" ] && kill "$_PID" 2>/dev/null || true
-   sleep 2
-   "$_GSTACK_BUILD_CLI" "$livingPlanPath" --project-root "$worktreePath" --base-project-root "$repoPath" --run-id "$runId" --branch-prefix "$branchPrefix" "${_ORIGIN_FLAG[@]}" $_FLAGS --skip-clean-check   # run_in_background: true
-   ```
-   Reset `_STALE_TICKS` to 0. Continue monitoring.
+#### User-action, failure, and re-entry events
 
-#### Default: schedule next wakeup
-
-If none of the above conditions fired, schedule the next wakeup at 60 seconds and continue.
+- `USER_ACTION_REQUIRED`: read the final JSON `message` plus the referenced `stdoutLog` and ask the user for the next action. Do not kill or resume manually unless the user chooses that path.
+- `RUN_FAILED`: report the failed run and preserve its worktree for debugging. Use the referenced `stateFile` and `stdoutLog` for the failure summary.
+- `MONITOR_REENTER`: the foreground watch reached `--max-wall-ms`; immediately re-run the same monitor command in the same host session.
+- `MONITOR_ERROR`: stop and report the error. Historical manifests without `launchCommand` are invalid; regenerate or relaunch through Step M2.
 
 ---
 

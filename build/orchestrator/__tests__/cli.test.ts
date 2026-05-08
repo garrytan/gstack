@@ -229,6 +229,252 @@ describe('merge subcommand wiring', () => {
   });
 });
 
+describe('monitor subcommand wiring', () => {
+  it('parseArgs([monitor, --manifest, file, --once]) selects monitor mode', () => {
+    const manifest = path.join(os.tmpdir(), 'manifest.json');
+    const args = parseArgs(['monitor', '--manifest', manifest, '--once']);
+    expect(args.mode).toBe('monitor');
+    expect(args.monitorManifest).toBe(path.resolve(manifest));
+    expect(args.monitorOnce).toBe(true);
+  });
+
+  it('--help text documents monitor mode and exit codes', () => {
+    expect(HELP_TEXT).toContain('gstack-build monitor --manifest <path>');
+    expect(HELP_TEXT).toContain('HOST_CONTEXT_SAVE_REQUIRED');
+    expect(HELP_TEXT).toContain('MONITOR_REENTER');
+  });
+
+  it('--watch and --once are mutually exclusive', () => {
+    expectParseArgsExit(
+      ['monitor', '--manifest', 'manifest.json', '--once', '--watch'],
+      'only one of --once or --watch',
+    );
+  });
+
+  it('rejects monitor-only flags outside monitor mode', () => {
+    expectParseArgsExit(
+      ['plan.md', '--once'],
+      'monitor flags require',
+    );
+    expectParseArgsExit(
+      ['merge', '--manifest', 'manifest.json'],
+      'monitor flags require',
+    );
+  });
+
+  it('monitor --once emits final JSON and exits with mapped code', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-monitor-cli-'));
+    const runId = 'cli-run';
+    const stateSlug = `build-${runId}`;
+    const repoPath = path.join(tmpDir, 'repo');
+    const worktreePath = path.join(tmpDir, 'worktree');
+    const livingPlanPath = path.join(tmpDir, 'living.md');
+    const manifestPath = path.join(tmpDir, 'manifest.json');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const activeRunRegistry = path.join(tmpDir, 'active-runs');
+    fs.mkdirSync(path.join(tmpStateDir!, stateSlug), { recursive: true });
+    fs.writeFileSync(path.join(tmpStateDir!, stateSlug, '.host-context-save-count'), '1\n');
+    fs.writeFileSync(
+      path.join(tmpStateDir!, `${stateSlug}.json`),
+      JSON.stringify({
+        planFile: livingPlanPath,
+        planBasename: 'living',
+        slug: stateSlug,
+        branch: 'feat/cli',
+        startedAt: '2026-05-08T00:00:00.000Z',
+        lastUpdatedAt: '2026-05-08T00:00:00.000Z',
+        launch: {
+          argv: ['/bin/sh', '-c', 'echo resume'],
+          projectRoot: worktreePath,
+          baseProjectRoot: repoPath,
+          runId,
+          branchPrefix: 'repo-cli-run',
+          activeRunRegistry,
+          stateSlug,
+          dryRun: false,
+          skipShip: false,
+          skipFeatureReview: false,
+          launchedAt: '2026-05-08T00:00:00.000Z',
+        },
+        currentPhaseIndex: 0,
+        currentFeatureIndex: -1,
+        features: [],
+        phases: [{ index: 0, number: '1', name: 'Phase', status: 'committed' }],
+        completed: true,
+      }),
+    );
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        manifestId: 'm',
+        runGroupId: 'g',
+        tmpDir,
+        runs: [{
+          runId,
+          repoPath,
+          repoSlug: 'repo',
+          livingPlanPath,
+          worktreePath,
+          stateSlug,
+          branchPrefix: 'repo-cli-run',
+          pidFile: path.join(tmpDir, 'pid'),
+          stdoutLog: path.join(tmpDir, 'stdout.log'),
+          launchCommand: ['/bin/echo', 'resume', '--active-run-registry', activeRunRegistry],
+          launchEnv: {},
+        }],
+      }),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [path.resolve('build/orchestrator/cli.ts'), 'monitor', '--manifest', manifestPath, '--once'],
+      {
+        cwd: path.resolve('.'),
+        encoding: 'utf8',
+        env: { ...process.env, GSTACK_BUILD_STATE_DIR: tmpStateDir! },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    const lastLine = result.stdout.trim().split('\n').at(-1)!;
+    expect(JSON.parse(lastLine).event).toBe('ALL_RUNS_COMPLETE');
+  });
+
+  it('monitor --watch exits MONITOR_REENTER at max wall time', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-monitor-watch-'));
+    const manifestPath = path.join(tmpDir, 'manifest.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        manifestId: 'm',
+        runGroupId: 'g',
+        tmpDir,
+        runs: [{
+          runId: 'watch-run',
+          repoPath: path.join(tmpDir, 'repo'),
+          repoSlug: 'repo',
+          livingPlanPath: path.join(tmpDir, 'living.md'),
+          worktreePath: path.join(tmpDir, 'worktree'),
+          stateSlug: 'build-watch-run',
+          branchPrefix: 'repo-watch-run',
+          pidFile: path.join(tmpDir, 'pid'),
+          stdoutLog: path.join(tmpDir, 'stdout.log'),
+          launchCommand: ['/bin/sh', '-c', 'echo resume'],
+          launchEnv: {},
+        }],
+      }),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve('build/orchestrator/cli.ts'),
+        'monitor',
+        '--manifest',
+        manifestPath,
+        '--watch',
+        '--poll-ms',
+        '1',
+        '--max-wall-ms',
+        '1',
+      ],
+      {
+        cwd: path.resolve('.'),
+        encoding: 'utf8',
+        env: { ...process.env, GSTACK_BUILD_STATE_DIR: tmpStateDir! },
+      },
+    );
+
+    expect(result.status).toBe(12);
+    expect(result.stdout).toContain('MONITOR_REENTER');
+  });
+
+  it('monitor --watch stays in the foreground after auto-resuming a stale run', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-monitor-resume-'));
+    const runId = 'resume-run';
+    const stateSlug = `build-${runId}`;
+    const repoPath = path.join(tmpDir, 'repo');
+    const worktreePath = path.join(tmpDir, 'worktree');
+    const livingPlanPath = path.join(tmpDir, 'living.md');
+    const manifestPath = path.join(tmpDir, 'manifest.json');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpStateDir!, `${stateSlug}.json`),
+      JSON.stringify({
+        planFile: livingPlanPath,
+        planBasename: 'living',
+        slug: stateSlug,
+        branch: 'feat/resume',
+        startedAt: '2000-01-01T00:00:00.000Z',
+        lastUpdatedAt: '2000-01-01T00:00:00.000Z',
+        launch: {
+          argv: ['/bin/sh', '-c', 'echo resume'],
+          projectRoot: worktreePath,
+          baseProjectRoot: repoPath,
+          runId,
+          branchPrefix: 'repo-resume-run',
+          activeRunRegistry: path.join(tmpDir, 'active-runs'),
+          stateSlug,
+          dryRun: false,
+          skipShip: false,
+          skipFeatureReview: false,
+          launchedAt: '2000-01-01T00:00:00.000Z',
+        },
+        currentPhaseIndex: 0,
+        currentFeatureIndex: -1,
+        features: [],
+        phases: [{ index: 0, number: '1', name: 'Phase', status: 'pending' }],
+        completed: false,
+      }),
+    );
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        manifestId: 'm',
+        runGroupId: 'g',
+        tmpDir,
+        runs: [{
+          runId,
+          repoPath,
+          repoSlug: 'repo',
+          livingPlanPath,
+          worktreePath,
+          stateSlug,
+          branchPrefix: 'repo-resume-run',
+          pidFile: path.join(tmpDir, 'pid'),
+          stdoutLog: path.join(tmpDir, 'stdout.log'),
+          launchCommand: ['/bin/sh', '-c', 'echo resume'],
+          launchEnv: {},
+        }],
+      }),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve('build/orchestrator/cli.ts'),
+        'monitor',
+        '--manifest',
+        manifestPath,
+        '--watch',
+        '--poll-ms',
+        '1',
+        '--max-wall-ms',
+        '5',
+      ],
+      {
+        cwd: path.resolve('.'),
+        encoding: 'utf8',
+        env: { ...process.env, GSTACK_BUILD_STATE_DIR: tmpStateDir! },
+      },
+    );
+
+    expect(result.status).toBe(12);
+    expect(result.stdout).toContain('RUN_RESUMED');
+    expect(result.stdout).toContain('MONITOR_REENTER');
+  });
+});
+
 describe('review gate planning', () => {
   it('skips reviewSecondary when its command is unset', () => {
     const roles = {

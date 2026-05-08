@@ -19,6 +19,7 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "feature-review-prompt.ts": ["feature-review-prompt.test.ts"],
   "feature-review.ts": ["feature-review.test.ts"],
   "gbrain.ts": ["gbrain.test.ts"],
+  "monitor.ts": ["monitor.test.ts", "cli.test.ts", "skill-md.test.ts"],
   "parallel-planner.ts": ["parallel-planner.test.ts", "integration.test.ts"],
   "parser.ts": ["parser.test.ts"],
   "phase-runner.ts": ["phase-runner.test.ts"],
@@ -69,6 +70,10 @@ const FEATURE_MATRIX = [
   {
     feature: "Startup safety gates, state persistence, locks, and gbrain mirror",
     tests: ["startup.test.ts", "state.test.ts", "gbrain.test.ts", "active-runs.test.ts"],
+  },
+  {
+    feature: "Foreground build monitor, manifest events, and safe recovery",
+    tests: ["monitor.test.ts", "cli.test.ts", "skill-md.test.ts"],
   },
   {
     feature: "Generated /build skill and documentation contract",

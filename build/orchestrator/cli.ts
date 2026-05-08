@@ -123,6 +123,7 @@ import {
   type RoleKey,
 } from "./role-config";
 import { BUILD_DEFAULTS } from "./build-config";
+import { evaluateMonitorOnce, monitorExitCode } from "./monitor";
 
 const DEFAULT_MAX_ORIGIN_VERIFICATION_ITERATIONS =
   BUILD_DEFAULTS.limits.originVerificationMaxIterations;
@@ -247,7 +248,7 @@ function legacyDualImplError(): string {
 }
 
 export interface Args {
-  mode: "build" | "merge";
+  mode: "build" | "merge" | "monitor";
   planFile: string;
   printOnly: boolean;
   dryRun: boolean;
@@ -295,6 +296,16 @@ export interface Args {
   skipFeatureReview: boolean;
   /** Cap on per-feature review cycles. Defaults to BUILD_DEFAULTS.limits.featureReviewMaxIterations (3). */
   featureReviewMaxIter: number;
+  /** Manifest path for gstack-build monitor mode. */
+  monitorManifest?: string;
+  /** Evaluate the monitor once, primarily for tests/debug. */
+  monitorOnce: boolean;
+  /** Keep the monitor in the foreground until terminal action or max wall time. */
+  monitorWatch: boolean;
+  /** Poll interval for monitor --watch. */
+  monitorPollMs: number;
+  /** Maximum foreground monitor wall time before MONITOR_REENTER. */
+  monitorMaxWallMs: number;
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -331,6 +342,11 @@ export function parseArgs(argv: string[]): Args {
     allowWorkspaceRoot: false,
     skipFeatureReview: false,
     featureReviewMaxIter: DEFAULT_FEATURE_REVIEW_MAX_ITER,
+    monitorManifest: undefined,
+    monitorOnce: false,
+    monitorWatch: false,
+    monitorPollMs: 60_000,
+    monitorMaxWallMs: 3_600_000,
   };
   const positional: string[] = [];
   const roleFlags = buildRoleFlagMap();
@@ -345,7 +361,32 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--skip-sweep") args.skipSweep = true;
     else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
     else if (a === "--skip-feature-review") args.skipFeatureReview = true;
-    else if (a === "--feature-review-max-iter") {
+    else if (a === "--manifest") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--manifest requires a value");
+        process.exit(2);
+      }
+      args.monitorManifest = path.resolve(next);
+    } else if (a === "--once") args.monitorOnce = true;
+    else if (a === "--watch") args.monitorWatch = true;
+    else if (a === "--poll-ms") {
+      const next = argv[++i];
+      const n = Number(next);
+      if (!Number.isInteger(n) || n < 1) {
+        console.error(`--poll-ms expects a positive integer, got: ${next}`);
+        process.exit(2);
+      }
+      args.monitorPollMs = n;
+    } else if (a === "--max-wall-ms") {
+      const next = argv[++i];
+      const n = Number(next);
+      if (!Number.isInteger(n) || n < 1) {
+        console.error(`--max-wall-ms expects a positive integer, got: ${next}`);
+        process.exit(2);
+      }
+      args.monitorMaxWallMs = n;
+    } else if (a === "--feature-review-max-iter") {
       const next = argv[++i];
       const n = Number(next);
       if (!Number.isInteger(n) || n < 1) {
@@ -477,11 +518,46 @@ export function parseArgs(argv: string[]): Args {
       console.error("usage: gstack-build merge [flags]   (-h for help)");
       process.exit(2);
     }
+    if (
+      args.monitorManifest ||
+      args.monitorOnce ||
+      args.monitorWatch ||
+      args.monitorPollMs !== 60_000 ||
+      args.monitorMaxWallMs !== 3_600_000
+    ) {
+      console.error("monitor flags require: gstack-build monitor --manifest <path>");
+      process.exit(2);
+    }
     args.mode = "merge";
+  } else if (positional[0] === "monitor") {
+    if (positional.length !== 1) {
+      console.error("usage: gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)");
+      process.exit(2);
+    }
+    args.mode = "monitor";
+    if (!args.monitorManifest) {
+      console.error("gstack-build monitor requires --manifest <path>");
+      process.exit(2);
+    }
+    if (args.monitorOnce && args.monitorWatch) {
+      console.error("gstack-build monitor accepts only one of --once or --watch");
+      process.exit(2);
+    }
+    if (!args.monitorOnce && !args.monitorWatch) args.monitorOnce = true;
   } else if (positional.length === 1) {
     args.planFile = path.resolve(positional[0]);
+    if (
+      args.monitorManifest ||
+      args.monitorOnce ||
+      args.monitorWatch ||
+      args.monitorPollMs !== 60_000 ||
+      args.monitorMaxWallMs !== 3_600_000
+    ) {
+      console.error("monitor flags require: gstack-build monitor --manifest <path>");
+      process.exit(2);
+    }
   } else {
-    console.error("usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]   (-h for help)");
+    console.error("usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)");
     process.exit(2);
   }
   const providerErrors = validateRoleProviders(args);
@@ -1035,10 +1111,12 @@ export const HELP_TEXT = `gstack-build — code-driven phase orchestrator
 Usage:
   gstack-build <plan-file> [flags]
   gstack-build merge [flags]
+  gstack-build monitor --manifest <path> [--once|--watch] [--poll-ms 60000] [--max-wall-ms <ms>]
 
 Modes:
   <plan-file>           Execute a living implementation plan.
   merge                 Review/fix/ship/land unmerged feat/* branches.
+  monitor               Foreground monitor for /build manifest runs.
 
 Flags:
   --print-only         Parse and show phase table; exit.
@@ -1058,6 +1136,11 @@ Flags:
                        is cherry-picked back. Existing TDD pipeline runs after.
   --parallel-phases N  Opt-in planner for independent phases inside one feature.
                        N=1 keeps sequential execution. N>1 fails closed on unsafe deps.
+  --manifest <path>    Manifest v2 JSON for monitor mode.
+  --once               Evaluate monitor mode once and exit.
+  --watch              Keep monitor mode in the foreground until a terminal event.
+  --poll-ms N          Monitor watch poll interval. Default: 60000.
+  --max-wall-ms N      Monitor watch re-entry timeout. Default: 3600000.
   --test-writer-model <m>          Default: ${DEFAULT_ROLE_CONFIGS.testWriter.model}.
   --primary-impl-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.primaryImpl.model}.
   --test-fixer-model <m>           Default: ${DEFAULT_ROLE_CONFIGS.testFixer.model}.
@@ -1083,6 +1166,14 @@ Flags:
   --origin-plan <file> Original source plan. Verified after each feature and archived after final completion.
   --max-codex-iter N   Cap recursive Codex iterations (default ${DEFAULT_MAX_CODEX_ITERATIONS}).
   -h, --help           Show this help.
+
+Monitor exit codes:
+  0  ALL_RUNS_COMPLETE
+  10 HOST_CONTEXT_SAVE_REQUIRED
+  11 USER_ACTION_REQUIRED
+  12 MONITOR_REENTER
+  20 RUN_FAILED
+  30 MONITOR_ERROR
 
 Plan file format: standard /build implementation plan with feature sections:
   ## Feature N: <name>
@@ -4812,12 +4903,75 @@ function reconcileCommittedCheckboxes(
   }
 }
 
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function printMonitorEvent(evt: unknown): void {
+  console.log(JSON.stringify(evt));
+}
+
+async function runMonitorMode(args: Args): Promise<number> {
+  if (!args.monitorManifest) {
+    console.error("gstack-build monitor requires --manifest <path>");
+    return 2;
+  }
+  const startedAt = Date.now();
+  if (args.monitorOnce) {
+    const evaluation = evaluateMonitorOnce({
+      manifestPath: args.monitorManifest,
+      pollMs: args.monitorPollMs,
+    });
+    for (const evt of evaluation.events) printMonitorEvent(evt);
+    return monitorExitCode(evaluation.terminalEvent.event);
+  }
+
+  while (true) {
+    const evaluation = evaluateMonitorOnce({
+      manifestPath: args.monitorManifest,
+      pollMs: args.monitorPollMs,
+    });
+    for (const evt of evaluation.events) {
+      if (evt.event !== "MONITOR_REENTER") printMonitorEvent(evt);
+    }
+    if (evaluation.terminalEvent.event === "RUN_RESUMED") {
+      await sleepMs(args.monitorPollMs);
+      continue;
+    }
+    if (evaluation.terminalEvent.event !== "MONITOR_REENTER") {
+      if (
+        !evaluation.events.some(
+          (evt) => evt === evaluation.terminalEvent,
+        )
+      ) {
+        printMonitorEvent(evaluation.terminalEvent);
+      }
+      return monitorExitCode(evaluation.terminalEvent.event);
+    }
+    if (Date.now() - startedAt >= args.monitorMaxWallMs) {
+      const evt = {
+        event: "MONITOR_REENTER",
+        timestamp: new Date().toISOString(),
+        message: "monitor max wall time reached; re-enter foreground monitor",
+      };
+      printMonitorEvent(evt);
+      return 12;
+    }
+    await sleepMs(args.monitorPollMs);
+  }
+}
+
 async function main() {
   const rawArgv = process.argv.slice(2);
   const args = parseArgs(rawArgv);
 
   if (args.mode === "merge") {
     const exitCode = await runMergeMode(args);
+    process.exit(exitCode);
+  }
+
+  if (args.mode === "monitor") {
+    const exitCode = await runMonitorMode(args);
     process.exit(exitCode);
   }
 

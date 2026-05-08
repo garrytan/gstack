@@ -111,10 +111,9 @@ test("build skill keeps context-save owned by the host build session", () => {
     expect(content).toContain("Codex must invoke `/context-save`");
     expect(content).toContain("Claude must invoke `/context-save`");
     expect(content).toContain("Do not route this through");
-    expect(content).toContain("never a\nconfigured build role");
-    expect(content).toContain('printf \'%s\\n\' "$_STATE_JSON"\n    _HOST_CONTEXT_SAVE_COUNT_FILE=');
-    expect(content).toContain("countFile=$_HOST_CONTEXT_SAVE_COUNT_FILE");
-    expect(content).toContain("then write `<committed_count>` to the emitted");
+    expect(content).toContain("never a configured build role");
+    expect(content).toContain("final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`");
+    expect(content).toContain("emitted `committed` value to the emitted `countFile`");
     expect(content).not.toContain('echo "$_COMMITTED_COUNT" > "$_HOST_CONTEXT_SAVE_COUNT_FILE"');
   }
 });
@@ -220,7 +219,7 @@ test("build skill docs support workspace-root repo routing", () => {
     expect(content).toContain('--project-root "$worktreePath"');
     expect(content).toContain("Run `git log` and all verifier subagents from the child repo, never the workspace root");
     expect(content).toContain("build-final-exam-${repoSlug}-input.md");
-    expect(content).toContain("Only exit when every manifest entry");
+    expect(content).toContain("all manifest runs");
     expect(content).toContain("launch all manifest runs concurrently");
   }
 });
@@ -260,19 +259,17 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain('status:"claimed"');
     expect(content).toContain('--arg status "manifested"');
     expect(content).toContain('--arg status "running"');
-    expect(content).toContain('_mark_run_claim_status "completed" "completedAt"');
-    expect(content).toContain('_mark_run_claim_status "failed" "failedAt"');
     expect(content).toContain("runStatuses");
-    expect(content).toContain('.runStatuses[$runId]');
-    expect(content).toContain(". as $claim");
-    expect(content).toContain('all($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "completed")');
-    expect(content).toContain('all($claim.runIds[]; (($claim.runStatuses[.]?.status // "") | IN("completed","failed")))');
-    expect(content).toContain('any($claim.runIds[]; ($claim.runStatuses[.]?.status // "") == "failed")');
-    expect(content).not.toContain('all(.runIds[]; (.runStatuses[.]?.status // "") == "completed")');
-    expect(content).not.toContain('. + {status:$status,updatedAt:$updatedAt} + {($timeField):$updatedAt}');
+    expect(content).toContain("top-level claim status terminal when all `runIds` are terminal");
     expect(content).toContain('git -C "$repoPath" worktree remove "$worktreePath"');
-    expect(content).toContain("worktree cleanup failed for completed run");
-    expect(content).toContain("preserving the worktree for debugging");
+    expect(content).toContain("Failure paths preserve worktrees for debugging");
+    expect(content).toContain("launchCommand");
+    expect(content).toContain("launchEnv");
+    expect(content).toContain("monitor --manifest \"$BUILD_RUN_MANIFEST\" --watch");
+    expect(content).toContain("ALL_RUNS_COMPLETE");
+    expect(content).toContain("MONITOR_REENTER");
+    expect(content).toContain("USER_ACTION_REQUIRED");
+    expect(content).not.toContain("ScheduleWakeup");
     expect(content).toContain('--arg status "cancelled"');
     expect(content).toContain("pidFiles");
     expect(content).toContain("stdoutLogs");
