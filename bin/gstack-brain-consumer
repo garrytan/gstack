@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # gstack-brain-consumer — manage the consumer (reader) registry.
 #
+# DEPRECATED in v1.17.0.0. This binary targets a gbrain HTTP /ingest-repo
+# endpoint that never shipped on the gbrain side. Live federation now uses
+# `gbrain sources` directly via bin/gstack-gbrain-source-wireup. This file
+# stays for one cycle to avoid breaking external scripts; removal in v1.18.0.0.
+#
 # Consumer = a reader that ingests the gstack-brain git repo as a source of
 # session memory. v1 primary consumer is GBrain; later versions can register
 # Codex, OpenClaw, or third-party readers.

@@ -313,13 +313,17 @@ describe('gen-skill-docs', () => {
     ];
 
     // Plan skills carry the same preamble surface as other tier-≥2 skills
-    // (Brain Sync, Context Recovery, Routing Injection are load-bearing
+    // (Artifacts Sync, Context Recovery, Routing Injection are load-bearing
     // functionality, not optional). Budget is set to current size + small
     // headroom; ratchet down if a future slim trims real bytes.
+    // Ratcheted from 33000 → 35000 when the gbrain context-load block was
+    // added (per /sync-gbrain plan §4). Ratcheted 35000 → 36500 in v1.27.0.0
+    // when generate-brain-sync-block.ts gained the gbrain_mcp_mode probe +
+    // remote-mode ARTIFACTS_SYNC status line (Path 4 of /setup-gbrain).
     for (const skill of reviewSkills) {
       const content = fs.readFileSync(skill.path, 'utf-8');
       const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
-      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(33_000);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(36_500);
     }
   });
 
@@ -2973,5 +2977,50 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
     const between = content.slice(presentIdx, preludeIdx);
     expect(between).toContain('**STOP.**');
     expect(between).toContain('Do NOT proceed to Step 0D or 0F until the user responds to 0C-bis');
+  });
+});
+
+// GSTACK REVIEW REPORT report-at-bottom contract — verifies the prompt-text
+// fix in scripts/resolvers/review.ts (the load-bearing change for the
+// "report not at bottom of plan in plan mode" bug). The bug is in the
+// prompt's contradictory write-flow instructions, not in observable
+// runtime behavior we can cheaply gate in CI. Verifying the prompt text
+// directly is the deterministic equivalent of the regression test the
+// PTY harness can't reliably drive (autoplan needs auto-progression of
+// AskUserQuestions to reach the report-write step, which the harness
+// doesn't support today).
+describe('GSTACK REVIEW REPORT delete-then-append flow', () => {
+  const PLAN_REVIEW_SKILLS = [
+    'plan-ceo-review',
+    'plan-design-review',
+    'plan-devex-review',
+    'plan-eng-review',
+  ];
+
+  for (const skill of PLAN_REVIEW_SKILLS) {
+    test(`${skill}/SKILL.md prescribes delete-then-append, not in-place replace`, () => {
+      const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+
+      // The new (correct) instruction must be present.
+      expect(content).toContain('delete-then-append flow');
+      expect(content).toContain('never mid-file');
+      expect(content).toContain('Do NOT replace the section in place');
+
+      // The old contradictory bullets must be gone. The signature phrase
+      // from the buggy prompt was 'replace it entirely using the Edit tool'
+      // which is what allowed mid-file reports to stay mid-file.
+      expect(content).not.toContain('replace it** entirely using the Edit tool');
+      expect(content).not.toContain('If it was found mid-file, move it');
+    });
+  }
+
+  test('scripts/resolvers/review.ts source has the rewritten flow', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'review.ts'), 'utf-8');
+    expect(src).toContain('delete-then-append flow');
+    expect(src).toContain('never mid-file');
+    expect(src).toContain('Do NOT replace the section in place');
+    // Old contradictory bullets are gone from the source resolver.
+    expect(src).not.toContain('replace it** entirely using the Edit tool');
+    expect(src).not.toContain('If it was found mid-file, move it');
   });
 });

@@ -43,9 +43,13 @@ The command:
 3. Pushes an initial commit with just the config.
 4. Writes `~/.gstack-brain-remote.txt` (URL-only, no secrets —
    safe to copy to another machine).
-5. Registers GBrain as a reader if `GBRAIN_URL` + `GBRAIN_TOKEN` are
-   configured. Otherwise you can add readers later with
-   `gstack-brain-reader add <name> --ingest-url <url> --token <token>`.
+5. Wires the gstack-brain repo into your local gbrain as a federated
+   source (via `gbrain sources add` + `git worktree`) so `gbrain search`
+   can index your synced learnings, plans, and designs. Implementation
+   lives in `bin/gstack-gbrain-source-wireup`. The old
+   `gstack-brain-reader add --ingest-url ...` HTTP path was removed in
+   v1.15.1.0 — it depended on a `/ingest-repo` endpoint gbrain never
+   shipped.
 
 After init, the **next skill you run** will ask you ONE question about
 privacy mode:

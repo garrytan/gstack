@@ -1,0 +1,389 @@
+#!/usr/bin/env bash
+# gstack-artifacts-init — set up ~/.gstack/ as a git repo synced to a private
+# git host (GitHub or GitLab) so a remote gbrain can ingest your artifacts
+# (CEO plans, designs, /investigate reports) as a federated source.
+#
+# Replaces gstack-brain-init in v1.27.0.0 (per D4 hard-delete; no compat
+# shim). Existing users are migrated by gstack-upgrade/migrations/v1.27.0.0.sh.
+#
+# Usage:
+#   gstack-artifacts-init [--remote <url>] [--host github|gitlab|manual]
+#                         [--url-form-supported true|false]
+#
+# Interactive by default. Pass --remote to skip the host prompt.
+#
+# Idempotent: safe to re-run. If ~/.gstack/.git already exists AND points at
+# the same remote, reconfigures drivers/hooks/attributes without clobbering
+# history. If it points at a DIFFERENT remote, refuses.
+#
+# What it does:
+#   1. git init ~/.gstack/  (or verify existing repo points at the right remote)
+#   2. Write .gitignore = "*"  (ignore everything; allowlist is explicit)
+#   3. Write .brain-allowlist  (canonical paths to sync)
+#   4. Write .brain-privacy-map.json  (paths → privacy class)
+#   5. Write .gitattributes  (register JSONL + union merge drivers)
+#   6. git config  merge.jsonl-append.driver + merge.union.driver
+#   7. Install .git/hooks/pre-commit  (defense-in-depth secret scan)
+#   8. Provider-aware repo create (gh / glab) OR manual URL paste
+#   9. Initial commit + push
+#   10. Write ~/.gstack-artifacts-remote.txt  (HTTPS URL — canonical form)
+#   11. Print "Send this to your brain admin" hookup command
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack
+#   USER — fallback for repo naming if $USER is unset
+
+set -euo pipefail
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+URL_BIN="$SCRIPT_DIR/gstack-artifacts-url"
+REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+
+REMOTE_URL=""
+HOST_PREF=""
+URL_FORM_SUPPORTED="false"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --remote) REMOTE_URL="$2"; shift 2 ;;
+    --host) HOST_PREF="$2"; shift 2 ;;
+    --url-form-supported) URL_FORM_SUPPORTED="$2"; shift 2 ;;
+    --help|-h) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "Unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ---- preconditions ----
+mkdir -p "$GSTACK_HOME"
+
+EXISTING_REMOTE=""
+if [ -d "$GSTACK_HOME/.git" ]; then
+  EXISTING_REMOTE=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null || echo "")
+  if [ -n "$EXISTING_REMOTE" ] && [ -n "$REMOTE_URL" ]; then
+    # Compare at the canonical level. The stored remote is SSH (for git push),
+    # the input is usually HTTPS — same logical repo, different surface form.
+    EXISTING_HTTPS=$("$URL_BIN" --to https "$EXISTING_REMOTE" 2>/dev/null || echo "$EXISTING_REMOTE")
+    INPUT_HTTPS=$("$URL_BIN" --to https "$REMOTE_URL" 2>/dev/null || echo "$REMOTE_URL")
+    if [ "$EXISTING_HTTPS" != "$INPUT_HTTPS" ]; then
+      cat >&2 <<EOF
+gstack-artifacts-init: ~/.gstack/ is already a git repo pointing at:
+  $EXISTING_REMOTE  (canonical: $EXISTING_HTTPS)
+
+You asked to init with:
+  $REMOTE_URL  (canonical: $INPUT_HTTPS)
+
+Refusing to overwrite. To switch remotes, edit manually:
+  git -C ~/.gstack remote set-url origin <url>
+EOF
+      exit 1
+    fi
+  fi
+fi
+
+# ---- detect available providers ----
+gh_ok=false
+glab_ok=false
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then gh_ok=true; fi
+if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then glab_ok=true; fi
+
+# ---- choose remote URL ----
+if [ -z "$REMOTE_URL" ] && [ -n "$EXISTING_REMOTE" ]; then
+  REMOTE_URL="$EXISTING_REMOTE"
+  echo "Using existing remote: $REMOTE_URL"
+fi
+
+REPO_NAME="gstack-artifacts-${USER:-$(whoami)}"
+DESCRIPTION="gstack artifacts (CEO plans, designs, reports) — synced from ~/.gstack/projects/"
+
+# Decide host preference if not pinned by --host.
+if [ -z "$REMOTE_URL" ] && [ -z "$HOST_PREF" ]; then
+  if $gh_ok && $glab_ok; then
+    cat >&2 <<EOF
+
+gstack-artifacts-init: which git host?
+  1) GitHub      (gh CLI authenticated)
+  2) GitLab      (glab CLI authenticated)
+  3) Other / paste a private git URL
+
+EOF
+    printf "Choice [1]: " >&2
+    read -r CH || CH=""
+    case "$CH" in
+      ""|1) HOST_PREF="github" ;;
+      2) HOST_PREF="gitlab" ;;
+      3) HOST_PREF="manual" ;;
+      *) echo "Invalid choice: $CH" >&2; exit 1 ;;
+    esac
+  elif $gh_ok; then
+    HOST_PREF="github"
+    echo "Using GitHub (gh CLI authenticated; glab not available)" >&2
+  elif $glab_ok; then
+    HOST_PREF="gitlab"
+    echo "Using GitLab (glab CLI authenticated; gh not available)" >&2
+  else
+    HOST_PREF="manual"
+    echo "(Neither gh nor glab CLI authenticated — falling through to manual URL)" >&2
+  fi
+fi
+
+# ---- create repo on chosen host ----
+if [ -z "$REMOTE_URL" ]; then
+  case "$HOST_PREF" in
+    github)
+      echo "Creating GitHub repo: $REPO_NAME ..."
+      if ! gh repo create "$REPO_NAME" --private --description "$DESCRIPTION" 2>/dev/null; then
+        # Maybe already exists; try to fetch its URL.
+        REMOTE_URL=$(gh repo view "$REPO_NAME" --json url -q .url 2>/dev/null || echo "")
+        if [ -z "$REMOTE_URL" ]; then
+          echo "Failed to create or find '$REPO_NAME'. Try --remote <url>." >&2
+          exit 1
+        fi
+        echo "Repo already exists; using $REMOTE_URL"
+      else
+        REMOTE_URL=$(gh repo view "$REPO_NAME" --json url -q .url 2>/dev/null || echo "")
+      fi
+      ;;
+    gitlab)
+      echo "Creating GitLab repo: $REPO_NAME ..."
+      if ! glab repo create "$REPO_NAME" --private --description "$DESCRIPTION" 2>/dev/null; then
+        REMOTE_URL=$(glab repo view "$REPO_NAME" -F json 2>/dev/null | jq -r '.web_url // empty' 2>/dev/null || echo "")
+        if [ -z "$REMOTE_URL" ]; then
+          echo "Failed to create or find '$REPO_NAME'. Try --remote <url>." >&2
+          exit 1
+        fi
+        echo "Repo already exists; using $REMOTE_URL"
+      else
+        REMOTE_URL=$(glab repo view "$REPO_NAME" -F json 2>/dev/null | jq -r '.web_url // empty' 2>/dev/null || echo "")
+      fi
+      ;;
+    manual)
+      echo "(provide a private git URL)"
+      printf "Paste an HTTPS git URL (e.g. https://github.com/you/gstack-artifacts.git): " >&2
+      read -r REMOTE_URL || REMOTE_URL=""
+      if [ -z "$REMOTE_URL" ]; then
+        echo "No URL provided. Aborting." >&2
+        exit 1
+      fi
+      ;;
+    *) echo "Unknown --host: $HOST_PREF (expected github|gitlab|manual)" >&2; exit 1 ;;
+  esac
+fi
+
+# ---- canonicalize to HTTPS form ----
+# We store HTTPS in ~/.gstack-artifacts-remote.txt (codex Finding #10:
+# canonical form, derive SSH at push time via gstack-artifacts-url --to ssh).
+# Unrecognized forms (local bare paths, file:// URLs, self-hosted gitea, etc.)
+# pass through verbatim so unusual remotes still work.
+CANONICAL_HTTPS=$("$URL_BIN" --to https "$REMOTE_URL" 2>/dev/null || echo "")
+if [ -z "$CANONICAL_HTTPS" ]; then
+  CANONICAL_HTTPS="$REMOTE_URL"
+fi
+
+# Use SSH for git push (more reliable for repeated pushes than HTTPS+token).
+# Fall back to the canonical input if derivation fails.
+PUSH_URL=$("$URL_BIN" --to ssh "$CANONICAL_HTTPS" 2>/dev/null || echo "$CANONICAL_HTTPS")
+
+# ---- verify push URL is reachable ----
+echo "Verifying remote connectivity: $PUSH_URL"
+if ! git ls-remote "$PUSH_URL" >/dev/null 2>&1; then
+  cat >&2 <<EOF
+Remote not reachable via SSH: $PUSH_URL
+This could mean:
+  - Wrong URL
+  - SSH key not added to your git host (GitHub: gh ssh-key list; GitLab: glab ssh-key list)
+  - Network issue
+Fix and re-run gstack-artifacts-init.
+EOF
+  exit 1
+fi
+
+# ---- git init ----
+if [ ! -d "$GSTACK_HOME/.git" ]; then
+  git -C "$GSTACK_HOME" init -q -b main 2>/dev/null || git -C "$GSTACK_HOME" init -q
+  git -C "$GSTACK_HOME" branch -M main 2>/dev/null || true
+fi
+
+if [ -z "$(git -C "$GSTACK_HOME" remote 2>/dev/null)" ]; then
+  git -C "$GSTACK_HOME" remote add origin "$PUSH_URL"
+else
+  git -C "$GSTACK_HOME" remote set-url origin "$PUSH_URL"
+fi
+
+# ---- write canonical files (idempotent) ----
+cat > "$GSTACK_HOME/.gitignore" <<'EOF'
+# gstack-artifacts sync: ignore-everything base. Paths are included explicitly via
+# .brain-allowlist and `git add -f` from gstack-brain-sync. Do not edit.
+*
+EOF
+
+cat > "$GSTACK_HOME/.brain-allowlist" <<'EOF'
+# Canonical allowlist of paths that gstack-brain-sync will publish.
+# One glob per line. Anything not matching stays local.
+# Do not edit directly; managed by gstack-artifacts-init. User additions go
+# below the marker and survive re-init.
+projects/*/learnings.jsonl
+projects/*/*-reviews.jsonl
+projects/*/ceo-plans/*.md
+projects/*/ceo-plans/*/*.md
+projects/*/designs/*.md
+projects/*/designs/*/*.md
+projects/*/timeline.jsonl
+retros/*.md
+developer-profile.json
+builder-journey.md
+builder-profile.jsonl
+# NOT synced (machine-local UX state):
+#   projects/*/question-preferences.json (per-machine UX preferences)
+#   projects/*/question-log.jsonl (audit/derivation log stays with preferences)
+#   projects/*/question-events.jsonl (same)
+# ---- USER ADDITIONS BELOW ---- (survives re-init; above is managed)
+EOF
+
+cat > "$GSTACK_HOME/.brain-privacy-map.json" <<'EOF'
+[
+  {"pattern": "projects/*/learnings.jsonl", "class": "artifact"},
+  {"pattern": "projects/*/*-reviews.jsonl", "class": "artifact"},
+  {"pattern": "projects/*/ceo-plans/*.md", "class": "artifact"},
+  {"pattern": "projects/*/ceo-plans/*/*.md", "class": "artifact"},
+  {"pattern": "projects/*/designs/*.md", "class": "artifact"},
+  {"pattern": "projects/*/designs/*/*.md", "class": "artifact"},
+  {"pattern": "retros/*.md", "class": "artifact"},
+  {"pattern": "builder-journey.md", "class": "artifact"},
+  {"pattern": "projects/*/timeline.jsonl", "class": "behavioral"},
+  {"pattern": "developer-profile.json", "class": "behavioral"},
+  {"pattern": "builder-profile.jsonl", "class": "behavioral"}
+]
+EOF
+
+cat > "$GSTACK_HOME/.gitattributes" <<'EOF'
+# gstack-artifacts: merge drivers for cross-machine sync conflicts.
+*.jsonl merge=jsonl-append
+retros/*.md merge=union
+projects/*/designs/**/*.md merge=union
+projects/*/ceo-plans/**/*.md merge=union
+EOF
+
+# ---- register merge drivers in local git config ----
+git -C "$GSTACK_HOME" config merge.jsonl-append.driver "$SCRIPT_DIR/gstack-jsonl-merge %O %A %B"
+git -C "$GSTACK_HOME" config merge.jsonl-append.name "gstack JSONL append-only merger"
+git -C "$GSTACK_HOME" config merge.union.driver "cat %A %B > %A.merged && mv %A.merged %A"
+git -C "$GSTACK_HOME" config merge.union.name "union concat"
+
+# ---- install pre-commit hook (defense-in-depth) ----
+HOOK="$GSTACK_HOME/.git/hooks/pre-commit"
+mkdir -p "$(dirname "$HOOK")"
+cat > "$HOOK" <<'HOOK_EOF'
+#!/usr/bin/env bash
+# gstack-artifacts pre-commit hook — secret-scan defense-in-depth.
+# The primary scanner runs inside gstack-brain-sync BEFORE staging. This hook
+# catches any manual `git commit` a user might accidentally run against the
+# artifacts repo.
+set -uo pipefail
+
+python3 -c "
+import sys, re, subprocess
+try:
+    out = subprocess.check_output(['git', 'diff', '--cached'], stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
+except Exception:
+    sys.exit(0)
+
+patterns = [
+    ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
+    ('github-token', re.compile(r'\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
+    ('openai-key', re.compile(r'\bsk-[A-Za-z0-9_-]{20,}')),
+    ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
+    ('jwt', re.compile(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')),
+    ('bearer-token-json',
+     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\s*:\s*\"[A-Za-z0-9_./+=-]{16,}\"',
+                re.IGNORECASE)),
+]
+for name, rx in patterns:
+    if rx.search(out):
+        sys.stderr.write(f'gstack-artifacts pre-commit: refusing commit — {name} detected in staged diff.\n')
+        sys.stderr.write('Either edit the offending file, or if intentional, run:\n')
+        sys.stderr.write('  gstack-brain-sync --skip-file <path>  (to permanently exclude)\n')
+        sys.exit(1)
+sys.exit(0)
+"
+HOOK_EOF
+chmod +x "$HOOK"
+
+# ---- initial commit (idempotent) ----
+cd "$GSTACK_HOME"
+git add -f .gitignore .brain-allowlist .brain-privacy-map.json .gitattributes
+if git rev-parse HEAD >/dev/null 2>&1; then
+  if ! git diff --cached --quiet 2>/dev/null; then
+    git -c user.email="gstack@localhost" -c user.name="gstack-artifacts-init" \
+        commit -q -m "chore: gstack-artifacts-init (refresh sync config)"
+  fi
+else
+  git -c user.email="gstack@localhost" -c user.name="gstack-artifacts-init" \
+      commit -q -m "chore: gstack-artifacts-init"
+fi
+
+# ---- initial push ----
+if ! git push -q -u origin main 2>/dev/null; then
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  if git fetch origin 2>/dev/null && git pull --ff-only origin "$CURRENT_BRANCH" 2>/dev/null; then
+    git push -q -u origin "$CURRENT_BRANCH" || {
+      echo "Push to $PUSH_URL failed. The remote may have divergent content." >&2
+      echo "Try: cd ~/.gstack && git pull --rebase origin $CURRENT_BRANCH && git push origin $CURRENT_BRANCH" >&2
+      exit 1
+    }
+  else
+    echo "Push to $PUSH_URL failed and fetch/merge didn't help." >&2
+    echo "Manual recovery: cd ~/.gstack && git status, then push once conflicts are resolved." >&2
+    exit 1
+  fi
+fi
+
+# ---- write the remote-url helper file (HTTPS canonical) ----
+echo "$CANONICAL_HTTPS" > "$REMOTE_FILE"
+chmod 600 "$REMOTE_FILE"
+
+# ---- print brain-admin hookup command (always print, never auto-execute;
+#      codex Finding #3) ----
+SOURCE_ID="gstack-artifacts-${USER:-$(whoami)}"
+cat <<EOF
+
+gstack-artifacts-init complete.
+Repo:    $GSTACK_HOME (git)
+Remote:  $CANONICAL_HTTPS  (canonical form, in ~/.gstack-artifacts-remote.txt)
+Push:    $PUSH_URL  (derived SSH form for git push)
+
+EOF
+
+cat <<EOF
+─────────────────────────────────────────────────────────────────────────
+  Send this to your brain admin (the person who runs your gbrain server)
+─────────────────────────────────────────────────────────────────────────
+EOF
+
+if [ "$URL_FORM_SUPPORTED" = "true" ]; then
+  cat <<EOF
+On the brain host, run:
+
+  gbrain sources add $SOURCE_ID --url $CANONICAL_HTTPS --federated
+
+EOF
+else
+  cat <<EOF
+On the brain host (gbrain v0.26.x doesn't accept URLs directly yet), run:
+
+  git clone $CANONICAL_HTTPS ~/$SOURCE_ID
+  gbrain sources add $SOURCE_ID --path ~/$SOURCE_ID --federated
+
+When gbrain ships --url support, this becomes a one-liner:
+  gbrain sources add $SOURCE_ID --url $CANONICAL_HTTPS --federated
+
+EOF
+fi
+
+cat <<EOF
+After that, your CEO plans / designs / reports become searchable via
+'gbrain search' from any machine pointing at this brain.
+─────────────────────────────────────────────────────────────────────────
+
+New machine? Put a copy of $REMOTE_FILE in that machine's home directory,
+then run: gstack-artifacts-init  (it'll detect the remote and re-init).
+EOF

@@ -169,9 +169,9 @@ doctor_component: 10 if `gbrain doctor --json | jq -r .status` == "ok";
                    7 if "warnings"; 0 otherwise (or command times out after 5s).
 queue_component:   10 if ~/.gstack/.brain-queue.jsonl has <10 lines;
                     7 if 10-100; 0 if >=100 (suggests secret-scan rejections
-                    piling up). N/A if gbrain_sync_mode == off.
+                    piling up). N/A if artifacts_sync_mode == off.
 push_component:    10 if (now - mtime of ~/.gstack/.brain-last-push) < 24h;
-                    7 if <72h; 0 if >=72h. N/A if gbrain_sync_mode == off.
+                    7 if <72h; 0 if >=72h. N/A if artifacts_sync_mode == off.
 gbrain_score     = 0.5 * doctor_component + 0.3 * queue_component + 0.2 * push_component
                    (redistribute 0.3 + 0.2 into doctor when sync_mode is off:
                    gbrain_score = doctor_component in that case)

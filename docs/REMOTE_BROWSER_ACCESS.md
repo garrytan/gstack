@@ -32,7 +32,7 @@ GStack Browser Server                 Any AI agent
 
 The daemon binds two HTTP sockets. The **local listener** serves the full command surface to 127.0.0.1 only and is never forwarded. The **tunnel listener** is bound lazily on `/tunnel/start` (and torn down on `/tunnel/stop`) with a locked path allowlist. ngrok forwards only the tunnel port.
 
-A caller who stumbles onto your ngrok URL cannot reach `/health`, `/cookie-picker`, `/inspector/*`, or `/welcome` — those paths don't exist on that TCP socket. Root tokens sent over the tunnel get 403. The tunnel listener accepts only `/connect`, `/command` (with a scoped token + the 17-command browser-driving allowlist), and `/sidebar-chat`.
+A caller who stumbles onto your ngrok URL cannot reach `/health`, `/cookie-picker`, `/inspector/*`, or `/welcome` — those paths don't exist on that TCP socket. Root tokens sent over the tunnel get 403. The tunnel listener accepts only `/connect`, `/command` (with a scoped token + the 26-command browser-driving allowlist), and `/sidebar-chat`.
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md#dual-listener-tunnel-architecture-v1600) for the full endpoint table.
 
@@ -165,7 +165,7 @@ Each agent owns the tabs it creates. Rules:
 ## Security Model
 
 - **Physical port separation.** Local listener and tunnel listener are separate TCP sockets. ngrok only forwards the tunnel port. Tunnel callers cannot reach bootstrap endpoints at all (404, wrong port).
-- **Tunnel command allowlist.** `/command` over the tunnel only accepts 17 browser-driving commands (goto, click, fill, snapshot, text, etc.). Server-management commands (tunnel, pair, token, useragent, eval, js) are denied on the tunnel.
+- **Tunnel command allowlist.** `/command` over the tunnel only accepts 26 browser-driving commands (goto, click, fill, snapshot, text, newtab, tabs, back, forward, reload, closetab, etc.). Server-management commands (tunnel, pair, token, useragent, js) are denied on the tunnel.
 - **Root token is tunnel-blocked.** A request bearing the root token over the tunnel listener returns 403 with a pairing hint. Only scoped session tokens work over the tunnel.
 - **Setup keys** expire in 5 minutes and can only be used once.
 - **Session tokens** expire in 24 hours (configurable).

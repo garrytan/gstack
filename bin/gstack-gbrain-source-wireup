@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# gstack-gbrain-source-wireup — register the gstack brain repo as a gbrain
+# federated source via `git worktree`, run an initial sync, hook into
+# subsequent skill-end syncs.
+#
+# Replaces the v1.12.2.0 dead `consumers.json + ingest_url + /ingest-repo`
+# wireup which depended on a gbrain HTTP endpoint that never shipped.
+#
+# Usage:
+#   gstack-gbrain-source-wireup [--strict] [--source-id <id>] [--no-pull]
+#                               [--database-url <url>]
+#   gstack-gbrain-source-wireup --uninstall [--source-id <id>]
+#                               [--database-url <url>]
+#   gstack-gbrain-source-wireup --probe
+#   gstack-gbrain-source-wireup --help
+#
+# Exit codes:
+#   0 — success, OR benign skip without --strict
+#   1 — hard failure (gbrain or git op errored on a real call)
+#   2 — missing prereqs (no gbrain >= 0.18.0, no .git or remote-file)
+#   3 — source-id derivation failed in --uninstall, no fallback worked
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack (test harness)
+#   GSTACK_BRAIN_WORKTREE — override worktree path (default ~/.gstack-brain-worktree)
+#   GSTACK_BRAIN_SOURCE_ID — id override; --source-id flag takes precedence
+#   GSTACK_BRAIN_NO_SYNC — skip the gbrain sync step (tests; helper still
+#                          ensures source registration)
+#
+# Defense against external rewrites of ~/.gbrain/config.json:
+# At helper startup we capture the database URL ONCE — from --database-url,
+# from GBRAIN_DATABASE_URL/DATABASE_URL env, or from ~/.gbrain/config.json —
+# and export it as GBRAIN_DATABASE_URL for every child `gbrain` invocation.
+# That env var overrides whatever's in config.json (per gbrain's loadConfig
+# at src/core/config.ts:53), so a process that flips config.json mid-sync
+# can't redirect us at a different brain mid-stream.
+#
+# Depends on: jq (transitive via gstack-gbrain-detect).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+WORKTREE="${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}"
+# v1.27.0.0+ canonical name; brain-remote is the legacy fallback during migration.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
+PLIST_PATH="$HOME/Library/LaunchAgents/com.gstack.brain-sync.plist"
+GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+
+# ---- arg parse ----
+MODE="wireup"
+STRICT=0
+NO_PULL=0
+SOURCE_ID=""
+DATABASE_URL_ARG=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --uninstall)     MODE="uninstall"; shift ;;
+    --probe)         MODE="probe"; shift ;;
+    --strict)        STRICT=1; shift ;;
+    --no-pull)       NO_PULL=1; shift ;;
+    --source-id)     SOURCE_ID="$2"; shift 2 ;;
+    --database-url)  DATABASE_URL_ARG="$2"; shift 2 ;;
+    --help|-h)       sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)               echo "Unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ---- lock the database URL at startup ----
+# Precedence: --database-url flag > existing GBRAIN_DATABASE_URL/DATABASE_URL
+# env > read once from ~/.gbrain/config.json. Whichever wins gets exported as
+# GBRAIN_DATABASE_URL so every child `gbrain` invocation uses THAT brain even
+# if config.json is rewritten by another process during the wireup.
+_locked_url=""
+if [ -n "$DATABASE_URL_ARG" ]; then
+  _locked_url="$DATABASE_URL_ARG"
+elif [ -n "${GBRAIN_DATABASE_URL:-}" ]; then
+  _locked_url="$GBRAIN_DATABASE_URL"
+elif [ -n "${DATABASE_URL:-}" ]; then
+  _locked_url="$DATABASE_URL"
+elif [ -f "$GBRAIN_CONFIG" ]; then
+  # Python heredoc reads config.json. On JSON parse failure or any IO error,
+  # we WARN (not silently swallow) so the user knows the URL lock fell back
+  # to gbrain's own loadConfig (which would still read this same file).
+  _py_err=$(mktemp -t wireup-pyerr 2>/dev/null || mktemp /tmp/wireup-pyerr.XXXXXX)
+  _locked_url=$(GBRAIN_CONFIG_PATH="$GBRAIN_CONFIG" python3 -c '
+import json, os, sys
+try:
+    c = json.load(open(os.environ["GBRAIN_CONFIG_PATH"]))
+    print(c.get("database_url",""))
+except FileNotFoundError:
+    sys.exit(0)
+except Exception as e:
+    print(f"config.json parse error: {e}", file=sys.stderr)
+    sys.exit(1)
+' </dev/null 2>"$_py_err") || warn "could not read $GBRAIN_CONFIG ($(cat "$_py_err" 2>/dev/null)); URL not locked"
+  rm -f "$_py_err" 2>/dev/null
+fi
+if [ -n "$_locked_url" ]; then
+  export GBRAIN_DATABASE_URL="$_locked_url"
+fi
+
+prefix() { sed 's/^/gstack-gbrain-source-wireup: /' >&2; }
+warn()   { echo "$*" | prefix; }
+# die <message> [exit_code]: warn with just the message, exit with code (default 1).
+die()    { warn "$1"; exit "${2:-1}"; }
+
+# Refuse to rm anything outside $HOME/. Defends against GSTACK_BRAIN_WORKTREE=/
+# or empty-string overrides that would otherwise have line 169 / 161 nuke the
+# user's home or root.
+safe_rm_worktree() {
+  local target="$1"
+  case "$target" in
+    "" | "/" | "/Users" | "/Users/" | "$HOME" | "$HOME/" )
+      die "refusing to rm dangerous path: $target" 1 ;;
+  esac
+  case "$target" in
+    "$HOME"/*) rm -rf "$target" ;;
+    *) die "refusing to rm path outside \$HOME: $target" 1 ;;
+  esac
+}
+
+# ---- source-id derivation (D6 multi-fallback) ----
+derive_source_id() {
+  if [ -n "$SOURCE_ID" ]; then
+    echo "$SOURCE_ID"; return 0
+  fi
+  if [ -n "${GSTACK_BRAIN_SOURCE_ID:-}" ]; then
+    echo "$GSTACK_BRAIN_SOURCE_ID"; return 0
+  fi
+  local remote_url=""
+  remote_url=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null) || true
+  if [ -z "$remote_url" ] && [ -f "$REMOTE_FILE" ]; then
+    remote_url=$(head -1 "$REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
+  fi
+  [ -z "$remote_url" ] && return 3
+  basename "$remote_url" .git \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed 's/--*/-/g; s/^-//; s/-$//' \
+    | cut -c1-32
+}
+
+# ---- gbrain version gate ----
+gbrain_version_ok() {
+  if ! command -v gbrain >/dev/null 2>&1; then
+    return 1
+  fi
+  local v
+  v=$(gbrain --version 2>/dev/null | awk '{print $2}')
+  [ -z "$v" ] && return 1
+  # 0.18.0 minimum (gbrain sources shipped here). Put the floor first in stdin
+  # so equal or greater $v sorts to position 2 — head -1 == "0.18.0" iff $v >= floor.
+  [ "$(printf '0.18.0\n%s\n' "$v" | sort -V | head -1)" = "0.18.0" ]
+}
+
+# ---- worktree management ----
+# A worktree is always created `--detach`ed at $GSTACK_HOME's HEAD. Detached
+# because a branch (main) can only be checked out in ONE worktree, and the
+# parent at $GSTACK_HOME already has it. To advance, we re-checkout the
+# parent's current HEAD into the detached worktree.
+_worktree_add_detached() {
+  local sha
+  sha=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null) || return 1
+  git -C "$GSTACK_HOME" worktree prune 2>/dev/null || true
+  # Surface git errors via prefix so users see WHY the add failed (disk, perms, etc).
+  git -C "$GSTACK_HOME" worktree add --detach "$WORKTREE" "$sha" 2>&1 | prefix
+  return "${PIPESTATUS[0]}"
+}
+
+ensure_worktree() {
+  if [ ! -d "$GSTACK_HOME/.git" ]; then
+    return 2
+  fi
+  if [ -d "$WORKTREE/.git" ] || [ -f "$WORKTREE/.git" ]; then
+    # already exists; advance the detached HEAD to parent's current HEAD
+    if [ "$NO_PULL" = "0" ]; then
+      local sha
+      sha=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null) || return 1
+      # Surface checkout errors via prefix so users see WHY the advance failed
+      # (uncommitted changes in the detached worktree, ref ambiguity, etc).
+      ( cd "$WORKTREE" && git checkout --detach "$sha" 2>&1 | prefix; exit "${PIPESTATUS[0]}" ) || {
+        warn "worktree at $WORKTREE could not advance to $sha; resetting via remove + re-add"
+        git -C "$GSTACK_HOME" worktree remove --force "$WORKTREE" 2>/dev/null || safe_rm_worktree "$WORKTREE"
+        _worktree_add_detached || return 1
+      }
+    fi
+    return 0
+  fi
+  # Stray non-git dir? Remove first.
+  [ -e "$WORKTREE" ] && safe_rm_worktree "$WORKTREE"
+  _worktree_add_detached || return 1
+}
+
+# ---- gbrain sources operations ----
+# Returns 0 if source with id exists at expected path. 1 if exists but path differs. 2 if absent.
+# Hard-fails (exits non-zero via die) if jq is missing — without jq we cannot
+# distinguish "absent" from "missing-tool" and would falsely re-add an existing
+# source. jq is documented as a dependency of gstack-gbrain-detect (transitive)
+# but adversarial review flagged the silent-fall-through path; this probe makes
+# the failure mode loud.
+check_source_state() {
+  local id="$1"
+  if ! command -v jq >/dev/null 2>&1; then
+    die "jq required for source state detection. Install jq (brew install jq) and re-run." 1
+  fi
+  local existing_path
+  existing_path=$(gbrain sources list --json 2>/dev/null \
+    | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
+    | tr -d '[:space:]') || existing_path=""
+  if [ -z "$existing_path" ]; then
+    return 2
+  fi
+  if [ "$existing_path" = "$WORKTREE" ]; then
+    return 0
+  fi
+  return 1
+}
+
+# ---- modes ----
+do_probe() {
+  local id worktree_status="absent" gbrain_status="missing" source_status="absent"
+  id=$(derive_source_id 2>/dev/null) || id="(unknown)"
+  # Use explicit if-block so [ -d ] || [ -f ] doesn't get short-circuited by &&
+  # precedence (the `||` and `&&` chain has trap behavior in bash test syntax).
+  if [ -d "$WORKTREE/.git" ] || [ -f "$WORKTREE/.git" ]; then
+    worktree_status="present"
+  fi
+  if gbrain_version_ok; then
+    gbrain_status="ok ($(gbrain --version 2>/dev/null | awk '{print $2}'))"
+    # Capture check_source_state's return code explicitly. Relying on $? after
+    # an `if`-elif chain is fragile under set -e and undefined under some shells.
+    set +e
+    check_source_state "$id"
+    local css_rc=$?
+    set -e
+    case "$css_rc" in
+      0) source_status="registered ($WORKTREE)" ;;
+      1) source_status="registered (different path)" ;;
+    esac
+  fi
+  echo "source_id=$id"
+  echo "worktree=$WORKTREE"
+  echo "worktree_status=$worktree_status"
+  echo "gbrain=$gbrain_status"
+  echo "source_status=$source_status"
+}
+
+do_wireup() {
+  local id
+  id=$(derive_source_id) || die "cannot derive source id (no .git, no remote-file, no --source-id)" 2
+
+  if ! gbrain_version_ok; then
+    if [ "$STRICT" = "1" ]; then
+      die "gbrain not installed or < 0.18.0; install/upgrade gbrain and re-run" 2
+    fi
+    warn "gbrain not installed or < 0.18.0; skipping wireup (benign skip)"
+    exit 0
+  fi
+
+  # Capture ensure_worktree's return code explicitly. `$?` after `||` reflects
+  # the LAST command in the function under set -e, which is unreliable when the
+  # function has multiple internal exit paths.
+  set +e
+  ensure_worktree
+  ew_rc=$?
+  set -e
+  case "$ew_rc" in
+    0) : ;;  # success
+    2)
+      [ "$STRICT" = "1" ] && die "no $GSTACK_HOME/.git; run /setup-gbrain Step 7 (gstack-brain-init) first" 2
+      warn "no $GSTACK_HOME/.git; skipping (benign skip)"
+      exit 0
+      ;;
+    *) die "git worktree creation failed at $WORKTREE" 1 ;;
+  esac
+
+  # Source registration: probe state, then act.
+  set +e
+  check_source_state "$id"
+  local sstate=$?
+  set -e
+  case "$sstate" in
+    0) : ;;  # already correctly registered
+    1)
+      # Multi-Mac case: if the existing path also looks like another machine's
+      # brain-worktree (same basename, different parent), don't ping-pong the
+      # registration. Just sync from our local worktree — gbrain stores pages
+      # by content, not by local_path. The metadata is informational only.
+      local existing_path
+      existing_path=$(gbrain sources list --json 2>/dev/null \
+        | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
+        | tr -d '[:space:]') || existing_path=""
+      if [ "$(basename "$existing_path")" = "$(basename "$WORKTREE")" ] \
+         && [ "$existing_path" != "$WORKTREE" ]; then
+        warn "source $id is registered at $existing_path (likely another machine's local copy of the same brain repo). Skipping re-registration; will sync from local worktree."
+      else
+        warn "source $id registered with different path; recreating (gbrain has no 'sources update')"
+        gbrain sources remove "$id" --yes 2>&1 | prefix || die "gbrain sources remove failed" 1
+        gbrain sources add "$id" --path "$WORKTREE" --federated 2>&1 | prefix \
+          || die "gbrain sources add failed" 1
+      fi
+      ;;
+    2)
+      gbrain sources add "$id" --path "$WORKTREE" --federated 2>&1 | prefix \
+        || die "gbrain sources add failed" 1
+      ;;
+  esac
+
+  if [ "${GSTACK_BRAIN_NO_SYNC:-0}" = "1" ]; then
+    echo "source_id=$id"
+    echo "worktree=$WORKTREE"
+    echo "pages_synced=skipped"
+    exit 0
+  fi
+
+  local sync_out sync_redacted
+  sync_out=$(gbrain sync --repo "$WORKTREE" 2>&1) || {
+    # Redact any postgres:// URLs from the error message in case gbrain logged
+    # a connection error containing the full DSN with password. The user sees
+    # "***REDACTED***" instead of credentials in their stderr or any log.
+    sync_redacted=$(echo "$sync_out" | tail -10 | sed -E 's#postgres(ql)?://[^[:space:]]+#postgres://***REDACTED***#g')
+    die "gbrain sync failed (last 10 lines, secrets redacted): $sync_redacted" 1
+  }
+  echo "$sync_out" | tail -3 | prefix
+
+  echo "source_id=$id"
+  echo "worktree=$WORKTREE"
+  echo "pages_synced=$(echo "$sync_out" | grep -oE '[0-9]+ pages? imported' | head -1 || echo 'incremental')"
+}
+
+do_uninstall() {
+  local id
+  id=$(derive_source_id) || die "cannot derive source id; pass --source-id <id> explicitly" 3
+
+  if command -v gbrain >/dev/null 2>&1; then
+    gbrain sources remove "$id" --yes 2>&1 | prefix || warn "gbrain sources remove failed (continuing)"
+  fi
+
+  if [ -d "$WORKTREE/.git" ] || [ -f "$WORKTREE/.git" ]; then
+    git -C "$GSTACK_HOME" worktree remove --force "$WORKTREE" 2>/dev/null \
+      || safe_rm_worktree "$WORKTREE"
+  fi
+
+  # Cron-stub: future launchd plist (not created today; safety net for D9 future).
+  rm -f "$PLIST_PATH" 2>/dev/null || true
+
+  echo "uninstalled source=$id worktree=$WORKTREE"
+}
+
+case "$MODE" in
+  probe)     do_probe ;;
+  wireup)    do_wireup ;;
+  uninstall) do_uninstall ;;
+esac
