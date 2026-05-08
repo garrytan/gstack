@@ -1612,15 +1612,22 @@ export function syncFeatureBranchWithBase(
   };
 }
 
-function findNextFeatureIndex(
+export function findNextFeatureIndex(
   state: BuildState,
   opts: { skipOriginVerified?: boolean } = {},
 ): number {
   const features = state.features ?? [];
   for (let i = 0; i < features.length; i++) {
-    if (opts.skipOriginVerified && features[i].status === "origin_verified")
-      continue;
-    if (features[i].status !== "committed") return i;
+    const f = features[i];
+    if (opts.skipOriginVerified && f.status === "origin_verified") continue;
+    // Skip only when the feature has BOTH terminal status AND evidence the
+    // ship→land→verify pipeline actually ran. completedAt is set exclusively
+    // at the end of origin-plan verification (see "committed" assignment
+    // below in the feature loop). A bare status="committed" with no
+    // completedAt indicates a manual JSON state patch that bypassed
+    // ship+land+verify — re-process the feature so the pipeline runs.
+    if (f.status === "committed" && f.completedAt) continue;
+    return i;
   }
   return -1;
 }
@@ -5063,6 +5070,22 @@ async function main() {
         const featureState = state.features![featureIndex];
         const featureDef = features[featureIndex];
         state.currentFeatureIndex = featureIndex;
+        // Detect manual JSON state patches that set status="committed"
+        // without going through the ship+land+verify pipeline (no
+        // completedAt). findNextFeatureIndex re-surfaces these features;
+        // surface a clear log line so the operator sees what happened.
+        if (featureState.status === "committed" && !featureState.completedAt) {
+          console.warn(
+            `⚠ Feature ${featureState.number} status is "committed" but completedAt is missing — ` +
+              `this indicates a manual JSON state patch that bypassed ship+land+verify. ` +
+              `Re-processing the feature so the pipeline runs.`,
+          );
+          // Reset to phases_done so resumeAtShip routes us into the ship
+          // path on the next checks (status==="phases_done" → resumeAtShip
+          // → falls through to the ship+land+verify block).
+          featureState.status = "phases_done";
+          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+        }
         const resumeAfterLanding =
           featureState.status === "landed" ||
           featureState.status === "origin_verifying";
