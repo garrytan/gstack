@@ -29,7 +29,7 @@
  * than building a gstack-side daemon.
  */
 
-import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
+import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync, utimesSync } from "fs";
 import { join, dirname } from "path";
 import { execSync, execFileSync, spawnSync } from "child_process";
 import { homedir } from "os";
@@ -260,6 +260,26 @@ function releaseLock(): void {
   } catch {
     // Best-effort cleanup.
   }
+}
+
+function startLockKeepalive(): ReturnType<typeof setInterval> {
+  // Refresh lock mtime while a long sync is running so concurrent invocations
+  // don't mis-detect an active run as stale. Without this, --full mode (25-35
+  // min on big Macs per ED2) is wrongly classified as stale after STALE_LOCK_MS
+  // (5 min) and a second invocation takes the lock — two writers race on
+  // ~/.gstack/.gbrain-sync-state.json and shared state corrupts.
+  return setInterval(() => {
+    try {
+      if (!existsSync(LOCK_PATH)) return;
+      const raw = readFileSync(LOCK_PATH, "utf-8");
+      const info = JSON.parse(raw) as LockInfo;
+      if (info.pid !== process.pid) return;
+      const now = new Date();
+      utimesSync(LOCK_PATH, now, now);
+    } catch {
+      // Best-effort keepalive.
+    }
+  }, 60_000);
 }
 
 // ── Stage runners ──────────────────────────────────────────────────────────
@@ -522,6 +542,7 @@ async function main(): Promise<void> {
   // Acquire lock (skip on dry-run since dry-run never writes).
   const needsLock = args.mode !== "dry-run";
   let haveLock = false;
+  let lockKeepalive: ReturnType<typeof setInterval> | null = null;
   if (needsLock) {
     haveLock = acquireLock();
     if (!haveLock) {
@@ -531,9 +552,11 @@ async function main(): Promise<void> {
       );
       process.exit(2);
     }
+    lockKeepalive = startLockKeepalive();
   }
 
   const cleanup = () => {
+    if (lockKeepalive) clearInterval(lockKeepalive);
     if (haveLock) releaseLock();
   };
   process.on("SIGINT", () => { cleanup(); process.exit(130); });
