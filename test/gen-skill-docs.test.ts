@@ -2257,7 +2257,9 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
-    expect(setupContent).toContain('command -v forge');
+    // forge binary detection uses a discriminating subcommand check to distinguish
+    // Forge Code from Foundry's forge (both named 'forge'); only Forge Code has 'forge agent'
+    expect(setupContent).toContain('forge agent --help');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill

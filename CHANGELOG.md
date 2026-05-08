@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.27.2.0] - 2026-05-08
+
+## **Forge Code is now a first-class gstack host. Run `./setup --host forgecode` and your skills land in `.forgecode/skills/`.**
+
+Forge Code joins the 10 existing supported agents. The install path is the same as OpenCode and Kiro: `./setup` auto-detects the `forge` binary, generates host-adapted SKILL.md files with Forge Code tool names and paths, creates the runtime root under `~/.forgecode/skills/gstack/`, and symlinks each generated skill into `~/.forgecode/skills/`. The `codex` skill is excluded (Forge Code users don't have the Codex CLI). All Claude-specific paths, tool references, and co-author trailers are rewritten for Forge Code conventions.
+
+The three numbers that matter (measured against the opencode install path as the reference implementation):
+
+Source: `diff --stat` against main + manual install verification in this environment.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Supported hosts | 10 | 11 | +1 |
+| Setup validation tests | 371 | 392 | +21 |
+| Host config validations | 10 configs valid | 11 configs valid | +1 |
+
+One edge case fixed in auto-detection: `command -v forge` is ambiguous — Foundry (the Ethereum toolkit) also ships a `forge` binary. The auto-detect now uses `forge agent --help` as the discriminating check, which only succeeds for Forge Code.
+
+**What this means for Forge Code users:** Run `./setup --host forgecode` once, and you get the full gstack skill suite adapted to Forge Code's tool model (`shell`, `patch`, `fs_search`, `sage` instead of Claude tool names). Uninstall: `rm -rf ~/.forgecode/skills/gstack*`.
+
+### Itemized changes
+
+#### Added
+- `hosts/forgecode.ts`: new `HostConfig` for Forge Code with path rewrites, tool name mapping, suppressed resolvers, runtime root definition, and co-author trailer
+- `./setup --host forgecode`: full install path including auto-detection via `forge agent`, skill generation, runtime root setup, and symlink linking
+- `.forgecode/` to `.gitignore`
+- README: install and uninstall instructions for Forge Code
+
+#### Changed
+- `hosts/index.ts`: Forge Code registered as the 11th host
+- `scripts/skill-check.ts`: consolidated host imports at file top; `bun run skill:check` now respects primary-host `skipSkills` so Claude-only skipped templates don't produce false errors
+
+#### Fixed
+- Auto-detection in `--host auto` mode now uses `forge agent --help` instead of bare `command -v forge`, preventing false-positive installs on machines with Foundry's `forge` binary
+
+#### For contributors
+- `test/gen-skill-docs.test.ts`: 6 new tests for forgecode setup path, install flag vars, and runtime root structure
+- `test/host-config.test.ts`: `ALL_HOST_CONFIGS` count bumped to 11; forgecode name asserted
+
 ## [1.27.1.0] - 2026-05-06
 
 ## **Plan-mode reviews now refuse to dump findings without asking. Four gate-tier tests catch the regression on every PR.**

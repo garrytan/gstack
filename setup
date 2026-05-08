@@ -164,7 +164,7 @@ if [ "$HOST" = "auto" ]; then
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
-  command -v forge >/dev/null 2>&1 && INSTALL_FORGECODE=1
+  forge agent --help >/dev/null 2>&1 && INSTALL_FORGECODE=1
   # If none found, default to claude
   if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_FORGECODE" -eq 0 ]; then
     INSTALL_CLAUDE=1
