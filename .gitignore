@@ -26,6 +26,7 @@ extension/lib/xterm.js
 extension/lib/xterm.css
 extension/lib/xterm-addon-fit.js
 .gstack-worktrees/
+.worktrees/
 /tmp/
 *.log
 *.bun-build
