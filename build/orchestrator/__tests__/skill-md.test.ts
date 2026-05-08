@@ -265,6 +265,9 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain("Failure paths preserve worktrees for debugging");
     expect(content).toContain("launchCommand");
     expect(content).toContain("launchEnv");
+    expect(content).toContain("the next tool call must be Bash running Step M3");
+    expect(content).toContain("polling is owned by the CLI monitor, not by host timer tools");
+    expect(content).toContain("If the command blocks for a long time, that is expected behavior");
     expect(content).toContain("monitor --manifest \"$BUILD_RUN_MANIFEST\" --watch");
     expect(content).toContain("ALL_RUNS_COMPLETE");
     expect(content).toContain("MONITOR_REENTER");

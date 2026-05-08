@@ -524,7 +524,7 @@ Before running, present a confirmation gate via `AskUserQuestion`:
 ```
 D<N> — Launch gstack-build and monitor?
 Project/branch/task: <plan file basename>, branch <_BRANCH>
-ELI10: This will start the autonomous build CLI in the background. It runs configured primary and secondary sub-agents for each dual-impl phase — this can take hours. I'll watch it and report progress every 60 seconds, auto-recovering from timeouts and stale locks. Convergence failures and test failures will need your input.
+ELI10: This will start the autonomous build CLI in the background. It runs configured primary and secondary sub-agents for each dual-impl phase — this can take hours. The foreground monitor command stays running in this host turn and emits progress every 60 seconds, auto-recovering from timeouts and stale locks. Convergence failures and test failures will need your input.
 Stakes if we pick wrong: Launching immediately starts modifying the branch. Aborting mid-run is safe (the CLI resumes), but re-running from scratch costs time.
 Recommendation: A) Launch and monitor — plan is approved and ready.
 Note: options differ in kind, not coverage — no completeness score.
@@ -708,9 +708,11 @@ _mark_manifest_claims_running
 
 Store the manifest path and run group id for the foreground monitor. Monitor reads manifest v2 and each run's PID/state files. There is no global `build-active-run-index`.
 
+After this launch block finishes, the next tool call must be Bash running Step M3. Do not summarize status, schedule a host timer, or poll process state manually between Step M2 and Step M3.
+
 ### Step M3: Foreground CLI Monitor
 
-Do not use host scheduled wakeups for build polling. After launch, keep this host turn alive by running the CLI-owned foreground monitor:
+Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
 
 ```bash
 BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}
