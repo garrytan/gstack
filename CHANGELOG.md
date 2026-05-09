@@ -76,6 +76,28 @@ ongoing background sync; gbrain owns the daemon lifecycle.
 - `/codex` adversarial review during `/ship` caught all three correctness bugs above (silent attach, preamble inconsistency, orphan leak) before merge. Find-cost: ~10 min CC. Production-bug-cost: stale code search results that "almost worked" — the worst kind to debug.
 - gbrain CLI minimum version is now v0.30.0 (uses `sources attach`, which doesn't exist in v0.20.x). Run `cd ~/git/gbrain && git pull && bun install && bun link` to upgrade.
 
+## [1.28.0.0-fork] - 2026-05-09 (anbangr/gstack fork)
+
+## **The plan file now updates itself as your build runs. Two concurrent builds no longer crash each other.**
+
+Two runtime gaps closed in one release. First: the plan markdown was write-once at kickoff, then frozen while the build ran. Now `saveState` reconciles the plan file after every phase transition, flipping the matching checkboxes atomically via POSIX rename. Second: running two `/build` invocations on the same repo simultaneously caused both to crash at the `git checkout main` step. The fix replaces every local branch checkout with `git fetch origin` followed by branching directly from the remote tracking ref, which works correctly inside git linked worktrees.
+
+### Itemized changes
+
+#### Added
+- **Gate visibility reconciliation** in `build/orchestrator/cli.ts`: `phaseGateProjection`, `featureGateProjection`, `reconcileVisiblePlanState` wired into `saveState`.
+- **`setCheckboxState`** in `plan-mutator.ts`: bidirectional checkbox flip with optional marker verification.
+- **`setCheckboxStatusNote`** in `plan-mutator.ts`: append/replace/remove status note suffix atomically.
+- **`PhaseGate`, `FeatureGate`, `PlanGateState`** types + gate checkbox parsing in `parser.ts`.
+- 27 new orchestrator tests covering gate projection, reconcile, and worktree-safe git ops.
+
+#### Changed
+- **`syncLandedBase`**: removed `git checkout <base>` + `git pull`. Safe in linked worktrees.
+- **`ensureFeatureBranch`**: replaced checkout sequence with `git fetch origin <base>` + `git checkout -b <feat> origin/<base>`.
+- **`build/configure.cm`**: `primaryImpl`/`testFixer` → kimi. All timeouts → 1200000ms.
+
+---
+
 ## [1.28.0.0] - 2026-05-07
 
 ## **Browse handles real-world automation now: SOCKS5 with auth, container Xvfb, browser-native downloads. Plus a single-file `llms.txt` index agents can crawl in one read.**

@@ -195,6 +195,7 @@
 **Depends on:** v1.8.0.0 telemetry in production. P1 self-authoring commands.
 
 ---
+
 ## Sidebar Terminal (cc-pty-import follow-ups)
 
 ### v1.1: PTY session survives sidebar reload
@@ -314,6 +315,7 @@ scope of that PR; deliberately deferred to keep PTY-import small.
 **Effort:** L (human: ~1-2 weeks / CC+gstack: ~2-3 hours for design doc + first-pass implementation).
 **Priority:** P1 if interactive-skill volume is growing; P2 otherwise.
 **Depends on / blocked by:** design doc — likely its own `docs/designs/STOP_ASK_ENFORCEMENT_V0.md`.
+
 ## Context skills
 
 ### `/context-save --lane` + `/context-restore --lane` for parallel workstreams
@@ -556,6 +558,7 @@ score SAFE 0.98+, attacks score INJECTION 0.99+). Pre-impl gate 3 (benign corpus
 forced this pivot — see `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-04-19-prompt-injection-guard.md`.
 
 **What shipped in v1:**
+
 - `browse/src/security.ts` — canary injection + check, verdict combiner (ensemble rule),
   attack log with rotation, cross-process session state, status reporting
 - `browse/src/security-classifier.ts` — TestSavantAI ONNX classifier + Haiku transcript
@@ -718,37 +721,40 @@ threshold (user-input default unchanged for SO-FP mitigation).
 #### ~~Adversarial + integration + smoke-bench test suites (P1)~~ — SHIPPED
 
 Four test files shipped this round:
-  * `browse/test/security-adversarial.test.ts` (94a83c50) — 23 canary-channel
-    + verdict-combiner attack-shape tests
-  * `browse/test/security-integration.test.ts` (07745e04) — 10 layer-coexistence
-    + defense-in-depth regression guards
-  * `browse/test/security-live-playwright.test.ts` (b9677519) — 7 live-Chromium
-    fixture tests (5 deterministic + 2 ML, skipped if model cache absent)
-  * `browse/test/security-bench.test.ts` (afc6661f) — BrowseSafe-Bench 200-case
-    smoke harness with hermetic dataset cache + v1 baseline metrics
+
+- `browse/test/security-adversarial.test.ts` (94a83c50) — 23 canary-channel
+  - verdict-combiner attack-shape tests
+- `browse/test/security-integration.test.ts` (07745e04) — 10 layer-coexistence
+  - defense-in-depth regression guards
+- `browse/test/security-live-playwright.test.ts` (b9677519) — 7 live-Chromium
+  fixture tests (5 deterministic + 2 ML, skipped if model cache absent)
+- `browse/test/security-bench.test.ts` (afc6661f) — BrowseSafe-Bench 200-case
+  smoke harness with hermetic dataset cache + v1 baseline metrics
 
 #### Bun-native 5ms inference (P3 research) — SKELETON SHIPPED, forward pass open
 
 Research skeleton landed this round (browse/src/security-bunnative.ts,
 docs/designs/BUN_NATIVE_INFERENCE.md, browse/test/security-bunnative.test.ts):
 
-  * Pure-TS WordPiece tokenizer — reads HF tokenizer.json directly, matches
-    transformers.js output on fixture strings (correctness-tested in CI)
-  * Stable `classify()` API that current callers can wire against today
-  * Benchmark harness with p50/p95/p99 reporting — anchors v1 WASM baseline
-    for future regressions
+- Pure-TS WordPiece tokenizer — reads HF tokenizer.json directly, matches
+  transformers.js output on fixture strings (correctness-tested in CI)
+- Stable `classify()` API that current callers can wire against today
+- Benchmark harness with p50/p95/p99 reporting — anchors v1 WASM baseline
+  for future regressions
 
 Design doc captures the roadmap:
-  * Approach A: pure-TS + Float32Array SIMD — ruled out (can't beat WASM)
-  * Approach B: Bun FFI + Apple Accelerate cblas_sgemm — target ~3-6ms p50,
-    macOS-only, ~1000 LOC
-  * Approach C: Bun WebGPU — unexplored, worth a spike
+
+- Approach A: pure-TS + Float32Array SIMD — ruled out (can't beat WASM)
+- Approach B: Bun FFI + Apple Accelerate cblas_sgemm — target ~3-6ms p50,
+  macOS-only, ~1000 LOC
+- Approach C: Bun WebGPU — unexplored, worth a spike
 
 Remaining work (XL, multi-week):
-  * FFI proof-of-concept for cblas_sgemm
-  * Single transformer layer implementation + correctness check vs onnxruntime
-  * Full forward pass + weight loader + correctness regression fixtures
-  * Production swap in security-bunnative.ts `classify()` body
+
+- FFI proof-of-concept for cblas_sgemm
+- Single transformer layer implementation + correctness check vs onnxruntime
+- Full forward pass + weight loader + correctness regression fixtures
+- Production swap in security-bunnative.ts `classify()` body
 
 ## Builder Ethos
 
@@ -775,6 +781,7 @@ Remaining work (XL, multi-week):
 **Context:** Google shipped Chrome DevTools MCP in Chrome 146+ (June 2025). It provides screenshots, console messages, performance traces, Lighthouse audits, and full page interaction through the user's real browser. gstack should use it for real-session access while keeping Playwright for headless CI/testing workflows.
 
 Potential new skills:
+
 - `/debug-browser`: JS error tracing with source-mapped stack traces
 - `/perf-debug`: performance traces, Core Web Vitals, network waterfall
 
@@ -1037,7 +1044,6 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 **Priority:** P2
 **Depends on:** None
 
-
 ### Visual verification with screenshots in PR body
 
 **What:** /ship Step 7.5: screenshot key pages after push, embed in PR body.
@@ -1197,8 +1203,6 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 **Priority:** P3
 **Depends on:** Video recording
 
-
-
 ### Extend worktree isolation to Claude E2E tests
 
 **What:** Add `useWorktree?: boolean` option to `runSkillTest()` so any Claude E2E test can opt into worktree mode for full repo context instead of tmpdir fixtures.
@@ -1349,7 +1353,6 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 **Priority:** P3
 **Depends on:** gstack-diff-scope (shipped)
 
-
 ## Codex
 
 ### Codex→Claude reverse buddy check skill
@@ -1401,6 +1404,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Context:** All items are prose additions to `investigate/SKILL.md.tmpl`. No new scripts.
 
 **Items:**
+
 1. Stack trace auto-detection for freeze directory (parse deepest app frame)
 2. Freeze boundary widening (ask to widen instead of hard-block when hitting boundary)
 3. Post-fix auto-unfreeze + full test suite run
@@ -1636,23 +1640,26 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 ---
 
 ### Overlay efficacy harness + Opus 4.7 fanout nudge removal (v1.10.1.0)
+
 - Built `test/skill-e2e-overlay-harness.test.ts`, a parametric periodic-tier eval that drives `@anthropic-ai/claude-agent-sdk` and measures first-turn fanout rate (overlay-ON vs overlay-OFF) across registered fixtures
 - Measured the original "Fan out explicitly" overlay nudge: baseline Opus 4.7 = 70% first-turn fanout on toy prompt, with our nudge = 10%, with Anthropic's own canonical `<use_parallel_tool_calls>` text = 0%
 - Removed the counterproductive nudge from `model-overlays/opus-4-7.md`
 - Shipped 36-test free-tier unit suite for the SDK runner + strict fixture validator
 - Registered `overlay-harness-opus-4-7-fanout-{toy,realistic}` in E2E_TOUCHFILES and E2E_TIERS
 - Total investigation cost: ~$7 across 3 eval runs
-**Completed:** v1.10.1.0
+  **Completed:** v1.10.1.0
 
 ### CI eval pipeline (v0.9.9.0)
+
 - GitHub Actions eval upload on Ubicloud runners ($0.006/run)
 - Within-file test concurrency (test() → testConcurrentIfSelected())
 - Eval artifact upload + PR comment with pass/fail + cost
 - Baseline comparison via artifact download from main
 - EVALS_CONCURRENCY=40 for ~6min wall clock (was ~18min)
-**Completed:** v0.9.9.0
+  **Completed:** v0.9.9.0
 
 ### Deploy pipeline (v0.9.8.0)
+
 - /land-and-deploy — merge PR, wait for CI/deploy, canary verification
 - /canary — post-deploy monitoring loop with anomaly detection
 - /benchmark — performance regression detection with Core Web Vitals
@@ -1661,41 +1668,81 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 - E2E model pinning (Sonnet default, Opus for quality tests)
 - E2E timing telemetry (first_response_ms, max_inter_turn_ms, wall_clock_ms)
 - test:e2e:fast tier, --retry 2 on all E2E scripts
-**Completed:** v0.9.8.0
+  **Completed:** v0.9.8.0
 
 ### Phase 1: Foundations (v0.2.0)
+
 - Rename to gstack
 - Restructure to monorepo layout
 - Setup script for skill symlinks
 - Snapshot command with ref-based element selection
 - Snapshot tests
-**Completed:** v0.2.0
+  **Completed:** v0.2.0
 
 ### Phase 2: Enhanced Browser (v0.2.0)
+
 - Annotated screenshots, snapshot diffing, dialog handling, file upload
 - Cursor-interactive elements, element state checks
 - CircularBuffer, async buffer flush, health check
 - Playwright error wrapping, useragent fix
 - 148 integration tests
-**Completed:** v0.2.0
+  **Completed:** v0.2.0
 
 ### Phase 3: QA Testing Agent (v0.3.0)
+
 - /qa SKILL.md with 6-phase workflow, 3 modes (full/quick/regression)
 - Issue taxonomy, severity classification, exploration checklist
 - Report template, health score rubric, framework detection
 - wait/console/cookie-import commands, find-browse binary
-**Completed:** v0.3.0
+  **Completed:** v0.3.0
 
 ### Phase 3.5: Browser Cookie Import (v0.3.x)
+
 - cookie-import-browser command (Chromium cookie DB decryption)
 - Cookie picker web UI, /setup-browser-cookies skill
 - 18 unit tests, browser registry (Comet, Chrome, Arc, Brave, Edge)
-**Completed:** v0.3.1
+  **Completed:** v0.3.1
 
 ### E2E test cost tracking
+
 - Track cumulative API spend, warn if over threshold
-**Completed:** v0.3.6
+  **Completed:** v0.3.6
 
 ### Auto-upgrade mode + smart update check
+
 - Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
-**Completed:** v0.3.8
+  **Completed:** v0.3.8
+
+---
+
+## P3: Build orchestrator gate reconciler — architectural follow-ups (v1.28.0.0 deferrals)
+
+Explicitly deferred from the v1.28.0.0 /plan-eng-review. Ship now; revisit when the gate system has been dogfooded across multiple plan shapes.
+
+### Batch plan-file reads in `reconcileVisiblePlanState`
+
+**What:** `setCheckboxState` reads + writes the full plan file once per gate flip. For a 10-phase plan with 5 gates each, a full reconcile does up to 50 sequential file reads/writes on one `saveState` call. Hoist the `readFileSync`/`split` into `reconcileVisiblePlanState` (or expose a `applyCheckboxStateToLines` helper), apply all mutations to the in-memory lines array in a single pass, then call `writePlanContentAtomic` once.
+
+**Why:** Correctness is fine — each write is atomic and the reconcile only runs once per phase transition (not in a tight loop). But on slow disks or NFS mounts the per-gate latency compounds. The batched design also simplifies reasoning about consistency: one read, one write, one atomic rename.
+
+**Effort:** S (human: ~half day / CC: ~20 min)
+**Priority:** P3
+
+### Extract gate markers and projection to `gate-reconciler.ts`
+
+**What:** Move `PHASE_GATE_MARKERS`, `FEATURE_GATE_MARKERS`, `phaseGateProjection`, `featureGateProjection`, `reconcilePhaseVisibleGates`, `reconcileFeatureVisibleGates`, and `reconcileVisiblePlanState` out of `cli.ts` into a new `build/orchestrator/gate-reconciler.ts`. Export `featureGateProjection` so it can be unit-tested directly alongside `phaseGateProjection`.
+
+**Why:** `cli.ts` is already large. The gate reconciler is a self-contained subsystem with clear inputs (phase/feature state + plan file path) and outputs (checkbox mutations). Separating it makes the module boundary explicit, reduces `cli.ts` size, and allows `featureGateProjection` to be tested in isolation rather than only through `reconcileVisiblePlanState`.
+
+**Effort:** S (human: ~2 hours / CC: ~15 min)
+**Priority:** P3
+
+### Thread `visiblePlanProjection` as a parameter
+
+**What:** Replace the module-level `let visiblePlanProjection: ... | null = null` singleton in `cli.ts` with an explicit parameter threaded through `saveState`. Or expose setter/getter functions (`setVisiblePlanProjection` / `clearVisiblePlanProjection`) to make the mutation surface explicit and testable.
+
+**Why:** The current singleton is set in one location (~line 5508) and mutated in another (~lines 6110-6112) with no clear boundary. This is hard to reason about and untestable in isolation. After `gate-reconciler.ts` extraction above, threading the projection as a param is straightforward.
+
+**Effort:** XS (human: ~1 hour / CC: ~10 min)
+**Priority:** P3
+**Depends on:** gate-reconciler.ts extraction above

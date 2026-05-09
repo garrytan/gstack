@@ -48,6 +48,37 @@ export type FeatureStatus =
   | "failed"
   | "paused";
 
+/**
+ * Named gates for a single build phase. Each gate corresponds to one
+ * checkbox in the plan markdown. Gate presence in the plan is optional
+ * (legacy plans may only have implementation + review).
+ */
+export type PhaseGate =
+  | "test_spec"
+  | "verify_red"
+  | "implementation"
+  | "green_tests"
+  | "review_qa";
+
+/**
+ * Named gates for a feature (across all its phases). These appear under
+ * the feature heading in the plan, not under individual phase headings.
+ */
+export type FeatureGate =
+  | "feature_review"
+  | "ship_land"
+  | "origin_verification";
+
+/** State of a single plan-file gate checkbox. */
+export interface PlanGateState {
+  /** True when the checkbox is [x]. */
+  done: boolean;
+  /** 1-based line number of this checkbox in the plan file. */
+  line: number;
+  /** Optional status note parsed from _(note)_ suffix on the line. */
+  note?: string;
+}
+
 export interface Feature {
   /** Zero-based index in the order features appear in the plan file. */
   index: number;
@@ -59,6 +90,8 @@ export interface Feature {
   body: string;
   /** Phase indexes that belong to this feature. */
   phaseIndexes: number[];
+  /** Parsed gate state for feature-level checkboxes (feature_review, ship_land, origin_verification). */
+  gates?: Partial<Record<FeatureGate, PlanGateState>>;
 }
 
 export interface Phase {
@@ -90,6 +123,8 @@ export interface Phase {
   testSpecCheckboxLine: number;
   /** True when --dual-impl CLI flag is active; stamped by the CLI after parse. */
   dualImpl: boolean;
+  /** Parsed gate state for per-phase checkboxes (test_spec, verify_red, implementation, green_tests, review_qa). */
+  gates?: Partial<Record<PhaseGate, PlanGateState>>;
 }
 
 export interface DualImplTestResult {

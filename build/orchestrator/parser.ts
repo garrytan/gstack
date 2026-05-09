@@ -17,14 +17,43 @@
  *   - BOM, trailing whitespace
  */
 
-import type { Feature, Phase } from './types';
+import type {
+  Feature,
+  FeatureGate,
+  Phase,
+  PhaseGate,
+  PlanGateState,
+} from "./types";
 
 const FEATURE_HEADING = /^##\s+Feature\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/i;
 const PHASE_HEADING = /^###\s+Phase\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/;
 const IMPL_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Implementation\b/;
 const REVIEW_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/;
 const TESTSPEC_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Test Specification/i;
+const VERIFY_RED_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Verify Red\b/i;
+const GREEN_TESTS_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Green Tests\b/i;
+const FEATURE_REVIEW_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Feature Review\b/i;
+const SHIP_LAND_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Ship & Land\b/i;
+const ORIGIN_VERIFICATION_CHECKBOX =
+  /^\s*-\s*\[([xX ])\]\s*\*\*Origin Verification\b/i;
+/** Matches the _(status note)_ suffix appended to gate checkbox lines. */
+const STATUS_NOTE_RE = /\s+_\(([^)]*)\)_\s*$/;
 const FENCE = /^```/;
+
+/** Build a PlanGateState from a regex match group and line number. */
+function gateState(
+  checked: string,
+  lineNumber: number,
+  line: string,
+): PlanGateState {
+  const noteMatch = line.match(STATUS_NOTE_RE);
+  const state: PlanGateState = {
+    done: checked.toLowerCase() === "x",
+    line: lineNumber,
+  };
+  if (noteMatch) state.note = noteMatch[1];
+  return state;
+}
 
 export interface ParseResult {
   features: Feature[];
@@ -49,16 +78,16 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
 
   let inFence = false;
   let currentFeature: (Feature & { bodyLines: string[] }) | null = null;
-  let currentPhase: Partial<Phase> & { bodyLines: string[] } | null = null;
+  let currentPhase: (Partial<Phase> & { bodyLines: string[] }) | null = null;
   let currentPhaseStartLine = 0;
 
   const ensureFeature = () => {
     if (currentFeature) return currentFeature;
     currentFeature = {
       index: features.length,
-      number: '1',
-      name: 'Full plan',
-      body: '',
+      number: "1",
+      name: "Full plan",
+      body: "",
       bodyLines: [],
       phaseIndexes: [],
     };
@@ -71,12 +100,12 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
     const p = currentPhase;
     if (p.implementationCheckboxLine == null) {
       warnings.push(
-        `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing an Implementation checkbox`
+        `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing an Implementation checkbox`,
       );
     }
     if (p.reviewCheckboxLine == null) {
       warnings.push(
-        `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing a Review checkbox`
+        `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing a Review checkbox`,
       );
     }
 
@@ -101,11 +130,14 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
         testSpecDone: !!p.testSpecDone,
         implementationDone: !!p.implementationDone,
         reviewDone: !!p.reviewDone,
-        body: p.bodyLines.join('\n'),
+        body: p.bodyLines.join("\n"),
         testSpecCheckboxLine: p.testSpecCheckboxLine,
         implementationCheckboxLine: p.implementationCheckboxLine,
         reviewCheckboxLine: p.reviewCheckboxLine,
         dualImpl: !!opts.dualImpl,
+        ...(p.gates && Object.keys(p.gates).length > 0
+          ? { gates: p.gates }
+          : {}),
       });
     }
     currentPhase = null;
@@ -148,7 +180,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
         index: features.length,
         number: featureMatch[1],
         name: featureMatch[2],
-        body: '',
+        body: "",
         bodyLines: [],
         phaseIndexes: [],
       };
@@ -157,29 +189,76 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
     }
 
     if (!currentPhase) {
-      if (currentFeature) currentFeature.bodyLines.push(line);
+      if (currentFeature) {
+        // Feature gate checkboxes appear in the feature body (between heading and first phase).
+        const frMatch = line.match(FEATURE_REVIEW_CHECKBOX);
+        if (frMatch) {
+          if (!currentFeature.gates) currentFeature.gates = {};
+          currentFeature.gates.feature_review = gateState(
+            frMatch[1],
+            i + 1,
+            line,
+          );
+        }
+        const slMatch = line.match(SHIP_LAND_CHECKBOX);
+        if (slMatch) {
+          if (!currentFeature.gates) currentFeature.gates = {};
+          currentFeature.gates.ship_land = gateState(slMatch[1], i + 1, line);
+        }
+        const ovMatch = line.match(ORIGIN_VERIFICATION_CHECKBOX);
+        if (ovMatch) {
+          if (!currentFeature.gates) currentFeature.gates = {};
+          currentFeature.gates.origin_verification = gateState(
+            ovMatch[1],
+            i + 1,
+            line,
+          );
+        }
+        currentFeature.bodyLines.push(line);
+      }
       continue;
     }
 
     // We're inside a phase body. Look for checkboxes.
+    if (!currentPhase.gates) currentPhase.gates = {};
+
     const testSpecMatch = line.match(TESTSPEC_CHECKBOX);
     if (testSpecMatch) {
       currentPhase.testSpecCheckboxLine = i + 1; // 1-based
-      currentPhase.testSpecDone = testSpecMatch[1].toLowerCase() === 'x';
+      currentPhase.testSpecDone = testSpecMatch[1].toLowerCase() === "x";
+      currentPhase.gates.test_spec = gateState(testSpecMatch[1], i + 1, line);
+      currentPhase.bodyLines.push(line);
+      continue;
+    }
+    const verifyRedMatch = line.match(VERIFY_RED_CHECKBOX);
+    if (verifyRedMatch) {
+      currentPhase.gates.verify_red = gateState(verifyRedMatch[1], i + 1, line);
       currentPhase.bodyLines.push(line);
       continue;
     }
     const implMatch = line.match(IMPL_CHECKBOX);
     if (implMatch) {
       currentPhase.implementationCheckboxLine = i + 1; // 1-based
-      currentPhase.implementationDone = implMatch[1].toLowerCase() === 'x';
+      currentPhase.implementationDone = implMatch[1].toLowerCase() === "x";
+      currentPhase.gates.implementation = gateState(implMatch[1], i + 1, line);
+      currentPhase.bodyLines.push(line);
+      continue;
+    }
+    const greenTestsMatch = line.match(GREEN_TESTS_CHECKBOX);
+    if (greenTestsMatch) {
+      currentPhase.gates.green_tests = gateState(
+        greenTestsMatch[1],
+        i + 1,
+        line,
+      );
       currentPhase.bodyLines.push(line);
       continue;
     }
     const reviewMatch = line.match(REVIEW_CHECKBOX);
     if (reviewMatch) {
       currentPhase.reviewCheckboxLine = i + 1; // 1-based
-      currentPhase.reviewDone = reviewMatch[1].toLowerCase() === 'x';
+      currentPhase.reviewDone = reviewMatch[1].toLowerCase() === "x";
+      currentPhase.gates.review_qa = gateState(reviewMatch[1], i + 1, line);
       currentPhase.bodyLines.push(line);
       continue;
     }
@@ -190,7 +269,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
   // Close out the last phase.
   finalize(lines.length);
   for (const f of features) {
-    f.body = f.bodyLines.join('\n');
+    f.body = f.bodyLines.join("\n");
     delete (f as any).bodyLines;
   }
 
@@ -198,7 +277,9 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
   if (executableFeatures.length !== features.length) {
     for (const f of features) {
       if (f.phaseIndexes.length === 0) {
-        warnings.push(`Feature ${f.number} ("${f.name}") has no executable phases and was ignored`);
+        warnings.push(
+          `Feature ${f.number} ("${f.name}") has no executable phases and was ignored`,
+        );
       }
     }
     const featureIndexByOldIndex = new Map<number, number>();
