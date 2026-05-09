@@ -25,7 +25,8 @@ export type MonitorEventName =
   | "RUN_FAILED"
   | "ALL_RUNS_COMPLETE"
   | "MONITOR_ERROR"
-  | "MONITOR_REENTER";
+  | "MONITOR_REENTER"
+  | "MONITOR_AGENT_ESCALATION";
 
 export const MONITOR_EXIT_CODES: Record<MonitorEventName, number> = {
   RUN_RUNNING: 12,
@@ -37,6 +38,7 @@ export const MONITOR_EXIT_CODES: Record<MonitorEventName, number> = {
   ALL_RUNS_COMPLETE: 0,
   MONITOR_ERROR: 30,
   MONITOR_REENTER: 12,
+  MONITOR_AGENT_ESCALATION: 11,
 };
 
 export interface MonitorEvent {
@@ -54,6 +56,22 @@ export interface MonitorEvent {
   stdoutLog?: string;
   resumeAttempted?: boolean;
   exitCode?: number;
+  sourceEvent?: MonitorEventName;
+  verdict?: "host_action_required" | "user_action_required" | "no_action";
+  summary?: string;
+  attempted?: string[];
+  recommendedHostAction?: string;
+  suggestedCommands?: string[];
+  userChoices?: string[];
+  originalExitCode?: number;
+  monitorAgent?: {
+    provider?: string;
+    model?: string;
+    timedOut?: boolean;
+    exitCode?: number;
+    logPath?: string;
+    outputPath?: string;
+  };
 }
 
 interface MonitorRunSnapshot {

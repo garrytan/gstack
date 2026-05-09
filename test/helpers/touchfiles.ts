@@ -659,6 +659,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
   'canary/SKILL.md monitoring loop':      ['canary/SKILL.md', 'canary/SKILL.md.tmpl'],
   'benchmark/SKILL.md perf collection':   ['benchmark/SKILL.md', 'benchmark/SKILL.md.tmpl'],
   'setup-deploy/SKILL.md platform setup': ['setup-deploy/SKILL.md', 'setup-deploy/SKILL.md.tmpl'],
+  'build monitor-agent prompt contract':   ['build/SKILL.md', 'build/SKILL.md.tmpl', 'build/orchestrator/monitor-supervisor.ts'],
 
   // Other skills
   'retro/SKILL.md instructions':          ['retro/SKILL.md', 'retro/SKILL.md.tmpl'],

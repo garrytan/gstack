@@ -57,6 +57,11 @@
       "model": "claude-sonnet-4-6",
       "reasoning": "xhigh"
     },
+    "monitorAgent": {
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
+      "reasoning": "high"
+    },
     "ship": {
       "provider": "kimi",
       "model": "kimi-code/kimi-for-coding",

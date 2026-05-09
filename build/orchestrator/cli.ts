@@ -69,6 +69,7 @@ import {
   runKimi,
   runClaudeTask,
   runSlashCommand,
+  runConfiguredRoleTask,
   runRoleTask as runGeminiRoleTask,
   detectTestCmd,
   runTests,
@@ -142,6 +143,7 @@ import {
 } from "./role-config";
 import { BUILD_DEFAULTS } from "./build-config";
 import { evaluateMonitorOnce, monitorExitCode } from "./monitor";
+import { buildMonitorAgentEscalation } from "./monitor-supervisor";
 import {
   renderPlanStatusTable,
   resolvePlanSelection,
@@ -570,6 +572,8 @@ export interface Args {
   monitorOnce: boolean;
   /** Keep the monitor in the foreground until terminal action or max wall time. */
   monitorWatch: boolean;
+  /** Ask the configured monitorAgent to diagnose blocking monitor events. */
+  monitorSupervise: boolean;
   /** Poll interval for monitor --watch. */
   monitorPollMs: number;
   /** Maximum foreground monitor wall time before MONITOR_REENTER. */
@@ -637,6 +641,7 @@ export function parseArgs(argv: string[]): Args {
     monitorManifest: undefined,
     monitorOnce: false,
     monitorWatch: false,
+    monitorSupervise: false,
     monitorPollMs: 60_000,
     monitorMaxWallMs: 3_600_000,
     releaseDaemonCommand: undefined,
@@ -715,6 +720,7 @@ export function parseArgs(argv: string[]): Args {
       args.monitorManifest = path.resolve(next);
     } else if (a === "--once") args.monitorOnce = true;
     else if (a === "--watch") args.monitorWatch = true;
+    else if (a === "--supervise") args.monitorSupervise = true;
     else if (a === "--poll-ms") {
       const next = argv[++i];
       const n = Number(next);
@@ -888,6 +894,7 @@ export function parseArgs(argv: string[]): Args {
       args.monitorManifest ||
       args.monitorOnce ||
       args.monitorWatch ||
+      args.monitorSupervise ||
       args.monitorPollMs !== 60_000 ||
       args.monitorMaxWallMs !== 3_600_000
     ) {
@@ -909,6 +916,19 @@ export function parseArgs(argv: string[]): Args {
       console.error("gstack-build plan-status requires --gstack-repo <path>");
       process.exit(2);
     }
+    if (
+      args.monitorManifest ||
+      args.monitorOnce ||
+      args.monitorWatch ||
+      args.monitorSupervise ||
+      args.monitorPollMs !== 60_000 ||
+      args.monitorMaxWallMs !== 3_600_000
+    ) {
+      console.error(
+        "monitor flags require: gstack-build monitor --manifest <path>",
+      );
+      process.exit(2);
+    }
   } else if (positional[0] === "release-daemon") {
     const command = positional[1];
     if (
@@ -925,6 +945,12 @@ export function parseArgs(argv: string[]): Args {
     }
     args.mode = "release-daemon";
     args.releaseDaemonCommand = command;
+    if (args.monitorSupervise) {
+      console.error(
+        "monitor flags require: gstack-build monitor --manifest <path>",
+      );
+      process.exit(2);
+    }
     if (command === "run") {
       if (positional.length !== 2) {
         console.error(
@@ -980,6 +1006,7 @@ export function parseArgs(argv: string[]): Args {
       args.monitorManifest ||
       args.monitorOnce ||
       args.monitorWatch ||
+      args.monitorSupervise ||
       args.monitorPollMs !== 60_000 ||
       args.monitorMaxWallMs !== 3_600_000
     ) {
@@ -1674,7 +1701,7 @@ export const HELP_TEXT = `gstack-build — code-driven phase orchestrator
 Usage:
   gstack-build <plan-file> [flags]
   gstack-build merge [flags]
-  gstack-build monitor --manifest <path> [--once|--watch] [--poll-ms 60000] [--max-wall-ms <ms>]
+  gstack-build monitor --manifest <path> [--once|--watch] [--supervise] [--poll-ms 60000] [--max-wall-ms <ms>]
   gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json] [--all]
   gstack-build release-daemon <install|uninstall|status|run|retry> [flags]
 
@@ -1709,6 +1736,8 @@ Flags:
   --manifest <path>    Manifest v2 JSON for monitor mode.
   --once               Evaluate monitor mode once and exit.
   --watch              Keep monitor mode in the foreground until a terminal event.
+  --supervise          On blocking monitor events, ask configured monitorAgent
+                       for strict JSON diagnosis/escalation.
   --poll-ms N          Monitor watch poll interval. Default: 60000.
                        For release-daemon run, default: 30000.
   --max-wall-ms N      Monitor watch re-entry timeout. Default: 3600000.
@@ -1727,6 +1756,7 @@ Flags:
   --qa-model <m>                   Default: ${DEFAULT_ROLE_CONFIGS.qa.model}.
   --ship-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.ship.model}.
   --land-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.land.model}.
+  --monitor-agent-model <m>        Default: ${DEFAULT_ROLE_CONFIGS.monitorAgent.model}.
   --<role>-provider <p>            claude|codex|gemini|kimi. Dual-impl implementors and judge are model-agnostic.
   --<role>-reasoning <r>           low|medium|high|xhigh.
   --<role>-command <cmd>           For review, review-secondary, qa, ship, and land.
@@ -1755,6 +1785,7 @@ Monitor exit codes:
   0  ALL_RUNS_COMPLETE
   10 HOST_CONTEXT_SAVE_REQUIRED
   11 USER_ACTION_REQUIRED
+     MONITOR_AGENT_ESCALATION
   12 MONITOR_REENTER
   20 RUN_FAILED
   30 MONITOR_ERROR
@@ -5595,6 +5626,25 @@ function printMonitorEvent(evt: unknown): void {
   console.log(JSON.stringify(evt));
 }
 
+async function maybePrintMonitorAgentEscalation(
+  args: Args,
+  evaluation: ReturnType<typeof evaluateMonitorOnce>,
+): Promise<boolean> {
+  if (!args.monitorSupervise || !args.monitorManifest) return false;
+  if (evaluation.terminalEvent.event === "HOST_CONTEXT_SAVE_REQUIRED") {
+    return false;
+  }
+  const escalation = await buildMonitorAgentEscalation({
+    manifestPath: args.monitorManifest,
+    evaluation,
+    role: args.roles.monitorAgent,
+    runner: runConfiguredRoleTask,
+  });
+  if (!escalation) return false;
+  printMonitorEvent(escalation);
+  return true;
+}
+
 async function runMonitorMode(args: Args): Promise<number> {
   if (!args.monitorManifest) {
     console.error("gstack-build monitor requires --manifest <path>");
@@ -5607,6 +5657,9 @@ async function runMonitorMode(args: Args): Promise<number> {
       pollMs: args.monitorPollMs,
     });
     for (const evt of evaluation.events) printMonitorEvent(evt);
+    if (await maybePrintMonitorAgentEscalation(args, evaluation)) {
+      return monitorExitCode("MONITOR_AGENT_ESCALATION");
+    }
     return monitorExitCode(evaluation.terminalEvent.event);
   }
 
@@ -5625,6 +5678,9 @@ async function runMonitorMode(args: Args): Promise<number> {
     if (evaluation.terminalEvent.event !== "MONITOR_REENTER") {
       if (!evaluation.events.some((evt) => evt === evaluation.terminalEvent)) {
         printMonitorEvent(evaluation.terminalEvent);
+      }
+      if (await maybePrintMonitorAgentEscalation(args, evaluation)) {
+        return monitorExitCode("MONITOR_AGENT_ESCALATION");
       }
       return monitorExitCode(evaluation.terminalEvent.event);
     }

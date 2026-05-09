@@ -19,6 +19,7 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "feature-review-prompt.ts": ["feature-review-prompt.test.ts"],
   "feature-review.ts": ["feature-review.test.ts"],
   "gbrain.ts": ["gbrain.test.ts"],
+  "monitor-supervisor.ts": ["monitor.test.ts", "cli.test.ts", "role-config.test.ts"],
   "monitor.ts": ["monitor.test.ts", "cli.test.ts", "skill-md.test.ts"],
   "parallel-planner.ts": ["parallel-planner.test.ts", "integration.test.ts"],
   "plan-claims.ts": ["plan-selection.test.ts", "monitor.test.ts"],

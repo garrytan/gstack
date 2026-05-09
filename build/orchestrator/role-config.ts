@@ -28,6 +28,12 @@ export interface RoleConfigs {
    * verdict contract.
    */
   featureReview: RoleConfig;
+  /**
+   * Advisory supervisor for `gstack-build monitor --supervise`. The
+   * deterministic monitor still owns run identity/recovery; this role only
+   * diagnoses blocking monitor events and returns structured escalation JSON.
+   */
+  monitorAgent: RoleConfig;
 }
 
 export const ROLE_DEFINITIONS = [
@@ -42,6 +48,7 @@ export const ROLE_DEFINITIONS = [
   ["land", "land", "GSTACK_BUILD_LAND"],
   ["judge", "judge", "GSTACK_BUILD_JUDGE"],
   ["featureReview", "feature-review", "GSTACK_BUILD_FEATURE_REVIEW"],
+  ["monitorAgent", "monitor-agent", "GSTACK_BUILD_MONITOR_AGENT"],
 ] as const satisfies readonly [keyof RoleConfigs, string, string][];
 
 export type RoleKey = (typeof ROLE_DEFINITIONS)[number][0];

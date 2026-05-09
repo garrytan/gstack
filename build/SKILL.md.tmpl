@@ -35,6 +35,8 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 
 **Always use the code-driven CLI.** Route all plans — even single-phase — to `gstack-build`. The LLM-driven loop stalls between phases even on 2-phase builds, and context compaction mid-build causes the agent to silently forget rules. Your role: locate plan → synthesize living plan → confirm with user → launch CLI → monitor.
 
+**Never use `ScheduleWakeup` for `/build` monitoring.** A scheduled host wakeup is not durable build supervision: the build can fail, block, or need recovery while the chat stays asleep until the user manually asks for status. After every launch, relaunch, resume, or manual recovery, the next action must be the foreground `gstack-build monitor --manifest ... --watch --supervise` command. Do not say "checking back", "back in N minutes", or end the turn while a manifest-backed run is still active.
+
 **Execution Modes**:
 - **Normal Mode**: Locate the source plan, synthesize a new living plan, create the first feature branch, then launch the CLI. (Default)
 - **Resume Mode**: Triggered only after `gstack-build plan-status --resume` selects exactly one resumable candidate, or when the user gives an explicit resume command such as `/build --resume <runId>` or `/build /abs/living-plan.md --resume`. Partially completed living plans are stored under `*-gstack/inbox/living-plan/`, but Resume Mode never guesses from chat history, current session state, branch name, newest mtime, or a living-plan scan. It still runs the shared resolver bootstrap below, then either re-enters the exact manifest monitor or stops with exact commands.
@@ -104,7 +106,7 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
    - `/build resume` and `/build --resume` set `_RESUME_REQUESTED=yes` and run `gstack-build plan-status --resume --json`.
    - `/build --resume <runId>` sets `_RESUME_REQUESTED=yes`, `_RESUME_RUN_ID=<runId>`, and runs `gstack-build plan-status --resume "$_RESUME_RUN_ID" --json`.
    - `/build /abs/living-plan.md --resume` sets `_RESUME_REQUESTED=yes`, `_RESUME_PLAN_PATH=/abs/living-plan.md`, and runs `gstack-build plan-status --resume --plan "$_RESUME_PLAN_ABS" --json`. Do not add this path to `_EXPLICIT_SOURCE_PLAN_PATHS`.
-   - If the resolver selects exactly one manifest-backed candidate with `monitorCommand`, immediately run that exact monitor command. This is the only auto-resume path.
+   - If the resolver selects exactly one manifest-backed candidate with `monitorCommand`, immediately re-enter that exact manifest through `gstack-build monitor --manifest <manifest> --watch --supervise`. This is the only auto-resume path.
    - If the resolver selects exactly one legacy manifestless candidate, print its explicit command, for example `/build /abs/living-plan.md --resume`, and STOP. Do not synthesize `gstack-build <plan> --resume`; raw `--resume` remains a `plan-status` flag only.
    - If the resolver returns `ambiguous`, `blocked`, or `none`, print the human table from `gstack-build plan-status --resume`, say `/build` will not infer from session/chat/branch/newest mtime, and STOP with the exact commands it suggests.
 
@@ -114,7 +116,7 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
    - Explicit Markdown paths in the user request or current context are passed to `gstack-build plan-status --plan <path> --json`. Verify every path exists before using it.
    - `--all-inbox` uses `gstack-build plan-status --all-inbox --json` and selects every unclaimed `$GSTACK_REPO/inbox/*-plan-*.md`.
    - With no explicit paths and no `--all-inbox`, use `gstack-build plan-status --json`. Auto-select only if the resolver returns exactly one safe `source-plan`.
-   - Multiple source plans, multiple living plans, mixed source/living candidates, live claims, or active duplicate runs are hard stops. Print the resolver table and the exact `/build ...`, `/build --resume ...`, or `gstack-build monitor --manifest ... --watch` commands.
+   - Multiple source plans, multiple living plans, mixed source/living candidates, live claims, or active duplicate runs are hard stops. Print the resolver table and the exact `/build ...`, `/build --resume ...`, or `gstack-build monitor --manifest ... --watch --supervise` commands.
 
    Claim source plans before synthesis. For each selected source plan, use the resolver-provided canonical `claimPath` (`<hash-stabilized-plan-id>.json`), not the source-plan basename. Create it with exclusive create (`noclobber`/`>|` must not overwrite). If the create fails, immediately rerun `gstack-build plan-status --gstack-repo "$GSTACK_REPO" --project-root <repo>` and report the owner instead of continuing. Initial claims store `runGroupId`, `sourcePlanPath`, `hostname`, `pid`, `status`, and timestamp. After manifest creation, enrich those claims with `runIds`, `repoPaths`, and updated `status`. Do not steal active claims with live PIDs. Completed or failed stale claims are cleanup candidates only after user confirmation.
 
@@ -188,7 +190,7 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
        none)
          _NONE_HINT="No safe plan candidate found. Specify an exact plan path or use --all-inbox."
          for _STATUS_ARG in "$@"; do
-           [ "$_STATUS_ARG" = "--resume" ] && _NONE_HINT="No safe resume candidate found. Use /build --resume <runId>, /build /abs/living-plan.md --resume, or gstack-build monitor --manifest /abs/build-run-manifest.json --watch."
+           [ "$_STATUS_ARG" = "--resume" ] && _NONE_HINT="No safe resume candidate found. Use /build --resume <runId>, /build /abs/living-plan.md --resume, or gstack-build monitor --manifest /abs/build-run-manifest.json --watch --supervise."
          done
          echo "$_NONE_HINT" >&2
          _print_plan_status_table "$@"
@@ -224,9 +226,9 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
      _MONITOR_MANIFEST=$(jq -r '.selected.manifestPath // empty' "$BUILD_TMP_DIR/build-plan-status-resume.json")
      _RESUME_COMMAND=$(jq -r '.selected.command // empty' "$BUILD_TMP_DIR/build-plan-status-resume.json")
      if [ -n "$_MONITOR_COMMAND" ] && [ -n "$_MONITOR_MANIFEST" ]; then
-       echo "Resuming exact manifest-backed build monitor:"
-       echo "$_MONITOR_COMMAND"
-       "$_GSTACK_BUILD_CLI" monitor --manifest "$_MONITOR_MANIFEST" --watch
+       echo "Resuming exact manifest-backed build monitor with supervisor:"
+       echo "$_GSTACK_BUILD_CLI monitor --manifest $_MONITOR_MANIFEST --watch --supervise"
+       "$_GSTACK_BUILD_CLI" monitor --manifest "$_MONITOR_MANIFEST" --watch --supervise
        exit $?
      fi
      if [ -n "$_RESUME_COMMAND" ]; then
@@ -535,7 +537,7 @@ Recommendation: A) Launch and monitor — plan is approved and ready.
 Note: options differ in kind, not coverage — no completeness score.
 Pros / cons:
 A) Launch in background and monitor (recommended)
-  ✅ Hands-free: progress reported every 60s, faults surfaced with full log context
+  ✅ Hands-free: CLI monitor stays awake, progress reported every 60s, faults surfaced with full log context
   ❌ Runs autonomously — branch changes happen without per-phase confirmation
 B) Print the command to run manually instead
   ✅ Full user control over when and how the CLI runs
@@ -723,15 +725,15 @@ _mark_manifest_claims_running
 
 Store the manifest path and run group id for the foreground monitor. Monitor reads manifest v2 and each run's PID/state files. There is no global `build-active-run-index`.
 
-After this launch block finishes, the next tool call must be Bash running Step M3. Do not summarize status, schedule a host timer, or poll process state manually between Step M2 and Step M3.
+After this launch block finishes, the next tool call must be Bash running Step M3. Do not summarize status, call `ScheduleWakeup`, schedule any host timer, or poll process state manually between Step M2 and Step M3.
 
 ### Step M3: Foreground CLI Monitor
 
-Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
+Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. Do not use `ScheduleWakeup`, delayed reminders, or "check back later" messages as a substitute for this command. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
 
 ```bash
 BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}
-"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
 _MONITOR_EXIT=$?
 ```
 
@@ -744,6 +746,7 @@ The `status` field is the current CLI phase status when available, including nor
 | 0 | `ALL_RUNS_COMPLETE` |
 | 10 | `HOST_CONTEXT_SAVE_REQUIRED` |
 | 11 | `USER_ACTION_REQUIRED` |
+| 11 | `MONITOR_AGENT_ESCALATION` |
 | 12 | `MONITOR_REENTER` |
 | 20 | `RUN_FAILED` |
 | 30 | `MONITOR_ERROR` |
@@ -762,7 +765,7 @@ When the final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`, immediately run the ho
 
 ```bash
 printf '%s\n' "<committed from JSON>" > "<countFile from JSON>"
-"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
 ```
 
 If the host cannot invoke skills natively, report that limitation once and write the count file to avoid a noisy loop; do not spawn a cross-provider substitute.
@@ -771,7 +774,8 @@ If the host cannot invoke skills natively, report that limitation once and write
 
 - `USER_ACTION_REQUIRED`: read the final JSON `message` plus the referenced `stdoutLog` and ask the user for the next action. Do not kill or resume manually unless the user chooses that path.
 - `RUN_FAILED`: report the failed run and preserve its worktree for debugging. Use the referenced `stateFile` and `stdoutLog` for the failure summary.
-- `MONITOR_REENTER`: the foreground watch reached `--max-wall-ms`; immediately re-run the same monitor command in the same host session.
+- `MONITOR_AGENT_ESCALATION`: the CLI-owned supervisor already asked the configured `monitorAgent` to diagnose a blocking event. Read `sourceEvent`, `verdict`, `recommendedHostAction`, `suggestedCommands`, and `userChoices`. If `verdict` is `host_action_required`, perform the safe host action or inspection command. If `verdict` is `user_action_required`, ask the user to choose. Do not let the monitor agent edit, commit, kill processes, patch state JSON, or override deterministic monitor identity checks.
+- `MONITOR_REENTER`: the foreground watch reached `--max-wall-ms`; immediately re-run the same monitor command in the same host session. Do not use `ScheduleWakeup` here.
 - `MONITOR_ERROR`: stop and report the error. Historical manifests without `launchCommand` are invalid; regenerate or relaunch through Step M2.
 
 ---

@@ -983,6 +983,28 @@ export async function runSlashCommand(opts: {
   gate?: boolean;
   sandbox?: CodexSandbox;
 }): Promise<SubAgentResult> {
+  return runConfiguredRoleTask({ ...opts, codexDefaultCommand: "/gstack-review" });
+}
+
+export async function runConfiguredRoleTask(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  slug: string;
+  phaseNumber?: string;
+  iteration?: number;
+  logPrefix: string;
+  role: {
+    provider: RoleProvider;
+    model: string;
+    reasoning: RoleReasoning;
+    command?: string;
+  };
+  timeoutMs?: number;
+  gate?: boolean;
+  sandbox?: CodexSandbox;
+  codexDefaultCommand?: string;
+}): Promise<SubAgentResult> {
   if (opts.role.provider === "claude") {
     return runClaudeTask({
       inputFilePath: opts.inputFilePath,
@@ -1036,7 +1058,10 @@ export async function runSlashCommand(opts: {
     slug: opts.slug,
     phaseNumber: opts.phaseNumber ?? "ship",
     iteration: opts.iteration ?? 1,
-    command: opts.role.command,
+    command:
+      opts.role.command ??
+      opts.codexDefaultCommand ??
+      "the requested task described in the input file",
     model: opts.role.model,
     reasoning: opts.role.reasoning,
     gate: opts.gate,

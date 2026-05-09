@@ -339,9 +339,35 @@ describe("monitor subcommand wiring", () => {
     expect(args.monitorOnce).toBe(true);
   });
 
+  it("parseArgs supports monitor --supervise and monitor-agent role overrides", () => {
+    const manifest = path.join(os.tmpdir(), "manifest.json");
+    const args = parseArgs([
+      "monitor",
+      "--manifest",
+      manifest,
+      "--watch",
+      "--supervise",
+      "--monitor-agent-provider",
+      "codex",
+      "--monitor-agent-model",
+      "monitor-model-under-test",
+      "--monitor-agent-reasoning",
+      "medium",
+    ]);
+    expect(args.mode).toBe("monitor");
+    expect(args.monitorWatch).toBe(true);
+    expect(args.monitorSupervise).toBe(true);
+    expect(args.roles.monitorAgent.provider).toBe("codex");
+    expect(args.roles.monitorAgent.model).toBe("monitor-model-under-test");
+    expect(args.roles.monitorAgent.reasoning).toBe("medium");
+  });
+
   it("--help text documents monitor mode and exit codes", () => {
     expect(HELP_TEXT).toContain("gstack-build monitor --manifest <path>");
+    expect(HELP_TEXT).toContain("--supervise");
+    expect(HELP_TEXT).toContain("--monitor-agent-model");
     expect(HELP_TEXT).toContain("HOST_CONTEXT_SAVE_REQUIRED");
+    expect(HELP_TEXT).toContain("MONITOR_AGENT_ESCALATION");
     expect(HELP_TEXT).toContain("MONITOR_REENTER");
   });
 
@@ -354,8 +380,13 @@ describe("monitor subcommand wiring", () => {
 
   it("rejects monitor-only flags outside monitor mode", () => {
     expectParseArgsExit(["plan.md", "--once"], "monitor flags require");
+    expectParseArgsExit(["plan.md", "--supervise"], "monitor flags require");
     expectParseArgsExit(
       ["merge", "--manifest", "manifest.json"],
+      "monitor flags require",
+    );
+    expectParseArgsExit(
+      ["plan-status", "--gstack-repo", ".", "--supervise"],
       "monitor flags require",
     );
   });

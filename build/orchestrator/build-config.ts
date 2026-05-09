@@ -55,6 +55,7 @@ const ROLE_KEYS: RoleKey[] = [
   "land",
   "judge",
   "featureReview",
+  "monitorAgent",
 ];
 
 const PROVIDERS: RoleProvider[] = ["claude", "codex", "gemini", "kimi"];
@@ -120,8 +121,8 @@ function withMigratedRoles(value: unknown, filePath: string): unknown {
   const isLoadingDefault =
     path.resolve(filePath) === path.resolve(DEFAULT_BUILD_CONFIG_FILE);
   delete roles.contextSave;
-  if (!roles.featureReview && !isLoadingDefault) {
-    roles.featureReview = readDefaultRole("featureReview");
+  for (const key of ["featureReview", "monitorAgent"] as const) {
+    if (!roles[key] && !isLoadingDefault) roles[key] = readDefaultRole(key);
   }
   return roles;
 }

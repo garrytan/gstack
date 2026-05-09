@@ -59,6 +59,22 @@ describe("role config defaults", () => {
     expect(DEFAULT_ROLE_CONFIGS.featureReview.command).toBeUndefined();
   });
 
+  it("includes the configured monitorAgent role", () => {
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent).toBeDefined();
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent.provider).toBe("kimi");
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent.model.trim()).not.toBe("");
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent.command).toBeUndefined();
+    expect(
+      ROLE_DEFINITIONS.some(([key, flag, prefix]) => {
+        return (
+          key === "monitorAgent" &&
+          flag === "monitor-agent" &&
+          prefix === "GSTACK_BUILD_MONITOR_AGENT"
+        );
+      }),
+    ).toBe(true);
+  });
+
   it("does not expose contextSave as a configured build role", () => {
     const loaded = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
     expect((loaded.roles as any).contextSave).toBeUndefined();
@@ -96,7 +112,7 @@ describe("role config precedence helpers", () => {
     }
   });
 
-  it("backfills featureReview role + new limits/timeouts for pre-feature-review user configs", () => {
+  it("backfills featureReview and monitorAgent roles + new limits/timeouts for older user configs", () => {
     // Real-world scenario: a user installed gstack before the feature-level
     // review existed and edited their configure.cm. On upgrade, they hit
     // `must be a positive number` on featureReviewMaxIterations because
@@ -106,6 +122,7 @@ describe("role config precedence helpers", () => {
       const file = path.join(dir, "configure.cm");
       const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
       delete (defaults.roles as any).featureReview;
+      delete (defaults.roles as any).monitorAgent;
       delete (defaults.limits as any).featureReviewMaxIterations;
       delete (defaults.timeoutsMs as any).kimi;
       delete (defaults.timeoutsMs as any).featureReview;
@@ -113,6 +130,9 @@ describe("role config precedence helpers", () => {
       const loaded = loadBuildDefaults(file);
       expect(loaded.roles.featureReview).toEqual(
         DEFAULT_ROLE_CONFIGS.featureReview,
+      );
+      expect(loaded.roles.monitorAgent).toEqual(
+        DEFAULT_ROLE_CONFIGS.monitorAgent,
       );
       expect(loaded.limits.featureReviewMaxIterations).toBe(3);
       expect(loaded.timeoutsMs.kimi).toBe(900000);
@@ -151,6 +171,17 @@ describe("role config precedence helpers", () => {
     expect(roles.featureReview.provider).toBe("claude");
     expect(roles.featureReview.model).toBe("feature-review-model-under-test");
     expect(roles.featureReview.reasoning).toBe("high");
+  });
+
+  it("honors GSTACK_BUILD_MONITOR_AGENT_* env overrides", () => {
+    const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
+      GSTACK_BUILD_MONITOR_AGENT_PROVIDER: "codex",
+      GSTACK_BUILD_MONITOR_AGENT_MODEL: "monitor-agent-model-under-test",
+      GSTACK_BUILD_MONITOR_AGENT_REASONING: "medium",
+    });
+    expect(roles.monitorAgent.provider).toBe("codex");
+    expect(roles.monitorAgent.model).toBe("monitor-agent-model-under-test");
+    expect(roles.monitorAgent.reasoning).toBe("medium");
   });
 
   it("accepts kimi as a role provider", () => {

@@ -69,6 +69,11 @@
       "model": "claude-opus-4-7",
       "reasoning": "xhigh"
     },
+    "monitorAgent": {
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
+      "reasoning": "high"
+    },
     "featureVerifier": {
       "provider": "claude",
       "model": "claude-opus-4-7",
