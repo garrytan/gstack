@@ -758,7 +758,7 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 
 **Execution Modes**:
 - **Normal Mode**: Locate the source plan, synthesize a new living plan, create the first feature branch, then launch the CLI. (Default)
-- **Resume Mode**: Triggered only after `gstack-build plan-status --resume` selects exactly one resumable candidate, or when the user gives an explicit resume command such as `/build --resume <runId>` or `/build /abs/living-plan.md --resume`. Partially completed living plans are stored under `*-gstack/inbox/living-plan/`, but Resume Mode never guesses from chat history, current session state, branch name, newest mtime, or a living-plan scan. It still runs the shared resolver bootstrap below, then either re-enters the exact manifest monitor or stops with exact commands.
+- **Resume Mode**: Triggered only after `gstack-build plan-status --resume` selects exactly one resumable candidate, or when the user gives an explicit resume command such as `/build --resume <runId>` or `/build /abs/living-plan.md --resume`. Partially completed living plans are stored under `*-gstack/inbox/living-plan/`. Resume Mode may use visible session context only to extract exact run IDs or living-plan paths, then must let `plan-status` decide; it never selects directly from vague chat memory, current session state, branch name, newest mtime, recency, unlabeled tokens, or a living-plan scan. It still runs the shared resolver bootstrap below, then either re-enters the exact manifest monitor or stops with exact commands.
 - **Reexamine Mode**: Triggered if the user asks to "reexamine", "audit", or "rerun the full process" for an implemented plan. Skip Steps 1.4–1.6. Locate the existing living plan and proceed to **Reexamine Mode: Parallel Audit Subagents** below.
 - **Merge Mode**: Triggered if the user asks `/build merge`, "build merge", or to merge leftover feature branches. Skip plan discovery and launch `gstack-build merge` for the selected product repo.
 
@@ -778,7 +778,7 @@ Use this mode when the user asks `/build merge` or wants past build branches mer
 
 ## Step 1: Set Up Resolver & Synthesize Living Plan (Normal/Resume Mode)
 
-Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1.1–1.2 so repo identity and run identity are resolved by `plan-status`, not inferred from the current Claude/Codex session.
+Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the shared resolver bootstrap so repo identity and run identity are resolved by `plan-status`, not selected directly from the current Claude/Codex session.
 
 1. **Discover workspace, gstack repo, and candidate product repos**:
    `/build` supports two layouts:
@@ -819,6 +819,28 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
    If exactly one `*-gstack` match exists under `WORKSPACE_ROOT`, set `GSTACK_REPO` to it. If multiple matches exist or none exists, STOP and ask the user to specify the correct `*-gstack` repo path. Create `$GSTACK_REPO/inbox/`, `$GSTACK_REPO/inbox/living-plan/`, and `$GSTACK_REPO/archived/` if missing. This chooses plan storage only; it does not choose a plan file or target repo. Plans are stored in the workspace-level `*-gstack/inbox/`, never in product repos.
    When reporting progress, say "scanning workspace `<WORKSPACE_ROOT>` for `*-gstack` and child product repos."
 
+   **Session Context Hints (host-owned, resolver-validated)**:
+   The Claude/Codex host session may inspect only its visible current conversation to extract exact hints, then populate the existing shell variables below before the resolver runs. Do not add CLI transcript parsing, context files, new flags, or a second selector. The host suggests exact inputs; `gstack-build plan-status` remains the only authority that selects, blocks, or reports ambiguity.
+
+   Precedence:
+   1. Explicit arguments in the current `/build` request always win.
+   2. If there are no explicit arguments, exactly one session hint may populate `_EXPLICIT_SOURCE_PLAN_PATHS`, `_RESUME_RUN_ID`, or `_RESUME_PLAN_PATH`.
+   3. If there is no exact hint, use the existing default `plan-status` selection.
+   4. If hints or resolver candidates are ambiguous, blocked, or missing, STOP and print exact next commands.
+
+   Exact source-plan hints:
+   - Only exact existing Markdown paths visible in the current session may populate `_EXPLICIT_SOURCE_PLAN_PATHS`.
+   - Treat a session source-plan hint exactly like `/build /abs/plan.md`; route it through `gstack-build plan-status --plan "$_EXPLICIT_PLAN_ABS" --json`.
+   - If multiple exact source-plan hints are visible and the current user request did not explicitly choose one, STOP and ask for an exact `/build /abs/plan.md` command.
+
+   Exact resume hints:
+   - Apply only when the current request has resume intent, such as `resume`, `continue build`, `/build resume`, or `/build --resume`.
+   - Exact run IDs may populate `_RESUME_RUN_ID` only when they come from labeled build output such as `RUN_ID:`, `runId`, or `/build --resume <runId>`.
+   - Exact living-plan paths may populate `_RESUME_PLAN_PATH`; never add them to `_EXPLICIT_SOURCE_PLAN_PATHS` during resume.
+   - If both a labeled run ID and a living-plan path are visible, `_RESUME_RUN_ID` is the stronger identity and wins.
+   - If multiple run IDs or multiple living-plan paths are visible and the current user request did not explicitly choose one, STOP and ask for an exact `/build --resume <runId>` or `/build /abs/living-plan.md --resume` command.
+   - Ignore vague references, branch names, newest mtime, recency, and unlabeled hyphenated tokens that merely look like run IDs.
+
 2. **Check resolver status first**: `/build` plan choice is made by the read-only CLI resolver, never by "latest file" intuition. Resolve `_GSTACK_BUILD_CLI` before plan lookup, then run `gstack-build plan-status --gstack-repo "$GSTACK_REPO" --json` with `--project-root <repo>` when exactly one target product repo is known. If the resolver returns `blocked` or `ambiguous`, print the human table (`gstack-build plan-status --gstack-repo "$GSTACK_REPO" --project-root <repo>`) and STOP with the exact commands it suggests. If it returns a single `living-plan`, switch to Resume Mode for that run/living plan and go directly to the CLI Monitoring Loop. Do not scan `inbox/living-plan` yourself to pick a resume target.
 
    Resume request selection:
@@ -827,12 +849,12 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
    - `/build /abs/living-plan.md --resume` sets `_RESUME_REQUESTED=yes`, `_RESUME_PLAN_PATH=/abs/living-plan.md`, and runs `gstack-build plan-status --resume --plan "$_RESUME_PLAN_ABS" --json`. Do not add this path to `_EXPLICIT_SOURCE_PLAN_PATHS`.
    - If the resolver selects exactly one manifest-backed candidate with `monitorCommand`, immediately re-enter that exact manifest through `gstack-build monitor --manifest <manifest> --watch --supervise`. This is the only auto-resume path.
    - If the resolver selects exactly one legacy manifestless candidate, print its explicit command, for example `/build /abs/living-plan.md --resume`, and STOP. Do not synthesize `gstack-build <plan> --resume`; raw `--resume` remains a `plan-status` flag only.
-   - If the resolver returns `ambiguous`, `blocked`, or `none`, print the human table from `gstack-build plan-status --resume`, say `/build` will not infer from session/chat/branch/newest mtime, and STOP with the exact commands it suggests.
+   - If the resolver returns `ambiguous`, `blocked`, or `none`, print the human table from `gstack-build plan-status --resume`, say `/build` uses session context only for exact paths/run IDs and will not infer from vague chat memory, branch name, newest mtime, recency, or unlabeled tokens, and STOP with the exact commands it suggests.
 
 3. **Locate the source plan(s) with the resolver**: Use a per-run temp directory, never global `.llm-tmp/build-*` files. All locator, synthesizer, manifest, PID, and monitor files for this invocation live under `.llm-tmp/build-runs/<runGroupId>/`.
 
    Source-plan selection:
-   - Explicit Markdown paths in the user request or current context are passed to `gstack-build plan-status --plan <path> --json`. Verify every path exists before using it.
+   - Explicit Markdown paths in the user request or exact session hints are passed to `gstack-build plan-status --plan <path> --json`. Verify every path exists before using it.
    - `--all-inbox` uses `gstack-build plan-status --all-inbox --json` and selects every unclaimed `$GSTACK_REPO/inbox/*-plan-*.md`.
    - With no explicit paths and no `--all-inbox`, use `gstack-build plan-status --json`. Auto-select only if the resolver returns exactly one safe `source-plan`.
    - Multiple source plans, multiple living plans, mixed source/living candidates, live claims, or active duplicate runs are hard stops. Print the resolver table and the exact `/build ...`, `/build --resume ...`, or `gstack-build monitor --manifest ... --watch --supervise` commands.
@@ -855,10 +877,10 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
    _USED_EXPLICIT_PLAN="no"
    _USED_ALL_INBOX="no"
    _ALL_INBOX_REQUESTED="no"  # set to "yes" only when the current request contains --all-inbox
-   _EXPLICIT_SOURCE_PLAN_PATHS=""  # newline-delimited Markdown paths from the current request/context
-   _RESUME_REQUESTED="no"  # set to "yes" only when the current request is /build resume, /build --resume, or includes a living-plan path with --resume
-   _RESUME_RUN_ID=""  # set only for /build --resume <runId>
-   _RESUME_PLAN_PATH=""  # set only for /build /abs/living-plan.md --resume; never treat it as a source plan
+   _EXPLICIT_SOURCE_PLAN_PATHS=""  # newline-delimited Markdown paths from current request args or one exact host-extracted session hint
+   _RESUME_REQUESTED="no"  # set to "yes" only when the current request is /build resume, /build --resume, includes a living-plan path with --resume, or has resume intent plus one exact session resume hint
+   _RESUME_RUN_ID=""  # set only for /build --resume <runId> or one exact labeled runId session hint
+   _RESUME_PLAN_PATH=""  # set only for /build /abs/living-plan.md --resume or one exact living-plan session hint; never treat it as a source plan
 
    _add_selected_source_plan() {
      _PLAN_PATH="$1"
@@ -919,7 +941,7 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1
        ambiguous|blocked)
          _print_plan_status_table "$@"
          echo "Plan selection is $_RESULT. Use one of the exact commands above." >&2
-         echo "/build will not infer from session memory, chat history, branch name, or newest mtime when multiple builds could apply." >&2
+         echo "/build uses session context only for exact paths/run IDs; it will not infer from vague session memory, branch name, newest mtime, recency, or unlabeled tokens when multiple builds could apply." >&2
          exit 1
          ;;
        *)

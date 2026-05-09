@@ -175,7 +175,7 @@ test("build skill docs route resume requests through plan-status before resuming
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
-    expect(content).toContain("Resume Mode never guesses from chat history");
+    expect(content).toContain("Resume Mode may use visible session context only to extract exact run IDs");
     expect(content).toContain("Skip source-plan synthesis in Reexamine Mode");
     expect(content).not.toContain("Skip this entire step if in Reexamine or Resume Mode");
     expect(content).toContain('_RESUME_REQUESTED="no"');
@@ -194,7 +194,35 @@ test("build skill docs route resume requests through plan-status before resuming
     expect(content).toContain("No safe resume candidate found");
     expect(content).toContain("legacy manifestless resume candidate");
     expect(content).toContain("raw `--resume` remains a `plan-status` flag only");
-    expect(content).toContain("session memory, chat history, branch name, or newest mtime");
+    expect(content).toContain("vague session memory, branch name, newest mtime, recency, or unlabeled tokens");
+  }
+});
+
+test("build skill docs allow exact host-extracted session hints only through plan-status", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("Session Context Hints (host-owned, resolver-validated)");
+    expect(content).toContain("The Claude/Codex host session may inspect only its visible current conversation");
+    expect(content).toContain("Do not add CLI transcript parsing");
+    expect(content).toContain("The host suggests exact inputs; `gstack-build plan-status` remains the only authority");
+    expect(content).toContain("Explicit arguments in the current `/build` request always win");
+    expect(content).toContain("exactly one session hint may populate `_EXPLICIT_SOURCE_PLAN_PATHS`, `_RESUME_RUN_ID`, or `_RESUME_PLAN_PATH`");
+    expect(content).toContain("Treat a session source-plan hint exactly like `/build /abs/plan.md`");
+    expect(content).toContain('gstack-build plan-status --plan "$_EXPLICIT_PLAN_ABS" --json');
+    expect(content).toContain("STOP and ask for an exact `/build /abs/plan.md` command");
+    expect(content).toContain("Apply only when the current request has resume intent");
+    expect(content).toContain("`RUN_ID:`, `runId`, or `/build --resume <runId>`");
+    expect(content).toContain("If both a labeled run ID and a living-plan path are visible, `_RESUME_RUN_ID` is the stronger identity");
+    expect(content).toContain("STOP and ask for an exact `/build --resume <runId>` or `/build /abs/living-plan.md --resume` command");
+    expect(content).toContain("Ignore vague references, branch names, newest mtime, recency, and unlabeled hyphenated tokens");
+    expect(content).toContain('_RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")');
+    expect(content).toContain('_RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")');
   }
 });
 
