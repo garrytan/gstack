@@ -2,7 +2,8 @@ package com.reelscreator
 
 import android.net.Uri
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -15,16 +16,15 @@ import androidx.media3.ui.PlayerView
 @Composable
 fun VideoPreview(path: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val player = remember {
-        ExoPlayer.Builder(context).build().also { exo ->
-            exo.setMediaItem(MediaItem.fromUri(Uri.parse("file://$path")))
-            exo.prepare()
+
+    val player = remember(path) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse("file://$path")))
+            prepare()
         }
     }
 
     DisposableEffect(path) {
-        player.setMediaItem(MediaItem.fromUri(Uri.parse("file://$path")))
-        player.prepare()
         onDispose { player.release() }
     }
 
@@ -37,6 +37,7 @@ fun VideoPreview(path: String, modifier: Modifier = Modifier) {
                     useController = true
                 }
             },
+            update = { view -> view.player = player },
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(9f / 16f)

@@ -16,12 +16,10 @@ dependencyResolutionManagement {
         maven {
             url = uri("https://maven.pkg.github.com/arthenica/ffmpeg-kit")
             credentials {
-                username = providers.environmentVariable("GPR_USER")
-                    .orElse(providers.gradleProperty("gpr.user"))
-                    .orElse("").get()
-                password = providers.environmentVariable("GPR_TOKEN")
-                    .orElse(providers.gradleProperty("gpr.key"))
-                    .orElse("").get()
+                username = System.getenv("GPR_USER")
+                    ?: extra.properties["gpr.user"]?.toString() ?: ""
+                password = System.getenv("GPR_TOKEN")
+                    ?: extra.properties["gpr.key"]?.toString() ?: ""
             }
         }
     }
