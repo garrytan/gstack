@@ -792,7 +792,7 @@ assumptions, catches things you might miss. Present its output faithfully, not s
 
 ---
 
-## Step 0: Check codex binary
+## Step 0.4: Check codex binary
 
 ```bash
 CODEX_BIN=$(which codex 2>/dev/null || echo "")
