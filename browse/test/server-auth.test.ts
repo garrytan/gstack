@@ -72,13 +72,16 @@ describe('Server auth security', () => {
     expect(historyBlock).not.toContain("'*'");
   });
 
-  // Test 6: /activity/stream requires auth (inline Bearer or ?token= check)
+  // Test 6: /activity/stream requires auth via Bearer OR view-only session cookie
+  // (N1: ?token= query param was dropped in v1.6.0.0 — URLs leak to logs/referer)
   test('/activity/stream requires authentication with inline token check', () => {
     const streamBlock = sliceBetween(SERVER_SRC, "url.pathname === '/activity/stream'", "url.pathname === '/activity/history'");
     expect(streamBlock).toContain('validateAuth');
-    expect(streamBlock).toContain('AUTH_TOKEN');
+    expect(streamBlock).toContain('validateSseSessionToken');
     // Should not have wildcard CORS for the SSE stream
     expect(streamBlock).not.toContain("Access-Control-Allow-Origin': '*'");
+    // ?token= query param must NOT be accepted anymore
+    expect(streamBlock).not.toContain("searchParams.get('token')");
   });
 
   // Test 7: /command accepts scoped tokens (not just root)
@@ -142,6 +145,30 @@ describe('Server auth security', () => {
     expect(handleBlock).toContain('Tab not owned by your agent');
   });
 
+  // Test 10a: tab gate is gated on own-only, not on isWrite
+  // Regression test for v1.20.0.0 footgun fix. Pre-fix the gate fired for
+  // any write command from any non-root token, which 403'd local skill
+  // spawns trying to drive the user's natural (unowned) tabs. The bundled
+  // hackernews-frontpage skill failed identically. The fix narrows the
+  // gate to `tabPolicy === 'own-only'` so pair-agent tunnel tokens stay
+  // strict while local shared-policy tokens (skill spawns) get unblocked.
+  test('tab gate predicate is own-only-scoped, not write-scoped', () => {
+    const handleBlock = sliceBetween(SERVER_SRC, "async function handleCommand", "Block mutation commands while watching");
+    // The gate condition must include the own-only check.
+    expect(handleBlock).toContain("tabPolicy === 'own-only'");
+    // It must NOT depend on WRITE_COMMANDS in the gate predicate (only inside
+    // the checkTabAccess call's isWrite arg, which is informational). The
+    // surrounding `if (...) {` for the gate must use `tabPolicy === 'own-only'`
+    // as the trigger, not `WRITE_COMMANDS.has(command) || ...`.
+    const gateLine = handleBlock.split('\n').find(l =>
+      l.includes("command !== 'newtab'") &&
+      l.includes('tokenInfo') &&
+      l.includes('tabPolicy')
+    );
+    expect(gateLine).toBeTruthy();
+    expect(gateLine).not.toMatch(/WRITE_COMMANDS\.has\(command\)\s*\|\|/);
+  });
+
   // Test 10b: chain command pre-validates subcommand scopes
   test('chain handler checks scope for each subcommand before dispatch', () => {
     const metaSrc = fs.readFileSync(path.join(import.meta.dir, '../src/meta-commands.ts'), 'utf-8');
@@ -184,9 +211,9 @@ describe('Server auth security', () => {
     expect(pairBlock).toContain('verifiedTunnelUrl');
     expect(pairBlock).toContain('Tunnel probe failed');
     expect(pairBlock).toContain('marking tunnel as dead');
-    // Must reset tunnel state on failure
-    expect(pairBlock).toContain('tunnelActive = false');
-    expect(pairBlock).toContain('tunnelUrl = null');
+    // Must tear down tunnel state on failure (via closeTunnel helper — clears
+    // tunnelActive, tunnelUrl, tunnelListener, and the tunnel Bun.serve listener)
+    expect(pairBlock).toContain('closeTunnel()');
   });
 
   // Test 11b: /pair returns null tunnel_url when tunnel is dead
@@ -203,7 +230,8 @@ describe('Server auth security', () => {
     const tunnelBlock = sliceBetween(SERVER_SRC, "url.pathname === '/tunnel/start'", "url.pathname === '/refs'");
     // Must probe before returning cached URL
     expect(tunnelBlock).toContain('Cached tunnel is dead');
-    expect(tunnelBlock).toContain('tunnelActive = false');
+    // Must tear down tunnel state on stale detection (via closeTunnel helper)
+    expect(tunnelBlock).toContain('closeTunnel()');
     // Must fall through to restart when dead
     expect(tunnelBlock).toContain('restarting');
   });
@@ -313,7 +341,7 @@ describe('Server auth security', () => {
   // Regression: newtab returned 403 for scoped tokens because the tab ownership
   // check ran before the newtab handler, checking the active tab (owned by root).
   test('newtab is excluded from tab ownership check', () => {
-    const ownershipBlock = sliceBetween(SERVER_SRC, 'Tab ownership check (for scoped tokens)', 'newtab with ownership for scoped tokens');
+    const ownershipBlock = sliceBetween(SERVER_SRC, 'Tab ownership check (own-only tokens / pair-agent isolation)', 'newtab with ownership for scoped tokens');
     // The ownership check condition must exclude newtab
     expect(ownershipBlock).toContain("command !== 'newtab'");
   });

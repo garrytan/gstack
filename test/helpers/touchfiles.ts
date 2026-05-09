@@ -69,15 +69,115 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'review-army-consensus':        ['review/**', 'scripts/resolvers/review-army.ts'],
 
   // Office Hours
-  'office-hours-spec-review':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
+  'office-hours-spec-review':     ['office-hours/**', 'scripts/gen-skill-docs.ts'],
+  'office-hours-forcing-energy':  ['office-hours/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
+  'office-hours-builder-wildness': ['office-hours/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
 
   // Plan reviews
-  'plan-ceo-review':           ['plan-ceo-review/**'],
-  'plan-ceo-review-selective': ['plan-ceo-review/**'],
-  'plan-ceo-review-benefits':  ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-ceo-review':                  ['plan-ceo-review/**'],
+  'plan-ceo-review-selective':        ['plan-ceo-review/**'],
+  'plan-ceo-review-benefits':         ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
+  'plan-ceo-review-expansion-energy': ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
+
+  // Plan-mode smoke tests — gate-tier safety regression tests. Each test file
+  // contains TWO test cases as of v1.21: the baseline plan-mode case and the
+  // AskUserQuestion-blocked regression case (--disallowedTools AskUserQuestion
+  // parameterized — the flag set Conductor uses by default). Touchfiles
+  // include question-tuning.ts and generate-ask-user-format.ts because the
+  // AUTO_DECIDE preamble injection lives there and changes can flip the
+  // regression test outcome between 'asked' and 'auto_decided'.
+  'plan-ceo-review-plan-mode':    ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-eng-review-plan-mode':    ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-design-review-plan-mode': ['plan-design-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-devex-review-plan-mode':  ['plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-mode-no-op':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+
+  // v1.21+ AskUserQuestion-blocked regression tests — Conductor launches
+  // claude with `--disallowedTools AskUserQuestion --permission-mode default`
+  // (verified via `ps`); skills must still surface user-decisions through a
+  // fallback path (mcp__conductor__AskUserQuestion or plan-file flow) rather
+  // than silently auto-deciding. Parameterized regression test cases live
+  // INSIDE the existing 4 plan-X-review-plan-mode test files (covered
+  // transitively by the entries above). Two new standalone files exist for
+  // skills with no prior plan-mode test:
+  'autoplan-auto-mode':           ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'office-hours-auto-mode':       ['office-hours/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'office-hours-phase4-fork':     ['office-hours/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/question-tuning.ts', 'test/helpers/llm-judge.ts', 'test/skill-e2e-office-hours-phase4.test.ts'],
+  'llm-judge-recommendation':     ['test/helpers/llm-judge.ts', 'test/llm-judge-recommendation.test.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'codex/SKILL.md.tmpl', 'scripts/resolvers/review.ts'],
+  // v1.21+ AUTO_DECIDE preserve eval (periodic). Verifies the Tool resolution
+  // fix doesn't trip the legitimate /plan-tune opt-in path: when the user has
+  // written a never-ask preference, AUQ should still auto-decide rather than
+  // surfacing the question. Touches the question-tuning + preference
+  // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
+  'auto-decide-preserved':        ['scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'plan-ceo-review/**', 'bin/gstack-question-preference', 'bin/gstack-config', 'bin/gstack-slug', 'test/helpers/claude-pty-runner.ts'],
+
+  // Real-PTY E2E batch (#6 new tests on the harness).
+  // Each one tests behavior the SDK harness can't observe (rendered TTY,
+  // numbered-option lists, multi-phase ordering, idempotency state echo).
+  'ask-user-question-format-pty':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-ceo-mode-routing':       ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'plan-design-with-ui-scope':   ['plan-design-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
+  'budget-regression-pty':       ['test/helpers/eval-store.ts', 'test/skill-budget-regression.test.ts'],
+  'ship-idempotency-pty':        ['ship/**', 'bin/gstack-next-version', 'lib/worktree.ts', 'test/helpers/claude-pty-runner.ts'],
+  'autoplan-chain-pty':          ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
+  'e2e-harness-audit':            ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/claude-pty-runner.ts'],
+
+  // Per-finding AskUserQuestion count + review-report-at-bottom assertion.
+  // Each test drives its skill end-to-end; touchfiles include preamble +
+  // completion-status resolvers because they affect question cadence and
+  // terminal output (the regression surface this test catches).
+  'plan-ceo-finding-count':      ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-plan-ceo-finding-count.test.ts'],
+  'plan-eng-finding-count':      ['plan-eng-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-plan-eng-finding-count.test.ts'],
+  'plan-design-finding-count':   ['plan-design-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-plan-design-finding-count.test.ts'],
+  'plan-devex-finding-count':    ['plan-devex-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-plan-devex-finding-count.test.ts'],
+
+  // Gate-tier reviewCount-floor counterparts. Catch the May 2026 transcript
+  // bug (model wrote a plan-mode plan and ExitPlanMode'd without firing any
+  // review-phase AskUserQuestion). Uses runPlanSkillFloorCheck — minimal
+  // "did agent fire ANY AUQ?" observer that exits early on first non-permission
+  // numbered-option render. ~1-3 min typical wall time per test, ~$2-6 total.
+  'plan-eng-finding-floor':      ['plan-eng-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts', 'test/fixtures/forcing-finding-seeds.ts', 'test/skill-e2e-plan-eng-finding-floor.test.ts'],
+  'plan-ceo-finding-floor':      ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts', 'test/fixtures/forcing-finding-seeds.ts', 'test/skill-e2e-plan-ceo-finding-floor.test.ts'],
+  'plan-design-finding-floor':   ['plan-design-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts', 'test/fixtures/forcing-finding-seeds.ts', 'test/skill-e2e-plan-design-finding-floor.test.ts'],
+  'plan-devex-finding-floor':    ['plan-devex-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts', 'test/fixtures/forcing-finding-seeds.ts', 'test/skill-e2e-plan-devex-finding-floor.test.ts'],
+  'brain-privacy-gate':           ['scripts/resolvers/preamble/generate-brain-sync-block.ts', 'scripts/resolvers/preamble.ts', 'bin/gstack-brain-sync', 'bin/gstack-artifacts-init', 'bin/gstack-config', 'test/helpers/agent-sdk-runner.ts'],
+
+  // /setup-gbrain Path 4 (Remote MCP) — happy + bad-token end-to-end via
+  // Agent SDK. Gate-tier (deterministic stub server, fixed inputs); fires
+  // when the skill template, the verify helper, the artifacts-init helper,
+  // or the detect script changes.
+  'setup-gbrain-remote':          ['setup-gbrain/SKILL.md.tmpl', 'bin/gstack-gbrain-mcp-verify', 'bin/gstack-artifacts-init', 'bin/gstack-gbrain-detect', 'test/helpers/agent-sdk-runner.ts'],
+  'setup-gbrain-bad-token':       ['setup-gbrain/SKILL.md.tmpl', 'bin/gstack-gbrain-mcp-verify', 'test/helpers/agent-sdk-runner.ts'],
+
+  // AskUserQuestion format regression (RECOMMENDATION + Completeness: N/10)
+  // Fires when either template OR the two preamble resolvers change.
+  'plan-ceo-review-format-mode':      ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md', 'test/helpers/llm-judge.ts'],
+  'plan-ceo-review-format-approach':  ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md', 'test/helpers/llm-judge.ts'],
+  'plan-eng-review-format-coverage':  ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md', 'test/helpers/llm-judge.ts'],
+  'plan-eng-review-format-kind':      ['plan-eng-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md', 'test/helpers/llm-judge.ts'],
+
+  // v1.7.0.0 Pros/Cons format cadence + format + negative-escape evals.
+  // Dependencies: same as format-mode + the 4 plan-review templates + overlay.
+  // All periodic-tier (non-deterministic Opus 4.7 behavior).
+  'plan-ceo-review-prosons-cadence':  ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'plan-review-prosons-format':       ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'plan-review-prosons-hardstop-neg': ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'plan-review-prosons-neutral-neg':  ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+
+  // Expanded coverage (CT3) — 6 non-plan-review skills inherit Pros/Cons via preamble
+  'ship-prosons-format':              ['ship/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'office-hours-prosons-format':      ['office-hours/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'investigate-prosons-format':       ['investigate/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'qa-prosons-format':                ['qa/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'review-prosons-format':            ['review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'design-review-prosons-format':     ['design-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+  'document-release-prosons-format':  ['document-release/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'model-overlays/opus-4-7.md'],
+
+  // /plan-tune (v1 observational)
+  'plan-tune-inspect':         ['plan-tune/**', 'scripts/question-registry.ts', 'scripts/psychographic-signals.ts', 'scripts/one-way-doors.ts', 'bin/gstack-question-log', 'bin/gstack-question-preference', 'bin/gstack-developer-profile'],
 
   // Codex offering verification
   'codex-offered-office-hours':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
@@ -107,10 +207,24 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Learnings
   'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
 
-  // Session Intelligence (timeline, context recovery, checkpoint)
-  'timeline-event-flow':         ['bin/gstack-timeline-log', 'bin/gstack-timeline-read'],
-  'context-recovery-artifacts':  ['scripts/resolvers/preamble.ts', 'bin/gstack-timeline-log', 'bin/gstack-slug', 'learn/**'],
-  'checkpoint-save-resume':      ['checkpoint/**', 'bin/gstack-slug'],
+  // Session Intelligence (timeline, context recovery, /context-save + /context-restore)
+  'timeline-event-flow':            ['bin/gstack-timeline-log', 'bin/gstack-timeline-read'],
+  'context-recovery-artifacts':     ['scripts/resolvers/preamble.ts', 'bin/gstack-timeline-log', 'bin/gstack-slug', 'learn/**'],
+  'context-save-writes-file':       ['context-save/**', 'bin/gstack-slug'],
+  'context-restore-loads-latest':   ['context-restore/**', 'bin/gstack-slug'],
+
+  // Context skills E2E (live-fire, Skill-tool routing path) — see
+  // test/skill-e2e-context-skills.test.ts. These are periodic-tier because
+  // each one spawns claude -p and costs ~$0.20-$0.40. Collectively they
+  // verify the thing the /checkpoint → /context-save rename was for.
+  'context-save-routing':                  ['context-save/**', 'scripts/resolvers/preamble.ts'],
+  'context-save-then-restore-roundtrip':   ['context-save/**', 'context-restore/**', 'bin/gstack-slug'],
+  'context-restore-fragment-match':        ['context-restore/**'],
+  'context-restore-empty-state':           ['context-restore/**'],
+  'context-restore-list-delegates':        ['context-restore/**'],
+  'context-restore-legacy-compat':         ['context-restore/**'],
+  'context-save-list-current-branch':      ['context-save/**'],
+  'context-save-list-all-branches':        ['context-save/**'],
 
   // Document-release
   'document-release': ['document-release/**'],
@@ -143,7 +257,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-consultation-existing':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
   'design-consultation-research':   ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
   'design-consultation-preview':    ['design-consultation/**', 'scripts/gen-skill-docs.ts'],
-  'plan-design-review-plan-mode':   ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
   'plan-design-review-no-ui-scope': ['plan-design-review/**', 'scripts/gen-skill-docs.ts'],
   'design-review-fix':              ['design-review/**', 'browse/src/**', 'scripts/gen-skill-docs.ts'],
 
@@ -170,6 +283,33 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // Autoplan
   'autoplan-core':  ['autoplan/**', 'plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**'],
+  'autoplan-dual-voice': ['autoplan/**', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review.ts', 'scripts/resolvers/design.ts'],
+
+  // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
+  'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts'],
+
+  // Browser-skills Phase 2a — /scrape + /skillify (v1.19.0.0). Gate-tier
+  // E2E covers the D1 (provenance guard), D3 (atomic write) contracts plus
+  // the basic loop. Shared deps: both skill templates, the D3 helper, the
+  // Phase 1 runtime, and the bundled hackernews-frontpage reference (the
+  // match-path test relies on it).
+  'scrape-match-path': [
+    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+    'browser-skills/hackernews-frontpage/**',
+  ],
+  'scrape-prototype-path': [
+    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+  ],
+  'skillify-happy-path': [
+    'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
+    'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+  ],
+  'skillify-provenance-refusal': [
+    'skillify/**', 'browse/src/browser-skill-write.ts',
+  ],
+  'skillify-approval-reject': [
+    'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
+  ],
 
   // Skill routing — journey-stage tests (depend on ALL skill descriptions)
   'journey-ideation':       ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -182,6 +322,33 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'journey-retro':          ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-design-system':  ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-visual-qa':      ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+
+  // Opus 4.7 behavior evals — keys match testName: values in the test file.
+  // Routing sub-tests use template literal `routing-${c.name}` testNames,
+  // which the touchfile completeness scanner skips; they inherit selection
+  // from the file-level touchfile entry via GLOBAL_TOUCHFILES.
+  'fanout-arm-overlay-on':
+    ['model-overlays/claude.md', 'model-overlays/opus-4-7.md', 'scripts/models.ts', 'scripts/resolvers/model-overlay.ts'],
+  'fanout-arm-overlay-off':
+    ['model-overlays/claude.md', 'model-overlays/opus-4-7.md', 'scripts/models.ts', 'scripts/resolvers/model-overlay.ts'],
+
+  // Overlay efficacy harness (SDK) — measures whether overlay nudges change
+  // behavior under @anthropic-ai/claude-agent-sdk (closer to real Claude Code
+  // than `claude -p`). testNames in the file are template literals so the
+  // completeness scanner doesn't require them; these entries exist for
+  // diff-based selection accuracy.
+  'overlay-harness-opus-4-7-fanout-toy': [
+    'model-overlays/**',
+    'test/fixtures/overlay-nudges.ts',
+    'test/helpers/agent-sdk-runner.ts',
+    'scripts/resolvers/model-overlay.ts',
+  ],
+  'overlay-harness-opus-4-7-fanout-realistic': [
+    'model-overlays/**',
+    'test/fixtures/overlay-nudges.ts',
+    'test/helpers/agent-sdk-runner.ts',
+    'scripts/resolvers/model-overlay.ts',
+  ],
 };
 
 /**
@@ -229,15 +396,98 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Office Hours
   'office-hours-spec-review': 'gate',
+  'office-hours-forcing-energy': 'gate',       // V1.1 mode-posture regression gate (Sonnet generator)
+  'office-hours-builder-wildness': 'gate',     // V1.1 mode-posture regression gate (Sonnet generator)
 
   // Plan reviews — gate for cheap functional, periodic for Opus quality
   'plan-ceo-review': 'periodic',
   'plan-ceo-review-selective': 'periodic',
   'plan-ceo-review-benefits': 'gate',
+  'plan-ceo-review-expansion-energy': 'gate',  // V1.1 mode-posture regression gate (Opus generator, Sonnet judge)
   'plan-eng-review': 'periodic',
   'plan-eng-review-artifact': 'periodic',
   'plan-eng-coverage-audit': 'gate',
   'plan-review-report': 'gate',
+
+  // Plan-mode handshake — deterministic safety regression, gate-tier
+  'plan-ceo-review-plan-mode': 'gate',
+  'plan-eng-review-plan-mode': 'gate',
+  'plan-design-review-plan-mode': 'gate',
+  'plan-devex-review-plan-mode': 'gate',
+  'plan-mode-no-op': 'gate',
+  // v1.21+ auto-mode regression tests
+  'autoplan-auto-mode': 'gate',
+  'office-hours-auto-mode': 'gate',
+  'auto-decide-preserved': 'periodic',
+  'e2e-harness-audit': 'gate',
+
+  // Real-PTY E2E batch — tier classification:
+  //   gate: cheap, deterministic, run on every PR
+  //   periodic: long-running or expensive (>$3/run), run weekly
+  'ask-user-question-format-pty':            'gate',       // ~$0.50/run, single skill probe
+  'plan-ceo-mode-routing':     'periodic',   // ~$3/run, deep navigation through 8-12 prior AskUserQuestions
+  'plan-design-with-ui-scope': 'gate',       // ~$0.80/run
+  'budget-regression-pty':     'gate',       // free, library-only assertion
+  'ship-idempotency-pty':      'periodic',   // ~$3/run, real /ship in plan mode
+  'autoplan-chain-pty':        'periodic',   // ~$8/run, all 3 phases sequential
+
+  // Per-finding count + review-report-at-bottom — periodic because each
+  // run drives a full skill end-to-end (~25 min, ~$5/run). Sequential
+  // execution during calibration; concurrent opt-in only after measured
+  // comparison agrees (plan §D15).
+  'plan-ceo-finding-count':    'periodic',
+  'plan-eng-finding-count':    'periodic',
+  'plan-design-finding-count': 'periodic',
+  'plan-devex-finding-count':  'periodic',
+  'plan-eng-finding-floor':    'gate',
+  'plan-ceo-finding-floor':    'gate',
+  'plan-design-finding-floor': 'gate',
+  'plan-devex-finding-floor':  'gate',
+
+  // Privacy gate for gstack-brain-sync — periodic (non-deterministic LLM call,
+  // costs ~$0.30-$0.50 per run, not needed on every commit)
+  'brain-privacy-gate': 'periodic',
+
+  // /setup-gbrain Path 4 (Remote MCP) — periodic-tier. The stub HTTP
+  // server is deterministic but the model's interpretation of "follow
+  // Path 4 only" is not — assertions on which steps the model ran are
+  // flaky. The deterministic gate-tier coverage for Path 4 lives in
+  // test/setup-gbrain-path4-structure.test.ts (free, <200ms). These
+  // E2E tests stay available for on-demand verification of the live
+  // model's behavior against a stub MCP server.
+  'setup-gbrain-remote': 'periodic',
+  'setup-gbrain-bad-token': 'periodic',
+
+  // AskUserQuestion format regression — periodic (Opus 4.7 non-deterministic benchmark)
+  'plan-ceo-review-format-mode': 'periodic',
+  'plan-ceo-review-format-approach': 'periodic',
+  'plan-eng-review-format-coverage': 'periodic',
+  'plan-eng-review-format-kind': 'periodic',
+
+  // Office-hours Phase 4 silent-auto-decide regression — periodic (Phase 4
+  // requires the agent to invent 2-3 architectures, more open-ended than the
+  // 4 plan-format cases above). Reclassify to gate if it turns out stable.
+  'office-hours-phase4-fork': 'periodic',
+  // judgeRecommendation rubric sanity (fixture-based, ~$0.04/run via Haiku)
+  'llm-judge-recommendation': 'periodic',
+
+  // v1.7.0.0 Pros/Cons format — cadence + negative-escape evals (all periodic)
+  'plan-ceo-review-prosons-cadence': 'periodic',
+  'plan-review-prosons-format': 'periodic',
+  'plan-review-prosons-hardstop-neg': 'periodic',
+  'plan-review-prosons-neutral-neg': 'periodic',
+
+  // CT3 expanded coverage — non-plan-review skills inheriting Pros/Cons (all periodic)
+  'ship-prosons-format': 'periodic',
+  'office-hours-prosons-format': 'periodic',
+  'investigate-prosons-format': 'periodic',
+  'qa-prosons-format': 'periodic',
+  'review-prosons-format': 'periodic',
+  'design-review-prosons-format': 'periodic',
+  'document-release-prosons-format': 'periodic',
+
+  // /plan-tune — gate (core v1 DX promise: plain-English intent routing)
+  'plan-tune-inspect': 'gate',
 
   // Codex offering verification
   'codex-offered-office-hours': 'gate',
@@ -246,9 +496,20 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'codex-offered-eng-review': 'gate',
 
   // Session Intelligence — gate for data flow, periodic for agent integration
-  'timeline-event-flow': 'gate',            // Binary data flow (no LLM needed)
-  'context-recovery-artifacts': 'gate',     // Preamble reads seeded artifacts
-  'checkpoint-save-resume': 'gate',         // Checkpoint round-trip
+  'timeline-event-flow': 'gate',                   // Binary data flow (no LLM needed)
+  'context-recovery-artifacts': 'gate',            // Preamble reads seeded artifacts
+  'context-save-writes-file': 'gate',              // /context-save writes a file
+  'context-restore-loads-latest': 'gate',          // Cross-branch newest-by-filename restore
+
+  // Context skills live-fire — periodic (each test spawns claude -p, ~$0.20-$0.40)
+  'context-save-routing': 'periodic',              // Proves /context-save routes via Skill tool
+  'context-save-then-restore-roundtrip': 'periodic', // Full cycle in one session
+  'context-restore-fragment-match': 'periodic',    // /context-restore <fragment>
+  'context-restore-empty-state': 'periodic',       // Graceful zero-saves message
+  'context-restore-list-delegates': 'periodic',    // /context-restore list redirect
+  'context-restore-legacy-compat': 'periodic',     // Pre-rename files still load
+  'context-save-list-current-branch': 'periodic',  // Default branch filter
+  'context-save-list-all-branches': 'periodic',    // --all flag
 
   // Ship — gate (end-to-end ship path)
   'ship-base-branch': 'gate',
@@ -290,7 +551,6 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-consultation-existing': 'periodic',
   'design-consultation-research': 'gate',
   'design-consultation-preview': 'gate',
-  'plan-design-review-plan-mode': 'periodic',
   'plan-design-review-no-ui-scope': 'gate',
   'design-review-fix': 'periodic',
   'design-shotgun-path': 'gate',
@@ -315,6 +575,17 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Autoplan — periodic (not yet implemented)
   'autoplan-core': 'periodic',
+  'autoplan-dual-voice': 'periodic',
+
+  // Multi-provider benchmark — periodic (requires external CLIs + auth, paid)
+  'benchmark-providers-live': 'periodic',
+
+  // Browser-skills Phase 2a — gate (D1/D3 contracts must not silently break)
+  'scrape-match-path': 'gate',
+  'scrape-prototype-path': 'gate',
+  'skillify-happy-path': 'gate',
+  'skillify-provenance-refusal': 'gate',
+  'skillify-approval-reject': 'gate',
 
   // Skill routing — periodic (LLM routing is non-deterministic)
   'journey-ideation': 'periodic',
@@ -327,6 +598,14 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'journey-retro': 'periodic',
   'journey-design-system': 'periodic',
   'journey-visual-qa': 'periodic',
+
+  // Opus 4.7 overlay evals — periodic (non-deterministic LLM behavior + Opus cost)
+  'fanout-arm-overlay-on': 'periodic',
+  'fanout-arm-overlay-off': 'periodic',
+
+  // Overlay efficacy harness (SDK, paid) — periodic only
+  'overlay-harness-opus-4-7-fanout-toy': 'periodic',
+  'overlay-harness-opus-4-7-fanout-realistic': 'periodic',
 };
 
 /**

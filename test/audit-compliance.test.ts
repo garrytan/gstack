@@ -33,7 +33,16 @@ describe('Audit compliance', () => {
 
   // Fix 2: Conditional telemetry — binary calls wrapped with existence check
   test('preamble telemetry calls are conditional on _TEL and binary existence', () => {
-    const preamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
+    // After the preamble.ts refactor (Item 9), the bash/telemetry logic lives
+    // in submodules under scripts/resolvers/preamble/. Concatenate all preamble
+    // source (root + submodules) and assert against the combined text so this
+    // test tracks the semantic contract, not the file layout.
+    const preambleDir = join(ROOT, 'scripts/resolvers/preamble');
+    const submoduleFiles = existsSync(preambleDir)
+      ? readdirSync(preambleDir).filter(f => f.endsWith('.ts')).map(f => readFileSync(join(preambleDir, f), 'utf-8'))
+      : [];
+    const rootPreamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
+    const preamble = [rootPreamble, ...submoduleFiles].join('\n');
     // Pending finalization must check _TEL and binary existence
     expect(preamble).toContain('_TEL" != "off"');
     expect(preamble).toContain('-x ');

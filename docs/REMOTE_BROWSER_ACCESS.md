@@ -14,14 +14,27 @@ Your Machine                          Remote Agent
 ─────────────                         ────────────
 GStack Browser Server                 Any AI agent
   ├── Chromium (Playwright)           (OpenClaw, Hermes, Codex, etc.)
-  ├── HTTP API on localhost:PORT           │
-  ├── ngrok tunnel (optional)              │
-  │     https://xxx.ngrok.dev ─────────────┘
+  ├── Local listener  127.0.0.1:LOCAL         │
+  │    (bootstrap, CLI, sidebar, cookies)      │
+  ├── Tunnel listener 127.0.0.1:TUNNEL ◄───────┤
+  │    (pair-agent only: /connect, /command,   │
+  │     /sidebar-chat — locked allowlist)      │
+  ├── ngrok tunnel (forwards tunnel port only) │
+  │     https://xxx.ngrok.dev ─────────────────┘
   └── Token Registry
-        ├── Root token (local only)
+        ├── Root token (local listener only)
         ├── Setup keys (5 min, one-time)
-        └── Session tokens (24h, scoped)
+        ├── Session tokens (24h, scoped)
+        └── SSE session cookies (30 min, stream-scope)
 ```
+
+### Dual-listener architecture (v1.6.0.0)
+
+The daemon binds two HTTP sockets. The **local listener** serves the full command surface to 127.0.0.1 only and is never forwarded. The **tunnel listener** is bound lazily on `/tunnel/start` (and torn down on `/tunnel/stop`) with a locked path allowlist. ngrok forwards only the tunnel port.
+
+A caller who stumbles onto your ngrok URL cannot reach `/health`, `/cookie-picker`, `/inspector/*`, or `/welcome` — those paths don't exist on that TCP socket. Root tokens sent over the tunnel get 403. The tunnel listener accepts only `/connect`, `/command` (with a scoped token + the 26-command browser-driving allowlist), and `/sidebar-chat`.
+
+See [ARCHITECTURE.md](../ARCHITECTURE.md#dual-listener-tunnel-architecture-v1600) for the full endpoint table.
 
 ## Connection Flow
 
@@ -37,16 +50,20 @@ GStack Browser Server                 Any AI agent
 
 ### Authentication
 
-All endpoints except `/connect` and `/health` require a Bearer token:
+All command endpoints require a Bearer token:
 
 ```
 Authorization: Bearer gsk_sess_...
 ```
 
+`/connect` is unauthenticated (rate-limited) — it's how a remote agent exchanges a setup key for a scoped session token. `/health` is unauthenticated on the local listener (bootstrap) but does NOT exist on the tunnel listener (404).
+
+SSE endpoints (`/activity/stream`, `/inspector/events`) accept either a Bearer token or the HttpOnly `gstack_sse` cookie (minted via `POST /sse-session`, 30-minute TTL, stream-scope only — cannot be used against `/command`). As of v1.6.0.0 the `?token=<ROOT>` query-string auth is no longer accepted.
+
 ### Endpoints
 
 #### POST /connect
-Exchange a setup key for a session token. No auth required. Rate-limited to 3/minute.
+Exchange a setup key for a session token. No auth required. Rate-limited to 300/minute (flood defense — setup keys are 24 random bytes, unbruteforceable).
 
 ```json
 Request:  {"setup_key": "gsk_setup_..."}
@@ -147,12 +164,21 @@ Each agent owns the tabs it creates. Rules:
 
 ## Security Model
 
-- Setup keys expire in 5 minutes and can only be used once
-- Session tokens expire in 24 hours (configurable)
-- The root token never appears in instruction blocks or connection strings
-- Admin scope (JS execution, cookie access) is denied by default
+- **Physical port separation.** Local listener and tunnel listener are separate TCP sockets. ngrok only forwards the tunnel port. Tunnel callers cannot reach bootstrap endpoints at all (404, wrong port).
+- **Tunnel command allowlist.** `/command` over the tunnel only accepts 26 browser-driving commands (goto, click, fill, snapshot, text, newtab, tabs, back, forward, reload, closetab, etc.). Server-management commands (tunnel, pair, token, useragent, js) are denied on the tunnel.
+- **Root token is tunnel-blocked.** A request bearing the root token over the tunnel listener returns 403 with a pairing hint. Only scoped session tokens work over the tunnel.
+- **Setup keys** expire in 5 minutes and can only be used once.
+- **Session tokens** expire in 24 hours (configurable).
+- The root token never appears in instruction blocks or connection strings.
+- **Admin scope** (JS execution, cookie access) is denied by default.
 - Tokens can be revoked instantly: `$B tunnel revoke agent-name`
-- All agent activity is logged with attribution (clientId)
+- **SSE auth** uses a 30-minute HttpOnly SameSite=Strict cookie, stream-scope only (never valid against `/command`).
+- **Path traversal guarded** on `/welcome` — `GSTACK_SLUG` must match `^[a-z0-9_-]+$` or falls back to the built-in template.
+- **SSRF guards** on `goto`, `download`, and scrape paths — validates URL target against a localhost/private-range blocklist.
+- **Tunnel surface denial logging.** Every rejection on the tunnel listener (`path_not_on_tunnel`, `root_token_on_tunnel`, `missing_scoped_token`, `disallowed_command:*`) is appended to `~/.gstack/security/attempts.jsonl` with timestamp, source IP, path, method. Rate-capped at 60 writes/min.
+- All agent activity is logged with attribution (clientId).
+
+**Known non-goal (tracked as #1136):** on Windows, the cookie-import-browser path launches Chrome with `--remote-debugging-port=<random>`. With App-Bound Encryption v20, a same-user local process can connect to that port and exfiltrate decrypted v20 cookies — an elevation path relative to reading the SQLite DB directly. Fix direction is `--remote-debugging-pipe` instead of TCP.
 
 ## Same-Machine Shortcut
 

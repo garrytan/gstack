@@ -1,0 +1,43 @@
+name: PR Title Sync
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+    paths:
+      - 'VERSION'
+
+concurrency:
+  group: pr-title-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Sync PR title to VERSION
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Rewrite PR title to match VERSION
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          OLD_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          chmod +x ./bin/gstack-pr-title-rewrite.sh
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          NEW_TITLE=$(./bin/gstack-pr-title-rewrite.sh "$VERSION" "$OLD_TITLE")
+          if [ "$NEW_TITLE" = "$OLD_TITLE" ]; then
+            echo "Title already correct; no change."
+            exit 0
+          fi
+          echo "Rewriting: $OLD_TITLE -> $NEW_TITLE"
+          gh pr edit "$PR_NUM" --title "$NEW_TITLE"

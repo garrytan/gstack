@@ -28,6 +28,33 @@ triggers:
   - is this worth building
   - help me think through
   - office hours
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-sessions
+      kind: list
+      filter:
+        type: ceo-plan
+        tags_contains: "repo:{repo_slug}"
+      sort: updated_at_desc
+      limit: 5
+      render_as: "## Prior office-hours sessions in this repo"
+    - id: builder-profile
+      kind: filesystem
+      glob: "~/.gstack/builder-profile.jsonl"
+      tail: 1
+      render_as: "## Your builder profile snapshot"
+    - id: design-doc-history
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-design-*.md"
+      sort: mtime_desc
+      limit: 3
+      render_as: "## Recent design docs for this project"
+    - id: prior-eureka
+      kind: filesystem
+      glob: "~/.gstack/analytics/eureka.jsonl"
+      tail: 5
+      render_as: "## Recent eureka moments"
 ---
 
 {{PREAMBLE}}
@@ -203,6 +230,14 @@ If the framing is imprecise, **reframe constructively** — don't dissolve the q
 
 **Red flags:** Category-level answers. "Healthcare enterprises." "SMBs." "Marketing teams." These are filters, not people. You can't email a category.
 
+**Forcing exemplar:**
+
+SOFTENED (avoid): "Who's your target user, and what gets them to buy? Worth thinking about before marketing spend ramps."
+
+FORCING (aim for): "Name the actual human. Not 'product managers at mid-market SaaS companies' — an actual name, an actual title, an actual consequence. What's the real thing they're avoiding that your product solves? If this is a career problem, whose career? If this is a daily pain, whose day? If this is a creative unlock, whose weekend project becomes possible? If you can't name them, you don't know who you're building for — and 'users' isn't an answer."
+
+The pressure is in the stacking — don't collapse it into a single ask. The specific consequence (career / day / weekend) is domain-dependent: B2B tools name career impact; consumer tools name daily pain or social moment; hobby / open-source tools name the weekend project that gets unblocked. Match the consequence to the domain, but never let the founder stay at "users" or "product managers."
+
 #### Q4: Narrowest Wedge
 
 **Ask:** "What's the smallest possible version of this that someone would pay real money for — this week, not after you build the platform?"
@@ -256,6 +291,14 @@ Use this mode when the user is building for fun, learning, hacking on open sourc
 2. **Ship something you can show people.** The best version of anything is the one that exists.
 3. **The best side projects solve your own problem.** If you're building it for yourself, trust that instinct.
 4. **Explore before you optimize.** Try the weird idea first. Polish later.
+
+**Wild exemplar:**
+
+STRUCTURED (avoid): "Consider adding a share feature. This would improve user retention by enabling virality."
+
+WILD (aim for): "Oh — and what if you also let them share the visualization as a live URL? Or pipe it into a Slack thread? Or animate the generation so viewers see it draw itself? Each one's a 30-minute unlock. Any of them turn this from 'a tool I used' into 'a thing I showed a friend.'"
+
+Both are outcome-framed. Only one has the 'whoa.' Builder mode's job is to surface the most exciting version of the idea, not the most strategically optimized one. Lead with the fun; let the user edit it down.
 
 ### Response Posture
 
@@ -395,9 +438,11 @@ Rules:
 - One can be **creative/lateral** (unexpected approach, different framing of the problem).
 - If the second opinion (Codex or Claude subagent) proposed a prototype in Phase 3.5, consider using it as a starting point for the creative/lateral approach.
 
-**RECOMMENDATION:** Choose [X] because [one-line reason].
+**RECOMMENDATION:** Choose [X] because [one-line reason mapped to the founder's stated goal].
 
-Present via AskUserQuestion. Do NOT proceed without user approval of the approach.
+Emit ONE AskUserQuestion that lists every alternative (A/B and optionally C) as numbered options, using the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — write the question text and call the tool. If no AskUserQuestion variant is callable in this session, follow the preamble's "Tool resolution" fallback: in plan mode, write `## Decisions to confirm` into the plan file and ExitPlanMode; outside plan mode, output the decision brief as prose and stop. Never silently auto-decide.
+
+**STOP.** Do NOT proceed to Phase 4.5 (Founder Signal Synthesis), Phase 5 (Design Doc), Phase 6 (Closing), or any design-doc generation until the user responds. A "clearly winning approach" is still an approach decision and still needs explicit user approval before it lands in the design doc. Writing the recommendation in chat prose and continuing forward is the failure mode this gate exists to prevent.
 
 ---
 
@@ -429,7 +474,8 @@ After counting signals, append a session entry to the builder profile. This is t
 source of truth for all closing state (tier, resource dedup, journey tracking).
 
 ```bash
-mkdir -p "${GSTACK_HOME:-$HOME/.gstack}"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+mkdir -p "$GSTACK_STATE_ROOT"
 ```
 
 Append one JSON line with these fields (substitute actual values from this session):
@@ -444,7 +490,8 @@ Append one JSON line with these fields (substitute actual values from this sessi
 - `topics`: array of 2-3 topic keywords that describe what this session was about
 
 ```bash
-echo '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}' >> "${GSTACK_HOME:-$HOME/.gstack}/builder-profile.jsonl"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+echo '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}' >> "$GSTACK_STATE_ROOT/builder-profile.jsonl"
 ```
 
 This entry is append-only. The `resources_shown` field will be updated via a second append
@@ -742,7 +789,8 @@ This must feel earned, not broadcast. If the evidence doesn't support it, skip e
 with a narrative arc (not a data table). The arc tells the STORY of their journey in
 second person, referencing specific things they said across sessions. Then open it:
 ```bash
-open "${GSTACK_HOME:-$HOME/.gstack}/builder-journey.md"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+open "$GSTACK_STATE_ROOT/builder-journey.md"
 ```
 
 Then proceed to Founder Resources below.
@@ -844,7 +892,8 @@ PAUL GRAHAM ESSAYS:
 1. Log the selected resource URLs to the builder profile (single source of truth).
 Append a resource-tracking entry:
 ```bash
-echo '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' >> "${GSTACK_HOME:-$HOME/.gstack}/builder-profile.jsonl"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+echo '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' >> "$GSTACK_STATE_ROOT/builder-profile.jsonl"
 ```
 
 2. Log the selection to analytics:

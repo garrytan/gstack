@@ -9,10 +9,12 @@ gstack skills are Markdown files that Claude Code discovers from a `skills/` dir
 That's what dev mode does. It symlinks your repo into the local `.claude/skills/` directory so Claude Code reads skills straight from your checkout.
 
 ```bash
-git clone <repo> && cd gstack
+git clone https://github.com/garrytan/gstack.git && cd gstack
 bun install                    # install dependencies
 bin/dev-setup                  # activate dev mode
 ```
+
+> **Full clone vs shallow.** The README's user-facing install uses `--depth 1` for speed. As a contributor, use a full clone (no `--depth` flag) — you'll need history for `git log`, `git blame`, `git bisect`, and reviewing PRs against earlier versions. If you already have a `--depth 1` clone from following the README, promote it to a full clone with `git fetch --unshallow`.
 
 Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live. When you're done developing:
 
@@ -229,6 +231,25 @@ bun run dev:skill
 For template authoring best practices (natural language over bash-isms, dynamic branch detection, `{{BASE_BRANCH_DETECT}}` usage), see CLAUDE.md's "Writing SKILL templates" section.
 
 To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
+
+## Jargon list (V1 writing style)
+
+gstack's Writing Style section (injected into every tier-≥2 skill's preamble)
+glosses technical terms on first use per skill invocation. The list of terms
+that qualify for glossing lives at `scripts/jargon-list.json` — ~50 curated
+high-frequency terms (idempotent, race condition, N+1, backpressure, etc.).
+Terms not on the list are assumed plain-English enough.
+
+**Adding or removing a term:** open a PR editing `scripts/jargon-list.json`.
+Run `bun run gen:skill-docs` after the edit — terms are baked into every
+generated SKILL.md at gen time, so changes take effect only after regeneration.
+No runtime loading; no user-side override. The repo list is the source of truth.
+
+Good candidates for addition: high-frequency terms that non-technical users
+encounter in review output without context (common database/concurrency
+terminology, security jargon, frontend framework concepts). Don't add terms
+that only appear in one or two niche skills — the cost-to-value trade isn't
+worth the review overhead.
 
 ## Multi-host development
 

@@ -243,6 +243,40 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
     git -C "$SOURCE_GSTACK_DIR" rev-parse HEAD > "$SOURCE_GSTACK_DIR/browse/dist/.version" 2>/dev/null || true
   fi
+
+  # macOS Apple Silicon: ad-hoc codesign compiled binaries.
+  # Bun's --compile can produce a corrupt or linker-only code signature that
+  # macOS kills with SIGKILL (exit 137). The two-step remove+re-sign is
+  # required because a naive `codesign -s - -f` fails when the existing
+  # signature block is corrupt. This is idempotent and costs <1s.
+  # See: https://github.com/garrytan/gstack/issues/997
+  if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    for _bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
+      _bin_path="$SOURCE_GSTACK_DIR/$_bin"
+      [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
+      codesign --remove-signature "$_bin_path" 2>/dev/null || true
+      if ! codesign -s - -f "$_bin_path" 2>/dev/null; then
+        log "warning: codesign failed for $_bin (binary may not run on Apple Silicon)"
+      fi
+    done
+  fi
+
+  # macOS: install coreutils for `gtimeout` (Codex hang protection in /codex + /autoplan).
+  # macOS ships BSD `timeout`-less; Homebrew's coreutils installs GNU timeout as
+  # `gtimeout` to avoid shadowing BSD utilities. The /codex and /autoplan skills
+  # fall back to unwrapped codex invocations when neither is available — this
+  # auto-install upgrades them to hang-protected where possible.
+  # Skip entirely with GSTACK_SKIP_COREUTILS=1 (CI, managed machines, offline envs).
+  if [ "$(uname -s)" = "Darwin" ] && [ "${GSTACK_SKIP_COREUTILS:-0}" != "1" ]; then
+    if ! command -v gtimeout >/dev/null 2>&1 && ! command -v timeout >/dev/null 2>&1; then
+      if command -v brew >/dev/null 2>&1; then
+        log "Installing coreutils for Codex hang protection (set GSTACK_SKIP_COREUTILS=1 to skip)..."
+        brew install coreutils >/dev/null 2>&1 || log "warning: brew install coreutils failed; /codex will run without hang protection"
+      else
+        log "warning: Homebrew not found. /codex will run without hang protection. Install coreutils manually or set GSTACK_SKIP_COREUTILS=1."
+      fi
+    fi
+  fi
 fi
 
 if [ ! -x "$BROWSE_BIN" ]; then

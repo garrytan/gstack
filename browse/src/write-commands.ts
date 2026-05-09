@@ -10,9 +10,10 @@ import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, importCookies, importCookiesViaCdp, hasV20Cookies, listSupportedBrowserNames } from './cookie-import-browser';
 import { generatePickerCode } from './cookie-picker-routes';
 import { validateNavigationUrl } from './url-validation';
-import { validateOutputPath } from './path-security';
+import { validateOutputPath, validateReadPath } from './path-security';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { SetContentWaitUntil } from './tab-session';
 import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
@@ -142,28 +143,181 @@ export async function handleWriteCommand(
       if (inFrame) throw new Error('Cannot use goto inside a frame. Run \'frame main\' first.');
       const url = args[0];
       if (!url) throw new Error('Usage: browse goto <url>');
-      await validateNavigationUrl(url);
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      // Clear loadedHtml BEFORE navigation — a timeout after the main-frame commit
+      // must not leave stale content that could resurrect on a later context recreation.
+      session.clearLoadedHtml();
+      const normalizedUrl = await validateNavigationUrl(url);
+      const response = await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const status = response?.status() || 'unknown';
-      return `Navigated to ${url} (${status})`;
+      return `Navigated to ${normalizedUrl} (${status})`;
     }
 
     case 'back': {
       if (inFrame) throw new Error('Cannot use back inside a frame. Run \'frame main\' first.');
+      session.clearLoadedHtml();
       await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 });
       return `Back → ${page.url()}`;
     }
 
     case 'forward': {
       if (inFrame) throw new Error('Cannot use forward inside a frame. Run \'frame main\' first.');
+      session.clearLoadedHtml();
       await page.goForward({ waitUntil: 'domcontentloaded', timeout: 15000 });
       return `Forward → ${page.url()}`;
     }
 
     case 'reload': {
       if (inFrame) throw new Error('Cannot use reload inside a frame. Run \'frame main\' first.');
+      session.clearLoadedHtml();
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
       return `Reloaded ${page.url()}`;
+    }
+
+    case 'load-html': {
+      if (inFrame) throw new Error('Cannot use load-html inside a frame. Run \'frame main\' first.');
+
+      // --from-file <path.json>: read inline HTML from a JSON payload. Used by
+      // make-pdf to dodge Windows argv size limits on large rendered HTML.
+      // The JSON shape is { html: string, waitUntil?: "load"|"domcontentloaded"|"networkidle" }.
+      // The safe-dirs + magic-byte + size-cap checks below still apply to the
+      // INLINE HTML content, not to the payload file path itself.
+      let fromFilePayload: { html: string; waitUntil?: SetContentWaitUntil } | null = null;
+      let filePath: string | undefined;
+      let waitUntil: SetContentWaitUntil = 'domcontentloaded';
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--from-file') {
+          const payloadPath = args[++i];
+          if (!payloadPath) throw new Error('load-html: --from-file requires a path');
+          // Parity with the sibling `load-html <file>` path below (line 249):
+          // that branch runs every `file://` target through validateReadPath
+          // so the safe-dirs policy can't be side-stepped. Same policy must
+          // apply here — otherwise --from-file becomes a read-anywhere escape
+          // hatch for any caller that can pick the payload path (e.g., an
+          // MCP caller issuing load-html with an attacker-influenced path).
+          try {
+            validateReadPath(path.resolve(payloadPath));
+          } catch {
+            throw new Error(
+              `load-html: --from-file ${payloadPath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the payload into the project tree or /tmp first.`
+            );
+          }
+          const raw = fs.readFileSync(payloadPath, 'utf8');
+          let json: any;
+          try { json = JSON.parse(raw); }
+          catch (e: any) { throw new Error(`load-html: --from-file JSON parse failed: ${e.message}`); }
+          if (typeof json.html !== 'string') {
+            throw new Error('load-html: --from-file JSON must have a "html" string field');
+          }
+          if (json.waitUntil && json.waitUntil !== 'load'
+              && json.waitUntil !== 'domcontentloaded' && json.waitUntil !== 'networkidle') {
+            throw new Error(`load-html: --from-file waitUntil '${json.waitUntil}' invalid`);
+          }
+          fromFilePayload = { html: json.html, waitUntil: json.waitUntil };
+        } else if (args[i] === '--wait-until') {
+          const val = args[++i];
+          if (val !== 'load' && val !== 'domcontentloaded' && val !== 'networkidle') {
+            throw new Error(`Invalid --wait-until '${val}'. Must be one of: load, domcontentloaded, networkidle.`);
+          }
+          waitUntil = val;
+        } else if (args[i].startsWith('--')) {
+          throw new Error(`Unknown flag: ${args[i]}`);
+        } else if (!filePath) {
+          filePath = args[i];
+        }
+      }
+
+      // Inline HTML path: validate size + magic byte, then setContent directly.
+      if (fromFilePayload) {
+        const MAX_BYTES = parseInt(process.env.GSTACK_BROWSE_MAX_HTML_BYTES || '', 10) || (50 * 1024 * 1024);
+        if (Buffer.byteLength(fromFilePayload.html, 'utf8') > MAX_BYTES) {
+          throw new Error(
+            `load-html: --from-file html too large (> ${MAX_BYTES} bytes). ` +
+            'Raise with GSTACK_BROWSE_MAX_HTML_BYTES=<N>.'
+          );
+        }
+        const peek = fromFilePayload.html.trimStart();
+        if (!/^<[a-zA-Z!?]/.test(peek)) {
+          throw new Error('load-html: --from-file html does not start with a valid markup opener');
+        }
+        const finalWaitUntil = fromFilePayload.waitUntil ?? waitUntil;
+        await session.setTabContent(fromFilePayload.html, { waitUntil: finalWaitUntil });
+        return `Loaded HTML: (inline from --from-file, ${fromFilePayload.html.length} chars)`;
+      }
+
+      if (!filePath) throw new Error('Usage: browse load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]');
+
+      // Extension allowlist
+      const ALLOWED_EXT = ['.html', '.htm', '.xhtml', '.svg'];
+      const ext = path.extname(filePath).toLowerCase();
+      if (!ALLOWED_EXT.includes(ext)) {
+        throw new Error(
+          `load-html: file does not appear to be HTML. Expected .html/.htm/.xhtml/.svg, got ${ext || '(no extension)'}. Rename the file if it's really HTML.`
+        );
+      }
+
+      const absolutePath = path.resolve(filePath);
+
+      // Safe-dirs check (reuses canonical read-side policy)
+      try {
+        validateReadPath(absolutePath);
+      } catch (e: any) {
+        throw new Error(
+          `load-html: ${absolutePath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the file into the project tree or /tmp first.`
+        );
+      }
+
+      // stat check — reject non-file targets with actionable error
+      let stat: fs.Stats;
+      try {
+        stat = await fs.promises.stat(absolutePath);
+      } catch (e: any) {
+        if (e.code === 'ENOENT') {
+          throw new Error(
+            `load-html: file not found at ${absolutePath}. Check spelling or copy the file under ${process.cwd()} or ${TEMP_DIR}.`
+          );
+        }
+        throw e;
+      }
+      if (stat.isDirectory()) {
+        throw new Error(`load-html: ${absolutePath} is a directory, not a file. Pass a .html file.`);
+      }
+      if (!stat.isFile()) {
+        throw new Error(`load-html: ${absolutePath} is not a regular file.`);
+      }
+
+      // Size cap
+      const MAX_BYTES = parseInt(process.env.GSTACK_BROWSE_MAX_HTML_BYTES || '', 10) || (50 * 1024 * 1024);
+      if (stat.size > MAX_BYTES) {
+        throw new Error(
+          `load-html: file too large (${stat.size} bytes > ${MAX_BYTES} cap). Raise with GSTACK_BROWSE_MAX_HTML_BYTES=<N> or split the HTML.`
+        );
+      }
+
+      // Single read: Buffer → magic-byte peek → utf-8 string
+      const buf = await fs.promises.readFile(absolutePath);
+
+      // Magic-byte check: strip UTF-8 BOM + leading whitespace, then verify the first
+      // non-whitespace byte starts a markup construct. Accepts any <tag, <!doctype,
+      // <!-- comment, <?xml prolog — including bare HTML fragments like `<div>...</div>`
+      // which setContent wraps in a full document. Rejects binary files mis-renamed .html
+      // (first byte won't be `<`).
+      let peek = buf.slice(0, 200);
+      if (peek[0] === 0xEF && peek[1] === 0xBB && peek[2] === 0xBF) {
+        peek = peek.slice(3);
+      }
+      const peekStr = peek.toString('utf8').trimStart();
+      // Valid markup opener: '<' followed by alpha (tag), '!' (doctype/comment), or '?' (xml prolog)
+      const looksLikeMarkup = /^<[a-zA-Z!?]/.test(peekStr);
+      if (!looksLikeMarkup) {
+        const hexDump = Array.from(buf.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+        throw new Error(
+          `load-html: ${absolutePath} has ${ext} extension but content does not look like HTML. First bytes: ${hexDump}`
+        );
+      }
+
+      const html = buf.toString('utf8');
+      await session.setTabContent(html, { waitUntil });
+      return `Loaded HTML: ${absolutePath} (${stat.size} bytes)`;
     }
 
     case 'click': {
@@ -343,11 +497,55 @@ export async function handleWriteCommand(
     }
 
     case 'viewport': {
-      const size = args[0];
-      if (!size || !size.includes('x')) throw new Error('Usage: browse viewport <WxH> (e.g., 375x812)');
-      const [rawW, rawH] = size.split('x').map(Number);
-      const w = Math.min(Math.max(Math.round(rawW) || 1280, 1), 16384);
-      const h = Math.min(Math.max(Math.round(rawH) || 720, 1), 16384);
+      // Parse args: [<WxH>] [--scale <n>]. Either may be omitted, but NOT both.
+      let sizeArg: string | undefined;
+      let scaleArg: number | undefined;
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--scale') {
+          const val = args[++i];
+          if (val === undefined || val === '') {
+            throw new Error('viewport --scale: missing value. Usage: viewport [WxH] --scale <n>');
+          }
+          const parsed = Number(val);
+          if (!Number.isFinite(parsed)) {
+            throw new Error(`viewport --scale: value '${val}' is not a finite number.`);
+          }
+          scaleArg = parsed;
+        } else if (args[i].startsWith('--')) {
+          throw new Error(`Unknown viewport flag: ${args[i]}`);
+        } else if (sizeArg === undefined) {
+          sizeArg = args[i];
+        } else {
+          throw new Error(`Unexpected positional arg: ${args[i]}. Usage: viewport [WxH] [--scale <n>]`);
+        }
+      }
+
+      if (sizeArg === undefined && scaleArg === undefined) {
+        throw new Error('Usage: browse viewport [<WxH>] [--scale <n>]  (e.g. 375x812, or --scale 2 to keep current size)');
+      }
+
+      // Resolve width/height: either from sizeArg or from current viewport if --scale-only.
+      let w: number, h: number;
+      if (sizeArg) {
+        if (!sizeArg.includes('x')) throw new Error('Usage: browse viewport [<WxH>] [--scale <n>] (e.g., 375x812)');
+        const [rawW, rawH] = sizeArg.split('x').map(Number);
+        w = Math.min(Math.max(Math.round(rawW) || 1280, 1), 16384);
+        h = Math.min(Math.max(Math.round(rawH) || 720, 1), 16384);
+      } else {
+        // --scale without WxH → use BrowserManager's tracked viewport (source of truth
+        // since setViewport + launchContext keep it in sync). Falls back reliably on
+        // headed → headless transitions or contexts with viewport:null.
+        const current = bm.getCurrentViewport();
+        w = current.width;
+        h = current.height;
+      }
+
+      if (scaleArg !== undefined) {
+        const err = await bm.setDeviceScaleFactor(scaleArg, w, h);
+        if (err) return `Viewport partially set: ${err}`;
+        return `Viewport set to ${w}x${h} @ ${scaleArg}x (context recreated; refs and load-html content replayed)`;
+      }
+
       await bm.setViewport(w, h);
       return `Viewport set to ${w}x${h}`;
     }
@@ -939,9 +1137,10 @@ export async function handleWriteCommand(
     }
 
     case 'download': {
-      if (args.length === 0) throw new Error('Usage: download <url|@ref> [path] [--base64]');
+      if (args.length === 0) throw new Error('Usage: download <url|@ref> [path] [--base64] [--navigate]');
       const isBase64 = args.includes('--base64');
-      const filteredArgs = args.filter(a => a !== '--base64');
+      const useNavigate = args.includes('--navigate');
+      const filteredArgs = args.filter(a => a !== '--base64' && a !== '--navigate');
       let url = filteredArgs[0];
       const outputPath = filteredArgs[1];
 
@@ -1002,8 +1201,71 @@ export async function handleWriteCommand(
         if (!match) throw new Error('Failed to decode blob data');
         contentType = match[1];
         buffer = Buffer.from(match[2], 'base64');
+      } else if (useNavigate) {
+        // Strategy 2: Navigate to URL and capture browser-triggered download.
+        // Handles URLs that trigger file downloads via redirects,
+        // Content-Disposition headers, or anti-bot CDN chains where
+        // page.request.fetch() can't follow the auth/redirect chain.
+        await validateNavigationUrl(url);
+        const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
+        // Use goto with 'commit' wait — the page may redirect to trigger
+        // the download, so 'domcontentloaded' may never fire.
+        page.goto(url, { waitUntil: 'commit', timeout: 30000 }).catch(() => {
+          // Navigation may "fail" because the response is a download,
+          // not a page. The download event handles it.
+        });
+        const download = await downloadPromise;
+        const failure = await download.failure();
+        if (failure) {
+          throw new Error(`Download failed: ${failure}`);
+        }
+        // Save to temp location first, then read into buffer
+        const tempPath = path.join(TEMP_DIR, `browse-nav-download-${Date.now()}`);
+        await download.saveAs(tempPath);
+        buffer = fs.readFileSync(tempPath);
+        // Try to infer content type from suggested filename
+        const suggested = download.suggestedFilename();
+        if (suggested) {
+          const extMatch = suggested.match(/\.([a-z0-9]+)$/i);
+          if (extMatch) {
+            const extLower = extMatch[1].toLowerCase();
+            const mimeMap: Record<string, string> = {
+              epub: 'application/epub+zip', pdf: 'application/pdf',
+              zip: 'application/zip', gz: 'application/gzip',
+              mp3: 'audio/mpeg', mp4: 'video/mp4',
+              jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+              txt: 'text/plain', html: 'text/html', json: 'application/json',
+            };
+            contentType = mimeMap[extLower] || 'application/octet-stream';
+          }
+        }
+        // Clean up temp file if we're going to write elsewhere
+        if (outputPath || isBase64) {
+          try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+        } else {
+          // No explicit output path — rename temp file with inferred extension.
+          const ext = contentType.split(';')[0].includes('/')
+            ? mimeToExt(contentType.split(';')[0].trim())
+            : '.bin';
+          const finalPath = path.join(TEMP_DIR, `browse-download-${Date.now()}${ext}`);
+          fs.renameSync(tempPath, finalPath);
+          const sizeKB = Math.round(buffer.length / 1024);
+          return `Downloaded: ${finalPath} (${sizeKB}KB, ${contentType.split(';')[0].trim()})${suggested ? ` [${suggested}]` : ''}`;
+        }
+        if (buffer.length > 200 * 1024 * 1024) {
+          throw new Error('File too large (>200MB).');
+        }
       } else {
-        // Strategy 1: Direct URL via page.request.fetch()
+        // Strategy 1: Direct URL via page.request.fetch().
+        // Gate the URL through the same validator `goto` uses. Without
+        // this check, download + scrape bypass the navigation
+        // blocklist and a caller with write scope can read
+        // http://169.254.169.254/latest/meta-data/ (AWS IMDSv1), the
+        // GCP/Azure metadata equivalents, or any internal IPv4/IPv6
+        // the server happens to route to. The response body is then
+        // returned to the caller (base64) or written to disk where
+        // GET /file serves it back.
+        await validateNavigationUrl(url);
         const response = await page.request.fetch(url, { timeout: 30000 });
         const status = response.status();
         if (status >= 400) {
@@ -1101,6 +1363,10 @@ export async function handleWriteCommand(
       for (let i = 0; i < toDownload.length; i++) {
         const { url, type } = toDownload[i];
         try {
+          // Same gate as the download command — page.request.fetch
+          // must not reach cloud metadata, ULA ranges, or the rest of
+          // the blocklist. See url-validation.ts for the full list.
+          await validateNavigationUrl(url);
           const response = await page.request.fetch(url, { timeout: 30000 });
           if (response.status() >= 400) throw new Error(`HTTP ${response.status()}`);
           const ct = response.headers()['content-type'] || 'application/octet-stream';

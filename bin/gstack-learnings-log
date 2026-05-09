@@ -84,3 +84,6 @@ if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
 fi
 
 echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/learnings.jsonl" 2>/dev/null &

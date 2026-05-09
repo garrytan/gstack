@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# gstack-codex-probe: shared helper for /codex and /autoplan skills.
+# Sourced from template bash blocks; never execute directly.
+#
+# Functions (all prefixed with _gstack_codex_ for namespace hygiene):
+#   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
+#   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
+#   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
+#   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
+#
+# Hygiene rules (enforced by test/codex-hardening.test.ts):
+#   - Never set -e / set -u / trap / IFS= / PATH= in this file.
+#   - All internal vars prefix with _GSTACK_CODEX_.
+#   - All functions prefix with _gstack_codex_.
+#   - No command execution at source time (only function defs).
+
+# --- Auth probe -------------------------------------------------------------
+
+_gstack_codex_auth_probe() {
+  # Multi-signal: env vars OR auth file. Avoids false negatives for env-auth
+  # users (CI, platform engineers) that a file-only check would reject.
+  local _codex_home="${CODEX_HOME:-$HOME/.codex}"
+  # Use `-n` which returns true only for non-empty non-whitespace. Bash's [ -n ]
+  # alone allows whitespace; pair with a whitespace strip for robustness.
+  local _k1 _k2
+  _k1=$(printf '%s' "${CODEX_API_KEY:-}" | tr -d '[:space:]')
+  _k2=$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '[:space:]')
+  if [ -n "$_k1" ] || [ -n "$_k2" ] || [ -f "$_codex_home/auth.json" ]; then
+    echo "AUTH_OK"
+    return 0
+  fi
+  echo "AUTH_FAILED"
+  return 1
+}
+
+# --- Version check ----------------------------------------------------------
+
+_gstack_codex_version_check() {
+  # Warn on known-bad Codex CLI versions. Anchored regex prevents false
+  # positives like 0.120.10 or 0.120.20 from matching. 0.120.2-beta still
+  # matches the bad release and gets warned (it IS buggy).
+  # Update this list when a new Codex CLI version regresses.
+  local _ver
+  _ver=$(codex --version 2>/dev/null | head -1)
+  [ -z "$_ver" ] && return 0
+  if echo "$_ver" | grep -Eq '(^|[^0-9.])0\.120\.(0|1|2)([^0-9.]|$)'; then
+    echo "WARN: Codex CLI $_ver has known stdin deadlock bugs. Run: npm install -g @openai/codex@latest"
+    _gstack_codex_log_event "codex_version_warning"
+  fi
+}
+
+# --- Timeout wrapper --------------------------------------------------------
+
+_gstack_codex_timeout_wrapper() {
+  # Resolve wrapper binary: prefer gtimeout (Homebrew coreutils on macOS),
+  # fall back to timeout (Linux), else run unwrapped. Arguments: $1 is the
+  # duration in seconds; rest is the command to run.
+  local _duration="$1"
+  shift
+  local _to
+  _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+  if [ -n "$_to" ]; then
+    "$_to" "$_duration" "$@"
+  else
+    "$@"
+  fi
+}
+
+# --- Telemetry event --------------------------------------------------------
+
+_gstack_codex_log_event() {
+  # Emit a telemetry event to ~/.gstack/analytics/skill-usage.jsonl.
+  # Gated on $_TEL != "off" (caller sets this from gstack-config).
+  # Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
+  #              codex_version_warning.
+  # Payload schema: {skill, event, duration_s, ts}. NEVER includes prompt
+  # content, env var values, or auth tokens.
+  local _event="$1"
+  local _duration="${2:-0}"
+  [ "${_TEL:-off}" = "off" ] && return 0
+  mkdir -p "$HOME/.gstack/analytics" 2>/dev/null || return 0
+  local _ts
+  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+  printf '{"skill":"codex","event":"%s","duration_s":"%s","ts":"%s"}\n' \
+    "$_event" "$_duration" "$_ts" \
+    >> "$HOME/.gstack/analytics/skill-usage.jsonl" 2>/dev/null || true
+}
+
+# --- Learnings log on hang --------------------------------------------------
+
+_gstack_codex_log_hang() {
+  # Invoked when a codex invocation times out (exit 124). Records an
+  # operational learning so future /investigate sessions surface the pattern.
+  # Best-effort: errors swallowed.
+  local _mode="${1:-unknown}"
+  local _prompt_size="${2:-0}"
+  local _log_bin="$HOME/.claude/skills/gstack/bin/gstack-learnings-log"
+  [ -x "$_log_bin" ] || return 0
+  local _key="codex-hang-$(date +%s 2>/dev/null || echo unknown)"
+  "$_log_bin" "$(printf '{"skill":"codex","type":"operational","key":"%s","insight":"Codex timed out after 600s during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["codex/SKILL.md.tmpl","autoplan/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \
+    >/dev/null 2>&1 || true
+}

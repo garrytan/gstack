@@ -403,16 +403,57 @@ For each comment in `comments`:
 
 ## Step 12: Version bump (auto-decide)
 
-**Idempotency check:** Before bumping, compare VERSION against the base branch.
+**Idempotency check:** Before bumping, classify the state by comparing `VERSION` against the base branch AND against `package.json`'s `version` field. Four states: FRESH (do bump), ALREADY_BUMPED (skip bump), DRIFT_STALE_PKG (sync pkg only, no re-bump), DRIFT_UNEXPECTED (stop and ask).
 
 ```bash
-BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null || echo "0.0.0.0")
-CURRENT_VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0.0")
-echo "BASE: $BASE_VERSION  HEAD: $CURRENT_VERSION"
-if [ "$CURRENT_VERSION" != "$BASE_VERSION" ]; then echo "ALREADY_BUMPED"; fi
+BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
+CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
+[ -z "$BASE_VERSION" ] && BASE_VERSION="0.0.0.0"
+[ -z "$CURRENT_VERSION" ] && CURRENT_VERSION="0.0.0.0"
+PKG_VERSION=""
+PKG_EXISTS=0
+if [ -f package.json ]; then
+  PKG_EXISTS=1
+  if command -v node >/dev/null 2>&1; then
+    PKG_VERSION=$(node -e 'const p=require("./package.json");process.stdout.write(p.version||"")' 2>/dev/null)
+    PARSE_EXIT=$?
+  elif command -v bun >/dev/null 2>&1; then
+    PKG_VERSION=$(bun -e 'const p=require("./package.json");process.stdout.write(p.version||"")' 2>/dev/null)
+    PARSE_EXIT=$?
+  else
+    echo "ERROR: package.json exists but neither node nor bun is available. Install one and re-run."
+    exit 1
+  fi
+  if [ "$PARSE_EXIT" != "0" ]; then
+    echo "ERROR: package.json is not valid JSON. Fix the file before re-running /ship."
+    exit 1
+  fi
+fi
+echo "BASE: $BASE_VERSION  VERSION: $CURRENT_VERSION  package.json: ${PKG_VERSION:-<none>}"
+
+if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
+  if [ "$PKG_EXISTS" = "1" ] && [ -n "$PKG_VERSION" ] && [ "$PKG_VERSION" != "$CURRENT_VERSION" ]; then
+    echo "STATE: DRIFT_UNEXPECTED"
+    echo "package.json version ($PKG_VERSION) disagrees with VERSION ($CURRENT_VERSION) while VERSION matches base."
+    echo "This looks like a manual edit to package.json bypassing /ship. Reconcile manually, then re-run."
+    exit 1
+  fi
+  echo "STATE: FRESH"
+else
+  if [ "$PKG_EXISTS" = "1" ] && [ -n "$PKG_VERSION" ] && [ "$PKG_VERSION" != "$CURRENT_VERSION" ]; then
+    echo "STATE: DRIFT_STALE_PKG"
+  else
+    echo "STATE: ALREADY_BUMPED"
+  fi
+fi
 ```
 
-If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (prior `/ship` run). Skip the bump action (do not modify VERSION), but read the current VERSION value — it is needed for CHANGELOG and PR body. Continue to the next step. Otherwise proceed with the bump.
+Read the `STATE:` line and dispatch:
+
+- **FRESH** → proceed with the bump action below (steps 1–4).
+- **ALREADY_BUMPED** → skip the bump by default, BUT check for queue drift first: call `bin/gstack-next-version` with the implied bump level (derived from `CURRENT_VERSION` vs `BASE_VERSION`), compare its `.version` against `CURRENT_VERSION`. If they differ (queue moved since last ship), use **AskUserQuestion**: "VERSION drift detected: you claim v<CURRENT> but next available is v<NEW> (queue moved). A) Rebump to v<NEW> and rewrite CHANGELOG header + PR title (recommended), B) Keep v<CURRENT> — will be rejected by CI version-gate until resolved." If A, treat this as FRESH with `NEW_VERSION=<new>` and run steps 1-4 (which will also trigger Step 13 CHANGELOG header rewrite and Step 19 PR title rewrite). If B, reuse `CURRENT_VERSION` and warn that CI will likely reject. If util is offline, warn and reuse `CURRENT_VERSION`.
+- **DRIFT_STALE_PKG** → a prior `/ship` bumped `VERSION` but failed to update `package.json`. Run the sync-only repair block below (after step 4). Do NOT re-bump. Reuse `CURRENT_VERSION` for CHANGELOG and PR body. (Queue check still runs in ALREADY_BUMPED terms after repair.)
+- **DRIFT_UNEXPECTED** → `/ship` has halted (exit 1). Resolve manually; /ship cannot tell which file is authoritative.
 
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
 
@@ -424,11 +465,81 @@ If output shows `ALREADY_BUMPED`, VERSION was already bumped on this branch (pri
    - **MINOR** (2nd digit): **ASK the user** if ANY feature signal is detected, OR 500+ lines changed, OR new modules/packages added
    - **MAJOR** (1st digit): **ASK the user** — only for milestones or breaking changes
 
-3. Compute the new version:
-   - Bumping a digit resets all digits to its right to 0
-   - Example: `0.19.1.0` + PATCH → `0.19.2.0`
+   Save the chosen level as `BUMP_LEVEL` (one of `major`, `minor`, `patch`, `micro`). This is the user-intended level. The next step decides *placement* — the level stays the same even if queue-aware allocation has to advance past a claimed slot.
 
-4. Write the new version to the `VERSION` file.
+3. **Queue-aware version pick (workspace-aware ship, v1.6.4.0+).** Call `bin/gstack-next-version` to see what's already claimed by open PRs + active sibling Conductor worktrees, then render the queue state to the user:
+
+   ```bash
+   QUEUE_JSON=$(bun run bin/gstack-next-version \
+     --base <base> \
+     --bump "$BUMP_LEVEL" \
+     --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
+   NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
+   CLAIMED_COUNT=$(echo "$QUEUE_JSON" | jq -r '.claimed | length')
+   ACTIVE_SIBLING_COUNT=$(echo "$QUEUE_JSON" | jq -r '.active_siblings | length')
+   OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
+   REASON=$(echo "$QUEUE_JSON" | jq -r '.reason // ""')
+   ```
+
+   - If `OFFLINE=true` or the util fails (auth expired, no `gh`/`glab`, network): fall back to local `BUMP_LEVEL` arithmetic (bump `BASE_VERSION` at the chosen level). Print `⚠ workspace-aware ship offline — using local bump only`. Continue.
+   - If `CLAIMED_COUNT > 0`: render the queue table to the user so they can see landing order at a glance:
+     ```
+     Queue on <base> (vBASE_VERSION):
+       #<pr> <branch> → v<version>   [⚠ collision with #<other>]
+     Active sibling workspaces (WIP, not yet PR'd):
+       <path> → v<version> (committed Nh ago)
+     Your branch will claim: vNEW_VERSION  (<reason>)
+     ```
+   - If `ACTIVE_SIBLING_COUNT > 0` and any active sibling's VERSION is `>= NEW_VERSION`, use **AskUserQuestion**: "Sibling workspace <path> has v<X> committed <N>h ago but hasn't PR'd yet. Wait for them to ship first, or advance past? A) Advance past (recommended for unrelated work), B) Abort /ship and sync up with sibling first."
+   - Validate `NEW_VERSION` matches `MAJOR.MINOR.PATCH.MICRO`. If util returns an empty or malformed version, fall back to local bump.
+
+4. **Validate** `NEW_VERSION` and write it to **both** `VERSION` and `package.json`. This block runs only when `STATE: FRESH`.
+
+```bash
+if ! printf '%s' "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "ERROR: NEW_VERSION ($NEW_VERSION) does not match MAJOR.MINOR.PATCH.MICRO pattern. Aborting."
+  exit 1
+fi
+echo "$NEW_VERSION" > VERSION
+if [ -f package.json ]; then
+  if command -v node >/dev/null 2>&1; then
+    node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW_VERSION" || {
+      echo "ERROR: failed to update package.json. VERSION was written but package.json is now stale. Fix and re-run — the new idempotency check will detect the drift."
+      exit 1
+    }
+  elif command -v bun >/dev/null 2>&1; then
+    bun -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW_VERSION" || {
+      echo "ERROR: failed to update package.json. VERSION was written but package.json is now stale."
+      exit 1
+    }
+  else
+    echo "ERROR: package.json exists but neither node nor bun is available."
+    exit 1
+  fi
+fi
+```
+
+**DRIFT_STALE_PKG repair path** — runs when idempotency reports `STATE: DRIFT_STALE_PKG`. No re-bump; sync `package.json.version` to the current `VERSION` and continue. Reuse `CURRENT_VERSION` for CHANGELOG and PR body.
+
+```bash
+REPAIR_VERSION=$(cat VERSION | tr -d '\r\n[:space:]')
+if ! printf '%s' "$REPAIR_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "ERROR: VERSION file contents ($REPAIR_VERSION) do not match MAJOR.MINOR.PATCH.MICRO pattern. Refusing to propagate invalid semver into package.json. Fix VERSION manually, then re-run /ship."
+  exit 1
+fi
+if command -v node >/dev/null 2>&1; then
+  node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$REPAIR_VERSION" || {
+    echo "ERROR: drift repair failed — could not update package.json."
+    exit 1
+  }
+else
+  bun -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$REPAIR_VERSION" || {
+    echo "ERROR: drift repair failed."
+    exit 1
+  }
+fi
+echo "Drift repaired: package.json synced to $REPAIR_VERSION. No version bump performed."
+```
 
 ---
 
@@ -492,6 +603,73 @@ Save this summary — it goes into the PR body in Step 19.
 ---
 
 ## Step 15: Commit (bisectable chunks)
+
+### Step 15.0: WIP Commit Squash (continuous checkpoint mode only)
+
+If `CHECKPOINT_MODE` is `"continuous"`, the branch likely contains `WIP:` commits
+from auto-checkpointing. These must be squashed INTO the corresponding logical
+commits before the bisectable-grouping logic in Step 15.1 runs. Non-WIP commits
+on the branch (earlier landed work) must be preserved.
+
+**Detection:**
+```bash
+WIP_COUNT=$(git log <base>..HEAD --oneline --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
+echo "WIP_COMMITS: $WIP_COUNT"
+```
+
+If `WIP_COUNT` is 0: skip this sub-step entirely.
+
+If `WIP_COUNT` > 0, collect the WIP context first so it survives the squash:
+
+```bash
+# Export [gstack-context] blocks from all WIP commits on this branch.
+# This file becomes input to the CHANGELOG entry and may inform PR body context.
+mkdir -p "$(git rev-parse --show-toplevel)/.gstack"
+git log <base>..HEAD --grep="^WIP:" --format="%H%n%B%n---END---" > \
+  "$(git rev-parse --show-toplevel)/.gstack/wip-context-before-squash.md" 2>/dev/null || true
+```
+
+**Non-destructive squash strategy:**
+
+`git reset --soft <merge-base>` WOULD uncommit everything including non-WIP commits.
+DO NOT DO THAT. Instead, use `git rebase` scoped to filter WIP commits only.
+
+Option 1 (preferred, if there are non-WIP commits mixed in):
+```bash
+# Interactive rebase with automated WIP squashing.
+# Mark every WIP commit as 'fixup' (drop its message, fold changes into prior commit).
+git rebase -i $(git merge-base HEAD origin/<base>) \
+  --exec 'true' \
+  -X ours 2>/dev/null || {
+    echo "Rebase conflict. Aborting: git rebase --abort"
+    git rebase --abort
+    echo "STATUS: BLOCKED — manual WIP squash required"
+    exit 1
+  }
+```
+
+Option 2 (simpler, if the branch is ALL WIP commits so far — no landed work):
+```bash
+# Branch contains only WIP commits. Reset-soft is safe here because there's
+# nothing non-WIP to preserve. Verify first.
+NON_WIP=$(git log <base>..HEAD --oneline --invert-grep --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$NON_WIP" -eq 0 ]; then
+  git reset --soft $(git merge-base HEAD origin/<base>)
+  echo "WIP-only branch, reset-soft to merge base. Step 15.1 will create clean commits."
+fi
+```
+
+Decide at runtime which option applies. If unsure, prefer stopping and asking the
+user via AskUserQuestion rather than destroying non-WIP commits.
+
+**Anti-footgun rules:**
+- NEVER blind `git reset --soft` if there are non-WIP commits. Codex flagged this
+  as destructive — it would uncommit real landed work and turn the push step into
+  a non-fast-forward push for anyone who already pushed.
+- Only proceed to Step 15.1 after WIP commits are successfully squashed/absorbed
+  or the branch has been verified to contain only WIP work.
+
+### Step 15.1: Bisectable Commits
 
 **Goal:** Create small, logical commits that work well with `git bisect` and help LLMs understand what changed.
 
@@ -614,7 +792,18 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. Print the existing URL and continue to Step 20.
+If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run.
+
+**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+
+1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
+2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
+3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
+4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
+
+This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
+
+Print the existing URL and continue to Step 20.
 
 If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
@@ -682,7 +871,9 @@ you missed it.>
 **If GitHub:**
 
 ```bash
-gh pr create --base <base> --title "<type>: <summary>" --body "$(cat <<'EOF'
+# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
+# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
+gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body "$(cat <<'EOF'
 <PR body from above>
 EOF
 )"
@@ -691,7 +882,9 @@ EOF
 **If GitLab:**
 
 ```bash
-glab mr create -b <base> -t "<type>: <summary>" -d "$(cat <<'EOF'
+# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
+# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
+glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"

@@ -47,7 +47,7 @@ export interface ServeOptions {
 type ServerState = "serving" | "regenerating" | "done";
 
 export async function serve(options: ServeOptions): Promise<void> {
-  const { html, port = 0, hostname = '127.0.0.1', timeout = 600 } = options;
+  const { html, port = 0, hostname = "127.0.0.1", timeout = 600 } = options;
 
   // Validate HTML file exists
   if (!fs.existsSync(html)) {
@@ -70,11 +70,14 @@ export async function serve(options: ServeOptions): Promise<void> {
       const url = new URL(req.url);
 
       // Serve the comparison board HTML
-      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      if (
+        req.method === "GET" &&
+        (url.pathname === "/" || url.pathname === "/index.html")
+      ) {
         // Inject the server URL so the board can POST feedback
         const injected = htmlContent.replace(
           "</head>",
-          `<script>window.__GSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
+          `<script>window.__GSTACK_SERVER_URL = ${JSON.stringify(url.origin)};</script>\n</head>`,
         );
         return new Response(injected, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -130,7 +133,9 @@ export async function serve(options: ServeOptions): Promise<void> {
 
     const isSubmit = body.regenerated === false;
     const isRegenerate = body.regenerated === true;
-    const action = isSubmit ? "submitted" : (body.regenerateAction || "regenerate");
+    const action = isSubmit
+      ? "submitted"
+      : body.regenerateAction || "regenerate";
 
     console.error(`SERVE_FEEDBACK_RECEIVED: type=${action}`);
 
@@ -185,7 +190,7 @@ export async function serve(options: ServeOptions): Promise<void> {
     if (!newHtmlPath || !fs.existsSync(newHtmlPath)) {
       return Response.json(
         { error: `HTML file not found: ${newHtmlPath}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -193,10 +198,13 @@ export async function serve(options: ServeOptions): Promise<void> {
     // allowed directory (anchored to the initial HTML file's parent).
     // Prevents path traversal via /api/reload reading arbitrary files.
     const resolvedReload = fs.realpathSync(path.resolve(newHtmlPath));
-    if (!resolvedReload.startsWith(allowedDir + path.sep) && resolvedReload !== allowedDir) {
+    if (
+      !resolvedReload.startsWith(allowedDir + path.sep) &&
+      resolvedReload !== allowedDir
+    ) {
       return Response.json(
         { error: `Path must be within: ${allowedDir}` },
-        { status: 403 }
+        { status: 403 },
       );
     }
 

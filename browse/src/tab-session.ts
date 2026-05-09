@@ -24,6 +24,8 @@ export interface RefEntry {
   name: string;
 }
 
+export type SetContentWaitUntil = 'load' | 'domcontentloaded' | 'networkidle';
+
 export class TabSession {
   readonly page: Page;
 
@@ -36,6 +38,30 @@ export class TabSession {
 
   // ─── Frame context ─────────────────────────────────────────
   private activeFrame: Frame | null = null;
+
+  // ─── Loaded HTML (for load-html replay across context recreation) ─
+  //
+  // loadedHtml lifecycle:
+  //
+  //   load-html cmd ──▶ session.setTabContent(html, opts)
+  //                          ├─▶ page.setContent(html, opts)
+  //                          └─▶ this.loadedHtml = html
+  //                              this.loadedHtmlWaitUntil = opts.waitUntil
+  //
+  //   goto/back/forward/reload ──▶ session.clearLoadedHtml()
+  //                                     (BEFORE Playwright call, so timeouts
+  //                                      don't leave stale state)
+  //
+  //   viewport --scale ──▶ recreateContext()
+  //                             ├─▶ saveState() captures { url, loadedHtml } per tab
+  //                             │        (in-memory only, never to disk)
+  //                             └─▶ restoreState():
+  //                                    for each tab with loadedHtml:
+  //                                       newSession.setTabContent(html, opts)
+  //                                    (NOT page.setContent — must rehydrate
+  //                                     TabSession.loadedHtml too)
+  private loadedHtml: string | null = null;
+  private loadedHtmlWaitUntil: SetContentWaitUntil | undefined;
 
   constructor(page: Page) {
     this.page = page;
@@ -131,10 +157,47 @@ export class TabSession {
   }
 
   /**
-   * Called on main-frame navigation to clear stale refs and frame context.
+   * Called on main-frame navigation to clear stale refs, frame context, and any
+   * load-html replay metadata. Runs for every main-frame nav — explicit goto/back/
+   * forward/reload AND browser-emitted navigations (link clicks, form submits, JS
+   * redirects, OAuth). Without clearing loadedHtml here, a user who load-html'd and
+   * then clicked a link would silently revert to the original HTML on the next
+   * viewport --scale.
    */
   onMainFrameNavigated(): void {
     this.clearRefs();
     this.activeFrame = null;
+    this.loadedHtml = null;
+    this.loadedHtmlWaitUntil = undefined;
+  }
+
+  // ─── Loaded HTML (load-html replay) ───────────────────────
+
+  /**
+   * Load HTML content into the tab AND store it for replay after context recreation
+   * (e.g. viewport --scale). Unlike page.setContent() alone, this rehydrates
+   * TabSession.loadedHtml so the next saveState()/restoreState() round-trip preserves
+   * the content.
+   */
+  async setTabContent(html: string, opts: { waitUntil?: SetContentWaitUntil } = {}): Promise<void> {
+    const waitUntil = opts.waitUntil ?? 'domcontentloaded';
+    // Call setContent FIRST — only record the replay metadata after a successful load.
+    // If setContent throws (timeout, crash), we must not leave phantom HTML that a
+    // later viewport --scale would replay.
+    await this.page.setContent(html, { waitUntil, timeout: 15000 });
+    this.loadedHtml = html;
+    this.loadedHtmlWaitUntil = waitUntil;
+  }
+
+  /** Get stored HTML + waitUntil for state replay. Returns null if no load-html happened. */
+  getLoadedHtml(): { html: string; waitUntil?: SetContentWaitUntil } | null {
+    if (this.loadedHtml === null) return null;
+    return { html: this.loadedHtml, waitUntil: this.loadedHtmlWaitUntil };
+  }
+
+  /** Clear stored HTML. Called BEFORE goto/back/forward/reload navigation. */
+  clearLoadedHtml(): void {
+    this.loadedHtml = null;
+    this.loadedHtmlWaitUntil = undefined;
   }
 }

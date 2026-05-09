@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# gstack-question-log — append an AskUserQuestion event to the project log.
+#
+# Usage:
+#   gstack-question-log '{"skill":"ship","question_id":"ship-test-failure-triage",\
+#     "question_summary":"Tests failed","options_count":3,"user_choice":"fix-now",\
+#     "recommended":"fix-now","session_id":"ppid"}'
+#
+# v1: log-only. Consumed by /plan-tune inspection and (in v2) by the
+# inferred-dimension derivation pipeline.
+#
+# Schema (all fields validated):
+#   skill              — skill name (kebab-case)
+#   question_id        — either a registered id (preferred) or ad-hoc `{skill}-{slug}`
+#   question_summary   — short one-liner of what was asked (<= 200 chars)
+#   category           — approval | clarification | routing | cherry-pick | feedback-loop
+#                        (optional — looked up from registry if omitted)
+#   door_type          — one-way | two-way
+#                        (optional — looked up from registry if omitted)
+#   options_count      — number of options presented (positive integer)
+#   user_choice        — key user selected (free string; registry-options preferred)
+#   recommended        — option key the agent recommended (optional)
+#   followed_recommendation — bool (optional — computed if both present)
+#   session_id         — stable session identifier
+#   ts                 — ISO 8601 timestamp (auto-injected if missing)
+#
+# Append-only JSONL. Dedup is at read time in gstack-question-sensitivity --read-log.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+mkdir -p "$GSTACK_HOME/projects/$SLUG"
+
+INPUT="$1"
+
+# Validate and enrich from registry.
+TMPERR=$(mktemp)
+trap 'rm -f "$TMPERR"' EXIT
+set +e
+VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+const path = require('path');
+const raw = await Bun.stdin.text();
+let j;
+try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-question-log: invalid JSON\n'); process.exit(1); }
+
+// Required: skill (kebab-case)
+if (!j.skill || !/^[a-z0-9-]+\$/.test(j.skill)) {
+  process.stderr.write('gstack-question-log: invalid skill, must be kebab-case\n');
+  process.exit(1);
+}
+
+// Required: question_id (kebab-case, <=64 chars)
+if (!j.question_id || !/^[a-z0-9-]+\$/.test(j.question_id) || j.question_id.length > 64) {
+  process.stderr.write('gstack-question-log: invalid question_id, must be kebab-case <=64 chars\n');
+  process.exit(1);
+}
+
+// Required: question_summary (non-empty, <=200 chars, no newlines)
+if (typeof j.question_summary !== 'string' || !j.question_summary.length) {
+  process.stderr.write('gstack-question-log: question_summary required\n');
+  process.exit(1);
+}
+if (j.question_summary.length > 200) {
+  j.question_summary = j.question_summary.slice(0, 200);
+}
+if (j.question_summary.includes('\n')) {
+  j.question_summary = j.question_summary.replace(/\n+/g, ' ');
+}
+
+// Injection defense on the summary — same patterns as learnings-log.
+const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+)?previous\s+(instructions|context|rules)/i,
+  /you\s+are\s+now\s+/i,
+  /always\s+output\s+no\s+findings/i,
+  /skip\s+(all\s+)?(security|review|checks)/i,
+  /override[:\s]/i,
+  /\bsystem\s*:/i,
+  /\bassistant\s*:/i,
+  /\buser\s*:/i,
+  /do\s+not\s+(report|flag|mention)/i,
+];
+for (const pat of INJECTION_PATTERNS) {
+  if (pat.test(j.question_summary)) {
+    process.stderr.write('gstack-question-log: question_summary contains suspicious instruction-like content, rejected\n');
+    process.exit(1);
+  }
+}
+
+// Registry lookup for category + door_type enrichment.
+// Registry file is at \$GSTACK_ROOT/scripts/question-registry.ts, but we don't import
+// TypeScript at runtime here — we pass through what was provided and fill in defaults.
+// The caller (the preamble resolver) is expected to pass category+door_type from
+// the registry when it knows them; for ad-hoc ids both can be omitted.
+
+const ALLOWED_CATEGORIES = ['approval', 'clarification', 'routing', 'cherry-pick', 'feedback-loop'];
+if (j.category !== undefined) {
+  if (!ALLOWED_CATEGORIES.includes(j.category)) {
+    process.stderr.write('gstack-question-log: invalid category, must be one of: ' + ALLOWED_CATEGORIES.join(', ') + '\n');
+    process.exit(1);
+  }
+}
+
+const ALLOWED_DOORS = ['one-way', 'two-way'];
+if (j.door_type !== undefined) {
+  if (!ALLOWED_DOORS.includes(j.door_type)) {
+    process.stderr.write('gstack-question-log: invalid door_type, must be one-way or two-way\n');
+    process.exit(1);
+  }
+}
+
+// options_count — positive integer if present
+if (j.options_count !== undefined) {
+  const n = Number(j.options_count);
+  if (!Number.isInteger(n) || n < 1 || n > 26) {
+    process.stderr.write('gstack-question-log: options_count must be integer in [1, 26]\n');
+    process.exit(1);
+  }
+  j.options_count = n;
+}
+
+// user_choice — required; <= 64 chars; single-line; no injection patterns
+if (typeof j.user_choice !== 'string' || !j.user_choice.length) {
+  process.stderr.write('gstack-question-log: user_choice required\n');
+  process.exit(1);
+}
+if (j.user_choice.length > 64) j.user_choice = j.user_choice.slice(0, 64);
+j.user_choice = j.user_choice.replace(/\n+/g, ' ');
+
+// recommended — optional, same constraints as user_choice
+if (j.recommended !== undefined) {
+  if (typeof j.recommended !== 'string') {
+    process.stderr.write('gstack-question-log: recommended must be string\n');
+    process.exit(1);
+  }
+  if (j.recommended.length > 64) j.recommended = j.recommended.slice(0, 64);
+}
+
+// followed_recommendation — compute if both sides present.
+if (j.recommended !== undefined && j.user_choice !== undefined) {
+  j.followed_recommendation = j.user_choice === j.recommended;
+}
+
+// session_id — kebab-friendly; <=64 chars
+if (j.session_id !== undefined) {
+  if (typeof j.session_id !== 'string') {
+    process.stderr.write('gstack-question-log: session_id must be string\n');
+    process.exit(1);
+  }
+  if (j.session_id.length > 64) j.session_id = j.session_id.slice(0, 64);
+}
+
+// Inject timestamp if not present.
+if (!j.ts) j.ts = new Date().toISOString();
+
+console.log(JSON.stringify(j));
+" 2>"$TMPERR")
+VALIDATE_RC=$?
+set -e
+
+if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
+  if [ -s "$TMPERR" ]; then
+    cat "$TMPERR" >&2
+  fi
+  exit 1
+fi
+
+echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+
+# NOTE: question-log.jsonl is deliberately NOT enqueued for gbrain-sync.
+# Per Codex v2 review, audit/derivation data stays local alongside the
+# question-preferences.json it annotates.

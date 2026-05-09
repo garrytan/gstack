@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# gstack-gbrain-detect — emit current gbrain/gstack-brain state as JSON.
+#
+# Usage:
+#   gstack-gbrain-detect
+#
+# Output (always valid JSON, even when every check is false):
+#   {
+#     "gbrain_on_path": true|false,
+#     "gbrain_version": "0.18.2" | null,
+#     "gbrain_config_exists": true|false,
+#     "gbrain_engine": "pglite"|"postgres" | null,
+#     "gbrain_doctor_ok": true|false,
+#     "gbrain_mcp_mode": "local-stdio"|"remote-http"|"none",
+#     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
+#     "gstack_brain_git": true|false,
+#     "gstack_artifacts_remote": "https://..." | ""
+#   }
+#
+# The /setup-gbrain skill reads this once at startup to decide which path
+# branches are live and which steps can be skipped. Never modifies state;
+# pure introspection. Exits 0 unless `jq` is missing.
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack for gstack-brain-* state lookups.
+set -euo pipefail
+
+STATE_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+GBRAIN_CONFIG="$HOME/.gbrain/config.json"
+
+die() { echo "gstack-gbrain-detect: $*" >&2; exit 2; }
+
+require_jq() {
+  command -v jq >/dev/null 2>&1 || die "jq is required. Install with: brew install jq"
+}
+require_jq
+
+# --- gbrain binary presence + version ---
+gbrain_on_path=false
+gbrain_version=null
+if command -v gbrain >/dev/null 2>&1; then
+  gbrain_on_path=true
+  # Format versions as JSON strings; gbrain --version may print other chatter.
+  v=$(gbrain --version 2>/dev/null | head -1 | tr -d '[:space:]' || true)
+  if [ -n "$v" ]; then
+    gbrain_version=$(jq -Rn --arg v "$v" '$v')
+  fi
+fi
+
+# --- gbrain config file ---
+gbrain_config_exists=false
+gbrain_engine=null
+if [ -f "$GBRAIN_CONFIG" ]; then
+  gbrain_config_exists=true
+  # Engine is defensively parsed; an invalid config returns null, not a crash.
+  engine_raw=$(jq -r '.engine // empty' "$GBRAIN_CONFIG" 2>/dev/null || true)
+  case "$engine_raw" in
+    pglite|postgres) gbrain_engine=$(jq -Rn --arg e "$engine_raw" '$e') ;;
+  esac
+fi
+
+# --- gbrain doctor health ---
+# Doctor is wrapped in `timeout 5s` to match the /health D6 pattern and avoid
+# the detect step hanging the skill when gbrain is broken or its DB is
+# unreachable. Any nonzero exit or non-"ok"/"warnings" status → false.
+gbrain_doctor_ok=false
+if [ "$gbrain_on_path" = "true" ]; then
+  # Use `timeout` if available; some minimal macs use gtimeout from coreutils.
+  timeout_bin=""
+  if command -v timeout >/dev/null 2>&1; then timeout_bin="timeout 5s"
+  elif command -v gtimeout >/dev/null 2>&1; then timeout_bin="gtimeout 5s"
+  fi
+  if doctor_json=$(eval "$timeout_bin gbrain doctor --json" 2>/dev/null); then
+    status=$(echo "$doctor_json" | jq -r '.status // empty' 2>/dev/null || true)
+    case "$status" in
+      ok|warnings) gbrain_doctor_ok=true ;;
+    esac
+  fi
+fi
+
+# --- artifacts sync state (renamed from gbrain_sync_mode in v1.27.0.0) ---
+gstack_brain_sync_mode="off"
+if [ -x "$CONFIG_BIN" ]; then
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || true)
+  case "$mode" in
+    off|artifacts-only|full) gstack_brain_sync_mode="$mode" ;;
+  esac
+fi
+
+gstack_brain_git=false
+if [ -d "$STATE_DIR/.git" ]; then
+  gstack_brain_git=true
+fi
+
+# --- gbrain_mcp_mode: local-stdio | remote-http | none ---
+# Defense-in-depth fallback chain (intentional ordering, do not reorder):
+#   1. `claude mcp get gbrain --json` — public CLI surface, structured output
+#   2. `claude mcp list` text-grep    — older claude versions without --json
+#   3. `~/.claude.json` jq read       — last resort if `claude` isn't on PATH
+# Fallback chain logged because if Anthropic moves the file or renames keys,
+# the third tier breaks silently; the first two tiers should catch it.
+gbrain_mcp_mode="none"
+if command -v claude >/dev/null 2>&1; then
+  # Tier 1: claude mcp get --json
+  if mcp_get_json=$(claude mcp get gbrain --json 2>/dev/null); then
+    if echo "$mcp_get_json" | jq -e '.' >/dev/null 2>&1; then
+      mtype=$(echo "$mcp_get_json" | jq -r '.type // .transport // empty' 2>/dev/null)
+      mcommand=$(echo "$mcp_get_json" | jq -r '.command // empty' 2>/dev/null)
+      murl=$(echo "$mcp_get_json" | jq -r '.url // empty' 2>/dev/null)
+      case "$mtype" in
+        http|sse) gbrain_mcp_mode="remote-http" ;;
+        stdio)    gbrain_mcp_mode="local-stdio" ;;
+        *)
+          # Newer claude versions may emit just url + command; infer.
+          if [ -n "$murl" ]; then gbrain_mcp_mode="remote-http"
+          elif [ -n "$mcommand" ]; then gbrain_mcp_mode="local-stdio"
+          fi
+          ;;
+      esac
+    fi
+  fi
+  # Tier 2: claude mcp list text-grep (only if Tier 1 didn't resolve)
+  if [ "$gbrain_mcp_mode" = "none" ]; then
+    if mcp_list=$(claude mcp list 2>/dev/null); then
+      gbrain_line=$(echo "$mcp_list" | grep -E '^gbrain:' || true)
+      if [ -n "$gbrain_line" ]; then
+        if echo "$gbrain_line" | grep -q 'http\|HTTP'; then
+          gbrain_mcp_mode="remote-http"
+        else
+          gbrain_mcp_mode="local-stdio"
+        fi
+      fi
+    fi
+  fi
+fi
+# Tier 3: ~/.claude.json jq read (only if claude binary or earlier tiers failed)
+if [ "$gbrain_mcp_mode" = "none" ]; then
+  if [ -f "$HOME/.claude.json" ]; then
+    # Look for a gbrain MCP server entry. Type field disambiguates http vs stdio.
+    mtype=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+    murl=$(jq -r '.mcpServers.gbrain.url // empty' "$HOME/.claude.json" 2>/dev/null)
+    mcommand=$(jq -r '.mcpServers.gbrain.command // empty' "$HOME/.claude.json" 2>/dev/null)
+    case "$mtype" in
+      url|http|sse) gbrain_mcp_mode="remote-http" ;;
+      stdio)        gbrain_mcp_mode="local-stdio" ;;
+      *)
+        if [ -n "$murl" ]; then gbrain_mcp_mode="remote-http"
+        elif [ -n "$mcommand" ]; then gbrain_mcp_mode="local-stdio"
+        fi
+        ;;
+    esac
+  fi
+fi
+
+# --- artifacts remote URL (post-rename) with brain-* fallback during the
+#     migration window (gstack-upgrade migration runs the rename). ---
+gstack_artifacts_remote=""
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  gstack_artifacts_remote=$(head -1 "$HOME/.gstack-artifacts-remote.txt" 2>/dev/null | tr -d '[:space:]' || true)
+elif [ -f "$HOME/.gstack-brain-remote.txt" ]; then
+  # Pre-migration fallback. Migration v1.27.0.0 will mv this to the new path.
+  gstack_artifacts_remote=$(head -1 "$HOME/.gstack-brain-remote.txt" 2>/dev/null | tr -d '[:space:]' || true)
+fi
+
+# Emit single-object JSON.
+jq -n \
+  --argjson on_path "$gbrain_on_path" \
+  --argjson version "$gbrain_version" \
+  --argjson config_exists "$gbrain_config_exists" \
+  --argjson engine "$gbrain_engine" \
+  --argjson doctor_ok "$gbrain_doctor_ok" \
+  --arg mcp_mode "$gbrain_mcp_mode" \
+  --arg sync_mode "$gstack_brain_sync_mode" \
+  --argjson brain_git "$gstack_brain_git" \
+  --arg artifacts_remote "$gstack_artifacts_remote" \
+  '{
+    gbrain_on_path: $on_path,
+    gbrain_version: $version,
+    gbrain_config_exists: $config_exists,
+    gbrain_engine: $engine,
+    gbrain_doctor_ok: $doctor_ok,
+    gbrain_mcp_mode: $mcp_mode,
+    gstack_brain_sync_mode: $sync_mode,
+    gstack_brain_git: $brain_git,
+    gstack_artifacts_remote: $artifacts_remote
+  }'

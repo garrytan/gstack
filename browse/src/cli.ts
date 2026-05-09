@@ -13,6 +13,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
+import { redactProxyUrl } from './proxy-redact';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -92,6 +94,12 @@ interface ServerState {
   serverPath: string;
   binaryVersion?: string;
   mode?: 'launched' | 'headed';
+  /** Hash of (proxyUrl + headed flag), used by D2 daemon-mismatch check. */
+  configHash?: string;
+  /** Xvfb child PID for cleanup on disconnect. */
+  xvfbPid?: number;
+  xvfbStartTime?: number;
+  xvfbDisplay?: string;
 }
 
 // ─── State File ────────────────────────────────────────────────
@@ -305,19 +313,43 @@ function acquireServerLock(): (() => void) | null {
   }
 }
 
-async function ensureServer(): Promise<ServerState> {
+async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
   const state = readState();
+  const desiredHash = flags?.configHash;
+  const extraEnv: Record<string, string> = {};
+  if (flags?.proxyUrl) extraEnv.BROWSE_PROXY_URL = flags.proxyUrl;
+  if (flags?.headed) extraEnv.BROWSE_HEADED = '1';
+  if (desiredHash) extraEnv.BROWSE_CONFIG_HASH = desiredHash;
 
   // Health-check-first: HTTP is definitive proof the server is alive and responsive.
   // This replaces the PID-gated approach which breaks on Windows (Bun's process.kill
   // always throws ESRCH for Windows PIDs in compiled binaries).
   if (state && await isServerHealthy(state.port)) {
+    // D2 daemon-mismatch check: existing daemon's configHash must match the
+    // CLI's resolved hash. If --proxy or --headed are passed and the existing
+    // daemon was started with different config, refuse with a `disconnect`
+    // hint. No silent restart — that would drop tab state, cookies, and
+    // logged-in sessions without warning.
+    if (desiredHash && state.configHash && state.configHash !== desiredHash) {
+      console.error(`[browse] existing daemon has different config (proxy/headed mismatch).`);
+      console.error(`[browse] run 'browse disconnect' first to apply --proxy/--headed.`);
+      process.exit(1);
+    }
+    // Same path: existing daemon is plain (no flags) but caller passes
+    // --proxy/--headed. Refuse for the same reason — apply explicitly via
+    // disconnect+reconnect.
+    if (desiredHash && !state.configHash && (flags?.proxyUrl || flags?.headed)) {
+      console.error(`[browse] existing daemon was started without --proxy/--headed.`);
+      console.error(`[browse] run 'browse disconnect' first to apply new flags.`);
+      process.exit(1);
+    }
+
     // Check for binary version mismatch (auto-restart on update)
     const currentVersion = readVersionHash();
     if (currentVersion && state.binaryVersion && currentVersion !== state.binaryVersion) {
       console.error('[browse] Binary updated, restarting server...');
       await killServer(state.pid);
-      return startServer();
+      return startServer(extraEnv);
     }
     return state;
   }
@@ -368,18 +400,51 @@ async function ensureServer(): Promise<ServerState> {
     if (state && state.pid) {
       await killServer(state.pid);
     }
-    console.error('[browse] Starting server...');
-    return await startServer();
+    if (flags?.redactedProxyUrl && flags.redactedProxyUrl !== '<no proxy>') {
+      console.error(`[browse] Starting server with proxy ${flags.redactedProxyUrl}${flags.headed ? ' (headed)' : ''}...`);
+    } else if (flags?.headed) {
+      console.error('[browse] Starting server in headed mode...');
+    } else {
+      console.error('[browse] Starting server...');
+    }
+    return await startServer(extraEnv);
   } finally {
     releaseLock();
   }
 }
 
+/**
+ * Extract `--tab-id <N>` from args and return { tabId, args } with the flag stripped.
+ * Used by make-pdf's tab-scoped flow: every browse command (newtab, load-html, js,
+ * pdf, closetab) can take `--tab-id <N>` to target a specific tab. Without this,
+ * parallel `$P generate` calls would race on the active tab.
+ */
+export function extractTabId(args: string[]): { tabId: number | undefined; args: string[] } {
+  const stripped: string[] = [];
+  let tabId: number | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--tab-id') {
+      const next = args[++i];
+      if (next === undefined) continue;
+      const parsed = parseInt(next, 10);
+      if (!isNaN(parsed)) tabId = parsed;
+    } else {
+      stripped.push(args[i]);
+    }
+  }
+  return { tabId, args: stripped };
+}
+
 // ─── Command Dispatch ──────────────────────────────────────────
 async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
-  // BROWSE_TAB env var pins commands to a specific tab (set by sidebar-agent per-tab)
-  const browseTab = process.env.BROWSE_TAB;
-  const body = JSON.stringify({ command, args, ...(browseTab ? { tabId: parseInt(browseTab, 10) } : {}) });
+  // Precedence: CLI --tab-id flag > BROWSE_TAB env var.
+  // make-pdf always passes --tab-id; human users typically rely on BROWSE_TAB
+  // (set by sidebar-agent per-tab) or the active tab.
+  const extracted = extractTabId(args);
+  args = extracted.args;
+  const envTab = process.env.BROWSE_TAB;
+  const tabId = extracted.tabId ?? (envTab ? parseInt(envTab, 10) : undefined);
+  const body = JSON.stringify({ command, args, ...(tabId !== undefined && !isNaN(tabId) ? { tabId } : {}) });
 
   try {
     const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {
@@ -432,12 +497,25 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       if (oldState && oldState.pid) {
         await killServer(oldState.pid);
       }
-      const newState = await startServer();
+      // Reapply --proxy / --headed flags from this invocation when restarting
+      // after a crash. Without this, a proxied daemon that dies mid-command
+      // would silently restart in default direct/headless mode and bypass
+      // the SOCKS bridge.
+      const restartEnv: Record<string, string> = {};
+      if (_globalFlags?.proxyUrl) restartEnv.BROWSE_PROXY_URL = _globalFlags.proxyUrl;
+      if (_globalFlags?.headed) restartEnv.BROWSE_HEADED = '1';
+      if (_globalFlags?.configHash) restartEnv.BROWSE_CONFIG_HASH = _globalFlags.configHash;
+      const newState = await startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
       return sendCommand(newState, command, args, retries + 1);
     }
     throw err;
   }
 }
+
+// Module-level reference to the resolved global flags from main(). Used by
+// sendCommand's crash-retry path so a daemon restart after ECONNRESET doesn't
+// silently drop --proxy / --headed.
+let _globalFlags: GlobalFlags | null = null;
 
 // ─── Ngrok Detection ───────────────────────────────────────────
 
@@ -579,6 +657,78 @@ function parseFlag(args: string[], flag: string): string | null {
 
 function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
+}
+
+export interface GlobalFlags {
+  /** Cleaned argv with --proxy/--headed stripped out. */
+  args: string[];
+  /** Resolved BROWSE_PROXY_URL (with creds embedded) or null. */
+  proxyUrl: string | null;
+  /** Whether --headed was passed. */
+  headed: boolean;
+  /** Hash of (proxy + headed) for daemon-mismatch check. */
+  configHash: string;
+  /** Redacted form of proxyUrl, safe for logs. */
+  redactedProxyUrl: string;
+}
+
+/**
+ * Strip the global --proxy and --headed flags from args, validate cred policy,
+ * and return the resolved config. Exits 1 with a clear hint on policy
+ * violations (D9 cred mixing, malformed URL, unsupported scheme).
+ *
+ * Exported for unit tests.
+ */
+export function extractGlobalFlags(rawArgs: string[], env: NodeJS.ProcessEnv): GlobalFlags {
+  const out: string[] = [];
+  let proxyUrl: string | null = null;
+  let headed = false;
+
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg === '--proxy') {
+      const value = rawArgs[i + 1];
+      if (!value) {
+        throw new ProxyConfigError(
+          'usage: --proxy <scheme://[user:pass@]host:port>',
+          '--proxy requires a URL value',
+        );
+      }
+      proxyUrl = value;
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--proxy=')) {
+      proxyUrl = arg.slice('--proxy='.length);
+      continue;
+    }
+    if (arg === '--headed') { headed = true; continue; }
+    out.push(arg);
+  }
+
+  // Compose the canonical proxyUrl with creds resolved from argv+env.
+  let canonicalProxyUrl: string | null = null;
+  if (proxyUrl) {
+    const parsed = parseProxyConfig({
+      proxyUrl,
+      envUser: env.BROWSE_PROXY_USER,
+      envPass: env.BROWSE_PROXY_PASS,
+    });
+    // Re-encode with resolved creds embedded (server reads BROWSE_PROXY_URL
+    // from env — env passes to child process safely without ps-aux exposure).
+    const rebuilt = new URL(proxyUrl);
+    rebuilt.username = parsed.userId ? encodeURIComponent(parsed.userId) : '';
+    rebuilt.password = parsed.password ? encodeURIComponent(parsed.password) : '';
+    canonicalProxyUrl = rebuilt.toString();
+  }
+
+  return {
+    args: out,
+    proxyUrl: canonicalProxyUrl,
+    headed,
+    configHash: computeConfigHash({ proxyUrl: canonicalProxyUrl, headed }),
+    redactedProxyUrl: redactProxyUrl(canonicalProxyUrl),
+  };
 }
 
 async function handlePairAgent(state: ServerState, args: string[]): Promise<void> {
@@ -724,7 +874,24 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
 
 // ─── Main ──────────────────────────────────────────────────────
 async function main() {
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+
+  // ─── Global flags (--proxy, --headed) ───────────────────────
+  // Extract before command dispatch so they apply to any command. Throws
+  // ProxyConfigError on invalid URL or D9 cred-mixing violations.
+  let globalFlags: GlobalFlags;
+  try {
+    globalFlags = extractGlobalFlags(rawArgs, process.env);
+  } catch (err) {
+    if (err instanceof ProxyConfigError) {
+      console.error(`[browse] error: ${err.message}`);
+      console.error(`[browse] hint: ${err.hint}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+  _globalFlags = globalFlags;
+  const args = globalFlags.args;
 
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     console.log(`gstack browse — Fast headless browser for AI coding agents
@@ -826,7 +993,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // Delete stale state file
     safeUnlinkQuiet(config.stateFile);
 
-    console.log('Launching headed Chromium with extension + sidebar agent...');
+    console.log('Launching headed Chromium with extension + terminal agent...');
     try {
       // Start server in headed mode with extension auto-loaded
       // Use a well-known port so the Chrome extension auto-connects
@@ -839,6 +1006,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         // it would kill the server ~15s later. Cleanup happens via browser
         // disconnect event or $B disconnect.
         BROWSE_PARENT_PID: '0',
+        // Apply --proxy from this invocation if present. Without this,
+        // `browse --proxy <url> connect` would launch headed Chromium
+        // bypassing the SOCKS bridge entirely.
+        ...(globalFlags.proxyUrl ? { BROWSE_PROXY_URL: globalFlags.proxyUrl } : {}),
+        ...(globalFlags.configHash ? { BROWSE_CONFIG_HASH: globalFlags.configHash } : {}),
       };
       const newState = await startServer(serverEnv);
 
@@ -855,56 +1027,41 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       const status = await resp.text();
       console.log(`Connected to real Chrome\n${status}`);
 
-      // Auto-start sidebar agent
-      // __dirname is inside $bunfs in compiled binaries — resolve from execPath instead
-      let agentScript = path.resolve(__dirname, 'sidebar-agent.ts');
-      if (!fs.existsSync(agentScript)) {
-        agentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'sidebar-agent.ts');
+      // sidebar-agent.ts spawn was here. Ripped alongside the chat queue —
+      // the Terminal pane runs an interactive PTY now, no more one-shot
+      // claude -p subprocesses to multiplex.
+
+      // Auto-start terminal agent (non-compiled bun process). Owns the PTY
+      // WebSocket for the sidebar Terminal pane.
+      let termAgentScript = path.resolve(__dirname, 'terminal-agent.ts');
+      if (!fs.existsSync(termAgentScript)) {
+        termAgentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'terminal-agent.ts');
       }
       try {
-        if (!fs.existsSync(agentScript)) {
-          throw new Error(`sidebar-agent.ts not found at ${agentScript}`);
+        if (fs.existsSync(termAgentScript)) {
+          // Kill old terminal-agents so a stale port file can't trick the
+          // server into routing /pty-session at a dead listener.
+          try {
+            const { spawnSync } = require('child_process');
+            spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+          } catch (err: any) {
+            if (err?.code !== 'ENOENT') throw err;
+          }
+          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
+            cwd: config.projectDir,
+            env: {
+              ...process.env,
+              BROWSE_STATE_FILE: config.stateFile,
+              BROWSE_SERVER_PORT: String(newState.port),
+            },
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
+          termProc.unref();
+          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
         }
-        // Clear old agent queue
-        const agentQueue = path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
-        try {
-          fs.mkdirSync(path.dirname(agentQueue), { recursive: true, mode: 0o700 });
-          fs.writeFileSync(agentQueue, '', { mode: 0o600 });
-        } catch (err: any) {
-          if (err?.code !== 'EACCES') throw err;
-        }
-
-        // Resolve browse binary path the same way — execPath-relative
-        let browseBin = path.resolve(__dirname, '..', 'dist', 'browse');
-        if (!fs.existsSync(browseBin)) {
-          browseBin = process.execPath; // the compiled binary itself
-        }
-
-        // Kill any existing sidebar-agent processes before starting a new one.
-        // Old agents have stale auth tokens and will silently fail to relay events,
-        // causing the server to mark the agent as "hung".
-        try {
-          const { spawnSync } = require('child_process');
-          spawnSync('pkill', ['-f', 'sidebar-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-        } catch (err: any) {
-          if (err?.code !== 'ENOENT') throw err;
-        }
-
-        const agentProc = Bun.spawn(['bun', 'run', agentScript], {
-          cwd: config.projectDir,
-          env: {
-            ...process.env,
-            BROWSE_BIN: browseBin,
-            BROWSE_STATE_FILE: config.stateFile,
-            BROWSE_SERVER_PORT: String(newState.port),
-          },
-          stdio: ['ignore', 'ignore', 'ignore'],
-        });
-        agentProc.unref();
-        console.log(`[browse] Sidebar agent started (PID: ${agentProc.pid})`);
       } catch (err: any) {
-        console.error(`[browse] Sidebar agent failed to start: ${err.message}`);
-        console.error(`[browse] Run manually: bun run ${agentScript}`);
+        // Non-fatal: chat still works without the terminal agent.
+        console.error(`[browse] Terminal agent failed to start: ${err.message}`);
       }
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
@@ -918,29 +1075,39 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   // guard blocks all commands when the server is unresponsive.
   if (command === 'disconnect') {
     const existingState = readState();
-    if (!existingState || existingState.mode !== 'headed') {
-      console.log('Not in headed mode — nothing to disconnect.');
+    // disconnect applies when there's a non-default daemon — headed mode OR
+    // any custom config (--proxy/--headed) recorded as configHash. Plain
+    // headless daemons should use 'stop' instead.
+    const hasCustomConfig = existingState && (existingState.mode === 'headed' || existingState.configHash);
+    if (!existingState || !hasCustomConfig) {
+      console.log('Not in headed/custom-config mode — nothing to disconnect.');
       process.exit(0);
     }
-    // Try graceful shutdown via server
-    try {
-      const resp = await fetch(`http://127.0.0.1:${existingState.port}/command`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${existingState.token}`,
-        },
-        body: JSON.stringify({
-      domains,
- command: 'disconnect', args: [] }),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (resp.ok) {
-        console.log('Disconnected from real browser.');
-        process.exit(0);
+    // For headed-mode daemons: try graceful shutdown via the server's
+    // /command endpoint. For proxy-only / custom-config daemons (no headed
+    // mode), the server's `disconnect` handler currently only tears down
+    // headed state — it returns 200 "Not in headed mode" without cleaning
+    // up the bridge or Xvfb. So we skip the graceful path for those and
+    // jump straight to force-cleanup, which kills the daemon process and
+    // lets process.on('exit') in server.ts close the bridge + Xvfb.
+    if (existingState.mode === 'headed') {
+      try {
+        const resp = await fetch(`http://127.0.0.1:${existingState.port}/command`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${existingState.token}`,
+          },
+          body: JSON.stringify({ command: 'disconnect', args: [] }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (resp.ok) {
+          console.log('Disconnected from real browser.');
+          process.exit(0);
+        }
+      } catch {
+        // Server not responding — fall through to force cleanup
       }
-    } catch {
-      // Server not responding — force cleanup
     }
     // Force kill + cleanup
     if (isProcessAlive(existingState.pid)) {
@@ -955,6 +1122,22 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
       safeUnlinkQuiet(path.join(profileDir, lockFile));
     }
+    // Xvfb orphan cleanup: if the recorded PID still matches our Xvfb (by
+    // cmdline AND start-time), kill it. PID-only would risk killing a
+    // recycled PID belonging to an unrelated process.
+    if (existingState.xvfbPid && existingState.xvfbStartTime) {
+      try {
+        const { cleanupXvfb } = await import('./xvfb');
+        cleanupXvfb({
+          pid: existingState.xvfbPid,
+          startTime: existingState.xvfbStartTime,
+          display: existingState.xvfbDisplay || ':99',
+        });
+      } catch {
+        // Best effort — Linux-only module on a non-Linux disconnect may
+        // not load; cleanup is best-effort anyway.
+      }
+    }
     safeUnlinkQuiet(config.stateFile);
     console.log('Disconnected (server was unresponsive — force cleaned).');
     process.exit(0);
@@ -966,7 +1149,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     commandArgs.push(stdin.trim());
   }
 
-  let state = await ensureServer();
+  let state = await ensureServer(globalFlags);
 
   // ─── Pair-Agent (post-server, pre-dispatch) ──────────────
   if (command === 'pair-agent') {

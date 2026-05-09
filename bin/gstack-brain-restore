@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# gstack-brain-restore — bootstrap a new machine from an existing brain repo.
+#
+# Usage:
+#   gstack-brain-restore [<git-remote-url>]
+#
+# If no URL is given, reads from ~/.gstack-brain-remote.txt (written by
+# gstack-brain-init on the original machine). Copy that file to the new
+# machine before running this command.
+#
+# Safety gates (refuses with clear message):
+#   - ~/.gstack/.git already exists with a DIFFERENT remote
+#   - ~/.gstack/ contains non-allowlisted, non-gitignored user files
+#     that would be clobbered by restore
+#
+# What it does:
+#   1. Clone the remote to a staging directory
+#   2. Validate the repo is gstack-brain-shaped (.brain-allowlist, .gitattributes)
+#   3. rsync-copy tracked files into ~/.gstack/ with skip-if-same-hash
+#   4. Move staging's .git into ~/.gstack/.git
+#   5. Register local git config merge drivers (they don't clone from remote)
+#   6. Wire the cloned brain into gbrain via gstack-gbrain-source-wireup
+#      (best-effort; restore continues even if gbrain wireup fails)
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack
+
+set -euo pipefail
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+# v1.27.0.0+ canonical name; brain-remote is the legacy fallback during the
+# migration window. The migration script renames the file in place.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
+
+REMOTE_URL="${1:-}"
+if [ -z "$REMOTE_URL" ]; then
+  if [ -f "$REMOTE_FILE" ]; then
+    REMOTE_URL=$(head -1 "$REMOTE_FILE" | tr -d '[:space:]')
+  fi
+fi
+
+if [ -z "$REMOTE_URL" ]; then
+  cat >&2 <<EOF
+gstack-brain-restore: no remote URL provided.
+
+Provide one of:
+  gstack-brain-restore <git-url>
+  or put the URL in $REMOTE_FILE (copy from the original machine)
+EOF
+  exit 1
+fi
+
+# ---- safety gates ----
+if [ -d "$GSTACK_HOME/.git" ]; then
+  EXISTING_REMOTE=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null || echo "")
+  if [ -n "$EXISTING_REMOTE" ] && [ "$EXISTING_REMOTE" != "$REMOTE_URL" ]; then
+    cat >&2 <<EOF
+gstack-brain-restore: ~/.gstack/.git already points at:
+  $EXISTING_REMOTE
+
+You asked to restore from:
+  $REMOTE_URL
+
+Refusing to overwrite. Run 'gstack-brain-uninstall' first or pass a matching URL.
+EOF
+    exit 1
+  fi
+fi
+
+# ---- clone to staging ----
+STAGING=$(mktemp -d "${TMPDIR:-/tmp}/gstack-brain-restore.XXXXXX")
+trap 'rm -rf "$STAGING" 2>/dev/null' EXIT
+
+echo "Cloning $REMOTE_URL to staging..."
+if ! git clone --quiet "$REMOTE_URL" "$STAGING/repo" 2>/dev/null; then
+  echo "Clone failed. Check:" >&2
+  echo "  - URL is correct: $REMOTE_URL" >&2
+  echo "  - Auth: gh auth status (github) / glab auth status (gitlab)" >&2
+  exit 1
+fi
+
+# ---- validate shape ----
+if [ ! -f "$STAGING/repo/.brain-allowlist" ] || [ ! -f "$STAGING/repo/.gitattributes" ]; then
+  cat >&2 <<EOF
+gstack-brain-restore: $REMOTE_URL does not look like a gstack-brain repo.
+Missing: .brain-allowlist and/or .gitattributes
+
+This command only works on repos created by gstack-brain-init.
+EOF
+  exit 1
+fi
+
+# ---- validate target ~/.gstack/ has no non-gitignored user files ----
+mkdir -p "$GSTACK_HOME"
+if [ ! -d "$GSTACK_HOME/.git" ]; then
+  # No existing git → check if we'd clobber anything allowlisted.
+  # Read the new allowlist globs and see if any existing files would collide.
+  CLOBBER_RISK=$(python3 - "$GSTACK_HOME" "$STAGING/repo/.brain-allowlist" <<'PYEOF'
+import sys, os, fnmatch
+home, allowlist_path = sys.argv[1:3]
+try:
+    with open(allowlist_path) as f:
+        globs = [l.strip() for l in f if l.strip() and not l.lstrip().startswith('#')]
+except FileNotFoundError:
+    globs = []
+risks = []
+for root, dirs, files in os.walk(home):
+    dirs[:] = [d for d in dirs if d != '.git']
+    for name in files:
+        full = os.path.join(root, name)
+        rel = os.path.relpath(full, home)
+        for g in globs:
+            if fnmatch.fnmatchcase(rel, g):
+                risks.append(rel)
+                break
+for r in risks[:5]:
+    print(r)
+if len(risks) > 5:
+    print(f"...and {len(risks) - 5} more")
+sys.exit(0 if not risks else 2)
+PYEOF
+  ) || true
+  if [ -n "$CLOBBER_RISK" ]; then
+    cat >&2 <<EOF
+gstack-brain-restore: ~/.gstack/ has existing allowlisted files that would
+be clobbered by restore:
+
+$CLOBBER_RISK
+
+Back these up first, or run this command on a machine with an empty
+~/.gstack/. If these files are from an earlier gstack session on THIS
+machine, you probably want to run gstack-brain-init instead (to create a
+new brain repo with this machine's state).
+EOF
+    exit 1
+  fi
+fi
+
+# ---- copy tracked files in ----
+echo "Copying tracked files into ~/.gstack/ ..."
+# Use git-ls-tree to get exact tracked file list (avoids staged/untracked files).
+cd "$STAGING/repo"
+git ls-tree -r --name-only HEAD | while IFS= read -r rel_path; do
+  src="$STAGING/repo/$rel_path"
+  dst="$GSTACK_HOME/$rel_path"
+  mkdir -p "$(dirname "$dst")"
+  # Skip if identical (content hash). Otherwise copy.
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+    continue
+  fi
+  cp "$src" "$dst"
+done
+
+# ---- move .git into place ----
+if [ -d "$GSTACK_HOME/.git" ]; then
+  # Existing .git with matching remote — just fetch + fast-forward.
+  git -C "$GSTACK_HOME" fetch origin >/dev/null 2>&1 || true
+else
+  mv "$STAGING/repo/.git" "$GSTACK_HOME/.git"
+fi
+
+# ---- register merge drivers (local git config; don't survive clones) ----
+git -C "$GSTACK_HOME" config merge.jsonl-append.driver "$SCRIPT_DIR/gstack-jsonl-merge %O %A %B"
+git -C "$GSTACK_HOME" config merge.jsonl-append.name "gstack JSONL append-only merger"
+git -C "$GSTACK_HOME" config merge.union.driver "cat %A %B > %A.merged && mv %A.merged %A"
+git -C "$GSTACK_HOME" config merge.union.name "union concat"
+
+# ---- install pre-commit hook (same as init) ----
+HOOK="$GSTACK_HOME/.git/hooks/pre-commit"
+mkdir -p "$(dirname "$HOOK")"
+cat > "$HOOK" <<'HOOK_EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+python3 -c "
+import sys, re, subprocess
+try:
+    out = subprocess.check_output(['git', 'diff', '--cached'], stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
+except Exception:
+    sys.exit(0)
+patterns = [
+    ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
+    ('github-token', re.compile(r'\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
+    ('openai-key', re.compile(r'\bsk-[A-Za-z0-9_-]{20,}')),
+    ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
+    ('jwt', re.compile(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')),
+    ('bearer-token-json',
+     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\s*:\s*\"[A-Za-z0-9_./+=-]{16,}\"',
+                re.IGNORECASE)),
+]
+for name, rx in patterns:
+    if rx.search(out):
+        sys.stderr.write(f'gstack-brain pre-commit: refusing commit — {name} detected.\n')
+        sys.exit(1)
+sys.exit(0)
+"
+HOOK_EOF
+chmod +x "$HOOK"
+
+# ---- write remote helper file if missing ----
+if [ ! -f "$REMOTE_FILE" ]; then
+  echo "$REMOTE_URL" > "$REMOTE_FILE"
+  chmod 600 "$REMOTE_FILE"
+  echo ""
+  echo "Wrote $REMOTE_FILE for future skill-run auto-detection."
+fi
+
+# ---- wire the cloned brain into gbrain (best-effort) ----
+WIREUP_BIN="$SCRIPT_DIR/gstack-gbrain-source-wireup"
+if [ -x "$WIREUP_BIN" ]; then
+  "$WIREUP_BIN" || >&2 echo "WARNING: gbrain wireup failed; run $WIREUP_BIN manually after fixing prereqs"
+fi
+
+cat <<EOF
+
+gstack-brain-restore complete.
+Local:   $GSTACK_HOME
+Remote:  $REMOTE_URL
+
+Next skill run will ask about privacy mode (one-time question) and then
+sync automatically at skill boundaries.
+
+Status anytime:  gstack-brain-sync --status
+EOF

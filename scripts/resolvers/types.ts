@@ -13,6 +13,7 @@ export interface HostPaths {
   binDir: string;
   browseDir: string;
   designDir: string;
+  makePdfDir: string;
 }
 
 /**
@@ -30,6 +31,7 @@ function buildHostPaths(): Record<string, HostPaths> {
         binDir: '$GSTACK_BIN',
         browseDir: '$GSTACK_BROWSE',
         designDir: '$GSTACK_DESIGN',
+        makePdfDir: '$GSTACK_MAKE_PDF',
       };
     } else {
       const root = `~/${config.globalRoot}`;
@@ -39,6 +41,7 @@ function buildHostPaths(): Record<string, HostPaths> {
         binDir: `${root}/bin`,
         browseDir: `${root}/browse/dist`,
         designDir: `${root}/design/dist`,
+        makePdfDir: `${root}/make-pdf/dist`,
       };
     }
   }
@@ -47,6 +50,9 @@ function buildHostPaths(): Record<string, HostPaths> {
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
+import type { Model } from '../models';
+export type { Model } from '../models';
+
 export interface TemplateContext {
   skillName: string;
   tmplPath: string;
@@ -54,6 +60,8 @@ export interface TemplateContext {
   host: Host;
   paths: HostPaths;
   preambleTier?: number;  // 1-4, controls which preamble sections are included
+  model?: Model;  // model family for behavioral overlay. Omitted/undefined → no overlay.
+  interactive?: boolean;  // true → emit plan-mode handshake in preamble. Generator-only, not written to SKILL.md.
 }
 
 /** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */
