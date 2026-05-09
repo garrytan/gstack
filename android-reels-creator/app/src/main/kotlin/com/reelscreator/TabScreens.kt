@@ -387,7 +387,7 @@ fun NewsFeedTab(vm: ReelsViewModel) {
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(dropdownExpanded) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor()
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
             )
             ExposedDropdownMenu(
                 expanded = dropdownExpanded,
