@@ -820,8 +820,10 @@ tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
 After the sync run, query gbrain for the cwd source's page_count:
 
 ```bash
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+SOURCE_ID=$(jq -r --arg path "$ROOT" \
+  '.last_stages[]? | select(.name=="code" and .detail.source_path==$path) | .detail.source_id // empty' \
+  ~/.gstack/.gbrain-sync-state.json 2>/dev/null | head -1)
 PAGES=$(gbrain sources list --json 2>/dev/null \
   | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
   || echo 0)
