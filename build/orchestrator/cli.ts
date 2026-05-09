@@ -142,6 +142,10 @@ import {
 } from "./role-config";
 import { BUILD_DEFAULTS } from "./build-config";
 import { evaluateMonitorOnce, monitorExitCode } from "./monitor";
+import {
+  renderPlanStatusTable,
+  resolvePlanSelection,
+} from "./plan-selection";
 
 const DEFAULT_MAX_ORIGIN_VERIFICATION_ITERATIONS =
   BUILD_DEFAULTS.limits.originVerificationMaxIterations;
@@ -507,7 +511,7 @@ function legacyDualImplError(): string {
 }
 
 export interface Args {
-  mode: "build" | "merge" | "monitor" | "release-daemon";
+  mode: "build" | "merge" | "monitor" | "release-daemon" | "plan-status";
   planFile: string;
   printOnly: boolean;
   dryRun: boolean;
@@ -577,6 +581,20 @@ export interface Args {
   releaseDaemonPollMs: number;
   releaseDaemonRetryPr?: number;
   releaseQueueDir: string;
+  /** gstack repo to inspect for plan-status mode. */
+  planStatusGstackRepo?: string;
+  /** Emit JSON instead of a human table for plan-status mode. */
+  planStatusJson: boolean;
+  /** Include legacy/deeper status scan paths for plan-status mode. */
+  planStatusAll: boolean;
+  /** Explicit source/living plan paths to inspect in plan-status mode. */
+  planStatusPlans: string[];
+  /** Select every unclaimed inbox source plan in plan-status mode. */
+  planStatusAllInbox: boolean;
+  /** Restrict plan-status to resumable living plans. */
+  planStatusResumeOnly: boolean;
+  /** Specific run id to inspect for resume. */
+  planStatusResumeRunId?: string;
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -627,6 +645,13 @@ export function parseArgs(argv: string[]): Args {
     releaseDaemonPollMs: 30_000,
     releaseDaemonRetryPr: undefined,
     releaseQueueDir: defaultReleaseQueueDir(),
+    planStatusGstackRepo: undefined,
+    planStatusJson: false,
+    planStatusAll: false,
+    planStatusPlans: [],
+    planStatusAllInbox: false,
+    planStatusResumeOnly: false,
+    planStatusResumeRunId: undefined,
   };
   const positional: string[] = [];
   const roleFlags = buildRoleFlagMap();
@@ -648,6 +673,17 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--skip-clean-check") args.skipCleanCheck = true;
     else if (a === "--skip-sweep") args.skipSweep = true;
     else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
+    else if (a === "--json") args.planStatusJson = true;
+    else if (a === "--all") args.planStatusAll = true;
+    else if (a === "--all-inbox") args.planStatusAllInbox = true;
+    else if (a === "--resume") {
+      const next = argv[i + 1];
+      args.planStatusResumeOnly = true;
+      if (next && !next.startsWith("-")) {
+        args.planStatusResumeRunId = next;
+        i++;
+      }
+    }
     else if (a === "--skip-feature-review") args.skipFeatureReview = true;
     else if (a === "--allow-submodule-recovery") {
       const next = argv[++i];
@@ -764,6 +800,20 @@ export function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.projectRoot = path.resolve(next);
+    } else if (a === "--gstack-repo") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--gstack-repo requires a value");
+        process.exit(2);
+      }
+      args.planStatusGstackRepo = path.resolve(next);
+    } else if (a === "--plan") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--plan requires a value");
+        process.exit(2);
+      }
+      args.planStatusPlans.push(path.resolve(next));
     } else if (a === "--base-project-root") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
@@ -847,6 +897,18 @@ export function parseArgs(argv: string[]): Args {
       process.exit(2);
     }
     args.mode = "merge";
+  } else if (positional[0] === "plan-status") {
+    if (positional.length !== 1) {
+      console.error(
+        "usage: gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json] [--all]",
+      );
+      process.exit(2);
+    }
+    args.mode = "plan-status";
+    if (!args.planStatusGstackRepo) {
+      console.error("gstack-build plan-status requires --gstack-repo <path>");
+      process.exit(2);
+    }
   } else if (positional[0] === "release-daemon") {
     const command = positional[1];
     if (
@@ -928,8 +990,20 @@ export function parseArgs(argv: string[]): Args {
     }
   } else {
     console.error(
-      "usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)",
+      "usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]\n       gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json]   (-h for help)",
     );
+    process.exit(2);
+  }
+  if (
+    args.mode !== "plan-status" &&
+    (args.planStatusJson ||
+      args.planStatusAll ||
+      args.planStatusGstackRepo ||
+      args.planStatusPlans.length > 0 ||
+      args.planStatusAllInbox ||
+      args.planStatusResumeOnly)
+  ) {
+    console.error("plan-status flags require: gstack-build plan-status");
     process.exit(2);
   }
   const providerErrors = validateRoleProviders(args);
@@ -1601,12 +1675,14 @@ Usage:
   gstack-build <plan-file> [flags]
   gstack-build merge [flags]
   gstack-build monitor --manifest <path> [--once|--watch] [--poll-ms 60000] [--max-wall-ms <ms>]
+  gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json] [--all]
   gstack-build release-daemon <install|uninstall|status|run|retry> [flags]
 
 Modes:
   <plan-file>           Execute a living implementation plan.
   merge                 Review/fix/ship/land unmerged feat/* branches.
   monitor               Foreground monitor for /build manifest runs.
+  plan-status           Read-only /build plan selection and resume status.
   release-daemon        Process queued build-created PRs one at a time.
 
 Flags:
@@ -1636,6 +1712,12 @@ Flags:
   --poll-ms N          Monitor watch poll interval. Default: 60000.
                        For release-daemon run, default: 30000.
   --max-wall-ms N      Monitor watch re-entry timeout. Default: 3600000.
+  --gstack-repo <dir>  Workspace-level *-gstack repo for plan-status.
+  --json               Emit plan-status as JSON.
+  --all                Include legacy/deeper plan-status scan paths.
+  --plan <file>        Explicit plan path for plan-status inspection.
+  --all-inbox          Select unclaimed inbox source plans in plan-status mode.
+  --resume [runId]     Inspect resumable living plans in plan-status mode.
   --test-writer-model <m>          Default: ${DEFAULT_ROLE_CONFIGS.testWriter.model}.
   --primary-impl-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.primaryImpl.model}.
   --test-fixer-model <m>           Default: ${DEFAULT_ROLE_CONFIGS.testFixer.model}.
@@ -5559,6 +5641,29 @@ async function runMonitorMode(args: Args): Promise<number> {
   }
 }
 
+function runPlanStatusMode(args: Args): number {
+  if (!args.planStatusGstackRepo) {
+    console.error("gstack-build plan-status requires --gstack-repo <path>");
+    return 2;
+  }
+  const result = resolvePlanSelection({
+    gstackRepo: args.planStatusGstackRepo,
+    projectRoot: args.projectRoot,
+    explicitPaths: args.planStatusPlans,
+    allInbox: args.planStatusAllInbox,
+    resumeOnly: args.planStatusResumeOnly,
+    resumeRunId: args.planStatusResumeRunId,
+    includeAll: args.planStatusAll,
+    activeRunRegistry: args.activeRunRegistry,
+  });
+  if (args.planStatusJson) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    process.stdout.write(renderPlanStatusTable(result));
+  }
+  return result.result === "blocked" ? 1 : 0;
+}
+
 function resolveDaemonProjectRoot(args: Args): string {
   if (args.projectRoot) return path.resolve(args.projectRoot);
   const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
@@ -5731,6 +5836,11 @@ async function main() {
 
   if (args.mode === "monitor") {
     const exitCode = await runMonitorMode(args);
+    process.exit(exitCode);
+  }
+
+  if (args.mode === "plan-status") {
+    const exitCode = runPlanStatusMode(args);
     process.exit(exitCode);
   }
 

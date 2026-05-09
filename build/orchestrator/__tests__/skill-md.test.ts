@@ -148,7 +148,7 @@ test("build skill launch examples do not advertise --skip-ship", () => {
   }
 });
 
-test("build skill docs route planLocator provider through kimi when configured", () => {
+test("build skill docs route plan lookup through plan-status", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
@@ -157,10 +157,12 @@ test("build skill docs route planLocator provider through kimi when configured",
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
-    expect(content).toContain("_LOCATOR_PROVIDER");
-    expect(content).toContain("kimi --work-dir");
-    expect(content).toContain("gemini -p");
-    expect(content).toContain("-m \"$_LOCATOR_MODEL\" --yolo");
+    expect(content).toContain("gstack-build plan-status --gstack-repo");
+    expect(content).toContain("--plan \"$_EXPLICIT_PLAN_ABS\" --json");
+    expect(content).toContain("--all-inbox --json");
+    expect(content).toContain("single source of truth");
+    expect(content).not.toContain("_LOCATOR_PROVIDER");
+    expect(content).not.toContain("pick the newest file by mtime");
   }
 });
 
@@ -175,11 +177,11 @@ test("build skill docs distinguish storage discovery from plan discovery", () =>
     const content = fs.readFileSync(file, "utf-8");
     expect(content).toContain("This chooses plan storage only");
     expect(content).toContain("it does not choose a plan file or target repo");
-    expect(content).toContain("This is the plan-file lookup; it must not be described as the sibling scan");
+    expect(content).toContain("single source of truth");
   }
 });
 
-test("build skill docs use explicit source plan paths before spawning locator", () => {
+test("build skill docs use explicit source plan paths through resolver", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
@@ -188,16 +190,14 @@ test("build skill docs use explicit source plan paths before spawning locator", 
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
-    expect(content).toContain("explicit source-plan paths");
-    expect(content).toContain('rm -f "$BUILD_TMP_DIR/build-plan-locate-output.md"');
+    expect(content).toContain("Explicit Markdown paths");
     expect(content).toContain("_USED_EXPLICIT_PLAN");
     expect(content).toContain("_EXPLICIT_SOURCE_PLAN_PATHS");
     expect(content).not.toContain("_EXPLICIT_PLAN_PATH=");
     expect(content).toContain("build-selected-source-plans.json");
-    expect(content).toContain("$BUILD_TMP_DIR/build-plan-locate-output.md");
-    expect(content).toContain("skip the `planLocator` subagent");
-    expect(content).toContain("Only spawn `planLocator` when no explicit valid plan path is available");
-    expect(content).toContain("Do not treat a pre-existing locator output file as evidence");
+    expect(content).toContain("resolver-provided canonical `claimPath`");
+    expect(content).toContain("Multiple source plans");
+    expect(content).not.toContain("build-plan-locate-output.md");
   }
 });
 
@@ -276,8 +276,8 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain('--arg status "cancelled"');
     expect(content).toContain("pidFiles");
     expect(content).toContain("stdoutLogs");
-    expect(content).toContain("_prepare_claim_for_selection");
-    expect(content).toContain("unknown source-plan claim status");
+    expect(content).toContain("missing canonical claimPath");
+    expect(content).toContain("source plan already claimed after selection");
     expect(content).not.toContain('[ -e "$_CLAIM_PATH" ] && continue');
     expect(content).toContain(
       "Manifest paths must be concrete absolute paths.",

@@ -593,6 +593,56 @@ describe("monitor subcommand wiring", () => {
   });
 });
 
+describe("plan-status subcommand wiring", () => {
+  it("parseArgs([plan-status]) selects read-only plan status mode", () => {
+    const repo = path.join(os.tmpdir(), "app-gstack");
+    const project = path.join(os.tmpdir(), "app");
+    const args = parseArgs([
+      "plan-status",
+      "--gstack-repo",
+      repo,
+      "--project-root",
+      project,
+      "--json",
+      "--all",
+      "--plan",
+      path.join(os.tmpdir(), "source-plan-1.md"),
+      "--all-inbox",
+      "--resume",
+      "run-1",
+    ]);
+    expect(args.mode).toBe("plan-status");
+    expect(args.planStatusGstackRepo).toBe(path.resolve(repo));
+    expect(args.projectRoot).toBe(path.resolve(project));
+    expect(args.planStatusJson).toBe(true);
+    expect(args.planStatusAll).toBe(true);
+    expect(args.planStatusPlans).toEqual([
+      path.resolve(path.join(os.tmpdir(), "source-plan-1.md")),
+    ]);
+    expect(args.planStatusAllInbox).toBe(true);
+    expect(args.planStatusResumeOnly).toBe(true);
+    expect(args.planStatusResumeRunId).toBe("run-1");
+  });
+
+  it("--help text documents plan-status mode", () => {
+    expect(HELP_TEXT).toContain("gstack-build plan-status --gstack-repo <path>");
+    expect(HELP_TEXT).toContain("Read-only /build plan selection and resume status");
+    expect(HELP_TEXT).toContain("--json");
+    expect(HELP_TEXT).toContain("--all-inbox");
+  });
+
+  it("rejects plan-status-only flags outside plan-status mode", () => {
+    expectParseArgsExit(
+      ["plan.md", "--json"],
+      "plan-status flags require",
+    );
+    expectParseArgsExit(
+      ["merge", "--gstack-repo", "/tmp/app-gstack"],
+      "plan-status flags require",
+    );
+  });
+});
+
 describe("review gate planning", () => {
   it("skips reviewSecondary when its command is unset", () => {
     const roles = {

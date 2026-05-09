@@ -7,6 +7,7 @@ import {
   isPidAlive,
   readActiveRunRecords,
 } from "./active-runs";
+import { sourcePlanClaimPaths } from "./plan-claims";
 import { lockPath, statePath } from "./state";
 import type {
   BuildRunManifest,
@@ -364,12 +365,10 @@ function writeClaimStatus(
   if (path.dirname(path.resolve(sourcePlanPath)) !== path.join(manifest.gstackRepo, "inbox")) {
     return;
   }
-  const claimPath = path.join(
-    manifest.gstackRepo,
-    "inbox",
-    ".claims",
-    `${path.basename(sourcePlanPath)}.json`,
+  const claimPath = sourcePlanClaimPaths(manifest.gstackRepo, sourcePlanPath).find(
+    (candidatePath) => fs.existsSync(candidatePath),
   );
+  if (!claimPath) return;
   const claim = readJsonFile<Record<string, any>>(claimPath);
   if (!claim) return;
   const updatedAt = now.toISOString();

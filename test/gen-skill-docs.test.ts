@@ -1312,6 +1312,13 @@ describe('Codex filesystem boundary', () => {
     expect(boundarySection).toContain('skills/gstack');
     expect(boundarySection).toContain(BOUNDARY_MARKER);
   });
+
+  test('autoplan hands off to build with an absolute source plan path', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf-8');
+    expect(content).toContain('/build /abs/path/to/source-plan.md');
+    expect(content).toContain('canonical build command with the absolute source-plan path');
+    expect(content).not.toContain('Suggest next step: `/ship`');
+  });
 });
 
 // --- {{BENEFITS_FROM}} resolver tests ---

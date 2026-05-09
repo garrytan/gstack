@@ -21,6 +21,8 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "gbrain.ts": ["gbrain.test.ts"],
   "monitor.ts": ["monitor.test.ts", "cli.test.ts", "skill-md.test.ts"],
   "parallel-planner.ts": ["parallel-planner.test.ts", "integration.test.ts"],
+  "plan-claims.ts": ["plan-selection.test.ts", "monitor.test.ts"],
+  "plan-selection.ts": ["plan-selection.test.ts", "cli.test.ts", "skill-md.test.ts"],
   "parser.ts": ["parser.test.ts"],
   "phase-runner.ts": ["phase-runner.test.ts"],
   "plan-mutator.ts": ["plan-mutator.test.ts"],
@@ -79,6 +81,10 @@ const FEATURE_MATRIX = [
   {
     feature: "Foreground build monitor, manifest events, and safe recovery",
     tests: ["monitor.test.ts", "cli.test.ts", "skill-md.test.ts"],
+  },
+  {
+    feature: "Conflict-proof /build plan selection and status reporting",
+    tests: ["plan-selection.test.ts", "cli.test.ts", "skill-md.test.ts"],
   },
   {
     feature: "Generated /build skill and documentation contract",

@@ -42,6 +42,7 @@ or set `GSTACK_BUILD_CLI` explicitly.
 
 ```bash
 gstack-build <plan-file> [flags]
+gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json]
 ```
 
 When the plan lives in a workspace-level `*-gstack/inbox/living-plan/` or
@@ -61,6 +62,10 @@ Completed living plans are moved to the sibling `archived/` directory after a
 successful non-dry-run build. Pass `--origin-plan <file>` when the living plan
 was synthesized from a separate source plan in `*-gstack/inbox/`; after the final
 completion exam passes, that origin plan is archived too.
+
+Use `gstack-build plan-status` to inspect what `/build` would select before it
+claims anything. The human table is for ambiguity/debugging; `--json` is the
+machine contract consumed by the `/build` skill.
 
 The plan file is organized into semantic feature blocks. The `/build` skill
 should reorganize all origin-plan weeks, milestones, blocks, and phases into

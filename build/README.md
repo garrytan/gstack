@@ -124,9 +124,10 @@ The skill's startup sequence:
 2. Locate the workspace-level `*-gstack/inbox/` and
    `*-gstack/inbox/living-plan/` directories. This chooses plan storage only; it
    does not choose a plan file or target repo.
-3. Delegate plan discovery to the configured `planLocator` role, searching
-   `*-gstack/inbox/living-plan/`, `inbox/`, workspace `TODOS.md`, and child repo
-   `TODOS.md` fallbacks in priority order.
+3. Resolve plan status with `gstack-build plan-status`. The resolver reports
+   exact source-plan, living-plan, claim, manifest, and active-run candidates;
+   `/build` only auto-selects when exactly one safe source plan exists, unless
+   the user explicitly passes a plan path or `--all-inbox`.
 4. Select one or more target child repos. If a source plan spans multiple child
    repos, split it into one living plan per target repo and write
    `.llm-tmp/build-run-manifest.json`.
@@ -290,11 +291,10 @@ is still running.
 - `judge` judges dual-implementor tournaments.
 - `qa`, `ship`, and `land` run QA and release commands.
 
-Three additional roles are **template-only** — they are consumed by the skill
+Two additional roles are **template-only** — they are consumed by the skill
 prompt via `jq` and are intentionally absent from the CLI's `ROLE_DEFINITIONS`.
 They have no CLI flags or env var overrides:
 
-- `planLocator` — Haiku subagent that discovers the source plan file.
 - `planSynthesizer` — synthesizes the living plan from the source plan.
 - `featureVerifier` — checks origin-plan coverage after each feature ships and
   runs the final completion exam.
@@ -437,9 +437,9 @@ Role env vars use `GSTACK_BUILD_<ROLE>_<FIELD>`, where role is
 `PROVIDER`, `MODEL`, `REASONING`, or `COMMAND`. CLI flags override env vars;
 env vars override defaults.
 
-The template-only roles (`planLocator`, `planSynthesizer`, `featureVerifier`)
-are read directly from `configure.cm` by the skill via `jq` and have no
-corresponding env var overrides. To change their models, edit `configure.cm`.
+The template-only roles (`planSynthesizer`, `featureVerifier`) are read directly
+from `configure.cm` by the skill via `jq` and have no corresponding env var
+overrides. To change their models, edit `configure.cm`.
 
 ## Module Map
 
