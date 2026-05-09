@@ -82,7 +82,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       timeout: 360_000,
       testName: 'plan-ceo-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-ceo-review', result);
@@ -167,7 +167,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       timeout: 360_000,
       testName: 'plan-ceo-review-selective',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-ceo-review (SELECTIVE)', result);
@@ -233,7 +233,7 @@ Write your expansion proposals to ${planDir}/proposals.md with ONLY the proposal
       timeout: 360_000,
       testName: 'plan-ceo-review-expansion-energy',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-ceo-review (EXPANSION ENERGY)', result);
@@ -333,7 +333,7 @@ Focus on architecture, code quality, tests, and performance sections.`,
       timeout: 360_000,
       testName: 'plan-eng-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-eng-review', result);
@@ -459,7 +459,7 @@ Write your review to ${planDir}/review-output.md`,
       timeout: 360_000,
       testName: 'plan-eng-review-artifact',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-eng-review artifact', result);
@@ -679,7 +679,7 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
       timeout: 360_000,
       testName: 'plan-review-report',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-eng-review report', result);
