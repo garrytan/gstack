@@ -166,6 +166,38 @@ test("build skill docs route plan lookup through plan-status", () => {
   }
 });
 
+test("build skill docs route resume requests through plan-status before resuming", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
+    path.resolve(import.meta.dir, "../../SKILL.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).toContain("Resume Mode never guesses from chat history");
+    expect(content).toContain("Skip source-plan synthesis in Reexamine Mode");
+    expect(content).not.toContain("Skip this entire step if in Reexamine or Resume Mode");
+    expect(content).toContain('_RESUME_REQUESTED="no"');
+    expect(content).toContain('_RESUME_RUN_ID=""');
+    expect(content).toContain('_RESUME_PLAN_PATH=""');
+    expect(content).toContain("_RESUME_STATUS_ARGS=(--resume)");
+    expect(content).toContain('_RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")');
+    expect(content).toContain('_RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")');
+    expect(content).toContain('plan-status --resume --plan "$_RESUME_PLAN_ABS" --json');
+    expect(content).toContain("Do not add this path to `_EXPLICIT_SOURCE_PLAN_PATHS`");
+    expect(content).toContain("build-plan-status-resume.json");
+    expect(content).toContain(".selected.monitorCommand");
+    expect(content).toContain(".selected.manifestPath");
+    expect(content).toContain("Resuming exact manifest-backed build monitor");
+    expect(content).toContain('monitor --manifest "$_MONITOR_MANIFEST" --watch');
+    expect(content).toContain("No safe resume candidate found");
+    expect(content).toContain("legacy manifestless resume candidate");
+    expect(content).toContain("raw `--resume` remains a `plan-status` flag only");
+    expect(content).toContain("session memory, chat history, branch name, or newest mtime");
+  }
+});
+
 test("build skill docs distinguish storage discovery from plan discovery", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),

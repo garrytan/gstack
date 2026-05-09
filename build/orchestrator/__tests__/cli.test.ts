@@ -640,6 +640,10 @@ describe("plan-status subcommand wiring", () => {
       ["merge", "--gstack-repo", "/tmp/app-gstack"],
       "plan-status flags require",
     );
+    expectParseArgsExit(
+      ["plan.md", "--resume", "run-1"],
+      "plan-status flags require",
+    );
   });
 });
 

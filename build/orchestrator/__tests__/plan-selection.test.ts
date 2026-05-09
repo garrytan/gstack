@@ -205,6 +205,65 @@ describe("plan resolver", () => {
     expect(result.selected?.runId).toBe("run-a");
   });
 
+  test("multiple stopped manifest-backed resume candidates are ambiguous", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const first = livingPlan(repo, "app-impl-plan-first-1.md");
+    const second = livingPlan(repo, "app-impl-plan-second-1.md");
+    const manifestPath = writeManifest(repo, [
+      manifestRun({ repoPath: app, livingPlanPath: first, runId: "run-a" }),
+      manifestRun({ repoPath: app, livingPlanPath: second, runId: "run-b" }),
+    ]);
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+    });
+
+    expect(result.result).toBe("ambiguous");
+    expect(result.commands).toEqual(["/build --resume run-a", "/build --resume run-b"]);
+    expect(result.candidates.map((candidate) => candidate.monitorCommand)).toEqual([
+      `gstack-build monitor --manifest ${manifestPath} --watch`,
+      `gstack-build monitor --manifest ${manifestPath} --watch`,
+    ]);
+  });
+
+  test("resume selects stopped run for current repo instead of active sibling run", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const sibling = path.join(tmpDir, "sibling");
+    const activeRunRegistry = path.join(tmpDir, "active-runs");
+    const stoppedPlan = livingPlan(repo, "app-impl-plan-feature-1.md");
+    const siblingPlan = livingPlan(repo, "sibling-impl-plan-feature-1.md");
+    writeManifest(repo, [
+      manifestRun({ repoPath: app, livingPlanPath: stoppedPlan, runId: "run-stopped" }),
+    ]);
+    writeActiveRunRecord(activeRunRegistry, {
+      runId: "run-sibling",
+      stateSlug: "state-sibling",
+      repoPath: path.join(tmpDir, "worktrees", "run-sibling"),
+      baseProjectRoot: sibling,
+      planFile: siblingPlan,
+      pid: process.pid,
+      status: "running",
+      startedAt: "2026-05-09T00:00:00Z",
+      lastUpdatedAt: "2026-05-09T00:00:00Z",
+      branches: [],
+    });
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+      activeRunRegistry,
+    });
+
+    expect(result.result).toBe("selected");
+    expect(result.selected?.runId).toBe("run-stopped");
+    expect(result.selected?.repoPath).toBe(app);
+  });
+
   test("active run records without manifests are resumable and scoped to the current repo", () => {
     const repo = gstackRepo();
     const app = path.join(tmpDir, "app");
@@ -247,6 +306,128 @@ describe("plan resolver", () => {
     expect(result.result).toBe("selected");
     expect(result.selected?.runId).toBe("run-a");
     expect(result.selected?.command).toBe("/build --resume run-a");
+  });
+
+  test("legacy manifestless living plan is explicit-only and has no monitor command", () => {
+    const repo = gstackRepo();
+    const plan = livingPlan(repo, "legacy-impl-plan-feature-1.md");
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      resumeOnly: true,
+    });
+
+    expect(result.result).toBe("selected");
+    expect(result.selected?.path).toBe(plan);
+    expect(result.selected?.monitorCommand).toBeUndefined();
+    expect(result.selected?.command).toBe(`/build ${plan} --resume`);
+  });
+
+  test("explicit legacy manifestless living plan resume selects the requested plan", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const first = livingPlan(repo, "legacy-impl-plan-first-1.md");
+    const second = livingPlan(repo, "legacy-impl-plan-second-1.md");
+
+    const ambiguous = resolvePlanSelection({
+      gstackRepo: repo,
+      resumeOnly: true,
+    });
+    const selected = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+      explicitPaths: [second],
+    });
+
+    expect(ambiguous.result).toBe("ambiguous");
+    expect(ambiguous.commands.sort()).toEqual([
+      `/build ${first} --resume`,
+      `/build ${second} --resume`,
+    ].sort());
+    expect(selected.result).toBe("selected");
+    expect(selected.selected?.path).toBe(second);
+    expect(selected.selected?.monitorCommand).toBeUndefined();
+    expect(selected.selected?.command).toBe(`/build ${second} --resume`);
+  });
+
+  test("explicit manifest-backed living plan resume selects monitor-backed run", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const first = livingPlan(repo, "app-impl-plan-first-1.md");
+    const second = livingPlan(repo, "app-impl-plan-second-1.md");
+    const manifestPath = writeManifest(repo, [
+      manifestRun({ repoPath: app, livingPlanPath: first, runId: "run-a" }),
+      manifestRun({ repoPath: app, livingPlanPath: second, runId: "run-b" }),
+    ]);
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+      explicitPaths: [second],
+    });
+
+    expect(result.result).toBe("selected");
+    expect(result.selected?.runId).toBe("run-b");
+    expect(result.selected?.path).toBe(second);
+    expect(result.selected?.monitorCommand).toBe(
+      `gstack-build monitor --manifest ${manifestPath} --watch`,
+    );
+  });
+
+  test("explicit resume path for a non-resumable source plan returns none", () => {
+    const repo = gstackRepo();
+    const plan = sourcePlan(repo, "not-living-plan-1.md");
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      resumeOnly: true,
+      explicitPaths: [plan],
+    });
+
+    expect(result.result).toBe("none");
+    expect(result.candidates).toEqual([]);
+  });
+
+  test("explicit resume path for a completed living plan returns none", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const plan = livingPlan(repo, "app-impl-plan-done-1.md");
+    writeManifest(repo, [
+      manifestRun({ repoPath: app, livingPlanPath: plan, runId: "run-done" }),
+    ]);
+    const stateFile = path.join(
+      process.env.GSTACK_BUILD_STATE_DIR!,
+      "build-run-done.json",
+    );
+    const state = JSON.parse(fs.readFileSync(stateFile, "utf8")) as BuildState;
+    state.completed = true;
+    writeJson(stateFile, state);
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+      explicitPaths: [plan],
+    });
+
+    expect(result.result).toBe("none");
+    expect(result.candidates).toEqual([]);
+  });
+
+  test("missing explicit resume path is blocked before selection", () => {
+    const repo = gstackRepo();
+    const missing = path.join(repo, "inbox", "living-plan", "missing.md");
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      resumeOnly: true,
+      explicitPaths: [missing],
+    });
+
+    expect(result.result).toBe("blocked");
+    expect(result.errors).toEqual([`explicit plan not found: ${missing}`]);
   });
 
   test("active duplicate run prevents auto-selecting a new source plan", () => {
@@ -309,6 +490,9 @@ describe("plan resolver", () => {
     expect(table).toContain("Result: selected");
     expect(table).toContain("/build --resume run-a");
     expect(table).toContain(`gstack-build monitor --manifest ${manifestPath} --watch`);
+    expect(result.selected?.monitorCommand).toBe(
+      `gstack-build monitor --manifest ${manifestPath} --watch`,
+    );
   });
 });
 

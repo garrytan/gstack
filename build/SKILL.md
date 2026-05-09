@@ -756,7 +756,7 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 
 **Execution Modes**:
 - **Normal Mode**: Locate the source plan, synthesize a new living plan, create the first feature branch, then launch the CLI. (Default)
-- **Resume Mode**: Triggered if a partially completed living plan exists in `*-gstack/inbox/living-plan/`, or if the user explicitly asks to resume. Skip Steps 1.4–1.6. Identify the active feature branch, check it out, then proceed to the CLI Monitoring Loop.
+- **Resume Mode**: Triggered only after `gstack-build plan-status --resume` selects exactly one resumable candidate, or when the user gives an explicit resume command such as `/build --resume <runId>` or `/build /abs/living-plan.md --resume`. Partially completed living plans are stored under `*-gstack/inbox/living-plan/`, but Resume Mode never guesses from chat history, current session state, branch name, newest mtime, or a living-plan scan. It still runs the shared resolver bootstrap below, then either re-enters the exact manifest monitor or stops with exact commands.
 - **Reexamine Mode**: Triggered if the user asks to "reexamine", "audit", or "rerun the full process" for an implemented plan. Skip Steps 1.4–1.6. Locate the existing living plan and proceed to **Reexamine Mode: Parallel Audit Subagents** below.
 - **Merge Mode**: Triggered if the user asks `/build merge`, "build merge", or to merge leftover feature branches. Skip plan discovery and launch `gstack-build merge` for the selected product repo.
 
@@ -774,9 +774,9 @@ Use this mode when the user asks `/build merge` or wants past build branches mer
    Include only user-requested flags such as `--dry-run`, `--skip-clean-check`, role overrides, or `--max-codex-iter`. Do not pass a plan file. Do not run raw `git merge`, `gh pr create`, or `gh pr merge`; the CLI must use the configured GStack `/review`, `/ship`, and `/land-and-deploy` skills.
 5. Monitor the CLI output. If it exits nonzero, report the blocked branch and point to the merge logs under `~/.gstack/build-state/build-merge-*/`. Do not continue manually.
 
-## Step 1: Set Up & Synthesize Living Plan (Normal Mode)
+## Step 1: Set Up Resolver & Synthesize Living Plan (Normal/Resume Mode)
 
-Skip this entire step if in Reexamine or Resume Mode.
+Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run Steps 1.1–1.2 so repo identity and run identity are resolved by `plan-status`, not inferred from the current Claude/Codex session.
 
 1. **Discover workspace, gstack repo, and candidate product repos**:
    `/build` supports two layouts:
@@ -819,6 +819,14 @@ Skip this entire step if in Reexamine or Resume Mode.
 
 2. **Check resolver status first**: `/build` plan choice is made by the read-only CLI resolver, never by "latest file" intuition. Resolve `_GSTACK_BUILD_CLI` before plan lookup, then run `gstack-build plan-status --gstack-repo "$GSTACK_REPO" --json` with `--project-root <repo>` when exactly one target product repo is known. If the resolver returns `blocked` or `ambiguous`, print the human table (`gstack-build plan-status --gstack-repo "$GSTACK_REPO" --project-root <repo>`) and STOP with the exact commands it suggests. If it returns a single `living-plan`, switch to Resume Mode for that run/living plan and go directly to the CLI Monitoring Loop. Do not scan `inbox/living-plan` yourself to pick a resume target.
 
+   Resume request selection:
+   - `/build resume` and `/build --resume` set `_RESUME_REQUESTED=yes` and run `gstack-build plan-status --resume --json`.
+   - `/build --resume <runId>` sets `_RESUME_REQUESTED=yes`, `_RESUME_RUN_ID=<runId>`, and runs `gstack-build plan-status --resume "$_RESUME_RUN_ID" --json`.
+   - `/build /abs/living-plan.md --resume` sets `_RESUME_REQUESTED=yes`, `_RESUME_PLAN_PATH=/abs/living-plan.md`, and runs `gstack-build plan-status --resume --plan "$_RESUME_PLAN_ABS" --json`. Do not add this path to `_EXPLICIT_SOURCE_PLAN_PATHS`.
+   - If the resolver selects exactly one manifest-backed candidate with `monitorCommand`, immediately run that exact monitor command. This is the only auto-resume path.
+   - If the resolver selects exactly one legacy manifestless candidate, print its explicit command, for example `/build /abs/living-plan.md --resume`, and STOP. Do not synthesize `gstack-build <plan> --resume`; raw `--resume` remains a `plan-status` flag only.
+   - If the resolver returns `ambiguous`, `blocked`, or `none`, print the human table from `gstack-build plan-status --resume`, say `/build` will not infer from session/chat/branch/newest mtime, and STOP with the exact commands it suggests.
+
 3. **Locate the source plan(s) with the resolver**: Use a per-run temp directory, never global `.llm-tmp/build-*` files. All locator, synthesizer, manifest, PID, and monitor files for this invocation live under `.llm-tmp/build-runs/<runGroupId>/`.
 
    Source-plan selection:
@@ -846,6 +854,9 @@ Skip this entire step if in Reexamine or Resume Mode.
    _USED_ALL_INBOX="no"
    _ALL_INBOX_REQUESTED="no"  # set to "yes" only when the current request contains --all-inbox
    _EXPLICIT_SOURCE_PLAN_PATHS=""  # newline-delimited Markdown paths from the current request/context
+   _RESUME_REQUESTED="no"  # set to "yes" only when the current request is /build resume, /build --resume, or includes a living-plan path with --resume
+   _RESUME_RUN_ID=""  # set only for /build --resume <runId>
+   _RESUME_PLAN_PATH=""  # set only for /build /abs/living-plan.md --resume; never treat it as a source plan
 
    _add_selected_source_plan() {
      _PLAN_PATH="$1"
@@ -884,19 +895,29 @@ Skip this entire step if in Reexamine or Resume Mode.
      _PLAN_STATUS_PROJECT_ARGS=(--project-root "$(printf '%s\n' "$PRODUCT_REPO_CANDIDATES" | sed '/^$/d' | head -1)")
    fi
 
+   _print_plan_status_table() {
+     "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}" "$@"
+   }
+
    _handle_plan_status_result() {
      _STATUS_FILE="$1"
+     shift || true
      _RESULT=$(jq -r '.result' "$_STATUS_FILE")
      case "$_RESULT" in
        selected) ;;
        none)
-         echo "No safe plan candidate found. Specify an exact plan path or use --all-inbox." >&2
-         "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}"
+         _NONE_HINT="No safe plan candidate found. Specify an exact plan path or use --all-inbox."
+         for _STATUS_ARG in "$@"; do
+           [ "$_STATUS_ARG" = "--resume" ] && _NONE_HINT="No safe resume candidate found. Use /build --resume <runId>, /build /abs/living-plan.md --resume, or gstack-build monitor --manifest /abs/build-run-manifest.json --watch."
+         done
+         echo "$_NONE_HINT" >&2
+         _print_plan_status_table "$@"
          exit 1
          ;;
        ambiguous|blocked)
-         "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}"
+         _print_plan_status_table "$@"
          echo "Plan selection is $_RESULT. Use one of the exact commands above." >&2
+         echo "/build will not infer from session memory, chat history, branch name, or newest mtime when multiple builds could apply." >&2
          exit 1
          ;;
        *)
@@ -906,6 +927,37 @@ Skip this entire step if in Reexamine or Resume Mode.
          ;;
      esac
    }
+
+   if [ "$_RESUME_REQUESTED" = "yes" ]; then
+     _RESUME_STATUS_ARGS=(--resume)
+     [ -n "$_RESUME_RUN_ID" ] && _RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")
+     if [ -n "$_RESUME_PLAN_PATH" ] && [ -z "$_RESUME_RUN_ID" ]; then
+       case "$_RESUME_PLAN_PATH" in
+         /*) _RESUME_PLAN_ABS="$_RESUME_PLAN_PATH" ;;
+         *) _RESUME_PLAN_ABS="$WORKSPACE_ROOT/$_RESUME_PLAN_PATH" ;;
+       esac
+       _RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")
+     fi
+     "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}" "${_RESUME_STATUS_ARGS[@]}" --json > "$BUILD_TMP_DIR/build-plan-status-resume.json"
+     _handle_plan_status_result "$BUILD_TMP_DIR/build-plan-status-resume.json" "${_RESUME_STATUS_ARGS[@]}"
+     _MONITOR_COMMAND=$(jq -r '.selected.monitorCommand // empty' "$BUILD_TMP_DIR/build-plan-status-resume.json")
+     _MONITOR_MANIFEST=$(jq -r '.selected.manifestPath // empty' "$BUILD_TMP_DIR/build-plan-status-resume.json")
+     _RESUME_COMMAND=$(jq -r '.selected.command // empty' "$BUILD_TMP_DIR/build-plan-status-resume.json")
+     if [ -n "$_MONITOR_COMMAND" ] && [ -n "$_MONITOR_MANIFEST" ]; then
+       echo "Resuming exact manifest-backed build monitor:"
+       echo "$_MONITOR_COMMAND"
+       "$_GSTACK_BUILD_CLI" monitor --manifest "$_MONITOR_MANIFEST" --watch
+       exit $?
+     fi
+     if [ -n "$_RESUME_COMMAND" ]; then
+       echo "Resolver selected a legacy manifestless resume candidate. Run the exact command below; /build will not auto-resume manifestless runs:" >&2
+       echo "$_RESUME_COMMAND" >&2
+       exit 1
+     fi
+     echo "ERROR: plan-status selected a resume candidate without monitorCommand or command." >&2
+     cat "$BUILD_TMP_DIR/build-plan-status-resume.json" >&2
+     exit 1
+   fi
 
    if [ -n "$_EXPLICIT_SOURCE_PLAN_PATHS" ]; then
      while IFS= read -r _EXPLICIT_SOURCE_PLAN_PATH; do
@@ -925,7 +977,7 @@ Skip this entire step if in Reexamine or Resume Mode.
          _IS_TODOS="true"
        fi
        "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}" --plan "$_EXPLICIT_PLAN_ABS" --json > "$BUILD_TMP_DIR/build-plan-status-explicit.json"
-       _handle_plan_status_result "$BUILD_TMP_DIR/build-plan-status-explicit.json"
+       _handle_plan_status_result "$BUILD_TMP_DIR/build-plan-status-explicit.json" --plan "$_EXPLICIT_PLAN_ABS"
        _CLAIM_PATH=$(jq -r '.selected.claimPath // empty' "$BUILD_TMP_DIR/build-plan-status-explicit.json")
        [ -n "$_CLAIM_PATH" ] || { echo "ERROR: plan-status did not return claimPath for $_EXPLICIT_PLAN_ABS" >&2; exit 1; }
        _add_selected_source_plan "$_EXPLICIT_PLAN_ABS" "$_PLAN_TYPE" "$_IS_TODOS" "$_CLAIM_PATH"
@@ -936,7 +988,7 @@ Skip this entire step if in Reexamine or Resume Mode.
 
    if [ "$_USED_EXPLICIT_PLAN" != "yes" ] && [ "$_ALL_INBOX_REQUESTED" = "yes" ]; then
      "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}" --all-inbox --json > "$BUILD_TMP_DIR/build-plan-status.json"
-     _handle_plan_status_result "$BUILD_TMP_DIR/build-plan-status.json"
+     _handle_plan_status_result "$BUILD_TMP_DIR/build-plan-status.json" --all-inbox
      jq -r '.candidates[] | select(.kind == "source-plan" and .status == "available") | [.path, .claimPath] | @tsv' "$BUILD_TMP_DIR/build-plan-status.json" |
      while IFS=$'\t' read -r _INBOX_PLAN_PATH _CLAIM_PATH; do
        [ -z "$_INBOX_PLAN_PATH" ] && continue

@@ -493,8 +493,15 @@ function activeRunOnlyCandidates(
 }
 
 function livingPlanFallbackCandidates(opts: ResolvePlanSelectionOptions): PlanCandidate[] {
-  if (opts.projectRoot) return [];
-  return listLivingPlans(opts.gstackRepo, Boolean(opts.includeAll)).map((livingPath) => ({
+  const explicitLivingPaths = new Set(
+    (opts.explicitPaths ?? []).map((p) => path.resolve(p)),
+  );
+  if (opts.projectRoot && explicitLivingPaths.size === 0) return [];
+  const livingPaths = listLivingPlans(opts.gstackRepo, Boolean(opts.includeAll)).filter(
+    (livingPath) =>
+      explicitLivingPaths.size === 0 || explicitLivingPaths.has(path.resolve(livingPath)),
+  );
+  return livingPaths.map((livingPath) => ({
     id: candidateId("living-plan", livingPath),
     kind: "living-plan" as const,
     path: path.resolve(livingPath),
@@ -542,6 +549,22 @@ function limitCandidates(
     return { candidates, truncated: false };
   }
   return { candidates: candidates.slice(0, maxCandidates), truncated: true };
+}
+
+function resumeCandidates(
+  manifestCandidates: PlanCandidate[],
+  activeRunOnlyCandidates: PlanCandidate[],
+  fallbackLivingCandidates: PlanCandidate[],
+): PlanCandidate[] {
+  return [
+    ...manifestCandidates.filter((candidate) => runHasIncompleteCandidate(candidate)),
+    ...activeRunOnlyCandidates.filter((candidate) => runHasIncompleteCandidate(candidate)),
+    ...fallbackLivingCandidates,
+  ];
+}
+
+function livingPlanIdentity(candidate: PlanCandidate): string {
+  return path.resolve(candidate.livingPlanPath ?? candidate.path);
 }
 
 function selectionFromCandidates(
@@ -610,12 +633,13 @@ export function resolvePlanSelection(
   const maxCandidates = opts.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
   const errors: string[] = [];
   const explicitPaths = opts.explicitPaths?.map((p) => path.resolve(p)) ?? [];
-  for (const explicitPath of explicitPaths) {
+  const explicitPathsToValidate = opts.resumeRunId ? [] : explicitPaths;
+  for (const explicitPath of explicitPathsToValidate) {
     if (!fs.existsSync(explicitPath)) {
       errors.push(`explicit plan not found: ${explicitPath}`);
     }
   }
-  if (errors.length > 0 && explicitPaths.length > 0) {
+  if (errors.length > 0 && explicitPathsToValidate.length > 0) {
     return {
       result: "blocked",
       reason: "explicit plan validation failed",
@@ -637,18 +661,19 @@ export function resolvePlanSelection(
   const fallbackLiving = livingPlanFallbackCandidates(normalizedOpts).filter(
     (candidate) => !manifestLivingPaths.has(candidate.path),
   );
+  const resumable = resumeCandidates(manifest.candidates, activeRunOnly, fallbackLiving);
   let candidates: PlanCandidate[] = [];
 
   if (opts.resumeRunId) {
-    candidates = [...manifest.candidates, ...activeRunOnly].filter(
-      (c) => c.runId === opts.resumeRunId,
-    );
+    candidates = resumable.filter((candidate) => candidate.runId === opts.resumeRunId);
   } else if (opts.resumeOnly) {
-    candidates = [
-      ...manifest.candidates.filter((candidate) => runHasIncompleteCandidate(candidate)),
-      ...activeRunOnly.filter((candidate) => runHasIncompleteCandidate(candidate)),
-      ...fallbackLiving,
-    ];
+    const explicitLivingPaths = new Set(explicitPaths.map((p) => path.resolve(p)));
+    candidates =
+      explicitLivingPaths.size > 0
+        ? resumable.filter((candidate) =>
+            explicitLivingPaths.has(livingPlanIdentity(candidate)),
+          )
+        : resumable;
   } else if (explicitPaths.length > 0) {
     candidates = [
       ...sourceCandidates(normalizedOpts),
