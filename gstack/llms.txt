@@ -1,0 +1,165 @@
+# gstack
+
+> gstack is Garry's Stack: AI coding skills + a fast headless browser binary + a design CLI. This file indexes every capability so agents can discover and invoke them without crawling individual SKILL.md files.
+
+Conventions:
+- Skills are invoked by name (e.g. `/ship`, `/plan-ceo-review`).
+- Browse commands run as `browse <command> [args]` (or `$B` shorthand).
+- Design commands run as `design <command> [args]` (or `$D`).
+- Project-specific config lives in `CLAUDE.md`. Always read it first.
+
+## Skills
+
+- [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
+- [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
+- [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
+- [/browse](browse/SKILL.md): Fast headless browser for QA testing and site dogfooding.
+- [/canary](canary/SKILL.md): Post-deploy canary monitoring.
+- [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
+- [/claude](claude/SKILL.md): Claude Code CLI wrapper for non-Claude hosts - three modes.
+- [/codex](codex/SKILL.md): OpenAI Codex CLI wrapper — three modes.
+- [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
+- [/context-save](context-save/SKILL.md): Save working context.
+- [/cso](cso/SKILL.md): Chief Security Officer mode.
+- [/design-consultation](design-consultation/SKILL.md): Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview pages.
+- [/design-html](design-html/SKILL.md): Design finalization: generates production-quality Pretext-native HTML/CSS.
+- [/design-review](design-review/SKILL.md): Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them.
+- [/design-shotgun](design-shotgun/SKILL.md): Design shotgun: generate multiple AI design variants, open a comparison board, collect structured feedback, and iterate.
+- [/devex-review](devex-review/SKILL.md): Live developer experience audit.
+- [/document-release](document-release/SKILL.md): Post-ship documentation update.
+- [/freeze](freeze/SKILL.md): Restrict file edits to a specific directory for the session.
+- [/gstack](gstack/SKILL.md): Fast headless browser for QA testing and site dogfooding.
+- [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
+- [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
+- [/health](health/SKILL.md): Code quality dashboard.
+- [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
+- [/land-and-deploy](land-and-deploy/SKILL.md): Land and deploy workflow.
+- [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
+- [/learn](learn/SKILL.md): Manage project learnings.
+- [/make-pdf](make-pdf/SKILL.md): Turn any markdown file into a publication-quality PDF.
+- [/office-hours](office-hours/SKILL.md): YC Office Hours — two modes.
+- [/open-gstack-browser](open-gstack-browser/SKILL.md): Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
+- [/pair-agent](pair-agent/SKILL.md): Pair a remote AI agent with your browser.
+- [/plan-ceo-review](plan-ceo-review/SKILL.md): CEO/founder-mode plan review.
+- [/plan-design-review](plan-design-review/SKILL.md): Designer's eye plan review — interactive, like CEO and Eng review.
+- [/plan-devex-review](plan-devex-review/SKILL.md): Interactive developer experience plan review.
+- [/plan-eng-review](plan-eng-review/SKILL.md): Eng manager-mode plan review.
+- [/plan-tune](plan-tune/SKILL.md): Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).
+- [/qa](qa/SKILL.md): Systematically QA test a web application and fix bugs found.
+- [/qa-only](qa-only/SKILL.md): Report-only QA testing.
+- [/retro](retro/SKILL.md): Weekly engineering retrospective.
+- [/review](review/SKILL.md): Pre-landing PR review.
+- [/scrape](scrape/SKILL.md): Pull data from a web page.
+- [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.
+- [/setup-deploy](setup-deploy/SKILL.md): Configure deployment settings for /land-and-deploy.
+- [/setup-gbrain](setup-gbrain/SKILL.md): Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or Supabase brain, register MCP, capture per-remote trust policy.
+- [/ship](ship/SKILL.md): Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
+- [/skillify](skillify/SKILL.md): Codify the most recent successful /scrape flow into a permanent browser-skill on disk.
+- [/sync-gbrain](sync-gbrain/SKILL.md): Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.
+- [/unfreeze](unfreeze/SKILL.md): Clear the freeze boundary set by /freeze, allowing edits to all directories again.
+
+## Browse Commands
+
+Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
+
+### Extraction
+- `archive [path]`: Save complete page as MHTML via CDP
+- `download <url|@ref> [path] [--base64] [--navigate]`: Download URL or media element to disk using browser cookies.
+- `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]`: Bulk download all media from page.
+
+### Inspection
+- `attrs <sel|@ref>`: Element attributes as JSON
+- `cdp <Domain.method> [json-params]`: Raw Chrome DevTools Protocol method dispatch.
+- `console [--clear|--errors]`: Console messages (--errors filters to error/warning)
+- `cookies`: All cookies as JSON
+- `css <sel> <prop>`: Computed CSS value
+- `dialog [--clear]`: Dialog messages
+- `eval <file>`: Run JavaScript from a file in the page context and return result as string.
+- `inspect [selector] [--all] [--history]`: Deep CSS inspection via CDP — full rule cascade, box model, computed styles
+- `is <prop> <sel|@ref>`: State check on element.
+- `js <expr>`: Run inline JavaScript expression in the page context and return result as string.
+- `network [--clear]`: Network requests
+- `perf`: Page load timings
+- `storage  |  storage set <key> <value>`: Read both localStorage and sessionStorage as JSON.
+- `ux-audit`: Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements.
+
+### Interaction
+- `cleanup [--ads] [--cookies] [--sticky] [--social] [--all]`: Remove page clutter (ads, cookie banners, sticky elements, social widgets)
+- `click <sel>`: Click element
+- `cookie <name>=<value>`: Set cookie on current page domain
+- `cookie-import <json>`: Import cookies from JSON file
+- `cookie-import-browser [browser] [--domain d]`: Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)
+- `dialog-accept [text]`: Auto-accept next alert/confirm/prompt.
+- `dialog-dismiss`: Auto-dismiss next dialog
+- `fill <sel> <val>`: Fill input
+- `header <name>:<value>`: Set custom request header (colon-separated, sensitive values auto-redacted)
+- `hover <sel>`: Hover element
+- `press <key>`: Press a Playwright keyboard key against the focused element.
+- `scroll [sel|@ref]`: With a selector, smooth-scrolls the element into view.
+- `select <sel> <val>`: Select dropdown option by value, label, or visible text
+- `style <sel> <prop> <value> | style --undo [N]`: Modify CSS property on element (with undo support)
+- `type <text>`: Type into focused element
+- `upload <sel> <file> [file2...]`: Upload file(s)
+- `useragent <string>`: Set user agent
+- `viewport [<WxH>] [--scale <n>]`: Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots).
+- `wait <sel|--networkidle|--load>`: Wait for element, network idle, or page load (timeout: 15s)
+
+### Meta
+- `chain  (JSON via stdin)`: Run a sequence of commands from JSON on stdin.
+- `domain-skill save|list|show|edit|promote-to-global|rollback|rm <host?>`: Per-site notes the agent writes for itself.
+- `frame <sel|@ref|--name n|--url pattern|main>`: Switch to iframe context (or main to return)
+- `inbox [--clear]`: List messages from sidebar scout inbox
+- `skill list|show|run|test|rm <name?> [--arg k=v]... [--timeout=Ns]`: Run a browser-skill: deterministic Playwright script that drives the daemon over loopback HTTP.
+- `watch [stop]`: Passive observation — periodic snapshots while user browses
+
+### Navigation
+- `back`: History back
+- `forward`: History forward
+- `goto <url>`: Navigate to URL (http://, https://, or file:// scoped to cwd/TEMP_DIR)
+- `load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]`: Load HTML via setContent.
+- `reload`: Reload page
+- `url`: Print current URL
+
+### Reading
+- `accessibility`: Full ARIA tree
+- `data [--jsonld|--og|--meta|--twitter]`: Structured data: JSON-LD, Open Graph, Twitter Cards, meta tags
+- `forms`: Form fields as JSON
+- `html [selector]`: innerHTML of selector (throws if not found), or full page HTML if no selector given
+- `links`: All links as "text → href"
+- `media [--images|--videos|--audio] [selector]`: All media elements (images, videos, audio) with URLs, dimensions, types
+- `text`: Cleaned page text
+
+### Server
+- `connect`: Launch headed Chromium with Chrome extension
+- `disconnect`: Disconnect headed browser, return to headless mode
+- `focus [@ref]`: Bring headed browser window to foreground (macOS)
+- `handoff [message]`: Open visible Chrome at current page for user takeover
+- `restart`: Restart server
+- `resume`: Re-snapshot after user takeover, return control to AI
+- `state save|load <name>`: Save/load browser state (cookies + URLs)
+- `status`: Health check
+- `stop`: Shutdown server
+
+### Snapshot
+- `snapshot [flags]`: Accessibility tree with @e refs for element selection.
+
+### Tabs
+- `closetab [id]`: Close tab
+- `newtab [url] [--json]`: Open new tab.
+- `tab <id>`: Switch to tab
+- `tab-each <command> [args...]`: Run a command on every open tab.
+- `tabs`: List open tabs
+
+### Visual
+- `diff <url1> <url2>`: Text diff between pages
+- `pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]`: Save the current page as PDF.
+- `prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]`: Clean screenshot with optional cleanup, scroll positioning, and element hiding
+- `responsive [prefix]`: Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720).
+- `screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]`: Save screenshot.
+
+## More
+
+- Repository: https://github.com/garrytan/gstack
+- Top-level guide: `SKILL.md`
+- Project ethos: `ETHOS.md`
+- This file is auto-generated by `bun run gen:skill-docs`.

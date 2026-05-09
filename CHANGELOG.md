@@ -1,5 +1,197 @@
 # Changelog
 
+## [1.29.0.0] - 2026-05-08
+
+## **Code search beats Grep across every Conductor worktree now, not just the last one you synced.**
+
+`/sync-gbrain` registers each worktree as its own gbrain source, then
+runs `gbrain sources attach <id>` so the worktree gets a `.gbrain-source`
+pin in its root. Subsequent `gbrain code-def`, `code-refs`, `code-callers`
+calls from anywhere under the worktree route to that source by default,
+no `--source` flag needed. Conductor sibling worktrees of the same repo
+no longer collide on a shared `gstack-code-<slug>` source ID, so the
+last `/sync-gbrain` run no longer silently overwrites every other
+worktree's index.
+
+Three correctness bugs surfaced by `/codex` adversarial review during
+`/ship` are fixed in the same release: silent attach failure (sync
+succeeds but pin is missing → unqualified `code-def` hits the wrong
+source), preamble inconsistency (startup hint claimed "indexed" based
+on global state, ignoring per-worktree pins), and orphan source leak
+(the pre-pathhash `gstack-code-<slug>` source stayed registered
+forever, polluting federated cross-source search). All three fixed
+before merge.
+
+### The numbers that matter
+
+End-to-end verified via `bun test test/gstack-gbrain-sync.test.ts test/gbrain-sources.test.ts test/gen-skill-docs.test.ts`:
+
+| Surface | Before | After | Δ |
+|---|---|---|---|
+| Conductor worktrees indexed independently | 1 (last-sync-wins) | N (one source per path) | branch-correct |
+| `gbrain code-def` from a worktree without sync | hits wrong source silently | falls back to default with notice | no silent corruption |
+| Orphan sources accumulated across runs | unbounded | 0 (legacy id removed on first new-format sync) | clean |
+| Attach-failure-to-pin behavior | stage reports `ok:true` | stage reports `ok:false` with reason | no silent correctness break |
+| Orchestrator registration logic | duplicated in `bin/` and `lib/` (could miss `--db` on one path) | single source of truth in `lib/gbrain-sources.ts` | DRY |
+| Required gbrain version | v0.20.0+ (single-brain-only) | v0.30.0+ (uses `sources attach`) | prerequisite bumped |
+
+Test count went from 405 → 408 (+3 worktree-aware tests + 1 legacy-cleanup preview test).
+
+### What this means for builders
+
+If you use Conductor to run multiple parallel branches of the same
+repo, you can now run `/sync-gbrain` in each one and `gbrain code-def`
+from inside any of them returns hits from THAT worktree's branch state,
+not whichever sibling synced most recently. This was a hard requirement
+before semantic code search could replace Grep for refactor planning,
+"where is X used", "what depends on what" queries across parallel
+worktrees. Run `gbrain autopilot --install` once per machine for
+ongoing background sync; gbrain owns the daemon lifecycle.
+
+### Itemized changes
+
+#### Added
+
+- Worktree-aware source IDs in `bin/gstack-gbrain-sync.ts:176-186`. Pattern is now `gstack-code-<slug>-<pathhash8>` where `pathhash8` is the first 8 hex chars of `sha1(absolute repo path)`. Conductor worktrees of the same origin coexist as separate sources in one gbrain DB.
+- `gbrain sources attach <id>` step in `runCodeImport` (`bin/gstack-gbrain-sync.ts:336-351`). Writes `.gbrain-source <id>` in the worktree root after sync succeeds; subsequent `gbrain code-def` calls from any subdirectory auto-route to that source.
+- Legacy source cleanup: on first new-format sync, removes the pre-pathhash `gstack-code-<slug>` orphan via `gbrain sources remove ... --confirm-destructive` (`bin/gstack-gbrain-sync.ts:298-318`).
+- `.gbrain-source` added to `.gitignore` so per-worktree pin doesn't leak across branches.
+
+#### Changed
+
+- Code stage no longer skipped on remote-MCP (Path 4) installs. The early-exit in `sync-gbrain/SKILL.md.tmpl` was bouncing users out before the orchestrator ran; the local code brain works regardless of whether artifacts use a remote MCP. Replaced with split-engine prose explaining the model.
+- Source registration now flows through `lib/gbrain-sources.ts:ensureSourceRegistered` exclusively. Deleted `ensureSourceRegisteredSync` from the orchestrator binary (was a near-duplicate of the lib helper at `lib/gbrain-sources.ts:100`). Removes the missed-flag risk where one path could skip `--db` or `--federated`.
+- Startup preamble (`scripts/resolvers/preamble/generate-brain-sync-block.ts:48-75`) now checks for `.gbrain-source` in `git rev-parse --show-toplevel`, not the global `~/.gstack/.gbrain-sync-state.json`. Opening an unsynced worktree no longer claims "indexed" based on a sibling's sync.
+- CLAUDE.md guidance block in the SKILL template now documents the `.gbrain-source` pin and `gbrain autopilot --install` for ongoing sync.
+
+#### Fixed
+
+- Silent attach failure: `gbrain sources attach` now treated as stage failure if it returns non-zero. Previously the stage reported `ok:true` while the pin was missing, so unqualified `gbrain code-def` queries silently hit the default source. Now surfaces ERR with reason in the verdict block; user knows to retry.
+- Wrong-layer Path 4 early-exit (`/codex` finding #2 from `/plan-eng-review`).
+- Orphan source accumulation: the pre-pathhash `gstack-code-<slug>` source stayed registered across `/sync-gbrain` runs even after the path-keyed format shipped, polluting federated `gbrain search` results with stale duplicates.
+
+#### For contributors
+
+- Phase 0 verification spike at `~/.gstack/projects/garrytan-gstack/2026-05-08-gbrain-split-engine-spike.md` documents what gbrain v0.30 actually provides (no `--db` flag, `serve --http` requires postgres, `sources attach` is the v0.30 routing primitive). The approved plan's "per-worktree PGLite + per-worktree HTTP serve" architecture was invalidated by the spike; the simpler "one brain, many sources, attach for CWD pin" model collapsed ~80% of the plan's complexity.
+- `/codex` adversarial review during `/ship` caught all three correctness bugs above (silent attach, preamble inconsistency, orphan leak) before merge. Find-cost: ~10 min CC. Production-bug-cost: stale code search results that "almost worked" — the worst kind to debug.
+- gbrain CLI minimum version is now v0.30.0 (uses `sources attach`, which doesn't exist in v0.20.x). Run `cd ~/git/gbrain && git pull && bun install && bun link` to upgrade.
+
+## [1.28.0.0] - 2026-05-07
+
+## **Browse handles real-world automation now: SOCKS5 with auth, container Xvfb, browser-native downloads. Plus a single-file `llms.txt` index agents can crawl in one read.**
+
+Five capabilities ship in one PR. Browse picks up `--proxy` (with an
+embedded SOCKS5 bridge so Chromium can speak to authenticated
+upstreams it can't speak to natively), `--headed` (auto-spawns Xvfb
+on Linux containers without DISPLAY), and `download --navigate` (uses
+the browser's native download handler for Content-Disposition,
+multi-hop CDN redirects, and anti-bot CDN chains where
+`page.request.fetch()` falls over). Stealth is narrowed to
+`navigator.webdriver` masking only — modern fingerprinters punish
+inconsistent fakes, so faking plugins/languages was making
+detection easier, not harder. And `gstack/llms.txt` is now
+auto-generated from the same source as every SKILL.md, so any agent
+that reads `llms.txt` boots into the full surface (47 skills, 75
+browse commands) in one fetch.
+
+### The numbers that matter
+
+End-to-end verified via `bun test browse/test/{socks-bridge,proxy-config,proxy-redact,xvfb,stealth-webdriver,bridge-chromium-e2e}.test.ts test/llms-txt-shape.test.ts`:
+
+| Surface | Before | After | Δ |
+|---|---|---|---|
+| `browse --proxy` (SOCKS5 with auth) | not supported | works end-to-end | new capability |
+| `browse --headed` on Linux without DISPLAY | not supported | auto-Xvfb on first free display | new capability |
+| `download --navigate` (browser-native) | only `page.request.fetch()` | added native download path | new capability |
+| `gstack/llms.txt` index for agents | none | 47 skills + 75 commands in 11KB | new capability |
+| Bridge PID validation defenses | n/a | both `/proc/<pid>/cmdline` AND start-time | full safety |
+| Tests covering proxy + headed + navigate | 0 | 70+ tests across 7 files | from zero to comprehensive |
+
+The `bridge-chromium-e2e.test.ts` is the one that proves the feature
+actually works: real Chromium launches with `proxy.server =
+socks5://127.0.0.1:<bridgePort>`, navigates to a local HTTP fixture,
+and we assert the auth upstream's connect counter and the HTTP
+fixture's hit counter both increment. Without that test we could
+ship a working byte-relay and a broken Chromium integration and never
+notice.
+
+### What this means for AI agents
+
+Any agent on any project can now hit any site. DDoS-Guard'd CDN
+behind an auth-required residential SOCKS5 → `browse --proxy
+socks5://user:pass@host:1080 --headed download <url> /tmp/file
+--navigate` and the file lands. Linux container without DISPLAY →
+`--headed` auto-spawns Xvfb, no manual setup. The `llms.txt` index
+makes discovery a one-fetch operation: agents stop scanning 47
+SKILL.md files and start with the right skill on the first try.
+
+### Itemized changes
+
+#### Added
+- `browse --proxy <url>` flag. Supports SOCKS5 with username/password
+  auth, HTTP, and HTTPS. SOCKS5+auth runs through an embedded local
+  bridge (`browse/src/socks-bridge.ts`, ~250 LOC) bound to 127.0.0.1
+  on an ephemeral port. The bridge handles the SOCKS5 auth handshake
+  so Chromium (which can't prompt for SOCKS5 creds) can still use
+  authenticated upstreams.
+- Pre-flight `testUpstream()` runs before Chromium launches: 5s total
+  budget, 3 retries with 500ms backoff (handles VPN warm-up race).
+  On failure, exits 1 with a redacted error message — no confusing
+  "connection refused" on first navigation.
+- `browse --headed` flag with auto-Xvfb on Linux. Walks the display
+  range (`:99`, `:100`, ...) until `xdpyinfo` says free; never
+  hardcodes `:99` and never unlinks `/tmp/.X<n>-lock` for displays
+  it didn't create. Xvfb child PID + start-time + display recorded
+  in `~/.gstack/browse.json` so cleanup-on-disconnect can validate
+  ownership before signaling. Skips spawn when `WAYLAND_DISPLAY` is
+  set (Chromium uses Wayland natively).
+- `download --navigate` flag (community PR #1355, attribution preserved).
+  Uses `page.waitForEvent('download')` and `page.goto(url, {
+  waitUntil: 'commit' })` instead of `page.request.fetch()`.
+  Required for sites where the download is triggered by browser
+  navigation (Content-Disposition headers, redirect chains, anti-bot
+  CDNs).
+- `gstack/llms.txt` auto-generated from skill frontmatter and the
+  browse `COMMAND_DESCRIPTIONS` registry. Regenerates on every
+  `bun run gen:skill-docs`. Strict mode (used in tests) refuses any
+  skill missing `name` or `description` in its frontmatter.
+
+#### Changed
+- Stealth narrowed to `navigator.webdriver` masking only. The
+  pre-existing `launchHeaded` patches that faked `navigator.plugins`
+  and `navigator.languages` were removed because modern
+  fingerprinters check those for consistency with `userAgent`/
+  `platform`, and synthesized fixed values can flag MORE bot-like,
+  not less. The cdc_/__webdriver runtime cleanup and Permissions API
+  patch are kept — those remove ChromeDriver-injected artifacts
+  rather than synthesize natural-browser values.
+- Browse daemon refuses to silently restart on `--proxy`/`--headed`
+  flag mismatch. Existing daemon with config A + new invocation with
+  config B → exits 1 with a `browse disconnect` hint. No silent
+  state loss.
+- Cred policy: passing creds in BOTH the URL and `BROWSE_PROXY_USER`/
+  `BROWSE_PROXY_PASS` env vars now fails fast with a clear error.
+  Silent override was a debugging trap.
+
+#### Fixed
+- N/A — all-new code paths.
+
+#### For contributors
+- New module boundary: `browse/src/socks-bridge.ts`,
+  `browse/src/proxy-config.ts`, `browse/src/proxy-redact.ts`,
+  `browse/src/xvfb.ts`, `browse/src/stealth.ts`. Each is small,
+  testable in isolation, and has matching `*.test.ts` coverage.
+- 70+ new tests across 7 files. The `bridge-chromium-e2e.test.ts`
+  test launches real Chromium through the bridge and asserts the
+  request actually traversed it (upstream connect counter + HTTP
+  fixture hit counter both increment).
+- `socks` npm dependency added (~30KB).
+- Xvfb + x11-utils added to `.github/docker/Dockerfile.ci` so
+  `headed-xvfb`/`headed-orphan-cleanup` exercise the Linux container
+  path on every CI run instead of only manual smoke tests.
+- Community PR #1355 from @garrytan-agents merged; attribution
+  preserved on the merging commit.
+
 ## [1.27.1.0] - 2026-05-06
 
 ## **Plan-mode reviews now refuse to dump findings without asking. Four gate-tier tests catch the regression on every PR.**

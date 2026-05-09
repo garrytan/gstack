@@ -19,6 +19,7 @@ bin/gstack-global-discover
 .openclaw/
 .hermes/
 .gbrain/
+.gbrain-source
 .context/
 extension/.auth.json
 # xterm assets are vendored from npm at build time; not source-of-truth.
