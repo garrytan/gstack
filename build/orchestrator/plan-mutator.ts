@@ -28,19 +28,65 @@ export interface FlipResult {
   error?: string;
 }
 
+export interface StatusNoteResult {
+  /** True when the note was changed (added, replaced, or removed). */
+  updated: boolean;
+  /** True when the line already had the exact same note (idempotent). */
+  alreadyPresent: boolean;
+  /** Set when the target line can't be located or isn't a checkbox. */
+  error?: string;
+}
+
 /**
- * Flip a single checkbox at a 1-based line number. Read-modify-write the
- * whole file; safe against concurrent reads but caller must serialize
- * mutations themselves (the orchestrator runs serially per build).
- *
- * Pure file I/O — does not touch the runtime state machine.
+ * Atomic plan-file write: write to a temp file in the same directory then
+ * rename. POSIX rename is atomic — readers see either the old or the new
+ * content, never a partial write.
  */
-export function flipCheckbox(args: {
+function writePlanContentAtomic(planFile: string, content: string): void {
+  const dir = path.dirname(planFile);
+  const tmp = path.join(
+    dir,
+    `.${path.basename(planFile)}.tmp.${process.pid}.${Date.now()}`,
+  );
+  try {
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, planFile);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
+}
+
+/**
+ * Reconstruct file content from split lines, preserving original EOL style
+ * and trailing newline.
+ */
+function joinPlanLines(original: string, lines: string[]): string {
+  const trailingNewline = original.endsWith("\n") ? "\n" : "";
+  const eol = original.includes("\r\n") ? "\r\n" : "\n";
+  return (
+    lines.join(eol) +
+    (trailingNewline && !lines[lines.length - 1] ? "" : trailingNewline)
+  );
+}
+
+/**
+ * Set a checkbox at a 1-based line number to a specific state (checked or
+ * unchecked). Handles both the "flip to checked" and "flip to unchecked"
+ * directions, enabling plan reconciliation in both directions.
+ *
+ * Returns a FlipResult where:
+ *   flipped=true   → line was changed
+ *   alreadyChecked=true → line was already in the requested state (idempotent)
+ */
+export function setCheckboxState(args: {
   planFile: string;
   lineNumber: number;
-  /** Substring expected to follow the checkbox, e.g. "**Implementation".
-   * If provided, we verify it appears on the target line before flipping;
-   * if not, we error out (the plan was edited under us). */
+  checked: boolean;
   expectedMarker?: string;
 }): FlipResult {
   const content = fs.readFileSync(args.planFile, "utf8");
@@ -64,8 +110,6 @@ export function flipCheckbox(args: {
     };
   }
 
-  // Match the checkbox precisely. The leading whitespace + `- ` may be
-  // any indentation; the bracket pair is what we toggle.
   const checkboxRe = /^(\s*-\s+\[)([ xX])(\])/;
   const m = line.match(checkboxRe);
   if (!m) {
@@ -76,40 +120,83 @@ export function flipCheckbox(args: {
     };
   }
 
-  if (m[2].toLowerCase() === "x") {
+  const isChecked = m[2].toLowerCase() === "x";
+  if (isChecked === args.checked) {
     return { flipped: false, alreadyChecked: true };
   }
 
-  lines[idx] = line.replace(checkboxRe, `$1x$3`);
-  // Preserve trailing newline if the original had one.
-  const trailingNewline = content.endsWith("\n") ? "\n" : "";
-  const eol = content.includes("\r\n") ? "\r\n" : "\n";
-  const newContent =
-    lines.join(eol) +
-    (trailingNewline && !lines[lines.length - 1] ? "" : trailingNewline);
+  lines[idx] = line.replace(checkboxRe, `$1${args.checked ? "x" : " "}$3`);
+  writePlanContentAtomic(args.planFile, joinPlanLines(content, lines));
+  return { flipped: true, alreadyChecked: false };
+}
 
-  // Atomic write: temp + rename in same dir (so rename is atomic on POSIX).
-  const dir = path.dirname(args.planFile);
-  // Use the OS tmpdir for the temp file ONLY if same-dir is read-only.
-  // Default to same-dir to keep rename atomic across filesystems.
-  const tmp = path.join(
-    dir,
-    `.${path.basename(args.planFile)}.tmp.${process.pid}.${Date.now()}`,
-  );
-  try {
-    fs.writeFileSync(tmp, newContent);
-    fs.renameSync(tmp, args.planFile);
-  } catch (err) {
-    // Clean up temp on error; rethrow.
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      // ignore
-    }
-    throw err;
+/**
+ * Append or replace the _(status note)_ suffix on a checkbox line. Pass
+ * `note: ""` to remove an existing note. Uses the same atomic write pattern
+ * as the rest of this module.
+ */
+export function setCheckboxStatusNote(args: {
+  planFile: string;
+  lineNumber: number;
+  expectedMarker?: string;
+  note: string;
+}): StatusNoteResult {
+  const content = fs.readFileSync(args.planFile, "utf8");
+  const lines = content.split(/\r?\n/);
+
+  if (args.lineNumber < 1 || args.lineNumber > lines.length) {
+    return {
+      updated: false,
+      alreadyPresent: false,
+      error: `line ${args.lineNumber} out of range (file has ${lines.length} lines)`,
+    };
+  }
+  const idx = args.lineNumber - 1;
+  const line = lines[idx];
+
+  if (args.expectedMarker && !line.includes(args.expectedMarker)) {
+    return {
+      updated: false,
+      alreadyPresent: false,
+      error: `line ${args.lineNumber} no longer contains "${args.expectedMarker}" — plan was edited externally; re-parse and try again`,
+    };
   }
 
-  return { flipped: true, alreadyChecked: false };
+  if (!/^(\s*-\s+\[)([ xX])(\])/.test(line)) {
+    return {
+      updated: false,
+      alreadyPresent: false,
+      error: `line ${args.lineNumber} does not look like a checkbox list item: ${JSON.stringify(line.slice(0, 80))}`,
+    };
+  }
+
+  // Strip any existing _(note)_ suffix, then re-append if note is non-empty.
+  const withoutNote = line.replace(/\s+_\([^)]*\)_\s*$/, "");
+  const nextLine = args.note ? `${withoutNote} _(${args.note})_` : withoutNote;
+
+  if (nextLine === line) {
+    return { updated: false, alreadyPresent: true };
+  }
+
+  lines[idx] = nextLine;
+  writePlanContentAtomic(args.planFile, joinPlanLines(content, lines));
+  return { updated: true, alreadyPresent: false };
+}
+
+/**
+ * Flip a single checkbox at a 1-based line number from [ ] to [x].
+ * Thin wrapper around setCheckboxState kept for API compatibility;
+ * prefer setCheckboxState for new callers.
+ */
+export function flipCheckbox(args: {
+  planFile: string;
+  lineNumber: number;
+  /** Substring expected to follow the checkbox, e.g. "**Implementation".
+   * If provided, we verify it appears on the target line before flipping;
+   * if not, we error out (the plan was edited under us). */
+  expectedMarker?: string;
+}): FlipResult {
+  return setCheckboxState({ ...args, checked: true });
 }
 
 /**

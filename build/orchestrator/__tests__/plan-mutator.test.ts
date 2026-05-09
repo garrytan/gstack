@@ -7,6 +7,8 @@ import {
   _testWritePlan,
   flipTestSpecCheckbox,
   reconcilePhaseCheckboxes,
+  setCheckboxState,
+  setCheckboxStatusNote,
 } from "../plan-mutator";
 
 describe("flipCheckbox", () => {
@@ -452,6 +454,140 @@ not a checkbox
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0]).toMatch(/impl/);
     expect(r.flipped).toBe(1); // review still flipped
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+});
+
+describe("setCheckboxState", () => {
+  it("flips [ ] to [x] (checked=true)", () => {
+    const p = _testWritePlan("- [ ] **Implementation**: work\n");
+    const r = setCheckboxState({ planFile: p, lineNumber: 1, checked: true });
+    expect(r.flipped).toBe(true);
+    expect(r.alreadyChecked).toBe(false);
+    expect(fs.readFileSync(p, "utf8")).toBe("- [x] **Implementation**: work\n");
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("flips [x] back to [ ] (checked=false)", () => {
+    const p = _testWritePlan("- [x] **Implementation**: work\n");
+    const r = setCheckboxState({ planFile: p, lineNumber: 1, checked: false });
+    expect(r.flipped).toBe(true);
+    expect(fs.readFileSync(p, "utf8")).toBe("- [ ] **Implementation**: work\n");
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("is idempotent — already in desired state returns alreadyChecked", () => {
+    const p = _testWritePlan("- [x] **Implementation**: work\n");
+    const r = setCheckboxState({ planFile: p, lineNumber: 1, checked: true });
+    expect(r.flipped).toBe(false);
+    expect(r.alreadyChecked).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("errors when expectedMarker not found on target line", () => {
+    const p = _testWritePlan("- [ ] **Review**: rev\n");
+    const r = setCheckboxState({
+      planFile: p,
+      lineNumber: 1,
+      checked: true,
+      expectedMarker: "**Implementation",
+    });
+    expect(r.flipped).toBe(false);
+    expect(r.error).toMatch(/Implementation/);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("errors on out-of-range line number", () => {
+    const p = _testWritePlan("- [ ] **Implementation**: work\n");
+    const r = setCheckboxState({ planFile: p, lineNumber: 99, checked: true });
+    expect(r.error).toMatch(/out of range/);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("errors when target line is not a checkbox", () => {
+    const p = _testWritePlan("just prose\n");
+    const r = setCheckboxState({ planFile: p, lineNumber: 1, checked: true });
+    expect(r.error).toMatch(/checkbox/);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("round-trips: check then uncheck restores original content", () => {
+    const original = "- [ ] **Implementation**: work\n";
+    const p = _testWritePlan(original);
+    setCheckboxState({ planFile: p, lineNumber: 1, checked: true });
+    setCheckboxState({ planFile: p, lineNumber: 1, checked: false });
+    expect(fs.readFileSync(p, "utf8")).toBe(original);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+});
+
+describe("setCheckboxStatusNote", () => {
+  it("appends a note to an unchecked checkbox", () => {
+    const p = _testWritePlan("- [ ] **Test Specification**: spec\n");
+    const r = setCheckboxStatusNote({
+      planFile: p,
+      lineNumber: 1,
+      note: "running",
+    });
+    expect(r.updated).toBe(true);
+    expect(fs.readFileSync(p, "utf8")).toBe(
+      "- [ ] **Test Specification**: spec _(running)_\n",
+    );
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("replaces an existing note with a new one", () => {
+    const p = _testWritePlan(
+      "- [ ] **Test Specification**: spec _(old note)_\n",
+    );
+    setCheckboxStatusNote({ planFile: p, lineNumber: 1, note: "new note" });
+    expect(fs.readFileSync(p, "utf8")).toBe(
+      "- [ ] **Test Specification**: spec _(new note)_\n",
+    );
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("removes the note when passed an empty string", () => {
+    const p = _testWritePlan(
+      "- [ ] **Test Specification**: spec _(running)_\n",
+    );
+    setCheckboxStatusNote({ planFile: p, lineNumber: 1, note: "" });
+    expect(fs.readFileSync(p, "utf8")).toBe(
+      "- [ ] **Test Specification**: spec\n",
+    );
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("is idempotent — same note returns alreadyPresent", () => {
+    const p = _testWritePlan(
+      "- [ ] **Test Specification**: spec _(running)_\n",
+    );
+    const r = setCheckboxStatusNote({
+      planFile: p,
+      lineNumber: 1,
+      note: "running",
+    });
+    expect(r.updated).toBe(false);
+    expect(r.alreadyPresent).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("errors when target line is not a checkbox", () => {
+    const p = _testWritePlan("just prose\n");
+    const r = setCheckboxStatusNote({ planFile: p, lineNumber: 1, note: "x" });
+    expect(r.error).toMatch(/checkbox/);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("errors when expectedMarker is absent from target line", () => {
+    const p = _testWritePlan("- [ ] **Review**: rev\n");
+    const r = setCheckboxStatusNote({
+      planFile: p,
+      lineNumber: 1,
+      expectedMarker: "**Implementation",
+      note: "running",
+    });
+    expect(r.error).toMatch(/Implementation/);
     fs.rmSync(path.dirname(p), { recursive: true });
   });
 });
