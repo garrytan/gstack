@@ -31,6 +31,9 @@ import {
   phaseTableStatus,
   phaseGateProjection,
   reconcileVisiblePlanState,
+  releaseDaemonLaunchCommand,
+  renderLaunchdReleaseDaemonPlist,
+  renderSystemdReleaseDaemonService,
   HELP_TEXT,
 } from "../cli";
 import type {
@@ -168,6 +171,58 @@ describe("--skip-ship flag wiring", () => {
   it("parseArgs([plan, --skip-ship]) sets skipShip=true", () => {
     const args = parseArgs(["plan.md", "--skip-ship"]);
     expect(args.skipShip).toBe(true);
+  });
+
+  it("parseArgs default release mode is queued and preserves --skip-ship", () => {
+    const args = parseArgs(["plan.md", "--skip-ship"]);
+    expect(args.releaseMode).toBe("queued");
+    expect(args.skipShip).toBe(true);
+  });
+
+  it("parseArgs supports legacy auto-land release mode", () => {
+    const args = parseArgs(["plan.md", "--release-mode", "auto-land"]);
+    expect(args.releaseMode).toBe("auto-land");
+  });
+
+  it("rejects invalid release modes", () => {
+    expectParseArgsExit(
+      ["plan.md", "--release-mode", "surprise"],
+      "--release-mode expects queued or auto-land",
+    );
+  });
+});
+
+describe("release-daemon CLI", () => {
+  it("parses release-daemon run defaults", () => {
+    const args = parseArgs(["release-daemon", "run"]);
+    expect(args.mode).toBe("release-daemon");
+    expect(args.releaseDaemonCommand).toBe("run");
+    expect(args.releaseDaemonOnce).toBe(true);
+    expect(args.releaseDaemonPollMs).toBe(30_000);
+  });
+
+  it("parses release-daemon watch and retry", () => {
+    const watch = parseArgs(["release-daemon", "run", "--watch", "--poll-ms", "5"]);
+    expect(watch.releaseDaemonWatch).toBe(true);
+    expect(watch.releaseDaemonPollMs).toBe(5);
+
+    const retry = parseArgs(["release-daemon", "retry", "42"]);
+    expect(retry.releaseDaemonCommand).toBe("retry");
+    expect(retry.releaseDaemonRetryPr).toBe(42);
+  });
+
+  it("renders repo-aware daemon install commands for launchd and systemd", () => {
+    const command = releaseDaemonLaunchCommand("/Users/alice/project repo");
+    expect(command).toContain("--project-root");
+    expect(command).toContain("/Users/alice/project repo");
+
+    const plist = renderLaunchdReleaseDaemonPlist(command, "/Users/alice/project repo");
+    expect(plist).toContain("<key>WorkingDirectory</key><string>/Users/alice/project repo</string>");
+    expect(plist).toContain("<string>--project-root</string>");
+
+    const service = renderSystemdReleaseDaemonService(command, "/Users/alice/project repo");
+    expect(service).toContain("WorkingDirectory=/Users/alice/project\\ repo");
+    expect(service).toContain("--project-root /Users/alice/project\\ repo");
   });
 });
 

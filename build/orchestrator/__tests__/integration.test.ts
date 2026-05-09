@@ -761,6 +761,8 @@ fi
         repo,
         "--skip-clean-check",
         "--no-gbrain",
+        "--release-mode",
+        "auto-land",
         "--ship-provider",
         "gemini",
         "--land-provider",

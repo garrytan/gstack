@@ -107,7 +107,7 @@ For each feature block, the orchestrator:
 
 1. Ensures it is on a feature branch.
 2. Runs every incomplete phase through the TDD/review loop.
-3. Runs `/ship` and `/land-and-deploy` for that feature unless `--skip-ship` or `--dry-run` is set.
+3. Runs `/ship` for that feature and queues the PR for the release daemon unless `--skip-ship` or `--dry-run` is set. Use `--release-mode auto-land` for legacy inline `/ship` + `/land-and-deploy`.
 4. Verifies the landed feature against the origin plan when `--origin-plan` is provided.
 5. Marks the feature complete and advances to the next feature.
 
@@ -177,6 +177,13 @@ gstack-build plans/...md --dry-run --parallel-phases 2 --test-cmd "bun test"
 
 # Run for real, but stop short of the ship step:
 gstack-build plans/...md --skip-ship
+gstack-build plans/...md --release-mode auto-land
+
+# Supervise queued releases for this repo:
+gstack-build release-daemon install
+gstack-build release-daemon status
+gstack-build release-daemon run --watch --poll-ms 30000
+gstack-build release-daemon retry 123
 
 # Discard prior state and start over:
 gstack-build plans/...md --no-resume
@@ -187,6 +194,18 @@ gstack-build plans/...md --no-gbrain
 # Review/fix/ship/land leftover feat/* branches:
 gstack-build merge --project-root /path/to/product-repo
 ```
+
+Queued mode is the default release mode. It creates or updates a PR, marks it
+with the `gstack-release-queued` label and hidden JSON marker, then writes the
+local queue record. The release daemon only lands PRs that still have that
+marker, and it serializes landing with a remote git lock keyed by canonical
+remote identity plus base branch, so the same repo cloned at different local
+paths shares one release lane.
+
+`release-daemon install` is repo-aware: run it from the repo you want to
+supervise, or pass `--project-root /path/to/repo`. The generated launchd or
+systemd user service pins both `--project-root` and `WorkingDirectory` to that
+repo.
 
 ### Resume after interrupt
 
@@ -399,6 +418,10 @@ phase-runner.ts pure state machine (decideNextAction, applyResult)
 sub-agents.ts   gemini/kimi/codex/claude CLI wrappers with retries; detectTestCmd; runTests
 plan-mutator.ts atomic [ ] → [x] checkbox flip (impl, review, test-spec)
 state.ts        ~/.gstack/build-state/<slug>.json + gbrain mirror
+release-identity.ts canonical remote/path identity for queue records and locks
+release-queue.ts typed queued-release records, PR marker parsing/verification
+release-lock.ts remote git ref lock, heartbeat refresh, stale-owner handling
+release-daemon.ts FIFO queued release worker, scratch checkout, drift repair
 gbrain.ts       gbrain CLI wrapper (best-effort, never throws)
 ship.ts         configurable /ship + /land-and-deploy delegation
 types.ts        Phase, PhaseState, BuildState

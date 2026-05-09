@@ -95,7 +95,19 @@ import {
   type ParsedFeatureVerdict,
 } from "./feature-review";
 import { promptYesNo, buildBlockedFeatureMd } from "./feature-review-prompt";
-import { shipAndDeploy } from "./ship";
+import { shipAndDeploy, shipOnly } from "./ship";
+import { runReleaseDaemon, retryReleaseQueueRecord } from "./release-daemon";
+import {
+  defaultReleaseQueueDir,
+  markPrQueued,
+  parseShipOutput,
+  prBaseAndHead,
+  readReleaseQueueRecords,
+  readVersion,
+  writeReleaseQueueRecord,
+  type ReleaseQueueRecord,
+} from "./release-queue";
+import { canonicalRepoIdentity } from "./release-identity";
 import { createWorktrees, applyWinner, teardownWorktrees } from "./worktree";
 import {
   buildParallelPhasePlan,
@@ -270,6 +282,7 @@ function featureGateProjection(
     case "failed":
       return {};
     case "shipping":
+    case "release_queued":
       return { feature_review: true };
     case "landed":
     case "origin_verifying":
@@ -494,13 +507,14 @@ function legacyDualImplError(): string {
 }
 
 export interface Args {
-  mode: "build" | "merge" | "monitor";
+  mode: "build" | "merge" | "monitor" | "release-daemon";
   planFile: string;
   printOnly: boolean;
   dryRun: boolean;
   noResume: boolean;
   noGbrain: boolean;
   skipShip: boolean;
+  releaseMode: "queued" | "auto-land";
   maxCodexIter: number;
   testCmd?: string;
   projectRoot?: string;
@@ -556,6 +570,13 @@ export interface Args {
   monitorPollMs: number;
   /** Maximum foreground monitor wall time before MONITOR_REENTER. */
   monitorMaxWallMs: number;
+  /** release-daemon subcommand. */
+  releaseDaemonCommand?: "install" | "uninstall" | "status" | "run" | "retry";
+  releaseDaemonOnce: boolean;
+  releaseDaemonWatch: boolean;
+  releaseDaemonPollMs: number;
+  releaseDaemonRetryPr?: number;
+  releaseQueueDir: string;
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -574,6 +595,7 @@ export function parseArgs(argv: string[]): Args {
     noResume: false,
     noGbrain: false,
     skipShip: false,
+    releaseMode: "queued",
     maxCodexIter: DEFAULT_MAX_CODEX_ITERATIONS,
     projectRoot: undefined,
     dualImpl: false,
@@ -599,6 +621,12 @@ export function parseArgs(argv: string[]): Args {
     monitorWatch: false,
     monitorPollMs: 60_000,
     monitorMaxWallMs: 3_600_000,
+    releaseDaemonCommand: undefined,
+    releaseDaemonOnce: false,
+    releaseDaemonWatch: false,
+    releaseDaemonPollMs: 30_000,
+    releaseDaemonRetryPr: undefined,
+    releaseQueueDir: defaultReleaseQueueDir(),
   };
   const positional: string[] = [];
   const roleFlags = buildRoleFlagMap();
@@ -609,6 +637,14 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--no-resume" || a === "--restart") args.noResume = true;
     else if (a === "--no-gbrain") args.noGbrain = true;
     else if (a === "--skip-ship") args.skipShip = true;
+    else if (a === "--release-mode") {
+      const next = argv[++i];
+      if (next !== "queued" && next !== "auto-land") {
+        console.error("--release-mode expects queued or auto-land");
+        process.exit(2);
+      }
+      args.releaseMode = next;
+    }
     else if (a === "--skip-clean-check") args.skipCleanCheck = true;
     else if (a === "--skip-sweep") args.skipSweep = true;
     else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
@@ -756,6 +792,13 @@ export function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.activeRunRegistry = path.resolve(next);
+    } else if (a === "--release-queue-dir") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--release-queue-dir requires a value");
+        process.exit(2);
+      }
+      args.releaseQueueDir = path.resolve(next);
     } else if (a === "--origin-plan") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
@@ -804,6 +847,52 @@ export function parseArgs(argv: string[]): Args {
       process.exit(2);
     }
     args.mode = "merge";
+  } else if (positional[0] === "release-daemon") {
+    const command = positional[1];
+    if (
+      command !== "install" &&
+      command !== "uninstall" &&
+      command !== "status" &&
+      command !== "run" &&
+      command !== "retry"
+    ) {
+      console.error(
+        "usage: gstack-build release-daemon <install|uninstall|status|run|retry> [flags]   (-h for help)",
+      );
+      process.exit(2);
+    }
+    args.mode = "release-daemon";
+    args.releaseDaemonCommand = command;
+    if (command === "run") {
+      if (positional.length !== 2) {
+        console.error(
+          "usage: gstack-build release-daemon run [--once|--watch] [--poll-ms 30000]",
+        );
+        process.exit(2);
+      }
+      args.releaseDaemonOnce = args.monitorOnce;
+      args.releaseDaemonWatch = args.monitorWatch;
+      args.releaseDaemonPollMs = args.monitorPollMs === 60_000 ? 30_000 : args.monitorPollMs;
+      if (!args.releaseDaemonOnce && !args.releaseDaemonWatch) {
+        args.releaseDaemonOnce = true;
+      }
+    } else if (command === "retry") {
+      if (positional.length !== 3) {
+        console.error("usage: gstack-build release-daemon retry <pr-number>");
+        process.exit(2);
+      }
+      const n = Number(positional[2]);
+      if (!Number.isInteger(n) || n < 1) {
+        console.error(`release-daemon retry expects a PR number, got: ${positional[2]}`);
+        process.exit(2);
+      }
+      args.releaseDaemonRetryPr = n;
+    } else if (positional.length !== 2) {
+      console.error(
+        `usage: gstack-build release-daemon ${command}`,
+      );
+      process.exit(2);
+    }
   } else if (positional[0] === "monitor") {
     if (positional.length !== 1) {
       console.error(
@@ -1512,11 +1601,13 @@ Usage:
   gstack-build <plan-file> [flags]
   gstack-build merge [flags]
   gstack-build monitor --manifest <path> [--once|--watch] [--poll-ms 60000] [--max-wall-ms <ms>]
+  gstack-build release-daemon <install|uninstall|status|run|retry> [flags]
 
 Modes:
   <plan-file>           Execute a living implementation plan.
   merge                 Review/fix/ship/land unmerged feat/* branches.
   monitor               Foreground monitor for /build manifest runs.
+  release-daemon        Process queued build-created PRs one at a time.
 
 Flags:
   --print-only         Parse and show phase table; exit.
@@ -1524,6 +1615,9 @@ Flags:
   --no-resume          Ignore existing state, start fresh.
   --no-gbrain          Skip gbrain mirror; local JSON only.
   --skip-ship          Skip per-feature /ship + /land-and-deploy steps.
+  --release-mode <m>   queued (default) runs /ship then queues PR for the
+                       release daemon. auto-land preserves legacy /ship +
+                       /land-and-deploy behavior.
   --skip-clean-check   Skip the pre-build working tree dirty check.
   --skip-sweep         Skip the unshipped feat/* branch sweep at startup.
   --skip-feature-review  Skip the per-feature meta-review pass.
@@ -1540,6 +1634,7 @@ Flags:
   --once               Evaluate monitor mode once and exit.
   --watch              Keep monitor mode in the foreground until a terminal event.
   --poll-ms N          Monitor watch poll interval. Default: 60000.
+                       For release-daemon run, default: 30000.
   --max-wall-ms N      Monitor watch re-entry timeout. Default: 3600000.
   --test-writer-model <m>          Default: ${DEFAULT_ROLE_CONFIGS.testWriter.model}.
   --primary-impl-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.primaryImpl.model}.
@@ -2108,6 +2203,7 @@ export function findNextFeatureIndex(
   for (let i = 0; i < features.length; i++) {
     const f = features[i];
     if (opts.skipOriginVerified && f.status === "origin_verified") continue;
+    if (f.status === "release_queued") continue;
     // Skip only when the feature has BOTH terminal status AND evidence the
     // ship→land→verify pipeline actually ran. completedAt is set exclusively
     // at the end of origin-plan verification (see "committed" assignment
@@ -5463,6 +5559,167 @@ async function runMonitorMode(args: Args): Promise<number> {
   }
 }
 
+function resolveDaemonProjectRoot(args: Args): string {
+  if (args.projectRoot) return path.resolve(args.projectRoot);
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  return top.status === 0 && top.stdout.trim()
+    ? path.resolve(top.stdout.trim())
+    : process.cwd();
+}
+
+export function releaseDaemonLaunchCommand(projectRoot: string): string[] {
+  return [
+    process.argv[0],
+    process.argv[1],
+    "release-daemon",
+    "run",
+    "--watch",
+    "--project-root",
+    projectRoot,
+  ];
+}
+
+export function renderLaunchdReleaseDaemonPlist(command: string[], projectRoot: string): string {
+  const esc = (part: string) => part.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.gstack.release-daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+${command.map((part) => `    <string>${esc(part)}</string>`).join("\n")}
+  </array>
+  <key>WorkingDirectory</key><string>${esc(projectRoot)}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${path.join(os.homedir(), ".gstack", "release-daemon.out.log")}</string>
+  <key>StandardErrorPath</key><string>${path.join(os.homedir(), ".gstack", "release-daemon.err.log")}</string>
+</dict>
+</plist>
+`;
+}
+
+function systemdQuote(part: string): string {
+  return part.replace(/\\/g, "\\\\").replace(/ /g, "\\ ");
+}
+
+export function renderSystemdReleaseDaemonService(command: string[], projectRoot: string): string {
+  return [
+    "[Unit]",
+    "Description=gstack release daemon",
+    "",
+    "[Service]",
+    `WorkingDirectory=${systemdQuote(projectRoot)}`,
+    `ExecStart=${command.map(systemdQuote).join(" ")}`,
+    "Restart=always",
+    "RestartSec=10",
+    "",
+    "[Install]",
+    "WantedBy=default.target",
+    "",
+  ].join("\n");
+}
+
+function installReleaseDaemon(args: Args): number {
+  const projectRoot = resolveDaemonProjectRoot(args);
+  const command = releaseDaemonLaunchCommand(projectRoot);
+  if (process.platform === "darwin") {
+    const dir = path.join(os.homedir(), "Library", "LaunchAgents");
+    const plist = path.join(dir, "com.gstack.release-daemon.plist");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(plist, renderLaunchdReleaseDaemonPlist(command, projectRoot));
+    console.log(`Installed launchd user agent: ${plist}`);
+    console.log(`Start with: launchctl load ${plist}`);
+    return 0;
+  }
+  if (process.platform === "linux") {
+    const dir = path.join(os.homedir(), ".config", "systemd", "user");
+    const service = path.join(dir, "gstack-release-daemon.service");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(service, renderSystemdReleaseDaemonService(command, projectRoot));
+    console.log(`Installed systemd user service: ${service}`);
+    console.log("Start with: systemctl --user enable --now gstack-release-daemon");
+    return 0;
+  }
+  console.error(
+    "release-daemon install supports macOS launchd and Linux systemd user services. Run `gstack-build release-daemon run --watch` manually on this platform.",
+  );
+  return 2;
+}
+
+function uninstallReleaseDaemon(): number {
+  const targets = [
+    path.join(os.homedir(), "Library", "LaunchAgents", "com.gstack.release-daemon.plist"),
+    path.join(os.homedir(), ".config", "systemd", "user", "gstack-release-daemon.service"),
+  ];
+  let removed = 0;
+  for (const target of targets) {
+    try {
+      fs.unlinkSync(target);
+      console.log(`Removed ${target}`);
+      removed++;
+    } catch (err: any) {
+      if (err.code !== "ENOENT") throw err;
+    }
+  }
+  if (removed === 0) console.log("No release daemon service files found.");
+  return 0;
+}
+
+function releaseDaemonStatus(args: Args): number {
+  const queued = readReleaseQueueRecords(args.releaseQueueDir);
+  console.log(`Release queue: ${args.releaseQueueDir}`);
+  if (queued.length === 0) {
+    console.log("No queued release records.");
+    return 0;
+  }
+  for (const item of queued) {
+    console.log(
+      `PR #${item.prNumber} ${item.status} ${item.baseBranch} <- ${item.featureBranch} v${item.version}${item.lastError ? ` (${item.lastError})` : ""}`,
+    );
+  }
+  return queued.some((item) => item.status === "blocked") ? 1 : 0;
+}
+
+async function runReleaseDaemonMode(args: Args): Promise<number> {
+  switch (args.releaseDaemonCommand) {
+    case "install":
+      return installReleaseDaemon(args);
+    case "uninstall":
+      return uninstallReleaseDaemon();
+    case "status":
+      return releaseDaemonStatus(args);
+    case "retry": {
+      const record = retryReleaseQueueRecord(
+        args.releaseDaemonRetryPr!,
+        args.releaseQueueDir,
+      );
+      if (!record) {
+        console.error(`No release queue record found for PR #${args.releaseDaemonRetryPr}`);
+        return 1;
+      }
+      console.log(`PR #${record.prNumber}: ${record.status}`);
+      return 0;
+    }
+    case "run":
+      return runReleaseDaemon({
+        queueDir: args.releaseQueueDir,
+        repoPath: args.projectRoot ?? process.cwd(),
+        once: args.releaseDaemonOnce,
+        watch: args.releaseDaemonWatch,
+        pollMs: args.releaseDaemonPollMs,
+        roles: args.roles,
+      });
+    default:
+      console.error("release-daemon command missing");
+      return 2;
+  }
+}
+
 async function main() {
   const rawArgv = process.argv.slice(2);
   const args = parseArgs(rawArgv);
@@ -5474,6 +5731,11 @@ async function main() {
 
   if (args.mode === "monitor") {
     const exitCode = await runMonitorMode(args);
+    process.exit(exitCode);
+  }
+
+  if (args.mode === "release-daemon") {
+    const exitCode = await runReleaseDaemonMode(args);
     process.exit(exitCode);
   }
 
@@ -6235,14 +6497,23 @@ async function main() {
               pauseState: "running",
             });
             console.log(
-              `\n▶ Feature ${featureState.number} complete. Running /ship + /land-and-deploy.`,
+              args.releaseMode === "queued"
+                ? `\n▶ Feature ${featureState.number} complete. Running /ship and queueing PR for release daemon.`
+                : `\n▶ Feature ${featureState.number} complete. Running /ship + /land-and-deploy.`,
             );
-            const result = await shipAndDeploy({
-              cwd,
-              slug: `${slug}-feature-${featureState.number}`,
-              shipRole: args.roles.ship,
-              landRole: args.roles.land,
-            });
+            const result =
+              args.releaseMode === "queued"
+                ? await shipOnly({
+                    cwd,
+                    slug: `${slug}-feature-${featureState.number}`,
+                    shipRole: args.roles.ship,
+                  })
+                : await shipAndDeploy({
+                    cwd,
+                    slug: `${slug}-feature-${featureState.number}`,
+                    shipRole: args.roles.ship,
+                    landRole: args.roles.land,
+                  });
             if (result.exitCode !== 0 || result.timedOut) {
               featureState.status = "paused";
               featureState.error = `ship failed (exit ${result.exitCode}, timed_out=${result.timedOut}); see ${result.logPath}`;
@@ -6250,6 +6521,62 @@ async function main() {
               console.error(`✗ ${featureState.error}`);
               exitCode = 1;
               break;
+            }
+            if (args.releaseMode === "queued") {
+              const outputText = [
+                result.stdout,
+                result.stderr,
+                result.outputFilePath && fs.existsSync(result.outputFilePath)
+                  ? fs.readFileSync(result.outputFilePath, "utf8")
+                  : "",
+              ].join("\n");
+              const parsedShip = parseShipOutput(outputText);
+              if (!parsedShip.prNumber) {
+                featureState.status = "paused";
+                featureState.error = `ship succeeded but PR number could not be parsed; see ${result.logPath}`;
+                saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+                console.error(`✗ ${featureState.error}`);
+                exitCode = 1;
+                break;
+              }
+              const prRefs = prBaseAndHead(cwd, parsedShip.prNumber);
+              const queuedAt = new Date().toISOString();
+              const repoIdentity = canonicalRepoIdentity({
+                cwd: args.baseProjectRoot ?? cwd,
+                repoPath: args.baseProjectRoot ?? cwd,
+              }).identity;
+              const record: ReleaseQueueRecord = {
+                runId: args.runId ?? state.slug,
+                repoPath: args.baseProjectRoot ?? cwd,
+                repoIdentity,
+                baseBranch: prRefs.baseBranch,
+                featureBranch: prRefs.featureBranch || branchForShip,
+                prNumber: parsedShip.prNumber,
+                prUrl: parsedShip.prUrl,
+                version: parsedShip.version ?? readVersion(cwd),
+                livingPlanPath: args.planFile,
+                ...(args.originPlan && { sourcePlanPath: args.originPlan }),
+                worktreePath: cwd,
+                queuedAt,
+                status: "queued",
+              };
+              const marked = markPrQueued(cwd, record);
+              if (!marked.ok) {
+                featureState.status = "paused";
+                featureState.error = `ship succeeded but PR #${record.prNumber} could not be marked queued: ${marked.error}`;
+                saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+                console.error(`✗ ${featureState.error}`);
+                exitCode = 1;
+                break;
+              }
+              writeReleaseQueueRecord(args.releaseQueueDir, record);
+              featureState.shippedAt = featureState.shippedAt ?? queuedAt;
+              featureState.status = "release_queued";
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              console.log(
+                `  ✓ queued PR #${record.prNumber} for release daemon (${record.baseBranch} <- ${record.featureBranch})`,
+              );
+              continue;
             }
             console.log(
               `  ✓ shipped (${(result.durationMs / 1000).toFixed(0)}s)`,
@@ -6397,7 +6724,7 @@ async function main() {
               "✗ final completion exam failed — phases or features remain incomplete",
             );
             exitCode = 1;
-          } else if (!args.skipShip && !args.dryRun) {
+          } else if (!args.skipShip && !args.dryRun && args.releaseMode === "auto-land") {
             const shippedLocalBranches = (state.features ?? [])
               .filter(
                 (feature) => feature.status === "committed" && feature.branch,

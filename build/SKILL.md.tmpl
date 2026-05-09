@@ -569,6 +569,10 @@ BUILD_RUN_MANIFEST=${BUILD_RUN_MANIFEST:-$BUILD_TMP_DIR/build-run-manifest.json}
 _FLAGS=""
 # Only set _FLAGS to user-requested CLI flags. Never add --skip-ship unless
 # the user explicitly asks to skip shipping and landing.
+# gstack-build defaults to --release-mode queued: each run creates/updates a PR,
+# marks it with gstack-release-queued, and leaves landing/deploy/canary to the
+# supervised release daemon. Use --release-mode auto-land only when the user
+# explicitly asks for legacy inline /ship + /land-and-deploy behavior.
 if [ ! -f "$BUILD_RUN_MANIFEST" ]; then
   echo "ERROR: build run manifest not found: $BUILD_RUN_MANIFEST" >&2
   exit 1
@@ -892,9 +896,15 @@ When in Reexamine Mode, spawn one configured `featureVerifier` subagent per feat
 
 For EACH feature, once all phases in that feature are complete (and have been individually reviewed by the CLI):
 
-1. **Spawn Ship/Land Roles** — only when `$_FLAGS` contains `--skip-ship`. When `--skip-ship` is absent, `gstack-build` already ran `/ship + /land-and-deploy` internally before reporting the feature complete. Re-spawning here would double-ship and create duplicate PRs. Check:
+1. **Spawn Ship/Land Roles** — only when `$_FLAGS` contains `--skip-ship`. When `--skip-ship` is absent, `gstack-build` already ran the configured release mode internally before reporting the feature complete. Default queued mode has already run `/ship`, created/updated the PR, and marked it for `gstack-build release-daemon run`; legacy `--release-mode auto-land` has already run `/ship + /land-and-deploy`. Re-spawning here would double-ship and create duplicate PRs. Check:
    - If `--skip-ship` IS in `$_FLAGS`: spawn the configured ship and land roles from `build/configure.cm`. Use the configured commands exactly. **CRITICAL: Do NOT substitute with raw `gh pr create` or `gh pr merge` commands. You MUST use the GStack skills.** Do NOT invoke the native `ship` tool. Wait for each sub-agent synchronously.
    - If `--skip-ship` is NOT in `$_FLAGS`: skip this step entirely. Proceed to step 3.2.
+
+Release daemon lifecycle:
+- Install once per supervised repo with `gstack-build release-daemon install` from that repo, or pass `--project-root <repo>`. The installed service pins both the command and working directory to that repo.
+- Inspect with `gstack-build release-daemon status`.
+- Run manually with `gstack-build release-daemon run --watch --poll-ms 30000`; add `--project-root <repo>` when launching outside the repo.
+- Retry a blocked PR with `gstack-build release-daemon retry <pr-number>`.
 
 2. **Feature Verification (configured subagent)**: After shipping, delegate origin-plan coverage check to a fresh configured `featureVerifier` subagent — the main agent never re-reads the full source plan.
 

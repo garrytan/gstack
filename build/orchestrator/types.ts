@@ -41,6 +41,7 @@ export type FeatureStatus =
   | "feature_redo_pending"
   | "feature_blocked"
   | "shipping"
+  | "release_queued"
   | "landed"
   | "origin_verifying"
   | "origin_verified"
