@@ -349,6 +349,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/agent-sdk-runner.ts',
     'scripts/resolvers/model-overlay.ts',
   ],
+
+  // game-design wizard — fires when SKILL.md changes
+  'game-design-happy-path':   ['game-design/**'],
+  'game-design-fights-branch':['game-design/**'],
+  'game-design-skip-path':    ['game-design/**'],
 };
 
 /**
@@ -526,6 +531,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Global discover
   'global-discover': 'gate',
+
+  // game-design wizard — gate for P1 functional, periodic for skip
+  'game-design-happy-path': 'gate',
+  'game-design-fights-branch': 'gate',
+  'game-design-skip-path': 'periodic',
 
   // CSO — gate for security guardrails, periodic for quality
   'cso-full-audit': 'gate',      // Hardcoded secrets detection
