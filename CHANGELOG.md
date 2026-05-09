@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.28.0.0] - 2026-05-09
+
+## **`/game-design` ships: 6-stage design wizard from 0 to a shareable prototype doc in one session.**
+
+You now have a skill that walks you through Justin Gary's "Think Like a Game Designer"
+framework — all six stages — and produces a structured markdown document with a fenced
+JSON block at the top. Feed that doc directly into the hunger-games-tcg portal's
+import button and the new-game wizard pre-populates from it.
+
+The six stages: Experience (golden feeling + story moment + tagline), Mechanics
+(primary action, interesting decision, hook), Core Loop (turn structure, state changes,
+player count, session length), Theme (theme description + mechanic-theme fit scoring),
+Rules (win condition, lose condition, rules summary), and Components (component list,
+open questions). Each stage accepts "skip" to write TBD and move on. Optional AI
+suggestions appear at Stage 2 (mechanics) and Stage 4 (theme). The session runs
+in one pass; re-runs detect a prior draft and offer to resume or restart.
+
+### The numbers that matter
+
+New skill, measured via three E2E test suites running `claude -p`:
+
+| Test suite | Scope | Max turns | Avg cost | Status |
+|---|---|---|---|---|
+| game-design-happy-path | all 6 stages, canned answers | 35 | ~$0.25 | gate |
+| game-design-fights-branch | mechanic_theme_fit="fights" + explanation | 30 | ~$0.20 | gate |
+| game-design-skip-path | all skipped → TBD fields | 25 | ~$0.15 | periodic |
+
+The happy-path test validates 18 required fields, field types (numeric player count,
+session length as integers), `mechanic_theme_fit` encoding ("reinforces" lowercase, no
+explanation field), arrays for components and open_questions. The fights-branch test
+asserts `mechanic_theme_fit_explanation` is present and non-empty when the designer
+marks the tension as intentional.
+
+### What this means for designers
+
+Run `/game-design` from any gstack session. Answer six sets of questions or skip any
+stage with "skip". At the end you get a draft file at
+`~/.gstack/projects/{slug}/game-design-{slug}-{datetime}.md` — paste its contents
+into the portal import button and the new-game wizard fills itself in. The JSON block
+also validates automatically after writing.
+
+### Itemized changes
+
+#### Added
+- `game-design/SKILL.md` — 488-line skill implementing the Justin Gary 6-stage wizard.
+  Schema: `slug`, `title`, `tagline`, `hook`, `golden_feeling`, `target_audience`,
+  `player_count_min/max`, `session_length_min/max`, `theme`, `core_mechanism`,
+  `mechanic_theme_fit` (reinforces/neutral/fights), `mechanic_theme_fit_explanation`
+  (only when fights/neutral + intentional), `core_loop`, `win_condition`,
+  `lose_condition` (optional), `components[]`, `rules_summary`, `open_questions[]`.
+- `test/skill-e2e-game-design.test.ts` — three E2E suites covering happy path,
+  fights-branch (mechanic_theme_fit_explanation), and skip-all path.
+- Two new static validation tests in `test/skill-validation.test.ts`:
+  game-design `$B` commands valid, game-design snapshot flags valid.
+- Touchfiles in `test/helpers/touchfiles.ts` wiring `game-design/**` to diff-based
+  test selection.
+
 ## [1.27.1.0] - 2026-05-06
 
 ## **Plan-mode reviews now refuse to dump findings without asking. Four gate-tier tests catch the regression on every PR.**
