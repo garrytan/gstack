@@ -754,7 +754,7 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 
 **Always use the code-driven CLI.** Route all plans — even single-phase — to `gstack-build`. The LLM-driven loop stalls between phases even on 2-phase builds, and context compaction mid-build causes the agent to silently forget rules. Your role: locate plan → synthesize living plan → confirm with user → launch CLI → monitor.
 
-**Never use `ScheduleWakeup` for `/build` monitoring.** A scheduled host wakeup is not durable build supervision: the build can fail, block, or need recovery while the chat stays asleep until the user manually asks for status. After every launch, relaunch, resume, or manual recovery, the next action must be the foreground `gstack-build monitor --manifest ... --watch --supervise` command. Do not say "checking back", "back in N minutes", or end the turn while a manifest-backed run is still active.
+**Never use `ScheduleWakeup` for `/build` monitoring.** A scheduled host wakeup is not durable build supervision: the build can fail, block, or need recovery while the chat stays asleep until the user manually asks for status. After every launch, relaunch, resume, or manual recovery, the next action must be the foreground `gstack-build monitor --manifest ... --watch --supervise` command. Do not say "checking back", "back in N minutes", or end the turn while a manifest-backed run is still active. Do not create ad-hoc watcher scripts or run `sleep ... && tail ...` polling loops; all waiting and stale-lock recovery belongs to the CLI monitor.
 
 **Execution Modes**:
 - **Normal Mode**: Locate the source plan, synthesize a new living plan, create the first feature branch, then launch the CLI. (Default)
@@ -1468,11 +1468,11 @@ _mark_manifest_claims_running
 
 Store the manifest path and run group id for the foreground monitor. Monitor reads manifest v2 and each run's PID/state files. There is no global `build-active-run-index`.
 
-After this launch block finishes, the next tool call must be Bash running Step M3. Do not summarize status, call `ScheduleWakeup`, schedule any host timer, or poll process state manually between Step M2 and Step M3.
+After this launch block finishes, the next tool call must be Bash running Step M3. Do not summarize status, call `ScheduleWakeup`, schedule any host timer, create a watcher script, or poll process state manually between Step M2 and Step M3.
 
 ### Step M3: Foreground CLI Monitor
 
-Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. Do not use `ScheduleWakeup`, delayed reminders, or "check back later" messages as a substitute for this command. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
+Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. Do not use `ScheduleWakeup`, delayed reminders, `sleep ... && tail ...`, ad-hoc watcher scripts, or "check back later" messages as a substitute for this command. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
 
 ```bash
 BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}

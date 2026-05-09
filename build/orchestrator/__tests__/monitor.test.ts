@@ -13,6 +13,7 @@ import {
   parseMonitorAgentJson,
   shouldInvokeMonitorAgent,
 } from "../monitor-supervisor";
+import { lockPath } from "../state";
 import type { BuildRunManifest, BuildState } from "../types";
 
 let tmpDir: string;
@@ -207,6 +208,68 @@ describe("evaluateMonitorOnce", () => {
     });
     expect(result.terminalEvent.event).toBe("RUN_RESUMED");
     expect(result.terminalEvent.resumeAttempted).toBe(true);
+  });
+
+  it("removes a dead state lock before auto-resuming a stale run", () => {
+    const data = manifest();
+    const run = data.runs[0];
+    writeState(run, {
+      lastUpdatedAt: "2026-05-08T00:00:00.000Z",
+    });
+    const staleLock = lockPath(run.stateSlug);
+    fs.writeFileSync(staleLock, "99999999\n2026-05-08T00:01:00.000Z\n");
+
+    const result = evaluateMonitorOnce({
+      manifestPath: writeManifest(data),
+      now: new Date("2026-05-08T00:04:00.000Z"),
+      pollMs: 60_000,
+      spawnResume: false,
+    });
+
+    expect(result.terminalEvent.event).toBe("RUN_RESUMED");
+    expect(fs.existsSync(staleLock)).toBe(false);
+  });
+
+  it("does not remove a live state lock for a stale run", () => {
+    const data = manifest();
+    const run = data.runs[0];
+    writeState(run, {
+      lastUpdatedAt: "2026-05-08T00:00:00.000Z",
+    });
+    const liveLock = lockPath(run.stateSlug);
+    fs.writeFileSync(liveLock, `${process.pid}\n2026-05-08T00:01:00.000Z\n`);
+
+    const result = evaluateMonitorOnce({
+      manifestPath: writeManifest(data),
+      now: new Date("2026-05-08T00:04:00.000Z"),
+      pollMs: 60_000,
+      spawnResume: false,
+    });
+
+    expect(result.terminalEvent.event).toBe("USER_ACTION_REQUIRED");
+    expect(result.terminalEvent.message).toContain("lock is still held by a live process");
+    expect(fs.existsSync(liveLock)).toBe(true);
+  });
+
+  it("requires user action when a stale run has an invalid state lock", () => {
+    const data = manifest();
+    const run = data.runs[0];
+    writeState(run, {
+      lastUpdatedAt: "2026-05-08T00:00:00.000Z",
+    });
+    const invalidLock = lockPath(run.stateSlug);
+    fs.writeFileSync(invalidLock, "not-a-pid\n2026-05-08T00:01:00.000Z\n");
+
+    const result = evaluateMonitorOnce({
+      manifestPath: writeManifest(data),
+      now: new Date("2026-05-08T00:04:00.000Z"),
+      pollMs: 60_000,
+      spawnResume: false,
+    });
+
+    expect(result.terminalEvent.event).toBe("USER_ACTION_REQUIRED");
+    expect(result.terminalEvent.message).toContain("cannot be safely verified");
+    expect(fs.existsSync(invalidLock)).toBe(true);
   });
 
   it("requires user action when stale run identity is ambiguous", () => {

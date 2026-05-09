@@ -21,12 +21,28 @@ import type { RoleConfigs } from './role-config';
 import { migrateLegacyModels } from './role-config';
 import { isGbrainAvailable, gbrainPut, gbrainGet } from './gbrain';
 import { isPhaseComplete } from './parser';
+import { isPidAlive } from './active-runs';
 
 export interface PersistOptions {
   /** Skip gbrain entirely. Useful for tests and the --no-gbrain CLI flag. */
   noGbrain?: boolean;
   /** Optional logger. Default: silent. Used to surface gbrain warnings. */
   log?: (msg: string) => void;
+}
+
+export type DeadLockCleanupStatus =
+  | 'missing'
+  | 'removed'
+  | 'live'
+  | 'invalid'
+  | 'unreadable'
+  | 'race_lost';
+
+export interface DeadLockCleanupResult {
+  status: DeadLockCleanupStatus;
+  lockFile: string;
+  pid?: number;
+  error?: string;
 }
 
 function stateDir(): string {
@@ -245,16 +261,7 @@ export function saveState(state: BuildState, opts: PersistOptions = {}): void {
   }
 }
 
-/**
- * Acquire a lock for this slug. Returns true on success, false if another
- * instance already holds the lock. Caller must call releaseLock on graceful
- * exit AND in any signal handler.
- *
- * Uses O_EXCL flag so two simultaneous calls can't both succeed.
- */
-export function acquireLock(slug: string): boolean {
-  ensureStateDir();
-  const p = lockPath(slug);
+function createLockFile(p: string): boolean {
   try {
     const fd = fs.openSync(p, 'wx');
     fs.writeSync(fd, `${process.pid}\n${new Date().toISOString()}\n`);
@@ -264,6 +271,58 @@ export function acquireLock(slug: string): boolean {
     if (err.code === 'EEXIST') return false;
     throw err;
   }
+}
+
+export function cleanupDeadLock(slug: string): DeadLockCleanupResult {
+  const p = lockPath(slug);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(p, 'utf8');
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      return { status: 'missing', lockFile: p };
+    }
+    return { status: 'unreadable', lockFile: p, error: err.message };
+  }
+
+  const firstLine = raw.split(/\r?\n/)[0]?.trim() ?? '';
+  if (!/^[1-9]\d*$/.test(firstLine)) {
+    return { status: 'invalid', lockFile: p };
+  }
+  const pid = Number(firstLine);
+  if (isPidAlive(pid)) {
+    return { status: 'live', lockFile: p, pid };
+  }
+
+  try {
+    fs.unlinkSync(p);
+    return { status: 'removed', lockFile: p, pid };
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      return { status: 'race_lost', lockFile: p, pid };
+    }
+    return { status: 'unreadable', lockFile: p, pid, error: err.message };
+  }
+}
+
+/**
+ * Acquire a lock for this slug. Returns true on success, false if another
+ * instance already holds the lock. Caller must call releaseLock on graceful
+ * exit AND in any signal handler.
+ *
+ * Uses O_EXCL flag so two simultaneous calls can't both succeed. If an
+ * existing lock points at a definitely dead PID, remove it and retry once.
+ */
+export function acquireLock(slug: string): boolean {
+  ensureStateDir();
+  const p = lockPath(slug);
+  if (createLockFile(p)) return true;
+
+  const cleanup = cleanupDeadLock(slug);
+  if (cleanup.status !== 'removed' && cleanup.status !== 'race_lost') {
+    return false;
+  }
+  return createLockFile(p);
 }
 
 export function releaseLock(slug: string): void {

@@ -40,6 +40,7 @@ import {
   acquireLock,
   releaseLock,
   readLockInfo,
+  lockPath,
   ensureLogDir,
   deriveStateSlug,
   logDir,
@@ -6018,7 +6019,8 @@ async function main() {
     console.error(
       `\nanother gstack-build instance is running for "${slug}".\n` +
         `lock info:\n${info}\n` +
-        `if stale, remove ~/.gstack/build-state/${slug}.lock and retry.`,
+        `lock was not auto-cleared because its owner appears live or cannot be safely verified.\n` +
+        `inspect ${lockPath(slug)} before removing it manually.`,
     );
     process.exit(3);
   }
@@ -7387,7 +7389,8 @@ async function runMergeMode(args: Args): Promise<number> {
     console.error(
       `\nanother gstack-build merge instance is running for "${slug}".\n` +
         `lock info:\n${info}\n` +
-        `if stale, remove ~/.gstack/build-state/${slug}.lock and retry.`,
+        `lock was not auto-cleared because its owner appears live or cannot be safely verified.\n` +
+        `inspect ${lockPath(slug)} before removing it manually.`,
     );
     return 3;
   }

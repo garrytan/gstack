@@ -8,7 +8,7 @@ import {
   readActiveRunRecords,
 } from "./active-runs";
 import { sourcePlanClaimPaths } from "./plan-claims";
-import { lockPath, statePath } from "./state";
+import { cleanupDeadLock, statePath } from "./state";
 import type {
   BuildRunManifest,
   BuildRunManifestRun,
@@ -297,26 +297,6 @@ function readContextSaveCount(filePath: string): number {
   }
 }
 
-function lockPid(slug: string): number | null {
-  try {
-    const firstLine = fs.readFileSync(lockPath(slug), "utf8").split(/\r?\n/)[0];
-    const pid = Number(firstLine.trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function removeDeadLock(slug: string): void {
-  const pid = lockPid(slug);
-  if (pid && isPidAlive(pid)) return;
-  try {
-    fs.unlinkSync(lockPath(slug));
-  } catch (err: any) {
-    if (err.code !== "ENOENT") throw err;
-  }
-}
-
 function readRunSnapshot(
   run: BuildRunManifestRun,
   pollMs: number,
@@ -577,16 +557,6 @@ export function evaluateMonitorOnce(
           );
           return { manifest, events: [...events, terminalEvent], terminalEvent };
         }
-        const lock = lockPid(snapshot.run.stateSlug);
-        if (lock && isPidAlive(lock)) {
-          const terminalEvent = runEvent(
-            "USER_ACTION_REQUIRED",
-            snapshot,
-            "run state is stale but its lock is still held by a live process",
-            now,
-          );
-          return { manifest, events: [...events, terminalEvent], terminalEvent };
-        }
         if (!snapshot.state || !snapshot.identityOk) {
           const terminalEvent = runEvent(
             "USER_ACTION_REQUIRED",
@@ -596,7 +566,28 @@ export function evaluateMonitorOnce(
           );
           return { manifest, events: [...events, terminalEvent], terminalEvent };
         }
-        removeDeadLock(snapshot.run.stateSlug);
+        const lockCleanup = cleanupDeadLock(snapshot.run.stateSlug);
+        if (lockCleanup.status === "live") {
+          const terminalEvent = runEvent(
+            "USER_ACTION_REQUIRED",
+            snapshot,
+            "run state is stale but its lock is still held by a live process",
+            now,
+          );
+          return { manifest, events: [...events, terminalEvent], terminalEvent };
+        }
+        if (
+          lockCleanup.status === "invalid" ||
+          lockCleanup.status === "unreadable"
+        ) {
+          const terminalEvent = runEvent(
+            "USER_ACTION_REQUIRED",
+            snapshot,
+            `run state is stale but its lock cannot be safely verified (${lockCleanup.status})`,
+            now,
+          );
+          return { manifest, events: [...events, terminalEvent], terminalEvent };
+        }
         let resumedPid = 0;
         if (opts.spawnResume !== false) {
           resumedPid = spawnResume(snapshot.run);

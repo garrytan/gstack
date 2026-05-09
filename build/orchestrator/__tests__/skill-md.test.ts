@@ -327,8 +327,11 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain("launchEnv");
     expect(content).toContain("Never use `ScheduleWakeup` for `/build` monitoring");
     expect(content).toContain("After every launch, relaunch, resume, or manual recovery");
+    expect(content).toContain("Do not create ad-hoc watcher scripts");
+    expect(content).toContain("sleep ... && tail ...");
     expect(content).toContain("the next tool call must be Bash running Step M3");
     expect(content).toContain("Do not summarize status, call `ScheduleWakeup`");
+    expect(content).toContain("create a watcher script");
     expect(content).toContain("polling is owned by the CLI monitor, not by host timer tools");
     expect(content).toContain("Do not use `ScheduleWakeup`, delayed reminders");
     expect(content).toContain("If the command blocks for a long time, that is expected behavior");

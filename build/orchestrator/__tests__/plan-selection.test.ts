@@ -224,8 +224,8 @@ describe("plan resolver", () => {
     expect(result.result).toBe("ambiguous");
     expect(result.commands).toEqual(["/build --resume run-a", "/build --resume run-b"]);
     expect(result.candidates.map((candidate) => candidate.monitorCommand)).toEqual([
-      `gstack-build monitor --manifest ${manifestPath} --watch`,
-      `gstack-build monitor --manifest ${manifestPath} --watch`,
+      `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
+      `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
     ]);
   });
 
@@ -372,7 +372,7 @@ describe("plan resolver", () => {
     expect(result.selected?.runId).toBe("run-b");
     expect(result.selected?.path).toBe(second);
     expect(result.selected?.monitorCommand).toBe(
-      `gstack-build monitor --manifest ${manifestPath} --watch`,
+      `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
     );
   });
 
@@ -489,9 +489,9 @@ describe("plan resolver", () => {
 
     expect(table).toContain("Result: selected");
     expect(table).toContain("/build --resume run-a");
-    expect(table).toContain(`gstack-build monitor --manifest ${manifestPath} --watch`);
+    expect(table).toContain(`gstack-build monitor --manifest ${manifestPath} --watch --supervise`);
     expect(result.selected?.monitorCommand).toBe(
-      `gstack-build monitor --manifest ${manifestPath} --watch`,
+      `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
     );
   });
 });

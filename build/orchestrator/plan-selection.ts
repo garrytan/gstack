@@ -213,7 +213,7 @@ function resumeCommand(candidate: {
 
 function monitorCommand(manifestPath: string | undefined): string | undefined {
   return manifestPath
-    ? `gstack-build monitor --manifest ${manifestPath} --watch`
+    ? `gstack-build monitor --manifest ${manifestPath} --watch --supervise`
     : undefined;
 }
 

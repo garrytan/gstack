@@ -245,28 +245,30 @@ describe("manual recovery flags", () => {
   });
 });
 
-describe("lock cleanup", () => {
-  it("releases the run lock if provisional active-run registration fails before state exists", () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-lock-cleanup-"));
-    spawnSync("git", ["init", "--initial-branch=main"], {
-      cwd: tmpDir,
-      stdio: "ignore",
-    });
-    spawnSync("git", ["config", "user.email", "test@example.com"], {
-      cwd: tmpDir,
-    });
-    spawnSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
-    fs.writeFileSync(path.join(tmpDir, "app.ts"), "export const ok = true;\n");
-    spawnSync("git", ["add", "."], { cwd: tmpDir });
-    spawnSync("git", ["commit", "-m", "initial"], {
-      cwd: tmpDir,
-      stdio: "ignore",
-    });
+function initGitRepo(prefix: string): string {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  spawnSync("git", ["init", "--initial-branch=main"], {
+    cwd: tmpDir,
+    stdio: "ignore",
+  });
+  spawnSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: tmpDir,
+  });
+  spawnSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
+  fs.writeFileSync(path.join(tmpDir, "app.ts"), "export const ok = true;\n");
+  spawnSync("git", ["add", "."], { cwd: tmpDir });
+  spawnSync("git", ["commit", "-m", "initial"], {
+    cwd: tmpDir,
+    stdio: "ignore",
+  });
+  return tmpDir;
+}
 
-    const plan = path.join(tmpDir, "plan.md");
-    fs.writeFileSync(
-      plan,
-      `# Plan
+function writeBuildPlan(repo: string, name = "plan.md"): string {
+  const plan = path.join(repo, name);
+  fs.writeFileSync(
+    plan,
+    `# Plan
 
 ## Features
 
@@ -279,7 +281,14 @@ describe("lock cleanup", () => {
 - [ ] **Implementation (Codex Sub-agent)**: Implement the fix.
 - [ ] **Review (Codex Review Sub-agent)**: Review the implementation.
 `,
-    );
+  );
+  return plan;
+}
+
+describe("lock cleanup", () => {
+  it("releases the run lock if provisional active-run registration fails before state exists", () => {
+    const repo = initGitRepo("gstack-lock-cleanup-");
+    const plan = writeBuildPlan(repo);
     const registryParentFile = path.join(tmpDir, "registry-parent");
     fs.writeFileSync(registryParentFile, "not a directory\n");
     const impossibleRegistry = path.join(registryParentFile, "active-runs");
@@ -290,7 +299,7 @@ describe("lock cleanup", () => {
         path.resolve("build/orchestrator/cli.ts"),
         plan,
         "--project-root",
-        tmpDir,
+        repo,
         "--dry-run",
         "--run-id",
         "lock-cleanup",
@@ -312,6 +321,80 @@ describe("lock cleanup", () => {
 
     expect(result.status).not.toBe(0);
     expect(fs.existsSync(lockPath("build-lock-cleanup"))).toBe(false);
+  });
+
+  it("normal build lock failure explains the lock was not safely verified", () => {
+    const repo = initGitRepo("gstack-lock-message-");
+    const plan = writeBuildPlan(repo);
+    fs.writeFileSync(
+      lockPath("build-live-message"),
+      `${process.pid}\n2026-05-08T00:00:00.000Z\n`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve("build/orchestrator/cli.ts"),
+        plan,
+        "--project-root",
+        repo,
+        "--dry-run",
+        "--run-id",
+        "live-message",
+        "--branch-prefix",
+        "live-message",
+        "--no-gbrain",
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GSTACK_BUILD_STATE_DIR: tmpStateDir!,
+        },
+      },
+    );
+
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("cannot be safely verified");
+    expect(result.stderr).toContain(lockPath("build-live-message"));
+    expect(result.stderr).not.toContain("if stale, remove");
+  });
+
+  it("merge lock failure explains the lock was not safely verified", () => {
+    const repo = initGitRepo("gstack-merge-lock-message-");
+    const slug = `build-merge-${path
+      .basename(repo)
+      .replace(/[^a-z0-9-]/gi, "-")
+      .toLowerCase()}`;
+    fs.writeFileSync(
+      lockPath(slug),
+      `${process.pid}\n2026-05-08T00:00:00.000Z\n`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve("build/orchestrator/cli.ts"),
+        "merge",
+        "--project-root",
+        repo,
+        "--skip-clean-check",
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GSTACK_BUILD_STATE_DIR: tmpStateDir!,
+        },
+      },
+    );
+
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("cannot be safely verified");
+    expect(result.stderr).toContain(lockPath(slug));
+    expect(result.stderr).not.toContain("if stale, remove");
   });
 });
 
