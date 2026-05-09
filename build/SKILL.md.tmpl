@@ -397,6 +397,10 @@ Skip this entire step if in Reexamine or Resume Mode.
    Living plan filenames MUST be unique and must never use date-only names. Use:
    `<repoSlug>-impl-plan-<sourceSlug>-<YYYYMMDD-HHMMSS>-<hash>.md`.
 
+   Manifest paths must be concrete absolute paths. For `worktreePath`, expand the
+   user's home directory to a real path like `/Users/alice`; do not emit literal
+   `~`, `$HOME`, or `${HOME}`.
+
    After writing all living plan files, write manifest v2 to $BUILD_TMP_DIR/build-run-manifest.json:
    {
      "manifestId": "<uuid-or-runGroupId>",
@@ -412,14 +416,14 @@ Skip this entire step if in Reexamine or Resume Mode.
          "sourcePlanPath": "<absolute source plan path>",
          "livingPlanPath": "<absolute living plan path>",
          "originPlanPath": "<absolute source plan path>",
-         "worktreePath": "~/.gstack/build-worktrees/<repoSlug>/<runId>",
-        "stateSlug": "build-<runId>",
-        "branchPrefix": "<repoSlug>-<runId>",
-        "pidFile": "<absolute $BUILD_TMP_DIR>/<runId>/gstack-build.pid",
-        "stdoutLog": "<absolute $BUILD_TMP_DIR>/<runId>/agent-stdout.log",
-        "launchCommand": ["<filled by Step M2 before launch>"],
-        "launchEnv": {}
-      }
+         "worktreePath": "<expanded home directory>/.gstack/build-worktrees/<repoSlug>/<runId>",
+         "stateSlug": "build-<runId>",
+         "branchPrefix": "<repoSlug>-<runId>",
+         "pidFile": "<absolute $BUILD_TMP_DIR>/<runId>/gstack-build.pid",
+         "stdoutLog": "<absolute $BUILD_TMP_DIR>/<runId>/agent-stdout.log",
+         "launchCommand": ["<filled by Step M2 before launch>"],
+         "launchEnv": {}
+       }
      ]
    }
 
@@ -612,6 +616,15 @@ for i in $(seq 0 $((_RUN_COUNT - 1))); do
   pidFile=$(jq -r ".runs[$i].pidFile" "$BUILD_RUN_MANIFEST")
   stdoutLog=$(jq -r ".runs[$i].stdoutLog" "$BUILD_RUN_MANIFEST")
 
+  case "$worktreePath" in
+    "~") worktreePath="$HOME" ;;
+    "~/"*) worktreePath="$HOME/${worktreePath:2}" ;;
+    "\$HOME") worktreePath="$HOME" ;;
+    "\$HOME/"*) worktreePath="$HOME/${worktreePath:6}" ;;
+    "\${HOME}") worktreePath="$HOME" ;;
+    "\${HOME}/"*) worktreePath="$HOME/${worktreePath:8}" ;;
+  esac
+
   if [ ! -d "$repoPath/.git" ]; then
     echo "ERROR: target repo is not a child git repo: $repoPath" >&2
     exit 1
@@ -669,9 +682,10 @@ for i in $(seq 0 $((_RUN_COUNT - 1))); do
   _LAUNCH_ENV_JSON=$(jq -cn '{}')
   _MANIFEST_TMP="$BUILD_RUN_MANIFEST.tmp.$runId"
   jq --arg runId "$runId" \
+    --arg worktreePath "$worktreePath" \
     --argjson launchCommand "$_LAUNCH_COMMAND_JSON" \
     --argjson launchEnv "$_LAUNCH_ENV_JSON" \
-    '(.runs[] | select(.runId == $runId)) += {launchCommand:$launchCommand,launchEnv:$launchEnv}' \
+    '(.runs[] | select(.runId == $runId)) += {worktreePath:$worktreePath,launchCommand:$launchCommand,launchEnv:$launchEnv}' \
     "$BUILD_RUN_MANIFEST" > "$_MANIFEST_TMP"
   mv "$_MANIFEST_TMP" "$BUILD_RUN_MANIFEST"
 

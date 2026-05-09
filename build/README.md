@@ -130,8 +130,9 @@ The skill's startup sequence:
 4. Select one or more target child repos. If a source plan spans multiple child
    repos, split it into one living plan per target repo and write
    `.llm-tmp/build-run-manifest.json`.
-5. Confirm the manifest with the user, then launch `gstack-build` sequentially:
-   one target repo, one living plan, one `--project-root` at a time.
+5. Confirm the manifest with the user, then launch all manifest runs in private
+   git worktrees. The foreground CLI monitor owns polling, stale-run recovery,
+   and completion reporting.
 
 After `gstack-build` reports each feature complete:
 

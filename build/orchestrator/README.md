@@ -2,16 +2,17 @@
 
 Standalone CLI that drives a feature-block implementation plan to completion. Replaces the LLM-orchestrated loop in the `/build` skill for long, multi-week plans where context compaction or "Standing by, let me know what's next" stalls become a problem.
 
-## When to use this vs `/build`
+## When to use `/build` vs direct CLI
 
-| Use the **`/build`** skill when... | Use the **`gstack-build`** CLI when... |
-|---|---|
-| The plan has 1-3 phases | The plan has 5+ phases or spans weeks |
-| You want Claude Code in the loop for visibility | You want to walk away and come back to a finished branch |
-| The phases need ad-hoc judgment | Each phase has a clear, scriptable description |
-| Quick iteration, exploratory work | Production builds, multi-day work |
+Use the **`/build` skill** for normal execution. It locates the source plan,
+synthesizes living plans, writes a manifest, confirms with the user, launches
+private worktrees, and runs the foreground monitor.
 
-The CLI delegates each per-phase task to fresh Claude, Gemini, or Codex subprocesses, so the LLM brain still does the work — it just doesn't drive the loop.
+Use the **`gstack-build` CLI directly** for recovery, smoke tests, dry runs,
+manual merge cleanup, or when you already have the exact living plan and
+`--project-root` path. The CLI delegates each per-phase task to fresh Claude,
+Gemini, Kimi, or Codex subprocesses, so the LLM brain still does the work; it
+just does not drive the durable loop.
 
 ## Install
 
@@ -53,7 +54,9 @@ product repo invocation remains supported by passing that product repo as
 `--project-root`.
 
 For source plans that touch multiple child repos, `/build` writes one living plan
-per target repo and invokes this CLI sequentially, one child repo at a time.
+per target repo and launches manifest runs in private git worktrees. The
+foreground monitor tracks every run, resumes stale dead runs when identity is
+proven, and preserves failed worktrees for debugging.
 Completed living plans are moved to the sibling `archived/` directory after a
 successful non-dry-run build. Pass `--origin-plan <file>` when the living plan
 was synthesized from a separate source plan in `*-gstack/inbox/`; after the final
@@ -343,7 +346,7 @@ sub-agents, review, ship, and land all run from `--project-root` or the current
 git worktree. When the current directory is a workspace root with child repos,
 the root repo is ignored by default and each child repo gets its own living plan.
 Direct CLI execution against that root repo requires `--allow-workspace-root`.
-Multi-repo plans run sequentially, one living plan per target repo. If
+Multi-repo plans run through a manifest, one living plan per target repo. If
 `gstack-build` is invoked with a plan inside the `*-gstack` repo and cannot infer
 the product repo, it exits with instructions to rerun with `--project-root
 <repo>`.

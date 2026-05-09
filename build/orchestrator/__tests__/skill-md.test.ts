@@ -279,7 +279,50 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain("_prepare_claim_for_selection");
     expect(content).toContain("unknown source-plan claim status");
     expect(content).not.toContain('[ -e "$_CLAIM_PATH" ] && continue');
+    expect(content).toContain(
+      "Manifest paths must be concrete absolute paths.",
+    );
+    expect(content).toContain('do not emit literal');
+    expect(content).toContain(
+      '"worktreePath": "<expanded home directory>/.gstack/build-worktrees/<repoSlug>/<runId>"',
+    );
+    expect(content).not.toContain(
+      '"worktreePath": "~/.gstack/build-worktrees/<repoSlug>/<runId>"',
+    );
+    expect(content).not.toContain(
+      '"worktreePath": "<absolute $HOME>/.gstack/build-worktrees/<repoSlug>/<runId>"',
+    );
+    expect(content).toContain('case "$worktreePath" in');
+    expect(content).toContain('"~/"*) worktreePath="$HOME/${worktreePath:2}"');
+    expect(content).toContain(
+      '"\\$HOME/"*) worktreePath="$HOME/${worktreePath:6}"',
+    );
+    expect(content).toContain(
+      '"\\${HOME}/"*) worktreePath="$HOME/${worktreePath:8}"',
+    );
+    expect(content).toContain('--arg worktreePath "$worktreePath"');
+    expect(content).toContain(
+      "{worktreePath:$worktreePath,launchCommand:$launchCommand,launchEnv:$launchEnv}",
+    );
   }
+});
+
+test("build READMEs describe manifest worktree launch instead of stale sequential launch", () => {
+  const files = [
+    path.resolve(import.meta.dir, "../../README.md"),
+    path.resolve(import.meta.dir, "../README.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/README.md"),
+    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/orchestrator/README.md"),
+  ];
+
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).not.toContain("launch `gstack-build` sequentially");
+    expect(content).not.toContain("invokes this CLI sequentially");
+    expect(content).not.toContain("Multi-repo plans run sequentially");
+  }
+  expect(fs.readFileSync(files[0], "utf-8")).toContain("launch all manifest runs");
+  expect(fs.readFileSync(files[1], "utf-8")).toContain("private git worktrees");
 });
 
 test("build skill docs describe manual recovery and submodule fail-closed boundaries", () => {
@@ -355,7 +398,7 @@ test("source-plan claim aggregation jq keeps the claim root while iterating run 
   expect(claim.runStatuses["run-a"].status).toBe("completed");
 });
 
-test("build docs describe workspace-root and sequential multi-repo runs", () => {
+test("build docs describe workspace-root and manifest multi-repo runs", () => {
   const files = [
     path.resolve(import.meta.dir, "../../README.md"),
     path.resolve(import.meta.dir, "../README.md"),
@@ -367,7 +410,7 @@ test("build docs describe workspace-root and sequential multi-repo runs", () => 
     expect(content).toContain("child repos");
     expect(content).toContain("root repo");
     expect(content).toContain("one living plan per target repo");
-    expect(content).toContain("sequential");
+    expect(content).toContain("manifest");
   }
 });
 

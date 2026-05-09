@@ -22,8 +22,8 @@ describe("role config defaults", () => {
     expect(path.basename(DEFAULT_BUILD_CONFIG_FILE)).toBe("configure.cm");
     expect(loaded.roles.primaryImpl.model).toBeTruthy();
     expect(loaded.limits.codexMaxIterations).toBe(5);
-    expect(loaded.timeoutsMs.gemini).toBe(1200000);
-    expect(loaded.timeoutsMs.kimi).toBe(1200000);
+    expect(loaded.timeoutsMs.gemini).toBe(900000);
+    expect(loaded.timeoutsMs.kimi).toBe(900000);
     expect(BUILD_DEFAULTS.roles.primaryImpl.model).toBe(
       loaded.roles.primaryImpl.model,
     );
@@ -115,7 +115,7 @@ describe("role config precedence helpers", () => {
         DEFAULT_ROLE_CONFIGS.featureReview,
       );
       expect(loaded.limits.featureReviewMaxIterations).toBe(3);
-      expect(loaded.timeoutsMs.kimi).toBe(1200000);
+      expect(loaded.timeoutsMs.kimi).toBe(900000);
       expect(loaded.timeoutsMs.featureReview).toBe(1200000);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
