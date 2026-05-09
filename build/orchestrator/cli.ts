@@ -85,6 +85,7 @@ import {
   flipTestSpecCheckbox,
   reconcilePhaseCheckboxes,
   appendFeaturePhases,
+  setCheckboxState,
 } from "./plan-mutator";
 import {
   buildFeatureReviewPrompt,
@@ -104,10 +105,15 @@ import type {
   BuildLaunchOptions,
   BuildState,
   Phase,
+  PhaseGate,
+  PhaseState,
+  PhaseStatus,
+  FeatureGate,
+  FeatureStatus,
+  PlanGateState,
   DualImplCandidateKey,
   DualImplState,
   DualImplTestResult,
-  SubAgentInvocation,
 } from "./types";
 import type { Feature, FeatureState } from "./types";
 import {
@@ -136,12 +142,248 @@ const REPO_BOUNDARY_INSTRUCTIONS = [
   "If the phase names a component or directory that does not exist in this repository, stop and report a plan mismatch in your output summary instead of substituting a similar-looking submodule or dependency.",
 ];
 
+/** Maps each PhaseGate to the expected marker substring in the plan file. */
+const PHASE_GATE_MARKERS: Record<PhaseGate, string> = {
+  test_spec: "**Test Specification",
+  verify_red: "**Verify Red",
+  implementation: "**Implementation",
+  green_tests: "**Green Tests",
+  review_qa: "**Review",
+};
+
+/** Maps each FeatureGate to the expected marker substring in the plan file. */
+const FEATURE_GATE_MARKERS: Record<FeatureGate, string> = {
+  feature_review: "**Feature Review",
+  ship_land: "**Ship & Land",
+  origin_verification: "**Origin Verification",
+};
+
+/**
+ * Set once after parsePlan. When non-null, every saveState call reconciles
+ * the plan file's visible gate checkboxes against the current runtime state.
+ */
+let visiblePlanProjection: {
+  planFile: string;
+  features: Feature[];
+  phases: Phase[];
+  skipShip?: boolean;
+  dryRun?: boolean;
+} | null = null;
+
 function saveState(
   state: BuildState,
   opts: { noGbrain?: boolean; log?: (msg: string) => void } = {},
 ): void {
   persistBuildState(state, opts);
   updateActiveRunFromState(state, "running");
+  if (visiblePlanProjection) {
+    try {
+      reconcileVisiblePlanState(
+        visiblePlanProjection.planFile,
+        visiblePlanProjection.features,
+        visiblePlanProjection.phases,
+        state,
+        {
+          skipShip: visiblePlanProjection.skipShip,
+          dryRun: visiblePlanProjection.dryRun,
+        },
+      );
+    } catch (err) {
+      (opts.log ?? console.warn)(
+        `[plan] warning: gate visibility reconcile failed: ${err}`,
+      );
+    }
+  }
+}
+
+/**
+ * Given a phase's runtime status, return the set of phase gates that should
+ * show as done (checked) in the plan file. Exhaustive over all PhaseStatus
+ * values so TypeScript enforces coverage when new statuses are added.
+ */
+export function phaseGateProjection(
+  status: PhaseStatus,
+): Partial<Record<PhaseGate, boolean>> {
+  switch (status) {
+    case "pending":
+    case "test_spec_running":
+      return {};
+    case "test_spec_done":
+      return { test_spec: true };
+    case "tests_red":
+      return { test_spec: true, verify_red: true };
+    case "gemini_running":
+    case "dual_impl_running":
+    case "dual_impl_done":
+    case "dual_tests_running":
+    case "dual_judge_pending":
+    case "dual_judge_running":
+    case "dual_winner_pending":
+      return { test_spec: true, verify_red: true };
+    case "impl_done":
+    case "test_fix_running":
+      return { test_spec: true, verify_red: true, implementation: true };
+    case "tests_green":
+      return {
+        test_spec: true,
+        verify_red: true,
+        implementation: true,
+        green_tests: true,
+      };
+    case "codex_running":
+    case "review_clean":
+    case "committed":
+      return {
+        test_spec: true,
+        verify_red: true,
+        implementation: true,
+        green_tests: true,
+        review_qa: true,
+      };
+    case "failed":
+      return {};
+    default: {
+      const _exhaustive: never = status;
+      void _exhaustive;
+      return {};
+    }
+  }
+}
+
+/**
+ * Given a feature's runtime status, return the set of feature gates that
+ * should show as done in the plan file.
+ */
+function featureGateProjection(
+  status: FeatureStatus,
+  opts: { skipShip?: boolean } = {},
+): Partial<Record<FeatureGate, boolean>> {
+  switch (status) {
+    case "pending":
+    case "running":
+    case "phases_done":
+    case "feature_review_pending":
+    case "feature_review_running":
+    case "feature_redo_pending":
+    case "feature_blocked":
+    case "paused":
+    case "failed":
+      return {};
+    case "shipping":
+      return { feature_review: true };
+    case "landed":
+    case "origin_verifying":
+      return opts.skipShip
+        ? { feature_review: true }
+        : { feature_review: true, ship_land: true };
+    case "origin_verified":
+    case "committed":
+      return opts.skipShip
+        ? { feature_review: true }
+        : {
+            feature_review: true,
+            ship_land: true,
+            origin_verification: true,
+          };
+    default: {
+      const _exhaustive: never = status;
+      void _exhaustive;
+      return {};
+    }
+  }
+}
+
+function reconcilePhaseVisibleGates(
+  planFile: string,
+  phase: Phase,
+  phaseState: PhaseState,
+): number {
+  if (!phase.gates) return 0;
+  const desired = phaseGateProjection(phaseState.status);
+  let changed = 0;
+  for (const [gateKey, gs] of Object.entries(phase.gates) as [
+    PhaseGate,
+    PlanGateState,
+  ][]) {
+    const shouldBeDone = !!desired[gateKey];
+    if (gs.done !== shouldBeDone) {
+      const result = setCheckboxState({
+        planFile,
+        lineNumber: gs.line,
+        checked: shouldBeDone,
+        expectedMarker: PHASE_GATE_MARKERS[gateKey],
+      });
+      if (result.flipped) {
+        gs.done = shouldBeDone;
+        changed++;
+      }
+    }
+  }
+  return changed;
+}
+
+function reconcileFeatureVisibleGates(
+  planFile: string,
+  feature: Feature,
+  featureState: FeatureState,
+  opts: { skipShip?: boolean } = {},
+): number {
+  if (!feature.gates) return 0;
+  const desired = featureGateProjection(featureState.status, opts);
+  let changed = 0;
+  for (const [gateKey, gs] of Object.entries(feature.gates) as [
+    FeatureGate,
+    PlanGateState,
+  ][]) {
+    const shouldBeDone = !!desired[gateKey];
+    if (gs.done !== shouldBeDone) {
+      const result = setCheckboxState({
+        planFile,
+        lineNumber: gs.line,
+        checked: shouldBeDone,
+        expectedMarker: FEATURE_GATE_MARKERS[gateKey],
+      });
+      if (result.flipped) {
+        gs.done = shouldBeDone;
+        changed++;
+      }
+    }
+  }
+  return changed;
+}
+
+/**
+ * Reconcile all visible plan gate checkboxes against the current runtime
+ * state. Called from saveState so the plan file stays in sync as the build
+ * progresses. No-ops when dryRun is true or when a gate's line can no longer
+ * be found (plan was edited externally — graceful degradation).
+ */
+export function reconcileVisiblePlanState(
+  planFile: string,
+  features: Feature[],
+  phases: Phase[],
+  state: BuildState,
+  opts: { skipShip?: boolean; dryRun?: boolean } = {},
+): void {
+  if (opts.dryRun) return;
+  let changed = 0;
+  for (const phase of phases) {
+    const phaseState = state.phases[phase.index];
+    if (!phaseState) continue;
+    changed += reconcilePhaseVisibleGates(planFile, phase, phaseState);
+  }
+  for (const feature of features) {
+    const featureState = (state.features ?? [])[feature.index];
+    if (!featureState) continue;
+    changed += reconcileFeatureVisibleGates(planFile, feature, featureState, {
+      skipShip: opts.skipShip,
+    });
+  }
+  if (changed > 0) {
+    console.log(
+      `[plan] updated ${changed} visible gate${changed === 1 ? "" : "s"}`,
+    );
+  }
 }
 
 function ownedBranchesFromState(state: BuildState): string[] {
@@ -379,7 +621,9 @@ export function parseArgs(argv: string[]): Args {
       }
       const safe = safeRelativePath(next);
       if (!safe) {
-        console.error(`--allow-submodule-recovery expects a relative path, got: ${next}`);
+        console.error(
+          `--allow-submodule-recovery expects a relative path, got: ${next}`,
+        );
         process.exit(2);
       }
       args.allowSubmoduleRecovery.push(safe);
@@ -390,8 +634,7 @@ export function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.markPhaseCommitted = next;
-    }
-    else if (a === "--manifest") {
+    } else if (a === "--manifest") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
         console.error("--manifest requires a value");
@@ -555,13 +798,17 @@ export function parseArgs(argv: string[]): Args {
       args.monitorPollMs !== 60_000 ||
       args.monitorMaxWallMs !== 3_600_000
     ) {
-      console.error("monitor flags require: gstack-build monitor --manifest <path>");
+      console.error(
+        "monitor flags require: gstack-build monitor --manifest <path>",
+      );
       process.exit(2);
     }
     args.mode = "merge";
   } else if (positional[0] === "monitor") {
     if (positional.length !== 1) {
-      console.error("usage: gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)");
+      console.error(
+        "usage: gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)",
+      );
       process.exit(2);
     }
     args.mode = "monitor";
@@ -570,7 +817,9 @@ export function parseArgs(argv: string[]): Args {
       process.exit(2);
     }
     if (args.monitorOnce && args.monitorWatch) {
-      console.error("gstack-build monitor accepts only one of --once or --watch");
+      console.error(
+        "gstack-build monitor accepts only one of --once or --watch",
+      );
       process.exit(2);
     }
     if (!args.monitorOnce && !args.monitorWatch) args.monitorOnce = true;
@@ -583,11 +832,15 @@ export function parseArgs(argv: string[]): Args {
       args.monitorPollMs !== 60_000 ||
       args.monitorMaxWallMs !== 3_600_000
     ) {
-      console.error("monitor flags require: gstack-build monitor --manifest <path>");
+      console.error(
+        "monitor flags require: gstack-build monitor --manifest <path>",
+      );
       process.exit(2);
     }
   } else {
-    console.error("usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)");
+    console.error(
+      "usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)",
+    );
     process.exit(2);
   }
   const providerErrors = validateRoleProviders(args);
@@ -705,13 +958,11 @@ export function validateProjectRootSelection(
 }
 
 function hasImmediateChildGitRepos(dir: string): boolean {
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .some((entry) => {
-      if (!entry.isDirectory()) return false;
-      if (entry.name === ".git") return false;
-      return fs.existsSync(path.join(dir, entry.name, ".git"));
-    });
+  return fs.readdirSync(dir, { withFileTypes: true }).some((entry) => {
+    if (!entry.isDirectory()) return false;
+    if (entry.name === ".git") return false;
+    return fs.existsSync(path.join(dir, entry.name, ".git"));
+  });
 }
 
 export interface GitSnapshot {
@@ -739,7 +990,9 @@ export function captureGitSnapshot(cwd: string): GitSnapshot {
     status:
       statusR.status === 0
         ? (statusR.stdout || "").split("\n").filter(Boolean).sort()
-        : [`<git error: ${(statusR.stderr || "").trim() || "git status failed"}>`],
+        : [
+            `<git error: ${(statusR.stderr || "").trim() || "git status failed"}>`,
+          ],
   };
 }
 
@@ -764,7 +1017,9 @@ export function validatePostAgentHygiene(opts: {
       );
     }
     if (content.trim() === "") {
-      errors.push(`${opts.label} left an empty output summary: ${opts.outputFilePath}`);
+      errors.push(
+        `${opts.label} left an empty output summary: ${opts.outputFilePath}`,
+      );
     }
   }
 
@@ -853,13 +1108,20 @@ function enclosingSubmodulePath(
   );
 }
 
-function submoduleHasDirtyWorktree(cwd: string, submodulePath: string): string | null {
+function submoduleHasDirtyWorktree(
+  cwd: string,
+  submodulePath: string,
+): string | null {
   const result = spawnSync("git", ["status", "--porcelain"], {
     cwd: path.join(cwd, submodulePath),
     encoding: "utf8",
   });
   if (result.status !== 0) {
-    return (result.stderr || result.stdout || "could not inspect submodule").trim();
+    return (
+      result.stderr ||
+      result.stdout ||
+      "could not inspect submodule"
+    ).trim();
   }
   const dirty = (result.stdout || "").trim();
   return dirty || null;
@@ -961,7 +1223,12 @@ export function recoverMutableAgentCommit(opts: {
   outputFilePath?: string;
   label: string;
   allowSubmoduleRecovery?: string[];
-}): { recovered: boolean; commit?: string; errors: string[]; cleaned: string[] } {
+}): {
+  recovered: boolean;
+  commit?: string;
+  errors: string[];
+  cleaned: string[];
+} {
   const after = captureGitSnapshot(opts.cwd);
   if (after.head !== opts.before.head) {
     return { recovered: false, errors: [], cleaned: [] };
@@ -989,14 +1256,18 @@ export function recoverMutableAgentCommit(opts: {
   }
 
   const dirtyPaths = new Set(after.status.map(parsePorcelainPath));
-  const files = extractSummaryFilePaths(summary, opts.cwd).filter((filePath) => {
-    const abs = path.join(opts.cwd, filePath);
-    return fs.existsSync(abs) || dirtyPaths.has(filePath);
-  });
+  const files = extractSummaryFilePaths(summary, opts.cwd).filter(
+    (filePath) => {
+      const abs = path.join(opts.cwd, filePath);
+      return fs.existsSync(abs) || dirtyPaths.has(filePath);
+    },
+  );
   if (files.length === 0) {
     return {
       recovered: false,
-      errors: [`${opts.label} recovery found no safe changed file paths in the output summary`],
+      errors: [
+        `${opts.label} recovery found no safe changed file paths in the output summary`,
+      ],
       cleaned: [],
     };
   }
@@ -1037,7 +1308,9 @@ export function recoverMutableAgentCommit(opts: {
     return { recovered: false, errors: submoduleErrors, cleaned: [] };
   }
 
-  const stagedPaths = [...new Set([...parentFiles, ...submodulesToStage])].sort();
+  const stagedPaths = [
+    ...new Set([...parentFiles, ...submodulesToStage]),
+  ].sort();
   if (stagedPaths.length === 0) {
     return {
       recovered: false,
@@ -1066,7 +1339,9 @@ export function recoverMutableAgentCommit(opts: {
   if (staged.status === 0) {
     return {
       recovered: false,
-      errors: [`${opts.label} recovery staged no changes from summary-listed files`],
+      errors: [
+        `${opts.label} recovery staged no changes from summary-listed files`,
+      ],
       cleaned: [],
     };
   }
@@ -1132,7 +1407,10 @@ function parentWorkspaceSnapshot(projectRoot: string): {
   return { workspaceRoot: parent, snapshot: captureGitSnapshot(parent) };
 }
 
-export function hygieneFailureResult(message: string, logPath: string): SubAgentResult {
+export function hygieneFailureResult(
+  message: string,
+  logPath: string,
+): SubAgentResult {
   const parsed = path.parse(logPath);
   const hygieneLogPath = path.join(
     parsed.dir,
@@ -1318,7 +1596,9 @@ function printHelp() {
   console.log(HELP_TEXT);
 }
 
-export function phaseTableStatus(phase: Phase): "committed" | "partial" | "pending" {
+export function phaseTableStatus(
+  phase: Phase,
+): "committed" | "partial" | "pending" {
   if (isPhaseComplete(phase)) return "committed";
   if (phase.implementationDone || phase.reviewDone) return "partial";
   return "pending";
@@ -1574,7 +1854,9 @@ function safeBranchPart(value: string): string {
 }
 
 function ownedFeatureBranch(state: BuildState, feature: FeatureState): string {
-  const prefix = safeBranchPart(state.launch?.branchPrefix ?? state.planBasename);
+  const prefix = safeBranchPart(
+    state.launch?.branchPrefix ?? state.planBasename,
+  );
   return `feat/${prefix}-${featureSlug(feature)}`;
 }
 
@@ -1611,14 +1893,18 @@ function ensureOriginRetryBranch(args: {
     return false;
   }
   const baseBranch = (
-    args.feature.branch ||
-    ownedFeatureBranch(args.state, args.feature)
+    args.feature.branch || ownedFeatureBranch(args.state, args.feature)
   ).replace(/-followup-\d+$/, "");
   const branch = `${baseBranch}-followup-${args.feature.originVerificationAttempts ?? 1}`;
-  const checkout = spawnSync("git", ["checkout", "-b", branch], {
-    cwd: args.cwd,
-    encoding: "utf8",
-  });
+  // Branch from origin/<base> (worktree-safe: syncLandedBase already fetched it).
+  const checkout = spawnSync(
+    "git",
+    ["checkout", "-b", branch, `origin/${synced.branch!}`],
+    {
+      cwd: args.cwd,
+      encoding: "utf8",
+    },
+  );
   if (checkout.status !== 0) {
     const existingBranch = spawnSync("git", ["checkout", branch], {
       cwd: args.cwd,
@@ -1714,30 +2000,27 @@ export function ensureFeatureBranch(args: {
     return true;
   }
 
-  const coBase = spawnSync("git", ["checkout", base], {
+  // Worktree-safe: fetch origin/<base> then branch from that tracking ref
+  // directly. Avoids `git checkout <base>` which fails when another worktree
+  // already has that branch checked out.
+  const fetchBase = spawnSync("git", ["fetch", "origin", base], {
     cwd: args.cwd,
     encoding: "utf8",
   });
-  if (coBase.status !== 0) {
+  if (fetchBase.status !== 0) {
     args.feature.status = "failed";
-    args.feature.error = `failed to checkout base branch before feature branch: ${coBase.stderr || coBase.stdout}`;
+    args.feature.error = `failed to fetch origin/${base} before feature branch: ${fetchBase.stderr || fetchBase.stdout}`;
     saveState(args.state, { noGbrain: args.noGbrain, log: console.warn });
     return false;
   }
-  const pull = spawnSync("git", ["pull", "--ff-only", "origin", base], {
-    cwd: args.cwd,
-    encoding: "utf8",
-  });
-  if (pull.status !== 0) {
-    args.feature.status = "failed";
-    args.feature.error = `failed to fast-forward base branch before feature branch: ${pull.stderr || pull.stdout}`;
-    saveState(args.state, { noGbrain: args.noGbrain, log: console.warn });
-    return false;
-  }
-  const checkout = spawnSync("git", ["checkout", "-b", branch], {
-    cwd: args.cwd,
-    encoding: "utf8",
-  });
+  const checkout = spawnSync(
+    "git",
+    ["checkout", "-b", branch, `origin/${base}`],
+    {
+      cwd: args.cwd,
+      encoding: "utf8",
+    },
+  );
   if (checkout.status !== 0) {
     const existingBranch = spawnSync("git", ["checkout", branch], {
       cwd: args.cwd,
@@ -1759,6 +2042,9 @@ export function syncLandedBase(cwd: string): {
   branch?: string;
   error?: string;
 } {
+  // Worktree-safe: only fetch, never checkout. A linked worktree cannot check
+  // out a branch that is already checked out in the primary clone. Fetching
+  // updates origin/<base> so callers can branch from that tracking ref directly.
   const fetch = spawnSync("git", ["fetch", "origin"], {
     cwd,
     encoding: "utf8",
@@ -1768,24 +2054,6 @@ export function syncLandedBase(cwd: string): {
   }
   const baseRef = detectRemoteBaseRef(cwd);
   const base = baseRef.replace(/^origin\//, "");
-  const checkout = spawnSync("git", ["checkout", base], {
-    cwd,
-    encoding: "utf8",
-  });
-  if (checkout.status !== 0) {
-    return {
-      ok: false,
-      branch: base,
-      error: checkout.stderr || checkout.stdout,
-    };
-  }
-  const pull = spawnSync("git", ["pull", "--ff-only", "origin", base], {
-    cwd,
-    encoding: "utf8",
-  });
-  if (pull.status !== 0) {
-    return { ok: false, branch: base, error: pull.stderr || pull.stdout };
-  }
   return { ok: true, branch: base };
 }
 
@@ -1888,23 +2156,42 @@ export function validateResumeLaunch(
   currentPlanFile: string,
 ): void {
   const mismatches: string[] = [];
-  if (resolveForCompare(state.planFile) !== resolveForCompare(currentPlanFile)) {
+  if (
+    resolveForCompare(state.planFile) !== resolveForCompare(currentPlanFile)
+  ) {
     mismatches.push(`planFile ${state.planFile} != ${currentPlanFile}`);
   }
   const stateLaunch = state.launch;
-  if (stateLaunch?.projectRoot && resolveForCompare(stateLaunch.projectRoot) !== resolveForCompare(launch.projectRoot)) {
-    mismatches.push(`projectRoot ${stateLaunch.projectRoot} != ${launch.projectRoot}`);
+  if (
+    stateLaunch?.projectRoot &&
+    resolveForCompare(stateLaunch.projectRoot) !==
+      resolveForCompare(launch.projectRoot)
+  ) {
+    mismatches.push(
+      `projectRoot ${stateLaunch.projectRoot} != ${launch.projectRoot}`,
+    );
   }
   if (stateLaunch?.baseProjectRoot || launch.baseProjectRoot) {
-    if (resolveForCompare(stateLaunch?.baseProjectRoot) !== resolveForCompare(launch.baseProjectRoot)) {
-      mismatches.push(`baseProjectRoot ${stateLaunch?.baseProjectRoot ?? "<unset>"} != ${launch.baseProjectRoot ?? "<unset>"}`);
+    if (
+      resolveForCompare(stateLaunch?.baseProjectRoot) !==
+      resolveForCompare(launch.baseProjectRoot)
+    ) {
+      mismatches.push(
+        `baseProjectRoot ${stateLaunch?.baseProjectRoot ?? "<unset>"} != ${launch.baseProjectRoot ?? "<unset>"}`,
+      );
     }
   }
   if ((stateLaunch?.runId ?? undefined) !== (launch.runId ?? undefined)) {
-    mismatches.push(`runId ${stateLaunch?.runId ?? "<unset>"} != ${launch.runId ?? "<unset>"}`);
+    mismatches.push(
+      `runId ${stateLaunch?.runId ?? "<unset>"} != ${launch.runId ?? "<unset>"}`,
+    );
   }
-  if ((stateLaunch?.stateSlug ?? state.slug) !== (launch.stateSlug ?? state.slug)) {
-    mismatches.push(`stateSlug ${stateLaunch?.stateSlug ?? state.slug} != ${launch.stateSlug ?? state.slug}`);
+  if (
+    (stateLaunch?.stateSlug ?? state.slug) !== (launch.stateSlug ?? state.slug)
+  ) {
+    mismatches.push(
+      `stateSlug ${stateLaunch?.stateSlug ?? state.slug} != ${launch.stateSlug ?? state.slug}`,
+    );
   }
   if (mismatches.length > 0) {
     throw new Error(
@@ -2906,7 +3193,9 @@ export function isLikelyCodexContextWindowFailure(
     /ran out of room in the model'?s context window/.test(text) ||
     /context[_ -]?length[_ -]?exceeded/.test(text) ||
     /maximum context length/.test(text) ||
-    /\bcontext window\b[\s\S]{0,120}\b(limit|overflow|exceeded|too large)\b/.test(text)
+    /\bcontext window\b[\s\S]{0,120}\b(limit|overflow|exceeded|too large)\b/.test(
+      text,
+    )
   );
 }
 
@@ -2985,7 +3274,8 @@ export function buildReviewGatePlan(roles: RoleConfigs): {
   } else {
     skipped.push({
       name: "reviewSecondary",
-      reason: "reviewSecondary command unset; skipped optional secondary review",
+      reason:
+        "reviewSecondary command unset; skipped optional secondary review",
     });
   }
 
@@ -3567,15 +3857,8 @@ async function runPhase(args: {
     snapshot: GitSnapshot | null;
   };
 }): Promise<"done" | "failed"> {
-  const {
-    state,
-    phase,
-    cwd,
-    noGbrain,
-    dryRun,
-    maxCodexIter,
-    parentWorkspace,
-  } = args;
+  const { state, phase, cwd, noGbrain, dryRun, maxCodexIter, parentWorkspace } =
+    args;
   let phaseState = state.phases[phase.index];
 
   while (true) {
@@ -4652,13 +4935,13 @@ async function runPhase(args: {
             const [primaryRun, secondaryRun] = await Promise.all(
               DUAL_CANDIDATES.map((candidate) =>
                 runTests({
-                testCmd,
+                  testCmd,
                   cwd: dual.candidates[candidate].worktreePath,
-                slug: state.slug,
-                phaseNumber: phase.number,
-                iteration: 1,
+                  slug: state.slug,
+                  phaseNumber: phase.number,
+                  iteration: 1,
                   logSuffix: `${candidate}-rerun`,
-              }),
+                }),
               ),
             );
             candidateTestResults = {
@@ -4719,13 +5002,13 @@ async function runPhase(args: {
           const [primaryRun, secondaryRun] = await Promise.all(
             DUAL_CANDIDATES.map((candidate) =>
               runTests({
-              testCmd,
+                testCmd,
                 cwd: dual.candidates[candidate].worktreePath,
-              slug: state.slug,
-              phaseNumber: phase.number,
-              iteration: 1,
+                slug: state.slug,
+                phaseNumber: phase.number,
+                iteration: 1,
                 logSuffix: candidate,
-            }),
+              }),
             ),
           );
           candidateTestResults = {
@@ -4837,10 +5120,9 @@ async function runPhase(args: {
           } catch {}
         }
         phaseState.status = "failed";
-        phaseState.error =
-          isLegacyDualImplState(dual)
-            ? legacyDualImplError()
-            : "RUN_JUDGE reached without dual test results — orchestrator bug";
+        phaseState.error = isLegacyDualImplState(dual)
+          ? legacyDualImplError()
+          : "RUN_JUDGE reached without dual test results — orchestrator bug";
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;
@@ -4898,7 +5180,8 @@ async function runPhase(args: {
                 provider:
                   dual.candidates.primary.provider ??
                   args.roles.primaryImpl.provider,
-                model: dual.candidates.primary.model ?? args.roles.primaryImpl.model,
+                model:
+                  dual.candidates.primary.model ?? args.roles.primaryImpl.model,
                 diff: diffs.primary,
                 testResult: dual.candidates.primary.testResult,
                 fixIterations: dual.candidates.primary.fixIterations,
@@ -5012,10 +5295,9 @@ async function runPhase(args: {
       const dual = phaseState.dualImpl;
       if (!dual || isLegacyDualImplState(dual)) {
         phaseState.status = "failed";
-        phaseState.error =
-          isLegacyDualImplState(dual)
-            ? legacyDualImplError()
-            : "APPLY_WINNER reached without dualImpl state — orchestrator bug";
+        phaseState.error = isLegacyDualImplState(dual)
+          ? legacyDualImplError()
+          : "APPLY_WINNER reached without dualImpl state — orchestrator bug";
         state.phases[phase.index] = phaseState;
         saveState(state, { noGbrain, log: console.warn });
         continue;
@@ -5163,11 +5445,7 @@ async function runMonitorMode(args: Args): Promise<number> {
       continue;
     }
     if (evaluation.terminalEvent.event !== "MONITOR_REENTER") {
-      if (
-        !evaluation.events.some(
-          (evt) => evt === evaluation.terminalEvent,
-        )
-      ) {
+      if (!evaluation.events.some((evt) => evt === evaluation.terminalEvent)) {
         printMonitorEvent(evaluation.terminalEvent);
       }
       return monitorExitCode(evaluation.terminalEvent.event);
@@ -5224,6 +5502,16 @@ async function main() {
   let { features, phases, warnings } = parsePlan(content, {
     dualImpl: args.dualImpl,
   });
+
+  // Activate gate visibility reconciliation. From this point on, every
+  // saveState call will sync plan-file checkboxes against runtime state.
+  visiblePlanProjection = {
+    planFile: args.planFile,
+    features,
+    phases,
+    skipShip: args.skipShip,
+    dryRun: args.dryRun,
+  };
 
   console.log(`Plan: ${args.planFile}`);
   console.log(`Features parsed: ${features.length}`);
@@ -5368,7 +5656,9 @@ async function main() {
         }
         if (!setupFailed) {
           state = loaded;
-          if (JSON.stringify(loaded.roleConfigs) !== JSON.stringify(args.roles)) {
+          if (
+            JSON.stringify(loaded.roleConfigs) !== JSON.stringify(args.roles)
+          ) {
             console.warn(
               "[warn] CLI/env role config differs from resumed state; using current config",
             );
@@ -5458,170 +5748,136 @@ async function main() {
       exitCode = 0;
       let rerunAutonomousLoop = false;
       do {
-      rerunAutonomousLoop = false;
-      while (true) {
-        const skipUnshippedVerified = args.skipShip || args.dryRun;
-        const featureIndex = findNextFeatureIndex(state, {
-          skipOriginVerified: skipUnshippedVerified,
-        });
-        if (featureIndex === -1) break;
-        const featureState = state.features![featureIndex];
-        const featureDef = features[featureIndex];
-        state.currentFeatureIndex = featureIndex;
-        // Detect manual JSON state patches that set status="committed"
-        // without going through the ship+land+verify pipeline (no
-        // completedAt). findNextFeatureIndex re-surfaces these features;
-        // surface a clear log line so the operator sees what happened.
-        if (featureState.status === "committed" && !featureState.completedAt) {
-          console.warn(
-            `⚠ Feature ${featureState.number} status is "committed" but completedAt is missing — ` +
-              `this indicates a manual JSON state patch that bypassed ship+land+verify. ` +
-              `Re-processing the feature so the pipeline runs.`,
-          );
-          // Reset to phases_done so resumeAtShip routes us into the ship
-          // path on the next checks (status==="phases_done" → resumeAtShip
-          // → falls through to the ship+land+verify block).
-          featureState.status = "phases_done";
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        }
-        const resumeAfterLanding =
-          featureState.status === "landed" ||
-          featureState.status === "origin_verifying";
-        const resumeAtShip =
-          featureState.status === "phases_done" ||
-          featureState.status === "shipping" ||
-          featureState.status === "origin_verified";
-        if (
-          featureState.status === "paused" ||
-          featureState.status === "failed"
-        ) {
-          const reason = featureState.error ? `: ${featureState.error}` : "";
-          console.error(
-            `✗ Feature ${featureState.number} is ${featureState.status}${reason}`,
-          );
+        rerunAutonomousLoop = false;
+        while (true) {
+          const skipUnshippedVerified = args.skipShip || args.dryRun;
+          const featureIndex = findNextFeatureIndex(state, {
+            skipOriginVerified: skipUnshippedVerified,
+          });
+          if (featureIndex === -1) break;
+          const featureState = state.features![featureIndex];
+          const featureDef = features[featureIndex];
+          state.currentFeatureIndex = featureIndex;
+          // Detect manual JSON state patches that set status="committed"
+          // without going through the ship+land+verify pipeline (no
+          // completedAt). findNextFeatureIndex re-surfaces these features;
+          // surface a clear log line so the operator sees what happened.
+          if (
+            featureState.status === "committed" &&
+            !featureState.completedAt
+          ) {
+            console.warn(
+              `⚠ Feature ${featureState.number} status is "committed" but completedAt is missing — ` +
+                `this indicates a manual JSON state patch that bypassed ship+land+verify. ` +
+                `Re-processing the feature so the pipeline runs.`,
+            );
+            // Reset to phases_done so resumeAtShip routes us into the ship
+            // path on the next checks (status==="phases_done" → resumeAtShip
+            // → falls through to the ship+land+verify block).
+            featureState.status = "phases_done";
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
+          const resumeAfterLanding =
+            featureState.status === "landed" ||
+            featureState.status === "origin_verifying";
+          const resumeAtShip =
+            featureState.status === "phases_done" ||
+            featureState.status === "shipping" ||
+            featureState.status === "origin_verified";
+          if (
+            featureState.status === "paused" ||
+            featureState.status === "failed"
+          ) {
+            const reason = featureState.error ? `: ${featureState.error}` : "";
+            console.error(
+              `✗ Feature ${featureState.number} is ${featureState.status}${reason}`,
+            );
+            logStatus({
+              slug,
+              featureNumber: featureState.number,
+              featureName: featureState.name,
+              step: "feature-start",
+              outcome: featureState.status,
+              pauseState: "paused",
+            });
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+            exitCode = 1;
+            break;
+          }
+          if (!resumeAfterLanding && !resumeAtShip) {
+            featureState.status = "running";
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
+
           logStatus({
             slug,
             featureNumber: featureState.number,
             featureName: featureState.name,
             step: "feature-start",
             outcome: featureState.status,
-            pauseState: "paused",
+            pauseState: "running",
           });
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-          exitCode = 1;
-          break;
-        }
-        if (!resumeAfterLanding && !resumeAtShip) {
-          featureState.status = "running";
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        }
 
-        logStatus({
-          slug,
-          featureNumber: featureState.number,
-          featureName: featureState.name,
-          step: "feature-start",
-          outcome: featureState.status,
-          pauseState: "running",
-        });
-
-        if (args.parallelPhases > 1 && !resumeAfterLanding && !resumeAtShip) {
-          const parallelPlan = buildParallelPhasePlan({
-            feature: featureDef,
-            phases,
-            maxParallel: args.parallelPhases,
-          });
-          if (parallelPlan.blockers.length > 0) {
-            console.error("\n✗ Parallel phase planner failed closed:");
-            for (const blocker of parallelPlan.blockers)
-              console.error(`  - ${blocker}`);
-            featureState.status = "paused";
-            featureState.error = `parallel planner blocked feature ${featureState.number}`;
-            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          if (args.parallelPhases > 1 && !resumeAfterLanding && !resumeAtShip) {
+            const parallelPlan = buildParallelPhasePlan({
+              feature: featureDef,
+              phases,
+              maxParallel: args.parallelPhases,
+            });
+            if (parallelPlan.blockers.length > 0) {
+              console.error("\n✗ Parallel phase planner failed closed:");
+              for (const blocker of parallelPlan.blockers)
+                console.error(`  - ${blocker}`);
+              featureState.status = "paused";
+              featureState.error = `parallel planner blocked feature ${featureState.number}`;
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              logStatus({
+                slug,
+                featureNumber: featureState.number,
+                featureName: featureState.name,
+                step: "parallel-phase-planner",
+                outcome: "blocked",
+                pauseState: "paused",
+              });
+              exitCode = 1;
+              break;
+            }
+            printParallelPhasePlan(parallelPlan, phases);
             logStatus({
               slug,
               featureNumber: featureState.number,
               featureName: featureState.name,
               step: "parallel-phase-planner",
-              outcome: "blocked",
-              pauseState: "paused",
+              outcome: `${parallelPlan.batches.length} batches`,
+              pauseState: "running",
             });
+          }
+
+          if (
+            !resumeAfterLanding &&
+            !ensureFeatureBranch({
+              cwd,
+              state,
+              feature: featureState,
+              dryRun: args.dryRun,
+              noGbrain: args.noGbrain,
+            })
+          ) {
+            console.error(
+              `✗ Feature ${featureState.number} failed: ${featureState.error}`,
+            );
             exitCode = 1;
             break;
           }
-          printParallelPhasePlan(parallelPlan, phases);
-          logStatus({
-            slug,
-            featureNumber: featureState.number,
-            featureName: featureState.name,
-            step: "parallel-phase-planner",
-            outcome: `${parallelPlan.batches.length} batches`,
-            pauseState: "running",
-          });
-        }
 
-        if (
-          !resumeAfterLanding &&
-          !ensureFeatureBranch({
-            cwd,
-            state,
-            feature: featureState,
-            dryRun: args.dryRun,
-            noGbrain: args.noGbrain,
-          })
-        ) {
-          console.error(
-            `✗ Feature ${featureState.number} failed: ${featureState.error}`,
-          );
-          exitCode = 1;
-          break;
-        }
-
-        if (!resumeAfterLanding && !resumeAtShip) {
-          while (true) {
-            const idx = featureState.phaseIndexes.find(
-              (phaseIdx) => state.phases[phaseIdx]?.status !== "committed",
-            );
-            if (idx == null) break;
-            const phase = phases[idx];
-            summarizePhase(phase.number, phase.name, "▶");
-            logStatus({
-              slug,
-              featureNumber: featureState.number,
-              featureName: featureState.name,
-              phaseNumber: phase.number,
-              phaseName: phase.name,
-              step: "phase-loop",
-              outcome: "running",
-              pauseState: "running",
-            });
-
-            const nextPhaseIndex = featureState.phaseIndexes.find(
-              (phaseIdx) =>
-                phaseIdx > idx &&
-                state.phases[phaseIdx]?.status !== "committed",
-            );
-            const outcome = await runPhase({
-              state,
-              phase,
-              nextPhaseName:
-                nextPhaseIndex != null
-                  ? (phases[nextPhaseIndex]?.name ?? null)
-                  : null,
-              cwd,
-              noGbrain: args.noGbrain,
-              dryRun: args.dryRun,
-              maxCodexIter: args.maxCodexIter,
-              testCmd: args.testCmd,
-              roles: args.roles,
-              allowSubmoduleRecovery: args.allowSubmoduleRecovery,
-              parentWorkspace,
-            });
-
-            if (outcome === "failed") {
-              featureState.status = "paused";
-              featureState.error = state.failureReason;
-              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          if (!resumeAfterLanding && !resumeAtShip) {
+            while (true) {
+              const idx = featureState.phaseIndexes.find(
+                (phaseIdx) => state.phases[phaseIdx]?.status !== "committed",
+              );
+              if (idx == null) break;
+              const phase = phases[idx];
+              summarizePhase(phase.number, phase.name, "▶");
               logStatus({
                 slug,
                 featureNumber: featureState.number,
@@ -5629,604 +5885,656 @@ async function main() {
                 phaseNumber: phase.number,
                 phaseName: phase.name,
                 step: "phase-loop",
-                outcome: "failed",
-                pauseState: "paused",
+                outcome: "running",
+                pauseState: "running",
               });
-              exitCode = 1;
-              break;
+
+              const nextPhaseIndex = featureState.phaseIndexes.find(
+                (phaseIdx) =>
+                  phaseIdx > idx &&
+                  state.phases[phaseIdx]?.status !== "committed",
+              );
+              const outcome = await runPhase({
+                state,
+                phase,
+                nextPhaseName:
+                  nextPhaseIndex != null
+                    ? (phases[nextPhaseIndex]?.name ?? null)
+                    : null,
+                cwd,
+                noGbrain: args.noGbrain,
+                dryRun: args.dryRun,
+                maxCodexIter: args.maxCodexIter,
+                testCmd: args.testCmd,
+                roles: args.roles,
+                allowSubmoduleRecovery: args.allowSubmoduleRecovery,
+                parentWorkspace,
+              });
+
+              if (outcome === "failed") {
+                featureState.status = "paused";
+                featureState.error = state.failureReason;
+                saveState(state, {
+                  noGbrain: args.noGbrain,
+                  log: console.warn,
+                });
+                logStatus({
+                  slug,
+                  featureNumber: featureState.number,
+                  featureName: featureState.name,
+                  phaseNumber: phase.number,
+                  phaseName: phase.name,
+                  step: "phase-loop",
+                  outcome: "failed",
+                  pauseState: "paused",
+                });
+                exitCode = 1;
+                break;
+              }
             }
           }
-        }
-        if (exitCode !== 0) break;
+          if (exitCode !== 0) break;
 
-        if (!resumeAfterLanding) {
-          featureState.status = "phases_done";
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        }
+          if (!resumeAfterLanding) {
+            featureState.status = "phases_done";
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
 
-        // F3: feature-level meta-review. Fires AFTER phases_done and
-        // BEFORE shipping. The reviewer sees the full feature: plan body,
-        // every phase's status + iteration counts, all commits + net diff.
-        // Verdict actions:
-        //   FEATURE_PASS         → fall through to ship (current behavior)
-        //   FEATURE_NEEDS_PHASES → plan was appended; re-parse, mark feature
-        //                          running, continue outer loop to process
-        //                          the new phases
-        //   FEATURE_REDO         → named phases reset in-place; mark feature
-        //                          running, continue outer loop
-        //   UNCLEAR / cap-hit    → F3 ships hard-fail; F4 adds the user
-        //                          stdin prompt for a 4th cycle
-        const skipReview =
-          args.skipFeatureReview ||
-          resumeAfterLanding ||
-          featureReviewAlreadySatisfied(featureState) ||
-          shouldSkipFeatureReview(featureDef, state.phases);
-        if (
-          !args.skipFeatureReview &&
-          !resumeAfterLanding &&
-          featureReviewAlreadySatisfied(featureState)
-        ) {
-          logStatus({
-            slug,
-            featureNumber: featureState.number,
-            featureName: featureState.name,
-            step: "feature-review",
-            outcome: "already passed",
-            pauseState: "running",
-          });
-        }
-        if (!skipReview) {
-          const cap = args.featureReviewMaxIter;
-          let reviewLoopAction: "ship" | "phases_added" | "redo" | "blocked" =
-            "ship";
-          while (true) {
-            const currentIter =
-              (featureState.featureReview?.iterations ?? 0) + 1;
-            if (currentIter > cap) {
-              // F4: ask the user once whether to allow another cycle.
-              // userApprovedExtension is set after a yes so we don't
-              // re-prompt every additional cycle in a long extension.
-              // Non-TTY runs (CI, piped stdin) decline by default.
-              const alreadyExtended =
-                featureState.featureReview?.userApprovedExtension === true;
-              let allow = false;
-              if (!alreadyExtended) {
-                allow = await promptYesNo({
-                  question: `\nFeature ${featureState.number} (${featureState.name}) hit the feature-review cap (${cap} cycles). Run another review cycle?`,
-                  defaultValue: false,
-                });
-              }
-              if (allow) {
-                if (!featureState.featureReview) {
-                  featureState.featureReview = {
-                    iterations: 0,
-                    outputLogPaths: [],
-                    outputFilePaths: [],
-                  };
+          // F3: feature-level meta-review. Fires AFTER phases_done and
+          // BEFORE shipping. The reviewer sees the full feature: plan body,
+          // every phase's status + iteration counts, all commits + net diff.
+          // Verdict actions:
+          //   FEATURE_PASS         → fall through to ship (current behavior)
+          //   FEATURE_NEEDS_PHASES → plan was appended; re-parse, mark feature
+          //                          running, continue outer loop to process
+          //                          the new phases
+          //   FEATURE_REDO         → named phases reset in-place; mark feature
+          //                          running, continue outer loop
+          //   UNCLEAR / cap-hit    → F3 ships hard-fail; F4 adds the user
+          //                          stdin prompt for a 4th cycle
+          const skipReview =
+            args.skipFeatureReview ||
+            resumeAfterLanding ||
+            featureReviewAlreadySatisfied(featureState) ||
+            shouldSkipFeatureReview(featureDef, state.phases);
+          if (
+            !args.skipFeatureReview &&
+            !resumeAfterLanding &&
+            featureReviewAlreadySatisfied(featureState)
+          ) {
+            logStatus({
+              slug,
+              featureNumber: featureState.number,
+              featureName: featureState.name,
+              step: "feature-review",
+              outcome: "already passed",
+              pauseState: "running",
+            });
+          }
+          if (!skipReview) {
+            const cap = args.featureReviewMaxIter;
+            let reviewLoopAction: "ship" | "phases_added" | "redo" | "blocked" =
+              "ship";
+            while (true) {
+              const currentIter =
+                (featureState.featureReview?.iterations ?? 0) + 1;
+              if (currentIter > cap) {
+                // F4: ask the user once whether to allow another cycle.
+                // userApprovedExtension is set after a yes so we don't
+                // re-prompt every additional cycle in a long extension.
+                // Non-TTY runs (CI, piped stdin) decline by default.
+                const alreadyExtended =
+                  featureState.featureReview?.userApprovedExtension === true;
+                let allow = false;
+                if (!alreadyExtended) {
+                  allow = await promptYesNo({
+                    question: `\nFeature ${featureState.number} (${featureState.name}) hit the feature-review cap (${cap} cycles). Run another review cycle?`,
+                    defaultValue: false,
+                  });
                 }
-                featureState.featureReview.userApprovedExtension = true;
+                if (allow) {
+                  if (!featureState.featureReview) {
+                    featureState.featureReview = {
+                      iterations: 0,
+                      outputLogPaths: [],
+                      outputFilePaths: [],
+                    };
+                  }
+                  featureState.featureReview.userApprovedExtension = true;
+                  saveState(state, {
+                    noGbrain: args.noGbrain,
+                    log: console.warn,
+                  });
+                  console.log(
+                    `  → User approved one extra review cycle (no further prompt this run).`,
+                  );
+                  // Fall through into the loop body for one more cycle.
+                } else {
+                  const timeoutWithPassEvidence =
+                    featureState.featureReview?.timeoutEvidence === "pass";
+                  const reason = timeoutWithPassEvidence
+                    ? alreadyExtended
+                      ? `feature-review tooling timeout with pass evidence after ${cap} + 1 (user-approved) cycles`
+                      : `feature-review tooling timeout with pass evidence after ${cap} cycles (user declined extension)`
+                    : alreadyExtended
+                      ? `feature-review failed to converge after ${cap} + 1 (user-approved) cycles`
+                      : `feature-review failed to converge after ${cap} cycles (user declined extension)`;
+                  console.error(
+                    `\n✗ Feature ${featureState.number}: ${reason}`,
+                  );
+                  const lastReportPath =
+                    featureState.featureReview?.outputFilePaths?.at(-1);
+                  const md = buildBlockedFeatureMd({
+                    feature: featureDef,
+                    featureState,
+                    reason,
+                    lastReportPath,
+                    planFile: args.planFile,
+                    timestamp: new Date().toISOString(),
+                  });
+                  const blockedPath = path.join(
+                    cwd,
+                    `BLOCKED-feature-${featureState.number}.md`,
+                  );
+                  try {
+                    fs.writeFileSync(blockedPath, md);
+                    console.error(`  → Wrote ${blockedPath}`);
+                  } catch (err) {
+                    console.error(
+                      `  → Failed to write ${blockedPath}: ${(err as Error).message}`,
+                    );
+                  }
+                  ensureBlockedGitignored(cwd);
+                  featureState.status = "feature_blocked";
+                  featureState.error = featureState.error ?? reason;
+                  saveState(state, {
+                    noGbrain: args.noGbrain,
+                    log: console.warn,
+                  });
+                  reviewLoopAction = "blocked";
+                  break;
+                }
+              }
+              featureState.status = "feature_review_running";
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              console.log(
+                `\n▶ Feature ${featureState.number} review cycle ${currentIter}/${cap} (${roleLabel(args.roles.featureReview)})`,
+              );
+              const out = await runFeatureReviewIteration({
+                state,
+                feature: featureDef,
+                featureState,
+                phases,
+                cwd,
+                planFile: args.planFile,
+                iteration: currentIter,
+                roles: args.roles,
+                dryRun: args.dryRun,
+                noGbrain: args.noGbrain,
+                parentWorkspace,
+              });
+              console.log(
+                `  feature-review verdict: ${out.verdict.verdict} (${out.outputFilePath})`,
+              );
+              if (out.action === "ship") {
+                reviewLoopAction = "ship";
+                break;
+              }
+              if (out.action === "phases_added") {
+                // Re-parse the plan and merge new phases into BuildState.
+                // The plan-mutator appended under the current feature; new
+                // entries land at the end of the phases array (parser walks
+                // top-to-bottom).
+                const newContent = fs.readFileSync(args.planFile, "utf8");
+                const reparsed = parsePlan(newContent, {
+                  dualImpl: args.dualImpl,
+                });
+                const oldPhaseCount = phases.length;
+                const addedPhases = reparsed.phases.slice(oldPhaseCount);
+                for (const np of addedPhases) {
+                  state.phases.push({
+                    index: np.index,
+                    number: np.number,
+                    name: np.name,
+                    status: "pending",
+                  });
+                  if (np.featureIndex === featureDef.index) {
+                    featureState.phaseIndexes.push(np.index);
+                  }
+                }
+                // Replace outer-scope arrays so subsequent iterations see
+                // the new shape.
+                phases = reparsed.phases;
+                features = reparsed.features;
+                // Keep the gate visibility projection in sync with the new arrays.
+                if (visiblePlanProjection) {
+                  visiblePlanProjection.phases = phases;
+                  visiblePlanProjection.features = features;
+                }
+                // The featureDef reference is now stale (parser produced a
+                // new object). Rebind so the next loop iteration sees the
+                // up-to-date phaseIndexes array.
+                const refreshed = features[featureDef.index];
+                if (refreshed) {
+                  // featureDef is `const` in scope above so we cannot
+                  // reassign — but its mutable fields (phaseIndexes) are
+                  // updated in-place above. Verify identity holds.
+                  if (
+                    refreshed.phaseIndexes.length <
+                    featureState.phaseIndexes.length
+                  ) {
+                    // Defensive: parser may strip phases that lost their
+                    // checkboxes. Trust the parser's view in that case.
+                    featureState.phaseIndexes = [...refreshed.phaseIndexes];
+                  }
+                }
+                featureState.status = "running";
                 saveState(state, {
                   noGbrain: args.noGbrain,
                   log: console.warn,
                 });
                 console.log(
-                  `  → User approved one extra review cycle (no further prompt this run).`,
+                  `  → Plan amended with ${addedPhases.length} new phase(s); re-running phase loop.`,
                 );
-                // Fall through into the loop body for one more cycle.
-              } else {
-                const timeoutWithPassEvidence =
-                  featureState.featureReview?.timeoutEvidence === "pass";
-                const reason = timeoutWithPassEvidence
-                  ? alreadyExtended
-                    ? `feature-review tooling timeout with pass evidence after ${cap} + 1 (user-approved) cycles`
-                    : `feature-review tooling timeout with pass evidence after ${cap} cycles (user declined extension)`
-                  : alreadyExtended
-                    ? `feature-review failed to converge after ${cap} + 1 (user-approved) cycles`
-                    : `feature-review failed to converge after ${cap} cycles (user declined extension)`;
-                console.error(`\n✗ Feature ${featureState.number}: ${reason}`);
-                const lastReportPath =
-                  featureState.featureReview?.outputFilePaths?.at(-1);
-                const md = buildBlockedFeatureMd({
-                  feature: featureDef,
-                  featureState,
-                  reason,
-                  lastReportPath,
-                  planFile: args.planFile,
-                  timestamp: new Date().toISOString(),
-                });
-                const blockedPath = path.join(
-                  cwd,
-                  `BLOCKED-feature-${featureState.number}.md`,
-                );
-                try {
-                  fs.writeFileSync(blockedPath, md);
-                  console.error(`  → Wrote ${blockedPath}`);
-                } catch (err) {
-                  console.error(
-                    `  → Failed to write ${blockedPath}: ${(err as Error).message}`,
-                  );
-                }
-                ensureBlockedGitignored(cwd);
-                featureState.status = "feature_blocked";
-                featureState.error = featureState.error ?? reason;
+                reviewLoopAction = "phases_added";
+                break;
+              }
+              if (out.action === "redo") {
+                const resetCount = out.verdict.phasesToRedo.length;
+                featureState.status = "running";
                 saveState(state, {
                   noGbrain: args.noGbrain,
                   log: console.warn,
                 });
-                reviewLoopAction = "blocked";
+                console.log(
+                  `  → ${resetCount} phase(s) reset for redo; re-running phase loop.`,
+                );
+                reviewLoopAction = "redo";
                 break;
               }
-            }
-            featureState.status = "feature_review_running";
-            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-            console.log(
-              `\n▶ Feature ${featureState.number} review cycle ${currentIter}/${cap} (${roleLabel(args.roles.featureReview)})`,
-            );
-            const out = await runFeatureReviewIteration({
-              state,
-              feature: featureDef,
-              featureState,
-              phases,
-              cwd,
-              planFile: args.planFile,
-              iteration: currentIter,
-              roles: args.roles,
-              dryRun: args.dryRun,
-              noGbrain: args.noGbrain,
-              parentWorkspace,
-            });
-            console.log(
-              `  feature-review verdict: ${out.verdict.verdict} (${out.outputFilePath})`,
-            );
-            if (out.action === "ship") {
-              reviewLoopAction = "ship";
-              break;
-            }
-            if (out.action === "phases_added") {
-              // Re-parse the plan and merge new phases into BuildState.
-              // The plan-mutator appended under the current feature; new
-              // entries land at the end of the phases array (parser walks
-              // top-to-bottom).
-              const newContent = fs.readFileSync(args.planFile, "utf8");
-              const reparsed = parsePlan(newContent, {
-                dualImpl: args.dualImpl,
-              });
-              const oldPhaseCount = phases.length;
-              const addedPhases = reparsed.phases.slice(oldPhaseCount);
-              for (const np of addedPhases) {
-                state.phases.push({
-                  index: np.index,
-                  number: np.number,
-                  name: np.name,
-                  status: "pending",
-                });
-                if (np.featureIndex === featureDef.index) {
-                  featureState.phaseIndexes.push(np.index);
-                }
-              }
-              // Replace outer-scope arrays so subsequent iterations see
-              // the new shape.
-              phases = reparsed.phases;
-              features = reparsed.features;
-              // The featureDef reference is now stale (parser produced a
-              // new object). Rebind so the next loop iteration sees the
-              // up-to-date phaseIndexes array.
-              const refreshed = features[featureDef.index];
-              if (refreshed) {
-                // featureDef is `const` in scope above so we cannot
-                // reassign — but its mutable fields (phaseIndexes) are
-                // updated in-place above. Verify identity holds.
-                if (
-                  refreshed.phaseIndexes.length <
-                  featureState.phaseIndexes.length
-                ) {
-                  // Defensive: parser may strip phases that lost their
-                  // checkboxes. Trust the parser's view in that case.
-                  featureState.phaseIndexes = [...refreshed.phaseIndexes];
-                }
-              }
-              featureState.status = "running";
-              saveState(state, {
-                noGbrain: args.noGbrain,
-                log: console.warn,
-              });
-              console.log(
-                `  → Plan amended with ${addedPhases.length} new phase(s); re-running phase loop.`,
+              // out.action === "unclear" — verdict was malformed or
+              // missing. Loop back and try again until the cap. The
+              // iteration counter has already been incremented by
+              // runFeatureReviewIteration, so the cap check at the
+              // top of the next pass will fire.
+              console.warn(
+                `  → review verdict was UNCLEAR; retrying (cycle ${currentIter + 1}/${cap})`,
               );
-              reviewLoopAction = "phases_added";
+            }
+
+            if (reviewLoopAction === "blocked") {
+              exitCode = 1;
               break;
             }
-            if (out.action === "redo") {
-              const resetCount = out.verdict.phasesToRedo.length;
-              featureState.status = "running";
-              saveState(state, {
-                noGbrain: args.noGbrain,
-                log: console.warn,
-              });
-              console.log(
-                `  → ${resetCount} phase(s) reset for redo; re-running phase loop.`,
+            if (
+              reviewLoopAction === "phases_added" ||
+              reviewLoopAction === "redo"
+            ) {
+              // Bail out of the rest of this feature's iteration (skip
+              // ship). The outer `while (true)` will pick up the same
+              // feature (now status=running) on the next pass and re-run
+              // the phase loop.
+              continue;
+            }
+            // reviewLoopAction === "ship" → restore status and fall
+            // through to the existing ship logic below.
+            featureState.status = "phases_done";
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
+
+          if (!resumeAfterLanding && !args.skipShip && !args.dryRun) {
+            const branchForShip = featureState.branch || state.branch;
+            const baseSync = syncFeatureBranchWithBase(cwd, branchForShip);
+            if (!baseSync.ok) {
+              featureState.status = "paused";
+              featureState.baseSyncConflictFiles = baseSync.conflicts ?? [];
+              featureState.error =
+                baseSync.conflicts && baseSync.conflicts.length > 0
+                  ? `base sync conflict before ship against ${baseSync.baseRef}: ${baseSync.conflicts.join(", ")}`
+                  : `base sync failed before ship against ${baseSync.baseRef ?? "origin base"}: ${baseSync.error}`;
+              const conflictLogPath = path.join(
+                logDir(slug),
+                `feature-${featureState.number}-base-sync-conflict.md`,
               );
-              reviewLoopAction = "redo";
+              fs.writeFileSync(
+                conflictLogPath,
+                [
+                  `# Base Sync Conflict — Feature ${featureState.number}`,
+                  "",
+                  `Branch: ${branchForShip}`,
+                  `Base: ${baseSync.baseRef ?? "unknown"}`,
+                  "",
+                  "## Conflicts",
+                  "",
+                  ...(featureState.baseSyncConflictFiles.length > 0
+                    ? featureState.baseSyncConflictFiles.map(
+                        (file) => `- ${file}`,
+                      )
+                    : ["- <none reported>"]),
+                  "",
+                  "## Error",
+                  "",
+                  "```",
+                  baseSync.error ?? "",
+                  "```",
+                ].join("\n"),
+              );
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              console.error(`✗ ${featureState.error}; see ${conflictLogPath}`);
+              exitCode = 1;
               break;
             }
-            // out.action === "unclear" — verdict was malformed or
-            // missing. Loop back and try again until the cap. The
-            // iteration counter has already been incremented by
-            // runFeatureReviewIteration, so the cap check at the
-            // top of the next pass will fire.
-            console.warn(
-              `  → review verdict was UNCLEAR; retrying (cycle ${currentIter + 1}/${cap})`,
-            );
-          }
-
-          if (reviewLoopAction === "blocked") {
-            exitCode = 1;
-            break;
-          }
-          if (
-            reviewLoopAction === "phases_added" ||
-            reviewLoopAction === "redo"
-          ) {
-            // Bail out of the rest of this feature's iteration (skip
-            // ship). The outer `while (true)` will pick up the same
-            // feature (now status=running) on the next pass and re-run
-            // the phase loop.
-            continue;
-          }
-          // reviewLoopAction === "ship" → restore status and fall
-          // through to the existing ship logic below.
-          featureState.status = "phases_done";
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        }
-
-        if (!resumeAfterLanding && !args.skipShip && !args.dryRun) {
-          const branchForShip = featureState.branch || state.branch;
-          const baseSync = syncFeatureBranchWithBase(cwd, branchForShip);
-          if (!baseSync.ok) {
-            featureState.status = "paused";
-            featureState.baseSyncConflictFiles = baseSync.conflicts ?? [];
-            featureState.error =
-              baseSync.conflicts && baseSync.conflicts.length > 0
-                ? `base sync conflict before ship against ${baseSync.baseRef}: ${baseSync.conflicts.join(", ")}`
-                : `base sync failed before ship against ${baseSync.baseRef ?? "origin base"}: ${baseSync.error}`;
-            const conflictLogPath = path.join(
-              logDir(slug),
-              `feature-${featureState.number}-base-sync-conflict.md`,
-            );
-            fs.writeFileSync(
-              conflictLogPath,
-              [
-                `# Base Sync Conflict — Feature ${featureState.number}`,
-                "",
-                `Branch: ${branchForShip}`,
-                `Base: ${baseSync.baseRef ?? "unknown"}`,
-                "",
-                "## Conflicts",
-                "",
-                ...(featureState.baseSyncConflictFiles.length > 0
-                  ? featureState.baseSyncConflictFiles.map((file) => `- ${file}`)
-                  : ["- <none reported>"]),
-                "",
-                "## Error",
-                "",
-                "```",
-                baseSync.error ?? "",
-                "```",
-              ].join("\n"),
-            );
+            featureState.status = "shipping";
             saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-            console.error(`✗ ${featureState.error}; see ${conflictLogPath}`);
-            exitCode = 1;
-            break;
-          }
-          featureState.status = "shipping";
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-          logStatus({
-            slug,
-            featureNumber: featureState.number,
-            featureName: featureState.name,
-            step: "ship-and-land",
-            outcome: "running",
-            pauseState: "running",
-          });
-          console.log(
-            `\n▶ Feature ${featureState.number} complete. Running /ship + /land-and-deploy.`,
-          );
-          const result = await shipAndDeploy({
-            cwd,
-            slug: `${slug}-feature-${featureState.number}`,
-            shipRole: args.roles.ship,
-            landRole: args.roles.land,
-          });
-          if (result.exitCode !== 0 || result.timedOut) {
-            featureState.status = "paused";
-            featureState.error = `ship failed (exit ${result.exitCode}, timed_out=${result.timedOut}); see ${result.logPath}`;
-            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-            console.error(`✗ ${featureState.error}`);
-            exitCode = 1;
-            break;
-          }
-          console.log(
-            `  ✓ shipped (${(result.durationMs / 1000).toFixed(0)}s)`,
-          );
-          const { ok, report } = await verifyPostShip(
-            cwd,
-            featureState.branch || state.branch,
-          );
-          const w = 58;
-          console.log(`\n${"╔" + "═".repeat(w - 2) + "╗"}`);
-          console.log(
-            `║  FEATURE COMPLETE — EXECUTION REPORT${" ".repeat(w - 38)}║`,
-          );
-          console.log(`${"╠" + "═".repeat(w - 2) + "╣"}`);
-          for (const l of report) console.log(`║${l.padEnd(w - 2)}║`);
-          console.log(`${"╚" + "═".repeat(w - 2) + "╝"}\n`);
-          if (!ok) {
-            console.error("✗ post-ship guardrail failed — see issues above");
-            featureState.status = "paused";
-            featureState.error = "post-ship guardrail failed";
-            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-            exitCode = 1;
-            break;
-          }
-          featureState.shippedAt =
-            featureState.shippedAt ?? new Date().toISOString();
-          featureState.status = "landed";
-          featureState.landedAt = featureState.shippedAt;
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        }
-
-        if (
-          (resumeAfterLanding || featureState.status === "landed") &&
-          !args.skipShip &&
-          !args.dryRun
-        ) {
-          const synced = syncLandedBase(cwd);
-          if (!synced.ok) {
-            featureState.status = "paused";
-            featureState.error = `failed to sync landed base ${synced.branch}: ${synced.error}`;
-            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-            console.error(`✗ ${featureState.error}`);
-            exitCode = 1;
-            break;
-          }
-          logStatus({
-            slug,
-            featureNumber: featureState.number,
-            featureName: featureState.name,
-            step: "sync-landed-base",
-            outcome: synced.branch,
-            pauseState: "running",
-          });
-        }
-
-        featureState.status = "origin_verifying";
-        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        logStatus({
-          slug,
-          featureNumber: featureState.number,
-          featureName: featureState.name,
-          step: "origin-plan-verification",
-          outcome: "running",
-          pauseState: "running",
-        });
-        const originCheck = await verifyOriginPlanFeature({
-          state,
-          feature: featureState,
-          featureDef,
-          originPlanFile: args.originPlan,
-          cwd,
-          roles: args.roles,
-          dryRun: args.dryRun || args.skipShip,
-        });
-        featureState.issueLogPath = originCheck.issueLogPath;
-        if (!originCheck.ok) {
-          const restart = restartFeatureFromOriginIssues({
-            state,
-            feature: featureState,
-            issueLogPath: originCheck.issueLogPath,
-            reason: originCheck.reason,
-          });
-          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-          logStatus({
-            slug,
-            featureNumber: featureState.number,
-            featureName: featureState.name,
-            phaseNumber:
-              restart.phaseIndex != null
-                ? state.phases[restart.phaseIndex]?.number
-                : undefined,
-            phaseName:
-              restart.phaseIndex != null
-                ? state.phases[restart.phaseIndex]?.name
-                : undefined,
-            step: "origin-plan-verification",
-            outcome: restart.restarted
-              ? "issues recorded; restarting feature loop"
-              : "paused",
-            issueCount: restart.restarted ? 1 : undefined,
-            pauseState: restart.restarted ? "running" : "paused",
-          });
-          if (restart.restarted) {
-            console.error(
-              `✗ Feature ${featureState.number} origin verification failed: ${originCheck.reason}. Restarting feature loop.`,
-            );
-            continue;
-          }
-          console.error(
-            `✗ Feature ${featureState.number} origin verification failed: ${restart.reason}`,
-          );
-          exitCode = 1;
-          break;
-        }
-
-        featureState.status =
-          args.skipShip || args.dryRun ? "origin_verified" : "committed";
-        featureState.originVerificationAttempts = 0;
-        featureState.error = undefined;
-        featureState.originVerifiedAt = new Date().toISOString();
-        if (featureState.status === "committed") {
-          featureState.completedAt = featureState.originVerifiedAt;
-        }
-        state.currentFeatureIndex = findNextFeatureIndex(state, {
-          skipOriginVerified: skipUnshippedVerified,
-        });
-        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        logStatus({
-          slug,
-          featureNumber: featureState.number,
-          featureName: featureState.name,
-          step: "feature-complete",
-          outcome: featureState.status,
-          pauseState: "running",
-        });
-      }
-
-      if (exitCode === 0) {
-        const remainingPhase = findNextPhaseIndex(state.phases);
-        const remainingFeature = findNextFeatureIndex(state, {
-          skipOriginVerified: args.skipShip || args.dryRun,
-        });
-        if (remainingPhase !== -1 || remainingFeature !== -1) {
-          console.error(
-            "✗ final completion exam failed — phases or features remain incomplete",
-          );
-          exitCode = 1;
-        } else if (!args.skipShip && !args.dryRun) {
-          const shippedLocalBranches = (state.features ?? [])
-            .filter(
-              (feature) => feature.status === "committed" && feature.branch,
-            )
-            .map((feature) => feature.branch!);
-          const branchExam = verifyNoUnmergedFeatBranches(
-            cwd,
-            currentBranch(cwd),
-            {
-              ignoreLocalBranches: shippedLocalBranches,
-              ignoreBranches: activeOwnedBranches(args.activeRunRegistry, {
-                projectRoot: cwd,
-                baseProjectRoot: args.baseProjectRoot,
-              }),
-            },
-          );
-          if (!branchExam.ok) {
-            const detail =
-              branchExam.branches.length > 0
-                ? `unmerged feat/* branches remain: ${branchExam.branches.join(", ")}`
-                : (branchExam.error ?? "could not verify feature branches");
-            console.error(`✗ final completion exam failed — ${detail}`);
-            exitCode = 1;
-          }
-          if (exitCode === 0 && args.originPlan) {
-            const finalFeature: FeatureState = {
-              index: -1,
-              number: "final",
-              name: "Full origin plan",
-              phaseIndexes: state.phases.map((phase) => phase.index),
-              status: "origin_verifying",
-            };
             logStatus({
               slug,
-              featureNumber: finalFeature.number,
-              featureName: finalFeature.name,
-              step: "final-origin-plan-verification",
+              featureNumber: featureState.number,
+              featureName: featureState.name,
+              step: "ship-and-land",
               outcome: "running",
               pauseState: "running",
             });
-            const finalOriginCheck = await verifyOriginPlanFeature({
+            console.log(
+              `\n▶ Feature ${featureState.number} complete. Running /ship + /land-and-deploy.`,
+            );
+            const result = await shipAndDeploy({
+              cwd,
+              slug: `${slug}-feature-${featureState.number}`,
+              shipRole: args.roles.ship,
+              landRole: args.roles.land,
+            });
+            if (result.exitCode !== 0 || result.timedOut) {
+              featureState.status = "paused";
+              featureState.error = `ship failed (exit ${result.exitCode}, timed_out=${result.timedOut}); see ${result.logPath}`;
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              console.error(`✗ ${featureState.error}`);
+              exitCode = 1;
+              break;
+            }
+            console.log(
+              `  ✓ shipped (${(result.durationMs / 1000).toFixed(0)}s)`,
+            );
+            const { ok, report } = await verifyPostShip(
+              cwd,
+              featureState.branch || state.branch,
+            );
+            const w = 58;
+            console.log(`\n${"╔" + "═".repeat(w - 2) + "╗"}`);
+            console.log(
+              `║  FEATURE COMPLETE — EXECUTION REPORT${" ".repeat(w - 38)}║`,
+            );
+            console.log(`${"╠" + "═".repeat(w - 2) + "╣"}`);
+            for (const l of report) console.log(`║${l.padEnd(w - 2)}║`);
+            console.log(`${"╚" + "═".repeat(w - 2) + "╝"}\n`);
+            if (!ok) {
+              console.error("✗ post-ship guardrail failed — see issues above");
+              featureState.status = "paused";
+              featureState.error = "post-ship guardrail failed";
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              exitCode = 1;
+              break;
+            }
+            featureState.shippedAt =
+              featureState.shippedAt ?? new Date().toISOString();
+            featureState.status = "landed";
+            featureState.landedAt = featureState.shippedAt;
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
+
+          if (
+            (resumeAfterLanding || featureState.status === "landed") &&
+            !args.skipShip &&
+            !args.dryRun
+          ) {
+            const synced = syncLandedBase(cwd);
+            if (!synced.ok) {
+              featureState.status = "paused";
+              featureState.error = `failed to sync landed base ${synced.branch}: ${synced.error}`;
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              console.error(`✗ ${featureState.error}`);
+              exitCode = 1;
+              break;
+            }
+            logStatus({
+              slug,
+              featureNumber: featureState.number,
+              featureName: featureState.name,
+              step: "sync-landed-base",
+              outcome: synced.branch,
+              pauseState: "running",
+            });
+          }
+
+          featureState.status = "origin_verifying";
+          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          logStatus({
+            slug,
+            featureNumber: featureState.number,
+            featureName: featureState.name,
+            step: "origin-plan-verification",
+            outcome: "running",
+            pauseState: "running",
+          });
+          const originCheck = await verifyOriginPlanFeature({
+            state,
+            feature: featureState,
+            featureDef,
+            originPlanFile: args.originPlan,
+            cwd,
+            roles: args.roles,
+            dryRun: args.dryRun || args.skipShip,
+          });
+          featureState.issueLogPath = originCheck.issueLogPath;
+          if (!originCheck.ok) {
+            const restart = restartFeatureFromOriginIssues({
               state,
-              feature: finalFeature,
-              featureDef: {
+              feature: featureState,
+              issueLogPath: originCheck.issueLogPath,
+              reason: originCheck.reason,
+            });
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+            logStatus({
+              slug,
+              featureNumber: featureState.number,
+              featureName: featureState.name,
+              phaseNumber:
+                restart.phaseIndex != null
+                  ? state.phases[restart.phaseIndex]?.number
+                  : undefined,
+              phaseName:
+                restart.phaseIndex != null
+                  ? state.phases[restart.phaseIndex]?.name
+                  : undefined,
+              step: "origin-plan-verification",
+              outcome: restart.restarted
+                ? "issues recorded; restarting feature loop"
+                : "paused",
+              issueCount: restart.restarted ? 1 : undefined,
+              pauseState: restart.restarted ? "running" : "paused",
+            });
+            if (restart.restarted) {
+              console.error(
+                `✗ Feature ${featureState.number} origin verification failed: ${originCheck.reason}. Restarting feature loop.`,
+              );
+              continue;
+            }
+            console.error(
+              `✗ Feature ${featureState.number} origin verification failed: ${restart.reason}`,
+            );
+            exitCode = 1;
+            break;
+          }
+
+          featureState.status =
+            args.skipShip || args.dryRun ? "origin_verified" : "committed";
+          featureState.originVerificationAttempts = 0;
+          featureState.error = undefined;
+          featureState.originVerifiedAt = new Date().toISOString();
+          if (featureState.status === "committed") {
+            featureState.completedAt = featureState.originVerifiedAt;
+          }
+          state.currentFeatureIndex = findNextFeatureIndex(state, {
+            skipOriginVerified: skipUnshippedVerified,
+          });
+          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          logStatus({
+            slug,
+            featureNumber: featureState.number,
+            featureName: featureState.name,
+            step: "feature-complete",
+            outcome: featureState.status,
+            pauseState: "running",
+          });
+        }
+
+        if (exitCode === 0) {
+          const remainingPhase = findNextPhaseIndex(state.phases);
+          const remainingFeature = findNextFeatureIndex(state, {
+            skipOriginVerified: args.skipShip || args.dryRun,
+          });
+          if (remainingPhase !== -1 || remainingFeature !== -1) {
+            console.error(
+              "✗ final completion exam failed — phases or features remain incomplete",
+            );
+            exitCode = 1;
+          } else if (!args.skipShip && !args.dryRun) {
+            const shippedLocalBranches = (state.features ?? [])
+              .filter(
+                (feature) => feature.status === "committed" && feature.branch,
+              )
+              .map((feature) => feature.branch!);
+            const branchExam = verifyNoUnmergedFeatBranches(
+              cwd,
+              currentBranch(cwd),
+              {
+                ignoreLocalBranches: shippedLocalBranches,
+                ignoreBranches: activeOwnedBranches(args.activeRunRegistry, {
+                  projectRoot: cwd,
+                  baseProjectRoot: args.baseProjectRoot,
+                }),
+              },
+            );
+            if (!branchExam.ok) {
+              const detail =
+                branchExam.branches.length > 0
+                  ? `unmerged feat/* branches remain: ${branchExam.branches.join(", ")}`
+                  : (branchExam.error ?? "could not verify feature branches");
+              console.error(`✗ final completion exam failed — ${detail}`);
+              exitCode = 1;
+            }
+            if (exitCode === 0 && args.originPlan) {
+              const finalFeature: FeatureState = {
                 index: -1,
                 number: "final",
                 name: "Full origin plan",
-                body: "Final completion exam: verify the entire origin plan against the fully landed implementation.",
-                phaseIndexes: finalFeature.phaseIndexes,
-              },
-              originPlanFile: args.originPlan,
-              cwd,
-              roles: args.roles,
-              dryRun: false,
-            });
-            if (!finalOriginCheck.ok) {
-              const targetFeature = [...(state.features ?? [])]
-                .reverse()
-                .find((feature) => feature.phaseIndexes.length > 0);
-              const restart: {
-                restarted: boolean;
-                phaseIndex?: number;
-                reason?: string;
-              } = targetFeature
-                ? restartFeatureFromOriginIssues({
-                    state,
-                    feature: targetFeature,
-                    issueLogPath: finalOriginCheck.issueLogPath,
-                    reason: finalOriginCheck.reason,
-                  })
-                : {
-                    restarted: false,
-                    reason: "no feature available to restart",
-                  };
-              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+                phaseIndexes: state.phases.map((phase) => phase.index),
+                status: "origin_verifying",
+              };
               logStatus({
                 slug,
-                featureNumber: targetFeature?.number ?? finalFeature.number,
-                featureName: targetFeature?.name ?? finalFeature.name,
-                phaseNumber:
-                  restart.phaseIndex != null
-                    ? state.phases[restart.phaseIndex]?.number
-                    : undefined,
-                phaseName:
-                  restart.phaseIndex != null
-                    ? state.phases[restart.phaseIndex]?.name
-                    : undefined,
+                featureNumber: finalFeature.number,
+                featureName: finalFeature.name,
                 step: "final-origin-plan-verification",
-                outcome: restart.restarted
-                  ? "issues recorded; restarting autonomous loop"
-                  : "paused",
-                issueCount: restart.restarted ? 1 : undefined,
-                pauseState: restart.restarted ? "running" : "paused",
+                outcome: "running",
+                pauseState: "running",
               });
-              if (restart.restarted) {
-                console.error(
-                  `✗ final completion exam failed — origin plan incomplete: ${finalOriginCheck.reason}. Restarting autonomous loop.`,
-                );
-                rerunAutonomousLoop = true;
-              } else {
-                console.error(
-                  `✗ final completion exam failed — origin plan incomplete: ${restart.reason}`,
-                );
-                exitCode = 1;
+              const finalOriginCheck = await verifyOriginPlanFeature({
+                state,
+                feature: finalFeature,
+                featureDef: {
+                  index: -1,
+                  number: "final",
+                  name: "Full origin plan",
+                  body: "Final completion exam: verify the entire origin plan against the fully landed implementation.",
+                  phaseIndexes: finalFeature.phaseIndexes,
+                },
+                originPlanFile: args.originPlan,
+                cwd,
+                roles: args.roles,
+                dryRun: false,
+              });
+              if (!finalOriginCheck.ok) {
+                const targetFeature = [...(state.features ?? [])]
+                  .reverse()
+                  .find((feature) => feature.phaseIndexes.length > 0);
+                const restart: {
+                  restarted: boolean;
+                  phaseIndex?: number;
+                  reason?: string;
+                } = targetFeature
+                  ? restartFeatureFromOriginIssues({
+                      state,
+                      feature: targetFeature,
+                      issueLogPath: finalOriginCheck.issueLogPath,
+                      reason: finalOriginCheck.reason,
+                    })
+                  : {
+                      restarted: false,
+                      reason: "no feature available to restart",
+                    };
+                saveState(state, {
+                  noGbrain: args.noGbrain,
+                  log: console.warn,
+                });
+                logStatus({
+                  slug,
+                  featureNumber: targetFeature?.number ?? finalFeature.number,
+                  featureName: targetFeature?.name ?? finalFeature.name,
+                  phaseNumber:
+                    restart.phaseIndex != null
+                      ? state.phases[restart.phaseIndex]?.number
+                      : undefined,
+                  phaseName:
+                    restart.phaseIndex != null
+                      ? state.phases[restart.phaseIndex]?.name
+                      : undefined,
+                  step: "final-origin-plan-verification",
+                  outcome: restart.restarted
+                    ? "issues recorded; restarting autonomous loop"
+                    : "paused",
+                  issueCount: restart.restarted ? 1 : undefined,
+                  pauseState: restart.restarted ? "running" : "paused",
+                });
+                if (restart.restarted) {
+                  console.error(
+                    `✗ final completion exam failed — origin plan incomplete: ${finalOriginCheck.reason}. Restarting autonomous loop.`,
+                  );
+                  rerunAutonomousLoop = true;
+                } else {
+                  console.error(
+                    `✗ final completion exam failed — origin plan incomplete: ${restart.reason}`,
+                  );
+                  exitCode = 1;
+                }
               }
             }
           }
         }
-      }
-    } while (exitCode === 0 && rerunAutonomousLoop);
+      } while (exitCode === 0 && rerunAutonomousLoop);
 
-    if (exitCode === 0 && (args.skipShip || args.dryRun)) {
-      console.log(
-        `\n${args.dryRun ? "(dry-run) " : ""}all features done${args.skipShip ? " (ship skipped)" : ""}`,
-      );
-    }
-    if (exitCode === 0) {
-      state.completed = !args.dryRun && !args.skipShip;
-      saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-    }
-    if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
-      const archivedPath = archiveLivingPlan(state.planFile);
-      if (archivedPath) {
-        state.planFile = archivedPath;
-        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        console.log(`Archived living plan: ${archivedPath}`);
+      if (exitCode === 0 && (args.skipShip || args.dryRun)) {
+        console.log(
+          `\n${args.dryRun ? "(dry-run) " : ""}all features done${args.skipShip ? " (ship skipped)" : ""}`,
+        );
       }
-      if (args.originPlan) {
-        const archivedOrigin = archiveOriginPlan(args.originPlan);
-        if (archivedOrigin) {
-          console.log(`Archived origin plan: ${archivedOrigin}`);
+      if (exitCode === 0) {
+        state.completed = !args.dryRun && !args.skipShip;
+        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+      }
+      if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
+        const archivedPath = archiveLivingPlan(state.planFile);
+        if (archivedPath) {
+          state.planFile = archivedPath;
+          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          console.log(`Archived living plan: ${archivedPath}`);
+        }
+        if (args.originPlan) {
+          const archivedOrigin = archiveOriginPlan(args.originPlan);
+          if (archivedOrigin) {
+            console.log(`Archived origin plan: ${archivedOrigin}`);
+          }
         }
       }
-    }
     }
   } finally {
     let activeRunRegistryUpdateFailed = false;
@@ -6234,7 +6542,10 @@ async function main() {
       if (state?.launch?.runId && state.launch.activeRunRegistry) {
         if (exitCode === 0 && state.completed) {
           updateActiveRunFromState(state, "completed");
-          removeActiveRunRecord(state.launch.activeRunRegistry, state.launch.runId);
+          removeActiveRunRecord(
+            state.launch.activeRunRegistry,
+            state.launch.runId,
+          );
         } else {
           updateActiveRunFromState(state, exitCode === 0 ? "paused" : "failed");
         }
@@ -6402,7 +6713,10 @@ export function detectRemoteBaseRef(cwd: string): string {
 export function verifyNoUnmergedFeatBranches(
   cwd: string,
   currentBranch: string,
-  opts: { ignoreLocalBranches?: string[]; ignoreBranches?: Iterable<string> } = {},
+  opts: {
+    ignoreLocalBranches?: string[];
+    ignoreBranches?: Iterable<string>;
+  } = {},
 ): { ok: boolean; branches: string[]; error?: string } {
   void currentBranch;
   const fetchR = spawnSync("git", ["fetch", "--prune", "origin"], {
@@ -6571,7 +6885,10 @@ async function runMergeMode(args: Args): Promise<number> {
     }
   }
 
-  const slug = `build-merge-${path.basename(projectRoot).replace(/[^a-z0-9-]/gi, "-").toLowerCase()}`;
+  const slug = `build-merge-${path
+    .basename(projectRoot)
+    .replace(/[^a-z0-9-]/gi, "-")
+    .toLowerCase()}`;
   if (!args.dryRun && !acquireLock(slug)) {
     const info = readLockInfo(slug);
     console.error(
@@ -6694,7 +7011,9 @@ async function processMergeBranch(args: {
       return true;
     }
 
-    console.warn(`  ⚠ review failed for ${branch}; running fixer (${iter}/${args.maxReviewIterations})`);
+    console.warn(
+      `  ⚠ review failed for ${branch}; running fixer (${iter}/${args.maxReviewIterations})`,
+    );
     const fixed = await runMergeFixer({
       cwd: args.cwd,
       slug: args.slug,
@@ -6713,7 +7032,10 @@ async function processMergeBranch(args: {
   return false;
 }
 
-function checkoutMergeBranch(cwd: string, candidate: MergeCandidateBranch): boolean {
+function checkoutMergeBranch(
+  cwd: string,
+  candidate: MergeCandidateBranch,
+): boolean {
   const branch = candidate.name;
   const co = candidate.hasRemote
     ? spawnSync(
@@ -6725,7 +7047,9 @@ function checkoutMergeBranch(cwd: string, candidate: MergeCandidateBranch): bool
       )
     : spawnSync("git", ["checkout", branch], { cwd, encoding: "utf8" });
   if (co.status !== 0) {
-    console.error(`  ✗ checkout failed for ${branch}: ${co.stderr || co.stdout}`);
+    console.error(
+      `  ✗ checkout failed for ${branch}: ${co.stderr || co.stdout}`,
+    );
     return false;
   }
   if (candidate.hasLocal && candidate.hasRemote) {
@@ -6769,7 +7093,10 @@ async function runMergeReview(args: {
     logDir(args.slug),
     `merge-${safeBranchFilePart(args.branch)}-review-${args.iteration}-output.md`,
   );
-  fs.writeFileSync(inputFilePath, buildMergeReviewBody(args.branch, args.iteration));
+  fs.writeFileSync(
+    inputFilePath,
+    buildMergeReviewBody(args.branch, args.iteration),
+  );
   fs.writeFileSync(outputFilePath, "");
   const before = captureGitSnapshot(args.cwd);
   let result = await runSlashCommand({
@@ -6849,7 +7176,9 @@ async function runMergeFixer(args: {
     allowSubmoduleRecovery: args.allowSubmoduleRecovery,
   });
   if (result.timedOut || result.exitCode !== 0) {
-    console.error(`  ✗ merge fixer failed for ${args.branch} (exit ${result.exitCode})`);
+    console.error(
+      `  ✗ merge fixer failed for ${args.branch} (exit ${result.exitCode})`,
+    );
     return false;
   }
   return true;
@@ -6899,17 +7228,28 @@ function cleanupLocalMergedBranch(cwd: string, branch: string): void {
   const baseRef = detectRemoteBaseRef(cwd);
   const baseName = baseRef.replace(/^origin\//, "");
   spawnSync("git", ["fetch", "--prune", "origin"], { cwd, encoding: "utf8" });
-  const co = spawnSync("git", ["checkout", baseName], { cwd, encoding: "utf8" });
+  const co = spawnSync("git", ["checkout", baseName], {
+    cwd,
+    encoding: "utf8",
+  });
   if (co.status !== 0) return;
-  const remoteExists = spawnSync("git", ["rev-parse", "--verify", `origin/${branch}`], {
-    cwd,
-    encoding: "utf8",
-  });
+  const remoteExists = spawnSync(
+    "git",
+    ["rev-parse", "--verify", `origin/${branch}`],
+    {
+      cwd,
+      encoding: "utf8",
+    },
+  );
   const noRemote = remoteExists.status !== 0;
-  const merged = spawnSync("git", ["branch", "--merged", baseRef, "--list", branch], {
-    cwd,
-    encoding: "utf8",
-  });
+  const merged = spawnSync(
+    "git",
+    ["branch", "--merged", baseRef, "--list", branch],
+    {
+      cwd,
+      encoding: "utf8",
+    },
+  );
   if (noRemote || (merged.stdout || "").includes(branch)) {
     spawnSync("git", ["branch", "-D", branch], { cwd, encoding: "utf8" });
   }
