@@ -1098,6 +1098,26 @@ describe('Plan status footer in preamble', () => {
   });
 });
 
+// --- make-pdf setup ordering ---
+
+describe('make-pdf setup ordering', () => {
+  test('MAKE-PDF SETUP appears before generic preamble footer sections', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'make-pdf', 'SKILL.md'), 'utf-8');
+    const preambleIdx = content.indexOf('## Preamble (run first)');
+    const setupIdx = content.indexOf('## MAKE-PDF SETUP');
+    const planModeIdx = content.indexOf('## Plan Mode Safe Operations');
+    const telemetryIdx = content.indexOf('## Telemetry (run last)');
+    const workflowIdx = content.indexOf('# make-pdf: publication-quality PDFs from markdown');
+
+    expect(preambleIdx).toBeGreaterThanOrEqual(0);
+    expect(setupIdx).toBeGreaterThan(preambleIdx);
+    expect(setupIdx).toBeLessThan(planModeIdx);
+    expect(setupIdx).toBeLessThan(telemetryIdx);
+    expect(setupIdx).toBeLessThan(workflowIdx);
+    expect(content.match(/^## MAKE-PDF SETUP/gm)?.length ?? 0).toBe(1);
+  });
+});
+
 // --- Skill invocation during plan mode in preamble ---
 
 describe('Skill invocation during plan mode in preamble', () => {
