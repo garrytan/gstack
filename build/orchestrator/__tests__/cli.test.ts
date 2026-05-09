@@ -2285,13 +2285,7 @@ describe("ensureFeatureBranch", () => {
     // Branch name includes plan basename ("plan") + feature number + slugified name.
     expect(current).toBe("feat/plan-1-auth");
     expect(feature.branch).toBe("feat/plan-1-auth");
-    // Verify that the local `main` branch was never created (only origin/main existed).
-    const localMain = spawnSync("git", ["rev-parse", "--verify", "main"], {
-      cwd: repo,
-      encoding: "utf8",
-    });
-    // After clone there IS a local main from `git clone`, so check we're on the right new branch
-    // and it tracks origin/main correctly.
+    // Confirm the feature branch tracks origin/main (branched from it, not a local checkout).
     const trackingRef = spawnSync("git", ["rev-parse", "HEAD"], {
       cwd: repo,
       encoding: "utf8",
@@ -2771,5 +2765,144 @@ describe("reconcileVisiblePlanState", () => {
     // Plan must not be modified in dry-run mode.
     const content = fs.readFileSync(planFile, "utf8");
     expect(content).not.toContain("[x]");
+  });
+
+  it("flips feature-level gates via featureGateProjection when feature reaches shipping", () => {
+    // Feature gates (feature_review, ship_land, origin_verification) appear in the
+    // feature body between the heading and the first phase heading.
+    const plan =
+      [
+        "## Feature 1: Auth",
+        "- [ ] **Feature Review (Gemini)**",
+        "- [ ] **Ship & Land**",
+        "- [ ] **Origin Verification**",
+        "### Phase 1: Skeleton",
+        "- [x] **Implementation (Gemini)**",
+        "- [x] **Review & QA (Codex)**",
+      ].join("\n") + "\n";
+
+    const planFile = _testWritePlan(plan);
+    const phase = makePhase({
+      implementationCheckboxLine: 6,
+      reviewCheckboxLine: 7,
+      implementationDone: true,
+      reviewDone: true,
+    });
+    const feature = makeFeature({
+      gates: {
+        feature_review: { done: false, line: 2 },
+        ship_land: { done: false, line: 3 },
+        origin_verification: { done: false, line: 4 },
+      },
+    });
+    // "shipping" status → featureGateProjection returns { feature_review: true }
+    const state = makeState("committed", "shipping");
+
+    reconcileVisiblePlanState(planFile, [feature], [phase], state, {
+      skipShip: false,
+    });
+
+    const lines = fs.readFileSync(planFile, "utf8").split("\n");
+    expect(lines[1]).toMatch(/\[x\].*Feature Review/);
+    expect(lines[2]).toMatch(/\[ \].*Ship & Land/);
+    expect(lines[3]).toMatch(/\[ \].*Origin Verification/);
+  });
+
+  it("flips all three feature gates when feature reaches committed without skipShip", () => {
+    const plan =
+      [
+        "## Feature 1: Auth",
+        "- [ ] **Feature Review (Gemini)**",
+        "- [ ] **Ship & Land**",
+        "- [ ] **Origin Verification**",
+        "### Phase 1: Skeleton",
+        "- [x] **Implementation (Gemini)**",
+        "- [x] **Review & QA (Codex)**",
+      ].join("\n") + "\n";
+
+    const planFile = _testWritePlan(plan);
+    const phase = makePhase({
+      implementationCheckboxLine: 6,
+      reviewCheckboxLine: 7,
+      implementationDone: true,
+      reviewDone: true,
+    });
+    const feature = makeFeature({
+      gates: {
+        feature_review: { done: false, line: 2 },
+        ship_land: { done: false, line: 3 },
+        origin_verification: { done: false, line: 4 },
+      },
+    });
+    // "committed" status → featureGateProjection returns all three gates
+    const state = makeState("committed", "committed");
+
+    reconcileVisiblePlanState(planFile, [feature], [phase], state, {
+      skipShip: false,
+    });
+
+    const lines = fs.readFileSync(planFile, "utf8").split("\n");
+    expect(lines[1]).toMatch(/\[x\].*Feature Review/);
+    expect(lines[2]).toMatch(/\[x\].*Ship & Land/);
+    expect(lines[3]).toMatch(/\[x\].*Origin Verification/);
+  });
+
+  it("suppresses ship_land and origin_verification when skipShip=true", () => {
+    const plan =
+      [
+        "## Feature 1: Auth",
+        "- [ ] **Feature Review (Gemini)**",
+        "- [ ] **Ship & Land**",
+        "- [ ] **Origin Verification**",
+        "### Phase 1: Skeleton",
+        "- [x] **Implementation (Gemini)**",
+        "- [x] **Review & QA (Codex)**",
+      ].join("\n") + "\n";
+
+    const planFile = _testWritePlan(plan);
+    const phase = makePhase({
+      implementationCheckboxLine: 6,
+      reviewCheckboxLine: 7,
+      implementationDone: true,
+      reviewDone: true,
+    });
+    const feature = makeFeature({
+      gates: {
+        feature_review: { done: false, line: 2 },
+        ship_land: { done: false, line: 3 },
+        origin_verification: { done: false, line: 4 },
+      },
+    });
+    // skipShip=true + committed → only feature_review checked
+    const state = makeState("committed", "committed");
+
+    reconcileVisiblePlanState(planFile, [feature], [phase], state, {
+      skipShip: true,
+    });
+
+    const lines = fs.readFileSync(planFile, "utf8").split("\n");
+    expect(lines[1]).toMatch(/\[x\].*Feature Review/);
+    expect(lines[2]).toMatch(/\[ \].*Ship & Land/);
+    expect(lines[3]).toMatch(/\[ \].*Origin Verification/);
+  });
+
+  it("does not throw when state.features is missing", () => {
+    const planFile = _testWritePlan(
+      "## Feature 1: Auth\n### Phase 1: Skeleton\n",
+    );
+    const phase = makePhase({ gates: undefined });
+    const feature = makeFeature({
+      gates: { feature_review: { done: false, line: 1 } },
+    });
+    // Build state without a features array — the null-safety guard
+    // `(state.features ?? [])[feature.index]` must not throw.
+    const stateNoFeatures: BuildState = {
+      ...makeState("pending", "pending"),
+      features: undefined as any,
+    };
+
+    expect(() =>
+      reconcileVisiblePlanState(planFile, [feature], [phase], stateNoFeatures),
+    ).not.toThrow();
   });
 });

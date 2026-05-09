@@ -590,4 +590,11 @@ describe("setCheckboxStatusNote", () => {
     expect(r.error).toMatch(/Implementation/);
     fs.rmSync(path.dirname(p), { recursive: true });
   });
+
+  it("errors on out-of-range line number", () => {
+    const p = _testWritePlan("- [ ] **Test Specification**: spec\n");
+    const r = setCheckboxStatusNote({ planFile: p, lineNumber: 99, note: "x" });
+    expect(r.error).toMatch(/out of range/);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
 });
