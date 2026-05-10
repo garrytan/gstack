@@ -118,7 +118,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EVALS_CONCURRENCY: "40"
           PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
-        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
+          SUITE_FILE: ${{ matrix.suite.file }}
+        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 $SUITE_FILE
 
       - name: Upload eval results
         if: always()
