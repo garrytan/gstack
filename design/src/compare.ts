@@ -550,7 +550,7 @@ export function generateCompareHtml(images: string[]): string {
     document.getElementById('success-msg').innerHTML =
       '<div style="color:#c00;margin-bottom:8px;">Connection lost. Copy your feedback below and paste it in your coding agent:</div>' +
       '<pre style="text-align:left;background:#f5f5f5;padding:12px;border-radius:4px;font-size:12px;overflow-x:auto;cursor:pointer;" onclick="navigator.clipboard.writeText(this.textContent)">' +
-      json.replace(/</g, '&lt;') + '</pre>' +
+      json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') + '</pre>' +
       '<small style="color:#666;">Click to copy</small>';
   }
 
