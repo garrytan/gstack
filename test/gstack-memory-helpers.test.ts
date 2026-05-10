@@ -11,7 +11,7 @@
  * Free-tier (~50ms total). Runs in `bun test`.
  */
 
-import { describe, it, expect, beforeEach, afterAll } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -272,18 +272,33 @@ describe("withErrorContext", () => {
 
 describe("detectEngineTier", () => {
   let savedHome: string | undefined;
+  let savedPath: string | undefined;
   let testHome: string;
 
   beforeEach(() => {
     savedHome = process.env.GSTACK_HOME;
+    savedPath = process.env.PATH;
     testHome = mkdtempSync(join(tmpdir(), "gstack-test-engine-"));
     process.env.GSTACK_HOME = testHome;
+    process.env.PATH = `${testHome}:${savedPath || ""}`;
+    writeFileSync(join(testHome, "gbrain"), "#!/bin/sh\nprintf '%s\\n' \"$GSTACK_TEST_GBRAIN_STDOUT\"\nexit \"$GSTACK_TEST_GBRAIN_STATUS\"\n", { mode: 0o755 });
+    mockDoctor('{"engine":"pglite","status":"ok"}');
   });
 
-  afterAll(() => {
+  afterEach(() => {
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
     if (savedHome === undefined) delete process.env.GSTACK_HOME;
     else process.env.GSTACK_HOME = savedHome;
+    delete process.env.GSTACK_TEST_GBRAIN_STDOUT;
+    delete process.env.GSTACK_TEST_GBRAIN_STATUS;
+    rmSync(testHome, { recursive: true, force: true });
   });
+
+  function mockDoctor(stdout: string, exitCode = 0) {
+    process.env.GSTACK_TEST_GBRAIN_STDOUT = stdout;
+    process.env.GSTACK_TEST_GBRAIN_STATUS = String(exitCode);
+  }
 
   it("returns a valid EngineDetect shape (engine, detected_at, schema_version)", () => {
     const result = detectEngineTier();
@@ -292,6 +307,20 @@ describe("detectEngineTier", () => {
     expect(typeof result.detected_at).toBe("number");
     expect(result.detected_at).toBeGreaterThan(0);
   });
+
+  for (const [name, stdout, exitCode, supabaseUrl] of [
+    ["preserves schema_version 1 engine detection from doctor output", '{"engine":"supabase","supabase_url":"https://example.supabase.co","status":"ok"}', 0, "https://example.supabase.co"],
+    ["detects schema_version 2 engine from top-level doctor fields", '{"status":"ok","schema_version":2,"health_score":100,"engine_kind":"supabase","checks":[]}', 0, undefined],
+    ["detects schema_version 2 engine from checks even when doctor exits non-zero", '{"status":"warn","schema_version":2,"health_score":80,"checks":[{"name":"resolver_health","status":"warn"},{"name":"backend","value":"supabase"}]}', 1, undefined],
+  ] as const) {
+    it(name, () => {
+      mockDoctor(stdout, exitCode);
+      const result = detectEngineTier();
+      expect(result.engine).toBe("supabase");
+      if (supabaseUrl) expect(result.supabase_url).toBe(supabaseUrl);
+      expect(result.schema_version).toBe(1);
+    });
+  }
 
   it("writes a cache file at ~/.gstack/.gbrain-engine-cache.json", () => {
     detectEngineTier();

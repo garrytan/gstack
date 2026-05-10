@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, appendFileSync } from "fs";
 import { dirname, join } from "path";
-import { execSync, execFileSync } from "child_process";
+import { execSync, execFileSync, spawnSync } from "child_process";
 import { homedir } from "os";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -247,9 +247,16 @@ export function detectEngineTier(): EngineDetect {
 function freshDetectEngineTier(): EngineDetect {
   const now = Date.now();
   try {
-    const out = execSync("gbrain doctor --json --fast 2>/dev/null", { encoding: "utf-8", timeout: 5000 });
-    const parsed = JSON.parse(out);
-    const engine: EngineTier = parsed?.engine === "supabase" ? "supabase" : parsed?.engine === "pglite" ? "pglite" : "unknown";
+    const result = spawnSync("gbrain", ["doctor", "--json", "--fast"], {
+      encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"], env: process.env,
+    });
+    if (result.error) return { engine: "unknown", detected_at: now, schema_version: 1 };
+
+    const parsed = JSON.parse(result.stdout);
+    const engine = detectEngineFromDoctorJson(parsed);
+    if (engine === "unknown" && process.env.GSTACK_DEBUG) {
+      process.stderr.write(`[gstack-memory-helpers] unable to detect gbrain engine from doctor JSON: ${JSON.stringify(parsed)}\n`);
+    }
     return {
       engine,
       supabase_url: parsed?.supabase_url || undefined,
@@ -259,6 +266,23 @@ function freshDetectEngineTier(): EngineDetect {
   } catch {
     return { engine: "unknown", detected_at: now, schema_version: 1 };
   }
+}
+
+function detectEngineFromDoctorJson(parsed: unknown): EngineTier {
+  const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+  const direct = [obj.engine, obj.engine_kind, obj.backend, obj.engine_type].find(isEngineTier);
+  if (direct) return direct;
+  const check = Array.isArray(obj.checks)
+    ? obj.checks.find((c) => c && typeof c === "object" && /engine|backend|kind/i.test(String((c as Record<string, unknown>).name)))
+    : null;
+  const nested = check
+    ? [check.value, check.engine, check.kind].find(isEngineTier)
+    : null;
+  return nested || "unknown";
+}
+
+function isEngineTier(value: unknown): value is EngineTier {
+  return value === "supabase" || value === "pglite";
 }
 
 // ── Public: parseSkillManifest ────────────────────────────────────────────
