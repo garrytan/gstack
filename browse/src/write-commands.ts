@@ -127,6 +127,62 @@ const CLEANUP_SELECTORS = {
   ],
 };
 
+export interface PrettyScreenshotOptions {
+  scrollTo?: string;
+  doCleanup: boolean;
+  hideSelectors: string[];
+  viewportWidth?: number;
+  outputPath?: string;
+}
+
+function isLikelyScreenshotOutputPath(arg: string): boolean {
+  return arg.startsWith('/')
+    || arg.startsWith('./')
+    || arg.startsWith('../')
+    || arg.startsWith('~')
+    || /\.(png|jpe?g|webp)$/i.test(arg);
+}
+
+export function parsePrettyScreenshotArgs(args: string[]): PrettyScreenshotOptions {
+  const options: PrettyScreenshotOptions = {
+    doCleanup: false,
+    hideSelectors: [],
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--scroll-to' && i + 1 < args.length) {
+      options.scrollTo = args[++i];
+    } else if (args[i] === '--cleanup') {
+      options.doCleanup = true;
+    } else if (args[i] === '--hide' && i + 1 < args.length) {
+      const values: string[] = [];
+      i++;
+      while (i < args.length && !args[i].startsWith('--')) {
+        values.push(args[i]);
+        i++;
+      }
+      i--; // Back up since the for loop will increment.
+
+      if (!options.outputPath && values.length > 1) {
+        const last = values[values.length - 1];
+        if (isLikelyScreenshotOutputPath(last)) {
+          options.outputPath = values.pop();
+        }
+      }
+      options.hideSelectors.push(...values);
+    } else if (args[i] === '--width' && i + 1 < args.length) {
+      options.viewportWidth = parseInt(args[++i], 10);
+      if (isNaN(options.viewportWidth)) throw new Error('--width must be a number');
+    } else if (!args[i].startsWith('--')) {
+      options.outputPath = args[i];
+    } else {
+      throw new Error(`Unknown prettyscreenshot flag: ${args[i]}`);
+    }
+  }
+
+  return options;
+}
+
 export async function handleWriteCommand(
   command: string,
   args: string[],
@@ -992,35 +1048,9 @@ export async function handleWriteCommand(
     }
 
     case 'prettyscreenshot': {
-      // Parse flags
-      let scrollTo: string | undefined;
-      let doCleanup = false;
-      const hideSelectors: string[] = [];
-      let viewportWidth: number | undefined;
-      let outputPath: string | undefined;
-
-      for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--scroll-to' && i + 1 < args.length) {
-          scrollTo = args[++i];
-        } else if (args[i] === '--cleanup') {
-          doCleanup = true;
-        } else if (args[i] === '--hide' && i + 1 < args.length) {
-          // Collect all following non-flag args as selectors to hide
-          i++;
-          while (i < args.length && !args[i].startsWith('--')) {
-            hideSelectors.push(args[i]);
-            i++;
-          }
-          i--; // Back up since the for loop will increment
-        } else if (args[i] === '--width' && i + 1 < args.length) {
-          viewportWidth = parseInt(args[++i], 10);
-          if (isNaN(viewportWidth)) throw new Error('--width must be a number');
-        } else if (!args[i].startsWith('--')) {
-          outputPath = args[i];
-        } else {
-          throw new Error(`Unknown prettyscreenshot flag: ${args[i]}`);
-        }
-      }
+      const prettyOptions = parsePrettyScreenshotArgs(args);
+      const { scrollTo, doCleanup, hideSelectors, viewportWidth } = prettyOptions;
+      let { outputPath } = prettyOptions;
 
       // Default output path
       if (!outputPath) {
