@@ -289,6 +289,8 @@ export interface FeatureState {
   status: FeatureStatus;
   branch?: string;
   shippedAt?: string;
+  /** PR number set at queue time; required for release_queued to be trusted as terminal. */
+  prNumber?: number;
   landedAt?: string;
   originVerifiedAt?: string;
   completedAt?: string;

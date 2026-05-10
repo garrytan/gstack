@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { findNextFeatureIndex } from "../cli";
+import { findNextFeatureIndex, isFeatureTerminal } from "../cli";
 import type { BuildState, FeatureState } from "../types";
 
 function feature(overrides: Partial<FeatureState> = {}): FeatureState {
@@ -99,5 +99,82 @@ describe("findNextFeatureIndex", () => {
       }),
     ]);
     expect(findNextFeatureIndex(s)).toBe(0);
+  });
+
+  it("skips a release_queued feature with shippedAt + prNumber", () => {
+    const s = state([
+      feature({
+        index: 0,
+        status: "release_queued",
+        shippedAt: "2026-05-08T01:00:00.000Z",
+        prNumber: 42,
+      }),
+      feature({ index: 1, number: "2", status: "pending" }),
+    ]);
+    expect(findNextFeatureIndex(s)).toBe(1);
+  });
+
+  it("does NOT skip a release_queued feature missing prNumber", () => {
+    const s = state([
+      feature({
+        index: 0,
+        status: "release_queued",
+        shippedAt: "2026-05-08T01:00:00.000Z",
+        // no prNumber — simulates a manual patch
+      }),
+      feature({ index: 1, number: "2", status: "pending" }),
+    ]);
+    expect(findNextFeatureIndex(s)).toBe(0);
+  });
+});
+
+describe("isFeatureTerminal", () => {
+  it("returns true for committed with completedAt", () => {
+    expect(
+      isFeatureTerminal(
+        feature({
+          status: "committed",
+          completedAt: "2026-05-08T01:00:00.000Z",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for committed without completedAt", () => {
+    expect(isFeatureTerminal(feature({ status: "committed" }))).toBe(false);
+  });
+
+  it("returns true for release_queued with shippedAt + prNumber", () => {
+    expect(
+      isFeatureTerminal(
+        feature({
+          status: "release_queued",
+          shippedAt: "2026-05-08T01:00:00.000Z",
+          prNumber: 42,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for release_queued missing prNumber", () => {
+    expect(
+      isFeatureTerminal(
+        feature({
+          status: "release_queued",
+          shippedAt: "2026-05-08T01:00:00.000Z",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false for release_queued missing shippedAt", () => {
+    expect(
+      isFeatureTerminal(feature({ status: "release_queued", prNumber: 42 })),
+    ).toBe(false);
+  });
+
+  it("returns false for non-terminal statuses", () => {
+    expect(isFeatureTerminal(feature({ status: "pending" }))).toBe(false);
+    expect(isFeatureTerminal(feature({ status: "phases_done" }))).toBe(false);
   });
 });

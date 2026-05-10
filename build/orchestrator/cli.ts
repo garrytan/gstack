@@ -2326,6 +2326,23 @@ export function syncFeatureBranchWithBase(
   };
 }
 
+/**
+ * Returns true when a feature has reached a genuinely terminal state —
+ * meaning the real ship+land+verify pipeline left durable evidence, not
+ * just a status field that could have been patched manually in the JSON.
+ *
+ * committed:      set exclusively at end of origin-plan verification;
+ *                 requires completedAt.
+ * release_queued: set after ship queues a PR for the release daemon;
+ *                 requires shippedAt + prNumber (both set by the real
+ *                 ship pipeline, harder to fake together).
+ */
+export function isFeatureTerminal(f: FeatureState): boolean {
+  if (f.status === "committed") return !!f.completedAt;
+  if (f.status === "release_queued") return !!f.shippedAt && f.prNumber != null;
+  return false;
+}
+
 export function findNextFeatureIndex(
   state: BuildState,
   opts: { skipOriginVerified?: boolean } = {},
@@ -2334,14 +2351,7 @@ export function findNextFeatureIndex(
   for (let i = 0; i < features.length; i++) {
     const f = features[i];
     if (opts.skipOriginVerified && f.status === "origin_verified") continue;
-    if (f.status === "release_queued") continue;
-    // Skip only when the feature has BOTH terminal status AND evidence the
-    // ship→land→verify pipeline actually ran. completedAt is set exclusively
-    // at the end of origin-plan verification (see "committed" assignment
-    // below in the feature loop). A bare status="committed" with no
-    // completedAt indicates a manual JSON state patch that bypassed
-    // ship+land+verify — re-process the feature so the pipeline runs.
-    if (f.status === "committed" && f.completedAt) continue;
+    if (isFeatureTerminal(f)) continue;
     return i;
   }
   return -1;
@@ -6313,6 +6323,22 @@ async function main() {
             featureState.status = "phases_done";
             saveState(state, { noGbrain: args.noGbrain, log: console.warn });
           }
+          // Detect manual JSON state patches that set status="release_queued"
+          // without shippedAt + prNumber (both are set only by the real ship
+          // pipeline). findNextFeatureIndex re-surfaces these features because
+          // isFeatureTerminal() requires both fields.
+          if (
+            featureState.status === "release_queued" &&
+            !isFeatureTerminal(featureState)
+          ) {
+            console.warn(
+              `⚠ Feature ${featureState.number} status is "release_queued" but shippedAt/prNumber are missing — ` +
+                `this indicates a manual JSON state patch that bypassed ship. ` +
+                `Re-processing the feature so the pipeline runs.`,
+            );
+            featureState.status = "phases_done";
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
           const resumeAfterLanding =
             featureState.status === "landed" ||
             featureState.status === "origin_verifying";
@@ -6851,6 +6877,7 @@ async function main() {
               }
               writeReleaseQueueRecord(args.releaseQueueDir, record);
               featureState.shippedAt = featureState.shippedAt ?? queuedAt;
+              featureState.prNumber = record.prNumber;
               featureState.status = "release_queued";
               saveState(state, { noGbrain: args.noGbrain, log: console.warn });
               console.log(
@@ -7129,6 +7156,11 @@ async function main() {
         );
       }
       if (exitCode === 0) {
+        // In --release-mode queued, all features may reach release_queued status
+        // while the release daemon handles the actual landing asynchronously.
+        // state.completed = true means "the orchestrator's job is done" — not
+        // "all PRs have merged." The release daemon is responsible for landing
+        // queued PRs.
         state.completed = !args.dryRun && !args.skipShip;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
       }
