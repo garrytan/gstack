@@ -328,7 +328,11 @@ function addChatEntry(entry) {
     }
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble user';
-    bubble.innerHTML = `${escapeHtml(entry.message)}<span class="chat-time">${formatChatTime(entry.ts)}</span>`;
+    bubble.appendChild(document.createTextNode(entry.message));
+    const userMsgTs = document.createElement('span');
+    userMsgTs.className = 'chat-time';
+    userMsgTs.textContent = formatChatTime(entry.ts);
+    bubble.appendChild(userMsgTs);
     chatMessages.appendChild(bubble);
     bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
     return;
@@ -338,11 +342,11 @@ function addChatEntry(entry) {
   if (entry.role === 'assistant') {
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble assistant';
-    let content = escapeHtml(entry.message);
-    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    content = content.replace(/\n/g, '<br>');
-    bubble.innerHTML = `${content}<span class="chat-time">${formatChatTime(entry.ts)}</span>`;
+    bubble.appendChild(renderMarkdown(entry.message));
+    const assistantTs = document.createElement('span');
+    assistantTs.className = 'chat-time';
+    assistantTs.textContent = formatChatTime(entry.ts);
+    bubble.appendChild(assistantTs);
     chatMessages.appendChild(bubble);
     bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
     return;
@@ -494,11 +498,7 @@ function handleAgentEvent(entry) {
       agentTextEl.className = 'agent-text';
       agentContainer.appendChild(agentTextEl);
     }
-    let content = escapeHtml(agentText);
-    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    content = content.replace(/\n/g, '<br>');
-    agentTextEl.innerHTML = content;
+    agentTextEl.replaceChildren(renderMarkdown(agentText));
     agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
     return;
   }
@@ -511,11 +511,7 @@ function handleAgentEvent(entry) {
       agentTextEl.className = 'agent-text';
       agentContainer.appendChild(agentTextEl);
     }
-    let content = escapeHtml(agentText);
-    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    content = content.replace(/\n/g, '<br>');
-    agentTextEl.innerHTML = content;
+    agentTextEl.replaceChildren(renderMarkdown(agentText));
     agentContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
     return;
   }
@@ -538,7 +534,11 @@ async function sendMessage() {
   if (welcome) welcome.remove();
   const userBubble = document.createElement('div');
   userBubble.className = 'chat-bubble user';
-  userBubble.innerHTML = `${escapeHtml(msg)}<span class="chat-time">${formatChatTime(new Date().toISOString())}</span>`;
+  userBubble.appendChild(document.createTextNode(msg));
+  const sendMsgTs = document.createElement('span');
+  sendMsgTs.className = 'chat-time';
+  sendMsgTs.textContent = formatChatTime(new Date().toISOString());
+  userBubble.appendChild(sendMsgTs);
   chatMessages.appendChild(userBubble);
 
   agentText = '';
@@ -1032,6 +1032,34 @@ function escapeHtml(str) {
   return div.innerHTML
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function renderMarkdown(text) {
+  const frag = document.createDocumentFragment();
+  const codeParts = text.split(/```([\s\S]*?)```/);
+  for (let i = 0; i < codeParts.length; i++) {
+    if (i % 2 === 1) {
+      const pre = document.createElement('pre');
+      pre.textContent = codeParts[i];
+      frag.appendChild(pre);
+    } else {
+      const boldParts = codeParts[i].split(/\*\*(.*?)\*\*/);
+      for (let j = 0; j < boldParts.length; j++) {
+        if (j % 2 === 1) {
+          const strong = document.createElement('strong');
+          strong.textContent = boldParts[j];
+          frag.appendChild(strong);
+        } else {
+          const lines = boldParts[j].split('\n');
+          for (let k = 0; k < lines.length; k++) {
+            if (k > 0) frag.appendChild(document.createElement('br'));
+            if (lines[k]) frag.appendChild(document.createTextNode(lines[k]));
+          }
+        }
+      }
+    }
+  }
+  return frag;
 }
 
 // ─── SSE Connection ─────────────────────────────────────────────
