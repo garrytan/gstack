@@ -142,7 +142,8 @@ When a phase has a `**Test Specification` checkbox, the orchestrator runs a 7-st
 2. Verify Red          — run tests; if they pass, test-writer rewrites stricter tests (cap: GSTACK_BUILD_RED_MAX_ITER)
 3. Implementation      — configured primary-impl role implements until tests pass
 4. Test+Fix Loop       — run tests; if failing, configured test-fixer role fixes; repeat (cap: GSTACK_BUILD_TEST_MAX_ITER)
-5. Review + QA         — configured review, review-secondary, and QA roles; all require GATE PASS
+5. Review + QA         — review loops until GATE PASS, then review-secondary loops
+                         until GATE PASS, then QA loops until GATE PASS
 6. Update Plan         — flip all 3 checkboxes [x]
 7. Host context save   — `/build` saves context from the current host LLM
                          session; the CLI has no configured context-save role
@@ -405,7 +406,7 @@ The orchestrator stops at any of these and writes the failure reason into the st
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `Gemini timed out (after 1 retry)` | Phase too large, network blip, or Gemini hung | Raise `GSTACK_BUILD_GEMINI_TIMEOUT`, or split the phase |
-| `Review gates failed to converge after N iterations` | The recursive review can't reach `GATE PASS` | Read the phase review logs, fix the underlying issue manually, resume |
+| `Codex review failed to converge` | One review gate could not reach `GATE PASS` within `GSTACK_BUILD_CODEX_MAX_ITER` attempts | Read the phase review logs, fix the underlying issue manually, resume |
 | `Codex output did not contain GATE PASS or GATE FAIL` | Codex changed output format, or hit an internal error | Read the log; usually means the codex CLI itself errored |
 | `Tests still failing after N fix iterations` | Gemini can't converge; tests and impl are in conflict | Read `phase-N-gemini-fix-*.log`, fix manually, resume |
 | `Gemini could not produce failing tests after N attempts` | Tests pass before implementation (trivially-asserting tests) | Read `phase-N-gemini-testspec-*.log`, tighten the phase description, resume |
