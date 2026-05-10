@@ -22,6 +22,11 @@ bun run eval:compare # compare two eval runs (auto-picks most recent)
 bun run eval:summary # aggregate stats across all eval runs
 bun run slop          # full slop-scan report (all files)
 bun run slop:diff     # slop findings in files changed on this branch only
+bun run analytics     # run analytics processing script
+bun run test:audit    # run audit compliance tests
+bun run eval:watch    # watch mode for eval results
+bun run test:codex    # run Codex E2E tests only (uses ~/.codex/ auth)
+bun run test:gemini   # run Gemini E2E tests only
 ```
 
 `test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
@@ -65,6 +70,13 @@ gstack/
 │   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
 │   ├── test/        # Integration tests + fixtures
 │   └── dist/        # Compiled binary
+├── make-pdf/        # PDF generation CLI (compiled binary)
+│   ├── src/         # CLI source
+│   └── dist/        # Compiled binary (make-pdf/dist/pdf)
+├── design/          # Design binary CLI (GPT Image API)
+│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
+│   ├── test/        # Integration tests
+│   └── dist/        # Compiled binary
 ├── hosts/           # Typed host configs (one per AI agent)
 │   ├── claude.ts    # Primary host config
 │   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
@@ -77,55 +89,110 @@ gstack/
 │   ├── host-config-export.ts  # Shell bridge for setup script
 │   ├── host-adapters/     # Host-specific adapters (OpenClaw tool mapping)
 │   ├── resolvers/   # Template resolver modules (preamble, design, review, gbrain, etc.)
+│   ├── eval-*.ts    # Eval DX tooling (list, compare, select, summary, watch)
+│   ├── analytics.ts # Analytics processing
 │   ├── skill-check.ts     # Health dashboard
 │   └── dev-skill.ts       # Watch mode
 ├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
+│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts, touchfiles.ts
 │   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
 │   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
 │   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
 │   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
+│   ├── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
+│   ├── codex-e2e.test.ts         # Codex-specific E2E (uses ~/.codex/ auth)
+│   ├── gemini-e2e.test.ts        # Gemini-specific E2E
+│   └── audit-compliance.test.ts  # Audit compliance checks
+├── .claude/
+│   └── agents/      # Pre-configured specialist agent profiles (12 total)
+│       ├── README.md
+│       ├── design-ui-designer.md, design-ux-researcher.md
+│       ├── engineering-*.md     # backend-architect, code-reviewer, devops-automator,
+│       │                        # frontend-developer, security-engineer, senior-developer
+│       ├── product-manager.md
+│       └── testing-*.md         # accessibility-auditor, evidence-collector, reality-checker
+├── openclaw/        # OpenClaw agent integration
+│   └── skills/      # Native OpenClaw skills published to ClawHub
+│       ├── gstack-openclaw-ceo-review/
+│       ├── gstack-openclaw-investigate/
+│       ├── gstack-openclaw-office-hours/
+│       └── gstack-openclaw-retro/
+├── android-reels-creator/  # Native Android app (Kotlin + Compose)
+│   │                        # Video reel creation from TXT captions + RSS feeds
+├── reels-html/      # Web-based reels creator (lightweight HTML alternative)
+├── hyperframes/     # /hyperframes skill (HTML-to-video rendering)
+├── model-overlays/  # Model configuration overlays
+├── supabase/        # Backend infrastructure (functions, migrations, RLS)
+├── agents/          # Agent orchestration config (openai.yaml)
+├── qa/              # /qa skill (QA with fixes)
 ├── qa-only/         # /qa-only skill (report-only QA, no fixes)
 ├── plan-design-review/  # /plan-design-review skill (report-only design audit)
 ├── design-review/    # /design-review skill (design audit + fix loop)
+├── design-html/      # /design-html skill (HTML design implementation)
+├── design-consultation/ # /design-consultation skill (design system from scratch)
+├── design-shotgun/  # /design-shotgun skill (visual design exploration)
 ├── ship/            # Ship workflow skill
 ├── review/          # PR review skill
 ├── plan-ceo-review/ # /plan-ceo-review skill
 ├── plan-eng-review/ # /plan-eng-review skill
+├── plan-devex-review/ # /plan-devex-review skill
+├── plan-tune/       # /plan-tune skill (plan tuning and formatting)
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
+├── devex-review/    # /devex-review skill (developer experience audit)
 ├── benchmark/       # /benchmark skill (performance regression detection)
+├── benchmark-models/ # /benchmark-models skill (multi-model benchmarking)
 ├── canary/          # /canary skill (post-deploy monitoring loop)
 ├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
+├── context-save/    # /context-save skill (checkpoint project context)
+├── context-restore/ # /context-restore skill (restore saved context)
+├── pair-agent/      # /pair-agent skill (spawn a paired AI agent via ngrok tunnel)
+├── guard/           # /guard skill
+├── health/          # /health skill (project health checks)
+├── learn/           # /learn skill (learning integration)
+├── careful/         # /careful skill (safety-first task wrapper)
+├── freeze/          # /freeze skill (freeze branch state)
+├── unfreeze/        # /unfreeze skill (unfreeze branch)
+├── gstack-upgrade/  # /gstack-upgrade skill (on-disk migration runner)
+│   └── migrations/  # Migration scripts for breaking on-disk changes
 ├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
 ├── document-release/ # /document-release skill (post-ship doc updates)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
-├── design-consultation/ # /design-consultation skill (design system from scratch)
-├── design-shotgun/  # /design-shotgun skill (visual design exploration)
 ├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
 ├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
-├── design/          # Design binary CLI (GPT Image API)
-│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
-│   ├── test/        # Integration tests
-│   └── dist/        # Compiled binary
+├── setup-browser-cookies/ # /setup-browser-cookies skill (browser auth cookie setup)
+├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
 ├── lib/             # Shared libraries (worktree.ts)
 ├── docs/designs/    # Design documents
-├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
 ├── .github/         # CI workflows + Docker image
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
+│   ├── workflows/
+│   │   ├── evals.yml          # E2E on Ubicloud (gate-tier, runs on PR)
+│   │   ├── evals-periodic.yml # Weekly periodic-tier eval cron
+│   │   ├── skill-docs.yml     # Auto-generate SKILL.md files
+│   │   ├── actionlint.yml     # GitHub Actions syntax validation
+│   │   ├── ci-image.yml       # Docker image builds
+│   │   ├── codeql.yml         # CodeQL security scanning
+│   │   └── make-pdf-gate.yml  # PDF generation quality gate
 │   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
 ├── contrib/         # Contributor-only tools (never installed for users)
 │   └── add-host/    # /gstack-contrib-add-host skill
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
+├── AGENTS.md        # Agent profiles documentation
+├── BROWSER.md       # Browser CLI capabilities reference
+├── DESIGN.md        # Design system reference
+├── ARCHITECTURE.md  # System architecture (dual-listener model, security stack)
 ├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
-└── package.json     # Build scripts for browse
+├── CONTRIBUTING.md  # Contribution guide (upgrade migrations format, etc.)
+├── TODOS.md         # Tracked work items
+├── CHANGELOG.md     # Version history (user-facing release notes)
+├── VERSION          # Current version string (e.g. 1.6.4.0)
+└── package.json     # Build scripts + Bun workspace config
 ```
 
 ## SKILL.md workflow
@@ -301,14 +368,32 @@ migration script to `gstack-upgrade/migrations/`. Read CONTRIBUTING.md's "Upgrad
 migrations" section for the format and testing requirements. The upgrade skill runs
 these automatically after `./setup` during `/gstack-upgrade`.
 
-## Compiled binaries — NEVER commit browse/dist/ or design/dist/
+## Pre-configured specialist agents
 
-The `browse/dist/` and `design/dist/` directories contain compiled Bun binaries
-(`browse`, `find-browse`, `design`, ~58MB each). These are Mach-O arm64 only — they
-do NOT work on Linux, Windows, or Intel Macs. The `./setup` script already builds
-from source for every platform, so the checked-in binaries are redundant. They are
-tracked by git due to a historical mistake and should eventually be removed with
-`git rm --cached`.
+`.claude/agents/` contains 12 ready-to-use specialist agent profiles that Claude Code
+can spawn as subagents. These are **not generated by the skill pipeline** — they are
+hand-crafted profiles checked into the repo and installed as part of `./setup`.
+
+**Categories and agents:**
+
+| Category | Agent file |
+|----------|-----------|
+| Design | `design-ui-designer.md`, `design-ux-researcher.md` |
+| Engineering | `engineering-backend-architect.md`, `engineering-code-reviewer.md`, `engineering-devops-automator.md`, `engineering-frontend-developer.md`, `engineering-security-engineer.md`, `engineering-senior-developer.md` |
+| Product | `product-manager.md` |
+| Testing | `testing-accessibility-auditor.md`, `testing-evidence-collector.md`, `testing-reality-checker.md` |
+
+When adding a new agent profile: create the `.md` file in `.claude/agents/` and run
+`./setup --team` (or the relevant setup step) to propagate it to team members.
+
+## Compiled binaries — NEVER commit browse/dist/, design/dist/, or make-pdf/dist/
+
+The `browse/dist/`, `design/dist/`, and `make-pdf/dist/` directories contain compiled
+Bun binaries (`browse`, `find-browse`, `design`, `pdf`, ~58MB each). These are
+Mach-O arm64 only — they do NOT work on Linux, Windows, or Intel Macs. The `./setup`
+script already builds from source for every platform, so the checked-in binaries are
+redundant. They are tracked by git due to a historical mistake and should eventually
+be removed with `git rm --cached`.
 
 **NEVER stage or commit these files.** They show up as modified in `git status`
 because they're tracked despite `.gitignore` — ignore them. When staging files,
