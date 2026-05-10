@@ -35,8 +35,10 @@ jobs:
 
       - name: Check if image exists
         id: check
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
         run: |
-          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+          if docker manifest inspect "$IMAGE_TAG" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -170,6 +172,8 @@ jobs:
       - name: Post PR comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # shellcheck disable=SC2086,SC2059
           RESULTS=$(find /tmp/eval-results -name '*.json' 2>/dev/null | sort)
@@ -230,12 +234,12 @@ jobs:
           fi
 
           # Update existing comment or create new one
-          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+          COMMENT_ID=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
             --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1)
 
           if [ -n "$COMMENT_ID" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+            gh api "repos/$GH_REPO/issues/comments/$COMMENT_ID" \
               -X PATCH -f body="$BODY"
           else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
+            gh pr comment "$PR_NUMBER" --body "$BODY"
           fi

@@ -35,8 +35,10 @@ jobs:
 
       - name: Check if image exists
         id: check
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
         run: |
-          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+          if docker manifest inspect "$IMAGE_TAG" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
