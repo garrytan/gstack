@@ -87,6 +87,18 @@ describe('browse-client', () => {
       expect(auth.source).toBe('env');
     });
 
+    it('rejects GSTACK_PORT env values with trailing characters', () => {
+      process.env.GSTACK_PORT = `${server.port}abc`;
+      process.env.GSTACK_SKILL_TOKEN = 'scoped-token';
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-client-test-'));
+      try {
+        expect(() => resolveBrowseAuth({ stateFile: path.join(tmpDir, 'missing.json') }))
+          .toThrow('browse-client: cannot find daemon port + token');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     it('falls back to state file when env vars missing', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-client-test-'));
       const stateFile = path.join(tmpDir, 'browse.json');
@@ -152,6 +164,13 @@ describe('browse-client', () => {
       const client = new BrowseClient({ port: server.port, token: 't' });
       await client.command('text', []);
       expect(server.requests[0].body).toEqual({ command: 'text', args: [], tabId: 7 });
+    });
+
+    it('omits tabId when BROWSE_TAB has trailing characters', async () => {
+      process.env.BROWSE_TAB = '7abc';
+      const client = new BrowseClient({ port: server.port, token: 't' });
+      await client.command('text', []);
+      expect(server.requests[0].body).toEqual({ command: 'text', args: [] });
     });
 
     it('throws BrowseClientError with status on non-2xx', async () => {

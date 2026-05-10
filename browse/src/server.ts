@@ -26,6 +26,7 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
 import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
   initRegistry, validateToken as validateScopedToken, checkScope, checkDomain,
@@ -317,6 +318,27 @@ const CONSOLE_LOG_PATH = config.consoleLog;
 const NETWORK_LOG_PATH = config.networkLog;
 const DIALOG_LOG_PATH = config.dialogLog;
 
+/**
+ * Per-process state-file temp path. The state-file write pattern is
+ * `writeFileSync(tmp, ...) → renameSync(tmp, stateFile)` for atomicity,
+ * but a shared `${stateFile}.tmp` filename means two concurrent writers
+ * (cold-start race when N CLIs hit a fresh repo simultaneously, parallel
+ * /tunnel/start handlers, or a combination) collide on the rename: the
+ * first writer's renameSync moves the shared temp file out of the way,
+ * the second writer's writeFileSync re-creates it, the second rename
+ * then races with the first writer's already-renamed state. Worst case
+ * the second renameSync throws ENOENT mid-air, killing one of the
+ * spawning daemons during startup.
+ *
+ * Per-process suffix (pid + 4 random bytes) makes each writer's temp
+ * path unique. The atomic rename still gives last-writer-wins semantics
+ * for the final state.json content; the only behavior change is that
+ * concurrent writers no longer kill each other on the rename.
+ */
+function tmpStatePath(): string {
+  return `${config.stateFile}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+}
+
 
 // ─── Sidebar agent / chat state ripped ──────────────────────────────
 // ChatEntry, SidebarSession, TabAgentState interfaces; chatBuffer,
@@ -328,6 +350,7 @@ const DIALOG_LOG_PATH = config.dialogLog;
 // terminal-agent.ts; chat queue + per-tab agent multiplexing are no
 // longer needed.
 
+let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
 let lastDialogFlushed = 0;
 let flushInProgress = false;
@@ -1596,7 +1619,7 @@ async function start() {
           // Update state file
           const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
           stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-          const tmpState = config.stateFile + '.tmp';
+          const tmpState = tmpStatePath();
           fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
           fs.renameSync(tmpState, config.stateFile);
 
@@ -2126,7 +2149,7 @@ async function start() {
     // without clobbering a recycled PID.
     ...(xvfb ? { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display } : {}),
   };
-  const tmpFile = config.stateFile + '.tmp';
+  const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
 
@@ -2207,7 +2230,7 @@ async function start() {
         // Update state file with tunnel URL
         const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
         stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-        const tmpState = config.stateFile + '.tmp';
+        const tmpState = tmpStatePath();
         fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
         fs.renameSync(tmpState, config.stateFile);
       } catch (err: any) {
@@ -2237,7 +2260,7 @@ async function start() {
       console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
       const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
       stateContent.tunnelLocalPort = tunnelPort;
-      const tmpState = config.stateFile + '.tmp';
+      const tmpState = tmpStatePath();
       fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
       fs.renameSync(tmpState, config.stateFile);
     } catch (err: any) {
@@ -2252,8 +2275,8 @@ start().catch((err) => {
   // stderr because the server is launched with detached: true, stdio: 'ignore'.
   try {
     const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`, { mode: 0o600 });
+    mkdirSecure(config.stateDir);
+    writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
   } catch {
     // stateDir may not exist — nothing more we can do
   }

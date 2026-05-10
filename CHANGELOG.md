@@ -1,5 +1,205 @@
 # Changelog
 
+## [1.31.0.0] - 2026-05-09
+
+## **AskUserQuestion stops getting silently buried in plan files.**
+## **The forever-war contradiction in the preamble is deleted, the test harness sees prose-rendered questions, and 5 fictional test variants are gone.**
+
+After v1.31, `/plan-eng-review`, `/office-hours`, and the rest of the
+plan-* skills surface every decision through AskUserQuestion. The
+"fallback when neither variant is callable" clause that quietly
+authorized a `## Decisions to confirm` plan-write + ExitPlanMode is
+deleted, along with the "trivial fix" exception that survived the
+prior tightening and the "outside plan mode, output as prose and stop"
+escape hatch. Skill-text loses ~10 lines net across 8 inline sites
+plus the 6 places the same fallback was repeated verbatim inside
+`plan-eng-review/SKILL.md.tmpl`.
+
+Five test variants that simulated a Conductor configuration nobody
+actually runs (`--disallowedTools AskUserQuestion` without a registered
+MCP variant, i.e. "neither AUQ tool callable") are deleted. They
+tested a state that doesn't exist in production: real Conductor
+sessions register `mcp__conductor__AskUserQuestion`, so the model
+always has the MCP variant. The deleted variants were a long-running
+flake source.
+
+The harness gained three new primitives that survive the test cull:
+`isProseAUQVisible` regex detector for lettered (A/B/C/D) and numbered
+(1/2/3) prose AUQ rendering, an LLM judge using `claude-haiku-4-5`
+that classifies TTY snapshots as `waiting` / `working` / `hung`, and
+high-water-mark tracking on `PlanSkillObservation` so tests that
+check "did the user see a question at SOME point" don't have to scan
+the truncated 2KB evidence window.
+
+### The numbers that matter
+
+| Surface | Before | After | Δ |
+|---|---|---|---|
+| Fallback clause inline sites in skill-text | 8 | 0 | -8 |
+| Surviving "trivial fix" / "prose-and-stop" escape hatches | 2 | 0 | -2 |
+| Plan-mode test variants under fictional `--disallowedTools` | 5 | 0 | -5 |
+| LLM judge classifications | 0 | 4 (waiting/working/hung/unknown) | +4 |
+| Diff size on this branch (after merge with main) | — | -721 / +928 | net +207 |
+
+The deleted "fallback" clause was the load-bearing instruction the
+model was rationalizing as a general escape hatch from "fanning out
+round-trip AUQs." Once it's gone, the anti-shortcut clause and STOP
+gates in `plan-eng-review` Sections 1-4 stand without a contradicting
+instruction to lose to. `gate-tier plan-eng-finding-floor` passes on
+every run since the architectural fix landed.
+
+### What this means for builders
+
+If you are running `/plan-eng-review` or any other plan-* skill, you
+will see one AskUserQuestion per finding instead of four findings
+quietly batched into a "## Decisions to confirm" plan-file write that
+gets buried under ExitPlanMode. The harness improvements (prose-AUQ
+detector, LLM judge, snapshot logs at `~/.gstack/analytics/pty-judge.jsonl`
+and `~/.gstack/analytics/pty-snapshots/` when `GSTACK_PTY_LOG=1`) are
+load-bearing for any future plan-mode regression test that needs to
+distinguish "model is thinking" from "model is waiting for me."
+
+### Itemized changes
+
+#### Architectural fix
+- Deleted `## Decisions to confirm` fallback clause from
+  `scripts/resolvers/preamble/generate-ask-user-format.ts:12` (both
+  branches: plan-file write AND prose-and-stop)
+- Deleted same fallback clause from
+  `scripts/resolvers/preamble/generate-completion-status.ts:29`
+- Deleted fallback inline sentences from
+  `plan-eng-review/SKILL.md.tmpl` (Step 0 + Sections 1-4: 5 instances)
+  and `office-hours/SKILL.md.tmpl` (1 instance)
+- Deleted "Only skip AskUserQuestion when the decision is genuinely
+  trivial" exception from `plan-eng-review/SKILL.md.tmpl:204`
+- Replaced with single hard rule: "If no AskUserQuestion variant
+  appears in your tool list, this skill is BLOCKED. Stop, report
+  `BLOCKED — AskUserQuestion unavailable`, and wait for the user."
+- Regenerated all 47 generated SKILL.md files (default + 7 host adapters)
+
+#### Test harness primitives
+- Added `isProseAUQVisible` regex detector with line-start anchoring
+  and tail-only native-cursor gate
+  (`test/helpers/claude-pty-runner.ts`); 8 unit tests cover lettered
+  and numbered formats, threshold edges, native-cursor exclusion, and
+  mid-prose false-positive guard
+- Added `judgePtyState` LLM judge using `claude -p --model
+  claude-haiku-4-5 --max-turns 1` with subscription auth (no API key
+  env required), in-process cache by SHA-1 of normalized last-4KB
+  snapshot, JSONL log to `~/.gstack/analytics/pty-judge.jsonl`
+- Added high-water-mark flags `proseAUQEverObserved` and
+  `waitingEverObserved` to `PlanSkillObservation`; tests check these
+  rather than re-running detectors against the truncated evidence
+  window
+- Added snapshot logging via `GSTACK_PTY_LOG=1`, dumping last 4KB of
+  visible TTY at every judge tick to
+  `~/.gstack/analytics/pty-snapshots/<test>-<elapsed>ms.txt`
+- `assertReportAtBottomIfPlanWritten` now tolerates ENOENT (TTY-detected
+  path that didn't persist) and `outcome='asked'` smoke runs (workflow
+  exited at first AUQ, no review report yet)
+- Wired LLM judge fallback into `runPlanSkillObservation` and
+  `runPlanSkillFloorCheck` polling loops: after 60s of no terminal
+  classification, snapshot every 30s and call the judge; on `waiting`
+  verdict, return `outcome='asked'` early
+
+#### Test surface changes
+- Added `test/skill-e2e-plan-eng-multi-finding-batching.test.ts`
+  (periodic tier) using `runPlanSkillCounting` with a 4-finding seeded
+  fixture (`FORCING_BATCHING_ENG`) that mirrors the original transcript
+  bug shape; asserts at least 3 distinct review-phase AUQs
+- Deleted `test/skill-e2e-autoplan-auto-mode.test.ts` entirely
+- Deleted test 2 (`--disallowedTools AskUserQuestion`) from
+  `plan-ceo-plan-mode`, `plan-design-plan-mode`, `plan-eng-plan-mode`
+  (kept test 1 baseline plus plan-eng-plan-mode test 3 STOP-gate)
+- Removed `autoplan-auto-mode` entry from `test/helpers/touchfiles.ts`
+  (E2E_TOUCHFILES and E2E_TIERS); updated `test/touchfiles.test.ts`
+  assertion count
+
+#### For contributors
+- Three subagent investigations across the debugging cycle were the
+  load-bearing diagnostic step: the architectural fix, the prose-AUQ
+  detector design, and the test-fictional-state retraction. The
+  pattern that worked: have a fresh-context subagent verify the
+  parent's mental model against actual file contents before committing
+  to a fix. Codex review caught that "three places" was actually
+  eight, that the proposed multi-finding test would pass trivially
+  given how `runPlanSkillFloorCheck` exits on first AUQ, and that
+  three existing tests codified the deleted fallback as PASS.
+
+## [1.30.0.0] - 2026-05-09
+
+## **Twenty-one community fixes land in one wave, plus closing fixes that put the Windows + codex surfaces under CI for the first time.**
+
+Browse stops silently dropping `browse-console.log` writes (a regression from a missing variable declaration), the cold-start race that ENOENT'd one of every fifteen parallel daemons gets a per-process tempfile, and concurrent iframe detach finally clears refs symmetrically with main-frame nav. `codex exec resume` works on machines that ship `python` without the `python3` alias, and stops passing the `-C` and `-s` flags that the resume subcommand rejects. Windows users get bash.exe wrap for telemetry spawn, `Bun.which` binary resolution that finds `.exe`/`.cmd`/`.bat` instead of bare paths, and NTFS ACL hardening on every file written to `~/.gstack/`. Two closing fixes land alongside: `windows-free-tests.yml` now exercises the icacls + Bun.which test files (closing the gap codex's outside-voice review flagged in the plan), and a live `codex exec resume --help` smoke catches CLI flag-semantics drift that the existing regex-only test would have missed.
+
+### The numbers that matter
+
+End-to-end verified via `bun test` (free tier, 452 tests pass) and gate-tier E2E:
+
+| Surface | Before | After | Δ |
+|---|---|---|---|
+| Browse `console.log` persistence | swallowed every 1s flush due to `lastConsoleFlushed` ReferenceError | declared, persisted to disk | regression closed |
+| Concurrent daemon cold-start | shared `state.tmp` raced rename, killed 1 in N spawns | per-process `tmpStatePath()` (pid + 4 random bytes) | no more ENOENT |
+| Iframe detach handling | refs leaked when iframe auto-detached (asymmetric with main-frame nav) | refs cleared symmetrically | parity fix |
+| `codex exec resume` flag set | `-C "$_REPO_ROOT" -s read-only` (rejected by the resume subcommand) | `-c 'sandbox_mode="read-only"'` + `cd "$_REPO_ROOT"` | works without warnings |
+| Codex JSON parsing | hardcoded `python3`; broke on machines with only `python` | probes `python3` then `python`, errors clearly if neither | works on more machines |
+| Windows browse / make-pdf binary resolution | bare-path probe missed `.exe`/`.cmd`/`.bat` | `Bun.which` + `GSTACK_*_BIN` override + extension probing | works on Windows installs |
+| Windows state-file hardening | POSIX `0o600` mode bits no-op'd on NTFS | icacls inheritance break + grant-only ACL on every `~/.gstack/` write | actual hardening, not silent no-op |
+| Windows telemetry spawn | `spawn(bash-script)` ENOENT'd silently on Windows (`CreateProcess` rejects shebangs) | bash.exe wrap with PATH / `GSTACK_BASH_BIN` override | telemetry events captured on Windows |
+| Domain-skill auto-promote | promoted regardless of classifier_score | gated on `classifier_score > 0` | adversarially-flagged domains stay quarantined |
+| Shell-injection surface in memory ingest | git cwd interpolated through `/bin/sh` | `execFileSync` with cwd as a parameter | one less injection path |
+| Windows free-tests CI coverage | 3 test files (claude-bin, gstack-paths, test-shards) | 7 test files (+ icacls, security telemetry, browseClient, pdftotext) | 4 new surfaces under CI |
+| Codex CLI flag-semantics test | regex-only on SKILL.md text | live `codex exec resume --help` smoke (skips when codex absent) | catches upstream flag drift |
+
+PR count: 21 community merges + 4 in-house follow-up commits (#1302 template port, CL-1 Windows CI extension, CL-2 codex flag smoke, server.ts conflict-resolution fix). Contributors credited: 13 unique authors. Test count went from 452 → 459 (4 new tests from the merged PRs + 3 from CL-1/CL-2 invariants).
+
+### What this means for builders
+
+If you're on a Windows install, this is the release where `~/.gstack/` is actually access-restricted (icacls grants), browse and make-pdf find the right `.exe`, and bash-shebang telemetry stops dropping on the floor. Set `GSTACK_BROWSE_BIN` / `GSTACK_PDFTOTEXT_BIN` / `GSTACK_BASH_BIN` to override. If you use the `/codex` skill, resume sessions work on machines with only `python` and no `python3`, and the rejected `-C/-s` flags are gone. If you spawn multiple browse daemons in parallel (CI shards, cold-start races, multi-tab Conductor), the per-process tempfile fix means rename no longer steals the file out from under a sibling. Run `gbrain autopilot --install` once and forget about it.
+
+### Itemized changes
+
+#### Added
+
+- **#1306** Windows bash.exe wrap for telemetry spawn (`browse/src/security.ts`). Honors `GSTACK_BASH_BIN` / `BASH_BIN` env override, falls back to `Bun.which('bash')` (finds Git Bash on standard Windows installs). Returns null when bash is unresolvable so caller skips the spawn cleanly. Contributed by @scarson.
+- **#1307** `Bun.which`-based binary resolution for `make-pdf/src/browseClient.ts` and `make-pdf/src/pdftotext.ts`. Probes `.exe`/`.cmd`/`.bat` after a bare-path miss on Windows; honors `GSTACK_BROWSE_BIN` / `GSTACK_PDFTOTEXT_BIN` overrides. Extends the v1.24 pattern from `claude-bin.ts` to the other two binary resolvers. Contributed by @scarson.
+- **#1308** NTFS ACL hardening for `~/.gstack/` state files (`browse/src/file-permissions.ts` is the new helper). `writeSecureFile` and `mkdirSecure` invoke `icacls /inheritance:r /grant:r <user>:(F)` on Windows; POSIX `chmod 0o600` continues working unchanged. First icacls failure per process is logged once with the advice line "sensitive files may be readable by other accounts on this machine"; later failures stay silent to avoid spam. Contributed by @scarson.
+- **#1316** Python3-or-python probe in `codex/SKILL.md.tmpl`. Resolves `python3` then `python`, errors clearly if neither is on PATH. Contributed by @jbetala7.
+- **#1339** Strict integer validation in `browse/src/browse-client.ts` env handling. Partial integers now throw rather than silently truncating. Contributed by @hiSandog.
+- **#1369** `classifier_score > 0` gate on domain-skill auto-promote (`browse/src/domain-skills.ts:248-320`). Quarantined domains stay quarantined even if every other heuristic says promote. Contributed by @garagon.
+- **CL-1** Windows free-tests CI lane now runs `browse/test/file-permissions.test.ts`, `browse/test/security.test.ts`, `make-pdf/test/browseClient.test.ts`, and `make-pdf/test/pdftotext.test.ts`. The four test files already platform-gate their assertions via `process.platform`, so the same files run on POSIX and Windows lanes and exercise only the relevant branch.
+- **CL-2** Live codex CLI flag-semantics smoke (`test/codex-resume-flag-semantics.test.ts`). Probes `codex exec resume --help` for `-c`/`sandbox_mode` presence and top-level `-C` absence; skips when codex isn't on PATH so dev machines without codex installed never see it fail.
+
+#### Changed
+
+- **#1270** `codex exec resume` invocation in `codex/SKILL.md.tmpl` drops `-C "$_REPO_ROOT"` and `-s read-only` (the resume subcommand rejects both), uses `-c 'sandbox_mode="read-only"'` config and `cd "$_REPO_ROOT"` instead. Adds the regression test `codex/SKILL.md resume command only uses resume-supported flags`. Contributed by @jbetala7.
+- **#1273** `design/prototype.ts` (the prototype script only — the main design CLI is unchanged) reads the OpenAI key only from `OPENAI_API_KEY`. Output filenames sanitized to `[a-zA-Z0-9_-]` only. The `~/.gstack/openai.json` file fallback is removed from the prototype script; `design/src/auth.ts` and `design/src/cli.ts` still support it for the main CLI flow. Contributed by @orbisai0security.
+- **#1302** /ship Plan Completion gate (`ship/SKILL.md.tmpl` + `scripts/resolvers/review.ts`) adds Verification Mode classification (DIFF-VERIFIABLE / CROSS-REPO / EXTERNAL-STATE / CONTENT-SHAPE), the UNVERIFIABLE classification, per-item confirmation gate (no blanket-confirm AskUserQuestion), and explicit fail-closed behavior on subagent failure. Forbids the silent-fail-open path that produced the VAS-449 incident shape. Contributed by @vaskockorovski.
+- **#1332** /ship step 12 fail-fast probe for the base branch in `ship/SKILL.md.tmpl`. Prevents step 12 from running against an unresolvable base. Contributed by @Jasperc2024.
+- **#1337** `design/src/variants.ts` honors the `Retry-After` header on 429 responses. Prevents thundering-herd retries against rate-limited endpoints. Contributed by @stedfn.
+- **#1362** `test/helpers/providers/gemini.ts` detects the new `~/.gemini/oauth_creds.json` auth path alongside the legacy location. Contributed by @abigail-atheryon.
+- **#1366** `browse/src/browser-manager.ts` adds `--no-sandbox` only when running as root (Linux/WSL2), not unconditionally. Contributed by @furkankoykiran.
+- **#1368** `bin/gstack-memory-ingest.ts` passes git cwd via `execFileSync` parameter rather than interpolating into a `/bin/sh` invocation. One less shell-injection class. Contributed by @garagon.
+
+#### Fixed
+
+- **#1309** Missing `let lastConsoleFlushed = 0;` declaration in `browse/src/server.ts`. Every 1-second `flushBuffers` tick was throwing a swallowed ReferenceError; `browse-console.log` was never written in any production deployment since this regressed. Contributed by @yashkot007.
+- **#1310** Per-process `tmpStatePath()` for state-file writes in `browse/src/server.ts`. The shared `state.tmp` literal raced on rename when concurrent daemons spawned (15-parallel cold-start reproducer). pid + 4 random bytes of suffix gives each writer a unique path; atomic rename still gives last-writer-wins on the final state. Contributed by @yashkot007.
+- **#1311** `getActiveFrameOrPage` in `browse/src/tab-session.ts` clears refs symmetrically when an iframe auto-detaches, matching the existing main-frame nav path. Contributed by @yashkot007.
+- **#1297** Korean / CJK IME input rendering in the Sidebar Terminal (`extension/sidepanel-terminal.js`, `browse/src/terminal-agent.ts`, `extension/sidepanel.css`). Composition state preserved, character widths corrected. Contributed by @realcarsonterry.
+- **#1333** Removed the contradictory plan-mode handshake from `plan-devex-review/SKILL.md.tmpl` (the skill was simultaneously claiming plan-mode is active and asking the user to confirm entering plan-mode). Contributed by @Jasperc2024.
+
+#### Documentation
+
+- **#1290** `CLAUDE.md` and `ARCHITECTURE.md` prompt-injection thresholds aligned to the actual values in `browse/src/security.ts` (BLOCK 0.85, WARN 0.60, LOG_ONLY 0.40 — the docs had drifted to older numbers). Contributed by @brycealan.
+- **#1338** README per-skill symlink uninstall snippet corrected (the previous wording would `rm` the global skills directory rather than the project-local symlink). Contributed by @stedfn.
+
+#### For contributors
+
+- The wave was triaged by `/plan-ceo-review` (single-wave + bisect-discipline merge ordering), `/plan-eng-review` (mapped 5 cross-PR conflict pairs with explicit resolution rules + tightened the `gh pr checkout N -b pr-N` syntax), and `/codex` outside-voice review (caught 6 factual errors and 2 process improvements that both internal reviews missed; cross-model agreement was 14%). All review findings were incorporated before merge; the two CI gaps codex flagged became the CL-1 and CL-2 closing fixes that ship in this same release.
+- The five cross-PR conflict pairs documented in the plan (#1316↔#1270 codex resume line, #1309→#1310→#1308 server.ts state writes, #1366↔#1308 browser-manager, #1306↔#1308 security.ts, #1332↔#1302 ship template) all surfaced as predicted; resolutions kept both intents on each. The lone exception was the #1310/#1308 state-file write site, where `fs.writeFileSync(tmpStatePath(), ..., { mode: 0o600 })` is preserved (locks #1310's race-fix invariant exercised by `browse/test/server-tmp-state-path.test.ts`); icacls hardening still applies to every other `writeSecureFile` call site #1308 introduced (`auth.json`, the `mkdirSecure` paths, etc.).
+- PR #1302 only edited the generated `ship/SKILL.md`, not the source `ship/SKILL.md.tmpl` or `scripts/resolvers/review.ts`. The next `bun run gen:skill-docs` would have wiped its changes; the wave includes `fix(ship): port #1302 SKILL.md edits to .tmpl + resolver source` to keep the changes alive across regen.
+
 ## [1.29.0.0] - 2026-05-08
 
 ## **Code search beats Grep across every Conductor worktree now, not just the last one you synced.**

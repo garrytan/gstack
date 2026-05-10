@@ -8,7 +8,8 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { normalize, copyPasteGate } from "../src/pdftotext";
+import * as path from "node:path";
+import { normalize, copyPasteGate, findExecutable, resolvePdftotext, PdftotextUnavailableError } from "../src/pdftotext";
 
 describe("normalize", () => {
   test("strips trailing spaces", () => {
@@ -102,5 +103,105 @@ describe("copyPasteGate — assertion logic", () => {
     expect(Math.abs(expectedBreaks - tooFewBreaks)).toBeGreaterThan(1);
     // After normalize, 3+ newlines become 2, so the count matches
     expect(Math.abs(expectedBreaks - tooManyBreaksNormalized)).toBeLessThanOrEqual(4);
+  });
+});
+
+// ─── Binary resolution (v1.24-aligned) ──────────────────────────
+
+const REAL_EXE: string =
+  process.platform === "win32"
+    ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe")
+    : "/bin/sh";
+
+function withEnv<T>(overrides: Record<string, string | undefined>, fn: () => T): T {
+  const saved: Record<string, string | undefined> = {};
+  for (const k of Object.keys(overrides)) saved[k] = process.env[k];
+  for (const [k, v] of Object.entries(overrides)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+describe("findExecutable (pdftotext.ts)", () => {
+  test("returns the bare path on POSIX when it's executable", () => {
+    if (process.platform === "win32") return;
+    expect(findExecutable("/bin/sh")).toBe("/bin/sh");
+  });
+
+  test("on win32, probes .exe / .cmd / .bat after the bare-path miss", () => {
+    if (process.platform !== "win32") return;
+    const base = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd");
+    expect(findExecutable(base)).toBe(base + ".exe");
+  });
+
+  test("returns null when no extension matches", () => {
+    expect(findExecutable("/nonexistent/path/to/nothing")).toBeNull();
+  });
+});
+
+describe("resolvePdftotext (override resolution, v1.24-aligned)", () => {
+  test("honors GSTACK_PDFTOTEXT_BIN when it points at a real executable", () => {
+    // We can't fake a real pdftotext, but we can fake "any executable" to
+    // exercise the override-resolution path. describeBinary will mark flavor
+    // as "unknown" since cmd.exe / /bin/sh don't respond to -v like pdftotext;
+    // the test asserts on the bin-path resolution, not the version probe.
+    const info = withEnv({ GSTACK_PDFTOTEXT_BIN: REAL_EXE }, () => resolvePdftotext());
+    expect(info.bin).toBe(REAL_EXE);
+  });
+
+  test("honors PDFTOTEXT_BIN as a back-compat alias", () => {
+    const info = withEnv(
+      { GSTACK_PDFTOTEXT_BIN: undefined, PDFTOTEXT_BIN: REAL_EXE },
+      () => resolvePdftotext(),
+    );
+    expect(info.bin).toBe(REAL_EXE);
+  });
+
+  test("GSTACK_PDFTOTEXT_BIN takes precedence over PDFTOTEXT_BIN", () => {
+    const info = withEnv(
+      { GSTACK_PDFTOTEXT_BIN: REAL_EXE, PDFTOTEXT_BIN: "/nonexistent/legacy" },
+      () => resolvePdftotext(),
+    );
+    expect(info.bin).toBe(REAL_EXE);
+  });
+
+  test("strips wrapping double quotes from override values", () => {
+    const info = withEnv({ GSTACK_PDFTOTEXT_BIN: `"${REAL_EXE}"` }, () => resolvePdftotext());
+    expect(info.bin).toBe(REAL_EXE);
+  });
+
+  test("error message includes Windows install hint and GSTACK_PDFTOTEXT_BIN", () => {
+    let thrown: unknown = null;
+    try {
+      withEnv(
+        {
+          GSTACK_PDFTOTEXT_BIN: "/nonexistent/gstack-pdftotext",
+          PDFTOTEXT_BIN: "/nonexistent/pdftotext",
+          PATH: "",
+          Path: "",
+        },
+        () => resolvePdftotext(),
+      );
+    } catch (err) {
+      thrown = err;
+    }
+    // If the test box has a real pdftotext on disk, resolution succeeds
+    // (POSIX candidates) — that's fine; the assertion is gated on whether
+    // it threw. On Windows-CI without poppler, it throws.
+    if (thrown) {
+      expect(thrown).toBeInstanceOf(PdftotextUnavailableError);
+      expect((thrown as Error).message).toContain("pdftotext not found");
+      expect((thrown as Error).message).toContain("GSTACK_PDFTOTEXT_BIN");
+      expect((thrown as Error).message).toContain("Windows");
+      expect((thrown as Error).message).toContain("scoop install poppler");
+    }
   });
 });

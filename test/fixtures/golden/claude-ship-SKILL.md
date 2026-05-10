@@ -350,30 +350,29 @@ _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Mutually exclusive variants per /plan-eng-review §4. Empty string when gbrain
-# is not configured (zero context cost for non-gbrain users).
+# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
+# git toplevel to scope queries. Look for the pin in the worktree (not a global
+# state file) so that opening worktree B without a pin doesn't claim "indexed"
+# just because worktree A was synced. Empty string when gbrain is not
+# configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
-    _CWD_PAGES=0
-    if [ -f "$_SYNC_STATE" ]; then
-      _CWD_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
-      _CWD_PAGES=$(jq -r --arg path "$_CWD_ROOT" \
-        '.last_stages[]? | select(.name=="code" and .detail.source_path==$path) | .detail.page_count // 0' \
-        "$_SYNC_STATE" 2>/dev/null | head -1)
-      _CWD_PAGES=${_CWD_PAGES:-0}
+    _GBRAIN_PIN_PATH=""
+    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
+      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
-    if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
+    if [ -n "$_GBRAIN_PIN_PATH" ]; then
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
     else
-      echo "GBrain configured but this repo isn't indexed yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this repo."
-      echo "Falls back to Grep until indexed."
+      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
+      echo "before relying on \`gbrain search\` for code questions in this worktree."
+      echo "Falls back to Grep until pinned."
     fi
   fi
 fi
@@ -1614,19 +1613,43 @@ For each item, note:
 - The item text (verbatim or concise summary)
 - Its category: CODE | TEST | MIGRATION | CONFIG | DOCS
 
+### Verification Mode
+
+Before judging completion, classify HOW each item can be verified. The diff alone cannot prove every kind of work. Items outside the current repo or system are structurally invisible to `git diff`.
+
+- **DIFF-VERIFIABLE** — A code change in this repo would manifest in `git diff <base>...HEAD`. Examples: "add UserService" (file appears), "validate input X" (validation logic appears), "create users table" (migration file appears).
+- **CROSS-REPO** — Item names a file or change in a sibling repo (e.g., `domain-hq/docs/dashboard.md`, `~/Development/<other-repo>/...`). The current diff CANNOT prove this.
+- **EXTERNAL-STATE** — Item names state in an external system: Supabase config/RLS, Cloudflare DNS, Vercel env vars, OAuth provider allowlists, third-party SaaS, DNS records. The current diff CANNOT prove this.
+- **CONTENT-SHAPE** — Item requires a file to follow a specific convention. If the file is in this repo: diff-verifiable. If in another repo or system: see CROSS-REPO / EXTERNAL-STATE.
+
+**Verification dispatch:**
+
+- **DIFF-VERIFIABLE** → cross-reference against diff (next section).
+- **CROSS-REPO** → if the sibling repo is reachable on disk (try `~/Development/<repo>/`, `~/code/<repo>/`, the parent of the current repo), run `[ -f <path> ]` to check file existence. File exists → DONE (cite path). File missing → NOT DONE (cite path). Path unreachable → UNVERIFIABLE (cite what needs manual check).
+- **EXTERNAL-STATE** → UNVERIFIABLE. Cite the system and the specific check the user must perform.
+- **CONTENT-SHAPE in another repo** → if the file exists, run any project-detected validator (see "Validator detection" below) before falling back to UNVERIFIABLE. With a validator: pass → DONE; fail → NOT DONE (cite validator output). No validator available: classify UNVERIFIABLE and cite both the file path and the convention to confirm.
+
+**Path concreteness rule.** If a plan item names a *concrete filesystem path* (absolute, `~/...`, or `<sibling-repo>/<file>`), it MUST be classified DONE or NOT DONE based on `[ -f <path> ]`. UNVERIFIABLE is only valid when the path is genuinely abstract ("Cloudflare DNS", "Supabase allowlist") or the sibling root is unreachable on this machine. "I don't want to check" is not unreachable.
+
+**Validator detection.** Before falling back to UNVERIFIABLE on a CONTENT-SHAPE item, scan the target repo's `package.json` for any script matching `validate-*`, `lint-wiki`, `check-docs`, or similar. If found, invoke it with the relevant path argument (e.g., `npm run validate-wiki -- <path>`). For multi-target validators (e.g., `validate-wiki --all`), run once and reconcile per-item from the output. A passing validator promotes the item from UNVERIFIABLE to DONE; a failing one demotes to NOT DONE.
+
+**Honesty rule.** Do NOT classify an item as DONE just because related code shipped. Code that *handles* a deliverable is not the deliverable. Shipping a markdown-extraction library is not the same as shipping the markdown file. When in doubt between DONE and UNVERIFIABLE, prefer UNVERIFIABLE — better to surface a confirmation prompt than silently miss a deliverable.
+
 ### Cross-Reference Against Diff
 
 Run `git diff origin/<base>...HEAD` and `git log origin/<base>..HEAD --oneline` to understand what was implemented.
 
-For each extracted plan item, check the diff and classify:
+For each extracted plan item, run the verification dispatch from the previous section, then classify:
 
-- **DONE** — Clear evidence in the diff that this item was implemented. Cite the specific file(s) changed.
-- **PARTIAL** — Some work toward this item exists in the diff but it's incomplete (e.g., model created but controller missing, function exists but edge cases not handled).
-- **NOT DONE** — No evidence in the diff that this item was addressed.
+- **DONE** — Clear evidence the item shipped. Cite the specific file(s) changed in the diff for DIFF-VERIFIABLE items, or the verified path that exists for CROSS-REPO items with a reachable sibling repo.
+- **PARTIAL** — Some work toward this item exists but is incomplete (e.g., model created but controller missing, function exists but edge cases not handled).
+- **NOT DONE** — Verification ran and produced negative evidence (file missing, code absent in diff, sibling-repo file confirmed absent).
 - **CHANGED** — The item was implemented using a different approach than the plan described, but the same goal is achieved. Note the difference.
+- **UNVERIFIABLE** — The diff and any reachable sibling-repo checks cannot prove or disprove this. Always applies to EXTERNAL-STATE items and to CROSS-REPO items where the sibling repo isn't reachable. Cite the specific manual verification the user must perform (e.g., "check Cloudflare DNS shows DNS-only mode for dashboard.example.com", "confirm /docs/dashboard.md exists in domain-hq repo").
 
-**Be conservative with DONE** — require clear evidence in the diff. A file being touched is not enough; the specific functionality described must be present.
+**Be conservative with DONE** — require clear evidence. A file being touched is not enough; the specific functionality described must be present.
 **Be generous with CHANGED** — if the goal is met by different means, that counts as addressed.
+**Be honest with UNVERIFIABLE** — better to surface 5 items the user must manually confirm than silently classify them DONE.
 
 ### Output Format
 
@@ -1636,56 +1659,81 @@ PLAN COMPLETION AUDIT
 Plan: {plan file path}
 
 ## Implementation Items
-  [DONE]      Create UserService — src/services/user_service.rb (+142 lines)
-  [PARTIAL]   Add validation — model validates but missing controller checks
-  [NOT DONE]  Add caching layer — no cache-related changes in diff
-  [CHANGED]   "Redis queue" → implemented with Sidekiq instead
+  [DONE]         Create UserService — src/services/user_service.rb (+142 lines)
+  [PARTIAL]      Add validation — model validates but missing controller checks
+  [NOT DONE]     Add caching layer — no cache-related changes in diff
+  [CHANGED]      "Redis queue" → implemented with Sidekiq instead
 
 ## Test Items
-  [DONE]      Unit tests for UserService — test/services/user_service_test.rb
-  [NOT DONE]  E2E test for signup flow
+  [DONE]         Unit tests for UserService — test/services/user_service_test.rb
+  [NOT DONE]    E2E test for signup flow
 
 ## Migration Items
-  [DONE]      Create users table — db/migrate/20240315_create_users.rb
+  [DONE]         Create users table — db/migrate/20240315_create_users.rb
+
+## Cross-Repo / External Items
+  [DONE]         sibling-repo has /docs/dashboard.md — verified at ~/Development/sibling-repo/docs/dashboard.md
+  [UNVERIFIABLE] Cloudflare DNS-only on api.example.com — external system, manual check required
+  [UNVERIFIABLE] Supabase auth allowlist contains user email — external system, confirm in Supabase dashboard
 
 ─────────────────────────────────
-COMPLETION: 4/7 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED
+COMPLETION: 5/9 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 ─────────────────────────────────
 ```
 
 ### Gate Logic
 
-After producing the completion checklist:
+After producing the completion checklist, evaluate in priority order:
 
-- **All DONE or CHANGED:** Pass. "Plan completion: PASS — all items addressed." Continue.
-- **Only PARTIAL items (no NOT DONE):** Continue with a note in the PR body. Not blocking.
-- **Any NOT DONE items:** Use AskUserQuestion:
-  - Show the completion checklist above
-  - "{N} items from the plan are NOT DONE. These were part of the original plan but are missing from the implementation."
-  - RECOMMENDATION: depends on item count and severity. If 1-2 minor items (docs, config), recommend B. If core functionality is missing, recommend A.
-  - Options:
-    A) Stop — implement the missing items before shipping
-    B) Ship anyway — defer these to a follow-up (will create P1 TODOs in Step 5.5)
-    C) These items were intentionally dropped — remove from scope
-  - If A: STOP. List the missing items for the user to implement.
-  - If B: Continue. For each NOT DONE item, create a P1 TODO in Step 5.5 with "Deferred from plan: {plan file path}".
-  - If C: Continue. Note in PR body: "Plan items intentionally dropped: {list}."
+1. **Any NOT DONE items** (highest priority — known missing work). Use AskUserQuestion:
+   - Show the completion checklist above
+   - "{N} items from the plan are NOT DONE. These were part of the original plan but are missing from the implementation."
+   - RECOMMENDATION: depends on item count and severity. If 1-2 minor items (docs, config), recommend B. If core functionality is missing, recommend A.
+   - Options:
+     A) Stop — implement the missing items before shipping
+     B) Ship anyway — defer these to a follow-up (will create P1 TODOs in Step 5.5)
+     C) These items were intentionally dropped — remove from scope
+   - If A: STOP. List the missing items for the user to implement.
+   - If B: Continue. For each NOT DONE item, create a P1 TODO in Step 5.5 with "Deferred from plan: {plan file path}".
+   - If C: Continue. Note in PR body: "Plan items intentionally dropped: {list}."
+
+2. **Any UNVERIFIABLE items** (silent gaps — the diff cannot prove them either way). Only fires after NOT DONE is resolved or absent.
+
+   **Per-item confirmation is mandatory.** Do NOT use a single AskUserQuestion to blanket-confirm all UNVERIFIABLE items. Blanket confirmation is the failure mode that surfaced in VAS-449 (user clicks A without opening any file). Instead:
+
+   - Loop through UNVERIFIABLE items one at a time.
+   - For each item, use AskUserQuestion with the item's *specific* manual check (e.g., "Confirm: does `~/Development/domain-hq/docs/dashboard.md` exist?", not "Have you checked all items?").
+   - Options per item:
+     Y) Confirmed done — cite what you verified (free-text, embedded in PR body)
+     N) Not done — block ship; treat as NOT DONE and re-enter the priority-1 gate
+     D) Intentionally dropped — note in PR body: "Plan item intentionally dropped: {item}"
+   - RECOMMENDATION per item: Y if the item is concrete and easily verified; N if it's critical-path (auth, DNS, deliverables to other repos) and the user shows hesitation.
+
+   **Exit conditions:**
+   - Any N: STOP. Surface the missing items, suggest re-running /ship after they're addressed.
+   - All Y or D: Continue. Embed `## Plan Completion — Manual Verifications` section in PR body listing each Y'd item with the user's free-text evidence and each D'd item with "intentionally dropped".
+
+   **Cap.** If there are more than 5 UNVERIFIABLE items, present them as a numbered list first and ask whether the user wants to (1) confirm each individually, (2) stop and reduce scope, or (3) explicitly accept blanket-confirmation with the warning that this is the VAS-449 failure shape. Default and recommended option is (1).
+
+3. **Only PARTIAL items (no NOT DONE, no UNVERIFIABLE):** Continue with a note in the PR body. Not blocking.
+
+4. **All DONE or CHANGED:** Pass. "Plan completion: PASS — all items addressed." Continue.
 
 **No plan file found:** Skip entirely. "No plan file detected — skipping plan completion audit."
 
 **Include in PR body (Step 8):** Add a `## Plan Completion` section with the checklist summary.
 >
 > After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-> `{"total_items":N,"done":N,"changed":N,"deferred":N,"summary":"<markdown checklist for PR body>"}`
+> `{"total_items":N,"done":N,"changed":N,"deferred":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}`
 
 **Parent processing:**
 
 1. Parse the LAST line of the subagent's output as JSON.
-2. Store `done`, `deferred` for Step 20 metrics; use `summary` in PR body.
-3. If `deferred > 0` and no user override, present the deferred items via AskUserQuestion before continuing.
-4. Embed `summary` in PR body's `## Plan Completion` section (Step 19).
+2. Store `done`, `deferred`, `unverifiable` for Step 20 metrics; use `summary` in PR body.
+3. If `deferred > 0` or `unverifiable > 0` and no user override, present the items via the appropriate AskUserQuestion (see Gate Logic priority order above) before continuing.
+4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). If `unverifiable > 0` and the user picked option A in the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` listing each user-confirmed item.
 
-**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline. Never block /ship on subagent failure.
+**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit AskUserQuestion: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
 
 ---
 
@@ -2392,46 +2440,14 @@ already knows. A good test: would this insight save time in a future session? If
 
 ## Step 12: Version bump (auto-decide)
 
-**Fork versioning override (highest priority):** If `CLAUDE.md` contains a `## Fork versioning rule` section, inspect the branch diff before any top-level release metadata work:
-
-```bash
-FORK_LOCAL_SKILL_RELEASE=0
-if [ -f CLAUDE.md ] && grep -q '^## Fork versioning rule' CLAUDE.md; then
-  CHANGED_FILES=$(git diff --name-only origin/<base>)
-  if printf '%s\n' "$CHANGED_FILES" | grep -Eq '(^|/)SKILL\.md(\.tmpl)?$|^\.agent[s]/skills/|^build/'; then
-    echo "Fork versioning rule detected. If this diff is fork-local/custom skill work, do not bump top-level VERSION/package.json/CHANGELOG."
-    echo "$CHANGED_FILES"
-  fi
-fi
-```
-
-When the diff is fork-local/custom skill work (for example `build/SKILL.md.tmpl`, generated `build/SKILL.md`, host-specific generated skill output, tests/docs/config for those local skills), set `FORK_LOCAL_SKILL_RELEASE=1` and **skip the rest of Step 12**:
-
-- Do **not** edit top-level `VERSION`.
-- Do **not** edit `package.json.version`.
-- Do **not** call `bin/gstack-next-version`.
-- Do **not** create or rewrite a top-level `CHANGELOG.md` entry in Step 13.
-- Do bump the affected custom skill template frontmatter `version:` instead.
-
-Before continuing, verify every changed custom skill template has a bumped frontmatter version relative to `origin/<base>`:
-
-```bash
-for skill_tmpl in $(git diff --name-only origin/<base> | grep 'SKILL\.md\.tmpl$' || true); do
-  base_skill_version=$(git show "origin/<base>:$skill_tmpl" 2>/dev/null | awk '/^version:/{print $2; exit}' || true)
-  current_skill_version=$(awk '/^version:/{print $2; exit}' "$skill_tmpl")
-  if [ -n "$base_skill_version" ] && [ "$base_skill_version" = "$current_skill_version" ]; then
-    echo "ERROR: $skill_tmpl changed under the fork versioning rule but its frontmatter version stayed at $current_skill_version."
-    echo "Bump the skill-local version and regenerate skill docs before continuing."
-    exit 1
-  fi
-done
-```
-
-If the diff includes non-fork product/runtime work, leave `FORK_LOCAL_SKILL_RELEASE=0` and continue with the normal top-level version flow below.
-
 **Idempotency check:** Before bumping, classify the state by comparing `VERSION` against the base branch AND against `package.json`'s `version` field. Four states: FRESH (do bump), ALREADY_BUMPED (skip bump), DRIFT_STALE_PKG (sync pkg only, no re-bump), DRIFT_UNEXPECTED (stop and ask).
 
 ```bash
+if ! git rev-parse --verify origin/<base> >/dev/null 2>&1; then
+  echo "ERROR: Unable to resolve origin/<base>. Run 'git fetch origin' or verify the base branch exists."
+  exit 1
+fi
+
 BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
 CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
 [ -z "$BASE_VERSION" ] && BASE_VERSION="0.0.0.0"
@@ -2570,8 +2586,6 @@ echo "Drift repaired: package.json synced to $REPAIR_VERSION. No version bump pe
 ---
 
 ## Step 13: CHANGELOG (auto-generate)
-
-**Fork-local/custom skill releases:** If Step 12 set `FORK_LOCAL_SKILL_RELEASE=1`, skip this step entirely. Do not write a top-level `CHANGELOG.md` entry, because the repo's `## Fork versioning rule` says fork-local skill changes are tracked by skill frontmatter `version:`, not by top-level release metadata.
 
 1. Read `CHANGELOG.md` header to know the format.
 
@@ -2747,8 +2761,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
    - **Infrastructure:** migrations, config changes, route additions
    - **Models & services:** new models, services, concerns (with their tests)
    - **Controllers & views:** controllers, views, JS/React components (with their tests)
-   - **VERSION + CHANGELOG + TODOS.md:** final commit for normal releases
-   - **Fork-local/custom skill releases:** no top-level VERSION/package.json/CHANGELOG metadata commit; include the skill-local frontmatter bump, regenerated skill docs, and related tests in the logical skill commit
+   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
 
 3. **Rules for splitting:**
    - A model and its test file go in the same commit
@@ -2763,7 +2776,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
    - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer. Skip this version-tagged metadata commit entirely when `FORK_LOCAL_SKILL_RELEASE=1`:
+   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -2863,9 +2876,7 @@ glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS"
 
 If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run.
 
-**Normal releases:** Always update the PR title to start with `v$NEW_VERSION`. PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version first for every top-level release. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the normal release rule.
-
-**Fork-local/custom skill releases:** If `FORK_LOCAL_SKILL_RELEASE=1`, do **not** require or add a `v$NEW_VERSION` title prefix. `NEW_VERSION` is intentionally unset because top-level `VERSION` was not bumped. Use a normal title such as `<type>: <summary>`, update the PR body, print the URL, and continue to Step 20.
+**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
 2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
@@ -2942,10 +2953,9 @@ you missed it.>
 **If GitHub:**
 
 ```bash
-# Normal release PR title MUST start with v$NEW_VERSION.
-# Fork-local/custom skill releases MUST NOT invent a top-level version prefix.
+# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
 # (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "<title per Step 19>" --body "$(cat <<'EOF'
+gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body "$(cat <<'EOF'
 <PR body from above>
 EOF
 )"
@@ -2954,10 +2964,9 @@ EOF
 **If GitLab:**
 
 ```bash
-# Normal release MR title MUST start with v$NEW_VERSION.
-# Fork-local/custom skill releases MUST NOT invent a top-level version prefix.
+# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
 # (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "<title per Step 19>" -d "$(cat <<'EOF'
+glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"

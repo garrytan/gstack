@@ -26,6 +26,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   isPermissionDialogVisible,
   isNumberedOptionListVisible,
+  isProseAUQVisible,
   isPlanReadyVisible,
   parseNumberedOptions,
   classifyVisible,
@@ -189,6 +190,105 @@ describe('isNumberedOptionListVisible', () => {
     `;
     expect(isNumberedOptionListVisible(sample)).toBe(true);
     expect(isPermissionDialogVisible(sample)).toBe(true);
+  });
+});
+
+describe('isProseAUQVisible', () => {
+  test('matches 4 lettered options A) B) C) D) at line starts (plan-eng prose AUQ shape)', () => {
+    const sample = `
+What would you like me to review? Options:
+A) Point me at an existing design doc or plan file (path).
+B) Describe new work you're planning — I'll explore the codebase.
+C) You meant /review for the diff already on this branch.
+D) Something else (tell me).
+Recommendation: A if you have a doc in mind, otherwise B.
+❯
+`;
+    expect(isProseAUQVisible(sample)).toBe(true);
+  });
+
+  test('matches 2 lettered options (minimum threshold)', () => {
+    const sample = `
+A) First option
+B) Second option
+`;
+    expect(isProseAUQVisible(sample)).toBe(true);
+  });
+
+  test('matches 3 numbered options 1. 2. 3. without ❯ 1. cursor (autoplan prose AUQ shape)', () => {
+    const sample = `
+What's the task? A few options:
+  1. You have a plan idea in mind — describe it.
+  2. You want to review an existing plan elsewhere.
+  3. You meant a different command — /plan-ceo-review etc.
+❯
+`;
+    expect(isProseAUQVisible(sample)).toBe(true);
+  });
+
+  test('returns false when ❯ 1. cursor is present in the recent tail (native UI handled by isNumberedOptionListVisible)', () => {
+    const sample = `
+❯ 1. First option
+  2. Second option
+  3. Third option
+`;
+    expect(isProseAUQVisible(sample)).toBe(false);
+  });
+
+  test('does NOT suppress numbered-prose detection when ❯ 1. is only in early scrollback (trust dialog)', () => {
+    // Boot trust dialog rendered ❯ 1. Yes at startup, then a long body of
+    // model output, then prose-rendered numbered options now. The historic
+    // ❯ 1. is in the full buffer but NOT in the recent tail. Should detect
+    // the prose AUQ.
+    const trustHeader = '❯ 1. Yes, trust\n  2. No\n';
+    const filler = 'x'.repeat(5000); // pushes trust dialog out of last 4KB tail
+    const proseAUQ = `\n  1. Review the docs\n  2. Investigate the code\n  3. Defer to next session\n❯  \n`;
+    const sample = trustHeader + filler + proseAUQ;
+    expect(isProseAUQVisible(sample)).toBe(true);
+  });
+
+  test('returns false on single lettered option', () => {
+    const sample = `
+A) Only one option mentioned in passing.
+`;
+    expect(isProseAUQVisible(sample)).toBe(false);
+  });
+
+  test('matches 2 numbered options (threshold matches lettered branch — tails miss option 1)', () => {
+    const sample = `
+1. First note.
+2. Second note.
+`;
+    expect(isProseAUQVisible(sample)).toBe(true);
+  });
+
+  test('returns false on a single numbered option', () => {
+    const sample = `
+1. Only one option mentioned.
+`;
+    expect(isProseAUQVisible(sample)).toBe(false);
+  });
+
+  test('does not match mid-prose lettered text like "(see option B) above"', () => {
+    const sample = `
+This refers to (see option B) above and also to point A) earlier.
+`;
+    // The B) and A) markers are mid-line, not at line starts, so they don't count.
+    expect(isProseAUQVisible(sample)).toBe(false);
+  });
+
+  test('matches with leading whitespace and ❯ prefix on options', () => {
+    const sample = `
+   A) Option with whitespace prefix
+❯  B) Option with cursor prefix
+   C) Another option
+`;
+    expect(isProseAUQVisible(sample)).toBe(true);
+  });
+
+  test('returns false on plain text with no option markers', () => {
+    expect(isProseAUQVisible('Just some plain text output from the model.')).toBe(false);
+    expect(isProseAUQVisible('')).toBe(false);
   });
 });
 

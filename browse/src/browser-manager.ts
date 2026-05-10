@@ -16,6 +16,7 @@
  */
 
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
@@ -197,10 +198,11 @@ export class BrowserManager {
     const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS];
     let useHeadless = true;
 
-    // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
-    // are typically disabled in containers. Detect container environment and
-    // add --no-sandbox automatically.
-    if (process.env.CI || process.env.CONTAINER) {
+    // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
+    // are typically disabled in containers and are never available for the root
+    // user on Linux. Detect all three cases and add --no-sandbox automatically.
+    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+    if (process.env.CI || process.env.CONTAINER || isRoot) {
       launchArgs.push('--no-sandbox');
     }
 
@@ -290,10 +292,10 @@ export class BrowserManager {
         const fs = require('fs');
         const path = require('path');
         const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
-        fs.mkdirSync(gstackDir, { recursive: true });
+        mkdirSecure(gstackDir);
         const authFile = path.join(gstackDir, '.auth.json');
         try {
-          fs.writeFileSync(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }), { mode: 0o600 });
+          writeSecureFile(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }));
         } catch (err: any) {
           console.warn(`[browse] Could not write .auth.json: ${err.message}`);
         }

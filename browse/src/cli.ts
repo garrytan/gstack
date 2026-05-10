@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
@@ -852,7 +853,7 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
         scopes: pairData.scopes,
         expires_at: pairData.expires_at,
       };
-      fs.writeFileSync(configFile, JSON.stringify(configData, null, 2), { mode: 0o600 });
+      writeSecureFile(configFile, JSON.stringify(configData, null, 2));
       console.log(`Connected. ${localHost} can now use the browser.`);
       console.log(`Config written to: ${configFile}`);
     } catch (err: any) {

@@ -91,8 +91,17 @@ jobs:
         continue-on-error: true
 
       - name: Verify new portability work on Windows
-        # 31 tests targeting the new code paths added by v1.20.0.0. These
-        # MUST pass for the release-note headline ("curated Windows lane added")
-        # to be truthful.
-        run: bun test test/gstack-paths.test.ts browse/test/claude-bin.test.ts test/test-free-shards.test.ts
+        # Tests targeting the v1.20.0.0 lane plus v1.30.0.0 fix-wave additions.
+        # v1.30.0.0 extension covers icacls hardening (#1308), bash.exe telemetry
+        # wrap (#1306), and Bun.which-based binary resolvers (#1307). These must
+        # pass on Windows for the wave's "Windows hardening" framing to be honest.
+        run: |
+          bun test \
+            test/gstack-paths.test.ts \
+            browse/test/claude-bin.test.ts \
+            test/test-free-shards.test.ts \
+            browse/test/file-permissions.test.ts \
+            browse/test/security.test.ts \
+            make-pdf/test/browseClient.test.ts \
+            make-pdf/test/pdftotext.test.ts
         shell: bash
