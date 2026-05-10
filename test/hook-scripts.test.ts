@@ -229,6 +229,77 @@ describe('check-careful.sh', () => {
     }
   });
 
+  // --- Commit message / echo false-positive prevention (issue #1060) ---
+
+  describe('commit message false-positive prevention (#1060)', () => {
+    test('git commit -m with rm -r in message does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -m 'cleaned up with rm -r old_dir'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git commit -m with DROP TABLE in message does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -m 'feat: handle DROP TABLE in migrations'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git commit -m with truncate in message does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -m 'truncate long output lines'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git commit -m with git push --force in message does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -m 'add git push --force protection'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git commit -m with git reset --hard in message does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -m 'add git reset --hard warning'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git tag -m with destructive pattern does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git tag -m 'drop table migration v2' v1.0"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('echo with rm -rf does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("echo 'rm -rf is dangerous' && ls"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('printf with DROP TABLE does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("printf 'DROP TABLE users;' > log.txt"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('commit then REAL rm -rf still warns', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -m 'cleanup' && rm -rf /data"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
+
+    test('git commit --amend with destructive msg does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit --amend -m 'fix: handle truncate edge case'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('git commit --message= with destructive pattern does NOT warn', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit --message='rm -rf guard added'"));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+  });
+
   // --- Edge cases ---
 
   describe('edge cases', () => {
