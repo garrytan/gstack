@@ -29,6 +29,8 @@ export interface BuildTimeoutsMs {
   judge: number;
   /** Per-invocation timeout for the configurable feature-level reviewer. */
   featureReview: number;
+  /** Per-invocation timeout for the plan-level second-opinion reviewer. */
+  planReview: number;
 }
 
 export interface BuildDefaults {
@@ -56,6 +58,7 @@ const ROLE_KEYS: RoleKey[] = [
   "judge",
   "featureReview",
   "monitorAgent",
+  "planReviewer",
 ];
 
 const PROVIDERS: RoleProvider[] = ["claude", "codex", "gemini", "kimi"];
@@ -100,10 +103,19 @@ export function loadBuildDefaults(
     withMigratedNumberSection(
       config.timeoutsMs,
       "timeoutsMs",
-      ["kimi", "featureReview"],
+      ["kimi", "featureReview", "planReview"],
       filePath,
     ),
-    ["gemini", "kimi", "codex", "ship", "test", "judge", "featureReview"],
+    [
+      "gemini",
+      "kimi",
+      "codex",
+      "ship",
+      "test",
+      "judge",
+      "featureReview",
+      "planReview",
+    ],
     `${filePath}:timeoutsMs`,
   ) as unknown as BuildTimeoutsMs;
 
@@ -121,7 +133,11 @@ function withMigratedRoles(value: unknown, filePath: string): unknown {
   const isLoadingDefault =
     path.resolve(filePath) === path.resolve(DEFAULT_BUILD_CONFIG_FILE);
   delete roles.contextSave;
-  for (const key of ["featureReview", "monitorAgent"] as const) {
+  for (const key of [
+    "featureReview",
+    "monitorAgent",
+    "planReviewer",
+  ] as const) {
     if (!roles[key] && !isLoadingDefault) roles[key] = readDefaultRole(key);
   }
   return roles;

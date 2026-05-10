@@ -356,6 +356,26 @@ export interface BuildRunManifest {
   runs: BuildRunManifestRun[];
 }
 
+export type PlanReviewSeverity = "APPROVE" | "REVISE";
+
+export interface PlanReviewObjection {
+  severity: "CRITICAL" | "IMPORTANT" | "SUGGESTION";
+  /** e.g. "Feature 2, Phase 1" */
+  location: string;
+  issue: string;
+  suggestion: string;
+}
+
+export interface PlanReviewVerdict {
+  verdict: PlanReviewSeverity;
+  objections: PlanReviewObjection[];
+  assessment: string;
+  /** Model name, e.g. "gpt-5.5". "skipped-unavailable" when review was bypassed. */
+  reviewedBy: string;
+  /** 1 or 2 — for re-synthesis round tracking in SKILL.md Step 5.5. */
+  round: number;
+}
+
 export interface BuildState {
   /** Absolute path to the plan markdown. */
   planFile: string;
@@ -393,4 +413,6 @@ export interface BuildState {
   codexReviewModel?: string;
   /** Role-based provider/model/reasoning/command routing. */
   roleConfigs?: RoleConfigs;
+  /** Result of the planReviewer second-opinion pass. undefined = not yet reviewed or skipped. */
+  planReview?: PlanReviewVerdict;
 }

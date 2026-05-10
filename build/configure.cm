@@ -62,6 +62,11 @@
       "model": "kimi-code/kimi-for-coding",
       "reasoning": "high"
     },
+    "planReviewer": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high"
+    },
     "ship": {
       "provider": "kimi",
       "model": "kimi-code/kimi-for-coding",
@@ -94,6 +99,7 @@
     "ship": 1800000,
     "test": 300000,
     "judge": 600000,
-    "featureReview": 1200000
+    "featureReview": 1200000,
+    "planReview": 300000
   }
 }

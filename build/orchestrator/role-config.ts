@@ -34,6 +34,12 @@ export interface RoleConfigs {
    * diagnoses blocking monitor events and returns structured escalation JSON.
    */
   monitorAgent: RoleConfig;
+  /**
+   * Second-opinion reviewer that runs at gstack-build startup, before Phase 1
+   * of Feature 1. Returns APPROVE/REVISE verdict; CRITICAL objections trigger
+   * exit 3 and SKILL.md re-synthesis loop.
+   */
+  planReviewer: RoleConfig;
 }
 
 export const ROLE_DEFINITIONS = [
@@ -49,6 +55,7 @@ export const ROLE_DEFINITIONS = [
   ["judge", "judge", "GSTACK_BUILD_JUDGE"],
   ["featureReview", "feature-review", "GSTACK_BUILD_FEATURE_REVIEW"],
   ["monitorAgent", "monitor-agent", "GSTACK_BUILD_MONITOR_AGENT"],
+  ["planReviewer", "plan-reviewer", "GSTACK_BUILD_PLANREVIEWER"],
 ] as const satisfies readonly [keyof RoleConfigs, string, string][];
 
 export type RoleKey = (typeof ROLE_DEFINITIONS)[number][0];
