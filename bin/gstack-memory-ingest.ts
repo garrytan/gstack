@@ -819,6 +819,11 @@ function gbrainPutPage(page: PageRecord): { ok: boolean; error?: string } {
       body,
     ].join("\n");
   }
+  // Strip NUL bytes — Postgres rejects 0x00 in UTF-8 text columns. Some Claude
+  // Code transcripts contain NUL inside user-pasted content or tool output, and
+  // surfacing those as `internal_error: invalid byte sequence` from the brain
+  // is unhelpful when we can sanitize at write time.
+  body = body.replace(/ /g, "");
   try {
     execFileSync("gbrain", ["put", page.slug], {
       input: body,
