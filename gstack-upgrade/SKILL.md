@@ -316,7 +316,7 @@ for how to add new migrations.
 After migrations, overlay any custom SKILL.md.tmpl files from the user's configured fork repo onto the installed gstack, then regenerate all hosts. This ensures fork-local skill changes (e.g., custom build orchestration, added steps) survive upstream merges.
 
 ```bash
-_FORK_REPO=$(~/.claude/skills/gstack/bin/gstack-config get fork_repo_path 2>/dev/null || echo "")
+_FORK_REPO=$("$INSTALL_DIR/bin/gstack-config" get fork_repo_path 2>/dev/null || echo "")
 echo "FORK_REPO: ${_FORK_REPO:-none}"
 ```
 
@@ -330,11 +330,11 @@ echo "FORK_REPO: ${_FORK_REPO:-none}"
    # Try upstream remote first, fall back to origin
    _BASE_REF=""
    if git remote get-url upstream >/dev/null 2>&1; then
-     git fetch upstream main --quiet 2>/dev/null || true
-     _BASE_REF="upstream/main"
+     git fetch upstream main --quiet 2>/dev/null && _BASE_REF="upstream/main" || \
+       echo "Warning: git fetch upstream failed — diff results may be incomplete"
    elif git remote get-url origin >/dev/null 2>&1; then
-     git fetch origin main --quiet 2>/dev/null || true
-     _BASE_REF="origin/main"
+     git fetch origin main --quiet 2>/dev/null && _BASE_REF="origin/main" || \
+       echo "Warning: git fetch origin failed — diff results may be incomplete"
    fi
    echo "FORK_BASE_REF: ${_BASE_REF:-none}"
    ```
@@ -343,7 +343,7 @@ echo "FORK_REPO: ${_FORK_REPO:-none}"
 
    If `_BASE_REF` is set, get the fork-specific tmpl files:
    ```bash
-   _FORK_TMPLS=$(git diff "$_BASE_REF"...HEAD --name-only 2>/dev/null | grep '\.tmpl$' || true)
+   _FORK_TMPLS=$(git diff "$_BASE_REF"...HEAD --name-only 2>/dev/null | grep '/SKILL\.md\.tmpl$' || true)
    echo "Fork-specific templates: ${_FORK_TMPLS:-none}"
    ```
 
@@ -352,6 +352,9 @@ echo "FORK_REPO: ${_FORK_REPO:-none}"
    _overlaid=0
    while IFS= read -r _rel; do
      [ -z "$_rel" ] && continue
+     case "$_rel" in
+       *..*)  echo "SKIP: suspicious path (traversal): $_rel"; continue ;;
+     esac
      _src="$_FORK_REPO/$_rel"
      _installed="$INSTALL_DIR/$_rel"
      [ -f "$_src" ] || continue
@@ -359,9 +362,7 @@ echo "FORK_REPO: ${_FORK_REPO:-none}"
      cp "$_src" "$_installed"
      echo "  overlaid: $_rel"
      _overlaid=$(( _overlaid + 1 ))
-   done <<EOF
-   $_FORK_TMPLS
-   EOF
+   done < <(printf '%s\n' "$_FORK_TMPLS")
    echo "Fork overlay: $_overlaid template(s) updated"
    ```
 
@@ -477,7 +478,7 @@ echo "PRIMARY=$PRIMARY_VER LOCAL=$LOCAL_VER"
 4. After vendored copy handling, always run the fork skill overlay and multi-host sync:
 
 ```bash
-_FORK_REPO=$(~/.claude/skills/gstack/bin/gstack-config get fork_repo_path 2>/dev/null || echo "")
+_FORK_REPO=$("$INSTALL_DIR/bin/gstack-config" get fork_repo_path 2>/dev/null || echo "")
 echo "FORK_REPO: ${_FORK_REPO:-none}"
 ```
 
