@@ -119,7 +119,7 @@ jobs:
           EVALS_CONCURRENCY: "40"
           PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
           SUITE_FILE: ${{ matrix.suite.file }}
-        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 $SUITE_FILE
+        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 "$SUITE_FILE"
 
       - name: Upload eval results
         if: always()
