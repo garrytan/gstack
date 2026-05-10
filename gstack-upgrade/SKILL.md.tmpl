@@ -313,6 +313,106 @@ Migrations are idempotent bash scripts in `gstack-upgrade/migrations/`. Each is 
 `v{VERSION}.sh` and runs only when upgrading from an older version. See CONTRIBUTING.md
 for how to add new migrations.
 
+### Step 4.8: Fork skill overlay
+
+After migrations, overlay any custom SKILL.md.tmpl files from the user's configured fork repo onto the installed gstack, then regenerate all hosts. This ensures fork-local skill changes (e.g., custom build orchestration, added steps) survive upstream merges.
+
+```bash
+_FORK_REPO=$(~/.claude/skills/gstack/bin/gstack-config get fork_repo_path 2>/dev/null || echo "")
+echo "FORK_REPO: ${_FORK_REPO:-none}"
+```
+
+**If `FORK_REPO` is empty or the directory does not exist:** skip this step and continue to Step 4.9.
+
+**If `FORK_REPO` is set and the directory exists:**
+
+1. Use `git` to find only templates that were intentionally modified in the fork relative to upstream (not just "different from installed gstack"). This avoids accidentally overwriting upstream improvements with older fork versions:
+   ```bash
+   cd "$_FORK_REPO"
+   # Try upstream remote first, fall back to origin
+   _BASE_REF=""
+   if git remote get-url upstream >/dev/null 2>&1; then
+     git fetch upstream main --quiet 2>/dev/null || true
+     _BASE_REF="upstream/main"
+   elif git remote get-url origin >/dev/null 2>&1; then
+     git fetch origin main --quiet 2>/dev/null || true
+     _BASE_REF="origin/main"
+   fi
+   echo "FORK_BASE_REF: ${_BASE_REF:-none}"
+   ```
+
+   If `_BASE_REF` is empty (no git remote): fall back to comparing all tmpl files by content against `$INSTALL_DIR` (using `diff -q`). Warn the user that configuring an `upstream` remote pointing to garrytan/gstack gives more precise results.
+
+   If `_BASE_REF` is set, get the fork-specific tmpl files:
+   ```bash
+   _FORK_TMPLS=$(git diff "$_BASE_REF"...HEAD --name-only 2>/dev/null | grep '\.tmpl$' || true)
+   echo "Fork-specific templates: ${_FORK_TMPLS:-none}"
+   ```
+
+2. For each fork-specific tmpl file, copy it to the corresponding path in `$INSTALL_DIR`:
+   ```bash
+   _overlaid=0
+   while IFS= read -r _rel; do
+     [ -z "$_rel" ] && continue
+     _src="$_FORK_REPO/$_rel"
+     _installed="$INSTALL_DIR/$_rel"
+     [ -f "$_src" ] || continue
+     mkdir -p "$(dirname "$_installed")"
+     cp "$_src" "$_installed"
+     echo "  overlaid: $_rel"
+     _overlaid=$(( _overlaid + 1 ))
+   done <<EOF
+   $_FORK_TMPLS
+   EOF
+   echo "Fork overlay: $_overlaid template(s) updated"
+   ```
+
+3. If any files were overlaid (`_overlaid > 0`), re-run gen:skill-docs and skill:check from `$INSTALL_DIR`:
+   ```bash
+   cd "$INSTALL_DIR"
+   bun run gen:skill-docs --host all
+   bun run skill:check
+   ```
+   Tell the user: "Fork overlay: N template(s) overlaid and regenerated."
+
+4. If `_FORK_TMPLS` is empty: tell the user "Fork skills are up to date — no fork-specific templates detected."
+
+### Step 4.9: Sync to non-registered AI hosts (gemini, kimi)
+
+After gen:skill-docs has run (either in Step 4.6 or re-run in Step 4.8), sync generated SKILL.md files to gemini and kimi skill directories. These are not registered gstack hosts and are not handled by `./setup` — they need explicit file copies.
+
+Note: Claude reads directly from `$INSTALL_DIR`. Codex's `~/.codex/skills/gstack/SKILL.md` is already symlinked to `$INSTALL_DIR/.agents/skills/gstack/SKILL.md` (set up by `./setup`), so it updates automatically when gen:skill-docs runs. Only gemini and kimi need explicit sync.
+
+```bash
+_SYNCED_ANY=0
+for _HOST_DIR in "$HOME/.gemini/skills/gstack" "$HOME/.kimi/skills/gstack"; do
+  [ -d "$_HOST_DIR" ] || continue
+  _HOST_NAME=$(basename "$(dirname "$(dirname "$_HOST_DIR")")" | sed 's/^\.//')
+  echo "Syncing to $_HOST_NAME ($_HOST_DIR)..."
+  # Sync root SKILL.md and ETHOS.md
+  for _f in SKILL.md ETHOS.md; do
+    if [ -f "$INSTALL_DIR/$_f" ]; then
+      cp "$INSTALL_DIR/$_f" "$_HOST_DIR/$_f"
+      echo "  synced: $_f"
+      _SYNCED_ANY=1
+    fi
+  done
+  # Sync each skill subdirectory that exists in the host install
+  for _skill_dir in "$_HOST_DIR"/*/; do
+    [ -d "$_skill_dir" ] || continue
+    _skill_name=$(basename "$_skill_dir")
+    if [ -f "$INSTALL_DIR/$_skill_name/SKILL.md" ]; then
+      cp "$INSTALL_DIR/$_skill_name/SKILL.md" "$_HOST_DIR/$_skill_name/SKILL.md"
+      echo "  synced: $_skill_name/SKILL.md"
+      _SYNCED_ANY=1
+    fi
+  done
+done
+if [ "$_SYNCED_ANY" -eq 0 ]; then echo "No gemini/kimi skill dirs found (nothing to sync)."; fi
+```
+
+Tell the user which hosts were synced (gemini, kimi) or "not found" if those directories don't exist.
+
 ### Step 5: Write marker + clear cache
 
 ```bash
@@ -375,3 +475,22 @@ echo "PRIMARY=$PRIMARY_VER LOCAL=$LOCAL_VER"
 **If versions differ:** follow the Step 4.5 sync bash block above to update the local copy from the primary. Tell user: "Global v{PRIMARY_VER} is up to date. Updated local vendored copy from v{LOCAL_VER} → v{PRIMARY_VER}. Commit `.claude/skills/gstack/` when you're ready."
 
 **If versions match:** tell the user "You're on the latest version (v{PRIMARY_VER}). Global and local vendored copy are both up to date."
+
+4. After vendored copy handling, always run the fork skill overlay and multi-host sync:
+
+```bash
+_FORK_REPO=$(~/.claude/skills/gstack/bin/gstack-config get fork_repo_path 2>/dev/null || echo "")
+echo "FORK_REPO: ${_FORK_REPO:-none}"
+```
+
+**If `FORK_REPO` is set and the directory exists:** run Step 4.8 (fork skill overlay) then Step 4.9 (gemini/kimi sync) from the Inline upgrade flow above. Use `$INSTALL_DIR` from the Step 2 detection. Report how many templates were overlaid and which hosts were synced. This is the primary path for "I updated my fork's build skill — now install it everywhere."
+
+**If `FORK_REPO` is not set:** tell the user:
+```
+Tip: configure a fork repo to auto-sync custom skill changes on every upgrade:
+  gstack-config set fork_repo_path /path/to/your/gstack/fork
+
+Once set, /gstack-upgrade will diff your fork's SKILL.md.tmpl files against
+the installed gstack, copy any that changed, regenerate for all hosts, and
+sync gemini/kimi skill dirs — even when no upstream upgrade is available.
+```

@@ -85,6 +85,16 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Non-Conductor users can point this at any directory
 #                           # that holds parallel worktrees of the same repo.
 #
+# ─── Fork skill overlay ───────────────────────────────────────────────
+# fork_repo_path:            # Absolute path to your local gstack fork repo.
+#                           # When set, /gstack-upgrade diffs SKILL.md.tmpl files
+#                           # from the fork against the installed gstack, copies any
+#                           # that differ, regenerates SKILL.md for all hosts
+#                           # (claude + codex), and syncs gemini/kimi skill dirs.
+#                           # Runs even when no upstream upgrade is available.
+#                           # Set with:
+#                           #   gstack-config set fork_repo_path /path/to/your/gstack
+#
 '
 
 # DEFAULTS table — canonical default values for known keys.
@@ -104,6 +114,7 @@ lookup_default() {
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
+    fork_repo_path) echo "" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
