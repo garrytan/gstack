@@ -1586,6 +1586,24 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P2
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
+---
+
+## Fork overlay follow-ons
+
+### Auto-discover and install new skills from fork repo
+
+**What:** When `fork_repo_path` is configured, Step 4.8 currently overlays only SKILL.md.tmpl files that already exist in `$INSTALL_DIR`. If the fork adds a brand-new skill (e.g., a `custom-build/SKILL.md.tmpl` that doesn't exist upstream), it is silently skipped — Step 4.9 only syncs dirs that already exist in the gemini/kimi host dirs.
+
+**Fix needed:**
+
+1. After the existing copy loop in Step 4.8, detect skill dirs present in `$_FORK_REPO` but absent from `$INSTALL_DIR`. For each missing dir, copy it to `$INSTALL_DIR` and report "new skill installed: `<name>`".
+2. Step 4.9 sync loop should create missing skill dirs in `.gemini/skills/gstack/` and `.kimi/skills/gstack/` rather than only updating existing ones.
+
+**Why deferred:** The current loop structure uses `git diff --name-only | grep '/SKILL\.md\.tmpl$'` which only surfaces CHANGED files — files absent from the base ref are not included in the diff. Detecting new skills requires comparing `$_FORK_REPO`'s skill dirs against `$INSTALL_DIR` directly (a `comm -23` or `find` approach), which is a separate code path.
+
+**Effort:** S (human: ~1 hour / CC: ~10 min)
+**Priority:** P2
+
 ## Completed
 
 ### Dual Implementor foundation + fix loops + hardening notes (v1.15.0.0 – v1.23.0.0)
