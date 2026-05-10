@@ -99,6 +99,56 @@ check_snooze() {
   return 1  # snooze expired
 }
 
+# ─── Auto-upgrade helper ──────────────────────────────────
+# try_auto_upgrade <local_version> <remote_version>
+#   Attempts auto-upgrade if auto_upgrade config is true.
+#   Outputs JUST_UPGRADED on success and returns 0.
+#   Returns 1 on failure (caller should fall through to UPGRADE_AVAILABLE).
+try_auto_upgrade() {
+  local local_ver="$1" remote_ver="$2"
+
+  local auto_cfg
+  auto_cfg=$("$GSTACK_DIR/bin/gstack-config" get auto_upgrade 2>/dev/null || true)
+  [ "$auto_cfg" = "true" ] || return 1
+
+  # Find the git install directory
+  # GSTACK_INSTALL_DIR: env override for testability (same pattern as GSTACK_DIR)
+  local install_dir="${GSTACK_INSTALL_DIR:-}"
+  if [ -z "$install_dir" ]; then
+    if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
+      install_dir="$HOME/.claude/skills/gstack"
+    elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
+      install_dir="$HOME/.gstack/repos/gstack"
+    fi
+  fi
+  [ -n "$install_dir" ] || return 1
+  [ -d "$install_dir/.git" ] || return 1
+
+  # Skip if working tree is dirty (don't destroy local modifications)
+  if [ -n "$(cd "$install_dir" && git status --porcelain 2>/dev/null)" ]; then
+    return 1
+  fi
+
+  # Best-effort upgrade: fetch, reset, setup. Failure falls through to UPGRADE_AVAILABLE.
+  local default_branch
+  default_branch="$(cd "$install_dir" && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')"
+  default_branch="${default_branch:-main}"
+
+  if ! (cd "$install_dir" && git fetch origin >/dev/null 2>&1 && git reset --hard "origin/$default_branch" >/dev/null 2>&1 && ./setup >/dev/null 2>&1); then
+    return 1
+  fi
+
+  # Read new version from the upgraded install
+  local new_ver
+  new_ver="$(cat "$install_dir/VERSION" 2>/dev/null | tr -d '[:space:]')"
+
+  # Success — update cache, clean any stale marker (prevent double JUST_UPGRADED)
+  echo "UP_TO_DATE ${new_ver:-$remote_ver}" > "$CACHE_FILE"
+  rm -f "$STATE_DIR/just-upgraded-from"
+  echo "JUST_UPGRADED $local_ver ${new_ver:-$remote_ver}"
+  return 0
+}
+
 # ─── Step 1: Read local version ──────────────────────────────
 LOCAL=""
 if [ -f "$VERSION_FILE" ]; then
@@ -144,6 +194,10 @@ if [ -f "$CACHE_FILE" ]; then
         CACHED_OLD="$(echo "$CACHED" | awk '{print $2}')"
         if [ "$CACHED_OLD" = "$LOCAL" ]; then
           CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
+          # Auto-upgrade takes priority over snooze (user opted in to silent updates)
+          if try_auto_upgrade "$LOCAL" "$CACHED_NEW"; then
+            exit 0
+          fi
           if check_snooze "$CACHED_NEW"; then
             exit 0  # snoozed — stay quiet
           fi
@@ -197,6 +251,12 @@ fi
 
 # Versions differ — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
+
+# Auto-upgrade if configured (before snooze check or prompting)
+if try_auto_upgrade "$LOCAL" "$REMOTE"; then
+  exit 0
+fi
+
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet
 fi
