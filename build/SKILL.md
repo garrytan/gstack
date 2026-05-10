@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.21.3
+version: 1.21.4
 description: |
   gstack autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -1839,3 +1839,21 @@ After ALL features are complete:
 - **Strict adherence**: Stick to the plan. Do not expand scope unless strictly necessary to make the code compile. STOP and report the error if a file or command is missing — do NOT guess.
 - **Fail forward**: If a subagent fails, try once more. Escalate to the user only after two failed attempts.
 - **Model Routing Discipline**: Use the role config from `build/configure.cm` plus CLI/env overrides. Defaults are data, not prose; check the config file before naming a model or provider. Note: `planSynthesizer` and `featureVerifier` are template-only roles consumed by jq — they are intentionally absent from the CLI's `ROLE_DEFINITIONS` and require no CLI flags or env vars.
+
+## Role Configuration Fallbacks
+
+Configured roles support `provider`, `model`, `reasoning`, and optional `command` fields. They also support one-level backup routing:
+
+- **`backupProvider`** _(optional)_: Provider to substitute when the primary fails with a non-zero exit or a timeout after its built-in retry. Valid values match `provider`: `claude`, `codex`, `gemini`, `kimi`. If the backup also fails, the error propagates normally.
+- **`backupModel`** _(optional)_: Model to pass to the backup provider. If omitted, no model flag is passed and the backup CLI uses its default.
+
+Env overrides follow the same `_BACKUP_PROVIDER` / `_BACKUP_MODEL` suffix:
+
+```bash
+GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER=gemini
+GSTACK_BUILD_PRIMARY_IMPL_BACKUP_MODEL=<backup-model-name>
+```
+
+The default `configure.cm` sets a Gemini backup for `primaryImpl`, `testFixer`, `ship`, and `land`.
+
+**Timeout cost:** both the primary and backup runners have a built-in timeout retry. A primary timeout causes `primary → retry → backup → backup-retry`. At the 900s default, worst-case wait is ~60 min before the error surfaces. Adjust `timeoutMs` for roles with a backup if 60-min stalls are unacceptable.

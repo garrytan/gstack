@@ -10,11 +10,11 @@
  * Returns the SubAgentResult so the driver can record outcome and log.
  */
 
-import { runShip, runSlashCommand, type SubAgentResult } from './sub-agents';
-import type { RoleConfig } from './role-config';
-import { ensureLogDir, logDir } from './state';
-import * as fs from 'fs';
-import * as path from 'path';
+import { runShip, runSlashCommand, type SubAgentResult } from "./sub-agents";
+import type { RoleConfig } from "./role-config";
+import { ensureLogDir, logDir } from "./state";
+import * as fs from "fs";
+import * as path from "path";
 
 export async function shipAndDeploy(args: {
   cwd: string;
@@ -29,13 +29,17 @@ export async function shipAndDeploy(args: {
       provider: args.shipRole.provider,
       model: args.shipRole.model,
       reasoning: args.shipRole.reasoning,
-      command: args.shipRole.command || '/gstack-ship',
+      command: args.shipRole.command || "/gstack-ship",
+      backupProvider: args.shipRole.backupProvider,
+      backupModel: args.shipRole.backupModel,
     },
     land: {
       provider: args.landRole.provider,
       model: args.landRole.model,
       reasoning: args.landRole.reasoning,
-      command: args.landRole.command || '/gstack-land-and-deploy',
+      command: args.landRole.command || "/gstack-land-and-deploy",
+      backupProvider: args.landRole.backupProvider,
+      backupModel: args.landRole.backupModel,
     },
   });
 }
@@ -46,24 +50,26 @@ export async function shipOnly(args: {
   shipRole: RoleConfig;
 }): Promise<SubAgentResult> {
   ensureLogDir(args.slug);
-  const shipInput = path.join(logDir(args.slug), 'ship-input.md');
-  const shipOutput = path.join(logDir(args.slug), 'ship-output.md');
+  const shipInput = path.join(logDir(args.slug), "ship-input.md");
+  const shipOutput = path.join(logDir(args.slug), "ship-output.md");
   fs.writeFileSync(
     shipInput,
-    `Run ${args.shipRole.command || '/gstack-ship'} for this repository. Report exactly what happened.`,
+    `Run ${args.shipRole.command || "/gstack-ship"} for this repository. Report exactly what happened.`,
   );
-  fs.writeFileSync(shipOutput, '');
+  fs.writeFileSync(shipOutput, "");
   return runSlashCommand({
     inputFilePath: shipInput,
     outputFilePath: shipOutput,
     cwd: args.cwd,
     slug: args.slug,
-    logPrefix: 'ship',
+    logPrefix: "ship",
     role: {
       provider: args.shipRole.provider,
       model: args.shipRole.model,
       reasoning: args.shipRole.reasoning,
-      command: args.shipRole.command || '/gstack-ship',
+      command: args.shipRole.command || "/gstack-ship",
+      backupProvider: args.shipRole.backupProvider,
+      backupModel: args.shipRole.backupModel,
     },
     timeoutMs: 60 * 60 * 1000,
     gate: false,
@@ -76,24 +82,26 @@ export async function landOnly(args: {
   landRole: RoleConfig;
 }): Promise<SubAgentResult> {
   ensureLogDir(args.slug);
-  const landInput = path.join(logDir(args.slug), 'land-and-deploy-input.md');
-  const landOutput = path.join(logDir(args.slug), 'land-and-deploy-output.md');
+  const landInput = path.join(logDir(args.slug), "land-and-deploy-input.md");
+  const landOutput = path.join(logDir(args.slug), "land-and-deploy-output.md");
   fs.writeFileSync(
     landInput,
-    `Run ${args.landRole.command || '/gstack-land-and-deploy'} for this repository. Report exactly what happened.`,
+    `Run ${args.landRole.command || "/gstack-land-and-deploy"} for this repository. Report exactly what happened.`,
   );
-  fs.writeFileSync(landOutput, '');
+  fs.writeFileSync(landOutput, "");
   return runSlashCommand({
     inputFilePath: landInput,
     outputFilePath: landOutput,
     cwd: args.cwd,
     slug: args.slug,
-    logPrefix: 'land-and-deploy',
+    logPrefix: "land-and-deploy",
     role: {
       provider: args.landRole.provider,
       model: args.landRole.model,
       reasoning: args.landRole.reasoning,
-      command: args.landRole.command || '/gstack-land-and-deploy',
+      command: args.landRole.command || "/gstack-land-and-deploy",
+      backupProvider: args.landRole.backupProvider,
+      backupModel: args.landRole.backupModel,
     },
     timeoutMs: 60 * 60 * 1000,
     gate: false,

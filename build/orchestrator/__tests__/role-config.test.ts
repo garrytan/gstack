@@ -3,6 +3,7 @@ import {
   DEFAULT_ROLE_CONFIGS,
   ROLE_DEFINITIONS,
   applyEnvRoleConfig,
+  applyRoleOverride,
   cloneRoleConfigs,
   migrateLegacyModels,
   parseProvider,
@@ -194,6 +195,31 @@ describe("role config precedence helpers", () => {
     expect(roles.primaryImpl.model).toBe("primary-model-under-test");
   });
 
+  it("honors BACKUP_PROVIDER / BACKUP_MODEL env overrides for primaryImpl", () => {
+    const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
+      GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER: "gemini",
+      GSTACK_BUILD_PRIMARY_IMPL_BACKUP_MODEL: "gemini-3.1-pro-preview",
+    });
+    expect(roles.primaryImpl.backupProvider).toBe("gemini");
+    expect(roles.primaryImpl.backupModel).toBe("gemini-3.1-pro-preview");
+  });
+
+  it("rejects invalid backup provider in env", () => {
+    expect(() =>
+      applyEnvRoleConfig(cloneRoleConfigs(), {
+        GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER: "unsupported-model",
+      }),
+    ).toThrow("GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER");
+  });
+
+  it("configure.cm sets gemini backup for primaryImpl, testFixer, ship, land", () => {
+    const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+    for (const role of ["primaryImpl", "testFixer", "ship", "land"] as const) {
+      expect(defaults.roles[role].backupProvider).toBe("gemini");
+      expect(defaults.roles[role].backupModel).toBe("gemini-3.1-pro-preview");
+    }
+  });
+
   it("rejects invalid config files", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-build-config-"));
     try {
@@ -208,6 +234,51 @@ describe("role config precedence helpers", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("rejects invalid backup provider in config files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-build-config-"));
+    try {
+      const file = path.join(dir, "bad-backup.configure.cm");
+      const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+      (defaults.roles.primaryImpl as any).backupProvider = "bad-provider";
+      fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
+
+      expect(() => loadBuildDefaults(file)).toThrow(
+        "roles.primaryImpl.backupProvider",
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("applyRoleOverride sets backupProvider on a role", () => {
+    const roles = cloneRoleConfigs();
+    applyRoleOverride(roles, "primaryImpl", "backupProvider", "gemini");
+    expect(roles.primaryImpl.backupProvider).toBe("gemini");
+  });
+
+  it("applyRoleOverride rejects invalid backupProvider value", () => {
+    const roles = cloneRoleConfigs();
+    expect(() =>
+      applyRoleOverride(
+        roles,
+        "primaryImpl",
+        "backupProvider",
+        "invalid-provider",
+      ),
+    ).toThrow("primaryImpl.backupProvider");
+  });
+
+  it("applyRoleOverride sets backupModel on a role", () => {
+    const roles = cloneRoleConfigs();
+    applyRoleOverride(
+      roles,
+      "primaryImpl",
+      "backupModel",
+      "gemini-3.1-pro-preview",
+    );
+    expect(roles.primaryImpl.backupModel).toBe("gemini-3.1-pro-preview");
   });
 
   it("applies env overrides over defaults", () => {

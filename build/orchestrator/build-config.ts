@@ -218,6 +218,16 @@ function validateRoles(value: unknown, filePath: string): RoleConfigs {
         `${filePath}:roles.${key}.command must be a string when present`,
       );
     }
+    if (role.backupProvider != null && !PROVIDERS.includes(role.backupProvider)) {
+      throw new Error(
+        `${filePath}:roles.${key}.backupProvider must be one of: ${PROVIDERS.join(", ")}`,
+      );
+    }
+    if (role.backupModel != null && typeof role.backupModel !== "string") {
+      throw new Error(
+        `${filePath}:roles.${key}.backupModel must be a string when present`,
+      );
+    }
   }
   return roles as RoleConfigs;
 }

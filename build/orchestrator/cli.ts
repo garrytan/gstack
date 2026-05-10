@@ -1700,6 +1700,10 @@ function buildRoleFlagMap(): Map<string, [RoleKey, RoleField]> {
     map.set(`--${flag}-model`, [key, "model"]);
     map.set(`--${flag}-reasoning`, [key, "reasoning"]);
     map.set(`--${flag}-command`, [key, "command"]);
+    // Backup flags registered for all roles; only 4 (primaryImpl, testFixer, ship, land)
+    // have defaults in configure.cm. Others accept overrides via CLI/env if needed.
+    map.set(`--${flag}-backup-provider`, [key, "backupProvider"]);
+    map.set(`--${flag}-backup-model`, [key, "backupModel"]);
   }
   return map;
 }
@@ -3011,7 +3015,7 @@ function summarizePhase(
   console.log(`\n[${marker}] Phase ${phaseNumber}: ${phaseName}`);
 }
 
-async function runRoleTask(opts: {
+export async function runRoleTask(opts: {
   role: RoleConfig;
   inputFilePath: string;
   outputFilePath: string;
@@ -3021,8 +3025,10 @@ async function runRoleTask(opts: {
   iteration: number;
   logPrefix: string;
 }): Promise<SubAgentResult> {
+  let result: SubAgentResult;
+
   if (opts.role.provider === "gemini") {
-    return runGemini({
+    result = await runGemini({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -3032,9 +3038,8 @@ async function runRoleTask(opts: {
       logPrefix: opts.logPrefix,
       model: opts.role.model,
     });
-  }
-  if (opts.role.provider === "kimi") {
-    return runKimi({
+  } else if (opts.role.provider === "kimi") {
+    result = await runKimi({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -3044,9 +3049,20 @@ async function runRoleTask(opts: {
       logPrefix: opts.logPrefix,
       model: opts.role.model,
     });
-  }
-  if (opts.role.provider === "codex") {
-    return runCodexImpl({
+  } else if (opts.role.provider === "codex") {
+    result = await runCodexImpl({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber,
+      iteration: opts.iteration,
+      logPrefix: opts.logPrefix,
+      model: opts.role.model,
+      reasoning: opts.role.reasoning,
+    });
+  } else {
+    result = await runClaudeTask({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -3058,17 +3074,35 @@ async function runRoleTask(opts: {
       reasoning: opts.role.reasoning,
     });
   }
-  return runClaudeTask({
-    inputFilePath: opts.inputFilePath,
-    outputFilePath: opts.outputFilePath,
-    cwd: opts.cwd,
-    slug: opts.slug,
-    phaseNumber: opts.phaseNumber,
-    iteration: opts.iteration,
-    logPrefix: opts.logPrefix,
-    model: opts.role.model,
-    reasoning: opts.role.reasoning,
-  });
+
+  // MIRROR: sub-agents.ts::runConfiguredRoleTask contains an identical fallback
+  // block for the sub-agent dispatcher. Any change to this logic (log format,
+  // clear-before-backup, role shape) must also be applied there.
+  if ((result.timedOut || result.exitCode !== 0) && opts.role.backupProvider) {
+    console.warn(
+      `[gstack-build] ${opts.logPrefix}: primary ${opts.role.provider} failed ` +
+        `(exit=${result.exitCode ?? "null"}, timedOut=${result.timedOut}); ` +
+        `falling back to ${opts.role.backupProvider}`,
+    );
+    // Zero stale primary output before backup runs. If backup also fails, the
+    // caller gets an empty outputFilePath plus the backup's non-zero exit code.
+    fs.writeFileSync(opts.outputFilePath, "");
+    return runRoleTask({
+      ...opts,
+      logPrefix: `${opts.logPrefix}-backup-${opts.role.backupProvider}`,
+      role: {
+        provider: opts.role.backupProvider,
+        // Empty string when backupModel is absent: all argv builders use a falsy
+        // check (e.g. `opts.model ? ["-m", opts.model] : []`), so "" suppresses
+        // the flag and lets the provider use its configured default.
+        model: opts.role.backupModel ?? "",
+        reasoning: opts.role.reasoning,
+        command: opts.role.command,
+      },
+    });
+  }
+
+  return result;
 }
 
 async function runJudgeRole(opts: {

@@ -34,6 +34,7 @@ import {
   releaseDaemonLaunchCommand,
   renderLaunchdReleaseDaemonPlist,
   renderSystemdReleaseDaemonService,
+  runRoleTask,
   HELP_TEXT,
 } from "../cli";
 import type {
@@ -202,7 +203,13 @@ describe("release-daemon CLI", () => {
   });
 
   it("parses release-daemon watch and retry", () => {
-    const watch = parseArgs(["release-daemon", "run", "--watch", "--poll-ms", "5"]);
+    const watch = parseArgs([
+      "release-daemon",
+      "run",
+      "--watch",
+      "--poll-ms",
+      "5",
+    ]);
     expect(watch.releaseDaemonWatch).toBe(true);
     expect(watch.releaseDaemonPollMs).toBe(5);
 
@@ -216,11 +223,19 @@ describe("release-daemon CLI", () => {
     expect(command).toContain("--project-root");
     expect(command).toContain("/Users/alice/project repo");
 
-    const plist = renderLaunchdReleaseDaemonPlist(command, "/Users/alice/project repo");
-    expect(plist).toContain("<key>WorkingDirectory</key><string>/Users/alice/project repo</string>");
+    const plist = renderLaunchdReleaseDaemonPlist(
+      command,
+      "/Users/alice/project repo",
+    );
+    expect(plist).toContain(
+      "<key>WorkingDirectory</key><string>/Users/alice/project repo</string>",
+    );
     expect(plist).toContain("<string>--project-root</string>");
 
-    const service = renderSystemdReleaseDaemonService(command, "/Users/alice/project repo");
+    const service = renderSystemdReleaseDaemonService(
+      command,
+      "/Users/alice/project repo",
+    );
     expect(service).toContain("WorkingDirectory=/Users/alice/project\\ repo");
     expect(service).toContain("--project-root /Users/alice/project\\ repo");
   });
@@ -739,17 +754,18 @@ describe("plan-status subcommand wiring", () => {
   });
 
   it("--help text documents plan-status mode", () => {
-    expect(HELP_TEXT).toContain("gstack-build plan-status --gstack-repo <path>");
-    expect(HELP_TEXT).toContain("Read-only /build plan selection and resume status");
+    expect(HELP_TEXT).toContain(
+      "gstack-build plan-status --gstack-repo <path>",
+    );
+    expect(HELP_TEXT).toContain(
+      "Read-only /build plan selection and resume status",
+    );
     expect(HELP_TEXT).toContain("--json");
     expect(HELP_TEXT).toContain("--all-inbox");
   });
 
   it("rejects plan-status-only flags outside plan-status mode", () => {
-    expectParseArgsExit(
-      ["plan.md", "--json"],
-      "plan-status flags require",
-    );
+    expectParseArgsExit(["plan.md", "--json"], "plan-status flags require");
     expectParseArgsExit(
       ["merge", "--gstack-repo", "/tmp/app-gstack"],
       "plan-status flags require",
@@ -1124,6 +1140,18 @@ describe("--gemini-model / --codex-model flag wiring", () => {
     expect(args.roles.reviewSecondary.command).toBe("/custom second opinion");
     expect(args.roles.ship.model).toBe("ship-model-under-test");
     expect(args.roles.ship.reasoning).toBe("medium");
+  });
+
+  it("backup role flags wire through parseArgs", () => {
+    const args = parseArgs([
+      "plan.md",
+      "--ship-backup-provider",
+      "gemini",
+      "--ship-backup-model",
+      "ship-backup-model-under-test",
+    ]);
+    expect(args.roles.ship.backupProvider).toBe("gemini");
+    expect(args.roles.ship.backupModel).toBe("ship-backup-model-under-test");
   });
 
   it("--project-root resolves to an absolute path", () => {
@@ -3127,5 +3155,83 @@ describe("reconcileVisiblePlanState", () => {
     expect(() =>
       reconcileVisiblePlanState(planFile, [feature], [phase], stateNoFeatures),
     ).not.toThrow();
+  });
+});
+
+describe("runRoleTask backup fallback", () => {
+  it("falls back from a failing kimi primary to a gemini backup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-role-backup-"));
+    const slug = `cli-role-backup-${process.pid}-${Date.now()}`;
+    const oldKimiBin = process.env.KIMI_BIN;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeKimi = path.join(tmpDir, "kimi");
+      fs.writeFileSync(fakeKimi, `#!/bin/sh\nexit 1\n`);
+      fs.chmodSync(fakeKimi, 0o755);
+
+      // runGemini uses staged I/O: the prompt says "...write your output summary
+      // ...to <stagedOutput>." The cleanup step copies stagedOutput → outputFilePath.
+      const fakeGemini = path.join(tmpDir, "gemini");
+      fs.writeFileSync(
+        fakeGemini,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+const match = prompt.match(/to (\\/.+?\\.md)\\./);
+if (!match) { console.error("missing staged output path in prompt"); process.exit(2); }
+fs.writeFileSync(match[1], "cli backup ok");
+process.stdout.write(match[1]);
+`,
+      );
+      fs.chmodSync(fakeGemini, 0o755);
+
+      process.env.KIMI_BIN = fakeKimi;
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "impl context");
+      fs.writeFileSync(outputFilePath, "stale-primary-output");
+
+      const result = await runRoleTask({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        phaseNumber: "1",
+        iteration: 1,
+        logPrefix: "cli-primary-impl",
+        role: {
+          provider: "kimi",
+          model: "kimi-model-under-test",
+          reasoning: "high",
+          backupProvider: "gemini",
+          backupModel: "gemini-3.1-pro-preview",
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe("cli backup ok");
+      expect(fs.existsSync(result.logPath)).toBe(true);
+    } finally {
+      if (oldKimiBin === undefined) delete process.env.KIMI_BIN;
+      else process.env.KIMI_BIN = oldKimiBin;
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".kimi", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 });
