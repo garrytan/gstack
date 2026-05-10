@@ -45,8 +45,6 @@ jobs:
         include:
         - language: actions
           build-mode: none
-        - language: java-kotlin
-          build-mode: autobuild
         - language: javascript-typescript
           build-mode: none
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
