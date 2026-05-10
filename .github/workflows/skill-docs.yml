@@ -7,27 +7,42 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install
+
       - name: Check Claude host freshness
         run: bun run gen:skill-docs
+
       - name: Verify Claude skill docs are fresh
         run: |
-          git diff --exit-code || {
-            echo "Generated SKILL.md files are stale. Run: bun run gen:skill-docs"
+          if ! git diff --exit-code; then
+            echo "❌ Stale files (Claude host):"
+            git diff --name-only
+            echo ""
+            echo "Run: bun run gen:skill-docs"
             exit 1
-          }
+          fi
+
       - name: Check Codex host freshness
         run: bun run gen:skill-docs --host codex
+
       - name: Verify Codex skill docs are fresh
         run: |
-          git diff --exit-code -- .agents/ || {
-            echo "Generated Codex SKILL.md files are stale. Run: bun run gen:skill-docs --host codex"
+          if ! git diff --exit-code -- .agents/; then
+            echo "❌ Stale files (Codex host):"
+            git diff --name-only -- .agents/
+            echo ""
+            echo "Run: bun run gen:skill-docs --host codex"
             exit 1
-          }
+          fi
+
       - name: Generate Factory skill docs
         run: bun run gen:skill-docs --host factory
+
       - name: Verify Factory skill docs are fresh
         run: |
-          git diff --exit-code -- .factory/ || {
-            echo "Generated Factory SKILL.md files are stale. Run: bun run gen:skill-docs --host factory"
+          if ! git diff --exit-code -- .factory/; then
+            echo "❌ Stale files (Factory host):"
+            git diff --name-only -- .factory/
+            echo ""
+            echo "Run: bun run gen:skill-docs --host factory"
             exit 1
-          }
+          fi
