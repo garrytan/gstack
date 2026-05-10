@@ -516,6 +516,30 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
    _mark_manifest_claims_manifested
    ```
 
+5.5. **Second Opinion — planReviewer exit handling**: The normal `gstack-build` launch (Step M1/M2 below) runs the configured `planReviewer` role at startup before Phase 1 of Feature 1. When it exits with **code 3** (`PLAN_REVIEW_CRITICAL`), handle it here:
+
+   1. Read `~/.gstack/build-state/<stateSlug>/plan-review-report.json` (where `stateSlug` is `runs[0].stateSlug` from the manifest). Extract the `objections` array (CRITICAL severity only) and the `round` field.
+
+   2. Based on `round`:
+      - **Round 1 or 2**: Re-invoke the `planSynthesizer` (same provider/model as Step 5) with a targeted revision prompt:
+        ```
+        You previously synthesized a living plan. A second-opinion reviewer flagged CRITICAL objections.
+        Revise ONLY the sections with CRITICAL objections listed below. Keep everything else unchanged.
+        Write the revised plan to the same living-plan file path.
+
+        CRITICAL objections:
+        <paste objections from plan-review-report.json>
+        ```
+        Then re-launch `gstack-build` (go back to Step M1/M2). The reviewer will run again on the revised plan.
+      - **Round 3 stalemate**: AskUser with options:
+        - A) Override — proceed with the current plan as-is (pass `--no-plan-review` to skip the reviewer)
+        - B) Accept the reviewer's suggested fixes — manually edit the living plan, then re-launch
+        - C) Edit manually — open the living plan file and resolve the objections yourself
+
+   If `gstack-build` exits with **code 0**: the reviewer approved or auto-accepted IMPORTANT objections, and the annotation header was already written to the plan file. Proceed normally.
+
+   If `gstack-build` exits with **code 1** (runtime error) or **code 2** (test failure): handle as usual (see Step M3).
+
 6. **Confirm with user**: Present the run list from the synthesis summary, then use `AskUserQuestion` to ask the user to confirm before launching the CLI. Show: manifest path, run count, each target repo, and each living plan path.
 
 ## CLI Monitoring Loop
