@@ -14,7 +14,7 @@ let refCount = 0;
 // ─── Connection Status Pill ──────────────────────────────────
 
 function showStatusPill(connected, refs) {
-  refCount = refs || 0;
+  refCount = Number(refs) || 0;
 
   if (!statusPill) {
     statusPill = document.createElement('div');
@@ -33,7 +33,11 @@ function showStatusPill(connected, refs) {
   }
 
   const refText = refCount > 0 ? ` · ${refCount} refs` : '';
-  statusPill.innerHTML = `<span class="gstack-pill-dot"></span> gstack${refText}`;
+  statusPill.textContent = '';
+  const dot = document.createElement('span');
+  dot.className = 'gstack-pill-dot';
+  statusPill.appendChild(dot);
+  statusPill.appendChild(document.createTextNode(` gstack${refText}`));
   statusPill.style.display = 'flex';
   statusPill.style.opacity = '1';
 

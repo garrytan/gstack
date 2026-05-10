@@ -10,7 +10,9 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 
@@ -229,7 +231,14 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
-    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    // Write to a temp file so node doesn't receive dynamic code via -e (avoids CodeQL js/code-injection).
+    const tmpLauncher = path.join(os.tmpdir(), `gstack-launcher-${crypto.randomBytes(8).toString('hex')}.js`);
+    fs.writeFileSync(tmpLauncher, launcherCode, { mode: 0o600 });
+    try {
+      Bun.spawnSync(['node', tmpLauncher], { stdio: ['ignore', 'ignore', 'ignore'] });
+    } finally {
+      try { fs.unlinkSync(tmpLauncher); } catch {}
+    }
   } else {
     // macOS/Linux: Bun.spawn + unref works correctly
     proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {

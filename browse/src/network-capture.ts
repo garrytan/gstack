@@ -147,7 +147,11 @@ function createResponseListener(filter: RegExp | null): (response: PlaywrightRes
 
 /** Start capturing response bodies. */
 export function startCapture(filterPattern?: string): { filter: string | null } {
-  captureFilter = filterPattern ? new RegExp(filterPattern) : null;
+  // Escape metacharacters so user input is treated as a literal substring,
+  // preventing ReDoS from pathological backtracking patterns.
+  captureFilter = filterPattern
+    ? new RegExp(filterPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    : null;
   captureActive = true;
   captureListener = createResponseListener(captureFilter);
   return { filter: filterPattern || null };
