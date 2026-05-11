@@ -453,3 +453,51 @@ describe("parsePlan — gate checkboxes", () => {
     expect(phases[0].gates?.verify_red).toBeUndefined();
   });
 });
+
+describe("parsePlan — kind field (TDD pin: repair broken parser)", () => {
+  it("kind defaults to 'code' when ### Phase N has no explicit kind annotation", () => {
+    const md = `### Phase 1: No Kind Annotation
+- [ ] **Implementation**: do work
+- [ ] **Review**: check work
+`;
+    const { phases } = parsePlan(md);
+    expect(phases).toHaveLength(1);
+    // RED before fix: parser.ts does not emit kind on Phase objects.
+    // After fix (kind: p.kind ?? "code" in phases.push), this must be "code".
+    expect(phases[0].kind).toBe("code");
+  });
+
+  it("all phases get kind='code' when no annotation is present on any heading", () => {
+    const md = `### Phase 1: Alpha
+- [ ] **Implementation**: do alpha
+- [ ] **Review**: review alpha
+
+### Phase 2: Beta
+- [ ] **Implementation**: do beta
+- [ ] **Review**: review beta
+`;
+    const { phases } = parsePlan(md);
+    expect(phases).toHaveLength(2);
+    expect(phases[0].kind).toBe("code");
+    expect(phases[1].kind).toBe("code");
+  });
+
+  it("parser module loads without ReferenceError (no undefined-symbol crash at import time)", () => {
+    // If parser.ts references constants that don't exist at module scope
+    // (e.g. BODY_KIND_PATTERN / IMPL_LABELS_BY_KIND / REVIEW_LABELS_BY_KIND from a
+    // half-landed branch), the import itself throws a ReferenceError and every test in
+    // this file fails to load. Reaching this line means the import succeeded.
+    expect(typeof parsePlan).toBe("function");
+  });
+
+  it("does not throw when phase body contains an HTML-comment kind annotation", () => {
+    const md = `### Phase 1: Comment Kind Phase
+<!-- kind: writing -->
+- [ ] **Implementation**: do work
+- [ ] **Review**: check work
+`;
+    // If a broken if-block in finalize() references undefined BODY_KIND_PATTERN,
+    // this call would throw a ReferenceError. Asserting no throw pins that invariant.
+    expect(() => parsePlan(md)).not.toThrow();
+  });
+});
