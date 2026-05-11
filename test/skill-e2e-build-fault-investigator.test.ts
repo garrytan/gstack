@@ -70,7 +70,17 @@ describeIfSelected(
       fs.mkdirSync(path.join(fakeHome, ".claude", "skills", "gstack", "build"), {
         recursive: true,
       });
-      fs.writeFileSync(path.join(fakeHome, ".claude", "skills", "gstack", "build", "configure.cm"), "{}");
+      fs.writeFileSync(
+        path.join(
+          fakeHome,
+          ".claude",
+          "skills",
+          "gstack",
+          "build",
+          "configure.cm",
+        ),
+        "{}",
+      );
 
       // The SKILL_FAULT_DETECTED event that represents a PLAN_SYNTHESIS_INVALID fault
       const faultEvent = JSON.stringify({
@@ -157,13 +167,13 @@ State for this test run:
 - The monitor output log is at: ${monitorOutputLog}
   (it contains one SKILL_FAULT_DETECTED event with category PLAN_SYNTHESIS_INVALID)
 - The monitor exit code file is at: ${path.join(buildTmpDir, "monitor-exit-code")}
-- HOME in the environment points to: ${fakeHome}
+- Use HOME=${fakeHome} when you run the Step M3.5 bash block
   (so ~/.gstack/skill-faults/ resolves to ${fakeHome}/.gstack/skill-faults/)
 - GSTACK_FAULT_INVESTIGATOR_COMMAND is set in the environment
 
 Your task:
-1. Set BUILD_TMP_DIR=${buildTmpDir} in your shell session.
-2. Execute ONLY the Step M3.5 bash block from the build SKILL.md (copy and run it verbatim).
+1. In the same shell command that runs the block, set BUILD_TMP_DIR=${buildTmpDir}, HOME=${fakeHome}, and GSTACK_HOME=${path.join(fakeHome, ".gstack")}.
+2. Execute ONLY the Step M3.5 bash block from the build SKILL.md (copy and run it verbatim after those environment assignments).
 3. Do NOT run any other steps (no Step M1, M2, M3, M4, or any ship/review steps).
 4. Do NOT invoke any real gstack-build commands or spawn any LLM agents.
 5. Do NOT edit any source files in the repository at ${ROOT}.
@@ -178,10 +188,8 @@ Your task:
         testName: "build-fault-investigator-e2e",
         runId,
         env: {
-          HOME: fakeHome,
           GSTACK_BUILD_CLI: mockGstackBuild,
           GSTACK_FAULT_INVESTIGATOR_COMMAND: mockInvestigator,
-          GSTACK_HOME: path.join(fakeHome, ".gstack"),
         },
       });
 
