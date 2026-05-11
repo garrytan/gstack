@@ -5736,6 +5736,9 @@ async function runMonitorMode(args: Args): Promise<number> {
       manifestPath: args.monitorManifest,
       pollMs: args.monitorPollMs,
     });
+    for (const evt of evaluation.skillFaultEvents) {
+      process.stdout.write(JSON.stringify(evt) + "\n");
+    }
     for (const evt of evaluation.events) printMonitorEvent(evt);
     if (await maybePrintMonitorAgentEscalation(args, evaluation)) {
       return monitorExitCode("MONITOR_AGENT_ESCALATION");
@@ -5748,6 +5751,9 @@ async function runMonitorMode(args: Args): Promise<number> {
       manifestPath: args.monitorManifest,
       pollMs: args.monitorPollMs,
     });
+    for (const evt of evaluation.skillFaultEvents) {
+      process.stdout.write(JSON.stringify(evt) + "\n");
+    }
     for (const evt of evaluation.events) {
       if (evt.event !== "MONITOR_REENTER") printMonitorEvent(evt);
     }

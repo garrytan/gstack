@@ -10,6 +10,17 @@
  */
 
 import type { RoleConfigs } from "./role-config";
+import type { SkillFault } from "./skill-fault-detector";
+
+export interface SkillFaultDetectedEvent {
+  event: "SKILL_FAULT_DETECTED";
+  timestamp: string;
+  runId: string;
+  stateSlug: string;
+  stateFile: string;
+  manifestPath: string;
+  faults: SkillFault[];
+}
 
 export type PhaseKind =
   | "code"
