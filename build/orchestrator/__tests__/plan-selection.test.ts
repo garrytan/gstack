@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { writeActiveRunRecord } from "../active-runs";
+import { activeRunRecordPath, writeActiveRunRecord } from "../active-runs";
 import {
   canonicalSourcePlanClaimPath,
   legacySourcePlanClaimPath,
@@ -647,6 +647,81 @@ describe("plan resolver", () => {
     expect(result.selected?.monitorCommand).toBe(
       `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
     );
+  });
+
+  // Feature 3 regression tests: stale-paused active-run record auto-cleanup
+  // T4: paused + dead pid — activeRunOnlyCandidates() must remove the record and return no candidate.
+  // T5: paused + live pid — record must stay and a candidate must be returned.
+  test("T4 (Feature 3): paused + dead pid — record removed, no candidate returned", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const activeRunRegistry = path.join(tmpDir, "active-runs-t4");
+    const plan = livingPlan(repo, "app-impl-plan-stale-paused-1.md");
+
+    writeActiveRunRecord(activeRunRegistry, {
+      runId: "run-stale-paused",
+      stateSlug: "build-run-stale-paused",
+      repoPath: path.join(tmpDir, "worktrees", "run-stale-paused"),
+      baseProjectRoot: app,
+      planFile: plan,
+      pid: 999999, // guaranteed dead: no real process will have this pid in tests
+      status: "paused",
+      startedAt: "2026-05-11T00:00:00Z",
+      lastUpdatedAt: "2026-05-11T00:00:00Z",
+      branches: [],
+    });
+
+    const recordFile = activeRunRecordPath(
+      activeRunRegistry,
+      "run-stale-paused",
+    );
+    expect(fs.existsSync(recordFile)).toBe(true); // pre-condition: record written
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+      activeRunRegistry,
+    });
+
+    expect(fs.existsSync(recordFile)).toBe(false); // stale-paused record cleaned up
+    expect(result.result).toBe("none");
+  });
+
+  test("T5 (Feature 3): paused + live pid — record kept, candidate returned", () => {
+    const repo = gstackRepo();
+    const app = path.join(tmpDir, "app");
+    const activeRunRegistry = path.join(tmpDir, "active-runs-t5");
+    const plan = livingPlan(repo, "app-impl-plan-live-paused-1.md");
+
+    writeActiveRunRecord(activeRunRegistry, {
+      runId: "run-live-paused",
+      stateSlug: "build-run-live-paused",
+      repoPath: path.join(tmpDir, "worktrees", "run-live-paused"),
+      baseProjectRoot: app,
+      planFile: plan,
+      pid: process.pid, // guaranteed alive: current test process
+      status: "paused",
+      startedAt: "2026-05-11T00:00:00Z",
+      lastUpdatedAt: "2026-05-11T00:00:00Z",
+      branches: [],
+    });
+
+    const recordFile = activeRunRecordPath(
+      activeRunRegistry,
+      "run-live-paused",
+    );
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      projectRoot: app,
+      resumeOnly: true,
+      activeRunRegistry,
+    });
+
+    expect(fs.existsSync(recordFile)).toBe(true); // live-paused record not cleaned up
+    expect(result.result).toBe("selected");
+    expect(result.selected?.runId).toBe("run-live-paused");
   });
 });
 

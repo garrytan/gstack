@@ -1297,3 +1297,132 @@ test("malformed flat-task plan exits 2 and stderr contains droppedPhasesCount hi
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 });
+
+test("T3 (Feature 4): non-zero non-13 exit writes 'failed' record to active-run registry", () => {
+  const failDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "gstack-exitfail-registry-"),
+  );
+  try {
+    const repo = path.join(failDir, "repo");
+    fs.mkdirSync(repo);
+    expect(spawnSync("git", ["init", "-b", "main"], { cwd: repo }).status).toBe(
+      0,
+    );
+    expect(
+      spawnSync("git", ["config", "user.email", "test@example.com"], {
+        cwd: repo,
+      }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.name", "Test User"], { cwd: repo })
+        .status,
+    ).toBe(0);
+    fs.writeFileSync(path.join(repo, "README.md"), "# test\n");
+    expect(spawnSync("git", ["add", "README.md"], { cwd: repo }).status).toBe(
+      0,
+    );
+    expect(
+      spawnSync("git", ["commit", "-m", "init"], { cwd: repo }).status,
+    ).toBe(0);
+
+    const planFile = path.join(failDir, "fail-plan.md");
+    fs.writeFileSync(
+      planFile,
+      `# Fail Plan
+
+## Feature 1: Ready
+
+### Phase 1.1: Done
+- [x] **Test Specification (Gemini Sub-agent)**: Existing tests.
+- [x] **Implementation (Gemini Sub-agent)**: Existing implementation.
+- [x] **Review & QA (Codex Sub-agent)**: Existing review.
+`,
+    );
+
+    const gstackHome = path.join(failDir, ".gstack");
+    const stateDir = path.join(gstackHome, "build-state");
+    const registryDir = path.join(stateDir, "active-runs");
+    fs.mkdirSync(registryDir, { recursive: true });
+
+    // Pre-write state with a mismatched projectRoot to force validateResumeLaunch
+    // to throw (exitCode=2) — a non-zero, non-13 failure path.
+    const now = new Date().toISOString();
+    fs.writeFileSync(
+      path.join(stateDir, "build-fail-run.json"),
+      JSON.stringify(
+        {
+          planFile,
+          planBasename: "fail-plan",
+          slug: "build-fail-run",
+          branch: "main",
+          startedAt: now,
+          lastUpdatedAt: now,
+          launch: {
+            argv: [],
+            projectRoot: "/intentionally-wrong-path-does-not-match",
+            runId: "fail-run",
+            stateSlug: "build-fail-run",
+            dryRun: false,
+            skipShip: false,
+            skipFeatureReview: false,
+            launchedAt: now,
+            activeRunRegistry: registryDir,
+          },
+          currentPhaseIndex: 0,
+          currentFeatureIndex: 0,
+          phases: [],
+          features: [],
+          completed: false,
+        },
+        null,
+        2,
+      ),
+    );
+
+    const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+    const result = spawnSync(
+      "bun",
+      [
+        "run",
+        cliPath,
+        planFile,
+        "--project-root",
+        repo,
+        "--no-plan-review",
+        "--test-cmd",
+        "bun test",
+        "--no-gbrain",
+        "--run-id",
+        "fail-run",
+        "--active-run-registry",
+        registryDir,
+      ],
+      {
+        env: {
+          ...process.env,
+          HOME: failDir,
+          GSTACK_HOME: gstackHome,
+        },
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+
+    // validateResumeLaunch throws → exitCode=2 (non-zero, non-13)
+    expect(result.status).not.toBeNull();
+    expect(result.status).not.toBe(0);
+    expect(result.status).not.toBe(13);
+
+    const records = fs
+      .readdirSync(registryDir)
+      .filter((f) => f.endsWith(".json"));
+    expect(records.length).toBe(1);
+
+    const record = JSON.parse(
+      fs.readFileSync(path.join(registryDir, records[0]), "utf8"),
+    );
+    expect(record.status).toBe("failed");
+  } finally {
+    fs.rmSync(failDir, { recursive: true, force: true });
+  }
+});
