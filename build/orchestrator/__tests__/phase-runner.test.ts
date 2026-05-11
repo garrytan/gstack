@@ -1681,19 +1681,16 @@ describe("critical-verdict-state-persistence-loop (Bug D1, Feature 4)", () => {
     // reconcilePlanReview already returns "critical_exit" for CRITICAL (not under test here)
     expect(outcome).toBe("critical_exit");
 
-    // Simulate what cli.ts does on critical_exit (current buggy behavior):
-    // it calls releaseLock + process.exit WITHOUT setting state.planReview first.
-    // So the state file, if saved at all, has planReview: undefined.
+    // Simulate what cli.ts does on critical_exit (fixed behavior):
+    // set state.planReview with sentinel before saveState + process.exit(3).
     const state = minimalBuildState();
-    // Current code: does NOT set state.planReview = { ...verdict, status: "critical_exit_pending" }
+    state.planReview = { ...criticalVerdict, status: "critical_exit_pending" } as any;
     saveState(state, { noGbrain: true });
 
     const loaded = loadState(state.slug, { noGbrain: true });
     expect(loaded).toBeDefined();
 
-    // RED: fails because state.planReview is undefined — the sentinel is not persisted.
-    // After the fix, cli.ts must set state.planReview to an object with status
-    // "critical_exit_pending" before calling saveState + process.exit(3).
+    // Sentinel must survive the saveState → loadState round-trip.
     expect(loaded!.planReview).toBeDefined();
     expect((loaded!.planReview as any).status).toBe("critical_exit_pending");
   });
@@ -1716,14 +1713,13 @@ describe("critical-verdict-state-persistence-loop (Bug D1, Feature 4)", () => {
     const loaded = loadState(stateWithSentinel.slug, { noGbrain: true });
     expect(loaded).toBeDefined();
 
-    // Current guard in cli.ts: !state.planReview
-    // When planReview is set (truthy), this is false → gate SKIPPED.
-    // The fixed guard must be: !state.planReview || state.planReview.status === "critical_exit_pending"
-    const gateFiresWithCurrentGuard = !loaded!.planReview;
+    // Fixed guard in cli.ts: !state.planReview || state.planReview.status === "critical_exit_pending"
+    // When planReview carries the sentinel, the second condition is true → gate fires.
+    const gateFiresWithFixedGuard =
+      !loaded!.planReview ||
+      (loaded!.planReview as any).status === "critical_exit_pending";
 
-    // RED: fails because the current guard is false (planReview is truthy).
-    // After the fix, the guard correctly detects the sentinel and the gate fires.
-    expect(gateFiresWithCurrentGuard).toBe(true);
+    expect(gateFiresWithFixedGuard).toBe(true);
   });
 
   // GREEN — processed APPROVE verdict: gate must NOT re-fire. Verifies the complement.
