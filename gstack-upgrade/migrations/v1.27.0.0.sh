@@ -184,19 +184,42 @@ if ! journal_done "gh_repo_renamed"; then
   case "$HOST" in
     github)
       if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-        # Idempotent: if new name already exists, treat as success.
-        if gh repo view "$NEW_REPO_NAME" >/dev/null 2>&1; then
-          echo "    repo already named $NEW_REPO_NAME on GitHub — no-op" >&2
+        # `gh repo rename --repo` and `gh repo edit` both require the
+        # "[HOST/]OWNER/REPO" form. Passing a bare repo name (as earlier
+        # versions of this migration did) fails with:
+        #   expected the "[HOST/]OWNER/REPO" format, got "<name>"
+        # Resolve the authenticated user's login and qualify both names.
+        GH_OWNER=$(gh api user --jq .login 2>/dev/null || echo "")
+        if [ -z "$GH_OWNER" ]; then
+          echo "    WARNING: could not resolve gh authenticated user — skipping rename" >&2
+          echo "    manual: gh repo rename $NEW_REPO_NAME --repo <owner>/$OLD_REPO_NAME --yes" >&2
           mark_done "gh_repo_renamed"
         else
-          if gh repo rename "$NEW_REPO_NAME" --repo "$OLD_REPO_NAME" --yes 2>/dev/null \
-              || gh repo edit "$OLD_REPO_NAME" --name "$NEW_REPO_NAME" 2>/dev/null; then
-            echo "    renamed on GitHub" >&2
+          OLD_QUALIFIED="${GH_OWNER}/${OLD_REPO_NAME}"
+          NEW_QUALIFIED="${GH_OWNER}/${NEW_REPO_NAME}"
+          # Idempotent: if new name already exists, treat as success.
+          if gh repo view "$NEW_QUALIFIED" >/dev/null 2>&1; then
+            echo "    repo already named $NEW_REPO_NAME on GitHub — no-op" >&2
             mark_done "gh_repo_renamed"
           else
-            echo "    WARNING: gh rename failed (repo may not exist or permission denied)" >&2
-            echo "    skipping step 1; subsequent steps still run" >&2
-            mark_done "gh_repo_renamed"
+            RENAME_ERR=""
+            RENAME_ERR2=""
+            RENAME_OK=0
+            if RENAME_ERR=$(gh repo rename "$NEW_REPO_NAME" --repo "$OLD_QUALIFIED" --yes 2>&1); then
+              RENAME_OK=1
+            elif RENAME_ERR2=$(gh repo edit "$OLD_QUALIFIED" --name "$NEW_REPO_NAME" 2>&1); then
+              RENAME_OK=1
+            fi
+            if [ "$RENAME_OK" = "1" ]; then
+              echo "    renamed on GitHub" >&2
+              mark_done "gh_repo_renamed"
+            else
+              echo "    WARNING: gh rename failed for $OLD_QUALIFIED" >&2
+              [ -n "$RENAME_ERR" ] && echo "      gh repo rename: $RENAME_ERR" >&2
+              [ -n "$RENAME_ERR2" ] && echo "      gh repo edit:   $RENAME_ERR2" >&2
+              echo "    skipping step 1; subsequent steps still run" >&2
+              mark_done "gh_repo_renamed"
+            fi
           fi
         fi
       else

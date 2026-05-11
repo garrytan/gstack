@@ -27,11 +27,20 @@ function makeFakeGh(opts: { authStatus?: 'ok' | 'fail'; renameSucceeds?: boolean
 echo "gh $@" >> "${callLog}"
 case "$1" in
   auth) ${authStatus === 'ok' ? 'exit 0' : 'exit 1'} ;;
+  api)
+    # gh api user --jq .login → print authenticated login
+    shift
+    if [ "\${1:-}" = "user" ]; then
+      echo "testuser"
+      exit 0
+    fi
+    exit 0
+    ;;
   repo)
     shift
     case "$1" in
       view)
-        # gh repo view <name>
+        # gh repo view <owner/name> | <name>
         shift
         ${alreadyRenamed ? `if echo "$@" | grep -q gstack-artifacts; then exit 0; else exit 1; fi` : `exit 1`}
         ;;
