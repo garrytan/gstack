@@ -850,6 +850,7 @@ Display:
 | Review          | Runs | Last Run            | Status    | Required |
 |-----------------|------|---------------------|-----------|----------|
 | Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
+| Content Review  |  0   | —                   | —         | non-code |
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
 | Adversarial     |  0   | —                   | —         | no       |
@@ -860,15 +861,16 @@ Display:
 ```
 
 **Review tiers:**
-- **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
+- **Eng Review (required by default):** The only review that gates shipping for code features. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
+- **Content Review (non-code features):** Required in place of Eng Review for pure non-code features (writing, experiment, research, manual phases). Checks that deliverable artifacts are present and meet the phase quality bar. Mixed features (some code phases) require both Eng Review and Content Review.
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
 - **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
-- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
-- **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
+- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`). For pure non-code features, Content Review with CONTENT_REVIEW_PASS clears the gate instead.
+- **NOT CLEARED**: Required review missing, stale (>7 days), or has open issues
 - CEO, Design, and Codex reviews are shown for context but never block shipping
 - If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
@@ -878,11 +880,26 @@ Display:
 - For entries without a \`commit\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
 - If all reviews match the current HEAD, do not display any staleness notes
 
+**Determine whether this is a pure non-code feature** by checking the diff for source code changes:
+
+```bash
+git diff <base>...HEAD --name-only | grep -E '\.(ts|js|py|go|rs|java|c|cpp|rb|sh)$' | head -5
+```
+
+If NO source code files are in the diff (only markdown, data files, or documents): this is a **pure non-code feature**. Check the Content Review row in the dashboard instead of Eng Review.
+
+- If Content Review shows CONTENT_REVIEW_PASS: **gate is cleared**. Continue to Step 2.
+- If Content Review is missing: Print "No Content Review found — ship will run its own content check in Step 9." Continue to Step 2.
+
+If source code files ARE in the diff: check Eng Review as normal.
+
 If the Eng Review is NOT "CLEAR":
 
 Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
 
 Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+
+If this is a **mixed feature** (some non-code phases in the diff): also check Content Review. If Content Review is missing, note: "Content Review not run — some phases in this diff are non-code. Consider running /review after ship to check artifact completeness."
 
 If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
 
