@@ -128,9 +128,14 @@ function makeInput(
   dir: string,
   overrides: Partial<DetectorInput> = {},
 ): DetectorInput {
-  const planPath = writePlan(dir, validPlanContent());
+  const planPath = path.join(dir, "plan.md");
+  if (!fs.existsSync(planPath)) {
+    writePlan(dir, validPlanContent());
+  }
   const stdoutLog = path.join(dir, "run.log");
-  fs.writeFileSync(stdoutLog, "", "utf8");
+  if (!fs.existsSync(stdoutLog)) {
+    fs.writeFileSync(stdoutLog, "", "utf8");
+  }
   return {
     state: baseState(),
     livingPlanPath: planPath,
