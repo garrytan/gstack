@@ -85,6 +85,8 @@ export interface ParseResult {
   phases: Phase[];
   /** Diagnostics for phases that look broken — missing checkboxes etc. */
   warnings: string[];
+  /** Count of phases discovered but dropped due to missing required checkboxes. */
+  droppedPhasesCount: number;
 }
 
 export interface ParseOpts {
@@ -100,6 +102,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
   const phases: Phase[] = [];
   const features: Feature[] = [];
   const warnings: string[] = [];
+  let droppedPhasesCount = 0;
 
   let inFence = false;
   let currentFeature: (Feature & { bodyLines: string[] }) | null = null;
@@ -200,6 +203,8 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
           ? { gates: p.gates }
           : {}),
       });
+    } else {
+      droppedPhasesCount++;
     }
     currentPhase = null;
   };
@@ -367,7 +372,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
     }
   }
 
-  return { features: executableFeatures, phases, warnings };
+  return { features: executableFeatures, phases, warnings, droppedPhasesCount };
 }
 
 /**

@@ -1227,3 +1227,70 @@ test("two same-basename plans with run ids cannot load each other's state", () =
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 });
+
+const FLAT_TASK_PLAN = `# Malformed Plan
+
+### Phase 1: Test Specification
+- [ ] Write failing E2E test for the control plane reconcile loop
+- [ ] Confirm test fails in CI
+
+### Phase 2: Implementation
+- [ ] Edit helper module to add reconcile method
+- [ ] Wire reconcile call into controller
+
+### Phase 3: Review & QA
+- [ ] Re-read diff against spec
+- [ ] Run linter and fix warnings
+`;
+
+test("--print-only exits 2 when plan has no executable phases", () => {
+  const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-malformed-"));
+  try {
+    const malformedPlan = path.join(runDir, "malformed-plan.md");
+    fs.writeFileSync(malformedPlan, FLAT_TASK_PLAN);
+    const result = spawnSync(
+      "bun",
+      ["run", cliPath, malformedPlan, "--print-only", "--no-gbrain"],
+      {
+        env: {
+          ...process.env,
+          HOME: runDir,
+          GSTACK_HOME: path.join(runDir, ".gstack"),
+        },
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
+    expect(result.status).toBe(2);
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("malformed flat-task plan exits 2 and stderr contains droppedPhasesCount hint", () => {
+  const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-malformed-"));
+  try {
+    const malformedPlan = path.join(runDir, "malformed-plan.md");
+    fs.writeFileSync(malformedPlan, FLAT_TASK_PLAN);
+    const result = spawnSync(
+      "bun",
+      ["run", cliPath, malformedPlan, "--no-gbrain"],
+      {
+        env: {
+          ...process.env,
+          HOME: runDir,
+          GSTACK_HOME: path.join(runDir, ".gstack"),
+        },
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("3 phase(s) found but none are executable");
+    expect(result.stderr).toContain("labeled markers");
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+});

@@ -2904,7 +2904,7 @@ export function extractCoverageTarget(phaseBody: string): number {
   const m = phaseBody.match(
     /\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+(?:\.\d+)?)%\*\*/i,
   );
-  return m ? parseInt(m[1], 10) : 80;
+  return m ? parseFloat(m[1]) : 80;
 }
 
 export function buildGeminiTestSpecPrompt(
@@ -6108,7 +6108,7 @@ async function main() {
   // function read from these references, so the rebinding has to be
   // visible to them.
   // eslint-disable-next-line prefer-const
-  let { features, phases, warnings } = parsePlan(content, {
+  let { features, phases, warnings, droppedPhasesCount } = parsePlan(content, {
     dualImpl: args.dualImpl,
   });
 
@@ -6133,13 +6133,18 @@ async function main() {
     for (const w of warnings) console.log(`  - ${w}`);
   }
 
-  if (args.printOnly) {
-    process.exit(0);
+  if (phases.length === 0) {
+    const hint =
+      droppedPhasesCount > 0
+        ? `\n${droppedPhasesCount} phase(s) found but none are executable.\n` +
+          `Phases need labeled markers (**Implementation** and **Review & QA** checkboxes) to be runnable.\n`
+        : "\nno executable phases found; nothing to do\n";
+    console.error(hint);
+    process.exit(2);
   }
 
-  if (phases.length === 0) {
-    console.error("\nno executable phases found; nothing to do");
-    process.exit(2);
+  if (args.printOnly) {
+    process.exit(0);
   }
 
   if (args.parallelPhases > 1 && !args.dryRun) {

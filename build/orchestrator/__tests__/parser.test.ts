@@ -550,4 +550,30 @@ describe("parsePlan — phase kinds", () => {
     const { phases } = parsePlan(md);
     expect(phases[0].kind).toBe("code");
   });
+
+  it("structural-mirroring flat-task format emits 0 phases and correct droppedPhasesCount", () => {
+    // This is the format a mis-configured AI synthesizer produces: 3 separate
+    // ### Phase headings named after TDD steps, each with flat task-list checkboxes
+    // but NO labeled checkpoint markers (**Implementation**, **Review & QA**).
+    const md = `# Plan
+
+### Phase 1: Test Specification
+- [ ] Write failing E2E test for the control plane reconcile loop
+- [ ] Confirm test fails in CI
+
+### Phase 2: Implementation
+- [ ] Edit helper module to add reconcile method
+- [ ] Wire reconcile call into controller
+
+### Phase 3: Review & QA
+- [ ] Re-read diff against spec
+- [ ] Run linter and fix warnings
+`;
+    const { phases, warnings, droppedPhasesCount } = parsePlan(md);
+    expect(phases).toHaveLength(0);
+    expect(droppedPhasesCount).toBe(3);
+    // 2 warnings per dropped phase (missing Implementation + missing Review) = 6
+    // plus 1 warning for the synthetic "Full plan" feature having no executable phases = 7
+    expect(warnings).toHaveLength(7);
+  });
 });
