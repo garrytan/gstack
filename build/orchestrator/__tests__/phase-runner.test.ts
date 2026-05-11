@@ -19,6 +19,7 @@ import type {
 import type { SubAgentResult } from "../sub-agents";
 import { saveState, loadState } from "../state";
 import { reconcilePlanReview } from "../plan-reviewer";
+import { ExitError } from "../errors";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1754,5 +1755,58 @@ describe("critical-verdict-state-persistence-loop (Bug D1, Feature 4)", () => {
 
     const gateFires = !loaded!.planReview;
     expect(gateFires).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug D2: process-exit-bypasses-finally-lock (Feature 5)
+//
+// process.exit(N) inside a try/finally skips the finally block, leaking the
+// lock file. Fix: define ExitError (code field) and throw it instead, so
+// the finally block naturally runs cleanup. The top-level main().catch
+// converts ExitError → process.exit(err.code).
+// ---------------------------------------------------------------------------
+
+describe("process-exit-bypasses-finally-lock (Bug D2, Feature 5)", () => {
+  it("ExitError is an Error subclass with a numeric code field", () => {
+    const err = new ExitError(3);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(ExitError);
+    expect(err.code).toBe(3);
+    expect(err.name).toBe("ExitError");
+  });
+
+  it("ExitError carries the correct code for each exit value", () => {
+    expect(new ExitError(0).code).toBe(0);
+    expect(new ExitError(1).code).toBe(1);
+    expect(new ExitError(130).code).toBe(130);
+  });
+
+  it("ExitError propagates through finally so finally block runs", () => {
+    let finallyRan = false;
+    let caughtCode: number | undefined;
+
+    try {
+      try {
+        throw new ExitError(3);
+      } finally {
+        finallyRan = true;
+      }
+    } catch (err) {
+      if (err instanceof ExitError) caughtCode = err.code;
+    }
+
+    expect(finallyRan).toBe(true);
+    expect(caughtCode).toBe(3);
+  });
+
+  it("ExitError message defaults to 'exit <code>'", () => {
+    expect(new ExitError(3).message).toBe("exit 3");
+  });
+
+  it("ExitError accepts an optional custom message", () => {
+    expect(new ExitError(1, "plan file not found").message).toBe(
+      "plan file not found",
+    );
   });
 });
