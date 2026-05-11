@@ -66,6 +66,15 @@ export interface HostConfig {
     includeSkills?: string[];
   };
 
+  /**
+   * Output layout for generated skill docs.
+   * - 'per-skill-dir' (default): <hostSubdir>/skills/<name>/SKILL.md
+   *   Used by Codex, Cursor, Factory, OpenCode, etc.
+   * - 'flat-agent-md': <hostSubdir>/agents/<name>.agent.md
+   *   Used by GitHub Copilot CLI (~/.copilot/agents/<name>.agent.md).
+   */
+  outputLayout?: 'per-skill-dir' | 'flat-agent-md';
+
   // --- Content Rewrites ---
   /** Literal string replacements on generated SKILL.md content. Order matters, replaceAll. */
   pathRewrites: Array<{ from: string; to: string }>;

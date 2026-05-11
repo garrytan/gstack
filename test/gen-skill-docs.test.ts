@@ -2069,7 +2069,25 @@ import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
 describe('Parameterized host smoke tests', () => {
   for (const hostConfig of getExternalHosts()) {
     describe(`${hostConfig.displayName} (--host ${hostConfig.name})`, () => {
-      const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
+      // Layout-aware helpers — `flat-agent-md` hosts (Copilot CLI) emit
+      // <hostSubdir>/agents/<name>.agent.md; default hosts emit
+      // <hostSubdir>/skills/<name>/SKILL.md.
+      const isFlat = hostConfig.outputLayout === 'flat-agent-md';
+      const hostDir = path.join(ROOT, hostConfig.hostSubdir, isFlat ? 'agents' : 'skills');
+      const skillFilePath = (name: string) => isFlat
+        ? path.join(hostDir, `${name}.agent.md`)
+        : path.join(hostDir, name, 'SKILL.md');
+      const listSkillFiles = (): Array<{ name: string; path: string }> => {
+        if (!fs.existsSync(hostDir)) return [];
+        if (isFlat) {
+          return fs.readdirSync(hostDir)
+            .filter(f => f.endsWith('.agent.md'))
+            .map(f => ({ name: f.replace(/\.agent\.md$/, ''), path: path.join(hostDir, f) }));
+        }
+        return fs.readdirSync(hostDir)
+          .filter(d => fs.existsSync(path.join(hostDir, d, 'SKILL.md')))
+          .map(d => ({ name: d, path: path.join(hostDir, d, 'SKILL.md') }));
+      };
 
       test('generates output that exists on disk', () => {
         // Generated dir should exist (created by earlier bun run gen:skill-docs --host all)
@@ -2080,37 +2098,27 @@ describe('Parameterized host smoke tests', () => {
           });
         }
         expect(fs.existsSync(hostDir)).toBe(true);
-        const skills = fs.readdirSync(hostDir).filter(d =>
-          fs.existsSync(path.join(hostDir, d, 'SKILL.md'))
-        );
-        expect(skills.length).toBeGreaterThan(0);
+        expect(listSkillFiles().length).toBeGreaterThan(0);
       });
 
       test('no .claude/skills path leakage outside repo-root sidecar symlinks', () => {
         if (!fs.existsSync(hostDir)) return; // skip if not generated
-        const skills = fs.readdirSync(hostDir);
-        for (const skill of skills) {
+        for (const { name, path: skillMd } of listSkillFiles()) {
           // Dev installs may mount the repo root at host/skills/gstack as a runtime
           // sidecar. The generator skips that symlink loop, so leakage checks should too.
-          if (isRepoRootSymlink(path.join(hostDir, skill))) continue;
-          const skillMd = path.join(hostDir, skill, 'SKILL.md');
-          if (!fs.existsSync(skillMd)) continue;
+          if (!isFlat && isRepoRootSymlink(path.join(hostDir, name))) continue;
           const content = fs.readFileSync(skillMd, 'utf-8');
           // Strip bash blocks (which have legitimate fallback paths)
           const noBash = content.replace(/```bash\n[\s\S]*?```/g, '');
           const leaks = noBash.split('\n').filter(l => l.includes('.claude/skills'));
           if (leaks.length > 0) {
-            throw new Error(`${skill}: .claude/skills leakage:\n${leaks.slice(0, 3).join('\n')}`);
+            throw new Error(`${name}: .claude/skills leakage:\n${leaks.slice(0, 3).join('\n')}`);
           }
         }
       });
 
       test('frontmatter has name and description', () => {
-        if (!fs.existsSync(hostDir)) return;
-        const skills = fs.readdirSync(hostDir);
-        for (const skill of skills) {
-          const skillMd = path.join(hostDir, skill, 'SKILL.md');
-          if (!fs.existsSync(skillMd)) continue;
+        for (const { path: skillMd } of listSkillFiles()) {
           const content = fs.readFileSync(skillMd, 'utf-8');
           expect(content).toMatch(/^---\n/);
           expect(content).toMatch(/^name:\s/m);
@@ -2119,7 +2127,7 @@ describe('Parameterized host smoke tests', () => {
       });
 
       test('generates Claude outside-voice skill for external hosts', () => {
-        const skillMd = path.join(hostDir, 'gstack-claude', 'SKILL.md');
+        const skillMd = skillFilePath('gstack-claude');
         expect(fs.existsSync(skillMd)).toBe(true);
         const content = fs.readFileSync(skillMd, 'utf-8');
         expect(content).toContain('claude -p');
@@ -2140,7 +2148,7 @@ describe('Parameterized host smoke tests', () => {
 
       if (hostConfig.generation.skipSkills?.includes('codex')) {
         test('/codex skill excluded', () => {
-          expect(fs.existsSync(path.join(hostDir, 'gstack-codex', 'SKILL.md'))).toBe(false);
+          expect(fs.existsSync(skillFilePath('gstack-codex'))).toBe(false);
         });
       }
     });
@@ -2159,7 +2167,8 @@ describe('--host all', () => {
     // All hosts should appear in output
     expect(output).toContain('FRESH: SKILL.md');           // claude
     for (const hostConfig of getExternalHosts()) {
-      expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
+      const subdir = hostConfig.outputLayout === 'flat-agent-md' ? 'agents' : 'skills';
+      expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/${subdir}/`);
     }
   });
 });
@@ -2270,9 +2279,9 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|copilot', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|copilot|auto');
   });
 
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {

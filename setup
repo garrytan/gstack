@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+COPILOT_AGENTS="$HOME/.copilot/agents"
+COPILOT_GSTACK="$HOME/.copilot/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -43,7 +45,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, copilot, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -56,7 +58,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|copilot|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -91,7 +93,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, copilot, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -155,14 +157,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_COPILOT=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v copilot >/dev/null 2>&1 && INSTALL_COPILOT=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -175,6 +179,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "copilot" ]; then
+  INSTALL_COPILOT=1
 fi
 
 migrate_direct_codex_install() {
@@ -318,6 +324,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun install --frozen-lockfile 2>/dev/null || bun install
     bun run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .copilot/ GitHub Copilot CLI agent files
+if [ "$INSTALL_COPILOT" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .copilot/ agent files..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun install --frozen-lockfile 2>/dev/null || bun install
+    bun run gen:skill-docs --host copilot
   )
 fi
 
@@ -933,6 +949,40 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for GitHub Copilot CLI
+# Copilot discovers agents as flat `.agent.md` files under ~/.copilot/agents/.
+# We symlink each generated `gstack-<skill>.agent.md` from the repo's
+# .copilot/agents/ dir, and create ~/.copilot/gstack/ with bin/browse symlinks
+# so agents can resolve $GSTACK_ROOT-relative tooling.
+if [ "$INSTALL_COPILOT" -eq 1 ]; then
+  mkdir -p "$COPILOT_AGENTS"
+  mkdir -p "$COPILOT_GSTACK"
+  # Clean stale gstack symlinks first so renamed/removed skills don't leave
+  # orphan entries pointing at non-existent source files.
+  find "$COPILOT_AGENTS" -maxdepth 1 -name "gstack-*.agent.md" -type l -delete 2>/dev/null || true
+  # Symlink each agent file (flat layout — Copilot CLI does not recurse)
+  for f in "$SOURCE_GSTACK_DIR"/.copilot/agents/*.agent.md; do
+    [ -e "$f" ] || continue  # tolerate no matches
+    ln -sf "$f" "$COPILOT_AGENTS/$(basename "$f")"
+  done
+  # Runtime support files referenced by agent prompts via $GSTACK_ROOT
+  ln -sfn "$SOURCE_GSTACK_DIR/bin" "$COPILOT_GSTACK/bin"
+  ln -sfn "$SOURCE_GSTACK_DIR/browse/dist" "$COPILOT_GSTACK/browse-dist"
+  ln -sfn "$SOURCE_GSTACK_DIR/gstack-upgrade" "$COPILOT_GSTACK/gstack-upgrade"
+  [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ] && ln -sfn "$SOURCE_GSTACK_DIR/ETHOS.md" "$COPILOT_GSTACK/ETHOS.md"
+  AGENT_COUNT=$(ls "$COPILOT_AGENTS"/gstack-*.agent.md 2>/dev/null | wc -l | tr -d ' ')
+  echo "gstack ready (copilot)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  copilot agents: $COPILOT_AGENTS ($AGENT_COUNT gstack-*.agent.md files)"
+  echo "  runtime root: $COPILOT_GSTACK"
+  echo ""
+  echo "  IMPORTANT: agents reference \$GSTACK_ROOT — set it before launching copilot:"
+  echo "    export GSTACK_ROOT=$COPILOT_GSTACK"
+  echo "  Or persist in ~/.copilot/settings.json under secret-env-vars."
+  echo ""
+  echo "  Invoke any gstack agent: copilot --agent gstack-<skill> \"<prompt>\""
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
