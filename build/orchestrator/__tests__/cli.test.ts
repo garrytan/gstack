@@ -36,6 +36,7 @@ import {
   renderLaunchdReleaseDaemonPlist,
   renderSystemdReleaseDaemonService,
   runRoleTask,
+  buildKindInstructions,
   HELP_TEXT,
   buildKindInstructions,
 } from "../cli";
