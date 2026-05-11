@@ -194,14 +194,15 @@ export async function handleWriteCommand(
           // apply here — otherwise --from-file becomes a read-anywhere escape
           // hatch for any caller that can pick the payload path (e.g., an
           // MCP caller issuing load-html with an attacker-influenced path).
+          let safePayloadPath: string;
           try {
-            validateReadPath(path.resolve(payloadPath));
+            safePayloadPath = validateReadPath(path.resolve(payloadPath));
           } catch {
             throw new Error(
               `load-html: --from-file ${payloadPath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the payload into the project tree or /tmp first.`
             );
           }
-          const raw = fs.readFileSync(payloadPath, 'utf8');
+          const raw = fs.readFileSync(safePayloadPath, 'utf8');
           let json: any;
           try { json = JSON.parse(raw); }
           catch (e: any) { throw new Error(`load-html: --from-file JSON parse failed: ${e.message}`); }
@@ -258,8 +259,9 @@ export async function handleWriteCommand(
       const absolutePath = path.resolve(filePath);
 
       // Safe-dirs check (reuses canonical read-side policy)
+      let safeAbsolutePath: string;
       try {
-        validateReadPath(absolutePath);
+        safeAbsolutePath = validateReadPath(absolutePath);
       } catch (e: any) {
         throw new Error(
           `load-html: ${absolutePath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the file into the project tree or /tmp first.`
@@ -269,7 +271,7 @@ export async function handleWriteCommand(
       // stat check — reject non-file targets with actionable error
       let stat: fs.Stats;
       try {
-        stat = await fs.promises.stat(absolutePath);
+        stat = await fs.promises.stat(safeAbsolutePath);
       } catch (e: any) {
         if (e.code === 'ENOENT') {
           throw new Error(
@@ -294,7 +296,7 @@ export async function handleWriteCommand(
       }
 
       // Single read: Buffer → magic-byte peek → utf-8 string
-      const buf = await fs.promises.readFile(absolutePath);
+      const buf = await fs.promises.readFile(safeAbsolutePath);
 
       // Magic-byte check: strip UTF-8 BOM + leading whitespace, then verify the first
       // non-whitespace byte starts a markup construct. Accepts any <tag, <!doctype,
@@ -652,8 +654,8 @@ export async function handleWriteCommand(
       if (!SAFE_DIRECTORIES.some(dir => isPathWithin(resolvedReal, dir))) {
         throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
       }
-      if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!fs.existsSync(resolvedReal)) throw new Error(`File not found: ${filePath}`);
+      const raw = fs.readFileSync(resolvedReal, 'utf-8');
       let cookies: any[];
       try { cookies = JSON.parse(raw); } catch (err: any) { throw new Error(`Invalid JSON in ${filePath}: ${err?.message || err}`); }
       if (!Array.isArray(cookies)) throw new Error('Cookie file must contain a JSON array');
@@ -1027,7 +1029,7 @@ export async function handleWriteCommand(
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         outputPath = `${TEMP_DIR}/browse-pretty-${timestamp}.png`;
       }
-      validateOutputPath(outputPath);
+      const safeOutputPath = validateOutputPath(outputPath);
 
       const originalViewport = page.viewportSize();
 
@@ -1122,7 +1124,7 @@ export async function handleWriteCommand(
       }
 
       // Take screenshot
-      await page.screenshot({ path: outputPath, fullPage: !scrollTo });
+      await page.screenshot({ path: safeOutputPath, fullPage: !scrollTo });
 
       // Restore viewport
       if (viewportWidth && originalViewport) {
@@ -1132,7 +1134,7 @@ export async function handleWriteCommand(
       const parts = ['Screenshot saved'];
       if (doCleanup) parts.push('(cleaned)');
       if (scrollTo) parts.push(`(scrolled to: ${scrollTo})`);
-      parts.push(`: ${outputPath}`);
+      parts.push(`: ${safeOutputPath}`);
       return parts.join(' ');
     }
 
@@ -1292,10 +1294,10 @@ export async function handleWriteCommand(
         ? mimeToExt(contentType.split(';')[0].trim())
         : '.bin';
       const destPath = outputPath || path.join(TEMP_DIR, `browse-download-${Date.now()}${ext}`);
-      validateOutputPath(destPath);
-      fs.writeFileSync(destPath, buffer);
+      const safeDestPath = validateOutputPath(destPath);
+      fs.writeFileSync(safeDestPath, buffer);
       const sizeKB = Math.round(buffer.length / 1024);
-      return `Downloaded: ${destPath} (${sizeKB}KB, ${contentType.split(';')[0].trim()})`;
+      return `Downloaded: ${safeDestPath} (${sizeKB}KB, ${contentType.split(';')[0].trim()})`;
     }
 
     case 'scrape': {
@@ -1313,8 +1315,8 @@ export async function handleWriteCommand(
       const limitIdx = args.indexOf('--limit');
       const limit = Math.min(limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) || 50 : 50, 200);
 
-      validateOutputPath(dir);
-      fs.mkdirSync(dir, { recursive: true });
+      const safeDir = validateOutputPath(dir);
+      fs.mkdirSync(safeDir, { recursive: true });
 
       const { extractMedia } = await import('./media-extract');
       const target = bm.getActiveFrameOrPage();
@@ -1372,7 +1374,7 @@ export async function handleWriteCommand(
           const ct = response.headers()['content-type'] || 'application/octet-stream';
           const ext = mimeToExt(ct.split(';')[0].trim());
           const filename = `${type}-${String(i + 1).padStart(3, '0')}${ext}`;
-          const filePath = path.join(dir, filename);
+          const filePath = path.join(safeDir, filename);
           const body = Buffer.from(await response.body());
           try {
             fs.writeFileSync(filePath, body);
@@ -1393,22 +1395,21 @@ export async function handleWriteCommand(
       }
 
       // Write manifest
-      fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-
-      return `Scraped ${toDownload.length} items to ${dir}/\n${lines.join('\n')}\n\nSummary: ${manifest.succeeded} succeeded, ${manifest.failed} failed, ${Math.round(manifest.total_size / 1024)}KB total`;
+      fs.writeFileSync(path.join(safeDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+      return `Scraped ${toDownload.length} items to ${safeDir}/\n${lines.join('\n')}\n\nSummary: ${manifest.succeeded} succeeded, ${manifest.failed} failed, ${Math.round(manifest.total_size / 1024)}KB total`;
     }
 
     case 'archive': {
       const page = bm.getPage();
       const outputPath = args[0] || path.join(TEMP_DIR, `browse-archive-${Date.now()}.mhtml`);
-      validateOutputPath(outputPath);
+      const safeOutputPath = validateOutputPath(outputPath);
 
       try {
         const cdp = await page.context().newCDPSession(page);
         const { data } = await cdp.send('Page.captureSnapshot', { format: 'mhtml' });
         await cdp.detach();
-        fs.writeFileSync(outputPath, data);
-        return `Archive saved: ${outputPath} (${Math.round(data.length / 1024)}KB, MHTML)`;
+        fs.writeFileSync(safeOutputPath, data);
+        return `Archive saved: ${safeOutputPath} (${Math.round(data.length / 1024)}KB, MHTML)`;
       } catch (err: any) {
         throw new Error(`MHTML archive requires Chromium CDP. Use 'text' or 'html' for raw page content. (${err.message})`);
       }

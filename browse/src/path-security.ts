@@ -14,6 +14,8 @@
  *   2. Symlinks resolved to catch traversal via symlink inside safe dir
  *   3. SAFE_DIRECTORIES = [TEMP_DIR, cwd] for local commands
  *   4. TEMP_ONLY = [TEMP_DIR] for remote file serving (prevents project file exfil)
+ *   5. Callers MUST use the returned resolved path for subsequent I/O to prevent
+ *      TOCTOU races (symlink swap between check and use)
  */
 
 import * as fs from 'fs';
@@ -29,8 +31,12 @@ const TEMP_ONLY = [TEMP_DIR].map(d => {
   try { return fs.realpathSync(d); } catch { return d; }
 });
 
-/** Validate a file path for writing (screenshot, pdf, download, scrape, archive). */
-export function validateOutputPath(filePath: string): void {
+/**
+ * Validate a file path for writing (screenshot, pdf, download, scrape, archive).
+ * Returns the resolved safe path that callers MUST use for the actual write
+ * to prevent TOCTOU symlink races.
+ */
+export function validateOutputPath(filePath: string): string {
   const resolved = path.resolve(filePath);
 
   // If the target already exists and is a symlink, resolve through it.
@@ -40,15 +46,32 @@ export function validateOutputPath(filePath: string): void {
   try {
     const stat = fs.lstatSync(resolved);
     if (stat.isSymbolicLink()) {
-      const realTarget = fs.realpathSync(resolved);
+      // Resolve the symlink target. For dangling symlinks (target doesn't exist),
+      // realpathSync throws ENOENT — use readlinkSync to get the raw target.
+      let realTarget: string;
+      try {
+        realTarget = fs.realpathSync(resolved);
+      } catch (linkErr: any) {
+        // Dangling symlink: resolve the raw link target to an absolute path
+        const rawTarget = fs.readlinkSync(resolved);
+        realTarget = path.resolve(path.dirname(resolved), rawTarget);
+      }
       const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realTarget, dir));
       if (!isSafe) {
         throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
       }
-      return; // symlink target verified, no need to check parent
+      return realTarget; // return resolved symlink target
     }
+    // Existing non-symlink file — resolve through any intermediate symlinks
+    // in the path (e.g., /tmp/evil-link/passwd where evil-link → /etc)
+    const realExisting = fs.realpathSync(resolved);
+    const isSafeExisting = SAFE_DIRECTORIES.some(dir => isPathWithin(realExisting, dir));
+    if (!isSafeExisting) {
+      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+    return realExisting;
   } catch (e: any) {
-    // ENOENT = file doesn't exist yet, fall through to parent-dir check
+    // ENOENT from lstatSync = file doesn't exist yet, fall through to parent-dir check
     if (e.code !== 'ENOENT') throw e;
   }
 
@@ -72,10 +95,15 @@ export function validateOutputPath(filePath: string): void {
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
+  return realResolved;
 }
 
-/** Validate a file path for reading (eval command). */
-export function validateReadPath(filePath: string): void {
+/**
+ * Validate a file path for reading (eval command).
+ * Returns the resolved safe path that callers MUST use for the actual read
+ * to prevent TOCTOU symlink races.
+ */
+export function validateReadPath(filePath: string): string {
   const resolved = path.resolve(filePath);
   let realPath: string;
   try {
@@ -96,6 +124,7 @@ export function validateReadPath(filePath: string): void {
   if (!isSafe) {
     throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
+  return realPath;
 }
 
 /** Validate a file path for remote serving (GET /file). TEMP_DIR only, not cwd. */

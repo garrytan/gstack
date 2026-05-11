@@ -262,12 +262,13 @@ export async function validateNavigationUrl(url: string): Promise<string> {
     // Reject path traversal after decoding — e.g. file:///tmp/safe%2F..%2Fetc/passwd
     // Note: fileURLToPath doesn't collapse .., so a literal '..' in the decoded path
     // is suspicious. path.resolve will normalize it; check the result against safe dirs.
-    validateReadPath(fsPath);
+    const safePath = validateReadPath(fsPath);
 
-    // Return the canonical file:// URL derived from the filesystem path + original
-    // query + hash. This guarantees page.goto() gets a well-formed URL regardless
-    // of input shape while preserving SPA route/query params.
-    return pathToFileURL(fsPath).href + parsed.search + parsed.hash;
+    // Return the canonical file:// URL derived from the *resolved* filesystem path +
+    // original query + hash. Using safePath (not fsPath) closes the TOCTOU window:
+    // a symlink swapped after validateReadPath but before page.goto would otherwise
+    // let Chromium open a file outside SAFE_DIRECTORIES.
+    return pathToFileURL(safePath).href + parsed.search + parsed.hash;
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
