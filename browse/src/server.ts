@@ -26,6 +26,7 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
 import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
   initRegistry, validateToken as validateScopedToken, checkScope, checkDomain,
@@ -41,6 +42,10 @@ import { inspectElement, modifyStyle, resetModifications, getModificationHistory
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
+import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
+import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
+import { redactProxyUrl } from './proxy-redact';
+import { shouldSpawnXvfb, pickFreeDisplay, spawnXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { logTunnelDenial } from './tunnel-denial-log';
 import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
@@ -313,6 +318,27 @@ const CONSOLE_LOG_PATH = config.consoleLog;
 const NETWORK_LOG_PATH = config.networkLog;
 const DIALOG_LOG_PATH = config.dialogLog;
 
+/**
+ * Per-process state-file temp path. The state-file write pattern is
+ * `writeFileSync(tmp, ...) → renameSync(tmp, stateFile)` for atomicity,
+ * but a shared `${stateFile}.tmp` filename means two concurrent writers
+ * (cold-start race when N CLIs hit a fresh repo simultaneously, parallel
+ * /tunnel/start handlers, or a combination) collide on the rename: the
+ * first writer's renameSync moves the shared temp file out of the way,
+ * the second writer's writeFileSync re-creates it, the second rename
+ * then races with the first writer's already-renamed state. Worst case
+ * the second renameSync throws ENOENT mid-air, killing one of the
+ * spawning daemons during startup.
+ *
+ * Per-process suffix (pid + 4 random bytes) makes each writer's temp
+ * path unique. The atomic rename still gives last-writer-wins semantics
+ * for the final state.json content; the only behavior change is that
+ * concurrent writers no longer kill each other on the rename.
+ */
+function tmpStatePath(): string {
+  return `${config.stateFile}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+}
+
 
 // ─── Sidebar agent / chat state ripped ──────────────────────────────
 // ChatEntry, SidebarSession, TabAgentState interfaces; chatBuffer,
@@ -324,6 +350,7 @@ const DIALOG_LOG_PATH = config.dialogLog;
 // terminal-agent.ts; chat queue + per-tab agent multiplexing are no
 // longer needed.
 
+let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
 let lastDialogFlushed = 0;
 let flushInProgress = false;
@@ -992,6 +1019,31 @@ if (process.platform === 'win32') {
 function emergencyCleanup() {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  // Xvfb cleanup MUST happen before state-file deletion. spawnXvfb detaches
+  // the child, so without this, an uncaught exception leaves the Xvfb
+  // running with no PID record — orphan accumulates and eventually
+  // exhausts the :99-:120 display range. Read the state file FIRST,
+  // call cleanupXvfb (validates cmdline + start-time before kill), THEN
+  // delete the state file.
+  try {
+    if (fs.existsSync(config.stateFile)) {
+      const raw = fs.readFileSync(config.stateFile, 'utf-8');
+      const state = JSON.parse(raw);
+      if (state.xvfbPid && state.xvfbStartTime) {
+        // Lazy import — emergencyCleanup may run on platforms where
+        // ./xvfb's Linux-specific helpers fail to load. Best effort.
+        try {
+          const { cleanupXvfb } = require('./xvfb');
+          cleanupXvfb({
+            pid: state.xvfbPid,
+            startTime: state.xvfbStartTime,
+            display: state.xvfbDisplay || ':99',
+          });
+        } catch { /* best effort */ }
+      }
+    }
+  } catch { /* state file unparseable — fall through to lock + state cleanup */ }
+
   // Clean Chromium profile locks
   const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
   for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
@@ -1019,6 +1071,97 @@ async function start() {
 
   const port = await findPort();
   LOCAL_LISTEN_PORT = port;
+
+  // ─── Proxy config (D8 + codex F5) ──────────────────────────────
+  // BROWSE_PROXY_URL is set by the CLI when --proxy was passed. For SOCKS5
+  // with auth, we run a local 127.0.0.1 bridge that relays to the
+  // authenticated upstream (Chromium can't do SOCKS5 auth itself). For
+  // HTTP/HTTPS or unauthenticated SOCKS5, we pass the URL directly to
+  // Chromium's proxy.server option.
+  let proxyBridge: BridgeHandle | null = null;
+  const proxyUrl = process.env.BROWSE_PROXY_URL;
+  if (proxyUrl) {
+    let parsed;
+    try {
+      parsed = parseProxyConfig({
+        proxyUrl,
+        envUser: process.env.BROWSE_PROXY_USER,
+        envPass: process.env.BROWSE_PROXY_PASS,
+      });
+    } catch (err) {
+      if (err instanceof ProxyConfigError) {
+        console.error(`[browse] error: ${err.message} (${err.hint})`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    if (parsed.scheme === 'socks5' && parsed.hasAuth) {
+      // Pre-flight: verify upstream accepts our creds before launching
+      // Chromium. 5s budget, 3 retries with 500ms backoff (D4: handles VPN
+      // warm-up race). On failure, exit with redacted error.
+      console.log(`[browse] Testing SOCKS5 upstream ${redactProxyUrl(proxyUrl)}...`);
+      try {
+        const test = await testUpstream({
+          upstream: toUpstreamConfig(parsed),
+          budgetMs: 5000,
+          retries: 3,
+          backoffMs: 500,
+        });
+        console.log(`[browse] [proxy] upstream test ok in ${test.ms}ms (${test.attempts} attempt${test.attempts === 1 ? '' : 's'})`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[browse] [proxy] FAIL upstream ${redactProxyUrl(proxyUrl)}: ${msg}`);
+        process.exit(1);
+      }
+
+      proxyBridge = await startSocksBridge({ upstream: toUpstreamConfig(parsed) });
+      console.log(`[browse] [proxy] bridge listening on 127.0.0.1:${proxyBridge.port}`);
+      browserManager.setProxyConfig({ server: `socks5://127.0.0.1:${proxyBridge.port}` });
+    } else {
+      // HTTP/HTTPS or unauth SOCKS5 — pass through to Chromium directly.
+      browserManager.setProxyConfig({
+        server: `${parsed.scheme}://${parsed.host}:${parsed.port}`,
+        ...(parsed.userId ? { username: parsed.userId } : {}),
+        ...(parsed.password ? { password: parsed.password } : {}),
+      });
+      console.log(`[browse] [proxy] using ${redactProxyUrl(proxyUrl)} (pass-through to Chromium)`);
+    }
+
+    // Tear down bridge on shutdown.
+    process.on('exit', () => {
+      if (proxyBridge) {
+        proxyBridge.close().catch(() => { /* shutting down anyway */ });
+      }
+    });
+  }
+
+  // ─── Xvfb auto-spawn (Linux + headed + no DISPLAY) ─────────────
+  // codex F2: walk display range to pick a free one (never hardcode :99);
+  // record start-time alongside PID so cleanup can validate ownership and
+  // not kill a recycled PID.
+  let xvfb: XvfbHandle | null = null;
+  const xvfbDecision = shouldSpawnXvfb(process.env, process.platform);
+  if (xvfbDecision.spawn) {
+    const displayNum = pickFreeDisplay();
+    if (displayNum == null) {
+      console.error('[browse] no free X display in range :99-:120 — refusing to clobber existing X servers');
+      process.exit(1);
+    }
+    try {
+      xvfb = await spawnXvfb(displayNum);
+      process.env.DISPLAY = xvfb.display;
+      console.log(`[browse] [xvfb] spawned on ${xvfb.display} (pid ${xvfb.pid})`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[browse] [xvfb] FAILED: ${msg}`);
+      console.error(`[browse] [xvfb] hint: ${xvfbInstallHint()}`);
+      process.exit(1);
+    }
+    process.on('exit', () => { try { xvfb?.close(); } catch { /* shutting down */ } });
+  } else if (process.env.BROWSE_HEADED === '1') {
+    console.log(`[browse] [xvfb] skipped: ${xvfbDecision.reason}`);
+  }
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
@@ -1476,7 +1619,7 @@ async function start() {
           // Update state file
           const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
           stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-          const tmpState = config.stateFile + '.tmp';
+          const tmpState = tmpStatePath();
           fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
           fs.renameSync(tmpState, config.stateFile);
 
@@ -1998,8 +2141,15 @@ async function start() {
     serverPath: path.resolve(import.meta.dir, 'server.ts'),
     binaryVersion: readVersionHash() || undefined,
     mode: browserManager.getConnectionMode(),
+    // D2 daemon-mismatch detection: CLI computes the same hash from its
+    // resolved flags and refuses if it differs from this stored value.
+    ...(process.env.BROWSE_CONFIG_HASH ? { configHash: process.env.BROWSE_CONFIG_HASH } : {}),
+    // Xvfb child PID + start-time + display so disconnect (or a future
+    // daemon launch on this state file) can validate-then-cleanup orphans
+    // without clobbering a recycled PID.
+    ...(xvfb ? { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display } : {}),
   };
-  const tmpFile = config.stateFile + '.tmp';
+  const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
 
@@ -2080,7 +2230,7 @@ async function start() {
         // Update state file with tunnel URL
         const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
         stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-        const tmpState = config.stateFile + '.tmp';
+        const tmpState = tmpStatePath();
         fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
         fs.renameSync(tmpState, config.stateFile);
       } catch (err: any) {
@@ -2110,7 +2260,7 @@ async function start() {
       console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
       const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
       stateContent.tunnelLocalPort = tunnelPort;
-      const tmpState = config.stateFile + '.tmp';
+      const tmpState = tmpStatePath();
       fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
       fs.renameSync(tmpState, config.stateFile);
     } catch (err: any) {
@@ -2125,8 +2275,8 @@ start().catch((err) => {
   // stderr because the server is launched with detached: true, stdio: 'ignore'.
   try {
     const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`, { mode: 0o600 });
+    mkdirSecure(config.stateDir);
+    writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
   } catch {
     // stateDir may not exist — nothing more we can do
   }

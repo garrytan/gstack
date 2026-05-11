@@ -12,6 +12,7 @@ import {
   loadState,
   saveState,
   acquireLock,
+  cleanupDeadLock,
   releaseLock,
   readLockInfo,
 } from '../state';
@@ -342,6 +343,51 @@ describe('lock acquire / release', () => {
     releaseLock('build-x');
     expect(acquireLock('build-x')).toBe(true);
     releaseLock('build-x');
+  });
+
+  it('auto-clears a dead-pid lock and acquires the lock', () => {
+    const p = lockPath('build-dead-lock');
+    fs.writeFileSync(p, '99999999\n2026-05-08T00:00:00.000Z\n');
+
+    expect(acquireLock('build-dead-lock')).toBe(true);
+    const info = readLockInfo('build-dead-lock');
+    expect(info).toContain(String(process.pid));
+    releaseLock('build-dead-lock');
+  });
+
+  it('does not clear a live-pid lock', () => {
+    const p = lockPath('build-live-lock');
+    fs.writeFileSync(p, `${process.pid}\n2026-05-08T00:00:00.000Z\n`);
+
+    expect(acquireLock('build-live-lock')).toBe(false);
+    expect(fs.readFileSync(p, 'utf8')).toContain(String(process.pid));
+  });
+
+  it('does not clear a malformed lock', () => {
+    const p = lockPath('build-malformed-lock');
+    fs.writeFileSync(p, 'not-a-pid\n2026-05-08T00:00:00.000Z\n');
+
+    expect(cleanupDeadLock('build-malformed-lock').status).toBe('invalid');
+    expect(acquireLock('build-malformed-lock')).toBe(false);
+    expect(fs.existsSync(p)).toBe(true);
+  });
+
+  it('does not coerce non-decimal lock pids', () => {
+    const p = lockPath('build-coerced-lock');
+    fs.writeFileSync(p, '1e8\n2026-05-08T00:00:00.000Z\n');
+
+    expect(cleanupDeadLock('build-coerced-lock').status).toBe('invalid');
+    expect(acquireLock('build-coerced-lock')).toBe(false);
+    expect(fs.existsSync(p)).toBe(true);
+  });
+
+  it('does not clear an unreadable lock path', () => {
+    const p = lockPath('build-unreadable-lock');
+    fs.mkdirSync(p, { recursive: true });
+
+    expect(cleanupDeadLock('build-unreadable-lock').status).toBe('unreadable');
+    expect(acquireLock('build-unreadable-lock')).toBe(false);
+    expect(fs.existsSync(p)).toBe(true);
   });
 
   it('release on missing lock is a no-op (no throw)', () => {

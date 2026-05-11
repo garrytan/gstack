@@ -29,6 +29,8 @@ export interface BuildTimeoutsMs {
   judge: number;
   /** Per-invocation timeout for the configurable feature-level reviewer. */
   featureReview: number;
+  /** Per-invocation timeout for the plan-level second-opinion reviewer. */
+  planReview: number;
 }
 
 export interface BuildDefaults {
@@ -55,6 +57,8 @@ const ROLE_KEYS: RoleKey[] = [
   "land",
   "judge",
   "featureReview",
+  "monitorAgent",
+  "planReviewer",
 ];
 
 const PROVIDERS: RoleProvider[] = ["claude", "codex", "gemini", "kimi"];
@@ -99,10 +103,19 @@ export function loadBuildDefaults(
     withMigratedNumberSection(
       config.timeoutsMs,
       "timeoutsMs",
-      ["kimi", "featureReview"],
+      ["kimi", "featureReview", "planReview"],
       filePath,
     ),
-    ["gemini", "kimi", "codex", "ship", "test", "judge", "featureReview"],
+    [
+      "gemini",
+      "kimi",
+      "codex",
+      "ship",
+      "test",
+      "judge",
+      "featureReview",
+      "planReview",
+    ],
     `${filePath}:timeoutsMs`,
   ) as unknown as BuildTimeoutsMs;
 
@@ -120,8 +133,12 @@ function withMigratedRoles(value: unknown, filePath: string): unknown {
   const isLoadingDefault =
     path.resolve(filePath) === path.resolve(DEFAULT_BUILD_CONFIG_FILE);
   delete roles.contextSave;
-  if (!roles.featureReview && !isLoadingDefault) {
-    roles.featureReview = readDefaultRole("featureReview");
+  for (const key of [
+    "featureReview",
+    "monitorAgent",
+    "planReviewer",
+  ] as const) {
+    if (!roles[key] && !isLoadingDefault) roles[key] = readDefaultRole(key);
   }
   return roles;
 }
@@ -199,6 +216,16 @@ function validateRoles(value: unknown, filePath: string): RoleConfigs {
     if (role.command != null && typeof role.command !== "string") {
       throw new Error(
         `${filePath}:roles.${key}.command must be a string when present`,
+      );
+    }
+    if (role.backupProvider != null && !PROVIDERS.includes(role.backupProvider)) {
+      throw new Error(
+        `${filePath}:roles.${key}.backupProvider must be one of: ${PROVIDERS.join(", ")}`,
+      );
+    }
+    if (role.backupModel != null && typeof role.backupModel !== "string") {
+      throw new Error(
+        `${filePath}:roles.${key}.backupModel must be a string when present`,
       );
     }
   }

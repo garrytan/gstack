@@ -1137,9 +1137,10 @@ export async function handleWriteCommand(
     }
 
     case 'download': {
-      if (args.length === 0) throw new Error('Usage: download <url|@ref> [path] [--base64]');
+      if (args.length === 0) throw new Error('Usage: download <url|@ref> [path] [--base64] [--navigate]');
       const isBase64 = args.includes('--base64');
-      const filteredArgs = args.filter(a => a !== '--base64');
+      const useNavigate = args.includes('--navigate');
+      const filteredArgs = args.filter(a => a !== '--base64' && a !== '--navigate');
       let url = filteredArgs[0];
       const outputPath = filteredArgs[1];
 
@@ -1200,6 +1201,60 @@ export async function handleWriteCommand(
         if (!match) throw new Error('Failed to decode blob data');
         contentType = match[1];
         buffer = Buffer.from(match[2], 'base64');
+      } else if (useNavigate) {
+        // Strategy 2: Navigate to URL and capture browser-triggered download.
+        // Handles URLs that trigger file downloads via redirects,
+        // Content-Disposition headers, or anti-bot CDN chains where
+        // page.request.fetch() can't follow the auth/redirect chain.
+        await validateNavigationUrl(url);
+        const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
+        // Use goto with 'commit' wait — the page may redirect to trigger
+        // the download, so 'domcontentloaded' may never fire.
+        page.goto(url, { waitUntil: 'commit', timeout: 30000 }).catch(() => {
+          // Navigation may "fail" because the response is a download,
+          // not a page. The download event handles it.
+        });
+        const download = await downloadPromise;
+        const failure = await download.failure();
+        if (failure) {
+          throw new Error(`Download failed: ${failure}`);
+        }
+        // Save to temp location first, then read into buffer
+        const tempPath = path.join(TEMP_DIR, `browse-nav-download-${Date.now()}`);
+        await download.saveAs(tempPath);
+        buffer = fs.readFileSync(tempPath);
+        // Try to infer content type from suggested filename
+        const suggested = download.suggestedFilename();
+        if (suggested) {
+          const extMatch = suggested.match(/\.([a-z0-9]+)$/i);
+          if (extMatch) {
+            const extLower = extMatch[1].toLowerCase();
+            const mimeMap: Record<string, string> = {
+              epub: 'application/epub+zip', pdf: 'application/pdf',
+              zip: 'application/zip', gz: 'application/gzip',
+              mp3: 'audio/mpeg', mp4: 'video/mp4',
+              jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+              txt: 'text/plain', html: 'text/html', json: 'application/json',
+            };
+            contentType = mimeMap[extLower] || 'application/octet-stream';
+          }
+        }
+        // Clean up temp file if we're going to write elsewhere
+        if (outputPath || isBase64) {
+          try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+        } else {
+          // No explicit output path — rename temp file with inferred extension.
+          const ext = contentType.split(';')[0].includes('/')
+            ? mimeToExt(contentType.split(';')[0].trim())
+            : '.bin';
+          const finalPath = path.join(TEMP_DIR, `browse-download-${Date.now()}${ext}`);
+          fs.renameSync(tempPath, finalPath);
+          const sizeKB = Math.round(buffer.length / 1024);
+          return `Downloaded: ${finalPath} (${sizeKB}KB, ${contentType.split(';')[0].trim()})${suggested ? ` [${suggested}]` : ''}`;
+        }
+        if (buffer.length > 200 * 1024 * 1024) {
+          throw new Error('File too large (>200MB).');
+        }
       } else {
         // Strategy 1: Direct URL via page.request.fetch().
         // Gate the URL through the same validator `goto` uses. Without

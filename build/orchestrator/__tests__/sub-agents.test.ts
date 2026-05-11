@@ -4,6 +4,7 @@ import {
   stripAnsi,
   detectTestCmd,
   parseFailureCount,
+  parseCoveragePercent,
   parseJudgeVerdict,
   buildCodexImplArgv,
   buildCodexReviewArgv,
@@ -12,6 +13,7 @@ import {
   buildRoleTaskArgv,
   isLikelyCodexTransportFailure,
   runCodexReview,
+  runConfiguredRoleTask,
   runTests,
   runShip,
   runSlashCommand,
@@ -97,17 +99,20 @@ describe("detectTestCmd", () => {
     expect(detectTestCmd(tmpDir)).toBe("npm test");
   });
 
-  it('uses pnpm test when pnpm-lock.yaml exists and package script is raw', () => {
+  it("uses pnpm test when pnpm-lock.yaml exists and package script is raw", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({ scripts: { test: "vitest run" } }),
     );
-    fs.writeFileSync(path.join(tmpDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "pnpm-lock.yaml"),
+      "lockfileVersion: '9.0'\n",
+    );
     expect(detectTestCmd(tmpDir)).toBe("pnpm test");
   });
 
-  it('uses bun run test when bun.lock exists and package script is raw', () => {
+  it("uses bun run test when bun.lock exists and package script is raw", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
@@ -117,7 +122,7 @@ describe("detectTestCmd", () => {
     expect(detectTestCmd(tmpDir)).toBe("bun run test");
   });
 
-  it('uses yarn test when packageManager declares yarn and package script is raw', () => {
+  it("uses yarn test when packageManager declares yarn and package script is raw", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
@@ -129,7 +134,7 @@ describe("detectTestCmd", () => {
     expect(detectTestCmd(tmpDir)).toBe("yarn test");
   });
 
-  it('uses bun run test when packageManager declares bun and package script is raw', () => {
+  it("uses bun run test when packageManager declares bun and package script is raw", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-test-"));
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
@@ -187,7 +192,7 @@ describe("runTests", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-tests-"));
     const result = await runTests({
       testCmd:
-        "node -e \"if (process.argv[1] !== 'hello world') process.exit(7)\" \"hello world\"",
+        'node -e "if (process.argv[1] !== \'hello world\') process.exit(7)" "hello world"',
       cwd: tmpDir,
       slug: "run-tests-quoted",
       phaseNumber: "1",
@@ -195,6 +200,69 @@ describe("runTests", () => {
     });
 
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe("parseCoveragePercent", () => {
+  it("parses jest/vitest Statements line", () => {
+    const out = "Statements   : 87.5% ( 70/80 )";
+    expect(parseCoveragePercent(out, "jest")).toBe(87.5);
+  });
+
+  it("parses jest with --coverage flag in testCmd", () => {
+    const out = "Statements: 92.1%";
+    expect(
+      parseCoveragePercent(out, "jest --coverage --coverageReporters text"),
+    ).toBe(92.1);
+  });
+
+  it("parses vitest coverage output", () => {
+    const out = "Statements : 77.8%";
+    expect(parseCoveragePercent(out, "vitest --coverage")).toBe(77.8);
+  });
+
+  it("parses bun test coverage line", () => {
+    const out = "coverage: 82.3%";
+    expect(parseCoveragePercent(out, "bun test")).toBe(82.3);
+  });
+
+  it("parses bun run test coverage line", () => {
+    const out = "coverage: 64.0%";
+    expect(parseCoveragePercent(out, "bun run test")).toBe(64.0);
+  });
+
+  it("parses pytest TOTAL line", () => {
+    const out = "TOTAL   1000   200   80%";
+    expect(parseCoveragePercent(out, "pytest")).toBe(80);
+  });
+
+  it("parses pytest with --cov flag in testCmd", () => {
+    const out = "TOTAL   500   125   75%";
+    expect(
+      parseCoveragePercent(out, "pytest --cov --cov-report term-missing"),
+    ).toBe(75);
+  });
+
+  it("parses go test coverage line", () => {
+    const out = "ok  ./...  coverage: 72.3% of statements";
+    expect(parseCoveragePercent(out, "go test ./...")).toBe(72.3);
+  });
+
+  it("returns null for cargo test (tarpaulin not guaranteed installed)", () => {
+    const out = "running 5 tests\ntest result: ok. 5 passed; 0 failed";
+    expect(parseCoveragePercent(out, "cargo test")).toBeNull();
+  });
+
+  it("returns null for unknown framework", () => {
+    expect(parseCoveragePercent("some output", "make test")).toBeNull();
+  });
+
+  it("returns null when jest output has no Statements line", () => {
+    expect(parseCoveragePercent("no coverage data here", "jest")).toBeNull();
+  });
+
+  it("returns null when bun test has no coverage line", () => {
+    expect(parseCoveragePercent("5 pass 0 fail", "bun test")).toBeNull();
   });
 });
 
@@ -269,8 +337,12 @@ describe("parseJudgeVerdict (tournament judge output)", () => {
   });
 
   it("rejects legacy gemini/codex winner values", () => {
-    expect(parseJudgeVerdict("WINNER: gemini\nREASONING: ok").verdict).toBeNull();
-    expect(parseJudgeVerdict("WINNER: codex\nREASONING: ok").verdict).toBeNull();
+    expect(
+      parseJudgeVerdict("WINNER: gemini\nREASONING: ok").verdict,
+    ).toBeNull();
+    expect(
+      parseJudgeVerdict("WINNER: codex\nREASONING: ok").verdict,
+    ).toBeNull();
   });
 
   it("returns verdict=null when WINNER appears mid-sentence (must be anchored)", () => {
@@ -703,9 +775,7 @@ describe("buildClaudeTaskArgv (claude role invocation shape)", () => {
       gate: true,
     });
     expect(argv).toContain("--model");
-    expect(argv[argv.indexOf("--model") + 1]).toBe(
-      "role-model-under-test",
-    );
+    expect(argv[argv.indexOf("--model") + 1]).toBe("role-model-under-test");
     const prompt = argv[argv.indexOf("-p") + 1];
     expect(prompt).toContain("Use xhigh thinking");
     expect(prompt).toContain("/review");
@@ -783,7 +853,9 @@ describe("buildKimiTaskArgv", () => {
     expect(prompt).toContain("Read instructions at /tmp/kimi-stage/ship-in.md");
     expect(prompt).toContain("Run /ship");
     expect(prompt).toContain("GATE PASS");
-    expect(prompt).toContain("Write your complete output to /tmp/kimi-stage/ship-out.md");
+    expect(prompt).toContain(
+      "Write your complete output to /tmp/kimi-stage/ship-out.md",
+    );
   });
 });
 
@@ -844,7 +916,13 @@ process.stdout.write(match[1]);
       expect(fs.readFileSync(result.logPath, "utf8")).toContain(
         path.join(".kimi", "tmp", "gstack", slug),
       );
-      const stagingDir = path.join(os.homedir(), ".kimi", "tmp", "gstack", slug);
+      const stagingDir = path.join(
+        os.homedir(),
+        ".kimi",
+        "tmp",
+        "gstack",
+        slug,
+      );
       const leftovers = fs.existsSync(stagingDir)
         ? fs.readdirSync(stagingDir)
         : [];
@@ -934,6 +1012,239 @@ process.stdout.write(match[1]);
       else process.env.GEMINI_BIN = oldGeminiBin;
       fs.rmSync(tmpDir, { recursive: true, force: true });
       fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+});
+
+describe("runConfiguredRoleTask backup fallback", () => {
+  it("falls back from a failing kimi role to the configured gemini backup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "role-backup-"));
+    const slug = `role-backup-${process.pid}-${Date.now()}`;
+    const oldKimiBin = process.env.KIMI_BIN;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeKimi = path.join(tmpDir, "kimi");
+      fs.writeFileSync(
+        fakeKimi,
+        `#!/bin/sh
+exit 1
+`,
+      );
+      fs.chmodSync(fakeKimi, 0o755);
+
+      const fakeGemini = path.join(tmpDir, "gemini");
+      fs.writeFileSync(
+        fakeGemini,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+const match = prompt.match(/Write your complete output to (.+?\\.md)\\./);
+if (!match) {
+  console.error("missing output path in prompt");
+  process.exit(2);
+}
+fs.writeFileSync(match[1], "backup ok");
+process.stdout.write(match[1]);
+`,
+      );
+      fs.chmodSync(fakeGemini, 0o755);
+
+      process.env.KIMI_BIN = fakeKimi;
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "ship context");
+      // Seed with stale content to verify the zeroing step fires before the backup.
+      fs.writeFileSync(outputFilePath, "stale-primary-output");
+
+      const result = await runConfiguredRoleTask({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        logPrefix: "ship",
+        role: {
+          provider: "kimi",
+          model: "kimi-model-under-test",
+          reasoning: "high",
+          command: "/ship",
+          backupProvider: "gemini",
+          backupModel: "gemini-3.1-pro-preview",
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("backup ok");
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe("backup ok");
+      expect(fs.existsSync(result.logPath)).toBe(true);
+    } finally {
+      if (oldKimiBin === undefined) delete process.env.KIMI_BIN;
+      else process.env.KIMI_BIN = oldKimiBin;
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".kimi", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("fires fallback when the primary times out (timedOut path)", async () => {
+    // Fake kimi sleeps past the 100ms timeoutMs so spawnCaptured kills it.
+    // runKimi retries once on timeout before returning timedOut=true.
+    // The fallback should then succeed via fake gemini.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "role-timeout-"));
+    const slug = `role-timeout-${process.pid}-${Date.now()}`;
+    const oldKimiBin = process.env.KIMI_BIN;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeKimi = path.join(tmpDir, "kimi");
+      fs.writeFileSync(fakeKimi, `#!/bin/sh\nsleep 10\n`);
+      fs.chmodSync(fakeKimi, 0o755);
+
+      const fakeGemini = path.join(tmpDir, "gemini");
+      fs.writeFileSync(
+        fakeGemini,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+const match = prompt.match(/Write your complete output to (.+?\\.md)\\./);
+if (!match) { console.error("missing output path"); process.exit(2); }
+fs.writeFileSync(match[1], "timeout fallback ok");
+process.stdout.write(match[1]);
+`,
+      );
+      fs.chmodSync(fakeGemini, 0o755);
+
+      process.env.KIMI_BIN = fakeKimi;
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "ship context");
+      fs.writeFileSync(outputFilePath, "");
+
+      const result = await runConfiguredRoleTask({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        logPrefix: "ship-timeout",
+        // 2000ms: long enough for the backup Node.js gemini to start and
+        // complete (<500ms typically), short enough to kill the fake kimi that
+        // sleeps 10s. The timeout spreads to the backup call via ...opts, so
+        // it must accommodate BOTH the primary kill and the backup execution.
+        timeoutMs: 2000,
+        role: {
+          provider: "kimi",
+          model: "kimi-model-under-test",
+          reasoning: "high",
+          backupProvider: "gemini",
+          backupModel: "gemini-3.1-pro-preview",
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      // Wall-clock: kimi retries once on timeout (~2×100ms) then backup runs (<500ms).
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe(
+        "timeout fallback ok",
+      );
+      expect(fs.existsSync(result.logPath)).toBe(true);
+    } finally {
+      if (oldKimiBin === undefined) delete process.env.KIMI_BIN;
+      else process.env.KIMI_BIN = oldKimiBin;
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".kimi", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("returns empty outputFilePath and non-zero exit when both primary and backup fail", async () => {
+    // When primary fails AND backup also fails: the output file is zeroed
+    // before the backup call (primary's partial output is discarded). Caller
+    // gets an empty output file and a non-zero exit code from the backup.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "role-double-fail-"));
+    const slug = `role-double-fail-${process.pid}-${Date.now()}`;
+    const oldKimiBin = process.env.KIMI_BIN;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeKimi = path.join(tmpDir, "kimi");
+      fs.writeFileSync(fakeKimi, `#!/bin/sh\nexit 1\n`);
+      fs.chmodSync(fakeKimi, 0o755);
+
+      const fakeGemini = path.join(tmpDir, "gemini");
+      fs.writeFileSync(fakeGemini, `#!/bin/sh\nexit 1\n`);
+      fs.chmodSync(fakeGemini, 0o755);
+
+      process.env.KIMI_BIN = fakeKimi;
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "ship context");
+      // Seed with stale content that should be cleared before backup fires.
+      fs.writeFileSync(outputFilePath, "stale-primary-output");
+
+      const result = await runConfiguredRoleTask({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        logPrefix: "ship-double-fail",
+        role: {
+          provider: "kimi",
+          model: "kimi-model-under-test",
+          reasoning: "high",
+          backupProvider: "gemini",
+          backupModel: "gemini-3.1-pro-preview",
+        },
+      });
+
+      // Both failed: non-zero exit, empty output (zeroed before backup, backup wrote nothing).
+      expect(result.exitCode).not.toBe(0);
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe("");
+    } finally {
+      if (oldKimiBin === undefined) delete process.env.KIMI_BIN;
+      else process.env.KIMI_BIN = oldKimiBin;
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".kimi", "tmp", "gstack", slug), {
         recursive: true,
         force: true,
       });

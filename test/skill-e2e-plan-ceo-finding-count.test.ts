@@ -109,11 +109,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
   test(
     `5-finding plan emits ${FLOOR_DISTINCT}-${CEILING_DISTINCT} review-phase AskUserQuestions`,
     async () => {
-      try {
-        fs.rmSync(PLAN_CEO_PATH, { force: true });
-      } catch {
-        /* best-effort */
-      }
+      fs.rmSync(PLAN_CEO_PATH, { force: true });
 
       const obs = await runPlanSkillCounting({
         skillName: 'plan-ceo-review',
@@ -186,11 +182,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           );
         }
       } finally {
-        try {
-          fs.rmSync(PLAN_CEO_PATH, { force: true });
-        } catch {
-          /* best-effort */
-        }
+        fs.rmSync(PLAN_CEO_PATH, { force: true });
       }
     },
     1_700_000,
@@ -199,11 +191,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
   test(
     `paired-finding positive control: ${N_PAIRED} related findings produce ${FLOOR_PAIRED}-${CEILING_PAIRED} AskUserQuestions`,
     async () => {
-      try {
-        fs.rmSync(PLAN_CEO_PAIRED_PATH, { force: true });
-      } catch {
-        /* best-effort */
-      }
+      fs.rmSync(PLAN_CEO_PAIRED_PATH, { force: true });
 
       const obs = await runPlanSkillCounting({
         skillName: 'plan-ceo-review',
@@ -241,11 +229,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           );
         }
       } finally {
-        try {
-          fs.rmSync(PLAN_CEO_PAIRED_PATH, { force: true });
-        } catch {
-          /* best-effort */
-        }
+        fs.rmSync(PLAN_CEO_PAIRED_PATH, { force: true });
       }
     },
     1_700_000,

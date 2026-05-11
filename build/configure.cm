@@ -18,12 +18,16 @@
     "primaryImpl": {
       "provider": "kimi",
       "model": "kimi-code/kimi-for-coding",
-      "reasoning": "high"
+      "reasoning": "high",
+      "backupProvider": "gemini",
+      "backupModel": "gemini-3.1-pro-preview"
     },
     "testFixer": {
       "provider": "kimi",
       "model": "kimi-code/kimi-for-coding",
-      "reasoning": "high"
+      "reasoning": "high",
+      "backupProvider": "gemini",
+      "backupModel": "gemini-3.1-pro-preview"
     },
     "secondaryImpl": {
       "provider": "codex",
@@ -57,17 +61,31 @@
       "model": "claude-sonnet-4-6",
       "reasoning": "xhigh"
     },
+    "monitorAgent": {
+      "provider": "kimi",
+      "model": "kimi-code/kimi-for-coding",
+      "reasoning": "high"
+    },
+    "planReviewer": {
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "reasoning": "high"
+    },
     "ship": {
       "provider": "kimi",
       "model": "kimi-code/kimi-for-coding",
       "reasoning": "high",
-      "command": "/ship"
+      "command": "/ship",
+      "backupProvider": "gemini",
+      "backupModel": "gemini-3.1-pro-preview"
     },
     "land": {
       "provider": "kimi",
       "model": "kimi-code/kimi-for-coding",
       "reasoning": "high",
-      "command": "/land-and-deploy"
+      "command": "/land-and-deploy",
+      "backupProvider": "gemini",
+      "backupModel": "gemini-3.1-pro-preview"
     },
     "featureVerifier": {
       "provider": "claude",
@@ -83,12 +101,13 @@
     "featureReviewMaxIterations": 3
   },
   "timeoutsMs": {
-    "gemini": 1200000,
-    "kimi": 1200000,
-    "codex": 1200000,
+    "gemini": 900000,
+    "kimi": 900000,
+    "codex": 900000,
     "ship": 1800000,
     "test": 900000,
     "judge": 600000,
-    "featureReview": 1200000
+    "featureReview": 1200000,
+    "planReview": 300000
   }
 }

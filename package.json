@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.27.1.0",
+  "version": "1.31.0.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -49,7 +49,8 @@
     "diff": "^7.0.0",
     "marked": "^18.0.2",
     "playwright": "^1.58.2",
-    "puppeteer-core": "^24.40.0"
+    "puppeteer-core": "^24.40.0",
+    "socks": "^2.8.8"
   },
   "engines": {
     "bun": ">=1.0.0"

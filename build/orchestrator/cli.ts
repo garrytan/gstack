@@ -40,6 +40,7 @@ import {
   acquireLock,
   releaseLock,
   readLockInfo,
+  lockPath,
   ensureLogDir,
   deriveStateSlug,
   logDir,
@@ -69,6 +70,7 @@ import {
   runKimi,
   runClaudeTask,
   runSlashCommand,
+  runConfiguredRoleTask,
   runRoleTask as runGeminiRoleTask,
   detectTestCmd,
   runTests,
@@ -95,7 +97,20 @@ import {
   type ParsedFeatureVerdict,
 } from "./feature-review";
 import { promptYesNo, buildBlockedFeatureMd } from "./feature-review-prompt";
-import { shipAndDeploy } from "./ship";
+import { runPlanReview, reconcilePlanReview } from "./plan-reviewer";
+import { shipAndDeploy, shipOnly } from "./ship";
+import { runReleaseDaemon, retryReleaseQueueRecord } from "./release-daemon";
+import {
+  defaultReleaseQueueDir,
+  markPrQueued,
+  parseShipOutput,
+  prBaseAndHead,
+  readReleaseQueueRecords,
+  readVersion,
+  writeReleaseQueueRecord,
+  type ReleaseQueueRecord,
+} from "./release-queue";
+import { canonicalRepoIdentity } from "./release-identity";
 import { createWorktrees, applyWinner, teardownWorktrees } from "./worktree";
 import {
   buildParallelPhasePlan,
@@ -130,6 +145,8 @@ import {
 } from "./role-config";
 import { BUILD_DEFAULTS } from "./build-config";
 import { evaluateMonitorOnce, monitorExitCode } from "./monitor";
+import { buildMonitorAgentEscalation } from "./monitor-supervisor";
+import { renderPlanStatusTable, resolvePlanSelection } from "./plan-selection";
 
 const DEFAULT_MAX_ORIGIN_VERIFICATION_ITERATIONS =
   BUILD_DEFAULTS.limits.originVerificationMaxIterations;
@@ -270,6 +287,7 @@ function featureGateProjection(
     case "failed":
       return {};
     case "shipping":
+    case "release_queued":
       return { feature_review: true };
     case "landed":
     case "origin_verifying":
@@ -494,13 +512,14 @@ function legacyDualImplError(): string {
 }
 
 export interface Args {
-  mode: "build" | "merge" | "monitor";
+  mode: "build" | "merge" | "monitor" | "release-daemon" | "plan-status";
   planFile: string;
   printOnly: boolean;
   dryRun: boolean;
   noResume: boolean;
   noGbrain: boolean;
   skipShip: boolean;
+  releaseMode: "queued" | "auto-land";
   maxCodexIter: number;
   testCmd?: string;
   projectRoot?: string;
@@ -518,8 +537,6 @@ export interface Args {
   codexReviewModel: string;
   /** Skip the pre-build working tree dirty check. */
   skipCleanCheck: boolean;
-  /** Skip the unshipped feat/* branch sweep at startup. */
-  skipSweep: boolean;
   /** Original source plan to verify and archive after the living plan completes. */
   originPlan?: string;
   /** Durable run identity used by manifest/worktree launches. */
@@ -546,16 +563,43 @@ export interface Args {
   skipFeatureReview: boolean;
   /** Cap on per-feature review cycles. Defaults to BUILD_DEFAULTS.limits.featureReviewMaxIterations (3). */
   featureReviewMaxIter: number;
+  /** Skip the planReviewer second-opinion pass at startup. */
+  noPlanReview: boolean;
+  /** Override the planReviewer model for this run (e.g. a-provider-model). */
+  planReviewerModel?: string;
   /** Manifest path for gstack-build monitor mode. */
   monitorManifest?: string;
   /** Evaluate the monitor once, primarily for tests/debug. */
   monitorOnce: boolean;
   /** Keep the monitor in the foreground until terminal action or max wall time. */
   monitorWatch: boolean;
+  /** Ask the configured monitorAgent to diagnose blocking monitor events. */
+  monitorSupervise: boolean;
   /** Poll interval for monitor --watch. */
   monitorPollMs: number;
   /** Maximum foreground monitor wall time before MONITOR_REENTER. */
   monitorMaxWallMs: number;
+  /** release-daemon subcommand. */
+  releaseDaemonCommand?: "install" | "uninstall" | "status" | "run" | "retry";
+  releaseDaemonOnce: boolean;
+  releaseDaemonWatch: boolean;
+  releaseDaemonPollMs: number;
+  releaseDaemonRetryPr?: number;
+  releaseQueueDir: string;
+  /** gstack repo to inspect for plan-status mode. */
+  planStatusGstackRepo?: string;
+  /** Emit JSON instead of a human table for plan-status mode. */
+  planStatusJson: boolean;
+  /** Include legacy/deeper status scan paths for plan-status mode. */
+  planStatusAll: boolean;
+  /** Explicit source/living plan paths to inspect in plan-status mode. */
+  planStatusPlans: string[];
+  /** Select every unclaimed inbox source plan in plan-status mode. */
+  planStatusAllInbox: boolean;
+  /** Restrict plan-status to resumable living plans. */
+  planStatusResumeOnly: boolean;
+  /** Specific run id to inspect for resume. */
+  planStatusResumeRunId?: string;
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -574,6 +618,7 @@ export function parseArgs(argv: string[]): Args {
     noResume: false,
     noGbrain: false,
     skipShip: false,
+    releaseMode: "queued",
     maxCodexIter: DEFAULT_MAX_CODEX_ITERATIONS,
     projectRoot: undefined,
     dualImpl: false,
@@ -583,7 +628,6 @@ export function parseArgs(argv: string[]): Args {
     codexModel: DEFAULT_ROLE_CONFIGS.secondaryImpl.model,
     codexReviewModel: DEFAULT_ROLE_CONFIGS.reviewSecondary.model,
     skipCleanCheck: false,
-    skipSweep: false,
     originPlan: undefined,
     runId: undefined,
     baseProjectRoot: undefined,
@@ -594,11 +638,27 @@ export function parseArgs(argv: string[]): Args {
     markPhaseCommitted: undefined,
     skipFeatureReview: false,
     featureReviewMaxIter: DEFAULT_FEATURE_REVIEW_MAX_ITER,
+    noPlanReview: false,
+    planReviewerModel: undefined,
     monitorManifest: undefined,
     monitorOnce: false,
     monitorWatch: false,
+    monitorSupervise: false,
     monitorPollMs: 60_000,
     monitorMaxWallMs: 3_600_000,
+    releaseDaemonCommand: undefined,
+    releaseDaemonOnce: false,
+    releaseDaemonWatch: false,
+    releaseDaemonPollMs: 30_000,
+    releaseDaemonRetryPr: undefined,
+    releaseQueueDir: defaultReleaseQueueDir(),
+    planStatusGstackRepo: undefined,
+    planStatusJson: false,
+    planStatusAll: false,
+    planStatusPlans: [],
+    planStatusAllInbox: false,
+    planStatusResumeOnly: false,
+    planStatusResumeRunId: undefined,
   };
   const positional: string[] = [];
   const roleFlags = buildRoleFlagMap();
@@ -609,11 +669,35 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--no-resume" || a === "--restart") args.noResume = true;
     else if (a === "--no-gbrain") args.noGbrain = true;
     else if (a === "--skip-ship") args.skipShip = true;
-    else if (a === "--skip-clean-check") args.skipCleanCheck = true;
-    else if (a === "--skip-sweep") args.skipSweep = true;
+    else if (a === "--release-mode") {
+      const next = argv[++i];
+      if (next !== "queued" && next !== "auto-land") {
+        console.error("--release-mode expects queued or auto-land");
+        process.exit(2);
+      }
+      args.releaseMode = next;
+    } else if (a === "--skip-clean-check") args.skipCleanCheck = true;
     else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
-    else if (a === "--skip-feature-review") args.skipFeatureReview = true;
-    else if (a === "--allow-submodule-recovery") {
+    else if (a === "--json") args.planStatusJson = true;
+    else if (a === "--all") args.planStatusAll = true;
+    else if (a === "--all-inbox") args.planStatusAllInbox = true;
+    else if (a === "--resume") {
+      const next = argv[i + 1];
+      args.planStatusResumeOnly = true;
+      if (next && !next.startsWith("-")) {
+        args.planStatusResumeRunId = next;
+        i++;
+      }
+    } else if (a === "--skip-feature-review") args.skipFeatureReview = true;
+    else if (a === "--no-plan-review") args.noPlanReview = true;
+    else if (a === "--plan-reviewer-model") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--plan-reviewer-model requires a value");
+        process.exit(2);
+      }
+      args.planReviewerModel = next;
+    } else if (a === "--allow-submodule-recovery") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
         console.error("--allow-submodule-recovery requires a submodule path");
@@ -643,6 +727,7 @@ export function parseArgs(argv: string[]): Args {
       args.monitorManifest = path.resolve(next);
     } else if (a === "--once") args.monitorOnce = true;
     else if (a === "--watch") args.monitorWatch = true;
+    else if (a === "--supervise") args.monitorSupervise = true;
     else if (a === "--poll-ms") {
       const next = argv[++i];
       const n = Number(next);
@@ -728,6 +813,20 @@ export function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.projectRoot = path.resolve(next);
+    } else if (a === "--gstack-repo") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--gstack-repo requires a value");
+        process.exit(2);
+      }
+      args.planStatusGstackRepo = path.resolve(next);
+    } else if (a === "--plan") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--plan requires a value");
+        process.exit(2);
+      }
+      args.planStatusPlans.push(path.resolve(next));
     } else if (a === "--base-project-root") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
@@ -756,6 +855,13 @@ export function parseArgs(argv: string[]): Args {
         process.exit(2);
       }
       args.activeRunRegistry = path.resolve(next);
+    } else if (a === "--release-queue-dir") {
+      const next = argv[++i];
+      if (!next || next.startsWith("-")) {
+        console.error("--release-queue-dir requires a value");
+        process.exit(2);
+      }
+      args.releaseQueueDir = path.resolve(next);
     } else if (a === "--origin-plan") {
       const next = argv[++i];
       if (!next || next.startsWith("-")) {
@@ -795,6 +901,7 @@ export function parseArgs(argv: string[]): Args {
       args.monitorManifest ||
       args.monitorOnce ||
       args.monitorWatch ||
+      args.monitorSupervise ||
       args.monitorPollMs !== 60_000 ||
       args.monitorMaxWallMs !== 3_600_000
     ) {
@@ -804,6 +911,84 @@ export function parseArgs(argv: string[]): Args {
       process.exit(2);
     }
     args.mode = "merge";
+  } else if (positional[0] === "plan-status") {
+    if (positional.length !== 1) {
+      console.error(
+        "usage: gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json] [--all]",
+      );
+      process.exit(2);
+    }
+    args.mode = "plan-status";
+    if (!args.planStatusGstackRepo) {
+      console.error("gstack-build plan-status requires --gstack-repo <path>");
+      process.exit(2);
+    }
+    if (
+      args.monitorManifest ||
+      args.monitorOnce ||
+      args.monitorWatch ||
+      args.monitorSupervise ||
+      args.monitorPollMs !== 60_000 ||
+      args.monitorMaxWallMs !== 3_600_000
+    ) {
+      console.error(
+        "monitor flags require: gstack-build monitor --manifest <path>",
+      );
+      process.exit(2);
+    }
+  } else if (positional[0] === "release-daemon") {
+    const command = positional[1];
+    if (
+      command !== "install" &&
+      command !== "uninstall" &&
+      command !== "status" &&
+      command !== "run" &&
+      command !== "retry"
+    ) {
+      console.error(
+        "usage: gstack-build release-daemon <install|uninstall|status|run|retry> [flags]   (-h for help)",
+      );
+      process.exit(2);
+    }
+    args.mode = "release-daemon";
+    args.releaseDaemonCommand = command;
+    if (args.monitorSupervise) {
+      console.error(
+        "monitor flags require: gstack-build monitor --manifest <path>",
+      );
+      process.exit(2);
+    }
+    if (command === "run") {
+      if (positional.length !== 2) {
+        console.error(
+          "usage: gstack-build release-daemon run [--once|--watch] [--poll-ms 30000]",
+        );
+        process.exit(2);
+      }
+      args.releaseDaemonOnce = args.monitorOnce;
+      args.releaseDaemonWatch = args.monitorWatch;
+      args.releaseDaemonPollMs =
+        args.monitorPollMs === 60_000 ? 30_000 : args.monitorPollMs;
+      if (!args.releaseDaemonOnce && !args.releaseDaemonWatch) {
+        args.releaseDaemonOnce = true;
+      }
+    } else if (command === "retry") {
+      if (positional.length !== 3) {
+        console.error("usage: gstack-build release-daemon retry <pr-number>");
+        process.exit(2);
+      }
+      const n = Number(positional[2]);
+      if (!Number.isInteger(n) || n < 1) {
+        console.error(
+          `release-daemon retry expects a PR number, got: ${positional[2]}`,
+        );
+        process.exit(2);
+      }
+      args.releaseDaemonRetryPr = n;
+    } else if (positional.length !== 2) {
+      console.error(`usage: gstack-build release-daemon ${command}`);
+      process.exit(2);
+    }
   } else if (positional[0] === "monitor") {
     if (positional.length !== 1) {
       console.error(
@@ -829,6 +1014,7 @@ export function parseArgs(argv: string[]): Args {
       args.monitorManifest ||
       args.monitorOnce ||
       args.monitorWatch ||
+      args.monitorSupervise ||
       args.monitorPollMs !== 60_000 ||
       args.monitorMaxWallMs !== 3_600_000
     ) {
@@ -839,8 +1025,20 @@ export function parseArgs(argv: string[]): Args {
     }
   } else {
     console.error(
-      "usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]   (-h for help)",
+      "usage: gstack-build <plan-file> [flags]\n       gstack-build merge [flags]\n       gstack-build monitor --manifest <path> [--once|--watch]\n       gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json]   (-h for help)",
     );
+    process.exit(2);
+  }
+  if (
+    args.mode !== "plan-status" &&
+    (args.planStatusJson ||
+      args.planStatusAll ||
+      args.planStatusGstackRepo ||
+      args.planStatusPlans.length > 0 ||
+      args.planStatusAllInbox ||
+      args.planStatusResumeOnly)
+  ) {
+    console.error("plan-status flags require: gstack-build plan-status");
     process.exit(2);
   }
   const providerErrors = validateRoleProviders(args);
@@ -1498,6 +1696,10 @@ function buildRoleFlagMap(): Map<string, [RoleKey, RoleField]> {
     map.set(`--${flag}-model`, [key, "model"]);
     map.set(`--${flag}-reasoning`, [key, "reasoning"]);
     map.set(`--${flag}-command`, [key, "command"]);
+    // Backup flags registered for all roles; only 4 (primaryImpl, testFixer, ship, land)
+    // have defaults in configure.cm. Others accept overrides via CLI/env if needed.
+    map.set(`--${flag}-backup-provider`, [key, "backupProvider"]);
+    map.set(`--${flag}-backup-model`, [key, "backupModel"]);
   }
   return map;
 }
@@ -1511,12 +1713,16 @@ export const HELP_TEXT = `gstack-build — code-driven phase orchestrator
 Usage:
   gstack-build <plan-file> [flags]
   gstack-build merge [flags]
-  gstack-build monitor --manifest <path> [--once|--watch] [--poll-ms 60000] [--max-wall-ms <ms>]
+  gstack-build monitor --manifest <path> [--once|--watch] [--supervise] [--poll-ms 60000] [--max-wall-ms <ms>]
+  gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json] [--all]
+  gstack-build release-daemon <install|uninstall|status|run|retry> [flags]
 
 Modes:
   <plan-file>           Execute a living implementation plan.
   merge                 Review/fix/ship/land unmerged feat/* branches.
   monitor               Foreground monitor for /build manifest runs.
+  plan-status           Read-only /build plan selection and resume status.
+  release-daemon        Process queued build-created PRs one at a time.
 
 Flags:
   --print-only         Parse and show phase table; exit.
@@ -1524,8 +1730,10 @@ Flags:
   --no-resume          Ignore existing state, start fresh.
   --no-gbrain          Skip gbrain mirror; local JSON only.
   --skip-ship          Skip per-feature /ship + /land-and-deploy steps.
+  --release-mode <m>   queued (default) runs /ship then queues PR for the
+                       release daemon. auto-land preserves legacy /ship +
+                       /land-and-deploy behavior.
   --skip-clean-check   Skip the pre-build working tree dirty check.
-  --skip-sweep         Skip the unshipped feat/* branch sweep at startup.
   --skip-feature-review  Skip the per-feature meta-review pass.
   --feature-review-max-iter N  Cap on per-feature review cycles before
                        hard-fail (F4 will swap this for an interactive
@@ -1539,8 +1747,17 @@ Flags:
   --manifest <path>    Manifest v2 JSON for monitor mode.
   --once               Evaluate monitor mode once and exit.
   --watch              Keep monitor mode in the foreground until a terminal event.
+  --supervise          On blocking monitor events, ask configured monitorAgent
+                       for strict JSON diagnosis/escalation.
   --poll-ms N          Monitor watch poll interval. Default: 60000.
+                       For release-daemon run, default: 30000.
   --max-wall-ms N      Monitor watch re-entry timeout. Default: 3600000.
+  --gstack-repo <dir>  Workspace-level *-gstack repo for plan-status.
+  --json               Emit plan-status as JSON.
+  --all                Include legacy/deeper plan-status scan paths.
+  --plan <file>        Explicit plan path for plan-status inspection.
+  --all-inbox          Select unclaimed inbox source plans in plan-status mode.
+  --resume [runId]     Inspect resumable living plans in plan-status mode.
   --test-writer-model <m>          Default: ${DEFAULT_ROLE_CONFIGS.testWriter.model}.
   --primary-impl-model <m>         Default: ${DEFAULT_ROLE_CONFIGS.primaryImpl.model}.
   --test-fixer-model <m>           Default: ${DEFAULT_ROLE_CONFIGS.testFixer.model}.
@@ -1550,6 +1767,9 @@ Flags:
   --qa-model <m>                   Default: ${DEFAULT_ROLE_CONFIGS.qa.model}.
   --ship-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.ship.model}.
   --land-model <m>                 Default: ${DEFAULT_ROLE_CONFIGS.land.model}.
+  --monitor-agent-model <m>        Default: ${DEFAULT_ROLE_CONFIGS.monitorAgent.model}.
+  --plan-reviewer-model <m>        Default: ${DEFAULT_ROLE_CONFIGS.planReviewer.model}.
+  --no-plan-review         Skip the planReviewer second-opinion pass at startup.
   --<role>-provider <p>            claude|codex|gemini|kimi. Dual-impl implementors and judge are model-agnostic.
   --<role>-reasoning <r>           low|medium|high|xhigh.
   --<role>-command <cmd>           For review, review-secondary, qa, ship, and land.
@@ -1578,6 +1798,7 @@ Monitor exit codes:
   0  ALL_RUNS_COMPLETE
   10 HOST_CONTEXT_SAVE_REQUIRED
   11 USER_ACTION_REQUIRED
+     MONITOR_AGENT_ESCALATION
   12 MONITOR_REENTER
   20 RUN_FAILED
   30 MONITOR_ERROR
@@ -2100,6 +2321,23 @@ export function syncFeatureBranchWithBase(
   };
 }
 
+/**
+ * Returns true when a feature has reached a genuinely terminal state —
+ * meaning the real ship+land+verify pipeline left durable evidence, not
+ * just a status field that could have been patched manually in the JSON.
+ *
+ * committed:      set exclusively at end of origin-plan verification;
+ *                 requires completedAt.
+ * release_queued: set after ship queues a PR for the release daemon;
+ *                 requires shippedAt + prNumber (both set by the real
+ *                 ship pipeline, harder to fake together).
+ */
+export function isFeatureTerminal(f: FeatureState): boolean {
+  if (f.status === "committed") return !!f.completedAt;
+  if (f.status === "release_queued") return !!f.shippedAt && f.prNumber != null;
+  return false;
+}
+
 export function findNextFeatureIndex(
   state: BuildState,
   opts: { skipOriginVerified?: boolean } = {},
@@ -2108,13 +2346,7 @@ export function findNextFeatureIndex(
   for (let i = 0; i < features.length; i++) {
     const f = features[i];
     if (opts.skipOriginVerified && f.status === "origin_verified") continue;
-    // Skip only when the feature has BOTH terminal status AND evidence the
-    // ship→land→verify pipeline actually ran. completedAt is set exclusively
-    // at the end of origin-plan verification (see "committed" assignment
-    // below in the feature loop). A bare status="committed" with no
-    // completedAt indicates a manual JSON state patch that bypassed
-    // ship+land+verify — re-process the feature so the pipeline runs.
-    if (f.status === "committed" && f.completedAt) continue;
+    if (isFeatureTerminal(f)) continue;
     return i;
   }
   return -1;
@@ -2603,10 +2835,44 @@ async function verifyOriginPlanFeature(args: {
   return { ok: true, issueLogPath: outputFilePath };
 }
 
+export function extractCoverageTarget(phaseBody: string): number {
+  const m = phaseBody.match(/\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+)%\*\*/i);
+  return m ? parseInt(m[1], 10) : 80;
+}
+
 export function buildGeminiTestSpecPrompt(
   phase: Phase,
   planFile: string,
 ): string {
+  const hasTestSpec = phase.body.includes("#### Test Spec");
+
+  const specInstructions = hasTestSpec
+    ? [
+        `1. Implement ALL test cases listed in the \`#### Test Spec\` section of the phase`,
+        `   description above (minimum requirement). You MAY add additional cases you identify,`,
+        `   but MUST NOT remove or weaken any specified test.`,
+        `2. Aim for the coverage target specified in the spec (≥${extractCoverageTarget(phase.body)}%).`,
+        `   The CLI will measure coverage after you commit — add enough tests to meet the target.`,
+        `3. Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
+        `4. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
+        `5. Use the project's existing test framework and file structure. Inspect the repo to`,
+        `   find the right test directory and naming convention before creating test files.`,
+        `6. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+        `7. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+        `8. Commit the failing tests to the current branch.`,
+        `9. Write your output summary to the output file path (provided in shell prompt).`,
+      ]
+    : [
+        `1. Write failing tests that cover the behavior described above.`,
+        `   Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
+        `2. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
+        `3. Cover: happy path + key edge cases using the project's existing test framework.`,
+        `4. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+        `5. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+        `6. Commit the failing tests to the current branch.`,
+        `7. Write your output summary to the output file path (provided in shell prompt).`,
+      ];
+
   return [
     `# Phase ${phase.number}: ${phase.name} — Test Specification`,
     ``,
@@ -2618,14 +2884,7 @@ export function buildGeminiTestSpecPrompt(
     ``,
     `## Instructions`,
     ``,
-    `1. Write failing tests that cover the behavior described above.`,
-    `   Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
-    `2. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
-    `3. Cover: happy path + key edge cases using the project's existing test framework.`,
-    `4. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
-    `5. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
-    `6. Commit the failing tests to the current branch.`,
-    `7. Write your output summary to the output file path (provided in shell prompt).`,
+    ...specInstructions,
   ].join("\n");
 }
 
@@ -2788,7 +3047,7 @@ function summarizePhase(
   console.log(`\n[${marker}] Phase ${phaseNumber}: ${phaseName}`);
 }
 
-async function runRoleTask(opts: {
+export async function runRoleTask(opts: {
   role: RoleConfig;
   inputFilePath: string;
   outputFilePath: string;
@@ -2798,8 +3057,10 @@ async function runRoleTask(opts: {
   iteration: number;
   logPrefix: string;
 }): Promise<SubAgentResult> {
+  let result: SubAgentResult;
+
   if (opts.role.provider === "gemini") {
-    return runGemini({
+    result = await runGemini({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -2809,9 +3070,8 @@ async function runRoleTask(opts: {
       logPrefix: opts.logPrefix,
       model: opts.role.model,
     });
-  }
-  if (opts.role.provider === "kimi") {
-    return runKimi({
+  } else if (opts.role.provider === "kimi") {
+    result = await runKimi({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -2821,9 +3081,20 @@ async function runRoleTask(opts: {
       logPrefix: opts.logPrefix,
       model: opts.role.model,
     });
-  }
-  if (opts.role.provider === "codex") {
-    return runCodexImpl({
+  } else if (opts.role.provider === "codex") {
+    result = await runCodexImpl({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber,
+      iteration: opts.iteration,
+      logPrefix: opts.logPrefix,
+      model: opts.role.model,
+      reasoning: opts.role.reasoning,
+    });
+  } else {
+    result = await runClaudeTask({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -2835,17 +3106,35 @@ async function runRoleTask(opts: {
       reasoning: opts.role.reasoning,
     });
   }
-  return runClaudeTask({
-    inputFilePath: opts.inputFilePath,
-    outputFilePath: opts.outputFilePath,
-    cwd: opts.cwd,
-    slug: opts.slug,
-    phaseNumber: opts.phaseNumber,
-    iteration: opts.iteration,
-    logPrefix: opts.logPrefix,
-    model: opts.role.model,
-    reasoning: opts.role.reasoning,
-  });
+
+  // MIRROR: sub-agents.ts::runConfiguredRoleTask contains an identical fallback
+  // block for the sub-agent dispatcher. Any change to this logic (log format,
+  // clear-before-backup, role shape) must also be applied there.
+  if ((result.timedOut || result.exitCode !== 0) && opts.role.backupProvider) {
+    console.warn(
+      `[gstack-build] ${opts.logPrefix}: primary ${opts.role.provider} failed ` +
+        `(exit=${result.exitCode ?? "null"}, timedOut=${result.timedOut}); ` +
+        `falling back to ${opts.role.backupProvider}`,
+    );
+    // Zero stale primary output before backup runs. If backup also fails, the
+    // caller gets an empty outputFilePath plus the backup's non-zero exit code.
+    fs.writeFileSync(opts.outputFilePath, "");
+    return runRoleTask({
+      ...opts,
+      logPrefix: `${opts.logPrefix}-backup-${opts.role.backupProvider}`,
+      role: {
+        provider: opts.role.backupProvider,
+        // Empty string when backupModel is absent: all argv builders use a falsy
+        // check (e.g. `opts.model ? ["-m", opts.model] : []`), so "" suppresses
+        // the flag and lets the provider use its configured default.
+        model: opts.role.backupModel ?? "",
+        reasoning: opts.role.reasoning,
+        command: opts.role.command,
+      },
+    });
+  }
+
+  return result;
 }
 
 async function runJudgeRole(opts: {
@@ -5417,6 +5706,25 @@ function printMonitorEvent(evt: unknown): void {
   console.log(JSON.stringify(evt));
 }
 
+async function maybePrintMonitorAgentEscalation(
+  args: Args,
+  evaluation: ReturnType<typeof evaluateMonitorOnce>,
+): Promise<boolean> {
+  if (!args.monitorSupervise || !args.monitorManifest) return false;
+  if (evaluation.terminalEvent.event === "HOST_CONTEXT_SAVE_REQUIRED") {
+    return false;
+  }
+  const escalation = await buildMonitorAgentEscalation({
+    manifestPath: args.monitorManifest,
+    evaluation,
+    role: args.roles.monitorAgent,
+    runner: runConfiguredRoleTask,
+  });
+  if (!escalation) return false;
+  printMonitorEvent(escalation);
+  return true;
+}
+
 async function runMonitorMode(args: Args): Promise<number> {
   if (!args.monitorManifest) {
     console.error("gstack-build monitor requires --manifest <path>");
@@ -5428,7 +5736,13 @@ async function runMonitorMode(args: Args): Promise<number> {
       manifestPath: args.monitorManifest,
       pollMs: args.monitorPollMs,
     });
+    for (const evt of evaluation.skillFaultEvents) {
+      process.stdout.write(JSON.stringify(evt) + "\n");
+    }
     for (const evt of evaluation.events) printMonitorEvent(evt);
+    if (await maybePrintMonitorAgentEscalation(args, evaluation)) {
+      return monitorExitCode("MONITOR_AGENT_ESCALATION");
+    }
     return monitorExitCode(evaluation.terminalEvent.event);
   }
 
@@ -5437,6 +5751,9 @@ async function runMonitorMode(args: Args): Promise<number> {
       manifestPath: args.monitorManifest,
       pollMs: args.monitorPollMs,
     });
+    for (const evt of evaluation.skillFaultEvents) {
+      process.stdout.write(JSON.stringify(evt) + "\n");
+    }
     for (const evt of evaluation.events) {
       if (evt.event !== "MONITOR_REENTER") printMonitorEvent(evt);
     }
@@ -5447,6 +5764,9 @@ async function runMonitorMode(args: Args): Promise<number> {
     if (evaluation.terminalEvent.event !== "MONITOR_REENTER") {
       if (!evaluation.events.some((evt) => evt === evaluation.terminalEvent)) {
         printMonitorEvent(evaluation.terminalEvent);
+      }
+      if (await maybePrintMonitorAgentEscalation(args, evaluation)) {
+        return monitorExitCode("MONITOR_AGENT_ESCALATION");
       }
       return monitorExitCode(evaluation.terminalEvent.event);
     }
@@ -5463,6 +5783,218 @@ async function runMonitorMode(args: Args): Promise<number> {
   }
 }
 
+function runPlanStatusMode(args: Args): number {
+  if (!args.planStatusGstackRepo) {
+    console.error("gstack-build plan-status requires --gstack-repo <path>");
+    return 2;
+  }
+  const result = resolvePlanSelection({
+    gstackRepo: args.planStatusGstackRepo,
+    projectRoot: args.projectRoot,
+    explicitPaths: args.planStatusPlans,
+    allInbox: args.planStatusAllInbox,
+    resumeOnly: args.planStatusResumeOnly,
+    resumeRunId: args.planStatusResumeRunId,
+    includeAll: args.planStatusAll,
+    activeRunRegistry: args.activeRunRegistry,
+  });
+  if (args.planStatusJson) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    process.stdout.write(renderPlanStatusTable(result));
+  }
+  return result.result === "blocked" ? 1 : 0;
+}
+
+function resolveDaemonProjectRoot(args: Args): string {
+  if (args.projectRoot) return path.resolve(args.projectRoot);
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  return top.status === 0 && top.stdout.trim()
+    ? path.resolve(top.stdout.trim())
+    : process.cwd();
+}
+
+export function releaseDaemonLaunchCommand(projectRoot: string): string[] {
+  return [
+    process.argv[0],
+    process.argv[1],
+    "release-daemon",
+    "run",
+    "--watch",
+    "--project-root",
+    projectRoot,
+  ];
+}
+
+export function renderLaunchdReleaseDaemonPlist(
+  command: string[],
+  projectRoot: string,
+): string {
+  const esc = (part: string) =>
+    part.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.gstack.release-daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+${command.map((part) => `    <string>${esc(part)}</string>`).join("\n")}
+  </array>
+  <key>WorkingDirectory</key><string>${esc(projectRoot)}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${path.join(os.homedir(), ".gstack", "release-daemon.out.log")}</string>
+  <key>StandardErrorPath</key><string>${path.join(os.homedir(), ".gstack", "release-daemon.err.log")}</string>
+</dict>
+</plist>
+`;
+}
+
+function systemdQuote(part: string): string {
+  return part.replace(/\\/g, "\\\\").replace(/ /g, "\\ ");
+}
+
+export function renderSystemdReleaseDaemonService(
+  command: string[],
+  projectRoot: string,
+): string {
+  return [
+    "[Unit]",
+    "Description=gstack release daemon",
+    "",
+    "[Service]",
+    `WorkingDirectory=${systemdQuote(projectRoot)}`,
+    `ExecStart=${command.map(systemdQuote).join(" ")}`,
+    "Restart=always",
+    "RestartSec=10",
+    "",
+    "[Install]",
+    "WantedBy=default.target",
+    "",
+  ].join("\n");
+}
+
+function installReleaseDaemon(args: Args): number {
+  const projectRoot = resolveDaemonProjectRoot(args);
+  const command = releaseDaemonLaunchCommand(projectRoot);
+  if (process.platform === "darwin") {
+    const dir = path.join(os.homedir(), "Library", "LaunchAgents");
+    const plist = path.join(dir, "com.gstack.release-daemon.plist");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      plist,
+      renderLaunchdReleaseDaemonPlist(command, projectRoot),
+    );
+    console.log(`Installed launchd user agent: ${plist}`);
+    console.log(`Start with: launchctl load ${plist}`);
+    return 0;
+  }
+  if (process.platform === "linux") {
+    const dir = path.join(os.homedir(), ".config", "systemd", "user");
+    const service = path.join(dir, "gstack-release-daemon.service");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      service,
+      renderSystemdReleaseDaemonService(command, projectRoot),
+    );
+    console.log(`Installed systemd user service: ${service}`);
+    console.log(
+      "Start with: systemctl --user enable --now gstack-release-daemon",
+    );
+    return 0;
+  }
+  console.error(
+    "release-daemon install supports macOS launchd and Linux systemd user services. Run `gstack-build release-daemon run --watch` manually on this platform.",
+  );
+  return 2;
+}
+
+function uninstallReleaseDaemon(): number {
+  const targets = [
+    path.join(
+      os.homedir(),
+      "Library",
+      "LaunchAgents",
+      "com.gstack.release-daemon.plist",
+    ),
+    path.join(
+      os.homedir(),
+      ".config",
+      "systemd",
+      "user",
+      "gstack-release-daemon.service",
+    ),
+  ];
+  let removed = 0;
+  for (const target of targets) {
+    try {
+      fs.unlinkSync(target);
+      console.log(`Removed ${target}`);
+      removed++;
+    } catch (err: any) {
+      if (err.code !== "ENOENT") throw err;
+    }
+  }
+  if (removed === 0) console.log("No release daemon service files found.");
+  return 0;
+}
+
+function releaseDaemonStatus(args: Args): number {
+  const queued = readReleaseQueueRecords(args.releaseQueueDir);
+  console.log(`Release queue: ${args.releaseQueueDir}`);
+  if (queued.length === 0) {
+    console.log("No queued release records.");
+    return 0;
+  }
+  for (const item of queued) {
+    console.log(
+      `PR #${item.prNumber} ${item.status} ${item.baseBranch} <- ${item.featureBranch} v${item.version}${item.lastError ? ` (${item.lastError})` : ""}`,
+    );
+  }
+  return queued.some((item) => item.status === "blocked") ? 1 : 0;
+}
+
+async function runReleaseDaemonMode(args: Args): Promise<number> {
+  switch (args.releaseDaemonCommand) {
+    case "install":
+      return installReleaseDaemon(args);
+    case "uninstall":
+      return uninstallReleaseDaemon();
+    case "status":
+      return releaseDaemonStatus(args);
+    case "retry": {
+      const record = retryReleaseQueueRecord(
+        args.releaseDaemonRetryPr!,
+        args.releaseQueueDir,
+      );
+      if (!record) {
+        console.error(
+          `No release queue record found for PR #${args.releaseDaemonRetryPr}`,
+        );
+        return 1;
+      }
+      console.log(`PR #${record.prNumber}: ${record.status}`);
+      return 0;
+    }
+    case "run":
+      return runReleaseDaemon({
+        queueDir: args.releaseQueueDir,
+        repoPath: args.projectRoot ?? process.cwd(),
+        once: args.releaseDaemonOnce,
+        watch: args.releaseDaemonWatch,
+        pollMs: args.releaseDaemonPollMs,
+        roles: args.roles,
+      });
+    default:
+      console.error("release-daemon command missing");
+      return 2;
+  }
+}
+
 async function main() {
   const rawArgv = process.argv.slice(2);
   const args = parseArgs(rawArgv);
@@ -5474,6 +6006,16 @@ async function main() {
 
   if (args.mode === "monitor") {
     const exitCode = await runMonitorMode(args);
+    process.exit(exitCode);
+  }
+
+  if (args.mode === "plan-status") {
+    const exitCode = runPlanStatusMode(args);
+    process.exit(exitCode);
+  }
+
+  if (args.mode === "release-daemon") {
+    const exitCode = await runReleaseDaemonMode(args);
     process.exit(exitCode);
   }
 
@@ -5590,38 +6132,26 @@ async function main() {
     console.error(
       `\nanother gstack-build instance is running for "${slug}".\n` +
         `lock info:\n${info}\n` +
-        `if stale, remove ~/.gstack/build-state/${slug}.lock and retry.`,
+        `lock was not auto-cleared because its owner appears live or cannot be safely verified.\n` +
+        `inspect ${lockPath(slug)} before removing it manually.`,
     );
     process.exit(3);
   }
   let state: BuildState | undefined;
-  let currentBranchForSweep = "unknown";
+  let currentBranchAtLaunch = "unknown";
   const startedAt = Date.now();
   let exitCode = 1;
 
   try {
     ensureLogDir(slug);
 
-    currentBranchForSweep = getCurrentBranch(projectRoot);
+    currentBranchAtLaunch = getCurrentBranch(projectRoot);
     writeProvisionalActiveRunRecord({
       launch,
       slug,
       planFile: args.planFile,
-      currentBranchName: currentBranchForSweep,
+      currentBranchName: currentBranchAtLaunch,
     });
-
-    // Sweep only after this run has registered its owned bootstrap/current
-    // branches, so sibling build processes skip this run's branch ownership.
-    if (!args.skipSweep && runStartupGates) {
-      await sweepUnshippedFeatBranches(
-        projectRoot,
-        currentBranchForSweep,
-        slug,
-        args.roles,
-        args.activeRunRegistry,
-        args.baseProjectRoot,
-      );
-    }
 
     let setupFailed = false;
 
@@ -5745,6 +6275,37 @@ async function main() {
       // Drive the loop.
       const cwd = projectRoot;
 
+      // Plan review: second-opinion pass before Phase 1 of Feature 1.
+      // Skipped in dry-run, when --no-plan-review is set, or on resume (already reviewed).
+      if (!args.dryRun && !args.noPlanReview && !state.planReview) {
+        const reviewRole = { ...args.roles.planReviewer };
+        if (args.planReviewerModel) reviewRole.model = args.planReviewerModel;
+        const planReviewReportPath = path.join(
+          logDir(slug),
+          "plan-review-report.json",
+        );
+        const verdict = await runPlanReview({
+          planPath: args.planFile,
+          role: reviewRole,
+          slug,
+          timeoutMs: BUILD_DEFAULTS.timeoutsMs.planReview,
+          logDirPath: logDir(slug),
+          cwd,
+        });
+        const outcome = await reconcilePlanReview(verdict, args.planFile, {
+          planReviewReportPath,
+        });
+        if (outcome === "critical_exit") {
+          // Don't persist to state — the !state.planReview guard must stay falsy so
+          // the next gstack-build invocation (after SKILL.md re-synthesis) re-runs the review.
+          // Release the lock explicitly since process.exit bypasses the finally block.
+          releaseLock(slug);
+          process.exit(3);
+        }
+        state.planReview = verdict;
+        saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+      }
+
       exitCode = 0;
       let rerunAutonomousLoop = false;
       do {
@@ -5774,6 +6335,22 @@ async function main() {
             // Reset to phases_done so resumeAtShip routes us into the ship
             // path on the next checks (status==="phases_done" → resumeAtShip
             // → falls through to the ship+land+verify block).
+            featureState.status = "phases_done";
+            saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+          }
+          // Detect manual JSON state patches that set status="release_queued"
+          // without shippedAt + prNumber (both are set only by the real ship
+          // pipeline). findNextFeatureIndex re-surfaces these features because
+          // isFeatureTerminal() requires both fields.
+          if (
+            featureState.status === "release_queued" &&
+            !isFeatureTerminal(featureState)
+          ) {
+            console.warn(
+              `⚠ Feature ${featureState.number} status is "release_queued" but shippedAt/prNumber are missing — ` +
+                `this indicates a manual JSON state patch that bypassed ship. ` +
+                `Re-processing the feature so the pipeline runs.`,
+            );
             featureState.status = "phases_done";
             saveState(state, { noGbrain: args.noGbrain, log: console.warn });
           }
@@ -6235,14 +6812,23 @@ async function main() {
               pauseState: "running",
             });
             console.log(
-              `\n▶ Feature ${featureState.number} complete. Running /ship + /land-and-deploy.`,
+              args.releaseMode === "queued"
+                ? `\n▶ Feature ${featureState.number} complete. Running /ship and queueing PR for release daemon.`
+                : `\n▶ Feature ${featureState.number} complete. Running /ship + /land-and-deploy.`,
             );
-            const result = await shipAndDeploy({
-              cwd,
-              slug: `${slug}-feature-${featureState.number}`,
-              shipRole: args.roles.ship,
-              landRole: args.roles.land,
-            });
+            const result =
+              args.releaseMode === "queued"
+                ? await shipOnly({
+                    cwd,
+                    slug: `${slug}-feature-${featureState.number}`,
+                    shipRole: args.roles.ship,
+                  })
+                : await shipAndDeploy({
+                    cwd,
+                    slug: `${slug}-feature-${featureState.number}`,
+                    shipRole: args.roles.ship,
+                    landRole: args.roles.land,
+                  });
             if (result.exitCode !== 0 || result.timedOut) {
               featureState.status = "paused";
               featureState.error = `ship failed (exit ${result.exitCode}, timed_out=${result.timedOut}); see ${result.logPath}`;
@@ -6250,6 +6836,69 @@ async function main() {
               console.error(`✗ ${featureState.error}`);
               exitCode = 1;
               break;
+            }
+            if (args.releaseMode === "queued") {
+              const outputText = [
+                result.stdout,
+                result.stderr,
+                result.outputFilePath && fs.existsSync(result.outputFilePath)
+                  ? fs.readFileSync(result.outputFilePath, "utf8")
+                  : "",
+              ].join("\n");
+              const parsedShip = parseShipOutput(outputText);
+              if (!parsedShip.prNumber) {
+                featureState.status = "paused";
+                featureState.error = `ship succeeded but PR number could not be parsed; see ${result.logPath}`;
+                saveState(state, {
+                  noGbrain: args.noGbrain,
+                  log: console.warn,
+                });
+                console.error(`✗ ${featureState.error}`);
+                exitCode = 1;
+                break;
+              }
+              const prRefs = prBaseAndHead(cwd, parsedShip.prNumber);
+              const queuedAt = new Date().toISOString();
+              const repoIdentity = canonicalRepoIdentity({
+                cwd: args.baseProjectRoot ?? cwd,
+                repoPath: args.baseProjectRoot ?? cwd,
+              }).identity;
+              const record: ReleaseQueueRecord = {
+                runId: args.runId ?? state.slug,
+                repoPath: args.baseProjectRoot ?? cwd,
+                repoIdentity,
+                baseBranch: prRefs.baseBranch,
+                featureBranch: prRefs.featureBranch || branchForShip,
+                prNumber: parsedShip.prNumber,
+                prUrl: parsedShip.prUrl,
+                version: parsedShip.version ?? readVersion(cwd),
+                livingPlanPath: args.planFile,
+                ...(args.originPlan && { sourcePlanPath: args.originPlan }),
+                worktreePath: cwd,
+                queuedAt,
+                status: "queued",
+              };
+              const marked = markPrQueued(cwd, record);
+              if (!marked.ok) {
+                featureState.status = "paused";
+                featureState.error = `ship succeeded but PR #${record.prNumber} could not be marked queued: ${marked.error}`;
+                saveState(state, {
+                  noGbrain: args.noGbrain,
+                  log: console.warn,
+                });
+                console.error(`✗ ${featureState.error}`);
+                exitCode = 1;
+                break;
+              }
+              writeReleaseQueueRecord(args.releaseQueueDir, record);
+              featureState.shippedAt = featureState.shippedAt ?? queuedAt;
+              featureState.prNumber = record.prNumber;
+              featureState.status = "release_queued";
+              saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+              console.log(
+                `  ✓ queued PR #${record.prNumber} for release daemon (${record.baseBranch} <- ${record.featureBranch})`,
+              );
+              continue;
             }
             console.log(
               `  ✓ shipped (${(result.durationMs / 1000).toFixed(0)}s)`,
@@ -6397,7 +7046,11 @@ async function main() {
               "✗ final completion exam failed — phases or features remain incomplete",
             );
             exitCode = 1;
-          } else if (!args.skipShip && !args.dryRun) {
+          } else if (
+            !args.skipShip &&
+            !args.dryRun &&
+            args.releaseMode === "auto-land"
+          ) {
             const shippedLocalBranches = (state.features ?? [])
               .filter(
                 (feature) => feature.status === "committed" && feature.branch,
@@ -6518,6 +7171,11 @@ async function main() {
         );
       }
       if (exitCode === 0) {
+        // In --release-mode queued, all features may reach release_queued status
+        // while the release daemon handles the actual landing asynchronously.
+        // state.completed = true means "the orchestrator's job is done" — not
+        // "all PRs have merged." The release daemon is responsible for landing
+        // queued PRs.
         state.completed = !args.dryRun && !args.skipShip;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
       }
@@ -6554,7 +7212,7 @@ async function main() {
           launch,
           slug,
           planFile: args.planFile,
-          currentBranchName: currentBranchForSweep,
+          currentBranchName: currentBranchAtLaunch,
           status: "failed",
         });
       }
@@ -6779,71 +7437,6 @@ export function verifyNoUnmergedFeatBranches(
   return { ok: branches.length === 0, branches };
 }
 
-async function sweepUnshippedFeatBranches(
-  cwd: string,
-  currentBranch: string,
-  slug: string,
-  roles: RoleConfigs,
-  activeRunRegistry: string,
-  baseProjectRoot?: string,
-): Promise<void> {
-  const ignored = activeOwnedBranches(activeRunRegistry, {
-    projectRoot: cwd,
-    baseProjectRoot,
-  });
-  if (ignored.size > 0) {
-    console.log(
-      `\n▶ Skipping active-run branches during startup sweep: ${[...ignored].sort().join(", ")}`,
-    );
-  }
-  const local = new Set(
-    findUnmergedLocalFeatBranches(cwd, currentBranch, {
-      ignoreBranches: ignored,
-    }),
-  );
-  const candidates = findUnshippedFeatBranches(cwd, currentBranch, {
-    ignoreBranches: ignored,
-  })
-    .sort((a, b) => a.localeCompare(b))
-    .map((name) => ({
-      name,
-      hasLocal: local.has(name),
-      hasRemote: true,
-    }));
-  if (candidates.length === 0) return;
-
-  console.log(
-    `\n▶ Unshipped feat/* branches: ${candidates.map((b) => b.name).join(", ")}`,
-  );
-  try {
-    for (const branch of candidates) {
-      const ok = await processMergeBranch({
-        cwd,
-        candidate: branch,
-        slug,
-        roles,
-        maxReviewIterations: DEFAULT_MAX_CODEX_ITERATIONS,
-        dryRun: false,
-        allowSubmoduleRecovery: [],
-      });
-      if (!ok) {
-        console.warn(`  ⚠ merge sweep failed for ${branch.name} — continuing`);
-      }
-    }
-  } finally {
-    // Always restore unconditionally — shipAndDeploy may leave the tree on a
-    // different branch if it crashes mid-checkout, making getCurrentBranch unreliable.
-    const restore = spawnSync("git", ["checkout", currentBranch], {
-      cwd,
-      encoding: "utf8",
-    });
-    if (restore.status !== 0) {
-      console.warn(
-        `  ⚠ could not restore branch: ${currentBranch} — you may be on a different branch`,
-      );
-    }
-  }
-}
 
 function resolveMergeProjectRoot(args: Args): string {
   if (args.projectRoot) {
@@ -6894,7 +7487,8 @@ async function runMergeMode(args: Args): Promise<number> {
     console.error(
       `\nanother gstack-build merge instance is running for "${slug}".\n` +
         `lock info:\n${info}\n` +
-        `if stale, remove ~/.gstack/build-state/${slug}.lock and retry.`,
+        `lock was not auto-cleared because its owner appears live or cannot be safely verified.\n` +
+        `inspect ${lockPath(slug)} before removing it manually.`,
     );
     return 3;
   }

@@ -85,6 +85,16 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Non-Conductor users can point this at any directory
 #                           # that holds parallel worktrees of the same repo.
 #
+# ─── Fork skill overlay ───────────────────────────────────────────────
+# fork_repo_path:            # Absolute path to your local gstack fork repo.
+#                           # When set, /gstack-upgrade diffs SKILL.md.tmpl files
+#                           # from the fork against the installed gstack, copies any
+#                           # that differ, regenerates SKILL.md for all hosts
+#                           # (claude + codex), and syncs gemini/kimi skill dirs.
+#                           # Runs even when no upstream upgrade is available.
+#                           # Set with:
+#                           #   gstack-config set fork_repo_path /path/to/your/gstack
+#
 '
 
 # DEFAULTS table — canonical default values for known keys.
@@ -104,6 +114,7 @@ lookup_default() {
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
+    fork_repo_path) echo "" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
@@ -119,7 +130,9 @@ case "${1:-}" in
       echo "Error: key must contain only alphanumeric characters and underscores" >&2
       exit 1
     fi
-    VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 \
+      | sed 's/^[^:]*:[[:space:]]*//' \
+      | sed 's/[[:space:]]*#.*$//' || true)
     if [ -z "$VALUE" ]; then
       VALUE=$(lookup_default "$KEY")
     fi
@@ -141,6 +154,17 @@ case "${1:-}" in
     if [ "$KEY" = "artifacts_sync_mode" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "artifacts-only" ] && [ "$VALUE" != "full" ]; then
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
+    fi
+    if [ "$KEY" = "fork_repo_path" ] && [ -n "$VALUE" ]; then
+      case "$VALUE" in
+        /*) ;;
+        *)  echo "Error: fork_repo_path must be an absolute path (got: $VALUE)" >&2; exit 1 ;;
+      esac
+      if [ ! -d "$VALUE" ]; then
+        echo "Warning: fork_repo_path directory does not exist: $VALUE" >&2
+      elif [ ! -f "$VALUE/gstack-upgrade/SKILL.md.tmpl" ]; then
+        echo "Warning: $VALUE doesn't look like a gstack repo (missing gstack-upgrade/SKILL.md.tmpl)" >&2
+      fi
     fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
@@ -170,9 +194,11 @@ case "${1:-}" in
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review workspace_root \
+               gstack_contributor skip_eng_review workspace_root fork_repo_path \
                artifacts_sync_mode artifacts_sync_mode_prompted; do
-      VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+      VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 \
+        | sed 's/^[^:]*:[[:space:]]*//' \
+        | sed 's/[[:space:]]*#.*$//' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
         SOURCE="set"
@@ -186,7 +212,7 @@ case "${1:-}" in
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review workspace_root \
+               gstack_contributor skip_eng_review workspace_root fork_repo_path \
                artifacts_sync_mode artifacts_sync_mode_prompted; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done

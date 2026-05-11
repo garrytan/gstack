@@ -7,12 +7,20 @@
  *     (Windows argv cap is 8191 chars; 200KB HTML dies without this).
  *   - One place that maps non-zero exit codes to typed errors.
  *
- * Binary resolution order (Codex round 2 #4):
- *   1. $BROWSE_BIN env override
- *   2. sibling dir: dirname(argv[0])/../browse/dist/browse
- *   3. ~/.claude/skills/gstack/browse/dist/browse
- *   4. PATH lookup: `browse`
- *   5. error with setup hint
+ * Binary resolution order (Codex round 2 #4, v1.24-aligned):
+ *   1. $GSTACK_BROWSE_BIN env override (preferred, matches v1.24 GSTACK_*_BIN pattern)
+ *   2. $BROWSE_BIN env override (back-compat alias)
+ *   3. sibling dir: dirname(argv[0])/../browse/dist/browse[.exe]
+ *   4. ~/.claude/skills/gstack/browse/dist/browse[.exe]
+ *   5. PATH lookup via Bun.which('browse') — handles Windows PATHEXT natively
+ *   6. error with setup hint
+ *
+ * Windows quirks:
+ *   - bun build --compile --outfile X emits X.exe on win32, so candidate paths
+ *     need a .exe probe pass (fs.accessSync(X_OK) degrades to existence-checking
+ *     on Windows per Node docs, so the bare path silently misses the .exe file).
+ *   - `which` only exists in Git Bash; Bun.which() handles cmd.exe / PowerShell
+ *     natively via PATHEXT semantics.
  */
 
 import { execFileSync } from "node:child_process";
@@ -55,15 +63,51 @@ export interface JsOptions {
 }
 
 /**
- * Locate the browse binary. Throws a BrowseClientError with a
- * canonical setup message if not found.
+ * Resolve an absolute or PATH-resolvable command via Bun.which-style semantics,
+ * with a Windows .exe/.cmd/.bat extension probe for absolute paths. Mirrors
+ * the v1.24 claude-bin.ts override-resolution shape.
+ *
+ * Returns null if nothing resolves; callers degrade with a typed error rather
+ * than throwing here.
  */
-export function resolveBrowseBin(): string {
-  const envOverride = process.env.BROWSE_BIN;
-  if (envOverride && isExecutable(envOverride)) return envOverride;
+function resolveOverride(value: string | undefined, env: NodeJS.ProcessEnv): string | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim().replace(/^"(.*)"$/, '$1');
+  if (path.isAbsolute(trimmed)) return findExecutable(trimmed);
+  const PATH = env.PATH ?? env.Path ?? '';
+  return Bun.which(trimmed, { PATH }) ?? null;
+}
 
-  // Sibling: look relative to this process's binary
-  // (for when make-pdf and browse live next to each other in dist/)
+/**
+ * Probe a base path for executability, honoring Windows extension suffixes.
+ *
+ * On POSIX, isExecutable(base) is the only check that matters. On Windows,
+ * fs.accessSync(p, X_OK) degrades to an existence check — so a bare-path probe
+ * misses bun-compiled binaries (which land at base.exe). After the bare probe
+ * fails on win32, try .exe / .cmd / .bat. Linux/macOS behavior is unchanged.
+ */
+export function findExecutable(base: string): string | null {
+  if (isExecutable(base)) return base;
+  if (process.platform === "win32") {
+    for (const ext of [".exe", ".cmd", ".bat"]) {
+      const withExt = base + ext;
+      if (isExecutable(withExt)) return withExt;
+    }
+  }
+  return null;
+}
+
+/**
+ * Locate the browse binary. Throws a BrowseClientError with a
+ * canonical setup message if not found. See header for resolution order.
+ */
+export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
+  // 1 + 2: env overrides (GSTACK_BROWSE_BIN preferred, BROWSE_BIN back-compat).
+  const overrideRaw = env.GSTACK_BROWSE_BIN ?? env.BROWSE_BIN;
+  const override = resolveOverride(overrideRaw, env);
+  if (override) return override;
+
+  // 3: sibling — make-pdf and browse co-located in dist/.
   const selfDir = path.dirname(process.argv[0]);
   const siblingCandidates = [
     path.resolve(selfDir, "../browse/dist/browse"),
@@ -71,21 +115,21 @@ export function resolveBrowseBin(): string {
     path.resolve(selfDir, "../browse"),
   ];
   for (const candidate of siblingCandidates) {
-    if (isExecutable(candidate)) return candidate;
+    const found = findExecutable(candidate);
+    if (found) return found;
   }
 
-  // Global install
+  // 4: global install.
   const home = os.homedir();
   const globalPath = path.join(home, ".claude/skills/gstack/browse/dist/browse");
-  if (isExecutable(globalPath)) return globalPath;
+  const globalFound = findExecutable(globalPath);
+  if (globalFound) return globalFound;
 
-  // PATH lookup
-  try {
-    const which = execFileSync("which", ["browse"], { encoding: "utf8" }).trim();
-    if (which && isExecutable(which)) return which;
-  } catch {
-    // `which` exited non-zero; fall through to error
-  }
+  // 5: PATH lookup via Bun.which — handles Windows PATHEXT natively (no `which`
+  // dependency on cmd.exe / PowerShell, no `where`-vs-`which` branch).
+  const PATH = env.PATH ?? env.Path ?? '';
+  const onPath = Bun.which('browse', { PATH });
+  if (onPath) return onPath;
 
   throw new BrowseClientError(
     /* exitCode */ 127,
@@ -95,7 +139,8 @@ export function resolveBrowseBin(): string {
       "",
       "make-pdf needs browse (the gstack Chromium daemon) to render PDFs.",
       "Tried:",
-      `  - $BROWSE_BIN (${envOverride || "unset"})`,
+      `  - $GSTACK_BROWSE_BIN (${env.GSTACK_BROWSE_BIN || "unset"})`,
+      `  - $BROWSE_BIN (${env.BROWSE_BIN || "unset"})`,
       `  - sibling: ${siblingCandidates.join(", ")}`,
       `  - global: ${globalPath}`,
       "  - PATH: `browse`",
@@ -103,8 +148,10 @@ export function resolveBrowseBin(): string {
       "To fix: run gstack setup from the gstack repo:",
       "  cd ~/.claude/skills/gstack && ./setup",
       "",
-      "Or set BROWSE_BIN explicitly:",
-      "  export BROWSE_BIN=/path/to/browse",
+      "Or set GSTACK_BROWSE_BIN explicitly:",
+      process.platform === "win32"
+        ? '  setx GSTACK_BROWSE_BIN "C:\\path\\to\\browse.exe"'
+        : "  export GSTACK_BROWSE_BIN=/path/to/browse",
     ].join("\n"),
   );
 }

@@ -205,6 +205,52 @@ describe("gstack-memory-ingest state file", () => {
   });
 });
 
+// ── Security: cwd in transcript JSONL must not reach a shell ─────────────
+
+describe("gstack-memory-ingest security: untrusted cwd cannot trigger shell substitution", () => {
+  it("does not invoke /bin/sh when a transcript record contains $() in cwd", () => {
+    // Transcript JSONL is an untrusted surface — a record's `.cwd` value
+    // can be set by anyone who can write to ~/.claude/projects (cross-machine
+    // share, prompt-injection appending to the active session log, etc.).
+    // resolveGitRemote() must use execFileSync, not execSync with template
+    // interpolation, or `cwd="$(...)"` triggers command substitution under
+    // /bin/sh -c on the next ingest run.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const markerDir = mkdtempSync(join(tmpdir(), "gstack-mi-cwd-marker-"));
+    const marker = join(markerDir, "PWNED");
+    // Plain $(...) — what an attacker would write into a transcript record.
+    // execFileSync passes this verbatim to git as a -C argument; execSync
+    // (the prior code path) wrapped it in a /bin/sh -c template that ran
+    // the substitution.
+    const malicious = "$(touch " + marker + ")";
+
+    const record = JSON.stringify({
+      type: "user",
+      uuid: "11111111-1111-1111-1111-111111111111",
+      sessionId: "abc",
+      cwd: malicious,
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: "hi" },
+    });
+    writeClaudeCodeSession(home, "-tmp-target", "abc", record + "\n");
+
+    const r = runScript(["--incremental", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      GSTACK_MEMORY_INGEST_NO_WRITE: "1",
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+
+    rmSync(home, { recursive: true, force: true });
+    rmSync(markerDir, { recursive: true, force: true });
+  });
+});
+
 // ── Transcript parser via re-import of the source module ───────────────────
 
 describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {

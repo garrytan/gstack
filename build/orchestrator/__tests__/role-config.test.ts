@@ -3,6 +3,7 @@ import {
   DEFAULT_ROLE_CONFIGS,
   ROLE_DEFINITIONS,
   applyEnvRoleConfig,
+  applyRoleOverride,
   cloneRoleConfigs,
   migrateLegacyModels,
   parseProvider,
@@ -22,8 +23,8 @@ describe("role config defaults", () => {
     expect(path.basename(DEFAULT_BUILD_CONFIG_FILE)).toBe("configure.cm");
     expect(loaded.roles.primaryImpl.model).toBeTruthy();
     expect(loaded.limits.codexMaxIterations).toBe(5);
-    expect(loaded.timeoutsMs.gemini).toBe(1200000);
-    expect(loaded.timeoutsMs.kimi).toBe(1200000);
+    expect(loaded.timeoutsMs.gemini).toBe(900000);
+    expect(loaded.timeoutsMs.kimi).toBe(900000);
     expect(BUILD_DEFAULTS.roles.primaryImpl.model).toBe(
       loaded.roles.primaryImpl.model,
     );
@@ -57,6 +58,22 @@ describe("role config defaults", () => {
     // No `command` field — featureReview is a direct sub-agent invocation,
     // not a slash-command gate (review/qa/ship/land all carry .command).
     expect(DEFAULT_ROLE_CONFIGS.featureReview.command).toBeUndefined();
+  });
+
+  it("includes the configured monitorAgent role", () => {
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent).toBeDefined();
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent.provider).toBe("kimi");
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent.model.trim()).not.toBe("");
+    expect(DEFAULT_ROLE_CONFIGS.monitorAgent.command).toBeUndefined();
+    expect(
+      ROLE_DEFINITIONS.some(([key, flag, prefix]) => {
+        return (
+          key === "monitorAgent" &&
+          flag === "monitor-agent" &&
+          prefix === "GSTACK_BUILD_MONITOR_AGENT"
+        );
+      }),
+    ).toBe(true);
   });
 
   it("does not expose contextSave as a configured build role", () => {
@@ -96,7 +113,7 @@ describe("role config precedence helpers", () => {
     }
   });
 
-  it("backfills featureReview role + new limits/timeouts for pre-feature-review user configs", () => {
+  it("backfills featureReview and monitorAgent roles + new limits/timeouts for older user configs", () => {
     // Real-world scenario: a user installed gstack before the feature-level
     // review existed and edited their configure.cm. On upgrade, they hit
     // `must be a positive number` on featureReviewMaxIterations because
@@ -106,6 +123,7 @@ describe("role config precedence helpers", () => {
       const file = path.join(dir, "configure.cm");
       const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
       delete (defaults.roles as any).featureReview;
+      delete (defaults.roles as any).monitorAgent;
       delete (defaults.limits as any).featureReviewMaxIterations;
       delete (defaults.timeoutsMs as any).kimi;
       delete (defaults.timeoutsMs as any).featureReview;
@@ -114,8 +132,11 @@ describe("role config precedence helpers", () => {
       expect(loaded.roles.featureReview).toEqual(
         DEFAULT_ROLE_CONFIGS.featureReview,
       );
+      expect(loaded.roles.monitorAgent).toEqual(
+        DEFAULT_ROLE_CONFIGS.monitorAgent,
+      );
       expect(loaded.limits.featureReviewMaxIterations).toBe(3);
-      expect(loaded.timeoutsMs.kimi).toBe(1200000);
+      expect(loaded.timeoutsMs.kimi).toBe(900000);
       expect(loaded.timeoutsMs.featureReview).toBe(1200000);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -153,6 +174,17 @@ describe("role config precedence helpers", () => {
     expect(roles.featureReview.reasoning).toBe("high");
   });
 
+  it("honors GSTACK_BUILD_MONITOR_AGENT_* env overrides", () => {
+    const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
+      GSTACK_BUILD_MONITOR_AGENT_PROVIDER: "codex",
+      GSTACK_BUILD_MONITOR_AGENT_MODEL: "monitor-agent-model-under-test",
+      GSTACK_BUILD_MONITOR_AGENT_REASONING: "medium",
+    });
+    expect(roles.monitorAgent.provider).toBe("codex");
+    expect(roles.monitorAgent.model).toBe("monitor-agent-model-under-test");
+    expect(roles.monitorAgent.reasoning).toBe("medium");
+  });
+
   it("accepts kimi as a role provider", () => {
     expect(parseProvider("kimi", "provider")).toBe("kimi");
     const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
@@ -161,6 +193,31 @@ describe("role config precedence helpers", () => {
     });
     expect(roles.primaryImpl.provider).toBe("kimi");
     expect(roles.primaryImpl.model).toBe("primary-model-under-test");
+  });
+
+  it("honors BACKUP_PROVIDER / BACKUP_MODEL env overrides for primaryImpl", () => {
+    const roles = applyEnvRoleConfig(cloneRoleConfigs(), {
+      GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER: "gemini",
+      GSTACK_BUILD_PRIMARY_IMPL_BACKUP_MODEL: "gemini-3.1-pro-preview",
+    });
+    expect(roles.primaryImpl.backupProvider).toBe("gemini");
+    expect(roles.primaryImpl.backupModel).toBe("gemini-3.1-pro-preview");
+  });
+
+  it("rejects invalid backup provider in env", () => {
+    expect(() =>
+      applyEnvRoleConfig(cloneRoleConfigs(), {
+        GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER: "unsupported-model",
+      }),
+    ).toThrow("GSTACK_BUILD_PRIMARY_IMPL_BACKUP_PROVIDER");
+  });
+
+  it("configure.cm sets gemini backup for primaryImpl, testFixer, ship, land", () => {
+    const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+    for (const role of ["primaryImpl", "testFixer", "ship", "land"] as const) {
+      expect(defaults.roles[role].backupProvider).toBe("gemini");
+      expect(defaults.roles[role].backupModel).toBe("gemini-3.1-pro-preview");
+    }
   });
 
   it("rejects invalid config files", () => {
@@ -177,6 +234,51 @@ describe("role config precedence helpers", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("rejects invalid backup provider in config files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-build-config-"));
+    try {
+      const file = path.join(dir, "bad-backup.configure.cm");
+      const defaults = loadBuildDefaults(DEFAULT_BUILD_CONFIG_FILE);
+      (defaults.roles.primaryImpl as any).backupProvider = "bad-provider";
+      fs.writeFileSync(file, JSON.stringify(defaults, null, 2));
+
+      expect(() => loadBuildDefaults(file)).toThrow(
+        "roles.primaryImpl.backupProvider",
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("applyRoleOverride sets backupProvider on a role", () => {
+    const roles = cloneRoleConfigs();
+    applyRoleOverride(roles, "primaryImpl", "backupProvider", "gemini");
+    expect(roles.primaryImpl.backupProvider).toBe("gemini");
+  });
+
+  it("applyRoleOverride rejects invalid backupProvider value", () => {
+    const roles = cloneRoleConfigs();
+    expect(() =>
+      applyRoleOverride(
+        roles,
+        "primaryImpl",
+        "backupProvider",
+        "invalid-provider",
+      ),
+    ).toThrow("primaryImpl.backupProvider");
+  });
+
+  it("applyRoleOverride sets backupModel on a role", () => {
+    const roles = cloneRoleConfigs();
+    applyRoleOverride(
+      roles,
+      "primaryImpl",
+      "backupModel",
+      "gemini-3.1-pro-preview",
+    );
+    expect(roles.primaryImpl.backupModel).toBe("gemini-3.1-pro-preview");
   });
 
   it("applies env overrides over defaults", () => {

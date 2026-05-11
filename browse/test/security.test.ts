@@ -20,6 +20,8 @@ import {
   readSessionState,
   getStatus,
   extractDomain,
+  buildTelemetrySpawnCommand,
+  resolveBashBinary,
   type LayerSignal,
 } from '../src/security';
 
@@ -323,5 +325,79 @@ describe('extractDomain', () => {
   test('returns empty string on invalid URL rather than throwing', () => {
     expect(extractDomain('not a url')).toBe('');
     expect(extractDomain('')).toBe('');
+  });
+});
+
+// ─── Bash binary resolution (Windows shebang-script invocation) ─────
+
+describe('resolveBashBinary', () => {
+  test('on POSIX, returns the system bash via Bun.which', () => {
+    if (process.platform === 'win32') return;
+    const out = resolveBashBinary({ PATH: process.env.PATH ?? '' });
+    expect(out).toBeTruthy();
+    expect(out!.endsWith('bash')).toBe(true);
+  });
+
+  test('honors GSTACK_BASH_BIN absolute-path override', () => {
+    // Construct a synthetic absolute path; the helper short-circuits on
+    // path.isAbsolute and never touches the filesystem, so this is portable.
+    const fake = process.platform === 'win32' ? 'C:\\opt\\bash.exe' : '/opt/custom/bash';
+    const out = resolveBashBinary({ GSTACK_BASH_BIN: fake, PATH: '' });
+    expect(out).toBe(fake);
+  });
+
+  test('strips wrapping double quotes from override values', () => {
+    const fake = process.platform === 'win32' ? 'C:\\opt\\bash.exe' : '/opt/custom/bash';
+    const out = resolveBashBinary({ GSTACK_BASH_BIN: `"${fake}"`, PATH: '' });
+    expect(out).toBe(fake);
+  });
+
+  test('BASH_BIN works as a fallback when GSTACK_BASH_BIN is unset', () => {
+    const fake = process.platform === 'win32' ? 'C:\\opt\\bash.exe' : '/opt/custom/bash';
+    const out = resolveBashBinary({ BASH_BIN: fake, PATH: '' });
+    expect(out).toBe(fake);
+  });
+
+  test('returns null when nothing resolves (override is unset and PATH is empty)', () => {
+    // Empty PATH means Bun.which finds nothing.
+    const out = resolveBashBinary({ PATH: '' });
+    expect(out).toBeNull();
+  });
+});
+
+// ─── Telemetry spawn command (Windows bash wrapper, v1.24-aligned) ──
+
+describe('buildTelemetrySpawnCommand', () => {
+  const bin = '/home/user/.claude/skills/gstack/bin/gstack-telemetry-log';
+  const args = ['--event-type', 'attack_attempt', '--confidence', '0.95'];
+
+  test('on POSIX, returns the binary path and args unchanged', () => {
+    if (process.platform === 'win32') return;
+    const out = buildTelemetrySpawnCommand(bin, args);
+    expect(out).not.toBeNull();
+    expect(out!.cmd).toBe(bin);
+    expect(out!.cmdArgs).toEqual(args);
+  });
+
+  test('on win32 with bash resolvable, wraps the call in bash with the script as first arg', () => {
+    if (process.platform !== 'win32') return;
+    const fakeBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    const out = buildTelemetrySpawnCommand(bin, args, { GSTACK_BASH_BIN: fakeBash, PATH: '' });
+    expect(out).not.toBeNull();
+    expect(out!.cmd).toBe(fakeBash);
+    expect(out!.cmdArgs).toEqual([bin, ...args]);
+  });
+
+  test('on win32 with bash unresolvable, returns null so caller skips spawn', () => {
+    if (process.platform !== 'win32') return;
+    // No override, empty PATH — Bun.which finds nothing on Windows.
+    const out = buildTelemetrySpawnCommand(bin, args, { PATH: '' });
+    expect(out).toBeNull();
+  });
+
+  test('does not mutate the caller-supplied args array', () => {
+    const originalArgs = [...args];
+    buildTelemetrySpawnCommand(bin, args);
+    expect(args).toEqual(originalArgs);
   });
 });

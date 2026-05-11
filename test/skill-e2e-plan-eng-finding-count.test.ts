@@ -55,11 +55,7 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
   test(
     `5-finding plan emits ${FLOOR}-${CEILING} review-phase AskUserQuestions`,
     async () => {
-      try {
-        fs.rmSync(PLAN_ENG_PATH, { force: true });
-      } catch {
-        /* best-effort */
-      }
+      fs.rmSync(PLAN_ENG_PATH, { force: true });
 
       const obs = await runPlanSkillCounting({
         skillName: 'plan-eng-review',
@@ -122,11 +118,7 @@ describeE2E('/plan-eng-review per-finding AskUserQuestion count (periodic)', () 
           );
         }
       } finally {
-        try {
-          fs.rmSync(PLAN_ENG_PATH, { force: true });
-        } catch {
-          /* best-effort */
-        }
+        fs.rmSync(PLAN_ENG_PATH, { force: true });
       }
     },
     1_700_000,

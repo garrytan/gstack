@@ -154,7 +154,7 @@
   function ensureXterm() {
     if (term) return;
     term = new Terminal({
-      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace',
+      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, "Noto Sans Mono CJK KR", "Malgun Gothic", monospace',
       fontSize: 13,
       theme: { background: '#0a0a0a', foreground: '#e5e5e5' },
       cursorBlink: true,
@@ -196,7 +196,25 @@
     });
     ro.observe(els.mount);
 
+    // IME composition handling for Korean/CJK input (issue #1272).
+    // Suppress partial jamo during composition; only send the final
+    // composed string on compositionend. Without this, Korean IME
+    // sends fragmented input or doubles characters.
+    let composing = false;
+    const ta = term.textarea;
+    if (ta) {
+      ta.addEventListener('compositionstart', () => { composing = true; });
+      ta.addEventListener('compositionend', (e) => {
+        composing = false;
+        if (e.data && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(new TextEncoder().encode(e.data));
+        }
+      });
+    }
+
+
     term.onData((data) => {
+      if (composing) return;  // suppress partial input events during IME composition
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
       }

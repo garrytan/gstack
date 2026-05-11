@@ -23,7 +23,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logDir, ensureLogDir } from "./state";
-import type { RoleProvider, RoleReasoning } from "./role-config";
+import type { RoleConfig, RoleProvider, RoleReasoning } from "./role-config";
 import { BUILD_DEFAULTS, envNumberOrDefault } from "./build-config";
 import type { DualImplCandidateKey } from "./types";
 
@@ -611,13 +611,10 @@ export function buildCodexReviewArgv(opts: {
 const CODEX_TRANSPORT_FAILURE_RE =
   /stream disconnected before completion|tls handshake eof|failed to connect to websocket|error sending request for url.*backend-api\/codex\/responses/i;
 
-export function isLikelyCodexTransportFailure(result: Pick<
-  SubAgentResult,
-  "stdout" | "stderr"
->): boolean {
-  return CODEX_TRANSPORT_FAILURE_RE.test(
-    `${result.stdout}\n${result.stderr}`,
-  );
+export function isLikelyCodexTransportFailure(
+  result: Pick<SubAgentResult, "stdout" | "stderr">,
+): boolean {
+  return CODEX_TRANSPORT_FAILURE_RE.test(`${result.stdout}\n${result.stderr}`);
 }
 
 /**
@@ -913,12 +910,16 @@ export async function runShip(opts: {
     model: string;
     reasoning: RoleReasoning;
     command: string;
+    backupProvider?: RoleProvider;
+    backupModel?: string;
   };
   land: {
     provider: RoleProvider;
     model: string;
     reasoning: RoleReasoning;
     command: string;
+    backupProvider?: RoleProvider;
+    backupModel?: string;
   };
 }): Promise<SubAgentResult> {
   ensureLogDir(opts.slug);
@@ -978,13 +979,37 @@ export async function runSlashCommand(opts: {
     model: string;
     reasoning: RoleReasoning;
     command: string;
+    backupProvider?: RoleProvider;
+    backupModel?: string;
   };
   timeoutMs?: number;
   gate?: boolean;
   sandbox?: CodexSandbox;
 }): Promise<SubAgentResult> {
+  return runConfiguredRoleTask({
+    ...opts,
+    codexDefaultCommand: "/gstack-review",
+  });
+}
+
+export async function runConfiguredRoleTask(opts: {
+  inputFilePath: string;
+  outputFilePath: string;
+  cwd: string;
+  slug: string;
+  phaseNumber?: string;
+  iteration?: number;
+  logPrefix: string;
+  role: RoleConfig;
+  timeoutMs?: number;
+  gate?: boolean;
+  sandbox?: CodexSandbox;
+  codexDefaultCommand?: string;
+}): Promise<SubAgentResult> {
+  let result: SubAgentResult;
+
   if (opts.role.provider === "claude") {
-    return runClaudeTask({
+    result = await runClaudeTask({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -998,9 +1023,8 @@ export async function runSlashCommand(opts: {
       gate: opts.gate,
       timeoutMs: opts.timeoutMs,
     });
-  }
-  if (opts.role.provider === "gemini") {
-    return runRoleTask({
+  } else if (opts.role.provider === "gemini") {
+    result = await runRoleTask({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -1013,9 +1037,8 @@ export async function runSlashCommand(opts: {
       gate: opts.gate,
       timeoutMs: opts.timeoutMs,
     });
-  }
-  if (opts.role.provider === "kimi") {
-    return runKimi({
+  } else if (opts.role.provider === "kimi") {
+    result = await runKimi({
       inputFilePath: opts.inputFilePath,
       outputFilePath: opts.outputFilePath,
       cwd: opts.cwd,
@@ -1028,22 +1051,59 @@ export async function runSlashCommand(opts: {
       gate: opts.gate,
       timeoutMs: opts.timeoutMs,
     });
+  } else {
+    result = await runCodexReview({
+      inputFilePath: opts.inputFilePath,
+      outputFilePath: opts.outputFilePath,
+      cwd: opts.cwd,
+      slug: opts.slug,
+      phaseNumber: opts.phaseNumber ?? "ship",
+      iteration: opts.iteration ?? 1,
+      command:
+        opts.role.command ??
+        opts.codexDefaultCommand ??
+        "the requested task described in the input file",
+      model: opts.role.model,
+      reasoning: opts.role.reasoning,
+      gate: opts.gate,
+      sandbox: opts.sandbox,
+      logPrefix: opts.logPrefix,
+      timeoutMs: opts.timeoutMs,
+    });
   }
-  return runCodexReview({
-    inputFilePath: opts.inputFilePath,
-    outputFilePath: opts.outputFilePath,
-    cwd: opts.cwd,
-    slug: opts.slug,
-    phaseNumber: opts.phaseNumber ?? "ship",
-    iteration: opts.iteration ?? 1,
-    command: opts.role.command,
-    model: opts.role.model,
-    reasoning: opts.role.reasoning,
-    gate: opts.gate,
-    sandbox: opts.sandbox,
-    logPrefix: opts.logPrefix,
-    timeoutMs: opts.timeoutMs,
-  });
+
+  // MIRROR: cli.ts::runRoleTask contains an identical fallback block for the
+  // CLI's internal phase dispatcher. Any change to this logic (log format,
+  // clear-before-backup, role shape) must also be applied there.
+  if ((result.timedOut || result.exitCode !== 0) && opts.role.backupProvider) {
+    console.warn(
+      `[gstack-build] ${opts.logPrefix}: primary ${opts.role.provider} failed ` +
+        `(exit=${result.exitCode ?? "null"}, timedOut=${result.timedOut}); ` +
+        `falling back to ${opts.role.backupProvider}`,
+    );
+    // Zero stale primary output before backup runs. If backup also fails, the
+    // caller gets an empty outputFilePath plus the backup's non-zero exit code.
+    fs.writeFileSync(opts.outputFilePath, "");
+    return runConfiguredRoleTask({
+      ...opts,
+      logPrefix: `${opts.logPrefix}-backup-${opts.role.backupProvider}`,
+      // codexDefaultCommand must not propagate — it is caller-specific (e.g.
+      // runSlashCommand passes "/gstack-review"). An implementation-role backup
+      // with provider "codex" and no command must not inherit a review command.
+      codexDefaultCommand: undefined,
+      role: {
+        provider: opts.role.backupProvider,
+        // Empty string when backupModel is absent: all argv builders use a falsy
+        // check (e.g. `opts.model ? ["-m", opts.model] : []`), so "" suppresses
+        // the flag and lets the provider use its configured default.
+        model: opts.role.backupModel ?? "",
+        reasoning: opts.role.reasoning,
+        command: opts.role.command,
+      },
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -1085,7 +1145,9 @@ export function detectTestCmd(cwd: string): string | null {
           return testScript;
         }
         const packageManager = detectPackageManager(cwd, pkg);
-        return packageManager === "bun" ? "bun run test" : `${packageManager} test`;
+        return packageManager === "bun"
+          ? "bun run test"
+          : `${packageManager} test`;
       }
     } catch {
       console.warn(
@@ -1103,9 +1165,61 @@ export function detectTestCmd(cwd: string): string | null {
   return null;
 }
 
-function detectPackageManager(cwd: string, pkg: any): "bun" | "pnpm" | "yarn" | "npm" {
-  const pm =
-    typeof pkg.packageManager === "string" ? pkg.packageManager : "";
+/**
+ * Parse the overall coverage percentage from test runner stdout.
+ *
+ * Framework detection uses `testCmd` (the command string, e.g. "jest --watch"):
+ *   jest / vitest  → "Statements: N.NN%" line
+ *   bun test       → "coverage: N.NN%" line
+ *   pytest         → "TOTAL ... N%" terminal line
+ *   go test        → "coverage: N.N% of statements"
+ *   cargo test     → advisory only (tarpaulin not guaranteed installed) → null
+ *   unknown        → null (advisory-only; caller should not fail the phase)
+ */
+export function parseCoveragePercent(
+  stdout: string,
+  testCmd: string,
+): number | null {
+  const clean = stripAnsi(stdout);
+  const cmd = testCmd.toLowerCase();
+
+  if (/\bvitest\b/.test(cmd) || /\bjest\b/.test(cmd)) {
+    // "Statements   : 87.5% ( 70/80 )" or "Statements: 87.5%"
+    const m = clean.match(/statements\s*:?\s*([\d.]+)%/i);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  if (/\bbun\s+test\b/.test(cmd) || /\bbun\s+run\s+test\b/.test(cmd)) {
+    // "coverage: 82.3%"
+    const m = clean.match(/\bcoverage:\s*([\d.]+)%/i);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  if (/\bpytest\b/.test(cmd)) {
+    // "TOTAL   1000   200   80%"
+    const m = clean.match(/^TOTAL\s+\d+\s+\d+\s+([\d.]+)%/im);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  if (/\bgo\s+test\b/.test(cmd)) {
+    // "ok  ./...  coverage: 72.3% of statements"
+    const m = clean.match(/coverage:\s*([\d.]+)%\s+of\s+statements/i);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  // cargo test / tarpaulin: not guaranteed installed, return null (advisory only)
+  return null;
+}
+
+function detectPackageManager(
+  cwd: string,
+  pkg: any,
+): "bun" | "pnpm" | "yarn" | "npm" {
+  const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
   if (pm.startsWith("bun@")) return "bun";
   if (pm.startsWith("pnpm@")) return "pnpm";
   if (pm.startsWith("yarn@")) return "yarn";

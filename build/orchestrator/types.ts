@@ -10,6 +10,24 @@
  */
 
 import type { RoleConfigs } from "./role-config";
+import type { SkillFault } from "./skill-fault-detector";
+
+export interface SkillFaultDetectedEvent {
+  event: "SKILL_FAULT_DETECTED";
+  timestamp: string;
+  runId: string;
+  stateSlug: string;
+  stateFile: string;
+  manifestPath: string;
+  faults: SkillFault[];
+}
+
+export type PhaseKind =
+  | "code"
+  | "writing"
+  | "experiment"
+  | "research"
+  | "manual";
 
 export type PhaseStatus =
   | "pending"
@@ -41,6 +59,7 @@ export type FeatureStatus =
   | "feature_redo_pending"
   | "feature_blocked"
   | "shipping"
+  | "release_queued"
   | "landed"
   | "origin_verifying"
   | "origin_verified"
@@ -123,6 +142,8 @@ export interface Phase {
   testSpecCheckboxLine: number;
   /** True when --dual-impl CLI flag is active; stamped by the CLI after parse. */
   dualImpl: boolean;
+  /** Kind of phase — determines which checkpoint labels and subagent prompts apply. */
+  kind: PhaseKind;
   /** Parsed gate state for per-phase checkboxes (test_spec, verify_red, implementation, green_tests, review_qa). */
   gates?: Partial<Record<PhaseGate, PlanGateState>>;
 }
@@ -238,6 +259,11 @@ export interface PhaseState {
   originIssueLogPath?: string;
   /** Dual-implementor tournament state (populated when --dual-impl is active). */
   dualImpl?: DualImplState;
+  /** Coverage measured after GREEN tests pass. Set when phase body contains `#### Test Spec`. */
+  coverageResult?: {
+    actual: number;
+    target: number;
+  };
   committedAt?: string;
   error?: string;
 }
@@ -288,6 +314,8 @@ export interface FeatureState {
   status: FeatureStatus;
   branch?: string;
   shippedAt?: string;
+  /** PR number set at queue time; required for release_queued to be trusted as terminal. */
+  prNumber?: number;
   landedAt?: string;
   originVerifiedAt?: string;
   completedAt?: string;
@@ -355,6 +383,26 @@ export interface BuildRunManifest {
   runs: BuildRunManifestRun[];
 }
 
+export type PlanReviewSeverity = "APPROVE" | "REVISE";
+
+export interface PlanReviewObjection {
+  severity: "CRITICAL" | "IMPORTANT" | "SUGGESTION";
+  /** e.g. "Feature 2, Phase 1" */
+  location: string;
+  issue: string;
+  suggestion: string;
+}
+
+export interface PlanReviewVerdict {
+  verdict: PlanReviewSeverity;
+  objections: PlanReviewObjection[];
+  assessment: string;
+  /** Model name, e.g. "gpt-5.5". "skipped-unavailable" when review was bypassed. */
+  reviewedBy: string;
+  /** 1 or 2 — for re-synthesis round tracking in SKILL.md Step 5.5. */
+  round: number;
+}
+
 export interface BuildState {
   /** Absolute path to the plan markdown. */
   planFile: string;
@@ -392,4 +440,6 @@ export interface BuildState {
   codexReviewModel?: string;
   /** Role-based provider/model/reasoning/command routing. */
   roleConfigs?: RoleConfigs;
+  /** Result of the planReviewer second-opinion pass. undefined = not yet reviewed or skipped. */
+  planReview?: PlanReviewVerdict;
 }

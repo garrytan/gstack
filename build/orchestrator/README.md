@@ -2,16 +2,17 @@
 
 Standalone CLI that drives a feature-block implementation plan to completion. Replaces the LLM-orchestrated loop in the `/build` skill for long, multi-week plans where context compaction or "Standing by, let me know what's next" stalls become a problem.
 
-## When to use this vs `/build`
+## When to use `/build` vs direct CLI
 
-| Use the **`/build`** skill when... | Use the **`gstack-build`** CLI when... |
-|---|---|
-| The plan has 1-3 phases | The plan has 5+ phases or spans weeks |
-| You want Claude Code in the loop for visibility | You want to walk away and come back to a finished branch |
-| The phases need ad-hoc judgment | Each phase has a clear, scriptable description |
-| Quick iteration, exploratory work | Production builds, multi-day work |
+Use the **`/build` skill** for normal execution. It locates the source plan,
+synthesizes living plans, writes a manifest, confirms with the user, launches
+private worktrees, and runs the foreground monitor.
 
-The CLI delegates each per-phase task to fresh Claude, Gemini, or Codex subprocesses, so the LLM brain still does the work — it just doesn't drive the loop.
+Use the **`gstack-build` CLI directly** for recovery, smoke tests, dry runs,
+manual merge cleanup, or when you already have the exact living plan and
+`--project-root` path. The CLI delegates each per-phase task to fresh Claude,
+Gemini, Kimi, or Codex subprocesses, so the LLM brain still does the work; it
+just does not drive the durable loop.
 
 ## Install
 
@@ -41,6 +42,7 @@ or set `GSTACK_BUILD_CLI` explicitly.
 
 ```bash
 gstack-build <plan-file> [flags]
+gstack-build plan-status --gstack-repo <path> [--project-root <path>] [--json]
 ```
 
 When the plan lives in a workspace-level `*-gstack/inbox/living-plan/` or
@@ -53,11 +55,17 @@ product repo invocation remains supported by passing that product repo as
 `--project-root`.
 
 For source plans that touch multiple child repos, `/build` writes one living plan
-per target repo and invokes this CLI sequentially, one child repo at a time.
+per target repo and launches manifest runs in private git worktrees. The
+foreground monitor tracks every run, resumes stale dead runs when identity is
+proven, and preserves failed worktrees for debugging.
 Completed living plans are moved to the sibling `archived/` directory after a
 successful non-dry-run build. Pass `--origin-plan <file>` when the living plan
 was synthesized from a separate source plan in `*-gstack/inbox/`; after the final
 completion exam passes, that origin plan is archived too.
+
+Use `gstack-build plan-status` to inspect what `/build` would select before it
+claims anything. The human table is for ambiguity/debugging; `--json` is the
+machine contract consumed by the `/build` skill.
 
 The plan file is organized into semantic feature blocks. The `/build` skill
 should reorganize all origin-plan weeks, milestones, blocks, and phases into
@@ -104,7 +112,7 @@ For each feature block, the orchestrator:
 
 1. Ensures it is on a feature branch.
 2. Runs every incomplete phase through the TDD/review loop.
-3. Runs `/ship` and `/land-and-deploy` for that feature unless `--skip-ship` or `--dry-run` is set.
+3. Runs `/ship` for that feature and queues the PR for the release daemon unless `--skip-ship` or `--dry-run` is set. Use `--release-mode auto-land` for legacy inline `/ship` + `/land-and-deploy`.
 4. Verifies the landed feature against the origin plan when `--origin-plan` is provided.
 5. Marks the feature complete and advances to the next feature.
 
@@ -134,7 +142,8 @@ When a phase has a `**Test Specification` checkbox, the orchestrator runs a 7-st
 2. Verify Red          — run tests; if they pass, test-writer rewrites stricter tests (cap: GSTACK_BUILD_RED_MAX_ITER)
 3. Implementation      — configured primary-impl role implements until tests pass
 4. Test+Fix Loop       — run tests; if failing, configured test-fixer role fixes; repeat (cap: GSTACK_BUILD_TEST_MAX_ITER)
-5. Review + QA         — configured review, review-secondary, and QA roles; all require GATE PASS
+5. Review + QA         — review loops until GATE PASS, then review-secondary loops
+                         until GATE PASS, then QA loops until GATE PASS
 6. Update Plan         — flip all 3 checkboxes [x]
 7. Host context save   — `/build` saves context from the current host LLM
                          session; the CLI has no configured context-save role
@@ -174,6 +183,13 @@ gstack-build plans/...md --dry-run --parallel-phases 2 --test-cmd "bun test"
 
 # Run for real, but stop short of the ship step:
 gstack-build plans/...md --skip-ship
+gstack-build plans/...md --release-mode auto-land
+
+# Supervise queued releases for this repo:
+gstack-build release-daemon install
+gstack-build release-daemon status
+gstack-build release-daemon run --watch --poll-ms 30000
+gstack-build release-daemon retry 123
 
 # Discard prior state and start over:
 gstack-build plans/...md --no-resume
@@ -184,6 +200,18 @@ gstack-build plans/...md --no-gbrain
 # Review/fix/ship/land leftover feat/* branches:
 gstack-build merge --project-root /path/to/product-repo
 ```
+
+Queued mode is the default release mode. It creates or updates a PR, marks it
+with the `gstack-release-queued` label and hidden JSON marker, then writes the
+local queue record. The release daemon only lands PRs that still have that
+marker, and it serializes landing with a remote git lock keyed by canonical
+remote identity plus base branch, so the same repo cloned at different local
+paths shares one release lane.
+
+`release-daemon install` is repo-aware: run it from the repo you want to
+supervise, or pass `--project-root /path/to/repo`. The generated launchd or
+systemd user service pins both `--project-root` and `WorkingDirectory` to that
+repo.
 
 ### Resume after interrupt
 
@@ -343,7 +371,7 @@ sub-agents, review, ship, and land all run from `--project-root` or the current
 git worktree. When the current directory is a workspace root with child repos,
 the root repo is ignored by default and each child repo gets its own living plan.
 Direct CLI execution against that root repo requires `--allow-workspace-root`.
-Multi-repo plans run sequentially, one living plan per target repo. If
+Multi-repo plans run through a manifest, one living plan per target repo. If
 `gstack-build` is invoked with a plan inside the `*-gstack` repo and cannot infer
 the product repo, it exits with instructions to rerun with `--project-root
 <repo>`.
@@ -378,7 +406,7 @@ The orchestrator stops at any of these and writes the failure reason into the st
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `Gemini timed out (after 1 retry)` | Phase too large, network blip, or Gemini hung | Raise `GSTACK_BUILD_GEMINI_TIMEOUT`, or split the phase |
-| `Review gates failed to converge after N iterations` | The recursive review can't reach `GATE PASS` | Read the phase review logs, fix the underlying issue manually, resume |
+| `Codex review failed to converge` | One review gate could not reach `GATE PASS` within `GSTACK_BUILD_CODEX_MAX_ITER` attempts | Read the phase review logs, fix the underlying issue manually, resume |
 | `Codex output did not contain GATE PASS or GATE FAIL` | Codex changed output format, or hit an internal error | Read the log; usually means the codex CLI itself errored |
 | `Tests still failing after N fix iterations` | Gemini can't converge; tests and impl are in conflict | Read `phase-N-gemini-fix-*.log`, fix manually, resume |
 | `Gemini could not produce failing tests after N attempts` | Tests pass before implementation (trivially-asserting tests) | Read `phase-N-gemini-testspec-*.log`, tighten the phase description, resume |
@@ -396,6 +424,10 @@ phase-runner.ts pure state machine (decideNextAction, applyResult)
 sub-agents.ts   gemini/kimi/codex/claude CLI wrappers with retries; detectTestCmd; runTests
 plan-mutator.ts atomic [ ] → [x] checkbox flip (impl, review, test-spec)
 state.ts        ~/.gstack/build-state/<slug>.json + gbrain mirror
+release-identity.ts canonical remote/path identity for queue records and locks
+release-queue.ts typed queued-release records, PR marker parsing/verification
+release-lock.ts remote git ref lock, heartbeat refresh, stale-owner handling
+release-daemon.ts FIFO queued release worker, scratch checkout, drift repair
 gbrain.ts       gbrain CLI wrapper (best-effort, never throws)
 ship.ts         configurable /ship + /land-and-deploy delegation
 types.ts        Phase, PhaseState, BuildState

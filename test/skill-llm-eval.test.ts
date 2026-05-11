@@ -18,6 +18,7 @@ import { callJudge, judge } from './helpers/llm-judge';
 import type { JudgeScore } from './helpers/llm-judge';
 import { EvalCollector } from './helpers/eval-store';
 import { selectTests, detectBaseBranch, getChangedFiles, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { buildMonitorAgentPrompt } from '../build/orchestrator/monitor-supervisor';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 // Run when EVALS=1 is set (requires ANTHROPIC_API_KEY in env)
@@ -734,6 +735,100 @@ describeIfSelected('Deploy skill evals', [
       judgeContext: 'a deployment configuration setup workflow that detects deploy platforms and writes config to CLAUDE.md',
       judgeGoal: 'how to detect deploy platforms (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, custom), gather platform-specific configuration (URLs, status commands, health checks, custom hooks), and persist everything to CLAUDE.md for future automated use',
     });
+  }, 30_000);
+});
+
+// Block 4.5: Build monitor-agent prompt contract
+describeIfSelected('Build skill evals', ['build monitor-agent prompt contract'], () => {
+  testIfSelected('build monitor-agent prompt contract', async () => {
+    const t0 = Date.now();
+    const prompt = buildMonitorAgentPrompt({
+      manifestPath: '/tmp/gstack/build-run-manifest.json',
+      event: {
+        event: 'RUN_FAILED',
+        timestamp: '2026-05-09T00:00:00.000Z',
+        runId: 'run-1',
+        repoSlug: 'demo',
+        stateSlug: 'demo-state',
+        status: 'failed',
+        message: 'phase failed after tests',
+        stateFile: '/tmp/gstack/state.json',
+        stdoutLog: '/tmp/gstack/stdout.log',
+      },
+      manifest: {
+        version: 2,
+        manifestId: 'manifest-1',
+        runGroupId: 'group-1',
+        tmpDir: '/tmp/gstack',
+        workspaceRoot: '/repo',
+        gstackRepo: '/repo-gstack',
+        runs: [{
+          runId: 'run-1',
+          repoPath: '/repo/product',
+          repoSlug: 'demo',
+          sourcePlanPath: '/repo-gstack/inbox/demo-plan.md',
+          livingPlanPath: '/repo-gstack/inbox/living-plan/demo-living.md',
+          originPlanPath: '/repo-gstack/inbox/demo-plan.md',
+          worktreePath: '/repo/product-worktree',
+          stateSlug: 'demo-state',
+          branchPrefix: 'build/demo',
+          pidFile: '/tmp/gstack/pid',
+          stdoutLog: '/tmp/gstack/stdout.log',
+          launchCommand: ['gstack-build', '/repo-gstack/inbox/living-plan/demo-living.md'],
+          launchEnv: {},
+        }],
+      },
+      role: {
+        provider: 'kimi',
+        model: 'kimi-code/kimi-for-coding',
+        reasoning: 'high',
+      },
+    });
+
+    const result = await callJudge<{
+      strict_json: boolean;
+      forbids_mutation: boolean;
+      bounded_context: boolean;
+      escalation_clear: boolean;
+      reasoning: string;
+    }>(`You are evaluating a monitor-agent instruction prompt for a build orchestrator.
+
+The monitor agent is advisory only. It must diagnose a blocking event from bounded context and return JSON. It must NOT edit files, commit, kill processes, patch state JSON, or override deterministic monitor identity checks.
+
+Evaluate the prompt below. Respond with ONLY valid JSON:
+{
+  "strict_json": true or false,
+  "forbids_mutation": true or false,
+  "bounded_context": true or false,
+  "escalation_clear": true or false,
+  "reasoning": "brief explanation"
+}
+
+PROMPT:
+${prompt}`);
+
+    console.log('Build monitor-agent prompt contract:', JSON.stringify(result, null, 2));
+
+    evalCollector?.addTest({
+      name: 'build monitor-agent prompt contract',
+      suite: 'Build skill evals',
+      tier: 'llm-judge',
+      passed: result.strict_json && result.forbids_mutation && result.bounded_context && result.escalation_clear,
+      duration_ms: Date.now() - t0,
+      cost_usd: 0.02,
+      judge_scores: {
+        strict_json: result.strict_json ? 1 : 0,
+        forbids_mutation: result.forbids_mutation ? 1 : 0,
+        bounded_context: result.bounded_context ? 1 : 0,
+        escalation_clear: result.escalation_clear ? 1 : 0,
+      },
+      judge_reasoning: result.reasoning,
+    });
+
+    expect(result.strict_json).toBe(true);
+    expect(result.forbids_mutation).toBe(true);
+    expect(result.bounded_context).toBe(true);
+    expect(result.escalation_clear).toBe(true);
   }, 30_000);
 });
 

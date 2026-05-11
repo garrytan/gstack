@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
         with:
@@ -43,7 +43,7 @@ jobs:
           fi
 
       - if: steps.check.outputs.exists == 'false'
-        run: cp package.json .github/docker/
+        run: cp package.json bun.lock .github/docker/
 
       - if: steps.check.outputs.exists == 'false'
         uses: docker/build-push-action@v6
@@ -110,11 +110,19 @@ jobs:
             echo "TMPDIR=/home/runner/.cache"
           } >> "$GITHUB_ENV"
 
-      # Restore pre-installed node_modules from Docker image via symlink (~0s vs ~15s install)
+      # Restore pre-installed node_modules from Docker image via recursive
+      # copy. Symlink (`ln -s`) breaks bun's module resolution because bun
+      # resolves a file's realpath when walking up to find node_modules/<dep>;
+      # from a symlinked path, realpath escapes the workspace and sibling
+      # deps no longer resolve. Hardlink copy (`cp -al`) fails because /opt
+      # and /workspace are on different overlay-fs layers ("Invalid
+      # cross-device link"). Recursive copy works on every layout. Cost:
+      # ~5s for ~200 packages of small JS files vs ~0s for symlink — still
+      # vastly cheaper than rerunning `bun install` (network + resolution).
       - name: Restore deps
         run: |
           if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
-            ln -s /opt/node_modules_cache node_modules
+            cp -r /opt/node_modules_cache node_modules
           else
             bun install
           fi

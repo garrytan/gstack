@@ -23,6 +23,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { safeUnlink } from './error-handling';
 
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
@@ -83,7 +84,7 @@ function findClaude(): string | null {
 /** Probe + persist claude availability for the bootstrap card. */
 function writeClaudeAvailable(): void {
   const stateDir = path.dirname(STATE_FILE);
-  try { fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 }); } catch {}
+  try { mkdirSecure(stateDir); } catch {}
   const found = findClaude();
   const status = {
     available: !!found,
@@ -94,7 +95,7 @@ function writeClaudeAvailable(): void {
   const target = path.join(stateDir, 'claude-available.json');
   const tmp = path.join(stateDir, `.tmp-claude-${process.pid}`);
   try {
-    fs.writeFileSync(tmp, JSON.stringify(status, null, 2), { mode: 0o600 });
+    writeSecureFile(tmp, JSON.stringify(status, null, 2));
     fs.renameSync(tmp, target);
   } catch {
     safeUnlink(tmp);
@@ -361,8 +362,26 @@ function buildServer() {
         // Binary input. Lazy-spawn claude on the first byte.
         if (!session.spawned) {
           session.spawned = true;
+          // UTF-8 boundary detection to prevent splitting multi-byte characters (issue #1272).
+          // Buffer incomplete UTF-8 sequences until the next chunk completes them.
+          let leftover = Buffer.alloc(0);
           const proc = spawnClaude(session.cols, session.rows, (chunk) => {
-            try { ws.sendBinary(chunk); } catch {}
+            const combined = Buffer.concat([leftover, Buffer.from(chunk)]);
+            // Find the last index where a UTF-8 codepoint ends. Look back at most 3 bytes.
+            let safeEnd = combined.length;
+            for (let i = combined.length - 1; i >= Math.max(0, combined.length - 3); i--) {
+              const b = combined[i];
+              if ((b & 0x80) === 0) { safeEnd = i + 1; break; }              // ASCII
+              if ((b & 0xC0) === 0x80) continue;                             // continuation byte
+              const expected = (b & 0xE0) === 0xC0 ? 2 : (b & 0xF0) === 0xE0 ? 3 : 4;
+              safeEnd = (combined.length - i >= expected) ? combined.length : i;
+              break;
+            }
+            const flush = combined.slice(0, safeEnd);
+            leftover = combined.slice(safeEnd);
+            if (flush.length) {
+              try { ws.sendBinary(flush); } catch {}
+            }
           });
           if (!proc) {
             try {
@@ -422,7 +441,7 @@ function handleTabState(msg: {
   reason?: string;
 }): void {
   const stateDir = path.dirname(STATE_FILE);
-  try { fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 }); } catch {}
+  try { mkdirSecure(stateDir); } catch {}
 
   // tabs.json — full list
   if (Array.isArray(msg.tabs)) {
@@ -442,7 +461,7 @@ function handleTabState(msg: {
     const target = path.join(stateDir, 'tabs.json');
     const tmp = path.join(stateDir, `.tmp-tabs-${process.pid}`);
     try {
-      fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), { mode: 0o600 });
+      writeSecureFile(tmp, JSON.stringify(payload, null, 2));
       fs.renameSync(tmp, target);
     } catch {
       safeUnlink(tmp);
@@ -457,11 +476,11 @@ function handleTabState(msg: {
     const ctxFile = path.join(stateDir, 'active-tab.json');
     const tmp = path.join(stateDir, `.tmp-tab-${process.pid}`);
     try {
-      fs.writeFileSync(tmp, JSON.stringify({
+      writeSecureFile(tmp, JSON.stringify({
         tabId: active.tabId ?? null,
         url: active.url,
         title: active.title ?? '',
-      }), { mode: 0o600 });
+      }));
       fs.renameSync(tmp, ctxFile);
     } catch {
       safeUnlink(tmp);
@@ -477,11 +496,11 @@ function handleTabSwitch(msg: { tabId?: number; url?: string; title?: string }):
   const ctxFile = path.join(stateDir, 'active-tab.json');
   const tmp = path.join(stateDir, `.tmp-tab-${process.pid}`);
   try {
-    fs.writeFileSync(tmp, JSON.stringify({
+    writeSecureFile(tmp, JSON.stringify({
       tabId: msg.tabId ?? null,
       url,
       title: msg.title ?? '',
-    }), { mode: 0o600 });
+    }));
     fs.renameSync(tmp, ctxFile);
   } catch {
     safeUnlink(tmp);
@@ -524,9 +543,9 @@ function main() {
 
   // Write port file atomically so the parent server can pick it up.
   const dir = path.dirname(PORT_FILE);
-  try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
+  try { mkdirSecure(dir); } catch {}
   const tmp = `${PORT_FILE}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, String(port), { mode: 0o600 });
+  writeSecureFile(tmp, String(port));
   fs.renameSync(tmp, PORT_FILE);
 
   // Hand the parent the internal token so it can call /internal/grant.
@@ -549,8 +568,8 @@ function main() {
 // to a state file the parent reads. This avoids env-passing races. See main().
 const INTERNAL_TOKEN_FILE = path.join(path.dirname(STATE_FILE), 'terminal-internal-token');
 try {
-  fs.mkdirSync(path.dirname(INTERNAL_TOKEN_FILE), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN, { mode: 0o600 });
+  mkdirSecure(path.dirname(INTERNAL_TOKEN_FILE));
+  writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
 } catch {}
 
 main();

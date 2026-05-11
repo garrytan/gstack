@@ -1566,7 +1566,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** Write a postinstall script that patches Playwright's CDP layer to suppress `Runtime.enable` and use `addBinding` for context ID discovery, same approach as rebrowser-patches. Eliminates the `navigator.webdriver`, `cdc_` markers, and other CDP artifacts that sites like Google use to detect automation.
 
-**Why:** Our current stealth patches (UA override, navigator.webdriver=false, fake plugins) work on most sites but Google still triggers captchas. The real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
+**Why:** Our current stealth narrows to `navigator.webdriver` masking + ChromeDriver `cdc_` runtime cleanup + Permissions API patch (v1.28.0.0 narrowed it from also faking plugins/languages, since modern fingerprinters punish inconsistent fakes more than they punish admitted defaults). That's enough for most sites but Google still triggers captchas, because the real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
 
 **Context:** Full analysis of rebrowser-patches source: patches 6 files in `playwright-core/lib/server/` (crConnection.js, crDevTools.js, crPage.js, crServiceWorker.js, frames.js, page.js). Key technique: suppress `Runtime.enable` (the main CDP detection vector), use `Runtime.addBinding` + `CustomEvent` trick to discover execution context IDs without it. Our extension communicates via Chrome extension APIs, not CDP Runtime, so it should be unaffected. Write E2E tests that verify: (1) extension still loads and connects, (2) Google.com loads without captcha, (3) sidebar chat still works.
 
@@ -1585,6 +1585,24 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Effort:** XL (human: ~1 quarter / CC: ~2-3 weeks of focused work)
 **Priority:** P2
 **Depends on:** CDP patches proving the value of anti-bot stealth first
+
+---
+
+## Fork overlay follow-ons
+
+### Auto-discover and install new skills from fork repo
+
+**What:** When `fork_repo_path` is configured, Step 4.8 currently overlays only SKILL.md.tmpl files that already exist in `$INSTALL_DIR`. If the fork adds a brand-new skill (e.g., a `custom-build/SKILL.md.tmpl` that doesn't exist upstream), it is silently skipped — Step 4.9 only syncs dirs that already exist in the gemini/kimi host dirs.
+
+**Fix needed:**
+
+1. After the existing copy loop in Step 4.8, detect skill dirs present in `$_FORK_REPO` but absent from `$INSTALL_DIR`. For each missing dir, copy it to `$INSTALL_DIR` and report "new skill installed: `<name>`".
+2. Step 4.9 sync loop should create missing skill dirs in `.gemini/skills/gstack/` and `.kimi/skills/gstack/` rather than only updating existing ones.
+
+**Why deferred:** The current loop structure uses `git diff --name-only | grep '/SKILL\.md\.tmpl$'` which only surfaces CHANGED files — files absent from the base ref are not included in the diff. Detecting new skills requires comparing `$_FORK_REPO`'s skill dirs against `$INSTALL_DIR` directly (a `comm -23` or `find` approach), which is a separate code path.
+
+**Effort:** S (human: ~1 hour / CC: ~10 min)
+**Priority:** P2
 
 ## Completed
 

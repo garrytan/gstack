@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   buildGeminiTestSpecPrompt,
+  extractCoverageTarget,
   buildDualImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
@@ -31,6 +32,10 @@ import {
   phaseTableStatus,
   phaseGateProjection,
   reconcileVisiblePlanState,
+  releaseDaemonLaunchCommand,
+  renderLaunchdReleaseDaemonPlist,
+  renderSystemdReleaseDaemonService,
+  runRoleTask,
   HELP_TEXT,
 } from "../cli";
 import type {
@@ -136,6 +141,99 @@ describe("buildGeminiTestSpecPrompt", () => {
   });
 });
 
+describe("buildGeminiTestSpecPrompt — spec-aware path", () => {
+  const specPhase: Phase = {
+    ...basePhase,
+    body: [
+      "Some prose describing the phase.",
+      "",
+      "#### Test Spec",
+      "**Coverage target: ≥80%**",
+      "",
+      "| ID | Scenario | Given | When | Then |",
+      "|----|----------|-------|------|------|",
+      "| T1 | happy path | valid input | call fn | returns result |",
+      "| T2 | error case | null input | call fn | throws TypeError |",
+      "| T3 | boundary | empty list | call fn | returns [] |",
+      "",
+      "**Edge cases to cover:**",
+      "- Empty input",
+    ].join("\n"),
+  };
+
+  it('uses floor language "minimum requirement" instead of "write failing tests"', () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("minimum requirement");
+    expect(prompt.toLowerCase()).not.toContain(
+      "write failing tests that cover",
+    );
+  });
+
+  it("tells test-writer they may add cases beyond the spec", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("MAY add additional cases");
+  });
+
+  it("includes the coverage target from the spec", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("≥80%");
+  });
+
+  it("passes phase body verbatim (including Test Spec section)", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("#### Test Spec");
+    expect(prompt).toContain("T1");
+  });
+
+  it("still tells test-writer not to write implementation code", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt.toLowerCase()).toMatch(
+      /do not implement|do not write.*production/,
+    );
+  });
+
+  it("still enforces red phase (tests must fail before implementation)", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt.toLowerCase()).toContain("must fail");
+  });
+});
+
+describe("extractCoverageTarget", () => {
+  it("extracts percentage from **Coverage target: ≥80%**", () => {
+    expect(extractCoverageTarget("**Coverage target: ≥80%**")).toBe(80);
+  });
+
+  it("defaults to 80 when no coverage target line is present", () => {
+    expect(extractCoverageTarget("some phase body with no coverage line")).toBe(
+      80,
+    );
+  });
+
+  it("handles >=85% variant (ASCII greater-than-or-equal)", () => {
+    expect(extractCoverageTarget("**Coverage target: >=85%**")).toBe(85);
+  });
+
+  it("handles plain > variant", () => {
+    expect(extractCoverageTarget("**Coverage target: >90%**")).toBe(90);
+  });
+
+  it("is case-insensitive", () => {
+    expect(extractCoverageTarget("**coverage target: ≥75%**")).toBe(75);
+  });
+
+  it("extracts from a multi-line phase body", () => {
+    const body = [
+      "Some prose",
+      "",
+      "#### Test Spec",
+      "**Coverage target: ≥82%**",
+      "",
+      "| T1 | ...",
+    ].join("\n");
+    expect(extractCoverageTarget(body)).toBe(82);
+  });
+});
+
 describe("--dual-impl flag wiring", () => {
   it("--help text mentions --dual-impl", () => {
     expect(HELP_TEXT).toContain("--dual-impl");
@@ -169,6 +267,72 @@ describe("--skip-ship flag wiring", () => {
     const args = parseArgs(["plan.md", "--skip-ship"]);
     expect(args.skipShip).toBe(true);
   });
+
+  it("parseArgs default release mode is queued and preserves --skip-ship", () => {
+    const args = parseArgs(["plan.md", "--skip-ship"]);
+    expect(args.releaseMode).toBe("queued");
+    expect(args.skipShip).toBe(true);
+  });
+
+  it("parseArgs supports legacy auto-land release mode", () => {
+    const args = parseArgs(["plan.md", "--release-mode", "auto-land"]);
+    expect(args.releaseMode).toBe("auto-land");
+  });
+
+  it("rejects invalid release modes", () => {
+    expectParseArgsExit(
+      ["plan.md", "--release-mode", "surprise"],
+      "--release-mode expects queued or auto-land",
+    );
+  });
+});
+
+describe("release-daemon CLI", () => {
+  it("parses release-daemon run defaults", () => {
+    const args = parseArgs(["release-daemon", "run"]);
+    expect(args.mode).toBe("release-daemon");
+    expect(args.releaseDaemonCommand).toBe("run");
+    expect(args.releaseDaemonOnce).toBe(true);
+    expect(args.releaseDaemonPollMs).toBe(30_000);
+  });
+
+  it("parses release-daemon watch and retry", () => {
+    const watch = parseArgs([
+      "release-daemon",
+      "run",
+      "--watch",
+      "--poll-ms",
+      "5",
+    ]);
+    expect(watch.releaseDaemonWatch).toBe(true);
+    expect(watch.releaseDaemonPollMs).toBe(5);
+
+    const retry = parseArgs(["release-daemon", "retry", "42"]);
+    expect(retry.releaseDaemonCommand).toBe("retry");
+    expect(retry.releaseDaemonRetryPr).toBe(42);
+  });
+
+  it("renders repo-aware daemon install commands for launchd and systemd", () => {
+    const command = releaseDaemonLaunchCommand("/Users/alice/project repo");
+    expect(command).toContain("--project-root");
+    expect(command).toContain("/Users/alice/project repo");
+
+    const plist = renderLaunchdReleaseDaemonPlist(
+      command,
+      "/Users/alice/project repo",
+    );
+    expect(plist).toContain(
+      "<key>WorkingDirectory</key><string>/Users/alice/project repo</string>",
+    );
+    expect(plist).toContain("<string>--project-root</string>");
+
+    const service = renderSystemdReleaseDaemonService(
+      command,
+      "/Users/alice/project repo",
+    );
+    expect(service).toContain("WorkingDirectory=/Users/alice/project\\ repo");
+    expect(service).toContain("--project-root /Users/alice/project\\ repo");
+  });
 });
 
 describe("manual recovery flags", () => {
@@ -190,28 +354,30 @@ describe("manual recovery flags", () => {
   });
 });
 
-describe("lock cleanup", () => {
-  it("releases the run lock if provisional active-run registration fails before state exists", () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-lock-cleanup-"));
-    spawnSync("git", ["init", "--initial-branch=main"], {
-      cwd: tmpDir,
-      stdio: "ignore",
-    });
-    spawnSync("git", ["config", "user.email", "test@example.com"], {
-      cwd: tmpDir,
-    });
-    spawnSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
-    fs.writeFileSync(path.join(tmpDir, "app.ts"), "export const ok = true;\n");
-    spawnSync("git", ["add", "."], { cwd: tmpDir });
-    spawnSync("git", ["commit", "-m", "initial"], {
-      cwd: tmpDir,
-      stdio: "ignore",
-    });
+function initGitRepo(prefix: string): string {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  spawnSync("git", ["init", "--initial-branch=main"], {
+    cwd: tmpDir,
+    stdio: "ignore",
+  });
+  spawnSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: tmpDir,
+  });
+  spawnSync("git", ["config", "user.name", "Test User"], { cwd: tmpDir });
+  fs.writeFileSync(path.join(tmpDir, "app.ts"), "export const ok = true;\n");
+  spawnSync("git", ["add", "."], { cwd: tmpDir });
+  spawnSync("git", ["commit", "-m", "initial"], {
+    cwd: tmpDir,
+    stdio: "ignore",
+  });
+  return tmpDir;
+}
 
-    const plan = path.join(tmpDir, "plan.md");
-    fs.writeFileSync(
-      plan,
-      `# Plan
+function writeBuildPlan(repo: string, name = "plan.md"): string {
+  const plan = path.join(repo, name);
+  fs.writeFileSync(
+    plan,
+    `# Plan
 
 ## Features
 
@@ -224,7 +390,14 @@ describe("lock cleanup", () => {
 - [ ] **Implementation (Codex Sub-agent)**: Implement the fix.
 - [ ] **Review (Codex Review Sub-agent)**: Review the implementation.
 `,
-    );
+  );
+  return plan;
+}
+
+describe("lock cleanup", () => {
+  it("releases the run lock if provisional active-run registration fails before state exists", () => {
+    const repo = initGitRepo("gstack-lock-cleanup-");
+    const plan = writeBuildPlan(repo);
     const registryParentFile = path.join(tmpDir, "registry-parent");
     fs.writeFileSync(registryParentFile, "not a directory\n");
     const impossibleRegistry = path.join(registryParentFile, "active-runs");
@@ -235,7 +408,7 @@ describe("lock cleanup", () => {
         path.resolve("build/orchestrator/cli.ts"),
         plan,
         "--project-root",
-        tmpDir,
+        repo,
         "--dry-run",
         "--run-id",
         "lock-cleanup",
@@ -257,6 +430,80 @@ describe("lock cleanup", () => {
 
     expect(result.status).not.toBe(0);
     expect(fs.existsSync(lockPath("build-lock-cleanup"))).toBe(false);
+  });
+
+  it("normal build lock failure explains the lock was not safely verified", () => {
+    const repo = initGitRepo("gstack-lock-message-");
+    const plan = writeBuildPlan(repo);
+    fs.writeFileSync(
+      lockPath("build-live-message"),
+      `${process.pid}\n2026-05-08T00:00:00.000Z\n`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve("build/orchestrator/cli.ts"),
+        plan,
+        "--project-root",
+        repo,
+        "--dry-run",
+        "--run-id",
+        "live-message",
+        "--branch-prefix",
+        "live-message",
+        "--no-gbrain",
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GSTACK_BUILD_STATE_DIR: tmpStateDir!,
+        },
+      },
+    );
+
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("cannot be safely verified");
+    expect(result.stderr).toContain(lockPath("build-live-message"));
+    expect(result.stderr).not.toContain("if stale, remove");
+  });
+
+  it("merge lock failure explains the lock was not safely verified", () => {
+    const repo = initGitRepo("gstack-merge-lock-message-");
+    const slug = `build-merge-${path
+      .basename(repo)
+      .replace(/[^a-z0-9-]/gi, "-")
+      .toLowerCase()}`;
+    fs.writeFileSync(
+      lockPath(slug),
+      `${process.pid}\n2026-05-08T00:00:00.000Z\n`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.resolve("build/orchestrator/cli.ts"),
+        "merge",
+        "--project-root",
+        repo,
+        "--skip-clean-check",
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GSTACK_BUILD_STATE_DIR: tmpStateDir!,
+        },
+      },
+    );
+
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("cannot be safely verified");
+    expect(result.stderr).toContain(lockPath(slug));
+    expect(result.stderr).not.toContain("if stale, remove");
   });
 });
 
@@ -284,9 +531,35 @@ describe("monitor subcommand wiring", () => {
     expect(args.monitorOnce).toBe(true);
   });
 
+  it("parseArgs supports monitor --supervise and monitor-agent role overrides", () => {
+    const manifest = path.join(os.tmpdir(), "manifest.json");
+    const args = parseArgs([
+      "monitor",
+      "--manifest",
+      manifest,
+      "--watch",
+      "--supervise",
+      "--monitor-agent-provider",
+      "codex",
+      "--monitor-agent-model",
+      "monitor-model-under-test",
+      "--monitor-agent-reasoning",
+      "medium",
+    ]);
+    expect(args.mode).toBe("monitor");
+    expect(args.monitorWatch).toBe(true);
+    expect(args.monitorSupervise).toBe(true);
+    expect(args.roles.monitorAgent.provider).toBe("codex");
+    expect(args.roles.monitorAgent.model).toBe("monitor-model-under-test");
+    expect(args.roles.monitorAgent.reasoning).toBe("medium");
+  });
+
   it("--help text documents monitor mode and exit codes", () => {
     expect(HELP_TEXT).toContain("gstack-build monitor --manifest <path>");
+    expect(HELP_TEXT).toContain("--supervise");
+    expect(HELP_TEXT).toContain("--monitor-agent-model");
     expect(HELP_TEXT).toContain("HOST_CONTEXT_SAVE_REQUIRED");
+    expect(HELP_TEXT).toContain("MONITOR_AGENT_ESCALATION");
     expect(HELP_TEXT).toContain("MONITOR_REENTER");
   });
 
@@ -299,8 +572,13 @@ describe("monitor subcommand wiring", () => {
 
   it("rejects monitor-only flags outside monitor mode", () => {
     expectParseArgsExit(["plan.md", "--once"], "monitor flags require");
+    expectParseArgsExit(["plan.md", "--supervise"], "monitor flags require");
     expectParseArgsExit(
       ["merge", "--manifest", "manifest.json"],
+      "monitor flags require",
+    );
+    expectParseArgsExit(
+      ["plan-status", "--gstack-repo", ".", "--supervise"],
       "monitor flags require",
     );
   });
@@ -538,6 +816,61 @@ describe("monitor subcommand wiring", () => {
   });
 });
 
+describe("plan-status subcommand wiring", () => {
+  it("parseArgs([plan-status]) selects read-only plan status mode", () => {
+    const repo = path.join(os.tmpdir(), "app-gstack");
+    const project = path.join(os.tmpdir(), "app");
+    const args = parseArgs([
+      "plan-status",
+      "--gstack-repo",
+      repo,
+      "--project-root",
+      project,
+      "--json",
+      "--all",
+      "--plan",
+      path.join(os.tmpdir(), "source-plan-1.md"),
+      "--all-inbox",
+      "--resume",
+      "run-1",
+    ]);
+    expect(args.mode).toBe("plan-status");
+    expect(args.planStatusGstackRepo).toBe(path.resolve(repo));
+    expect(args.projectRoot).toBe(path.resolve(project));
+    expect(args.planStatusJson).toBe(true);
+    expect(args.planStatusAll).toBe(true);
+    expect(args.planStatusPlans).toEqual([
+      path.resolve(path.join(os.tmpdir(), "source-plan-1.md")),
+    ]);
+    expect(args.planStatusAllInbox).toBe(true);
+    expect(args.planStatusResumeOnly).toBe(true);
+    expect(args.planStatusResumeRunId).toBe("run-1");
+  });
+
+  it("--help text documents plan-status mode", () => {
+    expect(HELP_TEXT).toContain(
+      "gstack-build plan-status --gstack-repo <path>",
+    );
+    expect(HELP_TEXT).toContain(
+      "Read-only /build plan selection and resume status",
+    );
+    expect(HELP_TEXT).toContain("--json");
+    expect(HELP_TEXT).toContain("--all-inbox");
+  });
+
+  it("rejects plan-status-only flags outside plan-status mode", () => {
+    expectParseArgsExit(["plan.md", "--json"], "plan-status flags require");
+    expectParseArgsExit(
+      ["merge", "--gstack-repo", "/tmp/app-gstack"],
+      "plan-status flags require",
+    );
+    expectParseArgsExit(
+      ["plan.md", "--resume", "run-1"],
+      "plan-status flags require",
+    );
+  });
+});
+
 describe("review gate planning", () => {
   it("skips reviewSecondary when its command is unset", () => {
     const roles = {
@@ -741,11 +1074,10 @@ describe("--parallel-phases flag wiring", () => {
   });
 });
 
-describe("--skip-clean-check / --skip-sweep flags", () => {
-  it("parseArgs default -> skipCleanCheck=false, skipSweep=false", () => {
+describe("--skip-clean-check flag", () => {
+  it("parseArgs default -> skipCleanCheck=false", () => {
     const args = parseArgs(["plan.md"]);
     expect(args.skipCleanCheck).toBe(false);
-    expect(args.skipSweep).toBe(false);
   });
 
   it("parseArgs([plan, --skip-clean-check]) -> skipCleanCheck=true", () => {
@@ -753,17 +1085,8 @@ describe("--skip-clean-check / --skip-sweep flags", () => {
     expect(args.skipCleanCheck).toBe(true);
   });
 
-  it("parseArgs([plan, --skip-sweep]) -> skipSweep=true", () => {
-    const args = parseArgs(["plan.md", "--skip-sweep"]);
-    expect(args.skipSweep).toBe(true);
-  });
-
   it("HELP_TEXT contains --skip-clean-check", () => {
     expect(HELP_TEXT).toContain("--skip-clean-check");
-  });
-
-  it("HELP_TEXT contains --skip-sweep", () => {
-    expect(HELP_TEXT).toContain("--skip-sweep");
   });
 
   it("parseArgs rejects removed context-save CLI flags", () => {
@@ -901,6 +1224,18 @@ describe("--gemini-model / --codex-model flag wiring", () => {
     expect(args.roles.reviewSecondary.command).toBe("/custom second opinion");
     expect(args.roles.ship.model).toBe("ship-model-under-test");
     expect(args.roles.ship.reasoning).toBe("medium");
+  });
+
+  it("backup role flags wire through parseArgs", () => {
+    const args = parseArgs([
+      "plan.md",
+      "--ship-backup-provider",
+      "gemini",
+      "--ship-backup-model",
+      "ship-backup-model-under-test",
+    ]);
+    expect(args.roles.ship.backupProvider).toBe("gemini");
+    expect(args.roles.ship.backupModel).toBe("ship-backup-model-under-test");
   });
 
   it("--project-root resolves to an absolute path", () => {
@@ -2904,5 +3239,83 @@ describe("reconcileVisiblePlanState", () => {
     expect(() =>
       reconcileVisiblePlanState(planFile, [feature], [phase], stateNoFeatures),
     ).not.toThrow();
+  });
+});
+
+describe("runRoleTask backup fallback", () => {
+  it("falls back from a failing kimi primary to a gemini backup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-role-backup-"));
+    const slug = `cli-role-backup-${process.pid}-${Date.now()}`;
+    const oldKimiBin = process.env.KIMI_BIN;
+    const oldGeminiBin = process.env.GEMINI_BIN;
+    try {
+      const fakeKimi = path.join(tmpDir, "kimi");
+      fs.writeFileSync(fakeKimi, `#!/bin/sh\nexit 1\n`);
+      fs.chmodSync(fakeKimi, 0o755);
+
+      // runGemini uses staged I/O: the prompt says "...write your output summary
+      // ...to <stagedOutput>." The cleanup step copies stagedOutput → outputFilePath.
+      const fakeGemini = path.join(tmpDir, "gemini");
+      fs.writeFileSync(
+        fakeGemini,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const prompt = args[args.indexOf("-p") + 1] || "";
+const match = prompt.match(/to (\\/.+?\\.md)\\./);
+if (!match) { console.error("missing staged output path in prompt"); process.exit(2); }
+fs.writeFileSync(match[1], "cli backup ok");
+process.stdout.write(match[1]);
+`,
+      );
+      fs.chmodSync(fakeGemini, 0o755);
+
+      process.env.KIMI_BIN = fakeKimi;
+      process.env.GEMINI_BIN = fakeGemini;
+
+      const inputFilePath = path.join(tmpDir, "input.md");
+      const outputFilePath = path.join(tmpDir, "output.md");
+      fs.writeFileSync(inputFilePath, "impl context");
+      fs.writeFileSync(outputFilePath, "stale-primary-output");
+
+      const result = await runRoleTask({
+        inputFilePath,
+        outputFilePath,
+        cwd: tmpDir,
+        slug,
+        phaseNumber: "1",
+        iteration: 1,
+        logPrefix: "cli-primary-impl",
+        role: {
+          provider: "kimi",
+          model: "kimi-model-under-test",
+          reasoning: "high",
+          backupProvider: "gemini",
+          backupModel: "gemini-3.1-pro-preview",
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(fs.readFileSync(outputFilePath, "utf8")).toBe("cli backup ok");
+      expect(fs.existsSync(result.logPath)).toBe(true);
+    } finally {
+      if (oldKimiBin === undefined) delete process.env.KIMI_BIN;
+      else process.env.KIMI_BIN = oldKimiBin;
+      if (oldGeminiBin === undefined) delete process.env.GEMINI_BIN;
+      else process.env.GEMINI_BIN = oldGeminiBin;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(path.join(os.homedir(), ".gstack", "build-state", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".kimi", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+      fs.rmSync(path.join(os.homedir(), ".gemini", "tmp", "gstack", slug), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 });

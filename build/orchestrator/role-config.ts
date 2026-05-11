@@ -8,6 +8,8 @@ export interface RoleConfig {
   model: string;
   reasoning: RoleReasoning;
   command?: string;
+  backupProvider?: RoleProvider;
+  backupModel?: string;
 }
 
 export interface RoleConfigs {
@@ -28,6 +30,18 @@ export interface RoleConfigs {
    * verdict contract.
    */
   featureReview: RoleConfig;
+  /**
+   * Advisory supervisor for `gstack-build monitor --supervise`. The
+   * deterministic monitor still owns run identity/recovery; this role only
+   * diagnoses blocking monitor events and returns structured escalation JSON.
+   */
+  monitorAgent: RoleConfig;
+  /**
+   * Second-opinion reviewer that runs at gstack-build startup, before Phase 1
+   * of Feature 1. Returns APPROVE/REVISE verdict; CRITICAL objections trigger
+   * exit 3 and SKILL.md re-synthesis loop.
+   */
+  planReviewer: RoleConfig;
 }
 
 export const ROLE_DEFINITIONS = [
@@ -42,10 +56,18 @@ export const ROLE_DEFINITIONS = [
   ["land", "land", "GSTACK_BUILD_LAND"],
   ["judge", "judge", "GSTACK_BUILD_JUDGE"],
   ["featureReview", "feature-review", "GSTACK_BUILD_FEATURE_REVIEW"],
+  ["monitorAgent", "monitor-agent", "GSTACK_BUILD_MONITOR_AGENT"],
+  ["planReviewer", "plan-reviewer", "GSTACK_BUILD_PLANREVIEWER"],
 ] as const satisfies readonly [keyof RoleConfigs, string, string][];
 
 export type RoleKey = (typeof ROLE_DEFINITIONS)[number][0];
-export type RoleField = "provider" | "model" | "reasoning" | "command";
+export type RoleField =
+  | "provider"
+  | "model"
+  | "reasoning"
+  | "command"
+  | "backupProvider"
+  | "backupModel";
 
 export const DEFAULT_ROLE_CONFIGS: RoleConfigs = BUILD_DEFAULTS.roles;
 
@@ -70,12 +92,20 @@ export function applyEnvRoleConfig(
     const model = env[`${prefix}_MODEL`];
     const reasoning = env[`${prefix}_REASONING`];
     const command = env[`${prefix}_COMMAND`];
+    const backupProvider = env[`${prefix}_BACKUP_PROVIDER`];
+    const backupModel = env[`${prefix}_BACKUP_MODEL`];
     if (provider)
       next[key].provider = parseProvider(provider, `${prefix}_PROVIDER`);
     if (model) next[key].model = model;
     if (reasoning)
       next[key].reasoning = parseReasoning(reasoning, `${prefix}_REASONING`);
     if (command) next[key].command = command;
+    if (backupProvider)
+      next[key].backupProvider = parseProvider(
+        backupProvider,
+        `${prefix}_BACKUP_PROVIDER`,
+      );
+    if (backupModel) next[key].backupModel = backupModel;
   }
   return next;
 }
@@ -91,7 +121,16 @@ export function applyRoleOverride(
   else if (field === "reasoning")
     roles[role].reasoning = parseReasoning(value, `${role}.reasoning`);
   else if (field === "model") roles[role].model = value;
-  else roles[role].command = value;
+  else if (field === "backupProvider")
+    roles[role].backupProvider = parseProvider(value, `${role}.backupProvider`);
+  else if (field === "backupModel") roles[role].backupModel = value;
+  else if (field === "command") roles[role].command = value;
+  else {
+    // TypeScript narrows field to never here — adding a new RoleField without
+    // a handler above produces a compile error, preventing silent catch-all corruption.
+    const _: never = field;
+    throw new Error(`Unknown role field: ${_}`);
+  }
 }
 
 export function parseProvider(value: string, label: string): RoleProvider {

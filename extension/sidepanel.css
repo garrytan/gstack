@@ -38,7 +38,7 @@
 
   /* Typography */
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', 'Noto Sans Mono CJK KR', 'Malgun Gothic', monospace;
 
   /* Radius */
   --radius-sm: 4px;

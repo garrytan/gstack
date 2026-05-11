@@ -632,9 +632,16 @@ function extractContentText(rec: any): string {
 function resolveGitRemote(cwd: string): string {
   if (!cwd) return "";
   try {
-    const out = execSync(`git -C ${JSON.stringify(cwd)} remote get-url origin 2>/dev/null`, {
+    // execFileSync (no shell) so `cwd` cannot trigger command substitution.
+    // Transcript JSONL records are an untrusted surface (a poisoned `.cwd`
+    // value containing `"$(...)"` survived `JSON.stringify` interpolation
+    // into a `/bin/sh -c` context, since JSON quoting does not escape `$`
+    // or backticks). Mirrors the execFileSync pattern this module already
+    // uses for `gbrainAvailable()` (line 762) and `gbrainPutPage()` (line 816).
+    const out = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], {
       encoding: "utf-8",
       timeout: 2000,
+      stdio: ["ignore", "pipe", "ignore"],
     });
     return canonicalizeRemote(out.trim());
   } catch {

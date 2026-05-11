@@ -19,6 +19,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { mkdirSecure } from './file-permissions';
 import { isPathWithin } from './platform';
 import type { TierPaths } from './browser-skills';
 import { defaultTierPaths } from './browser-skills';
@@ -74,8 +75,8 @@ export function stageSkill(opts: StageSkillOptions): string {
   const wrapperDir = path.join(tmpRoot, `skillify-${spawnId}`);
   const stagedDir = path.join(wrapperDir, opts.name);
 
-  fs.mkdirSync(wrapperDir, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(stagedDir, { recursive: true, mode: 0o700 });
+  mkdirSecure(wrapperDir);
+  mkdirSecure(stagedDir);
 
   for (const [relPath, contents] of opts.files) {
     if (relPath.startsWith('/') || relPath.includes('..')) {
