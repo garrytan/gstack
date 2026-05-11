@@ -79,6 +79,9 @@ import {
   parseVerdict,
   parseFailureCount,
   parseJudgeVerdict,
+  parseCoveragePercent,
+  extractCoverageTarget,
+  injectCoverageFlags,
   type CodexSandbox,
   type SubAgentResult,
 } from "./sub-agents";
@@ -2582,6 +2585,68 @@ export function validateLogPathInScope(
   return resolved;
 }
 
+/** Returns numbered instruction lines for the implementor subagent, keyed by phase kind. */
+export function buildKindInstructions(phase: Phase): string[] {
+  const sharedTail = [
+    `Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
+    `Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
+    `Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
+    REPO_BOUNDARY_INSTRUCTIONS[0],
+    REPO_BOUNDARY_INSTRUCTIONS[1],
+  ];
+  let kindInstructions: string[];
+  switch (phase.kind) {
+    case "writing":
+      kindInstructions = [
+        `Produce the written deliverable described in the phase. Quality bar: a reader unfamiliar with the project understands it after one read. No placeholder content.`,
+        `Commit the completed artifact to the file path(s) named in the phase body.`,
+        `Do NOT write or run tests — this is a writing phase, not a code phase.`,
+      ];
+      break;
+    case "experiment":
+      kindInstructions = [
+        `Execute the experiment as described. Run the named scripts/commands literally.`,
+        `Commit raw results to the named output path(s). Verify output files exist and are non-empty before committing.`,
+        `Do NOT summarize or interpret results in this step — that belongs in Review & QA.`,
+        `Do NOT write or run tests — this is an experiment phase, not a code phase.`,
+      ];
+      break;
+    case "research":
+      kindInstructions = [
+        `Produce the synthesis artifact described. Cite primary sources.`,
+        `Commit the artifact to the named output path(s). No speculation without explicitly labeling it as such.`,
+        `Do NOT write or run tests — this is a research phase, not a code phase.`,
+      ];
+      break;
+    case "manual":
+      kindInstructions = [
+        `This phase requires a human action outside the AI agent's scope. Ask the user to complete the action named in the phase description, then wait for their confirmation.`,
+        `Once the user confirms the action is done, commit a record of completion to the named path (if specified) and return.`,
+        `Do NOT attempt to automate the manual action — it is intentionally a human gate.`,
+      ];
+      break;
+    default: // "code"
+      kindInstructions = [
+        `Make all failing tests pass with minimal correct code. Do NOT change test assertions.`,
+        `Also complete every non-code deliverable in the phase description: if it says "run X and produce Y" or "record Z to <path>", actually execute that script/command and commit the output files. Writing the code that could produce Y is not the same as producing Y.`,
+        `If there are no existing failing tests, implement the work described above.`,
+        `If the project uses GitHub Actions, ensure your changes pass them.`,
+        `Commit your changes to the current branch with a clear conventional-commit message.`,
+        `Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
+      ];
+      break;
+  }
+  const allLines =
+    phase.kind === "code"
+      ? [...kindInstructions, ...sharedTail]
+      : [
+          ...kindInstructions,
+          `Commit your changes to the current branch with a clear conventional-commit message.`,
+          ...sharedTail,
+        ];
+  return allLines.map((line, i) => `${i + 1}. ${line}`);
+}
+
 /**
  * Build the Gemini prompt body that gets WRITTEN TO A FILE before invocation.
  * The orchestrator never inlines this content into the CLI call — runGemini's
@@ -2606,17 +2671,7 @@ function buildGeminiPromptBody(
     "",
     "## Instructions",
     "",
-    `1. Make all failing tests pass with minimal correct code. Do NOT change test assertions.`,
-    `2. Also complete every non-code deliverable in the phase description: if it says "run X and produce Y" or "record Z to <path>", actually execute that script/command and commit the output files. Writing the code that could produce Y is not the same as producing Y.`,
-    `3. If there are no existing failing tests, implement the work described above.`,
-    `4. If the project uses GitHub Actions, ensure your changes pass them.`,
-    `5. Commit your changes to the current branch with a clear conventional-commit message.`,
-    `6. Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
-    `7. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
-    `8. Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
-    `9. Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
-    `10. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
-    `11. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+    ...buildKindInstructions(phase),
   ];
 
   if (reviewFeedback) {
@@ -2708,6 +2763,10 @@ export function buildCodexReviewBody(
       : "",
     "## Your task",
     "",
+    phase.kind !== "code"
+      ? `Review rubric: deliverable completeness and artifact correctness — not code quality or tests. Verify the artifact exists at the path named in the phase, is non-empty, and satisfies the acceptance criteria in the phase description.`
+      : "",
+    phase.kind !== "code" ? "" : "",
     `1. Run the slash command specified by the runner prompt on the current branch's working tree against its base.`,
     `2. If iteration > 1, this is a re-run after an earlier gate tried to fix findings — be especially thorough.`,
     `3. Use --yolo / workspace-write file tools to inspect the actual code; don't ask the orchestrator to inline anything.`,
@@ -2835,16 +2894,11 @@ async function verifyOriginPlanFeature(args: {
   return { ok: true, issueLogPath: outputFilePath };
 }
 
-export function extractCoverageTarget(phaseBody: string): number {
-  const m = phaseBody.match(/\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+)%\*\*/i);
-  return m ? parseInt(m[1], 10) : 80;
-}
-
 export function buildGeminiTestSpecPrompt(
   phase: Phase,
   planFile: string,
 ): string {
-  const hasTestSpec = phase.body.includes("#### Test Spec");
+  const hasTestSpec = phase.testSpecCheckboxLine !== -1;
 
   const specInstructions = hasTestSpec
     ? [
@@ -4633,14 +4687,15 @@ async function runPhase(args: {
     if (action.type === "RUN_TESTS") {
       console.log(`  → Tests: iter ${action.iteration}`);
       let result: SubAgentResult;
+      let effectiveTestCmd: string | null = null;
       if (dryRun) {
         result = mockResult({
           exitCode: 0,
           stdout: "[dry-run] tests would pass (Green)",
         });
       } else {
-        const testCmd = args.testCmd ?? detectTestCmd(cwd);
-        if (!testCmd) {
+        effectiveTestCmd = args.testCmd ?? detectTestCmd(cwd);
+        if (!effectiveTestCmd) {
           // No test cmd: skip test verification, treat as green.
           console.warn(
             "  ⚠ no test command detected; skipping test verification",
@@ -4650,8 +4705,12 @@ async function runPhase(args: {
             stdout: "no test command; skipped",
           });
         } else {
+          const testCmdForRun =
+            phase.testSpecCheckboxLine !== -1
+              ? injectCoverageFlags(effectiveTestCmd)
+              : effectiveTestCmd;
           result = await runTests({
-            testCmd,
+            testCmd: testCmdForRun,
             cwd,
             slug: state.slug,
             phaseNumber: phase.number,
@@ -4660,6 +4719,34 @@ async function runPhase(args: {
         }
       }
       phaseState = applyResult(phaseState, action, result);
+      // Coverage gate: after GREEN tests pass, verify coverage meets the spec target.
+      if (
+        phaseState.status === "tests_green" &&
+        phase.testSpecCheckboxLine !== -1 &&
+        effectiveTestCmd
+      ) {
+        const coverageTarget = extractCoverageTarget(phase.body);
+        const actualCoverage = parseCoveragePercent(
+          result.stdout,
+          effectiveTestCmd,
+        );
+        if (actualCoverage !== null) {
+          phaseState = {
+            ...phaseState,
+            coverageResult: { actual: actualCoverage, target: coverageTarget },
+          };
+          if (actualCoverage < coverageTarget) {
+            console.log(
+              `  ⚠ Coverage ${actualCoverage}% below target ${coverageTarget}% — routing to test fixer`,
+            );
+            phaseState = { ...phaseState, status: "test_fix_running" };
+          }
+        } else {
+          console.log(
+            `  ℹ Coverage measurement skipped (unknown test framework for: ${effectiveTestCmd})`,
+          );
+        }
+      }
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
       continue;
@@ -7178,6 +7265,15 @@ async function main() {
         // queued PRs.
         state.completed = !args.dryRun && !args.skipShip;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+        // When --skip-ship leaves features at origin_verified, exit 13
+        // (FINALIZATION_REQUIRED) instead of 0 so the skill agent cannot infer
+        // "done" from the exit code — Step 3 (ship + archive) is mandatory.
+        if (
+          args.skipShip &&
+          state.features?.some((f) => f.status === "origin_verified")
+        ) {
+          exitCode = 13;
+        }
       }
       if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
         const archivedPath = archiveLivingPlan(state.planFile);
@@ -7205,7 +7301,10 @@ async function main() {
             state.launch.runId,
           );
         } else {
-          updateActiveRunFromState(state, exitCode === 0 ? "paused" : "failed");
+          updateActiveRunFromState(
+            state,
+            exitCode === 0 || exitCode === 13 ? "paused" : "failed",
+          );
         }
       } else if (launch.runId && launch.activeRunRegistry) {
         writeProvisionalActiveRunRecord({
@@ -7436,7 +7535,6 @@ export function verifyNoUnmergedFeatBranches(
   const branches = [...remoteBranches, ...localBranches];
   return { ok: branches.length === 0, branches };
 }
-
 
 function resolveMergeProjectRoot(args: Args): string {
   if (args.projectRoot) {

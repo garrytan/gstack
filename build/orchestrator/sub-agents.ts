@@ -1215,6 +1215,42 @@ export function parseCoveragePercent(
   return null;
 }
 
+export function extractCoverageTarget(phaseBody: string): number {
+  const m = phaseBody.match(
+    /\*\*Coverage target:\s*(?:>=|[≥>])\s*([\d.]+)%\*\*/i,
+  );
+  return m ? parseFloat(m[1]) : 80;
+}
+
+/**
+ * Append coverage flags to a test command for the GREEN gate run.
+ * Idempotent — if the flag is already present, the command is returned unchanged.
+ * Returns the command unchanged for unknown frameworks (caller logs advisory).
+ */
+export function injectCoverageFlags(testCmd: string): string {
+  const cmd = testCmd.toLowerCase();
+  if (/\bvitest\b/.test(cmd)) {
+    return testCmd.includes("--coverage") ? testCmd : `${testCmd} --coverage`;
+  }
+  if (/\bjest\b/.test(cmd)) {
+    return testCmd.includes("--coverage")
+      ? testCmd
+      : `${testCmd} --coverage --coverageReporters text`;
+  }
+  if (/\bbun\s+test\b/.test(cmd) || /\bbun\s+run\s+test\b/.test(cmd)) {
+    return testCmd.includes("--coverage") ? testCmd : `${testCmd} --coverage`;
+  }
+  if (/\bpytest\b/.test(cmd)) {
+    return testCmd.includes("--cov")
+      ? testCmd
+      : `${testCmd} --cov --cov-report term-missing`;
+  }
+  if (/\bgo\s+test\b/.test(cmd)) {
+    return testCmd.includes("-cover") ? testCmd : `${testCmd} -cover`;
+  }
+  return testCmd;
+}
+
 function detectPackageManager(
   cwd: string,
   pkg: any,
