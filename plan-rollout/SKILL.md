@@ -7,11 +7,9 @@ description: |
   Decomposition-as-artifact. Given a real working diff (and `SYSTEM.md` if
   present), produces a written `decomposition.md` with per-slice file lists,
   reader-time estimates, dependency edges, and contract-graph reconciliation
-  flags. This is the post-decision consumer: it analyzes a diff that already
-  exists. For the pre-decision conversation ("should this be one PR or
-  many?"), use `/plan-pull-request` first. Use when asked to "decompose
-  the diff", "write a decomposition.md", "plan-rollout", or after
-  `/plan-pull-request` has already concluded the work should slice. (gstack)
+  flags. Runs after a diff exists — it analyzes actual files, not intentions.
+  Use when asked to "decompose the diff", "write a decomposition.md", or
+  "plan-rollout". (gstack)
   Voice triggers (speech-to-text aliases): "decompose the diff", "write a decomposition", "plan-rollout".
 allowed-tools:
   - Read
@@ -755,38 +753,24 @@ You read a working diff (plus `SYSTEM.md` if present) and write
 You never write code, never split branches, never run `/ship`. The output
 is the artifact and only the artifact.
 
-## Relationship to /plan-pull-request
-
-These are two halves of one workflow, not competitors. Run them in order:
-
-| Skill | When | Mode | Output |
-|-------|------|------|--------|
-| `/plan-pull-request` | Pre-code or early-code | Conversation | Decision: boil vs slice + a sketch |
-| `/plan-rollout` | After a real diff exists | Analysis | `decomposition.md` artifact tied to actual files |
-
-If the user invokes `/plan-rollout` before any code has been written, stop
-and tell them: "`/plan-pull-request` is the right skill for pre-code shape
-decisions. Run that first; come back here when you have a real diff to
-decompose."
-
-If the user invokes `/plan-pull-request`'s decision already concluded "boil
-it — one PR," and they invoke `/plan-rollout` anyway, do the analysis
-honestly — if the diff really is one PR's worth, the output's verdict
-says so in one line and you stop. Don't manufacture slices.
-
 ## When to invoke this skill
 
 Run when a diff already exists (committed or working tree) and either:
 - The user explicitly asks for `decomposition.md`.
-- `/plan-pull-request` concluded "slice it" and the user wants an analysis
-  artifact tied to the actual files.
+- The user has decided the work should ship as a stack and wants an
+  analysis artifact tied to the actual files.
 - A reviewer asked to see the change broken down before they read it.
 
+If invoked before any code has been written, stop and say so: there is
+nothing to decompose. Suggest writing the smallest end-to-end slice first
+and re-running the skill against the real diff.
+
 Don't run on single-component, sub-30-min-reader-time diffs unless the user
-overrides — produce the one-line "this is one PR" verdict and stop.
+overrides — produce the one-line "this is one PR" verdict and stop. False
+slicing is worse than no slicing.
 
 Out of scope for v1: writing `rollout.md` (rollout/rollback strategy),
-running `/spill-check` against in-progress diffs, integrating with `/ship`
+running spill-check against in-progress diffs, integrating with `/ship`
 or `/review`, scaffolding `SYSTEM.md`. This skill produces decomposition.md
 and stops.
 
