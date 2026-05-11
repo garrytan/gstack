@@ -6363,7 +6363,7 @@ async function main() {
 
       // Plan review: second-opinion pass before Phase 1 of Feature 1.
       // Skipped in dry-run, when --no-plan-review is set, or on resume (already reviewed).
-      if (!args.dryRun && !args.noPlanReview && !state.planReview) {
+      if (!args.dryRun && !args.noPlanReview && (!state.planReview || (state.planReview as any).status === "critical_exit_pending")) {
         const reviewRole = { ...args.roles.planReviewer };
         if (args.planReviewerModel) reviewRole.model = args.planReviewerModel;
         const planReviewReportPath = path.join(
@@ -6382,8 +6382,9 @@ async function main() {
           planReviewReportPath,
         });
         if (outcome === "critical_exit") {
-          // Don't persist to state — the !state.planReview guard must stay falsy so
-          // the next gstack-build invocation (after SKILL.md re-synthesis) re-runs the review.
+          // Persist sentinel so the gate re-fires on resume instead of looping infinitely.
+          state.planReview = { ...verdict, status: "critical_exit_pending" } as any;
+          saveState(state, { noGbrain: args.noGbrain, log: console.warn });
           // Release the lock explicitly since process.exit bypasses the finally block.
           releaseLock(slug);
           process.exit(3);
