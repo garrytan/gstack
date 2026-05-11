@@ -1810,3 +1810,108 @@ describe("process-exit-bypasses-finally-lock (Bug D2, Feature 5)", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Feature 6: Coverage Parsing Wired into phase-runner.ts
+//
+// After GREEN tests, applyResult() populates phaseState.coverageResult when
+// test stdout contains coverage data. Below-target is advisory (warning only)
+// — phase status stays "tests_green".
+// ---------------------------------------------------------------------------
+
+describe("coverage wired into phase-runner.ts RUN_TESTS (Feature 6)", () => {
+  const bunCoverageStdout = `
+bun test v1.3.12
+ 5 pass
+ 0 fail
+coverage: 87.50%
+`;
+
+  const phaseBodyWithTarget = "## Phase\n\n**Coverage target: ≥80%**\n\nSome body text.";
+  const phaseBodyNoTarget = "## Phase\n\nNo coverage target line here.";
+
+  function testsGreenResult(stdout: string): SubAgentResult {
+    return {
+      stdout,
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      logPath: "/tmp/tests.log",
+      durationMs: 500,
+      retries: 0,
+    };
+  }
+
+  it("coverageResult.actual is set when stdout contains coverage data", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(bunCoverageStdout), {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.status).toBe("tests_green");
+    expect(next.coverageResult).toBeDefined();
+    expect(next.coverageResult!.actual).toBe(87.5);
+  });
+
+  it("coverageResult.target defaults to 80 when no coverage target line in phase body", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(bunCoverageStdout), {
+      phaseBody: phaseBodyNoTarget,
+      testCmd: "bun test",
+    });
+    expect(next.coverageResult).toBeDefined();
+    expect(next.coverageResult!.target).toBe(80);
+  });
+
+  it("coverage below target keeps status tests_green (advisory, not blocking)", () => {
+    const lowCoverageStdout = "coverage: 60.00%";
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(lowCoverageStdout), {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.status).toBe("tests_green");
+    expect(next.coverageResult!.actual).toBe(60);
+    expect(next.coverageResult!.target).toBe(80);
+  });
+
+  it("coverageResult is not set when no coverage data in stdout", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult("5 pass 0 fail"), {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.coverageResult).toBeUndefined();
+  });
+
+  it("coverageResult is not set when phaseBody is not provided (no extra)", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(bunCoverageStdout));
+    expect(next.coverageResult).toBeUndefined();
+  });
+
+  it("coverageResult is not set on RED test runs", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const failResult: SubAgentResult = {
+      stdout: bunCoverageStdout,
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+      logPath: "/tmp/tests.log",
+      durationMs: 500,
+      retries: 0,
+    };
+    const next = applyResult(state, action, failResult, {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.status).toBe("test_fix_running");
+    expect(next.coverageResult).toBeUndefined();
+  });
+});
