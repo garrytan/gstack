@@ -18,9 +18,12 @@ Deno.serve(async (req) => {
       return new Response(CURRENT_VERSION, { status: 200 });
     }
 
+    // Use anon key — the service role key bypasses RLS and is over-privileged
+    // for a public endpoint that only needs INSERT on update_checks.
+    // (Same rationale as telemetry-ingest; see that function's comments.)
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
     );
 
     // Log the update check (fire-and-forget)
