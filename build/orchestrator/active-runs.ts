@@ -19,6 +19,12 @@ export interface ActiveRunRecord {
 }
 
 export function defaultActiveRunRegistryDir(): string {
+  if (process.env.GSTACK_BUILD_STATE_DIR) {
+    return path.join(
+      path.resolve(process.env.GSTACK_BUILD_STATE_DIR),
+      "active-runs",
+    );
+  }
   return path.join(os.homedir(), ".gstack", "build-state", "active-runs");
 }
 
@@ -31,7 +37,10 @@ function safeRunId(runId: string): string {
   );
 }
 
-export function activeRunRecordPath(registryDir: string, runId: string): string {
+export function activeRunRecordPath(
+  registryDir: string,
+  runId: string,
+): string {
   return path.join(path.resolve(registryDir), `${safeRunId(runId)}.json`);
 }
 
@@ -59,7 +68,10 @@ export function writeActiveRunRecord(
   fs.renameSync(tmpPath, finalPath);
 }
 
-export function removeActiveRunRecord(registryDir: string, runId: string): void {
+export function removeActiveRunRecord(
+  registryDir: string,
+  runId: string,
+): void {
   try {
     fs.unlinkSync(activeRunRecordPath(registryDir, runId));
   } catch (err: any) {
@@ -109,11 +121,14 @@ export function activeOwnedBranches(
   registryDir: string,
   opts: { projectRoot?: string; baseProjectRoot?: string } = {},
 ): Set<string> {
-  const targetRepo = normalizeRepoPath(opts.baseProjectRoot ?? opts.projectRoot);
+  const targetRepo = normalizeRepoPath(
+    opts.baseProjectRoot ?? opts.projectRoot,
+  );
   const branches = new Set<string>();
   for (const record of readActiveRunRecords(registryDir)) {
     if (targetRepo && activeRunRepoIdentity(record) !== targetRepo) continue;
-    const terminal = record.status === "completed" || record.status === "failed";
+    const terminal =
+      record.status === "completed" || record.status === "failed";
     if (terminal && !isPidAlive(record.pid)) continue;
     for (const branch of record.branches) {
       if (branch.startsWith("feat/")) branches.add(branch);
