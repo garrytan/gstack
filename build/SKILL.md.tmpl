@@ -801,9 +801,10 @@ After this launch block finishes, the next tool call must be Bash running Step M
 Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. Do not use `ScheduleWakeup`, delayed reminders, `sleep ... && tail ...`, ad-hoc watcher scripts, or "check back later" messages as a substitute for this command. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
 
 ```bash
+set -o pipefail
 BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}
-"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
-_MONITOR_EXIT=$?
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS" 2>&1 | tee "$BUILD_TMP_DIR/monitor-output.log"
+_MONITOR_EXIT=${PIPESTATUS[0]}
 ```
 
 The monitor emits compact JSON lines. Every line has `event`, `timestamp`, and `message`; run events also include `runId`, `repoSlug`, `stateSlug`, `status`, `pidFile`, `stateFile`, and `stdoutLog`. Terminal events and exit codes are:
@@ -846,6 +847,67 @@ If the host cannot invoke skills natively, report that limitation once and write
 - `MONITOR_AGENT_ESCALATION`: the CLI-owned supervisor already asked the configured `monitorAgent` to diagnose a blocking event. Read `sourceEvent`, `verdict`, `recommendedHostAction`, `suggestedCommands`, and `userChoices`. If `verdict` is `host_action_required`, perform the safe host action or inspection command. If `verdict` is `user_action_required`, ask the user to choose. Do not let the monitor agent edit, commit, kill processes, patch state JSON, or override deterministic monitor identity checks.
 - `MONITOR_REENTER`: the foreground watch reached `--max-wall-ms`; immediately re-run the same monitor command in the same host session. Do not use `ScheduleWakeup` here.
 - `MONITOR_ERROR`: stop and report the error. Historical manifests without `launchCommand` are invalid; regenerate or relaunch through Step M2.
+
+### Step M3.5: Skill Fault Investigator
+
+After the monitor exits, scan its output for skill-fault detections and dispatch investigators.
+The `fault_investigator_model` is read from `configure.cm` and faults are written to `~/.gstack/skill-faults/`:
+
+```bash
+if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
+  _FAULT_LINES=$(grep "SKILL_FAULT_DETECTED" "$BUILD_TMP_DIR/monitor-output.log" 2>/dev/null || true)
+  if [ -n "$_FAULT_LINES" ]; then
+    mkdir -p ~/.gstack/skill-faults/
+    _FAULT_INVESTIGATOR_MODEL=$(jq -r '.roles.faultInvestigator.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+    [ -z "$_FAULT_INVESTIGATOR_MODEL" ] && _FAULT_INVESTIGATOR_MODEL=$(jq -r '.roles.primaryImpl.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+    _FAULT_INVESTIGATOR_PROVIDER=$(jq -r '.roles.faultInvestigator.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+    [ -z "$_FAULT_INVESTIGATOR_PROVIDER" ] && _FAULT_INVESTIGATOR_PROVIDER=$(jq -r '.roles.primaryImpl.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+
+    _SEEN_PATHS=""
+    while IFS= read -r _FAULT_LINE; do
+      [ -z "$_FAULT_LINE" ] && continue
+      _FAULT_FILE=$(printf '%s\n' "$_FAULT_LINE" | sed -n 's/.*file:////p' | awk '{print $1}')
+      [ -z "$_FAULT_FILE" ] && continue
+      _FAULT_ABS=$(readlink "$_FAULT_FILE" 2>/dev/null || printf '%s\n' "$_FAULT_FILE")
+      _FAULT_KEY=$(printf '%s\n' "$_FAULT_ABS" | sort -u | tr '\n' '|')
+
+      # dedupe by resolved absolute path
+      case "|$_SEEN_PATHS|" in
+        *"|$_FAULT_KEY|"*) continue ;;
+      esac
+      _SEEN_PATHS="$_SEEN_PATHS|$_FAULT_KEY"
+
+      _FAULT_ENV="FAULT_FILE=$_FAULT_ABS"
+      [ -n "$_FAULT_INVESTIGATOR_MODEL" ] && _FAULT_ENV="$_FAULT_ENV FAULT_INVESTIGATOR_MODEL=$_FAULT_INVESTIGATOR_MODEL"
+
+      if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
+        env $_FAULT_ENV $GSTACK_FAULT_INVESTIGATOR_COMMAND > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+      else
+        # Spawn one background agent per non-duplicate fault
+        _INV_PROMPT="A skill fault was detected in $_FAULT_ABS. Investigate the root cause. You MUST ONLY read files and report findings — do NOT write code, modify files, run tests, or commit anything."
+        case "$_FAULT_INVESTIGATOR_PROVIDER" in
+          gemini)
+            (env $_FAULT_ENV gemini -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo) > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            ;;
+          kimi)
+            (env $_FAULT_ENV kimi --work-dir "$(dirname "$_FAULT_ABS")" -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo --print --final-message-only) > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            ;;
+          claude)
+            (env $_FAULT_ENV claude --model "$_FAULT_INVESTIGATOR_MODEL" -p "$_INV_PROMPT") > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            ;;
+          codex)
+            _INV_REASONING=$(jq -r '.roles.faultInvestigator.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+            (env $_FAULT_ENV codex exec "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_INV_REASONING\"" -C "$(dirname "$_FAULT_ABS")") > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            ;;
+          *)
+            echo "unsupported fault investigator provider: $_FAULT_INVESTIGATOR_PROVIDER" >&2
+            ;;
+        esac
+      fi
+    done < <(printf '%s\n' "$_FAULT_LINES")
+  fi
+fi
+```
 
 ---
 

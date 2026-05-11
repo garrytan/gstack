@@ -565,7 +565,7 @@ export interface Args {
   featureReviewMaxIter: number;
   /** Skip the planReviewer second-opinion pass at startup. */
   noPlanReview: boolean;
-  /** Override the planReviewer model for this run (e.g. gpt-5.5). */
+  /** Override the planReviewer model for this run (e.g. a-provider-model). */
   planReviewerModel?: string;
   /** Manifest path for gstack-build monitor mode. */
   monitorManifest?: string;

@@ -650,6 +650,61 @@ test("build skill docs route template-only roles by provider", () => {
   }
 });
 
+test("SKILL.md.tmpl Step M3 uses pipefail and PIPESTATUS[0] with monitor-output.log", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  expect(content).toContain("set -o pipefail");
+  expect(content).toContain("${PIPESTATUS[0]}");
+  expect(content).not.toMatch(/_MONITOR_EXIT=\$\?/);
+  expect(content).toContain("monitor-output.log");
+});
+
+test("SKILL.md.tmpl contains Step M3.5 fault investigator", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  expect(content).toContain("### Step M3.5");
+  expect(content).toContain("SKILL_FAULT_DETECTED");
+  expect(content).toContain("fault_investigator_model");
+  expect(content).toContain("~/.gstack/skill-faults/");
+  expect(content).toContain("GSTACK_FAULT_INVESTIGATOR_COMMAND");
+  // Loop over all fault lines, not just one
+  expect(content).toMatch(/while IFS= read -r.*_FAULT_LINE/);
+  // Dedupe uses readlink (not readlink -f)
+  expect(content).toMatch(/readlink(?!\s+-f)/);
+  // Investigator prompt says ONLY for write constraint
+  expect(content).toMatch(/ONLY.*read.*report/i);
+  // Background spawn is non-blocking
+  expect(content).toMatch(/&\s*$/m);
+  // GSTACK_FAULT_INVESTIGATOR_COMMAND check precedes agent spawn
+  const commandCheckIndex = content.indexOf("GSTACK_FAULT_INVESTIGATOR_COMMAND");
+  const agentSpawnIndex = content.search(/case\s+"\$_FAULT_INVESTIGATOR_PROVIDER"/);
+  expect(commandCheckIndex).toBeGreaterThan(0);
+  expect(agentSpawnIndex).toBeGreaterThan(0);
+  expect(commandCheckIndex).toBeLessThan(agentSpawnIndex);
+});
+
+test("generated SKILL.md reflects Step M3.5 fault investigator", () => {
+  const skillPath = path.resolve(import.meta.dir, "../../SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+
+  expect(content).toContain("### Step M3.5");
+  expect(content).toContain("SKILL_FAULT_DETECTED");
+  expect(content).toContain("fault_investigator_model");
+  expect(content).toContain("~/.gstack/skill-faults/");
+  expect(content).toContain("GSTACK_FAULT_INVESTIGATOR_COMMAND");
+});
+
+test("gen:skill-docs exits cleanly", () => {
+  const result = spawnSync("bun", ["run", "gen:skill-docs"], {
+    cwd: path.resolve(import.meta.dir, "../../.."),
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  expect(result.status).toBe(0);
+});
+
 test("bin/gstack-build wrapper prints CLI help", () => {
   const wrapperPath = path.resolve(
     import.meta.dir,
