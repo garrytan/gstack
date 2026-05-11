@@ -68,12 +68,16 @@ function dirExists(p: string): boolean {
  */
 export function detectSkillFaults(input: DetectorInput): SkillFault[] {
   const faults: SkillFault[] = [];
+  const state = input?.state ?? null;
+
+  if (!state) {
+    return faults;
+  }
 
   try {
     // ------------------------------------------------------------------
     // CODEX_CONVERGENCE & TEST_FIXER_LOOP
     // ------------------------------------------------------------------
-    const state = input.state;
     if (state && Array.isArray(state.phases)) {
       for (const phase of state.phases) {
         if (
@@ -129,8 +133,8 @@ export function detectSkillFaults(input: DetectorInput): SkillFault[] {
         if (!phaseState) continue;
         if (phaseState.status === "committed") continue;
 
-        const hasCheckedImpl = /- \[x\] \*\*Implementation\*\*/.test(block);
-        const hasCheckedReview = /- \[x\] \*\*Review & QA\*\*/.test(block);
+        const hasCheckedImpl = /^\s*-\s+\[[xX]\]\s+\*\*Implementation\b/m.test(block);
+        const hasCheckedReview = /^\s*-\s+\[[xX]\]\s+\*\*Review & QA\b/m.test(block);
 
         if (hasCheckedImpl || hasCheckedReview) {
           faults.push({

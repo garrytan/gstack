@@ -27,6 +27,7 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "parser.ts": ["parser.test.ts"],
   "phase-runner.ts": ["phase-runner.test.ts"],
   "plan-mutator.ts": ["plan-mutator.test.ts"],
+  "plan-reviewer.ts": ["cli.test.ts"],
   "registry.ts": ["release-queue.test.ts", "active-runs.test.ts"],
   "release-daemon.ts": ["cli.test.ts", "release-daemon.test.ts"],
   "release-identity.ts": ["release-identity.test.ts", "release-lock.test.ts", "release-queue.test.ts"],
@@ -34,6 +35,7 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "release-queue.ts": ["release-queue.test.ts", "cli.test.ts"],
   "role-config.ts": ["role-config.test.ts", "cli.test.ts"],
   "ship.ts": ["cli.test.ts", "integration.test.ts"],
+  "skill-fault-detector.ts": ["../../../test/skill-fault-detector.test.ts"],
   "state.ts": ["state.test.ts", "startup.test.ts"],
   "sub-agents.ts": ["sub-agents.test.ts", "cli-security.test.ts"],
   "types.ts": [

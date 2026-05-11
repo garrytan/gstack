@@ -159,6 +159,29 @@ describe("detectSkillFaults — null / no-fault cases", () => {
     expect(faults).toHaveLength(0);
   });
 
+  test("returns empty array when state is null even if artifacts contain fault markers", () => {
+    const dir = makeTmpDir();
+    const invalidPlan = writePlan(
+      dir,
+      [
+        "# Plan",
+        "",
+        "### Phase 1: Missing required fields",
+        "",
+        "- [x] **Implementation (Gemini Sub-agent)**: done",
+      ].join("\n"),
+    );
+    const stdoutLog = path.join(dir, "run.log");
+    fs.writeFileSync(stdoutLog, "VERIFICATION: GAPS found\n", "utf8");
+    const input = makeInput(dir, {
+      state: null,
+      livingPlanPath: invalidPlan,
+      stdoutLogPath: stdoutLog,
+    });
+    const faults = detectSkillFaults(input);
+    expect(faults).toHaveLength(0);
+  });
+
   test("returns empty array when no faults apply (clean state)", () => {
     const dir = makeTmpDir();
     const faults = detectSkillFaults(makeInput(dir));
@@ -331,6 +354,33 @@ describe("PREMATURE_COMPLETION", () => {
     const nonCommittedPhase: PhaseState = {
       ...committedPhase(0),
       status: "review_clean",
+    };
+    const input = makeInput(dir, {
+      livingPlanPath: planPath,
+      state: baseState({ phases: [nonCommittedPhase] }),
+    });
+    const faults = detectSkillFaults(input);
+    const fault = faults.find((f) => f.category === "PREMATURE_COMPLETION");
+    expect(fault).toBeDefined();
+  });
+
+  test("detected with role-qualified Implementation and Review & QA labels", () => {
+    const dir = makeTmpDir();
+    const planWithQualifiedLabels = [
+      "# Plan",
+      "",
+      "### Phase 1: Setup",
+      "",
+      "Origin trace: Feature 1",
+      "Acceptance: tests pass",
+      "",
+      "- [x] **Implementation (Gemini Sub-agent)**: done",
+      "- [x] **Review & QA (Codex Sub-agent)**: done",
+    ].join("\n");
+    const planPath = writePlan(dir, planWithQualifiedLabels);
+    const nonCommittedPhase: PhaseState = {
+      ...committedPhase(0),
+      status: "tests_green",
     };
     const input = makeInput(dir, {
       livingPlanPath: planPath,
