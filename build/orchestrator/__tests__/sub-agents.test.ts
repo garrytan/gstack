@@ -5,6 +5,7 @@ import {
   detectTestCmd,
   parseFailureCount,
   parseCoveragePercent,
+  injectCoverageFlags,
   parseJudgeVerdict,
   buildCodexImplArgv,
   buildCodexReviewArgv,
@@ -263,6 +264,60 @@ describe("parseCoveragePercent", () => {
 
   it("returns null when bun test has no coverage line", () => {
     expect(parseCoveragePercent("5 pass 0 fail", "bun test")).toBeNull();
+  });
+});
+
+describe("injectCoverageFlags", () => {
+  it("appends --coverage to jest command", () => {
+    expect(injectCoverageFlags("jest")).toBe(
+      "jest --coverage --coverageReporters text",
+    );
+  });
+
+  it("appends --coverage to vitest command", () => {
+    expect(injectCoverageFlags("vitest run")).toBe("vitest run --coverage");
+  });
+
+  it("appends --coverage to bun test command", () => {
+    expect(injectCoverageFlags("bun test")).toBe("bun test --coverage");
+  });
+
+  it("appends --coverage to bun run test command", () => {
+    expect(injectCoverageFlags("bun run test")).toBe("bun run test --coverage");
+  });
+
+  it("appends --cov to pytest command", () => {
+    expect(injectCoverageFlags("pytest")).toBe(
+      "pytest --cov --cov-report term-missing",
+    );
+  });
+
+  it("appends -cover to go test command", () => {
+    expect(injectCoverageFlags("go test ./...")).toBe("go test ./... -cover");
+  });
+
+  it("is idempotent — does not double-add --coverage for jest", () => {
+    expect(injectCoverageFlags("jest --coverage")).toBe("jest --coverage");
+  });
+
+  it("is idempotent — does not double-add --coverage for vitest", () => {
+    expect(injectCoverageFlags("vitest --coverage")).toBe("vitest --coverage");
+  });
+
+  it("is idempotent — does not double-add --cov for pytest", () => {
+    expect(injectCoverageFlags("pytest --cov")).toBe("pytest --cov");
+  });
+
+  it("is idempotent — does not double-add -cover for go test", () => {
+    expect(injectCoverageFlags("go test ./... -cover")).toBe(
+      "go test ./... -cover",
+    );
+  });
+
+  it("returns unknown commands unchanged", () => {
+    expect(injectCoverageFlags("make test")).toBe("make test");
+    expect(injectCoverageFlags("cargo test")).toBe("cargo test");
+    expect(injectCoverageFlags("npm test")).toBe("npm test");
   });
 });
 
