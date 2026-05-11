@@ -67,6 +67,10 @@ describeIfSelected(
       fs.mkdirSync(path.join(fakeHome, ".gstack", "skill-faults"), {
         recursive: true,
       });
+      fs.mkdirSync(path.join(fakeHome, ".claude", "skills", "gstack", "build"), {
+        recursive: true,
+      });
+      fs.writeFileSync(path.join(fakeHome, ".claude", "skills", "gstack", "build", "configure.cm"), "{}");
 
       // The SKILL_FAULT_DETECTED event that represents a PLAN_SYNTHESIS_INVALID fault
       const faultEvent = JSON.stringify({
