@@ -33,6 +33,11 @@ export interface SkillFault {
   };
 }
 
+const CHECKED_IMPLEMENTATION_RE =
+  /^\s*-\s+\[[xX]\]\s+\*\*Implementation(?:\s+\([^*\n]*\))?\*\*/m;
+const CHECKED_REVIEW_QA_RE =
+  /^\s*-\s+\[[xX]\]\s+\*\*Review & QA(?:\s+\([^*\n]*\))?\*\*/m;
+
 function appendAnalytics(faults: SkillFault[]): void {
   const home = process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack");
   const analyticsDir = path.join(home, "analytics");
@@ -133,8 +138,8 @@ export function detectSkillFaults(input: DetectorInput): SkillFault[] {
         if (!phaseState) continue;
         if (phaseState.status === "committed") continue;
 
-        const hasCheckedImpl = /^\s*-\s+\[[xX]\]\s+\*\*Implementation\b/m.test(block);
-        const hasCheckedReview = /^\s*-\s+\[[xX]\]\s+\*\*Review & QA\b/m.test(block);
+        const hasCheckedImpl = CHECKED_IMPLEMENTATION_RE.test(block);
+        const hasCheckedReview = CHECKED_REVIEW_QA_RE.test(block);
 
         if (hasCheckedImpl || hasCheckedReview) {
           faults.push({

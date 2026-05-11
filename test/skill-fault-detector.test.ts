@@ -391,6 +391,34 @@ describe("PREMATURE_COMPLETION", () => {
     expect(fault).toBeDefined();
   });
 
+  test("NOT detected for checked checkboxes whose bold labels only share the gate prefix", () => {
+    const dir = makeTmpDir();
+    const planWithSimilarLabels = [
+      "# Plan",
+      "",
+      "### Phase 1: Setup",
+      "",
+      "Origin trace: Feature 1",
+      "Acceptance: tests pass",
+      "",
+      "- [x] **Implementation notes**: document approach",
+      "- [x] **Review & QA notes**: document reviewer feedback",
+    ].join("\n");
+    const planPath = writePlan(dir, planWithSimilarLabels);
+    const nonCommittedPhase: PhaseState = {
+      ...committedPhase(0),
+      status: "tests_green",
+    };
+    const input = makeInput(dir, {
+      livingPlanPath: planPath,
+      state: baseState({ phases: [nonCommittedPhase] }),
+    });
+    const faults = detectSkillFaults(input);
+    expect(
+      faults.find((f) => f.category === "PREMATURE_COMPLETION"),
+    ).toBeUndefined();
+  });
+
   test("NOT detected when checked phase status IS committed", () => {
     const dir = makeTmpDir();
     const planWithChecked = [
