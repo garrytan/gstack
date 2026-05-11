@@ -1118,8 +1118,10 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      by deliverable feature. Only preserve an origin group as a feature when it naturally matches.
    - Traceability from every feature block back to the source plan sections it satisfies.
    - A phase-by-phase checklist inside each feature block using [ ] markdown checkboxes.
-   - For EVERY phase, use this TDD lifecycle in order: Test Specification →
+   - For every **`code`** phase, use this TDD lifecycle in order: Test Specification →
      Verify Red → Implementation → Green tests → Review/QA.
+   - For **non-code phases** (`writing`, `experiment`, `research`, `manual`), use the
+     kind's 2-checkpoint structure instead (see "Non-Coding Phase Templates" section below).
    - Keep exactly this durable sub-checkbox structure so `gstack-build` can parse
      and resume the plan. Verify Red and Green tests are CLI-owned gates, not
      additional markdown checkboxes:
@@ -1155,7 +1157,7 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      - [specific edge case 2]
 
    - A dedicated test plan strategy section.
-   - For EVERY phase, include a `#### Test Spec` section in the phase body with:
+   - For every `code` phase, include a `#### Test Spec` section in the phase body with:
      a `**Coverage target: ≥80%**` line, a scenario table with at least 3 rows
      (ID, Scenario, Given, When, Then columns), and an explicit edge cases list.
      Use the phase description to derive concrete inputs/outputs — name real values
@@ -1164,6 +1166,59 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      location from the repo layout. Write enough detail that no design judgment is
      needed — the test-writer implements these cases as a quality floor and MAY add
      additional cases on top.
+
+## Non-Coding Phase Templates
+
+When a plan phase does not produce testable code, annotate the heading with a bracket kind
+and use the corresponding 2-checkpoint structure. The `[kind]` bracket goes between the
+phase number and the colon: `### Phase N [kind]: Name`.
+
+**`writing`** — produces written artifacts (academic papers, blog posts, documentation, reports):
+
+     ### Phase N [writing]: Draft the paper intro
+     [Phase description: what to write, who the audience is, what claims to support]
+
+     - [ ] **Draft (primary-impl role)**: Produce the written artifact. Quality bar: a reader
+       with domain expertise should find the argument clear and the claims supported. Commit
+       all deliverable files to the branch before returning.
+     - [ ] **Review (review roles)**: Check the argument, citations, and completeness against
+       the phase description. Gate passes when all stated objectives are met.
+
+**`experiment`** — produces raw data from running code, benchmarks, or ML training:
+
+     ### Phase N [experiment]: Run the benchmark suite
+     [Phase description: what to run, input params, expected output files]
+
+     - [ ] **Execute (primary-impl role)**: Run the experiment. Commit raw results (logs, CSV,
+       JSON) to the repository. Do not summarise without source data. Record variance if the
+       run is non-deterministic.
+     - [ ] **Review (review roles)**: Verify result files exist, are complete, and match the
+       expected format. Gate passes when artifacts are present and reproducible.
+
+**`research`** — produces a findings document from literature review or codebase exploration:
+
+     ### Phase N [research]: Survey recent LLM evaluation approaches
+     [Phase description: what to explore, which sources or tools to use, what to produce]
+
+     - [ ] **Explore (primary-impl role)**: Survey the topic. Cite primary sources (paper
+       titles, URLs, commit SHAs). Write findings to the output file. Flag gaps explicitly.
+     - [ ] **Review (review roles)**: Check that claims are supported by the cited sources and
+       that the coverage is sufficient for downstream phases. Gate passes when no unsupported
+       claims remain.
+
+**`manual`** — requires a human action that cannot be automated:
+
+     ### Phase N [manual]: Deploy the model to staging
+     [Phase description: what human action is needed, what preparation the agent can do]
+
+     - [ ] **Action Required (primary-impl role)**: Prepare the action (stage files, write a
+       runbook, draft the command for the human). Commit the preparation. Record in the output
+       file exactly what the human still needs to do.
+     - [ ] **Verify Completion (review roles)**: After the human confirms the action is done,
+       verify the expected post-action state. Gate passes when confirmation is recorded.
+
+**Mixed plans:** A plan may contain both `code` and non-code phases. Each phase uses its own
+kind's checkpoint structure. The orchestrator handles all kinds without special config.
 
    Living plan filenames MUST be unique and must never use date-only names. Use:
    `<repoSlug>-impl-plan-<sourceSlug>-<YYYYMMDD-HHMMSS>-<hash>.md`.
