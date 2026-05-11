@@ -844,7 +844,7 @@ After completing the review, read the review log and config to display the dashb
 ~/.claude/skills/gstack/bin/gstack-review-read
 ```
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, content-review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Content Review row, show the most recent `content-review` entry — this represents a non-code feature's deliverable review. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
 
 **Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via /autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
@@ -904,9 +904,17 @@ If source code files ARE in the diff: check Eng Review as normal.
 
 If the Eng Review is NOT "CLEAR":
 
-Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
+- **If Content Review is "CLEAR" and Eng Review is absent or "N/A (non-code feature)":**
+  This is a non-code feature. Content Review clears the gate — no Eng Review needed.
+  Continue to Step 2.
 
-Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+- **If Eng Review is "CLEAR":**
+  Standard code review cleared. Continue to Step 2.
+
+- **If neither is CLEAR:**
+  Print: "No prior review found — ship will run its own pre-landing review in Step 9."
+
+  Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
 
 If this is a **mixed feature** (some non-code phases in the diff): also check Content Review. If Content Review is missing, note: "Content Review not run — some phases in this diff are non-code. Consider running /review after ship to check artifact completeness."
 

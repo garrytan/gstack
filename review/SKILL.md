@@ -1698,10 +1698,19 @@ Eng Review AND Content Review to clear the ship gate.
 
 ---
 
+
 ## Step 5.8: Persist Eng Review result
 
 After all review passes complete, persist the final `/review` outcome so `/ship` can
 recognize that Eng Review was run on this branch.
+
+**If REVIEW_KIND=content** (detected in Step 5.75), persist as a content review:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"content-review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"commit":"COMMIT"}'
+```
+
+**Otherwise** (standard code review), persist as an eng review:
 
 Run:
 
