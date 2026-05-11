@@ -141,14 +141,15 @@ function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
   // the direct load-html <file> path: every caller-supplied file path
   // must pass validateReadPath so the safe-dirs policy can't be skirted
   // by routing reads through the --from-file shortcut.
+  let safePayloadPath: string;
   try {
-    validateReadPath(path.resolve(payloadPath));
+    safePayloadPath = validateReadPath(path.resolve(payloadPath));
   } catch {
     throw new Error(
       `pdf: --from-file ${payloadPath} must be under ${SAFE_DIRECTORIES.join(' or ')} (security policy). Copy the payload into the project tree or /tmp first.`
     );
   }
-  const raw = fs.readFileSync(payloadPath, 'utf8');
+  const raw = fs.readFileSync(safePayloadPath, 'utf8');
   const json = JSON.parse(raw);
   const out: ParsedPdfArgs = {
     output: json.output || `${TEMP_DIR}/browse-page.pdf`,
@@ -477,7 +478,7 @@ export async function handleMetaCommand(
         targetSelector = flagSelector;
       }
 
-      validateOutputPath(outputPath);
+      const safeOutputPath = validateOutputPath(outputPath);
 
       if (clipRect && targetSelector) {
         throw new Error('Cannot use --clip with a selector/ref — choose one');
@@ -507,23 +508,23 @@ export async function handleMetaCommand(
       if (targetSelector) {
         const resolved = await bm.resolveRef(targetSelector);
         const locator = 'locator' in resolved ? resolved.locator : page.locator(resolved.selector);
-        await locator.screenshot({ path: outputPath, timeout: 5000 });
-        return `Screenshot saved (element): ${outputPath}`;
+        await locator.screenshot({ path: safeOutputPath, timeout: 5000 });
+        return `Screenshot saved (element): ${safeOutputPath}`;
       }
 
       if (clipRect) {
-        await page.screenshot({ path: outputPath, clip: clipRect });
-        return `Screenshot saved (clip ${clipRect.x},${clipRect.y},${clipRect.width},${clipRect.height}): ${outputPath}`;
+        await page.screenshot({ path: safeOutputPath, clip: clipRect });
+        return `Screenshot saved (clip ${clipRect.x},${clipRect.y},${clipRect.width},${clipRect.height}): ${safeOutputPath}`;
       }
 
-      await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
-      return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
+      await page.screenshot({ path: safeOutputPath, fullPage: !viewportOnly });
+      return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${safeOutputPath}`;
     }
 
     case 'pdf': {
       const page = bm.getPage();
       const parsed = parsePdfArgs(args);
-      validateOutputPath(parsed.output);
+      const safePdfPath = validateOutputPath(parsed.output);
 
       // If --toc: wait up to 3s for Paged.js to signal by setting
       // window.__pagedjsAfterFired = true. If the polyfill isn't injected
@@ -544,10 +545,10 @@ export async function handleMetaCommand(
       }
 
       const opts = buildPdfOptions(parsed);
-      opts.path = parsed.output;
+      opts.path = safePdfPath;
       await page.pdf(opts);
 
-      return `PDF saved: ${parsed.output}`;
+      return `PDF saved: ${safePdfPath}`;
     }
 
     case 'responsive': {
@@ -565,9 +566,9 @@ export async function handleMetaCommand(
       for (const vp of viewports) {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         const screenshotPath = `${prefix}-${vp.name}.png`;
-        validateOutputPath(screenshotPath);
-        await page.screenshot({ path: screenshotPath, fullPage: true });
-        results.push(`${vp.name} (${vp.width}x${vp.height}): ${screenshotPath}`);
+        const safeScreenshotPath = validateOutputPath(screenshotPath);
+        await page.screenshot({ path: safeScreenshotPath, fullPage: true });
+        results.push(`${vp.name} (${vp.width}x${vp.height}): ${safeScreenshotPath}`);
       }
 
       // Restore original viewport
