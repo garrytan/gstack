@@ -2831,7 +2831,6 @@ export function buildCodexReviewBody(
     phase.kind !== "code"
       ? `Review rubric: deliverable completeness and artifact correctness — not code quality or tests. Verify the artifact exists at the path named in the phase, is non-empty, and satisfies the acceptance criteria in the phase description.`
       : "",
-    phase.kind !== "code" ? "" : "",
     `1. Run the slash command specified by the runner prompt on the current branch's working tree against its base.`,
     `2. If iteration > 1, this is a re-run after an earlier gate tried to fix findings — be especially thorough.`,
     `3. Use --yolo / workspace-write file tools to inspect the actual code; don't ask the orchestrator to inline anything.`,
