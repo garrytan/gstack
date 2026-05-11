@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.31.1.0] - 2026-05-11
+
+### Fixed
+
+- **Paused active-run records with dead PIDs are now auto-cleaned.**
+  `resolvePlanSelection` filters out paused active-run records whose
+  process no longer exists, removing the stale record and preventing
+  phantom candidates from surfacing in `/build --resume`.
+
+- **`removeActiveRunRecord` swallows cleanup failures instead of throwing.**
+  EPERM, EACCES, and other unlink errors during stale-record cleanup
+  no longer crash the plan resolver. The record is left in place and
+  the build proceeds without the stale candidate.
+
+### Added
+
+- **Test coverage for paused+dead-pid auto-cleanup (T1–T6 + edge cases).**
+  Six behavioral tests verify live-pid preservation, dead-pid removal,
+  terminal-status protection (failed/completed), orphan handling
+  (running+dead-pid → stale), pid=0 edge case, multi-record batch
+  removal, and chmod-guarded failure swallowing.
+
 ## [1.31.0.0] - 2026-05-09
 
 ## **AskUserQuestion stops getting silently buried in plan files.**
