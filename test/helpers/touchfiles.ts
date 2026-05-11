@@ -213,6 +213,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Learnings
   'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
 
+  // Plan Status
+  'plan-status': ['plan-status/**', 'test/fixtures/plans/sample-ruby-llm-plan.md'],
+
   // Session Intelligence (timeline, context recovery, /context-save + /context-restore)
   'timeline-event-flow':            ['bin/gstack-timeline-log', 'bin/gstack-timeline-read'],
   'context-recovery-artifacts':     ['scripts/resolvers/preamble.ts', 'bin/gstack-timeline-log', 'bin/gstack-slug', 'learn/**'],
@@ -548,6 +551,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Learnings — gate (functional guardrail: seeded learnings must appear)
   'learnings-show': 'gate',
+
+  // Plan Status — gate (deterministic, read-only, filesystem-only fixture, < $0.50/run)
+  'plan-status': 'gate',
 
   // Document-release — gate (CHANGELOG guardrail)
   'document-release': 'gate',
