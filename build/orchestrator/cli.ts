@@ -79,6 +79,8 @@ import {
   parseVerdict,
   parseFailureCount,
   parseJudgeVerdict,
+  parseCoveragePercent,
+  extractCoverageTarget,
   type CodexSandbox,
   type SubAgentResult,
 } from "./sub-agents";
@@ -2835,16 +2837,11 @@ async function verifyOriginPlanFeature(args: {
   return { ok: true, issueLogPath: outputFilePath };
 }
 
-export function extractCoverageTarget(phaseBody: string): number {
-  const m = phaseBody.match(/\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+)%\*\*/i);
-  return m ? parseInt(m[1], 10) : 80;
-}
-
 export function buildGeminiTestSpecPrompt(
   phase: Phase,
   planFile: string,
 ): string {
-  const hasTestSpec = phase.body.includes("#### Test Spec");
+  const hasTestSpec = phase.testSpecCheckboxLine !== -1;
 
   const specInstructions = hasTestSpec
     ? [
@@ -4633,14 +4630,15 @@ async function runPhase(args: {
     if (action.type === "RUN_TESTS") {
       console.log(`  → Tests: iter ${action.iteration}`);
       let result: SubAgentResult;
+      let effectiveTestCmd: string | null = null;
       if (dryRun) {
         result = mockResult({
           exitCode: 0,
           stdout: "[dry-run] tests would pass (Green)",
         });
       } else {
-        const testCmd = args.testCmd ?? detectTestCmd(cwd);
-        if (!testCmd) {
+        effectiveTestCmd = args.testCmd ?? detectTestCmd(cwd);
+        if (!effectiveTestCmd) {
           // No test cmd: skip test verification, treat as green.
           console.warn(
             "  ⚠ no test command detected; skipping test verification",
@@ -4651,7 +4649,7 @@ async function runPhase(args: {
           });
         } else {
           result = await runTests({
-            testCmd,
+            testCmd: effectiveTestCmd,
             cwd,
             slug: state.slug,
             phaseNumber: phase.number,
@@ -4660,6 +4658,34 @@ async function runPhase(args: {
         }
       }
       phaseState = applyResult(phaseState, action, result);
+      // Coverage gate: after GREEN tests pass, verify coverage meets the spec target.
+      if (
+        phaseState.status === "tests_green" &&
+        phase.testSpecCheckboxLine !== -1 &&
+        effectiveTestCmd
+      ) {
+        const coverageTarget = extractCoverageTarget(phase.body);
+        const actualCoverage = parseCoveragePercent(
+          result.stdout,
+          effectiveTestCmd,
+        );
+        if (actualCoverage !== null) {
+          phaseState = {
+            ...phaseState,
+            coverageResult: { actual: actualCoverage, target: coverageTarget },
+          };
+          if (actualCoverage < coverageTarget) {
+            console.log(
+              `  ⚠ Coverage ${actualCoverage}% below target ${coverageTarget}% — routing to test fixer`,
+            );
+            phaseState = { ...phaseState, status: "test_fix_running" };
+          }
+        } else {
+          console.log(
+            `  ℹ Coverage measurement skipped (unknown test framework for: ${effectiveTestCmd})`,
+          );
+        }
+      }
       state.phases[phase.index] = phaseState;
       saveState(state, { noGbrain, log: console.warn });
       continue;
@@ -7436,7 +7462,6 @@ export function verifyNoUnmergedFeatBranches(
   const branches = [...remoteBranches, ...localBranches];
   return { ok: branches.length === 0, branches };
 }
-
 
 function resolveMergeProjectRoot(args: Args): string {
   if (args.projectRoot) {
