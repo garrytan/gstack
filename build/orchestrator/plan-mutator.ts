@@ -19,6 +19,24 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Phase, PhaseKind } from "./types";
 
+/** Per-kind marker string that must follow the Implementation checkbox. */
+export const IMPL_MARKER_BY_KIND: Record<PhaseKind, string> = {
+  code: "**Implementation",
+  writing: "**Draft",
+  experiment: "**Execute",
+  research: "**Explore",
+  manual: "**Action Required",
+};
+
+/** Per-kind marker string that must follow the Review checkbox. */
+export const REVIEW_MARKER_BY_KIND: Record<PhaseKind, string> = {
+  code: "**Review",
+  writing: "**Review",
+  experiment: "**Review",
+  research: "**Review",
+  manual: "**Verify Completion",
+};
+
 export interface FlipResult {
   /** True if the line was found unchecked and flipped. */
   flipped: boolean;
@@ -198,24 +216,6 @@ export function flipCheckbox(args: {
 }): FlipResult {
   return setCheckboxState({ ...args, checked: true });
 }
-
-/** Kind-to-marker lookup for implementation checkboxes. */
-const IMPL_MARKER_BY_KIND: Record<PhaseKind, string> = {
-  code: "**Implementation",
-  writing: "**Draft",
-  experiment: "**Execute",
-  research: "**Explore",
-  manual: "**Action Required",
-};
-
-/** Kind-to-marker lookup for review checkboxes. */
-const REVIEW_MARKER_BY_KIND: Record<PhaseKind, string> = {
-  code: "**Review",
-  writing: "**Review",
-  experiment: "**Review",
-  research: "**Review",
-  manual: "**Verify Completion",
-};
 
 /**
  * Flip both Implementation and Review checkboxes for one phase. Returns

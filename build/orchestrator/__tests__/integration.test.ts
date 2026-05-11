@@ -1263,6 +1263,9 @@ test("--print-only exits 2 when plan has no executable phases", () => {
       },
     );
     expect(result.status).toBe(2);
+    // Must emit the droppedPhasesCount hint even in --print-only mode,
+    // distinguishing a malformed plan from a truly empty one.
+    expect(result.stderr).toContain("3 phase(s) found but none are executable");
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
   }

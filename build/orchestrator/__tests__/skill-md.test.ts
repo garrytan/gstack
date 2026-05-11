@@ -8,7 +8,7 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const content = fs.readFileSync(tmplPath, "utf-8");
 
   expect(content.includes("**Test Specification")).toBe(true);
-  expect(content.includes("version: 1.22.0")).toBe(true);
+  expect(content.includes("version: 1.22.1")).toBe(true);
   expect(content.includes("tests_red")).toBe(true);
   expect(content.includes("Test Specification (test-writer role)")).toBe(true);
   expect(content.includes("exactly this durable sub-checkbox structure")).toBe(
@@ -30,7 +30,7 @@ test("generated SKILL.md reflects TDD changes", () => {
   const content = fs.readFileSync(skillPath, "utf-8");
 
   expect(content.includes("**Test Specification")).toBe(true);
-  expect(content.includes("version: 1.22.0")).toBe(true);
+  expect(content.includes("version: 1.22.1")).toBe(true);
   expect(content.includes("tests_red")).toBe(true);
   expect(content.includes("*-gstack/inbox/living-plan")).toBe(true);
   expect(content.includes('--project-root "$worktreePath"')).toBe(true);

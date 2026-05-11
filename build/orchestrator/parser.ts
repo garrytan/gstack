@@ -7,13 +7,19 @@
  *   - [ ] **Implementation (Gemini Sub-agent)**: ...
  *   - [ ] **Review & QA (Codex Sub-agent)**: ...
  *
+ * Non-coding phases use a bracket annotation in the heading:
+ *
+ *   ### Phase 2.1 [writing]: Draft the paper
+ *   - [ ] **Draft**: write the draft
+ *   - [ ] **Review**: review the draft
+ *
  * Output: array of Phase objects with checkbox state and line numbers
  * (so the plan-mutator can flip checkboxes without re-parsing).
  *
  * Robust against:
  *   - blank lines between heading and checkboxes
  *   - extra prose between heading and checkboxes
- *   - text inside fenced code blocks (```...```) — never matched
+ *   - text inside fenced code blocks (```...```) --- never matched
  *   - BOM, trailing whitespace
  */
 
@@ -83,7 +89,7 @@ function gateState(
 export interface ParseResult {
   features: Feature[];
   phases: Phase[];
-  /** Diagnostics for phases that look broken — missing checkboxes etc. */
+  /** Diagnostics for phases that look broken -- missing checkboxes etc. */
   warnings: string[];
   /** Count of phases discovered but dropped due to missing required checkboxes. */
   droppedPhasesCount: number;
@@ -178,7 +184,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       p.testSpecDone = true;
     }
 
-    // Only emit phases with both core checkboxes — the orchestrator can't run a half-shaped phase.
+    // Only emit phases with both core checkboxes.
     if (p.implementationCheckboxLine != null && p.reviewCheckboxLine != null) {
       const feature = ensureFeature();
       const phaseIndex = phases.length;
@@ -220,7 +226,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
     }
 
     if (inFence) {
-      // Inside a code block — never match phase syntax.
+      // Inside a code block -- never match phase syntax.
       if (currentPhase) currentPhase.bodyLines.push(line);
       continue;
     }
@@ -230,6 +236,10 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       // Close out previous phase.
       finalize(i);
       currentPhaseStartLine = i;
+      // Idempotent when the previous phase was EMITTED (finalize already called
+      // ensureFeature on the emit path). Load-bearing when the previous phase was
+      // DROPPED (the else-branch in finalize skips ensureFeature), ensuring a
+      // feature exists for the new phase to attach to.
       ensureFeature();
       const kindMatch = line.match(HEADING_KIND_PATTERN);
       currentPhase = {
@@ -258,7 +268,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
 
     if (!currentPhase) {
       if (currentFeature) {
-        // Feature gate checkboxes appear in the feature body (between heading and first phase).
+        // Feature gate checkboxes appear in the feature body.
         const frMatch = line.match(FEATURE_REVIEW_CHECKBOX);
         if (frMatch) {
           if (!currentFeature.gates) currentFeature.gates = {};
@@ -289,6 +299,12 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
 
     // We're inside a phase body. Look for checkboxes.
     if (!currentPhase.gates) currentPhase.gates = {};
+
+    // Detect HTML comment kind annotation inline (so kind is known before checkboxes).
+    if (!currentPhase.kind && BODY_KIND_PATTERN.test(line)) {
+      const km = line.match(BODY_KIND_PATTERN);
+      if (km) currentPhase.kind = parseKind(km[1], currentPhase.number ?? "?", warnings);
+    }
 
     const testSpecMatch = line.match(TESTSPEC_CHECKBOX);
     if (testSpecMatch) {
@@ -385,7 +401,7 @@ export function isPhaseComplete(phase: Phase): boolean {
 /**
  * Find the next phase needing work, or null if everything is done.
  * "In progress" phases (one box checked, one not) are returned and the
- * orchestrator runs only the unchecked half — that's how we resume from
+ * orchestrator runs only the unchecked half -- that's how we resume from
  * a crash that happened between Gemini completing and Codex starting.
  */
 export function findNextPhase(phases: Phase[]): Phase | null {

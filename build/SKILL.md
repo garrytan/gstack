@@ -1225,6 +1225,59 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      - [ ] **Verify Completion**: Confirm the key is present and the integration
        test passes (or describe the verification you performed).
 
+## Non-Coding Phase Templates
+
+When a plan phase does not produce testable code, annotate the heading with a bracket kind
+and use the corresponding 2-checkpoint structure. The `[kind]` bracket goes between the
+phase number and the colon: `### Phase N [kind]: Name`.
+
+**`writing`** — produces written artifacts (academic papers, blog posts, documentation, reports):
+
+     ### Phase N [writing]: Draft the paper intro
+     [Phase description: what to write, who the audience is, what claims to support]
+
+     - [ ] **Draft (primary-impl role)**: Produce the written artifact. Quality bar: a reader
+       with domain expertise should find the argument clear and the claims supported. Commit
+       all deliverable files to the branch before returning.
+     - [ ] **Review (review roles)**: Check the argument, citations, and completeness against
+       the phase description. Gate passes when all stated objectives are met.
+
+**`experiment`** — produces raw data from running code, benchmarks, or ML training:
+
+     ### Phase N [experiment]: Run the benchmark suite
+     [Phase description: what to run, input params, expected output files]
+
+     - [ ] **Execute (primary-impl role)**: Run the experiment. Commit raw results (logs, CSV,
+       JSON) to the repository. Do not summarise without source data. Record variance if the
+       run is non-deterministic.
+     - [ ] **Review (review roles)**: Verify result files exist, are complete, and match the
+       expected format. Gate passes when artifacts are present and reproducible.
+
+**`research`** — produces a findings document from literature review or codebase exploration:
+
+     ### Phase N [research]: Survey recent LLM evaluation approaches
+     [Phase description: what to explore, which sources or tools to use, what to produce]
+
+     - [ ] **Explore (primary-impl role)**: Survey the topic. Cite primary sources (paper
+       titles, URLs, commit SHAs). Write findings to the output file. Flag gaps explicitly.
+     - [ ] **Review (review roles)**: Check that claims are supported by the cited sources and
+       that the coverage is sufficient for downstream phases. Gate passes when no unsupported
+       claims remain.
+
+**`manual`** — requires a human action that cannot be automated:
+
+     ### Phase N [manual]: Deploy the model to staging
+     [Phase description: what human action is needed, what preparation the agent can do]
+
+     - [ ] **Action Required (primary-impl role)**: Prepare the action (stage files, write a
+       runbook, draft the command for the human). Commit the preparation. Record in the output
+       file exactly what the human still needs to do.
+     - [ ] **Verify Completion (review roles)**: After the human confirms the action is done,
+       verify the expected post-action state. Gate passes when confirmation is recorded.
+
+**Mixed plans:** A plan may contain both `code` and non-code phases. Each phase uses its own
+kind's checkpoint structure. The orchestrator handles all kinds without special config.
+
    Living plan filenames MUST be unique and must never use date-only names. Use:
    `<repoSlug>-impl-plan-<sourceSlug>-<YYYYMMDD-HHMMSS>-<hash>.md`.
 
@@ -1738,6 +1791,9 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
       _SEEN_FAULTS="$_SEEN_FAULTS|$_FAULT_KEY"
 
       _FAULT_SOURCE_LIST=$(printf '%s' "$_FAULT_JSON" | jq -r '(.sourceFiles // [])[]' 2>/dev/null | while IFS= read -r _FAULT_FILE; do [ -n "$_FAULT_FILE" ] && _resolve_fault_path "$_FAULT_FILE"; done)
+
+      _FAULT_LOG_CATEGORY=$(printf '%s' "$_FAULT_CATEGORY" | tr '/[:space:]' '___')
+      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_LOG_CATEGORY}.log"
 
       if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
         (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" bash -lc "$GSTACK_FAULT_INVESTIGATOR_COMMAND"; _FAULT_RC=$?; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true; exit "$_FAULT_RC") > "$_FAULT_PRIMARY" 2>&1 &

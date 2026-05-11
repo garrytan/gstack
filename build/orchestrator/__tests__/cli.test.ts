@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { evaluateMonitorOnce } from "../monitor";
 import {
   buildGeminiTestSpecPrompt,
-  extractCoverageTarget,
   buildDualImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
@@ -37,8 +36,9 @@ import {
   renderLaunchdReleaseDaemonPlist,
   renderSystemdReleaseDaemonService,
   runRoleTask,
-  HELP_TEXT,
   buildKindInstructions,
+  extractCoverageTarget,
+  HELP_TEXT,
 } from "../cli";
 import type {
   BuildState,
@@ -117,8 +117,10 @@ function expectParseArgsExit(argv: string[], message: string): void {
 }
 
 describe("buildGeminiTestSpecPrompt", () => {
-  it('contains "write failing tests"', () => {
-    const prompt = buildGeminiTestSpecPrompt(basePhase, "plan.md");
+  const legacyPhase: Phase = { ...basePhase, testSpecCheckboxLine: -1 };
+
+  it('legacy path (no test spec checkbox): contains "write failing tests"', () => {
+    const prompt = buildGeminiTestSpecPrompt(legacyPhase, "plan.md");
     expect(prompt.toLowerCase()).toContain("write failing tests");
   });
 
@@ -2914,6 +2916,7 @@ describe("reconcileVisiblePlanState", () => {
       reviewCheckboxLine: 4,
       testSpecCheckboxLine: 2,
       dualImpl: false,
+      kind: "code",
       ...overrides,
     };
   }
