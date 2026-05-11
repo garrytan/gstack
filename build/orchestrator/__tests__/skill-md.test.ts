@@ -669,8 +669,8 @@ test("SKILL.md.tmpl contains Step M3.5 fault investigator", () => {
   expect(content).toContain("fault_investigator_model");
   expect(content).toContain("~/.gstack/skill-faults/");
   expect(content).toContain("GSTACK_FAULT_INVESTIGATOR_COMMAND");
-  // Loop over all fault lines, not just one
-  expect(content).toMatch(/while IFS= read -r.*_FAULT_LINE/);
+  // Loop over all fault rows, not just one (TSV-split runId/category/file)
+  expect(content).toMatch(/while IFS=.*read -r.*_FAULT/);
   // Dedupe uses readlink (not readlink -f)
   expect(content).toMatch(/readlink(?!\s+-f)/);
   // Investigator prompt says ONLY for write constraint
@@ -678,8 +678,12 @@ test("SKILL.md.tmpl contains Step M3.5 fault investigator", () => {
   // Background spawn is non-blocking
   expect(content).toMatch(/&\s*$/m);
   // GSTACK_FAULT_INVESTIGATOR_COMMAND check precedes agent spawn
-  const commandCheckIndex = content.indexOf("GSTACK_FAULT_INVESTIGATOR_COMMAND");
-  const agentSpawnIndex = content.search(/case\s+"\$_FAULT_INVESTIGATOR_PROVIDER"/);
+  const commandCheckIndex = content.indexOf(
+    "GSTACK_FAULT_INVESTIGATOR_COMMAND",
+  );
+  const agentSpawnIndex = content.search(
+    /case\s+"\$_FAULT_INVESTIGATOR_PROVIDER"/,
+  );
   expect(commandCheckIndex).toBeGreaterThan(0);
   expect(agentSpawnIndex).toBeGreaterThan(0);
   expect(commandCheckIndex).toBeLessThan(agentSpawnIndex);

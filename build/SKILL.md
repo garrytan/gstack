@@ -1584,48 +1584,54 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
     _FAULT_INVESTIGATOR_PROVIDER=$(jq -r '.roles.faultInvestigator.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
     [ -z "$_FAULT_INVESTIGATOR_PROVIDER" ] && _FAULT_INVESTIGATOR_PROVIDER=$(jq -r '.roles.primaryImpl.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
 
+    # Each SKILL_FAULT_DETECTED line is a JSON event:
+    #   {event,timestamp,runId,stateSlug,stateFile,manifestPath,
+    #    faults:[{category,severity,description,sourceFiles,evidence}]}
+    # Flatten to TSV: runId<TAB>category<TAB>file (one row per (fault, sourceFile)).
+    _FAULT_ROWS=$(printf '%s\n' "$_FAULT_LINES" | jq -rc 'select(.event == "SKILL_FAULT_DETECTED") | .runId as $rid | .faults[] | . as $f | (($f.sourceFiles // [])[]) | [$rid, $f.category, .] | @tsv' 2>/dev/null || true)
+
     _SEEN_PATHS=""
-    while IFS= read -r _FAULT_LINE; do
-      [ -z "$_FAULT_LINE" ] && continue
-      _FAULT_FILE=$(printf '%s\n' "$_FAULT_LINE" | sed -n 's/.*file:////p' | awk '{print $1}')
+    while IFS=$'\t' read -r _FAULT_RUN_ID _FAULT_CATEGORY _FAULT_FILE; do
       [ -z "$_FAULT_FILE" ] && continue
       _FAULT_ABS=$(readlink "$_FAULT_FILE" 2>/dev/null || printf '%s\n' "$_FAULT_FILE")
-      _FAULT_KEY=$(printf '%s\n' "$_FAULT_ABS" | sort -u | tr '\n' '|')
+      _FAULT_KEY="$_FAULT_RUN_ID|$_FAULT_CATEGORY|$_FAULT_ABS"
 
-      # dedupe by resolved absolute path
+      # dedupe on (runId, category, resolved path) via readlink (not readlink -f)
       case "|$_SEEN_PATHS|" in
         *"|$_FAULT_KEY|"*) continue ;;
       esac
       _SEEN_PATHS="$_SEEN_PATHS|$_FAULT_KEY"
 
-      _FAULT_ENV="FAULT_FILE=$_FAULT_ABS"
+      _FAULT_ENV="FAULT_FILE=$_FAULT_ABS FAULT_CATEGORY=$_FAULT_CATEGORY FAULT_RUN_ID=$_FAULT_RUN_ID"
       [ -n "$_FAULT_INVESTIGATOR_MODEL" ] && _FAULT_ENV="$_FAULT_ENV FAULT_INVESTIGATOR_MODEL=$_FAULT_INVESTIGATOR_MODEL"
 
+      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_CATEGORY}.log"
+
       if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
-        env $_FAULT_ENV $GSTACK_FAULT_INVESTIGATOR_COMMAND > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+        env $_FAULT_ENV $GSTACK_FAULT_INVESTIGATOR_COMMAND > "$_LOG_PATH" 2>&1 &
       else
-        # Spawn one background agent per non-duplicate fault
-        _INV_PROMPT="A skill fault was detected in $_FAULT_ABS. Investigate the root cause. You MUST ONLY read files and report findings — do NOT write code, modify files, run tests, or commit anything."
+        # Spawn one background general-purpose investigator agent per non-duplicate fault
+        _INV_PROMPT="A skill fault was detected in $_FAULT_ABS (category: $_FAULT_CATEGORY, runId: $_FAULT_RUN_ID). Investigate the root cause. You MUST ONLY read files and report findings — do NOT write code, modify files, run tests, or commit anything."
         case "$_FAULT_INVESTIGATOR_PROVIDER" in
           gemini)
-            (env $_FAULT_ENV gemini -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo) > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            (env $_FAULT_ENV gemini -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo) > "$_LOG_PATH" 2>&1 &
             ;;
           kimi)
-            (env $_FAULT_ENV kimi --work-dir "$(dirname "$_FAULT_ABS")" -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo --print --final-message-only) > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            (env $_FAULT_ENV kimi --work-dir "$(dirname "$_FAULT_ABS")" -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo --print --final-message-only) > "$_LOG_PATH" 2>&1 &
             ;;
           claude)
-            (env $_FAULT_ENV claude --model "$_FAULT_INVESTIGATOR_MODEL" -p "$_INV_PROMPT") > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            (env $_FAULT_ENV claude --model "$_FAULT_INVESTIGATOR_MODEL" -p "$_INV_PROMPT") > "$_LOG_PATH" 2>&1 &
             ;;
           codex)
             _INV_REASONING=$(jq -r '.roles.faultInvestigator.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
-            (env $_FAULT_ENV codex exec "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_INV_REASONING\"" -C "$(dirname "$_FAULT_ABS")") > ~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").log" 2>&1 &
+            (env $_FAULT_ENV codex exec "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_INV_REASONING\"" -C "$(dirname "$_FAULT_ABS")") > "$_LOG_PATH" 2>&1 &
             ;;
           *)
             echo "unsupported fault investigator provider: $_FAULT_INVESTIGATOR_PROVIDER" >&2
             ;;
         esac
       fi
-    done < <(printf '%s\n' "$_FAULT_LINES")
+    done < <(printf '%s\n' "$_FAULT_ROWS")
   fi
 fi
 ```
