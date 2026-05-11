@@ -187,8 +187,7 @@ describe("parsePlan — default kind", () => {
 
 describe("Phase literals — kind runtime assertion (mirrors existing fixtures)", () => {
   it("state.test.ts fixture phase 0 pattern requires kind in valid set", () => {
-    // Mirror of the first Phase in state.test.ts (lines ~38-53) WITHOUT kind.
-    // This test is RED: kind is undefined, so VALID_KINDS.includes(undefined) is false.
+    // Mirror of the first Phase in state.test.ts (lines ~38-53).
     const phase = {
       index: 0,
       number: "1",
@@ -204,6 +203,7 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       implementationCheckboxLine: 5,
       reviewCheckboxLine: 6,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });
@@ -224,12 +224,13 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       implementationCheckboxLine: 10,
       reviewCheckboxLine: 11,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });
 
   it("cli.test.ts basePhase pattern requires kind in valid set", () => {
-    // Mirror of basePhase in cli.test.ts (line ~80) WITHOUT kind.
+    // Mirror of basePhase in cli.test.ts (line ~80).
     const phase = {
       index: 0,
       number: "1",
@@ -245,12 +246,13 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       implementationDone: false,
       reviewDone: false,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });
 
   it("cli-guardrails.test.ts makePhase() pattern requires kind in valid set", () => {
-    // Mirror of makePhase() helper in cli-guardrails.test.ts WITHOUT kind.
+    // Mirror of makePhase() helper in cli-guardrails.test.ts.
     const phase = {
       index: 0,
       number: "1",
@@ -263,6 +265,7 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       implementationDone: false,
       reviewDone: false,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });
@@ -280,6 +283,7 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       reviewDone: false,
       reviewCheckboxLine: 5,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });
@@ -297,6 +301,7 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       reviewDone: false,
       reviewCheckboxLine: 5,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });
@@ -317,6 +322,7 @@ describe("Phase literals — kind runtime assertion (mirrors existing fixtures)"
       reviewCheckboxLine: 3,
       testSpecCheckboxLine: -1,
       dualImpl: false,
+      kind: "code",
     } as Phase;
     expect(VALID_KINDS).toContain(phase.kind);
   });

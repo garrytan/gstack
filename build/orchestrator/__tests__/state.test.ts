@@ -50,6 +50,7 @@ const phases: Phase[] = [
     testSpecCheckboxLine: -1,
     implementationCheckboxLine: 5,
     reviewCheckboxLine: 6,
+    kind: 'code',
   },
   {
     index: 1,
@@ -65,6 +66,7 @@ const phases: Phase[] = [
     testSpecCheckboxLine: -1,
     implementationCheckboxLine: 10,
     reviewCheckboxLine: 11,
+    kind: 'code',
   },
 ];
 
@@ -107,6 +109,7 @@ describe('freshState', () => {
       ...p,
       implementationDone: true,
       reviewDone: true,
+      kind: 'code',
     }));
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases: allDone });
     expect(s.completed).toBe(false);
@@ -151,6 +154,7 @@ describe('freshState', () => {
       testSpecDone: false, testSpecCheckboxLine: 5,
       implementationDone: true, reviewDone: true,
       implementationCheckboxLine: 6, reviewCheckboxLine: 7,
+      kind: 'code',
     }];
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases: tddPhase });
     expect(s.phases[0].status).toBe('pending');
@@ -163,6 +167,7 @@ describe('freshState', () => {
       testSpecDone: true, testSpecCheckboxLine: -1,
       implementationDone: true, reviewDone: false,
       implementationCheckboxLine: 5, reviewCheckboxLine: 6,
+      kind: 'code',
     }];
     const s = freshState({ planFile: '/x/foo.md', branch: 'main', phases: implDonePhase });
     expect(s.phases[0].status).toBe('impl_done');

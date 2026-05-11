@@ -2915,6 +2915,7 @@ describe("reconcileVisiblePlanState", () => {
       reviewCheckboxLine: 4,
       testSpecCheckboxLine: 2,
       dualImpl: false,
+      kind: "code",
       ...overrides,
     };
   }
