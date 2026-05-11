@@ -7326,7 +7326,7 @@ async function main() {
       exitCode = 1;
     }
     logActivity({
-      event: exitCode === 0 ? "success" : "failed",
+      event: exitCode === 0 || exitCode === 13 ? "success" : "failed",
       slug,
       durationMs: Date.now() - startedAt,
       exitCode,
