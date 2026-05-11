@@ -21,9 +21,9 @@ import {
   evaluateMonitorOnce,
   MONITOR_EXIT_CODES,
   monitorExitCode,
-} from "../monitor";
-import type { BuildRunManifest, BuildState } from "../types";
-import { DEFAULT_MAX_CODEX_ITERATIONS } from "../phase-runner";
+} from "../build/orchestrator/monitor";
+import type { BuildRunManifest, BuildState } from "../build/orchestrator/types";
+import { DEFAULT_MAX_CODEX_ITERATIONS } from "../build/orchestrator/phase-runner";
 
 let tmpDir: string;
 let stateDir: string;
