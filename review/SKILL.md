@@ -1665,39 +1665,165 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 
 ---
 
-## Step 5.75: Content Review (pure non-code features only)
+## Step 5.75: Non-code feature detection
 
-Check whether this diff is a pure non-code feature: all changed phases are of kind `writing`,
-`experiment`, `research`, or `manual` — no code changes, no tests, no source files.
+Before persisting the review result, check whether this branch implements a pure
+non-code feature. A pure non-code feature has NO runnable source code changes —
+only documents, data files, or manual-action records. If so, the review outcome
+is logged as a Content Review rather than an Eng Review, and the ship gate accepts
+it accordingly.
 
-**If NOT a pure non-code feature:** Skip this step entirely. Continue to Step 5.8.
+**Detection — try in order:**
 
-**If this IS a pure non-code feature:**
+1. Find the living plan file for this branch (use the plan file discovered earlier in
+   this session, or run the Plan File Discovery step from Step 1.5 if not yet found).
+2. If a plan file is found, scan it for phase headings that match the pattern
+   `### Phase \d+.*\[(writing|experiment|research|manual)\]`. Count matching phase
+   headings vs. total phase headings (lines matching `### Phase \d+`).
+3. If ALL phase headings have a non-code `[kind]` bracket (and at least one exists),
+   this is a **pure non-code feature**. Set `REVIEW_KIND=content`.
+4. Fallback (no plan file or mixed): check the diff for source-code files.
+   Run `git diff origin/<base>...HEAD --name-only` and check for files with
+   extensions `.ts .js .py .rb .go .rs .java .c .cpp .cs .swift .kt .scala`.
+   If none exist in the diff, this is also a pure non-code feature; set `REVIEW_KIND=content`.
+5. Otherwise: `REVIEW_KIND=eng` (standard code review).
 
-1. Check that all deliverable files described in the phase description exist on disk:
-   ```bash
-   git diff <base>...HEAD --name-only
-   ```
+**If REVIEW_KIND=content:**
 
-2. Verify the artifacts are committed and non-empty.
+Adjust the review rubric for the subsequent persist step:
+- Replace "code quality" with "deliverable completeness and artifact correctness"
+- Verify the artifact files named in the phase body actually exist and are non-empty
+- Flag any referenced output paths that are missing from the diff as CRITICAL findings
+- Do NOT apply code-quality checks (linting, typing, test coverage) to non-code artifacts
 
-3. For `writing` phases: check that the written content addresses the stated objective.
-   For `experiment` phases: check that raw result files (CSV, JSON, logs) are present.
-   For `research` phases: check that the findings document cites sources and flags gaps.
-   For `manual` phases: check that the preparation artifact describes the remaining human step.
-
-4. Write your full content review report to the output file (same path as a regular review).
-
-5. **End the output file with one of:**
-   - `CONTENT_REVIEW_PASS` — all deliverables present and meet the phase quality bar
-   - `CONTENT_REVIEW_FAIL` — one or more deliverables missing or below quality bar (list findings)
-
-Note: `CONTENT_REVIEW_PASS` is recognized by the ship gate in place of `GATE PASS` for
-pure non-code features. Mixed features (some code, some non-code phases) require both
-Eng Review AND Content Review to clear the ship gate.
+Note `REVIEW_KIND=content` for use in Step 5.8.
 
 ---
 
+## Step 5.7: Adversarial review (always-on)
+
+Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
+
+**Detect diff size and tool availability:**
+
+```bash
+DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
+which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+# Legacy opt-out — only gates Codex passes, Claude always runs
+OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
+echo "DIFF_SIZE: $DIFF_TOTAL"
+echo "OLD_CFG: ${OLD_CFG:-not_set}"
+```
+
+If `OLD_CFG` is `disabled`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
+
+**User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size.
+
+---
+
+### Claude adversarial subagent (always runs)
+
+Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
+
+Subagent prompt:
+"Read the diff for this branch with `git diff origin/<base>`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>` — examples: `Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s` or `Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
+
+Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+
+If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing."
+
+---
+
+### Codex adversarial challenge (always runs when available)
+
+If Codex is available AND `OLD_CFG` is NOT `disabled`:
+
+```bash
+TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. After the command completes, read stderr:
+```bash
+cat "$TMPERR_ADV"
+```
+
+Present the full output verbatim. This is informational — it never blocks shipping.
+
+**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
+
+**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing.
+
+If Codex is NOT available: "Codex CLI not found — running Claude adversarial only. Install Codex for cross-model coverage: `npm install -g @openai/codex`"
+
+---
+
+### Codex structured review (large diffs only, 200+ lines)
+
+If `DIFF_TOTAL >= 200` AND Codex is available AND `OLD_CFG` is NOT `disabled`:
+
+```bash
+TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the `timeout` shell command — it doesn't exist on macOS. Present output under `CODEX SAYS (code review):` header.
+Check for `[P1]` markers: found → `GATE: FAIL`, not found → `GATE: PASS`.
+
+If GATE is FAIL, use AskUserQuestion:
+```
+Codex found N critical issues in the diff.
+
+A) Investigate and fix now (recommended)
+B) Continue — review will still complete
+```
+
+If A: address the findings. Re-run `codex review` to verify.
+
+Read stderr for errors (same error handling as Codex adversarial above).
+
+After stderr: `rm -f "$TMPERR"`
+
+If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
+
+---
+
+### Persist the review result
+
+After all passes complete, persist:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+Substitute: STATUS = "clean" if no findings across ALL passes, "issues_found" if any pass found issues. SOURCE = "both" if Codex ran, "claude" if only Claude subagent ran. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, do NOT persist.
+
+---
+
+### Cross-model synthesis
+
+After all passes complete, synthesize findings across all sources:
+
+```
+ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
+════════════════════════════════════════════════════════════
+  High confidence (found by multiple sources): [findings agreed on by >1 pass]
+  Unique to Claude structured review: [from earlier step]
+  Unique to Claude adversarial: [from subagent]
+  Unique to Codex: [from codex adversarial or code review, if ran]
+  Models used: Claude structured ✓  Claude adversarial ✓/✗  Codex ✓/✗
+════════════════════════════════════════════════════════════
+```
+
+High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
+
+---
 
 ## Step 5.8: Persist Eng Review result
 

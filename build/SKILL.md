@@ -1133,10 +1133,10 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      by deliverable feature. Only preserve an origin group as a feature when it naturally matches.
    - Traceability from every feature block back to the source plan sections it satisfies.
    - A phase-by-phase checklist inside each feature block using [ ] markdown checkboxes.
-   - For every **`code`** phase, use this TDD lifecycle in order: Test Specification →
+   - For every `code` phase, use the TDD lifecycle in order: Test Specification →
      Verify Red → Implementation → Green tests → Review/QA.
-   - For **non-code phases** (`writing`, `experiment`, `research`, `manual`), use the
-     kind's 2-checkpoint structure instead (see "Non-Coding Phase Templates" section below).
+     For non-code phases (`writing`, `experiment`, `research`, `manual`), use the
+     kind's 2-checkpoint structure instead — see 'Non-Coding Phase Templates' below.
    - Keep exactly this durable sub-checkbox structure so `gstack-build` can parse
      and resume the plan. Verify Red and Green tests are CLI-owned gates, not
      additional markdown checkboxes:
@@ -1181,6 +1181,49 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      location from the repo layout. Write enough detail that no design judgment is
      needed — the test-writer implements these cases as a quality floor and MAY add
      additional cases on top.
+   - When a phase produces no runnable source files — only documents, data files, or
+     requires external human action — annotate the heading with the appropriate `[kind]`
+     bracket: `[writing]`, `[experiment]`, `[research]`, or `[manual]`. Omitting the
+     bracket defaults to `code`. See 'Non-Coding Phase Templates' below for examples.
+
+   **Non-Coding Phase Templates**
+
+   Use these 2-checkpoint structures for non-code phases. No `Test Specification`
+   checkbox and no `#### Test Spec` section — the TDD lifecycle does not apply.
+
+   `[writing]` — papers, docs, blog posts, READMEs:
+
+     ### Phase X.Y [writing]: Write Methodology Section
+     - [ ] **Draft**: Write the methodology section covering experimental design,
+       data collection, and evaluation protocol. Target: 2,000–3,000 words.
+       Commit to `paper/sections/methodology.md`.
+     - [ ] **Review & QA (review roles)**: Check clarity, completeness, and accuracy.
+       Rubric: a reader unfamiliar with the project understands it after one read.
+
+   `[experiment]` — benchmarks, ablations, data collection, ML evaluations:
+
+     ### Phase X.Y [experiment]: Run Ablation Benchmark
+     - [ ] **Execute**: Run `scripts/run-ablations.sh`, collect results to
+       `results/ablations.json`. Verify output files exist and are non-empty
+       before marking complete. Do not summarize — raw results only.
+     - [ ] **Review & QA (review roles)**: Review reproducibility, statistical
+       validity, and artifact completeness.
+
+   `[research]` — literature review, tech assessment, codebase exploration:
+
+     ### Phase X.Y [research]: Survey Prior Work
+     - [ ] **Explore**: Produce a synthesis of the relevant literature and commit
+       to `docs/prior-work.md`. Cite primary sources. Label speculation explicitly.
+     - [ ] **Review & QA (review roles)**: Verify coverage, source quality, and
+       absence of uncited speculation.
+
+   `[manual]` — vendor signup, API key setup, approval gates, user studies:
+
+     ### Phase X.Y [manual]: Vendor API Key Setup
+     - [ ] **Action Required**: Complete the vendor signup at vendor.example.com
+       and save the API key to `.env.VENDOR_KEY`. Reply here when done.
+     - [ ] **Verify Completion**: Confirm the key is present and the integration
+       test passes (or describe the verification you performed).
 
 ## Non-Coding Phase Templates
 
@@ -1657,7 +1700,6 @@ To recover:
    - Set `features[N].status` to `"phases_done"` (where N is the 0-based feature index).
 4. Re-run the monitor: `gstack-build monitor --manifest ... --watch --supervise`
 
-
 ### Step M3.5: Skill Fault Investigator
 
 After the monitor exits, scan its output for skill-fault detections and dispatch investigators.
@@ -1750,6 +1792,9 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
 
       _FAULT_SOURCE_LIST=$(printf '%s' "$_FAULT_JSON" | jq -r '(.sourceFiles // [])[]' 2>/dev/null | while IFS= read -r _FAULT_FILE; do [ -n "$_FAULT_FILE" ] && _resolve_fault_path "$_FAULT_FILE"; done)
 
+      _FAULT_LOG_CATEGORY=$(printf '%s' "$_FAULT_CATEGORY" | tr '/[:space:]' '___')
+      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_LOG_CATEGORY}.log"
+
       if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
         (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" bash -lc "$GSTACK_FAULT_INVESTIGATOR_COMMAND"; _FAULT_RC=$?; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true; exit "$_FAULT_RC") > "$_FAULT_PRIMARY" 2>&1 &
       else
@@ -1789,7 +1834,6 @@ exit "$_MONITOR_EXIT"
 
 - If `_MONITOR_EXIT` is `0` (`ALL_RUNS_COMPLETE`) or `13` (`FINALIZATION_REQUIRED`): **do NOT stop. Do NOT report build complete.** Immediately proceed to **Step 3: Final Ship & Completion** below. The build is not done until Step 3 completes — branches may be unshipped and plans are almost certainly unarchived.
 - If `_MONITOR_EXIT` is non-zero (and not 13): handle per the exit code table above. Do not proceed to Step 3.
-
 
 ---
 

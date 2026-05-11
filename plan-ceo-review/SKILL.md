@@ -1893,7 +1893,7 @@ Display:
 | Review          | Runs | Last Run            | Status    | Required |
 |-----------------|------|---------------------|-----------|----------|
 | Eng Review      |  1   | 2026-03-16 15:00    | CLEAR     | YES      |
-| Content Review  |  0   | —                   | —         | non-code |
+| Content Review  |  0   | —                   | —         | no       |
 | CEO Review      |  0   | —                   | —         | no       |
 | Design Review   |  0   | —                   | —         | no       |
 | Adversarial     |  0   | —                   | —         | no       |
@@ -1904,16 +1904,17 @@ Display:
 ```
 
 **Review tiers:**
-- **Eng Review (required by default):** The only review that gates shipping for code features. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
-- **Content Review (non-code features):** Required in place of Eng Review for pure non-code features (writing, experiment, research, manual phases). Checks that deliverable artifacts are present and meet the phase quality bar. Mixed features (some code phases) require both Eng Review and Content Review.
+- **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting). For pure non-code features, Content Review replaces Eng Review — Eng Review shows "N/A (non-code feature)".
+- **Content Review (required for non-code features):** Gates shipping for pure non-code features (writing, experiment, research, manual). Checks deliverable completeness, factual accuracy, and artifact correctness. A \`content-review\` entry with status "clean" in the review log clears the gate for non-code features.
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
 - **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
-- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`). For pure non-code features, Content Review with CONTENT_REVIEW_PASS clears the gate instead.
-- **NOT CLEARED**: Required review missing, stale (>7 days), or has open issues
+- **CLEARED (code feature)**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
+- **CLEARED (non-code feature)**: Content Review has >= 1 entry within 7 days from \`content-review\` with status "clean" (and no Eng Review is required)
+- **NOT CLEARED**: Required review (Eng or Content) missing, stale (>7 days), or has open issues
 - CEO, Design, and Codex reviews are shown for context but never block shipping
 - If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
