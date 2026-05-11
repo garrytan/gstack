@@ -13,7 +13,11 @@ import {
   legacySourcePlanClaimPath,
 } from "./plan-claims";
 import { statePath } from "./state";
-import type { BuildRunManifest, BuildRunManifestRun, BuildState } from "./types";
+import type {
+  BuildRunManifest,
+  BuildRunManifestRun,
+  BuildState,
+} from "./types";
 
 export type PlanSelectionKind = "selected" | "ambiguous" | "blocked" | "none";
 export type PlanCandidateKind = "source-plan" | "living-plan";
@@ -144,14 +148,20 @@ export function createSourcePlanClaim(
   if (claimInfo.claim) {
     return {
       ok: false,
-      claimPath: canonicalSourcePlanClaimPath(opts.gstackRepo, opts.sourcePlanPath),
+      claimPath: canonicalSourcePlanClaimPath(
+        opts.gstackRepo,
+        opts.sourcePlanPath,
+      ),
       existingClaimPath: claimInfo.claimPath,
       reason: claimHasLiveOwner(claimInfo.claim)
         ? "source plan already has a live claim"
         : `source plan already has a ${claimStatus(claimInfo.claim)} claim`,
     };
   }
-  const claimPath = canonicalSourcePlanClaimPath(opts.gstackRepo, opts.sourcePlanPath);
+  const claimPath = canonicalSourcePlanClaimPath(
+    opts.gstackRepo,
+    opts.sourcePlanPath,
+  );
   fs.mkdirSync(path.dirname(claimPath), { recursive: true });
   const claim: PlanClaimRecord = {
     runGroupId: opts.runGroupId,
@@ -217,7 +227,11 @@ function monitorCommand(manifestPath: string | undefined): string | undefined {
     : undefined;
 }
 
-function candidateId(kind: PlanCandidateKind, filePath: string, runId?: string): string {
+function candidateId(
+  kind: PlanCandidateKind,
+  filePath: string,
+  runId?: string,
+): string {
   return `${kind}:${runId ?? path.resolve(filePath)}`;
 }
 
@@ -247,8 +261,8 @@ function sourceCandidate(
       ? live
         ? "source plan has a live claim"
         : TERMINAL_STATUSES.has(status)
-        ? `source plan has terminal claim: ${status}`
-        : `source plan has claim: ${status}`
+          ? `source plan has terminal claim: ${status}`
+          : `source plan has claim: ${status}`
       : "unclaimed source plan",
     command: sourcePlanCommand(path.resolve(sourcePath)),
   };
@@ -260,7 +274,10 @@ function statMtimeDesc(a: string, b: string): number {
   return bm - am || a.localeCompare(b);
 }
 
-function listFiles(dir: string, predicate: (name: string) => boolean): string[] {
+function listFiles(
+  dir: string,
+  predicate: (name: string) => boolean,
+): string[] {
   try {
     return fs
       .readdirSync(dir, { withFileTypes: true })
@@ -296,7 +313,10 @@ function listLivingPlans(gstackRepo: string, includeAll: boolean): string[] {
   return [...current, ...legacy];
 }
 
-function readClaimForSource(gstackRepo: string, sourcePath: string): {
+function readClaimForSource(
+  gstackRepo: string,
+  sourcePath: string,
+): {
   claim: PlanClaimRecord | null;
   claimPath?: string;
   legacyClaimPath?: string;
@@ -308,7 +328,8 @@ function readClaimForSource(gstackRepo: string, sourcePath: string): {
     return {
       claim: canonicalClaim,
       claimPath: canonical,
-      legacyClaimPath: legacy !== canonical && fs.existsSync(legacy) ? legacy : undefined,
+      legacyClaimPath:
+        legacy !== canonical && fs.existsSync(legacy) ? legacy : undefined,
     };
   }
   const legacyClaim = legacy !== canonical ? readClaim(legacy) : null;
@@ -323,7 +344,10 @@ function normalizeRepo(repoPath: string | undefined): string | undefined {
   return repoPath ? path.resolve(repoPath) : undefined;
 }
 
-function repoMatches(candidateRepo: string | undefined, targetRepo: string | undefined): boolean {
+function repoMatches(
+  candidateRepo: string | undefined,
+  targetRepo: string | undefined,
+): boolean {
   if (!targetRepo) return true;
   if (!candidateRepo) return false;
   return normalizeRepo(candidateRepo) === normalizeRepo(targetRepo);
@@ -359,10 +383,10 @@ function manifestRunCandidate(
   const status: PlanCandidateStatus = runCompleted(state)
     ? "completed"
     : runFailed(state)
-    ? "failed"
-    : live || activeLive
-    ? "running"
-    : "stale";
+      ? "failed"
+      : live || activeLive
+        ? "running"
+        : "stale";
   const command = resumeCommand({
     runId: run.runId,
     path: run.livingPlanPath,
@@ -385,8 +409,8 @@ function manifestRunCandidate(
       status === "running"
         ? "active run already owns this living plan"
         : status === "stale"
-        ? "incomplete living plan can be resumed"
-        : `living plan is ${status}`,
+          ? "incomplete living plan can be resumed"
+          : `living plan is ${status}`,
   };
 }
 
@@ -429,7 +453,10 @@ function manifestCandidates(opts: ResolvePlanSelectionOptions): {
   );
   const errors: string[] = [];
   const candidates: PlanCandidate[] = [];
-  for (const manifestPath of findManifestFiles(opts.gstackRepo, Boolean(opts.includeAll))) {
+  for (const manifestPath of findManifestFiles(
+    opts.gstackRepo,
+    Boolean(opts.includeAll),
+  )) {
     let manifest: BuildRunManifest;
     try {
       manifest = loadMonitorManifest(manifestPath);
@@ -456,10 +483,10 @@ function activeRunCandidate(record: ActiveRunRecord): PlanCandidate {
     record.status === "completed"
       ? "completed"
       : record.status === "failed"
-      ? "failed"
-      : live
-      ? "running"
-      : "stale";
+        ? "failed"
+        : live
+          ? "running"
+          : "stale";
   const planPath = path.resolve(record.planFile);
   return {
     id: candidateId("living-plan", planPath, record.runId),
@@ -475,8 +502,8 @@ function activeRunCandidate(record: ActiveRunRecord): PlanCandidate {
       status === "running"
         ? "active run registry reports this run is live"
         : status === "stale"
-        ? "active run registry has an incomplete run without a manifest"
-        : `active run registry says run is ${status}`,
+          ? "active run registry has an incomplete run without a manifest"
+          : `active run registry says run is ${status}`,
   };
 }
 
@@ -488,18 +515,26 @@ function activeRunOnlyCandidates(
     opts.activeRunRegistry ?? defaultActiveRunRegistryDir(),
   )
     .filter((record) => !manifestRunIds.has(record.runId))
-    .filter((record) => repoMatches(activeRunRepoPath(record), opts.projectRoot))
+    .filter((record) =>
+      repoMatches(activeRunRepoPath(record), opts.projectRoot),
+    )
     .map(activeRunCandidate);
 }
 
-function livingPlanFallbackCandidates(opts: ResolvePlanSelectionOptions): PlanCandidate[] {
+function livingPlanFallbackCandidates(
+  opts: ResolvePlanSelectionOptions,
+): PlanCandidate[] {
   const explicitLivingPaths = new Set(
     (opts.explicitPaths ?? []).map((p) => path.resolve(p)),
   );
   if (opts.projectRoot && explicitLivingPaths.size === 0) return [];
-  const livingPaths = listLivingPlans(opts.gstackRepo, Boolean(opts.includeAll)).filter(
+  const livingPaths = listLivingPlans(
+    opts.gstackRepo,
+    Boolean(opts.includeAll),
+  ).filter(
     (livingPath) =>
-      explicitLivingPaths.size === 0 || explicitLivingPaths.has(path.resolve(livingPath)),
+      explicitLivingPaths.size === 0 ||
+      explicitLivingPaths.has(path.resolve(livingPath)),
   );
   return livingPaths.map((livingPath) => ({
     id: candidateId("living-plan", livingPath),
@@ -557,8 +592,12 @@ function resumeCandidates(
   fallbackLivingCandidates: PlanCandidate[],
 ): PlanCandidate[] {
   return [
-    ...manifestCandidates.filter((candidate) => runHasIncompleteCandidate(candidate)),
-    ...activeRunOnlyCandidates.filter((candidate) => runHasIncompleteCandidate(candidate)),
+    ...manifestCandidates.filter((candidate) =>
+      runHasIncompleteCandidate(candidate),
+    ),
+    ...activeRunOnlyCandidates.filter((candidate) =>
+      runHasIncompleteCandidate(candidate),
+    ),
     ...fallbackLivingCandidates,
   ];
 }
@@ -581,9 +620,15 @@ function selectionFromCandidates(
   const blockers = active.filter(
     (candidate) =>
       candidate.kind === "source-plan" &&
-      (candidate.live || candidate.status === "claimed" || candidate.status === "running"),
+      (candidate.live ||
+        candidate.status === "claimed" ||
+        candidate.status === "running"),
   );
-  if (blockers.length > 0) {
+  const available = active.filter(
+    (candidate) =>
+      candidate.kind === "source-plan" && candidate.status === "available",
+  );
+  if (blockers.length > 0 && available.length === 0) {
     return {
       result: "blocked",
       reason: "one or more source plans are already claimed",
@@ -591,11 +636,14 @@ function selectionFromCandidates(
       errors,
       truncated,
       commands: blockers.flatMap((candidate) =>
-        candidate.monitorCommand ? [candidate.monitorCommand] : [candidate.command],
+        candidate.monitorCommand
+          ? [candidate.monitorCommand]
+          : [candidate.command],
       ),
     };
   }
-  if (active.length === 0) {
+  const selectable = blockers.length > 0 ? available : active;
+  if (selectable.length === 0) {
     return {
       result: "none",
       reason: "no selectable source or resumable living plans found",
@@ -605,15 +653,15 @@ function selectionFromCandidates(
       commands: [],
     };
   }
-  if (active.length === 1) {
+  if (selectable.length === 1) {
     return {
       result: "selected",
       reason: "exactly one safe candidate found",
-      selected: active[0],
+      selected: selectable[0],
       candidates,
       errors,
       truncated,
-      commands: [active[0].command],
+      commands: [selectable[0].command],
     };
   }
   return {
@@ -622,7 +670,7 @@ function selectionFromCandidates(
     candidates,
     errors,
     truncated,
-    commands: active.map((candidate) => candidate.command),
+    commands: selectable.map((candidate) => candidate.command),
   };
 }
 
@@ -655,19 +703,33 @@ export function resolvePlanSelection(
   errors.push(...manifest.errors);
   const activeRunOnly = activeRunOnlyCandidates(
     normalizedOpts,
-    new Set(manifest.candidates.map((candidate) => candidate.runId).filter(Boolean) as string[]),
+    new Set(
+      manifest.candidates
+        .map((candidate) => candidate.runId)
+        .filter(Boolean) as string[],
+    ),
   );
-  const manifestLivingPaths = new Set(manifest.candidates.map((candidate) => candidate.path));
+  const manifestLivingPaths = new Set(
+    manifest.candidates.map((candidate) => candidate.path),
+  );
   const fallbackLiving = livingPlanFallbackCandidates(normalizedOpts).filter(
     (candidate) => !manifestLivingPaths.has(candidate.path),
   );
-  const resumable = resumeCandidates(manifest.candidates, activeRunOnly, fallbackLiving);
+  const resumable = resumeCandidates(
+    manifest.candidates,
+    activeRunOnly,
+    fallbackLiving,
+  );
   let candidates: PlanCandidate[] = [];
 
   if (opts.resumeRunId) {
-    candidates = resumable.filter((candidate) => candidate.runId === opts.resumeRunId);
+    candidates = resumable.filter(
+      (candidate) => candidate.runId === opts.resumeRunId,
+    );
   } else if (opts.resumeOnly) {
-    const explicitLivingPaths = new Set(explicitPaths.map((p) => path.resolve(p)));
+    const explicitLivingPaths = new Set(
+      explicitPaths.map((p) => path.resolve(p)),
+    );
     candidates =
       explicitLivingPaths.size > 0
         ? resumable.filter((candidate) =>
@@ -675,15 +737,26 @@ export function resolvePlanSelection(
           )
         : resumable;
   } else if (explicitPaths.length > 0) {
-    candidates = [
-      ...sourceCandidates(normalizedOpts),
-      ...activeRunOnly.filter((candidate) => runHasIncompleteCandidate(candidate)),
-    ];
+    const explicitSources = sourceCandidates(normalizedOpts);
+    const allExplicitAvailable =
+      explicitSources.length > 0 &&
+      explicitSources.every((c) => c.status === "available");
+    candidates = allExplicitAvailable
+      ? explicitSources
+      : [
+          ...explicitSources,
+          ...activeRunOnly.filter((candidate) =>
+            runHasIncompleteCandidate(candidate),
+          ),
+        ];
   } else if (opts.allInbox) {
     candidates = sourceCandidates(normalizedOpts).filter(
       (candidate) => candidate.status === "available",
     );
-    const limited = limitCandidates(uniqueCandidates(candidates), maxCandidates);
+    const limited = limitCandidates(
+      uniqueCandidates(candidates),
+      maxCandidates,
+    );
     if (limited.candidates.length === 0) {
       return {
         result: "none",
@@ -706,8 +779,12 @@ export function resolvePlanSelection(
   } else {
     candidates = [
       ...sourceCandidates(normalizedOpts),
-      ...manifest.candidates.filter((candidate) => runHasIncompleteCandidate(candidate)),
-      ...activeRunOnly.filter((candidate) => runHasIncompleteCandidate(candidate)),
+      ...manifest.candidates.filter((candidate) =>
+        runHasIncompleteCandidate(candidate),
+      ),
+      ...activeRunOnly.filter((candidate) =>
+        runHasIncompleteCandidate(candidate),
+      ),
       ...fallbackLiving,
     ];
   }
@@ -750,6 +827,7 @@ export function renderPlanStatusTable(result: PlanSelectionResult): string {
       lines.push(`  command: ${candidate.command}`);
     }
   }
-  if (result.truncated) lines.push("Note: candidate list truncated; rerun with --all.");
+  if (result.truncated)
+    lines.push("Note: candidate list truncated; rerun with --all.");
   return `${lines.join("\n")}\n`;
 }

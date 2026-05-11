@@ -43,7 +43,10 @@ function sourcePlan(repo: string, name = "feature-plan-1.md"): string {
 }
 
 function livingPlan(repo: string, name = "app-impl-plan-feature-1.md"): string {
-  return write(path.join(repo, "inbox", "living-plan", name), "# Living\n- [ ] **Implementation**\n");
+  return write(
+    path.join(repo, "inbox", "living-plan", name),
+    "# Living\n- [ ] **Implementation**\n",
+  );
 }
 
 beforeEach(() => {
@@ -122,7 +125,9 @@ describe("plan resolver", () => {
 
     expect(result.result).toBe("selected");
     expect(result.selected?.path).toBe(plan);
-    expect(result.selected?.claimPath).toBe(canonicalSourcePlanClaimPath(repo, plan));
+    expect(result.selected?.claimPath).toBe(
+      canonicalSourcePlanClaimPath(repo, plan),
+    );
     expect(result.commands).toEqual([`/build ${plan}`]);
   });
 
@@ -162,17 +167,21 @@ describe("plan resolver", () => {
 
     expect(result.result).toBe("selected");
     expect(result.reason).toContain("all unclaimed inbox");
-    expect(result.candidates.map((candidate) => candidate.path).sort()).toEqual([
-      first,
-      second,
-    ].sort());
-    expect(result.candidates.every((candidate) => candidate.claimPath)).toBe(true);
+    expect(result.candidates.map((candidate) => candidate.path).sort()).toEqual(
+      [first, second].sort(),
+    );
+    expect(result.candidates.every((candidate) => candidate.claimPath)).toBe(
+      true,
+    );
   });
 
   test("explicit source path wins after validation", () => {
     const repo = gstackRepo();
     const inbox = sourcePlan(repo, "inbox-plan-1.md");
-    const explicit = write(path.join(tmpDir, "chosen-plan-1.md"), "# Explicit\n");
+    const explicit = write(
+      path.join(tmpDir, "chosen-plan-1.md"),
+      "# Explicit\n",
+    );
 
     const result = resolvePlanSelection({
       gstackRepo: repo,
@@ -222,8 +231,13 @@ describe("plan resolver", () => {
     });
 
     expect(result.result).toBe("ambiguous");
-    expect(result.commands).toEqual(["/build --resume run-a", "/build --resume run-b"]);
-    expect(result.candidates.map((candidate) => candidate.monitorCommand)).toEqual([
+    expect(result.commands).toEqual([
+      "/build --resume run-a",
+      "/build --resume run-b",
+    ]);
+    expect(
+      result.candidates.map((candidate) => candidate.monitorCommand),
+    ).toEqual([
       `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
       `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
     ]);
@@ -237,7 +251,11 @@ describe("plan resolver", () => {
     const stoppedPlan = livingPlan(repo, "app-impl-plan-feature-1.md");
     const siblingPlan = livingPlan(repo, "sibling-impl-plan-feature-1.md");
     writeManifest(repo, [
-      manifestRun({ repoPath: app, livingPlanPath: stoppedPlan, runId: "run-stopped" }),
+      manifestRun({
+        repoPath: app,
+        livingPlanPath: stoppedPlan,
+        runId: "run-stopped",
+      }),
     ]);
     writeActiveRunRecord(activeRunRegistry, {
       runId: "run-sibling",
@@ -341,10 +359,9 @@ describe("plan resolver", () => {
     });
 
     expect(ambiguous.result).toBe("ambiguous");
-    expect(ambiguous.commands.sort()).toEqual([
-      `/build ${first} --resume`,
-      `/build ${second} --resume`,
-    ].sort());
+    expect(ambiguous.commands.sort()).toEqual(
+      [`/build ${first} --resume`, `/build ${second} --resume`].sort(),
+    );
     expect(selected.result).toBe("selected");
     expect(selected.selected?.path).toBe(second);
     expect(selected.selected?.monitorCommand).toBeUndefined();
@@ -463,13 +480,102 @@ describe("plan resolver", () => {
   test("malformed manifests are reported without hiding good candidates", () => {
     const repo = gstackRepo();
     const plan = sourcePlan(repo);
-    write(path.join(repo, ".llm-tmp", "build-runs", "bad", "build-run-manifest.json"), "{");
+    write(
+      path.join(
+        repo,
+        ".llm-tmp",
+        "build-runs",
+        "bad",
+        "build-run-manifest.json",
+      ),
+      "{",
+    );
 
     const result = resolvePlanSelection({ gstackRepo: repo });
 
     expect(result.result).toBe("selected");
     expect(result.selected?.path).toBe(plan);
     expect(result.errors[0]).toContain("build-run-manifest.json");
+  });
+
+  test("available source plan auto-selects when another source plan is live (no explicit path)", () => {
+    const repo = gstackRepo();
+    const activeRunRegistry = path.join(tmpDir, "active-runs");
+    const planA = sourcePlan(repo, "a-plan-1.md");
+    const planB = sourcePlan(repo, "b-plan-1.md");
+
+    writeJson(canonicalSourcePlanClaimPath(repo, planA), {
+      sourcePlanPath: planA,
+      pid: process.pid,
+      status: "claimed",
+    });
+    writeActiveRunRecord(activeRunRegistry, {
+      runId: "run-a",
+      stateSlug: "state-a",
+      repoPath: path.join(tmpDir, "worktrees", "run-a"),
+      planFile: planA,
+      pid: process.pid,
+      status: "running",
+      startedAt: "2026-05-09T00:00:00Z",
+      lastUpdatedAt: "2026-05-09T00:00:00Z",
+      branches: [],
+    });
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      activeRunRegistry,
+    });
+
+    expect(result.result).toBe("selected");
+    expect(result.selected?.path).toBe(planB);
+    expect(result.candidates.some((c) => c.path === planA)).toBe(true);
+  });
+
+  test("explicit available source plan starts without ambiguity while another run is active", () => {
+    const repo = gstackRepo();
+    const activeRunRegistry = path.join(tmpDir, "active-runs");
+    const planA = sourcePlan(repo, "a-plan-1.md");
+    const planB = sourcePlan(repo, "b-plan-1.md");
+
+    writeActiveRunRecord(activeRunRegistry, {
+      runId: "run-a",
+      stateSlug: "state-a",
+      repoPath: path.join(tmpDir, "worktrees", "run-a"),
+      planFile: planA,
+      pid: process.pid,
+      status: "running",
+      startedAt: "2026-05-09T00:00:00Z",
+      lastUpdatedAt: "2026-05-09T00:00:00Z",
+      branches: [],
+    });
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      explicitPaths: [planB],
+      activeRunRegistry,
+    });
+
+    expect(result.result).toBe("selected");
+    expect(result.selected?.path).toBe(planB);
+  });
+
+  test("blocked plan plus two available plans returns ambiguous, not selected", () => {
+    const repo = gstackRepo();
+    const planA = sourcePlan(repo, "a-plan-1.md");
+    const planB = sourcePlan(repo, "b-plan-1.md");
+    const planC = sourcePlan(repo, "c-plan-1.md");
+
+    writeJson(canonicalSourcePlanClaimPath(repo, planA), {
+      sourcePlanPath: planA,
+      pid: process.pid,
+      status: "claimed",
+    });
+
+    const result = resolvePlanSelection({ gstackRepo: repo });
+
+    expect(result.result).toBe("ambiguous");
+    expect(result.candidates.map((c) => c.path)).toContain(planB);
+    expect(result.candidates.map((c) => c.path)).toContain(planC);
   });
 
   test("human table includes commands and monitor commands", () => {
@@ -489,7 +595,9 @@ describe("plan resolver", () => {
 
     expect(table).toContain("Result: selected");
     expect(table).toContain("/build --resume run-a");
-    expect(table).toContain(`gstack-build monitor --manifest ${manifestPath} --watch --supervise`);
+    expect(table).toContain(
+      `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
+    );
     expect(result.selected?.monitorCommand).toBe(
       `gstack-build monitor --manifest ${manifestPath} --watch --supervise`,
     );
@@ -522,10 +630,7 @@ function manifestRun(args: {
   };
 }
 
-function writeManifest(
-  repo: string,
-  runs: BuildRunManifest["runs"],
-): string {
+function writeManifest(repo: string, runs: BuildRunManifest["runs"]): string {
   const manifestPath = path.join(
     repo,
     ".llm-tmp",
@@ -565,7 +670,10 @@ function writeManifest(
       features: [],
       completed: false,
     };
-    writeJson(path.join(process.env.GSTACK_BUILD_STATE_DIR!, `${run.stateSlug}.json`), state);
+    writeJson(
+      path.join(process.env.GSTACK_BUILD_STATE_DIR!, `${run.stateSlug}.json`),
+      state,
+    );
   }
   return manifestPath;
 }
