@@ -408,6 +408,27 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
+  // Append .gbrain-source to the consumer repo's .gitignore so the per-worktree
+  // pin file doesn't leak across branches or get committed accidentally.
+  // The v1.29.0.0 changelog promised this but only added it to gstack's own
+  // .gitignore; this adds it to the consuming repo as well. Idempotent.
+  try {
+    const gitignorePath = join(root, ".gitignore");
+    let existing = "";
+    try {
+      existing = readFileSync(gitignorePath, "utf-8");
+    } catch {
+      // No .gitignore yet — we'll create one with just this entry.
+    }
+    if (!existing.split("\n").some((line) => line.trim() === ".gbrain-source")) {
+      const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+      writeFileSync(gitignorePath, existing + sep + ".gbrain-source\n");
+    }
+  } catch (e) {
+    // Non-fatal — unwritable .gitignore is unusual but shouldn't abort the sync.
+    console.warn("[gstack-gbrain-sync] warning: could not update .gitignore:", (e as Error).message);
+  }
+
   return {
     name: "code",
     ran: true,
