@@ -230,6 +230,10 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       // Close out previous phase.
       finalize(i);
       currentPhaseStartLine = i;
+      // Idempotent when the previous phase was EMITTED (finalize already called
+      // ensureFeature on the emit path). Load-bearing when the previous phase was
+      // DROPPED (the else-branch in finalize skips ensureFeature), ensuring a
+      // feature exists for the new phase to attach to.
       ensureFeature();
       const kindMatch = line.match(HEADING_KIND_PATTERN);
       currentPhase = {
