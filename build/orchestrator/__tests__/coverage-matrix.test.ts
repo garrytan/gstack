@@ -7,6 +7,7 @@ const ORCHESTRATOR_DIR = path.resolve(import.meta.dir, "..");
 
 const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "active-runs.ts": ["active-runs.test.ts", "startup.test.ts"],
+  "errors.ts": ["phase-runner.test.ts"],
   "backfill-checkboxes.ts": ["backfill-checkboxes.test.ts"],
   "build-config.ts": ["role-config.test.ts"],
   "cli.ts": [
