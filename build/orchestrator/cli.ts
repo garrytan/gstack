@@ -2654,6 +2654,75 @@ export function buildKindInstructions(phase: Phase): string[] {
  * shell-prompt is just a short "read $input, write $output" instruction. This
  * is the universal file-path I/O rule (see feedback_llm_file_io.md memory).
  */
+/**
+ * Returns numbered instruction lines for the implementation subagent, tailored
+ * to the phase kind. These replace the one-size-fits-all TDD instructions for
+ * non-code phases.
+ *
+ * All kinds share: Commit, Do NOT run /review, Do NOT update the plan file.
+ * Code phases add: Make all failing tests pass, Fail forward.
+ * Non-code phases substitute kind-specific quality bars.
+ */
+export function buildKindInstructions(phase: Phase): string[] {
+  const shared = [
+    `5. Commit your changes to the current branch with a clear conventional-commit message.`,
+    `6. Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
+    `7. Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
+    `9. Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
+    `10. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+    `11. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+  ];
+
+  switch (phase.kind) {
+    case "writing":
+      return [
+        `1. Produce the written artifact described in the phase. Write it to the output path(s) specified.`,
+        `2. Quality bar: a reader with domain expertise should find the argument clear and the claims supported.`,
+        `3. Do NOT write code to generate text. Write the actual text yourself and commit the file.`,
+        `4. If the phase says "also update X", update every named file, not just the primary deliverable.`,
+        ...shared,
+        `8. Return only when all deliverable files exist on disk and are committed.`,
+      ];
+    case "experiment":
+      return [
+        `1. Execute the experiment or benchmark described in the phase.`,
+        `2. Commit raw results to the repository (logs, CSV, JSON) — do not summarise without the source data.`,
+        `3. If the run takes > 5 min, record progress incrementally so the reviewer can verify.`,
+        `4. If the experiment is non-deterministic, run it at least twice and report the variance.`,
+        ...shared,
+        `8. Return only when all result files exist on disk and are committed.`,
+      ];
+    case "research":
+      return [
+        `1. Explore the topic described in the phase using available tools (web search, code inspection, docs).`,
+        `2. Cite primary sources: paper titles, URLs, commit SHAs, or file paths — no paraphrasing without a citation.`,
+        `3. Write your findings to the output file(s) specified in the phase.`,
+        `4. Flag gaps or open questions explicitly; do not paper over uncertainty.`,
+        ...shared,
+        `8. Return only when the research document is written and committed.`,
+      ];
+    case "manual":
+      return [
+        `1. This phase requires a human action. Do NOT attempt to automate it.`,
+        `2. Read the phase description and determine exactly what human action is needed.`,
+        `3. If you can prepare the action (stage files, draft a command, write a script for the human to run), do so and commit the preparation.`,
+        `4. Record what you prepared and what the human still needs to do in the output file.`,
+        ...shared,
+        `8. Return only when the preparation is committed and the output file describes the remaining manual step.`,
+      ];
+    case "code":
+    default:
+      return [
+        `1. Make all failing tests pass with minimal correct code. Do NOT change test assertions.`,
+        `2. Also complete every non-code deliverable in the phase description: if it says "run X and produce Y" or "record Z to <path>", actually execute that script/command and commit the output files. Writing the code that could produce Y is not the same as producing Y.`,
+        `3. If there are no existing failing tests, implement the work described above.`,
+        `4. If the project uses GitHub Actions, ensure your changes pass them.`,
+        ...shared,
+        `8. Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
+      ];
+  }
+}
+
 function buildGeminiPromptBody(
   phase: Phase,
   planFile: string,
@@ -6366,7 +6435,12 @@ async function main() {
 
       // Plan review: second-opinion pass before Phase 1 of Feature 1.
       // Skipped in dry-run, when --no-plan-review is set, or on resume (already reviewed).
-      if (!args.dryRun && !args.noPlanReview && (!state.planReview || (state.planReview as any).status === "critical_exit_pending")) {
+      if (
+        !args.dryRun &&
+        !args.noPlanReview &&
+        (!state.planReview ||
+          (state.planReview as any).status === "critical_exit_pending")
+      ) {
         const reviewRole = { ...args.roles.planReviewer };
         if (args.planReviewerModel) reviewRole.model = args.planReviewerModel;
         const planReviewReportPath = path.join(
@@ -6386,7 +6460,10 @@ async function main() {
         });
         if (outcome === "critical_exit") {
           // Persist sentinel so the gate re-fires on resume instead of looping infinitely.
-          state.planReview = { ...verdict, status: "critical_exit_pending" } as any;
+          state.planReview = {
+            ...verdict,
+            status: "critical_exit_pending",
+          } as any;
           saveState(state, { noGbrain: args.noGbrain, log: console.warn });
           // Throw ExitError so the finally block can release the lock before exit.
           throw new ExitError(3);
