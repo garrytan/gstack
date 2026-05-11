@@ -47,6 +47,7 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "release-queue.ts": ["release-queue.test.ts", "cli.test.ts"],
   "role-config.ts": ["role-config.test.ts", "cli.test.ts"],
   "ship.ts": ["cli.test.ts", "integration.test.ts"],
+  "skill-fault-detector.ts": ["../../../test/skill-fault-detector.test.ts"],
   "state.ts": ["state.test.ts", "startup.test.ts"],
   "sub-agents.ts": ["sub-agents.test.ts", "cli-security.test.ts"],
   "types.ts": [
