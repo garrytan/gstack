@@ -37,8 +37,8 @@ import {
   renderSystemdReleaseDaemonService,
   runRoleTask,
   buildKindInstructions,
+  extractCoverageTarget,
   HELP_TEXT,
-  buildKindInstructions,
 } from "../cli";
 import type {
   BuildState,
