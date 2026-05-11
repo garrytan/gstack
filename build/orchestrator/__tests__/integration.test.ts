@@ -682,6 +682,110 @@ test("--skip-ship leaves completed features ready to ship on a later resume", ()
   }
 });
 
+test("exit-13 (FINALIZATION_REQUIRED) writes paused status to active-run registry", () => {
+  const skipDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "gstack-exit13-registry-"),
+  );
+  try {
+    const repo = path.join(skipDir, "repo");
+    const bare = path.join(skipDir, "origin.git");
+    fs.mkdirSync(repo);
+    expect(spawnSync("git", ["init", "-b", "main"], { cwd: repo }).status).toBe(
+      0,
+    );
+    expect(
+      spawnSync("git", ["init", "--bare", "-b", "main", bare]).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.email", "test@example.com"], {
+        cwd: repo,
+      }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.name", "Test User"], { cwd: repo })
+        .status,
+    ).toBe(0);
+    fs.writeFileSync(path.join(repo, "README.md"), "# test\n");
+    expect(spawnSync("git", ["add", "README.md"], { cwd: repo }).status).toBe(
+      0,
+    );
+    expect(
+      spawnSync("git", ["commit", "-m", "init"], { cwd: repo }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["remote", "add", "origin", bare], { cwd: repo }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["push", "-u", "origin", "main"], { cwd: repo }).status,
+    ).toBe(0);
+
+    const planFile = path.join(skipDir, "exit13-plan.md");
+    fs.writeFileSync(
+      planFile,
+      `# Exit 13 Registry Plan
+
+## Feature 1: Ready
+
+### Phase 1.1: Done
+- [x] **Test Specification (Gemini Sub-agent)**: Existing tests.
+- [x] **Implementation (Gemini Sub-agent)**: Existing implementation.
+- [x] **Review & QA (Codex Sub-agent)**: Existing review.
+`,
+    );
+
+    const registryDir = path.join(
+      skipDir,
+      ".gstack",
+      "build-state",
+      "active-runs",
+    );
+    const runId = "test-exit13-run";
+
+    const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+    const result = spawnSync(
+      "bun",
+      [
+        "run",
+        cliPath,
+        planFile,
+        "--project-root",
+        repo,
+        "--skip-ship",
+        "--no-plan-review",
+        "--test-cmd",
+        "bun test",
+        "--no-gbrain",
+        "--run-id",
+        runId,
+        "--active-run-registry",
+        registryDir,
+      ],
+      {
+        env: {
+          ...process.env,
+          HOME: skipDir,
+          GSTACK_HOME: path.join(skipDir, ".gstack"),
+        },
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
+
+    expect(result.status).toBe(13); // FINALIZATION_REQUIRED
+
+    const records = fs
+      .readdirSync(registryDir)
+      .filter((f) => f.endsWith(".json"));
+    expect(records.length).toBe(1);
+    const record = JSON.parse(
+      fs.readFileSync(path.join(registryDir, records[0]), "utf8"),
+    );
+    expect(record.status).toBe("paused"); // not "failed" — concurrency gate must treat exit-13 as non-terminal
+  } finally {
+    fs.rmSync(skipDir, { recursive: true, force: true });
+  }
+});
+
 test("normal resume ships origin-verified features before starting later features", () => {
   const resumeDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "gstack-resume-ship-feature-"),

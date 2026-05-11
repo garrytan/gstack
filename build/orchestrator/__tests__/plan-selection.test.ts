@@ -158,6 +158,52 @@ describe("plan resolver", () => {
     expect(result.selected?.path).toBe(open);
   });
 
+  test("source plan with abandoned setup claim (dead PID 9999999, status:'claimed', no runIds) is auto-selected", () => {
+    const repo = gstackRepo();
+    const plan = sourcePlan(repo, "interrupted-plan-1.md");
+    writeJson(canonicalSourcePlanClaimPath(repo, plan), {
+      sourcePlanPath: plan,
+      pid: 9999999,
+      status: "claimed",
+    });
+
+    const result = resolvePlanSelection({
+      gstackRepo: repo,
+      activeRunRegistry: path.join(tmpDir, "state"),
+    });
+
+    expect(result.result).toBe("selected");
+    expect(result.selected?.path).toBe(plan);
+  });
+
+  test("source plan with dead-PID manifested claim is NOT auto-selected as stale", () => {
+    const repo = gstackRepo();
+    const plan = sourcePlan(repo, "manifested-plan-1.md");
+    writeJson(canonicalSourcePlanClaimPath(repo, plan), {
+      sourcePlanPath: plan,
+      pid: 9999999,
+      status: "manifested",
+    });
+
+    const result = resolvePlanSelection({ gstackRepo: repo });
+
+    expect(result.result).not.toBe("selected");
+  });
+
+  test("source plan with live claimed process is still blocked", () => {
+    const repo = gstackRepo();
+    const plan = sourcePlan(repo, "live-claimed-plan-1.md");
+    writeJson(canonicalSourcePlanClaimPath(repo, plan), {
+      sourcePlanPath: plan,
+      pid: process.pid,
+      status: "claimed",
+    });
+
+    const result = resolvePlanSelection({ gstackRepo: repo });
+
+    expect(result.result).not.toBe("selected");
+  });
+
   test("--all-inbox selects every unclaimed source plan instead of treating them as ambiguous", () => {
     const repo = gstackRepo();
     const first = sourcePlan(repo, "first-plan-1.md");

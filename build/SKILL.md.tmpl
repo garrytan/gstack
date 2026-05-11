@@ -344,6 +344,15 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
          --arg pid "$$" \
          --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
          '{runGroupId:$runGroupId,sourcePlanPath:$sourcePlanPath,hostname:$hostname,pid:($pid|tonumber),status:"claimed",createdAt:$createdAt}')
+       # Clean up abandoned setup claim: status "claimed", no runIds, dead PID
+       if [ -f "$_CLAIM_PATH" ]; then
+         _EXISTING_STATUS=$(jq -r '.status // "unknown"' "$_CLAIM_PATH" 2>/dev/null || echo "unknown")
+         _EXISTING_RUN_COUNT=$(jq '.runIds // [] | length' "$_CLAIM_PATH" 2>/dev/null || echo "1")
+         _EXISTING_PID=$(jq -r '.pid // 0' "$_CLAIM_PATH" 2>/dev/null || echo "0")
+         if [ "$_EXISTING_STATUS" = "claimed" ] && [ "$_EXISTING_RUN_COUNT" = "0" ] && ! kill -0 "$_EXISTING_PID" 2>/dev/null; then
+           rm -f "$_CLAIM_PATH"
+         fi
+       fi
        if ! (set -C; printf '%s\n' "$_CLAIM_JSON" > "$_CLAIM_PATH") 2>/dev/null; then
          "$_GSTACK_BUILD_CLI" plan-status --gstack-repo "$GSTACK_REPO" "${_PLAN_STATUS_PROJECT_ARGS[@]}"
          echo "ERROR: source plan already claimed after selection: $_SOURCE_PLAN_PATH ($_CLAIM_PATH)" >&2
@@ -353,6 +362,12 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
    }
    _claim_selected_source_plans
    ```
+
+   > **Compaction recovery (setup phase):** If this session resumed after context compaction
+   > and `plan-status` shows a stale setup claim (no manifest, no runIds), re-run `/build`
+   > from Step 1. Do NOT implement the plan directly — all builds must route through
+   > `gstack-build`. The orchestrator enforces TDD loop, worktree isolation, dual-impl,
+   > and Codex review — bypassing it silently drops those quality gates.
 
 4. **Select target product repo(s)**: Target selection happens after source-plan discovery and before any branch work. Do not run `git checkout`, `git pull`, or branch creation here; `gstack-build` owns branch changes and receives the selected child repo through `--project-root`.
 

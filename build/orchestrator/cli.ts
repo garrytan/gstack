@@ -6207,6 +6207,7 @@ async function main() {
   let state: BuildState | undefined;
   let currentBranchAtLaunch = "unknown";
   const startedAt = Date.now();
+  const FINALIZATION_REQUIRED = 13;
   let exitCode = 1;
 
   try {
@@ -7257,7 +7258,7 @@ async function main() {
           args.skipShip &&
           state.features?.some((f) => f.status === "origin_verified")
         ) {
-          exitCode = 13;
+          exitCode = FINALIZATION_REQUIRED;
         }
       }
       if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
@@ -7288,7 +7289,9 @@ async function main() {
         } else {
           updateActiveRunFromState(
             state,
-            exitCode === 0 || exitCode === 13 ? "paused" : "failed",
+            exitCode === 0 || exitCode === FINALIZATION_REQUIRED
+              ? "paused"
+              : "failed",
           );
         }
       } else if (launch.runId && launch.activeRunRegistry) {
@@ -7311,7 +7314,10 @@ async function main() {
       exitCode = 1;
     }
     logActivity({
-      event: exitCode === 0 || exitCode === 13 ? "success" : "failed",
+      event:
+        exitCode === 0 || exitCode === FINALIZATION_REQUIRED
+          ? "success"
+          : "failed",
       slug,
       durationMs: Date.now() - startedAt,
       exitCode,
