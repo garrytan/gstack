@@ -398,6 +398,7 @@ describe("TDD state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 5,
     dualImpl: false,
+    kind: "code",
   };
   // Legacy 2-checkbox plan: testSpecDone=true via the "no checkbox" compat path.
   // testSpecCheckboxLine=-1 distinguishes it from a real prewritten testspec.
@@ -413,6 +414,7 @@ describe("TDD state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 5,
     dualImpl: false,
+    kind: "code",
   };
   // Real prewritten testspec: checkbox exists in the plan (testSpecCheckboxLine >= 0)
   // and is already checked. Differs from legacy which has testSpecCheckboxLine = -1.
@@ -428,6 +430,7 @@ describe("TDD state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 12,
     dualImpl: false,
+    kind: "code",
   };
   const prewrittenDual: Phase = { ...prewrittenPhase, dualImpl: true };
 
@@ -613,6 +616,7 @@ describe("Dual-implementor state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 5,
     dualImpl: true,
+    kind: "code",
   };
   const singlePhase: Phase = { ...dualPhase, dualImpl: false };
 

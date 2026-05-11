@@ -36,6 +36,7 @@ function makePhase(overrides?: Partial<Phase>): Phase {
     implementationDone: false,
     reviewDone: false,
     dualImpl: false,
+    kind: 'code',
     ...overrides,
   };
 }

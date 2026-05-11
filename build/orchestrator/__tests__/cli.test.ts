@@ -92,6 +92,7 @@ const basePhase: Phase = {
   implementationDone: false,
   reviewDone: false,
   dualImpl: false,
+  kind: "code",
 };
 
 function expectParseArgsExit(argv: string[], message: string): void {
@@ -2909,6 +2910,7 @@ describe("reconcileVisiblePlanState", () => {
       reviewCheckboxLine: 4,
       testSpecCheckboxLine: 2,
       dualImpl: false,
+      kind: "code",
       ...overrides,
     };
   }
