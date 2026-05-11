@@ -2529,6 +2529,12 @@ export function sanitizeReviewFeedback(raw: string): string {
 export const BLOCKED_GITIGNORE_PATTERN = "BLOCKED*.md";
 
 /**
+ * Exit code used when --skip-ship leaves features at origin_verified.
+ * Step 3 (ship + archive) is still pending finalization.
+ */
+export const FINALIZATION_REQUIRED = 13;
+
+/**
  * Append the BLOCKED*.md gitignore pattern to a project's .gitignore
  * exactly once per project. Idempotent. Best-effort: write failures are
  * logged but not fatal — the BLOCKED.md write is the primary user-visible
@@ -7351,7 +7357,7 @@ async function main() {
           args.skipShip &&
           state.features?.some((f) => f.status === "origin_verified")
         ) {
-          exitCode = 13;
+          exitCode = FINALIZATION_REQUIRED;
         }
       }
       if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
@@ -7382,7 +7388,7 @@ async function main() {
         } else {
           updateActiveRunFromState(
             state,
-            exitCode === 0 || exitCode === 13 ? "paused" : "failed",
+            exitCode === 0 || exitCode === FINALIZATION_REQUIRED ? "paused" : "failed",
           );
         }
       } else if (launch.runId && launch.activeRunRegistry) {
@@ -7405,7 +7411,7 @@ async function main() {
       exitCode = 1;
     }
     logActivity({
-      event: exitCode === 0 || exitCode === 13 ? "success" : "failed",
+      event: exitCode === 0 || exitCode === FINALIZATION_REQUIRED ? "success" : "failed",
       slug,
       durationMs: Date.now() - startedAt,
       exitCode,
