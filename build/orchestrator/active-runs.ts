@@ -75,7 +75,8 @@ export function removeActiveRunRecord(
   try {
     fs.unlinkSync(activeRunRecordPath(registryDir, runId));
   } catch (err: any) {
-    if (err.code !== "ENOENT") throw err;
+    if (err.code === "ENOENT") return;
+    // Swallow cleanup failures (EPERM, EACCES, etc.) — do not block new builds
   }
 }
 

@@ -4,6 +4,7 @@ import {
   defaultActiveRunRegistryDir,
   isPidAlive,
   readActiveRunRecords,
+  removeActiveRunRecord,
   type ActiveRunRecord,
 } from "./active-runs";
 import { loadMonitorManifest } from "./monitor";
@@ -484,9 +485,15 @@ function activeRunOnlyCandidates(
   opts: ResolvePlanSelectionOptions,
   manifestRunIds: Set<string>,
 ): PlanCandidate[] {
-  return readActiveRunRecords(
-    opts.activeRunRegistry ?? defaultActiveRunRegistryDir(),
-  )
+  const registryDir = opts.activeRunRegistry ?? defaultActiveRunRegistryDir();
+  return readActiveRunRecords(registryDir)
+    .filter((record) => {
+      if (record.status === "paused" && !isPidAlive(record.pid)) {
+        removeActiveRunRecord(registryDir, record.runId);
+        return false;
+      }
+      return true;
+    })
     .filter((record) => !manifestRunIds.has(record.runId))
     .filter((record) => repoMatches(activeRunRepoPath(record), opts.projectRoot))
     .map(activeRunCandidate);
