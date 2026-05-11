@@ -1,0 +1,272 @@
+---
+name: plan-status
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Check progress of a gstack plan against the current codebase and git log.
+  Reads a plan file (CEO plan, eng plan, or any gstack plan doc), extracts
+  phases and success-criteria checkboxes, cross-references git commits and
+  filesystem state, and produces a done/in-progress/remaining status report.
+  Use when: "plan status", "how far along is the plan", "what's done",
+  "what's left", "check plan progress", "where are we on the plan". (gstack)
+triggers:
+  - plan status
+  - how far along
+  - what's done on the plan
+  - what's left on the plan
+  - check plan progress
+  - where are we on the plan
+allowed-tools:
+  - Bash
+  - Read
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+## Plan-status Setup
+
+```bash
+{{SLUG_SETUP}}
+_REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")
+_PLAN_GLOB=$(~/.claude/skills/gstack/bin/gstack-config get plan_glob 2>/dev/null || echo "")
+_PLAN_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
+echo "SLUG_RESOLVED: ${SLUG:-unknown}"
+echo "PLAN_DIR: $_PLAN_DIR"
+if [ -n "$_PLAN_GLOB" ]; then
+  _PLANS=$(ls -t $_PLAN_GLOB 2>/dev/null | head -10)
+else
+  _PLANS=$(find "$_PLAN_DIR" -name "*.md" 2>/dev/null | grep -E "ceo-plans|eng-plans" | sort -r | head -10)
+fi
+echo "AVAILABLE_PLANS:"
+if [ -z "$_PLANS" ]; then
+  echo "No plans found in $_PLAN_DIR. Run /office-hours or /plan-ceo-review to create one."
+else
+  echo "$_PLANS"
+fi
+_GIT_LOG=$(git log --oneline $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)..HEAD 2>/dev/null | head -30)
+echo "BRANCH_COMMITS:"
+echo "$_GIT_LOG"
+_ANALYTICS="$HOME/.gstack/analytics/skill-usage.jsonl"
+echo "SKILL_ANALYTICS:"
+if [ -f "$_ANALYTICS" ] && [ -n "$_REPO" ] && [ "$_REPO" != "unknown" ]; then
+  grep "\"repo\":\"$_REPO\"" "$_ANALYTICS" 2>/dev/null | tail -200
+else
+  echo "none"
+fi
+```
+
+Note: `plan_glob` is read from `~/.gstack/config.yaml` via `gstack-config` — not from environment variables or user input. Configure it with: `~/.claude/skills/gstack/bin/gstack-config set plan_glob "~/board-plans/*.md"`. Paths with spaces in directory names are not supported in v1.
+
+## Plan Mode Safe Operations
+
+In plan mode, allowed because they inform the plan: reads from `~/.gstack/`, reads from the codebase, `git log`, `git diff`, `find`, `ls`.
+
+## Skill Invocation During Plan Mode
+
+If the user invokes this skill in plan mode, follow it step by step. This skill is read-only — it never edits files. AskUserQuestion satisfies plan mode's end-of-turn requirement if no plan file is auto-resolved.
+
+---
+
+## Step 0 — Resolve the plan file
+
+If the user named a specific plan file in their message, use that path directly.
+
+Otherwise, use the `AVAILABLE_PLANS` list from the Setup block to pick the most relevant plan:
+- If only one plan exists for this project, use it.
+- If the current branch name appears in a plan filename, prefer that one.
+- If multiple plans exist with no clear match, use AskUserQuestion to let the user pick.
+- If `AVAILABLE_PLANS` is empty, stop and display the empty-state message from Setup.
+
+Read the resolved plan file in full before proceeding.
+
+## Step 1 — Extract structure
+
+From the plan file, identify:
+
+1. **Phases** — sections headed `### Phase N` or `## Phase N` or similar. Note the name and summary of each.
+2. **Success criteria checkboxes** — lines matching `- [ ]` (incomplete) or `- [x]` (complete). These are ground truth from the plan author.
+3. **File/directory references** — any `app/`, `config/`, `db/`, `test/` paths mentioned in the plan that we can verify exist or not.
+4. **Gem/dependency references** — any gem names mentioned as "add" or "remove" that we can verify in Gemfile.
+5. **Pre-migration checklist items** — if present, extract as a separate list.
+
+## Step 2 — Gather evidence
+
+Run these checks. Do them in parallel where possible.
+
+**Git evidence:**
+```bash
+# Commits on this branch since diverging from main
+git log --oneline $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)..HEAD 2>/dev/null
+
+# Files changed on this branch
+git diff --name-only $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)..HEAD 2>/dev/null
+```
+
+**Filesystem evidence** — for each file/directory the plan says should exist or be deleted, check:
+```bash
+# Check existence of files the plan says should exist
+ls <path> 2>/dev/null || echo "MISSING: <path>"
+
+# Check deletion of files the plan says should be gone
+ls <path> 2>/dev/null && echo "STILL EXISTS: <path>" || echo "DELETED: <path>"
+```
+
+**Gemfile evidence** — for each gem the plan says to add or remove:
+```bash
+grep -E "gem .\"<gemname>\"" Gemfile 2>/dev/null && echo "PRESENT" || echo "ABSENT"
+```
+
+**Config/initializer evidence** — for any initializers or config the plan says to create:
+```bash
+ls config/initializers/<name>.rb 2>/dev/null && echo "EXISTS" || echo "MISSING"
+```
+
+## Step 3 — Classify each item
+
+For each phase and each success-criteria checkbox, assign one of:
+
+- **DONE** — evidence confirms it: file exists/deleted as expected, gem added/removed, commit message matches, checkbox already `[x]`
+- **PARTIAL** — some evidence but not complete (e.g. file exists but a required method is missing)
+- **REMAINING** — no evidence; checkbox still `[ ]` and no corroborating git/filesystem signal
+- **DROPPED** — plan explicitly marks it dropped/removed/n/a
+
+**Classification rules:**
+- Use the evidence conservatively. If you're uncertain, mark REMAINING rather than DONE — a false positive is worse than a false negative.
+- File existence alone is not sufficient to mark a planning artifact DONE. Require a content signal: a named section heading matching the plan's description, a completion marker, or a matching `[x]` checkbox within the file.
+- Commit message matching is a strong positive signal. If the commit message explicitly names the deliverable, weight it heavily.
+- A `[x]` checkbox in the plan file is ground truth from the plan author — mark DONE regardless of other evidence.
+
+## Step 4 — Produce the status report
+
+Output a structured report in three sections.
+
+### Section A: gstack Lifecycle Dashboard
+
+Parse the `SKILL_ANALYTICS` output from the Setup block. Each line is a JSON object:
+`{"skill":"...","ts":"2026-05-11T22:00:00Z","repo":"..."}`.
+
+For each canonical skill in the table below, count occurrences and find the most recent `ts` (format as `YYYY-MM-DD HH:MM`). For the `(commits)` row, use the `BRANCH_COMMITS` count from the Setup block.
+
+**Status per row:**
+- 0 runs: Status = `—`, Last Run = `—`
+- > 0 runs: Status = `DONE`, Last Run = most recent timestamp
+- `(commits)` row: Status = `DONE` if commits > 0, `—` if 0; Last Run = `—` always
+
+**Required column:**
+- `YES` for: `/plan-eng-review`, `(commits)`, `/review`, `/ship`
+- `no` for all others
+
+**VERDICT logic:**
+- Count required YES rows where Status = `—` (not yet run), including `(commits)` if 0 commits
+- 0 REMAINING: `CLEARED — all required lifecycle steps complete`
+- All required REMAINING (nothing run): `NOT STARTED`
+- Otherwise: `IN PROGRESS — N required skill(s) REMAINING: [names]`
+
+Display:
+
+```
++====================================================================================+
+|                         GSTACK LIFECYCLE DASHBOARD                                 |
++====================================================================================+
+| Phase    | Skill               | Runs | Last Run         | Status   | Required    |
+|----------|---------------------|------|------------------|----------|-------------|
+| Think    | /office-hours       |  0   | —                | —        | no          |
+| Plan     | /plan-ceo-review    |  0   | —                | —        | no          |
+|          | /plan-eng-review    |  0   | —                | —        | YES         |
+|          | /plan-design-review |  0   | —                | —        | no          |
+|          | /plan-devex-review  |  0   | —                | —        | no          |
+|          | /autoplan           |  0   | —                | —        | no          |
+| Build    | (commits)           |  0   | —                | —        | YES         |
+| Review   | /review             |  0   | —                | —        | YES         |
+|          | /design-review      |  0   | —                | —        | no          |
+| Test     | /qa                 |  0   | —                | —        | no          |
+|          | /qa-only            |  0   | —                | —        | no          |
+|          | /benchmark          |  0   | —                | —        | no          |
+| Ship     | /ship               |  0   | —                | —        | YES         |
+|          | /land-and-deploy    |  0   | —                | —        | no          |
+| Reflect  | /retro              |  0   | —                | —        | no          |
+|          | /document-release   |  0   | —                | —        | no          |
++------------------------------------------------------------------------------------+
+| VERDICT: NOT STARTED                                                                |
++====================================================================================+
+```
+
+Fill in real values from the analytics data; the table above shows the all-zero baseline shape.
+
+### Section B: Other Observed Skills
+
+After building the lifecycle dashboard, collect any skill names from `SKILL_ANALYTICS` that are NOT in the canonical skill list above and NOT `plan-status` itself. Display a companion table:
+
+```
++================================================+
+|          OTHER OBSERVED SKILLS                 |
+|  (not yet mapped to lifecycle dashboard)       |
++================================================+
+| Skill              | Runs | Last Run           |
+|--------------------+------+--------------------|
+| /investigate       |  2   | 2026-05-10 14:00   |
+| /codex             |  1   | 2026-05-09 11:00   |
++------------------------------------------------+
+| 2 skills observed                              |
++================================================+
+```
+
+If no unlisted skills appear:
+```
+Other observed skills: none — all analytics entries are covered by the lifecycle dashboard above.
+```
+
+This table is self-maintaining: any new gstack skill that gets invoked on the project surfaces here automatically.
+
+### Section C: Plan Detail
+
+```
+## Plan Status: <plan filename>
+Branch: <branch> | As of: <today's date>
+
+### Phase Summary
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 0: Foundation | DONE | All gems added, initializers present |
+| Phase 1: Schema | DONE | Migrations in db/migrate/ |
+| Phase 7: RAG migration | REMAINING | NotImplementedError stubs; no RubyLLM.embed calls |
+
+### Success Criteria
+| Item | Status |
+|------|--------|
+| [ ] ruby_llm install generator accepted | DONE |
+| [ ] langchainrb removed from Gemfile | REMAINING |
+| [ ] Cross-tenant scoping test passes | REMAINING |
+| [ ] ActsAsTenant require_tenant = true | PARTIAL — dev only, not production |
+
+### Branch Commits
+| Hash    | Message                                  | In Scope |
+|---------|------------------------------------------|----------|
+| a1b2c3d | feat: add ruby_llm gem and initializer   | YES      |
+| e4f5g6h | chore: remove langchainrb from Gemfile   | YES      |
+| i7j8k9l | fix: unrelated bug in user controller    | NO       |
+
+### Pre-Migration Checklist (if present)
+List any checklist items from the plan and their resolved status.
+
+### Summary
+X of Y phases complete. Z of W success criteria met.
+Key blockers: <list the REMAINING items that appear most critical>
+Suggested next action: <one concrete next step>
+```
+
+**Notes column:** one phrase, not a sentence. Goal is a scannable dashboard, not a prose report.
+
+**Branch Commits:** For each commit in `BRANCH_COMMITS`, classify `In Scope` as YES if the commit message or changed files directly correspond to a plan deliverable (phase name, file reference, or gem reference from Step 1). Mark NO for commits unrelated to the plan.
+
+## Step 5 — Offer next action
+
+After the report, offer one of:
+- "Want me to start on [top REMAINING item]?"
+- "Want me to update the plan file's checkboxes to reflect what's done?"
+- Nothing, if the plan is 100% complete — just say so.
+
+Do not auto-start work. User decides.
