@@ -29,13 +29,6 @@ export type PhaseKind =
   | "research"
   | "manual";
 
-export type PhaseKind =
-  | "code"
-  | "writing"
-  | "experiment"
-  | "research"
-  | "manual";
-
 export type PhaseStatus =
   | "pending"
   | "test_spec_running"
