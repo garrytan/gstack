@@ -1783,3 +1783,22 @@ Explicitly deferred from the v1.28.0.0 /plan-eng-review. Ship now; revisit when 
 **Effort:** S (human: ~1 day / CC: ~20 min)
 **Priority:** P2
 **Depends on:** ship-failure failureReason fix (landed in this branch)
+
+## P2: Pre-build synthesis-time plan format validator
+
+**What:** Before `gstack-build monitor` starts the orchestration loop, validate that the plan file uses labeled checkpoint markers (not flat task-list checkboxes). If `parsePlan()` returns `droppedPhasesCount > 0`, emit a clear warning before any agents are spawned — rather than letting the run start, run through all phases, and then exit with a confusing "no executable phases found" error.
+
+**Why:** The root cause of the "step-transition / living plan parse" bug (2026-05-11) was an AI synthesizer that used structural mirroring — 3 `### Phase` headings named after TDD steps (Test Specification, Implementation, Review & QA), each with flat task-list checkboxes instead of labeled checkpoint markers. The fix landed in `cli.ts` improves the error message after parse, but catching it before the loop starts (and possibly auto-rewriting the plan to the correct format) would be better DX.
+
+**Candidate approaches:**
+
+1. **Warn-only:** If `droppedPhasesCount > 0`, print warning + hint and exit early (before spawning any agents). Low effort, good DX.
+2. **Auto-rewrite:** Detect structural-mirroring format and reformat the plan file to use labeled checkpoint markers. Requires understanding the synthesizer's intent from the phase names.
+3. **Synthesis-time check:** Validate in the synthesizer/claim-creation flow before the plan is written to disk.
+
+**Pros:** Eliminates the "runs 0 phases silently" failure class. Gives users actionable feedback before any credits are spent on sub-agents.
+**Cons:** Approach 2 and 3 require significant design work. Approach 1 is already partially addressed by the `droppedPhasesCount` hint added to `cli.ts`.
+
+**Effort:** S for approach 1 (already done in `cli.ts`), M for approach 2 (human: ~1 day / CC: ~30 min), L for approach 3.
+**Priority:** P2
+**Blocked by:** Design decision on which approach to pursue.
