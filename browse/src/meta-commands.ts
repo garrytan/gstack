@@ -16,6 +16,7 @@ export { validateOutputPath, escapeRegExp } from './path-security';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
@@ -917,7 +918,7 @@ export async function handleMetaCommand(
 
       const config = resolveConfig();
       const stateDir = path.join(config.stateDir, 'browse-states');
-      fs.mkdirSync(stateDir, { recursive: true });
+      mkdirSecure(stateDir);
       const statePath = path.join(stateDir, `${name}.json`);
 
       if (action === 'save') {
@@ -929,7 +930,7 @@ export async function handleMetaCommand(
           cookies: state.cookies,
           pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
         };
-        fs.writeFileSync(statePath, JSON.stringify(saveData, null, 2), { mode: 0o600 });
+        writeSecureFile(statePath, JSON.stringify(saveData, null, 2));
         return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages)\n⚠️  Cookies stored in plaintext. Delete when no longer needed.`;
       }
 

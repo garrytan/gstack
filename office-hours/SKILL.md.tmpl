@@ -440,7 +440,7 @@ Rules:
 
 **RECOMMENDATION:** Choose [X] because [one-line reason mapped to the founder's stated goal].
 
-Emit ONE AskUserQuestion that lists every alternative (A/B and optionally C) as numbered options, using the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — write the question text and call the tool. If no AskUserQuestion variant is callable in this session, follow the preamble's "Tool resolution" fallback: in plan mode, write `## Decisions to confirm` into the plan file and ExitPlanMode; outside plan mode, output the decision brief as prose and stop. Never silently auto-decide.
+Emit ONE AskUserQuestion that lists every alternative (A/B and optionally C) as numbered options, using the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — write the question text and call the tool.
 
 **STOP.** Do NOT proceed to Phase 4.5 (Founder Signal Synthesis), Phase 5 (Design Doc), Phase 6 (Closing), or any design-doc generation until the user responds. A "clearly winning approach" is still an approach decision and still needs explicit user approval before it lands in the design doc. Writing the recommendation in chat prose and continuing forward is the failure mode this gate exists to prevent.
 

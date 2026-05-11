@@ -268,16 +268,16 @@ If multiple suites need to run, run them sequentially (each needs a test lane). 
 > {{PLAN_COMPLETION_AUDIT_SHIP}}
 >
 > After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-> `{"total_items":N,"done":N,"changed":N,"deferred":N,"summary":"<markdown checklist for PR body>"}`
+> `{"total_items":N,"done":N,"changed":N,"deferred":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}`
 
 **Parent processing:**
 
 1. Parse the LAST line of the subagent's output as JSON.
-2. Store `done`, `deferred` for Step 20 metrics; use `summary` in PR body.
-3. If `deferred > 0` and no user override, present the deferred items via AskUserQuestion before continuing.
-4. Embed `summary` in PR body's `## Plan Completion` section (Step 19).
+2. Store `done`, `deferred`, `unverifiable` for Step 20 metrics; use `summary` in PR body.
+3. If `deferred > 0` or `unverifiable > 0` and no user override, present the items via the appropriate AskUserQuestion (see Gate Logic priority order above) before continuing.
+4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). If `unverifiable > 0` and the user picked option A in the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` listing each user-confirmed item.
 
-**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline. Never block /ship on subagent failure.
+**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit AskUserQuestion: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
 
 ---
 
@@ -406,6 +406,11 @@ For each comment in `comments`:
 **Idempotency check:** Before bumping, classify the state by comparing `VERSION` against the base branch AND against `package.json`'s `version` field. Four states: FRESH (do bump), ALREADY_BUMPED (skip bump), DRIFT_STALE_PKG (sync pkg only, no re-bump), DRIFT_UNEXPECTED (stop and ask).
 
 ```bash
+if ! git rev-parse --verify origin/<base> >/dev/null 2>&1; then
+  echo "ERROR: Unable to resolve origin/<base>. Run 'git fetch origin' or verify the base branch exists."
+  exit 1
+fi
+
 BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
 CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
 [ -z "$BASE_VERSION" ] && BASE_VERSION="0.0.0.0"

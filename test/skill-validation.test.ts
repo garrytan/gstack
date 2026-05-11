@@ -1297,6 +1297,16 @@ describe('Codex skill', () => {
     expect(content).toContain('codex exec resume');
   });
 
+  test('codex/SKILL.md resume command only uses resume-supported flags', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    const match = content.match(/codex exec resume[^\n]+/);
+    expect(match).not.toBeNull();
+    const resumeCommand = match![0];
+    expect(resumeCommand).not.toContain(' -C ');
+    expect(resumeCommand).not.toContain(' -s read-only');
+    expect(resumeCommand).toContain("-c 'sandbox_mode=\"read-only\"'");
+  });
+
   test('codex/SKILL.md contains cost tracking', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('tokens used');
@@ -1330,6 +1340,17 @@ describe('Codex skill', () => {
   test('codex/SKILL.md uses mktemp for temp files', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('mktemp');
+  });
+
+  test('codex JSON stream parser uses portable Python discovery', () => {
+    const files = ['codex/SKILL.md.tmpl', 'codex/SKILL.md'];
+
+    for (const rel of files) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).toContain('PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)');
+      expect(content).toContain('PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c');
+      expect(content).not.toContain('PYTHONUNBUFFERED=1 python3 -u -c');
+    }
   });
 
   test('adversarial review in /review always runs both passes', () => {

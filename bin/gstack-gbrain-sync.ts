@@ -31,12 +31,12 @@
 
 import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
 import { join, dirname } from "path";
-import { execSync, execFileSync, spawnSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { sourcePageCount } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, sourcePageCount } from "../lib/gbrain-sources";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -159,17 +159,43 @@ function originUrl(): string | null {
 }
 
 /**
- * Derive a stable source id for the cwd code corpus. Pattern: `gstack-code-<slug>`.
+ * Derive a worktree-aware source id for the cwd code corpus.
  *
- * gbrain enforces source ids to be 1-32 lowercase alnum chars with optional interior
- * hyphens. We use the last two segments of the canonical remote (org/repo) and skip
- * the host — `github.com` etc. is the same for nearly every user and just eats budget.
- * If the resulting id still exceeds 32 chars, we keep the tail (most distinctive end)
- * and append a 6-char hash of the full slug for collision resistance.
+ * Pattern: `gstack-code-<slug>-<pathhash8>` where slug comes from origin
+ * (org/repo) and pathhash8 is the first 8 hex chars of sha1(absolute repo
+ * path). The pathhash8 is what makes Conductor worktrees of the same repo
+ * coexist as separate sources in the same gbrain DB instead of stomping on
+ * each other.
  *
  * Falls back to the repo basename when there is no origin (local repo).
+ *
+ * gbrain enforces source ids to be 1-32 lowercase alnum chars with
+ * optional interior hyphens. `constrainSourceId` handles the 32-char cap
+ * with a hashed-tail fallback when the combined slug exceeds budget.
  */
 function deriveCodeSourceId(repoPath: string): string {
+  const pathHash = createHash("sha1").update(repoPath).digest("hex").slice(0, 8);
+  const remote = canonicalizeRemote(originUrl());
+  if (remote) {
+    const segs = remote.split("/").filter(Boolean);
+    const slugSource = segs.slice(-2).join("-");
+    return constrainSourceId("gstack-code", `${slugSource}-${pathHash}`);
+  }
+  const base = repoPath.split("/").pop() || "repo";
+  return constrainSourceId("gstack-code", `${base}-${pathHash}`);
+}
+
+/**
+ * Pre-pathhash source id, kept for orphan detection only.
+ *
+ * Earlier /sync-gbrain versions registered `gstack-code-<slug>` (no pathhash
+ * suffix). On a multi-worktree repo, those collapsed onto a single source id
+ * with last-sync-wins semantics. The new path-keyed id leaves the legacy
+ * source orphaned in the brain — federated cross-source search would return
+ * stale duplicate hits. We remove the legacy id once, on the first new-format
+ * sync from any worktree of this repo, so users don't accumulate orphans.
+ */
+function deriveLegacyCodeSourceId(repoPath: string): string {
   const remote = canonicalizeRemote(originUrl());
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
@@ -264,7 +290,7 @@ function releaseLock(): void {
 
 // ── Stage runners ──────────────────────────────────────────────────────────
 
-function runCodeImport(args: CliArgs): StageResult {
+async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const t0 = Date.now();
   const root = repoRoot();
   if (!root) {
@@ -282,21 +308,37 @@ function runCodeImport(args: CliArgs): StageResult {
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}`,
+      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
       detail: { source_id: sourceId, source_path: root, status: "skipped" },
     };
   }
 
-  // Step 1: Ensure source registered (idempotent).
+  // Step 0: Best-effort cleanup of pre-pathhash legacy source.
+  // Earlier /sync-gbrain versions registered `gstack-code-<slug>` (no path
+  // suffix). On a multi-worktree repo, those collapsed onto a single id
+  // with last-sync-wins. Federated search would return stale duplicate
+  // hits forever if we left the orphan in place. Remove the legacy id once
+  // here so users don't accumulate orphans.
+  // Failure is non-fatal — we still register the new id below.
+  const legacyId = deriveLegacyCodeSourceId(root);
+  let legacyRemoved = false;
+  if (legacyId !== sourceId) {
+    const rm = spawnSync("gbrain", ["sources", "remove", legacyId, "--confirm-destructive"], {
+      encoding: "utf-8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // Treat absent-source as success (clean state). gbrain emits "not found" on
+    // missing id; treat any non-zero exit without "not found" as a soft fail.
+    if (rm.status === 0) legacyRemoved = true;
+  }
+
+  // Step 1: Ensure source registered (idempotent). Single source of truth in lib —
+  // no synchronous duplicate here (per /codex review #12).
   let registered = false;
   try {
-    // ensureSourceRegistered is async — but we're in a sync stage runner. Use a deasync pattern.
-    // Bun supports top-level await in main(), but stage runners are sync per orchestrator contract.
-    // Workaround: run as a child Bun script for the registration probe.
-    // Simpler: call gbrain CLI directly via the sync helpers in lib/gbrain-sources.ts probeSource.
-    // For symmetry, we duplicate the small ensureSourceRegistered logic synchronously here using
-    // execFileSync. (The lib helper is preferred for async callers; sync helpers below.)
-    registered = ensureSourceRegisteredSync(sourceId, root);
+    const result = await ensureSourceRegistered(sourceId, root, { federated: true });
+    registered = result.changed;
   } catch (err) {
     return {
       name: "code",
@@ -329,15 +371,49 @@ function runCodeImport(args: CliArgs): StageResult {
     };
   }
 
-  // Step 3: Read page_count from gbrain sources list.
+  // Step 3: Pin this worktree's CWD to the source via .gbrain-source. Subsequent
+  // gbrain code-def / code-refs / code-callers calls from anywhere under <root>
+  // route to this source by default — no --source flag needed.
+  //
+  // If attach fails the whole flow has a silent correctness problem: sync
+  // succeeded but unqualified `gbrain code-def` from this worktree will hit
+  // the wrong/default source. Treat it as a stage failure (ok=false) so the
+  // verdict block surfaces ERR and the user knows to retry rather than
+  // trusting stale results.
+  const attach = spawnSync("gbrain", ["sources", "attach", sourceId], {
+    encoding: "utf-8",
+    timeout: 10_000,
+    cwd: root,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   const pageCount = sourcePageCount(sourceId);
+  const legacyNote = legacyRemoved ? `, removed legacy ${legacyId}` : "";
+  const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
+
+  if (attach.status !== 0) {
+    const reason = (attach.stderr || attach.stdout || "").trim().split("\n").pop() || `exit ${attach.status}`;
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `${baseSummary}; attach FAILED (${reason}) — code-def queries from this worktree will hit the default source until /sync-gbrain succeeds`,
+      detail: {
+        source_id: sourceId,
+        source_path: root,
+        page_count: pageCount,
+        last_imported: new Date().toISOString(),
+        status: "failed",
+      },
+    };
+  }
 
   return {
     name: "code",
     ran: true,
     ok: true,
     duration_ms: Date.now() - t0,
-    summary: `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"})`,
+    summary: baseSummary,
     detail: {
       source_id: sourceId,
       source_path: root,
@@ -346,62 +422,6 @@ function runCodeImport(args: CliArgs): StageResult {
       status: "ok",
     },
   };
-}
-
-/**
- * Synchronous mirror of ensureSourceRegistered for use inside the synchronous
- * stage runner. Returns true if registration changed (added or re-added).
- */
-function ensureSourceRegisteredSync(id: string, path: string): boolean {
-  // Probe.
-  let probeOut: string;
-  try {
-    probeOut = execFileSync("gbrain", ["sources", "list", "--json"], {
-      encoding: "utf-8",
-      timeout: 10_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
-    const stderr = e.stderr?.toString() || "";
-    if (e.code === "ENOENT") throw new Error("gbrain CLI not on PATH");
-    if (stderr.includes("Cannot connect to database") || stderr.includes("config.json")) {
-      throw new Error("gbrain not configured (run /setup-gbrain)");
-    }
-    throw err;
-  }
-
-  let parsed: { sources?: Array<{ id?: string; local_path?: string }> };
-  try {
-    parsed = JSON.parse(probeOut);
-  } catch (err) {
-    throw new Error(`gbrain sources list returned non-JSON: ${(err as Error).message}`);
-  }
-  const sources = parsed.sources || [];
-  const match = sources.find((s) => s.id === id);
-
-  if (match && match.local_path === path) {
-    return false; // no-op
-  }
-
-  if (match && match.local_path !== path) {
-    const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes"], {
-      encoding: "utf-8",
-      timeout: 30_000,
-    });
-    if (rm.status !== 0) {
-      throw new Error(`gbrain sources remove ${id} failed: ${rm.stderr || rm.stdout || `exit ${rm.status}`}`);
-    }
-  }
-
-  const add = spawnSync("gbrain", ["sources", "add", id, "--path", path, "--federated"], {
-    encoding: "utf-8",
-    timeout: 30_000,
-  });
-  if (add.status !== 0) {
-    throw new Error(`gbrain sources add ${id} failed: ${add.stderr || add.stdout || `exit ${add.status}`}`);
-  }
-  return true;
 }
 
 function runMemoryIngest(args: CliArgs): StageResult {

@@ -37,41 +37,4 @@ describeE2E('plan-design-review plan-mode smoke (gate)', () => {
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
     assertReportAtBottomIfPlanWritten(obs);
   }, 360_000);
-
-  // v1.21+ regression: see skill-e2e-plan-ceo-plan-mode.test.ts for the
-  // contract. plan-design-review legitimately short-circuits on no-UI-scope
-  // branches, so this case keeps the same ['asked', 'plan_ready'] envelope
-  // as the baseline. The discriminating regression signals are
-  // 'auto_decided' (AUTO_DECIDE preamble fired upstream) or any failure
-  // outcome — both mean the user never saw a question they should have.
-  test('does not silently auto-decide when --disallowedTools AskUserQuestion is set', async () => {
-    const obs = await runPlanSkillObservation({
-      skillName: 'plan-design-review',
-      inPlanMode: true,
-      extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-      timeoutMs: 300_000,
-    });
-
-    if (
-      obs.outcome === 'auto_decided' ||
-      obs.outcome === 'silent_write' ||
-      obs.outcome === 'exited' ||
-      obs.outcome === 'timeout'
-    ) {
-      throw new Error(
-        `plan-design-review AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
-          `summary: ${obs.summary}\n` +
-          `elapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-      );
-    }
-    // plan-design-review legitimately short-circuits to plan_ready on no-UI
-    // branches. Allow plan_ready WITHOUT a decisions section ONLY if the
-    // plan file genuinely has no UI scope (we don't have a deterministic way
-    // to check this from the test, so this skill keeps the looser envelope).
-    // Other plan-mode skills require the decisions section under
-    // --disallowedTools; design is the special case.
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
-    assertReportAtBottomIfPlanWritten(obs);
-  }, 360_000);
 });

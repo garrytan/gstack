@@ -33,10 +33,9 @@
  * See test/helpers/claude-pty-runner.ts for runner internals.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test } from 'bun:test';
 import {
   runPlanSkillObservation,
-  planFileHasDecisionsSection,
   assertReportAtBottomIfPlanWritten,
 } from './helpers/claude-pty-runner';
 
@@ -72,68 +71,6 @@ describeE2E('plan-ceo-review plan-mode smoke (gate)', () => {
           `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
       );
     }
-    assertReportAtBottomIfPlanWritten(obs);
-  }, 360_000);
-
-  // v1.21+ regression: Conductor launches Claude Code with
-  // `--disallowedTools AskUserQuestion --permission-mode default` (verified
-  // via `ps` on the live Conductor claude process). Native AskUserQuestion
-  // is removed from the model's tool registry; without fallback guidance
-  // the model can't ask and silently proceeds.
-  //
-  // The fix (Tool resolution preamble) accepts two surface paths under
-  // --disallowedTools:
-  //   - 'asked'      — model emits a numbered-option prompt as prose (with
-  //                     the same D<N> + Pros/cons format as a real AUQ)
-  //   - 'plan_ready' — model writes the question into the plan file as a
-  //                     "## Decisions to confirm" section + ExitPlanMode;
-  //                     the native plan-mode "Ready to execute?" surfaces
-  //                     it through the TTY confirmation
-  //
-  // Both let the user see the decision. Failure signals are
-  // silent_write/exited/timeout (model never surfaced the question) and
-  // 'auto_decided' (the AUTO_DECIDE preamble fired without a /plan-tune
-  // opt-in — caught explicitly).
-  test('AskUserQuestion surfaces when --disallowedTools AskUserQuestion is set', async () => {
-    const obs = await runPlanSkillObservation({
-      skillName: 'plan-ceo-review',
-      inPlanMode: true,
-      extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-      timeoutMs: 300_000,
-    });
-
-    if (
-      obs.outcome === 'auto_decided' ||
-      obs.outcome === 'silent_write' ||
-      obs.outcome === 'exited' ||
-      obs.outcome === 'timeout'
-    ) {
-      throw new Error(
-        `plan-ceo-review AskUserQuestion-blocked regression: outcome=${obs.outcome}\n` +
-          `summary: ${obs.summary}\n` +
-          `elapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-      );
-    }
-    // plan_ready under --disallowedTools is only a pass when the model used
-    // the plan-file fallback (wrote a `## Decisions to confirm` section).
-    // Without that section, plan_ready means the model silently skipped Step 0
-    // and went straight to ExitPlanMode — the regression we're catching.
-    if (obs.outcome === 'plan_ready') {
-      if (!obs.planFile) {
-        throw new Error(
-          `plan-ceo-review AskUserQuestion-blocked regression: outcome=plan_ready but no plan file path detected in TTY output. Cannot verify the model used the fallback flow.\n` +
-            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-        );
-      }
-      if (!planFileHasDecisionsSection(obs.planFile)) {
-        throw new Error(
-          `plan-ceo-review AskUserQuestion-blocked regression: model wrote ${obs.planFile} without a "## Decisions" section. Step 0 was silently skipped.\n` +
-            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-        );
-      }
-    }
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
     assertReportAtBottomIfPlanWritten(obs);
   }, 360_000);
 });

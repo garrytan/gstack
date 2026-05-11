@@ -327,9 +327,18 @@ If you don't have the repo cloned (e.g. you installed via a Claude Code paste an
 # 1. Stop browse daemons
 pkill -f "gstack.*browse" 2>/dev/null || true
 
-# 2. Remove per-skill symlinks pointing into gstack/
-find ~/.claude/skills -maxdepth 1 -type l 2>/dev/null | while read -r link; do
-  case "$(readlink "$link" 2>/dev/null)" in gstack/*|*/gstack/*) rm -f "$link" ;; esac
+# 2. Remove per-skill directories whose SKILL.md points into gstack/
+find ~/.claude/skills -mindepth 1 -maxdepth 1 -type d ! -name gstack 2>/dev/null |
+while IFS= read -r dir; do
+  link="$dir/SKILL.md"
+  [ -L "$link" ] || continue
+  target=$(readlink "$link" 2>/dev/null) || continue
+  case "$target" in
+    gstack/*|*/gstack/*)
+      rm -f "$link"
+      rmdir "$dir" 2>/dev/null || true
+      ;;
+  esac
 done
 
 # 3. Remove gstack

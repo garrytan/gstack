@@ -112,7 +112,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, fall back to writing the decision brief into the plan file as a `## Decisions to confirm` section + ExitPlanMode — never silently auto-decide. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -283,7 +283,7 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 **Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
-**Fallback when neither variant is callable:** in plan mode, write the decision brief into the plan file as a `## Decisions to confirm` section + ExitPlanMode (the native "Ready to execute?" surfaces it). Outside plan mode, output the brief as prose and stop. **Never silently auto-decide** — only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking.
+**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report `BLOCKED — AskUserQuestion unavailable`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
 
 ### Format
 
@@ -349,30 +349,29 @@ _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Mutually exclusive variants per /plan-eng-review §4. Empty string when gbrain
-# is not configured (zero context cost for non-gbrain users).
+# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
+# git toplevel to scope queries. Look for the pin in the worktree (not a global
+# state file) so that opening worktree B without a pin doesn't claim "indexed"
+# just because worktree A was synced. Empty string when gbrain is not
+# configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
-    _CWD_PAGES=0
-    if [ -f "$_SYNC_STATE" ]; then
-      # Flatten newlines so the regex works against pretty-printed JSON too.
-      _CWD_PAGES=$(tr -d '\n' < "$_SYNC_STATE" 2>/dev/null \
-        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \
-        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\+' | head -1)
-      _CWD_PAGES=${_CWD_PAGES:-0}
+    _GBRAIN_PIN_PATH=""
+    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
+      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
-    if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
+    if [ -n "$_GBRAIN_PIN_PATH" ]; then
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
     else
-      echo "GBrain configured but this repo isn't indexed yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this repo."
-      echo "Falls back to Grep until indexed."
+      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
+      echo "before relying on \`gbrain search\` for code questions in this worktree."
+      echo "Falls back to Grep until pinned."
     fi
   fi
 fi
@@ -768,31 +767,28 @@ Before doing anything, check that /setup-gbrain has been run on this Mac.
 ~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null
 ```
 
-**Remote-MCP mode (Path 4 of /setup-gbrain):** if `gbrain_mcp_mode=remote-http`,
-this skill is a graceful no-op. The brain server's own indexing cadence
-handles code import + search refresh; this Mac doesn't run a local gbrain
-CLI to drive `gbrain sources add` / `sync --strategy code`. Print:
+**Split-engine model.** Code stage always runs locally against a per-machine
+PGLite brain (or whatever `gbrain config` points to), with each worktree of a
+repo registered as its own source. Artifacts/memory stages route through
+whatever `setup-gbrain` configured — including remote-MCP (Path 4). The two
+sides are independent: code lookups are local + worktree-scoped, artifacts
+remain cross-machine.
 
-> "Remote MCP detected (Path 4). /sync-gbrain is local-mode-only in V1.
-> Your brain server (`<host>` from claude.json) handles indexing on its own
-> cadence. If indexing seems stale, ping your brain admin or trigger a
-> manual sync there. To wire `/sync-gbrain` through MCP tools (when gbrain
-> ships `mcp__gbrain__sources_add` and friends), see the v1.27.0.0+
-> follow-on TODO."
+A previous version of this skill bounced remote-MCP users out of the code
+stage entirely. That was wrong: the code-stage CLI calls (`gbrain sources
+add`, `sync --strategy code`, `sources attach`) target the LOCAL gbrain CLI
++ DB regardless of whether `~/.claude.json` has `gbrain` registered as a
+remote HTTP MCP for artifacts. We no longer skip the code stage in
+remote-MCP mode.
 
-Then exit cleanly. Do NOT proceed to Step 2.
+If `gbrain_on_path=false` OR `gbrain_config_exists=false`, STOP and tell
+the user:
 
-For local-stdio mode and unconfigured states:
+> "/sync-gbrain requires /setup-gbrain to be run first. Run `/setup-gbrain`
+> to install gbrain, register the MCP server, and set per-repo trust policy."
 
-If `gbrain_on_path=false` OR `gbrain_config_exists=false` OR CLAUDE.md does
-not contain `## GBrain Configuration (configured by /setup-gbrain)`, STOP and
-tell the user:
-
-> "/sync-gbrain requires /setup-gbrain to be run first. Run `/setup-gbrain` to
-> install gbrain, register the MCP server, and set per-repo trust policy."
-
-Do NOT continue — the skill is unsafe when gbrain isn't configured (we'd
-write a CLAUDE.md guidance block referencing tools that don't exist).
+Do NOT continue — the skill is unsafe when the local gbrain CLI is missing
+(we'd write a CLAUDE.md guidance block referencing tools that don't exist).
 
 Also check the per-repo trust policy. If `gstack-gbrain-repo-policy get` for
 this repo returns `deny`, STOP:
@@ -887,8 +883,18 @@ Verbatim block content (copy exactly):
 
 GBrain is set up and synced on this machine. The agent should prefer gbrain
 over Grep when the question is semantic or when you don't know the exact
-identifier yet. Two indexed corpora available via the `gbrain` CLI:
-- This repo's code (registered as `gstack-code-<repo>` source).
+identifier yet.
+
+**This worktree is pinned to a worktree-scoped code source** via the
+`.gbrain-source` file in the repo root (kubectl-style context). Any
+`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, or `query`
+call from anywhere under this worktree routes to that source by default —
+no `--source` flag needed. Conductor sibling worktrees of the same repo
+each have their own pin and their own indexed pages, so semantic results
+match the actual code on disk in this worktree.
+
+Two indexed corpora available via the `gbrain` CLI:
+- This worktree's code (auto-pinned via `.gbrain-source`).
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
@@ -903,8 +909,9 @@ Prefer gbrain when:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. The brain auto-syncs incrementally on every gstack skill start.
-Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
+file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
+auto-sync across all worktrees, run `gbrain autopilot --install` once per
+machine — gbrain's daemon handles incremental refresh on a schedule.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```
