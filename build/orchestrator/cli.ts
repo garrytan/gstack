@@ -3928,6 +3928,7 @@ export function markPhaseCommittedAfterManualRecovery(args: {
       planFile: args.planFile,
       implementationLine: phase.implementationCheckboxLine,
       reviewLine: phase.reviewCheckboxLine,
+      kind: phase.kind,
     });
     if (flips.implementation.error || flips.review.error) {
       return {
@@ -4340,6 +4341,7 @@ async function runPhase(args: {
           planFile: state.planFile,
           implementationLine: phase.implementationCheckboxLine,
           reviewLine: phase.reviewCheckboxLine,
+          kind: phase.kind,
         });
         if (flips.implementation.error || flips.review.error) {
           state.failedAtPhase = phase.index;
