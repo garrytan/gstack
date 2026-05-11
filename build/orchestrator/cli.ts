@@ -32,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { ExitError } from "./errors";
 import { parsePlan, isPhaseComplete } from "./parser";
 import {
   freshState,
@@ -6464,9 +6465,8 @@ async function main() {
           // Persist sentinel so the gate re-fires on resume instead of looping infinitely.
           state.planReview = { ...verdict, status: "critical_exit_pending" } as any;
           saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-          // Release the lock explicitly since process.exit bypasses the finally block.
-          releaseLock(slug);
-          process.exit(3);
+          // Throw ExitError so the finally block can release the lock before exit.
+          throw new ExitError(3);
         }
         state.planReview = verdict;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
@@ -8053,6 +8053,7 @@ function getCurrentBranch(cwd?: string): string {
 
 if (import.meta.main) {
   main().catch((err) => {
+    if (err instanceof ExitError) process.exit(err.code);
     console.error("fatal:", err);
     process.exit(1);
   });
