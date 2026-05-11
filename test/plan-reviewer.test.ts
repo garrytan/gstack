@@ -317,9 +317,17 @@ describe("reconcilePlanReview — REVISE/IMPORTANT (non-TTY)", () => {
     });
 
     // process.stdin.isTTY is falsy in bun test — auto-accept path runs.
-    const outcome = await reconcilePlanReview(verdict, planPath, {
-      planReviewReportPath: reportPath,
-    });
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    
+    let outcome;
+    try {
+      outcome = await reconcilePlanReview(verdict, planPath, {
+        planReviewReportPath: reportPath,
+      });
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: originalIsTTY, configurable: true });
+    }
 
     expect(outcome).toBe("proceed");
     const content = fs.readFileSync(planPath, "utf8");
