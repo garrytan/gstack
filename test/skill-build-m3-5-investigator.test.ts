@@ -225,6 +225,22 @@ describe("build/SKILL.md.tmpl — Step M3.5 content", () => {
     expect(m35).toContain("FAULT_RUN_ID");
   });
 
+  test("Step M3.5 passes report-path env vars required by the investigator contract", () => {
+    const m35 = extractSection(tmplContent, "### Step M3.5");
+    expect(m35).not.toBeNull();
+    expect(m35).toContain("FAULT_PRIMARY");
+    expect(m35).toContain("FAULT_SECONDARY");
+    expect(m35).toContain("FAULT_EVENT");
+    expect(m35).toContain("FAULT_REPORT_NAME");
+  });
+
+  test("Step M3.5 uses run/category report-file dedupe across fault inbox", () => {
+    const m35 = extractSection(tmplContent, "### Step M3.5");
+    expect(m35).not.toBeNull();
+    expect(m35).toContain("*-\"$_FAULT_RUN_SAFE\"-\"$_FAULT_CATEGORY_SAFE\".md");
+    expect(m35).toContain("skill-fault-${_FAULT_RUN_SAFE}-${_FAULT_CATEGORY_SAFE}.md");
+  });
+
   test("Step M3.5 returns the captured monitor exit code after dispatching investigators", () => {
     const m35 = extractSection(tmplContent, "### Step M3.5");
     expect(m35).not.toBeNull();
