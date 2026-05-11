@@ -537,8 +537,6 @@ export interface Args {
   codexReviewModel: string;
   /** Skip the pre-build working tree dirty check. */
   skipCleanCheck: boolean;
-  /** Skip the unshipped feat/* branch sweep at startup. */
-  skipSweep: boolean;
   /** Original source plan to verify and archive after the living plan completes. */
   originPlan?: string;
   /** Durable run identity used by manifest/worktree launches. */
@@ -630,7 +628,6 @@ export function parseArgs(argv: string[]): Args {
     codexModel: DEFAULT_ROLE_CONFIGS.secondaryImpl.model,
     codexReviewModel: DEFAULT_ROLE_CONFIGS.reviewSecondary.model,
     skipCleanCheck: false,
-    skipSweep: false,
     originPlan: undefined,
     runId: undefined,
     baseProjectRoot: undefined,
@@ -680,7 +677,6 @@ export function parseArgs(argv: string[]): Args {
       }
       args.releaseMode = next;
     } else if (a === "--skip-clean-check") args.skipCleanCheck = true;
-    else if (a === "--skip-sweep") args.skipSweep = true;
     else if (a === "--allow-workspace-root") args.allowWorkspaceRoot = true;
     else if (a === "--json") args.planStatusJson = true;
     else if (a === "--all") args.planStatusAll = true;
@@ -1738,7 +1734,6 @@ Flags:
                        release daemon. auto-land preserves legacy /ship +
                        /land-and-deploy behavior.
   --skip-clean-check   Skip the pre-build working tree dirty check.
-  --skip-sweep         Skip the unshipped feat/* branch sweep at startup.
   --skip-feature-review  Skip the per-feature meta-review pass.
   --feature-review-max-iter N  Cap on per-feature review cycles before
                        hard-fail (F4 will swap this for an interactive
@@ -2840,10 +2835,44 @@ async function verifyOriginPlanFeature(args: {
   return { ok: true, issueLogPath: outputFilePath };
 }
 
+export function extractCoverageTarget(phaseBody: string): number {
+  const m = phaseBody.match(/\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+)%\*\*/i);
+  return m ? parseInt(m[1], 10) : 80;
+}
+
 export function buildGeminiTestSpecPrompt(
   phase: Phase,
   planFile: string,
 ): string {
+  const hasTestSpec = phase.body.includes("#### Test Spec");
+
+  const specInstructions = hasTestSpec
+    ? [
+        `1. Implement ALL test cases listed in the \`#### Test Spec\` section of the phase`,
+        `   description above (minimum requirement). You MAY add additional cases you identify,`,
+        `   but MUST NOT remove or weaken any specified test.`,
+        `2. Aim for the coverage target specified in the spec (≥${extractCoverageTarget(phase.body)}%).`,
+        `   The CLI will measure coverage after you commit — add enough tests to meet the target.`,
+        `3. Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
+        `4. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
+        `5. Use the project's existing test framework and file structure. Inspect the repo to`,
+        `   find the right test directory and naming convention before creating test files.`,
+        `6. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+        `7. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+        `8. Commit the failing tests to the current branch.`,
+        `9. Write your output summary to the output file path (provided in shell prompt).`,
+      ]
+    : [
+        `1. Write failing tests that cover the behavior described above.`,
+        `   Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
+        `2. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
+        `3. Cover: happy path + key edge cases using the project's existing test framework.`,
+        `4. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
+        `5. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
+        `6. Commit the failing tests to the current branch.`,
+        `7. Write your output summary to the output file path (provided in shell prompt).`,
+      ];
+
   return [
     `# Phase ${phase.number}: ${phase.name} — Test Specification`,
     ``,
@@ -2855,14 +2884,7 @@ export function buildGeminiTestSpecPrompt(
     ``,
     `## Instructions`,
     ``,
-    `1. Write failing tests that cover the behavior described above.`,
-    `   Tests MUST fail before any implementation exists — this is the Red phase of TDD.`,
-    `2. Do NOT implement the feature. Do NOT write production code. Write tests ONLY.`,
-    `3. Cover: happy path + key edge cases using the project's existing test framework.`,
-    `4. ${REPO_BOUNDARY_INSTRUCTIONS[0]}`,
-    `5. ${REPO_BOUNDARY_INSTRUCTIONS[1]}`,
-    `6. Commit the failing tests to the current branch.`,
-    `7. Write your output summary to the output file path (provided in shell prompt).`,
+    ...specInstructions,
   ].join("\n");
 }
 
@@ -6110,33 +6132,20 @@ async function main() {
     process.exit(3);
   }
   let state: BuildState | undefined;
-  let currentBranchForSweep = "unknown";
+  let currentBranchAtLaunch = "unknown";
   const startedAt = Date.now();
   let exitCode = 1;
 
   try {
     ensureLogDir(slug);
 
-    currentBranchForSweep = getCurrentBranch(projectRoot);
+    currentBranchAtLaunch = getCurrentBranch(projectRoot);
     writeProvisionalActiveRunRecord({
       launch,
       slug,
       planFile: args.planFile,
-      currentBranchName: currentBranchForSweep,
+      currentBranchName: currentBranchAtLaunch,
     });
-
-    // Sweep only after this run has registered its owned bootstrap/current
-    // branches, so sibling build processes skip this run's branch ownership.
-    if (!args.skipSweep && runStartupGates) {
-      await sweepUnshippedFeatBranches(
-        projectRoot,
-        currentBranchForSweep,
-        slug,
-        args.roles,
-        args.activeRunRegistry,
-        args.baseProjectRoot,
-      );
-    }
 
     let setupFailed = false;
 
@@ -7197,7 +7206,7 @@ async function main() {
           launch,
           slug,
           planFile: args.planFile,
-          currentBranchName: currentBranchForSweep,
+          currentBranchName: currentBranchAtLaunch,
           status: "failed",
         });
       }
@@ -7422,71 +7431,6 @@ export function verifyNoUnmergedFeatBranches(
   return { ok: branches.length === 0, branches };
 }
 
-async function sweepUnshippedFeatBranches(
-  cwd: string,
-  currentBranch: string,
-  slug: string,
-  roles: RoleConfigs,
-  activeRunRegistry: string,
-  baseProjectRoot?: string,
-): Promise<void> {
-  const ignored = activeOwnedBranches(activeRunRegistry, {
-    projectRoot: cwd,
-    baseProjectRoot,
-  });
-  if (ignored.size > 0) {
-    console.log(
-      `\n▶ Skipping active-run branches during startup sweep: ${[...ignored].sort().join(", ")}`,
-    );
-  }
-  const local = new Set(
-    findUnmergedLocalFeatBranches(cwd, currentBranch, {
-      ignoreBranches: ignored,
-    }),
-  );
-  const candidates = findUnshippedFeatBranches(cwd, currentBranch, {
-    ignoreBranches: ignored,
-  })
-    .sort((a, b) => a.localeCompare(b))
-    .map((name) => ({
-      name,
-      hasLocal: local.has(name),
-      hasRemote: true,
-    }));
-  if (candidates.length === 0) return;
-
-  console.log(
-    `\n▶ Unshipped feat/* branches: ${candidates.map((b) => b.name).join(", ")}`,
-  );
-  try {
-    for (const branch of candidates) {
-      const ok = await processMergeBranch({
-        cwd,
-        candidate: branch,
-        slug,
-        roles,
-        maxReviewIterations: DEFAULT_MAX_CODEX_ITERATIONS,
-        dryRun: false,
-        allowSubmoduleRecovery: [],
-      });
-      if (!ok) {
-        console.warn(`  ⚠ merge sweep failed for ${branch.name} — continuing`);
-      }
-    }
-  } finally {
-    // Always restore unconditionally — shipAndDeploy may leave the tree on a
-    // different branch if it crashes mid-checkout, making getCurrentBranch unreliable.
-    const restore = spawnSync("git", ["checkout", currentBranch], {
-      cwd,
-      encoding: "utf8",
-    });
-    if (restore.status !== 0) {
-      console.warn(
-        `  ⚠ could not restore branch: ${currentBranch} — you may be on a different branch`,
-      );
-    }
-  }
-}
 
 function resolveMergeProjectRoot(args: Args): string {
   if (args.projectRoot) {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   buildGeminiTestSpecPrompt,
+  extractCoverageTarget,
   buildDualImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
@@ -137,6 +138,99 @@ describe("buildGeminiTestSpecPrompt", () => {
     const prompt = buildGeminiTestSpecPrompt(basePhase, "plan.md");
     expect(prompt).toContain("do not edit git submodules");
     expect(prompt).toContain("report a plan mismatch");
+  });
+});
+
+describe("buildGeminiTestSpecPrompt — spec-aware path", () => {
+  const specPhase: Phase = {
+    ...basePhase,
+    body: [
+      "Some prose describing the phase.",
+      "",
+      "#### Test Spec",
+      "**Coverage target: ≥80%**",
+      "",
+      "| ID | Scenario | Given | When | Then |",
+      "|----|----------|-------|------|------|",
+      "| T1 | happy path | valid input | call fn | returns result |",
+      "| T2 | error case | null input | call fn | throws TypeError |",
+      "| T3 | boundary | empty list | call fn | returns [] |",
+      "",
+      "**Edge cases to cover:**",
+      "- Empty input",
+    ].join("\n"),
+  };
+
+  it('uses floor language "minimum requirement" instead of "write failing tests"', () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("minimum requirement");
+    expect(prompt.toLowerCase()).not.toContain(
+      "write failing tests that cover",
+    );
+  });
+
+  it("tells test-writer they may add cases beyond the spec", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("MAY add additional cases");
+  });
+
+  it("includes the coverage target from the spec", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("≥80%");
+  });
+
+  it("passes phase body verbatim (including Test Spec section)", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("#### Test Spec");
+    expect(prompt).toContain("T1");
+  });
+
+  it("still tells test-writer not to write implementation code", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt.toLowerCase()).toMatch(
+      /do not implement|do not write.*production/,
+    );
+  });
+
+  it("still enforces red phase (tests must fail before implementation)", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt.toLowerCase()).toContain("must fail");
+  });
+});
+
+describe("extractCoverageTarget", () => {
+  it("extracts percentage from **Coverage target: ≥80%**", () => {
+    expect(extractCoverageTarget("**Coverage target: ≥80%**")).toBe(80);
+  });
+
+  it("defaults to 80 when no coverage target line is present", () => {
+    expect(extractCoverageTarget("some phase body with no coverage line")).toBe(
+      80,
+    );
+  });
+
+  it("handles >=85% variant (ASCII greater-than-or-equal)", () => {
+    expect(extractCoverageTarget("**Coverage target: >=85%**")).toBe(85);
+  });
+
+  it("handles plain > variant", () => {
+    expect(extractCoverageTarget("**Coverage target: >90%**")).toBe(90);
+  });
+
+  it("is case-insensitive", () => {
+    expect(extractCoverageTarget("**coverage target: ≥75%**")).toBe(75);
+  });
+
+  it("extracts from a multi-line phase body", () => {
+    const body = [
+      "Some prose",
+      "",
+      "#### Test Spec",
+      "**Coverage target: ≥82%**",
+      "",
+      "| T1 | ...",
+    ].join("\n");
+    expect(extractCoverageTarget(body)).toBe(82);
   });
 });
 
@@ -980,11 +1074,10 @@ describe("--parallel-phases flag wiring", () => {
   });
 });
 
-describe("--skip-clean-check / --skip-sweep flags", () => {
-  it("parseArgs default -> skipCleanCheck=false, skipSweep=false", () => {
+describe("--skip-clean-check flag", () => {
+  it("parseArgs default -> skipCleanCheck=false", () => {
     const args = parseArgs(["plan.md"]);
     expect(args.skipCleanCheck).toBe(false);
-    expect(args.skipSweep).toBe(false);
   });
 
   it("parseArgs([plan, --skip-clean-check]) -> skipCleanCheck=true", () => {
@@ -992,17 +1085,8 @@ describe("--skip-clean-check / --skip-sweep flags", () => {
     expect(args.skipCleanCheck).toBe(true);
   });
 
-  it("parseArgs([plan, --skip-sweep]) -> skipSweep=true", () => {
-    const args = parseArgs(["plan.md", "--skip-sweep"]);
-    expect(args.skipSweep).toBe(true);
-  });
-
   it("HELP_TEXT contains --skip-clean-check", () => {
     expect(HELP_TEXT).toContain("--skip-clean-check");
-  });
-
-  it("HELP_TEXT contains --skip-sweep", () => {
-    expect(HELP_TEXT).toContain("--skip-sweep");
   });
 
   it("parseArgs rejects removed context-save CLI flags", () => {

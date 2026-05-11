@@ -409,17 +409,41 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      Acceptance: [what must be true for this feature to satisfy the source plan]
 
      ### Phase X: [Phase Name]
-     - [ ] **Test Specification (test-writer role)**: Write failing tests covering the behavior
-       described below. Tests MUST fail during the CLI Verify Red gate before implementation
-       begins. Cover happy path + key edge cases using the project's existing test framework.
-       Do NOT write any implementation code yet.
+     - [ ] **Test Specification (test-writer role)**: Implement the test cases listed in the
+       `#### Test Spec` section below (minimum requirement). You MAY add additional cases you
+       identify, but MUST NOT remove or weaken any specified test. Tests MUST fail before
+       implementation (Verify Red gate). Do NOT write any implementation code yet.
      - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct
        code. Do NOT change test assertions. After this checkbox runs, the CLI runs the Green
        tests gate and invokes the configured test-fixer role until tests pass or the cap is hit.
      - [ ] **Review & QA (review roles)**: Run primary /review, optional secondary review
        if configured, and /qa; all required gates must pass.
 
+     [Phase description prose — what this phase builds, inputs, outputs, constraints]
+
+     #### Test Spec
+     **Coverage target: ≥80%**
+
+     | ID | Scenario | Given | When | Then |
+     |----|----------|-------|------|------|
+     | T1 | [happy path scenario] | [preconditions] | [action] | [expected outcome] |
+     | T2 | [error/edge case]     | [preconditions] | [action] | [expected outcome] |
+     | T3 | [boundary condition]  | [preconditions] | [action] | [expected outcome] |
+
+     **Edge cases to cover:**
+     - [specific edge case 1]
+     - [specific edge case 2]
+
    - A dedicated test plan strategy section.
+   - For EVERY phase, include a `#### Test Spec` section in the phase body with:
+     a `**Coverage target: ≥80%**` line, a scenario table with at least 3 rows
+     (ID, Scenario, Given, When, Then columns), and an explicit edge cases list.
+     Use the phase description to derive concrete inputs/outputs — name real values
+     where possible (HTTP status codes, field names, error messages). Do NOT include
+     a test file path in the spec; the test-writer determines the correct test file
+     location from the repo layout. Write enough detail that no design judgment is
+     needed — the test-writer implements these cases as a quality floor and MAY add
+     additional cases on top.
 
    Living plan filenames MUST be unique and must never use date-only names. Use:
    `<repoSlug>-impl-plan-<sourceSlug>-<YYYYMMDD-HHMMSS>-<hash>.md`.
@@ -548,13 +572,12 @@ Use this execution path for all plans — Normal Mode (after Step 1.6 confirmati
 
 ### Startup Gates (v1.18.0)
 
-Before launching, `gstack-build` runs two preflight checks:
+Before launching, `gstack-build` runs one preflight check:
 1. **Pre-build clean check** — exits 1 if any tracked file is modified or staged. Commit or stash before building. Bypass with `--skip-clean-check`.
-2. **Unshipped feat/* sweep** — scans unmerged remote `origin/feat/*` branches and runs the same review/fix/ship/land engine as `gstack-build merge`, but skips branches owned by records in `~/.gstack/build-state/active-runs` unless that run is terminal and no PID is alive. Bypass with `--skip-sweep`. Local-only branches are handled by explicit Merge Mode so resume runs do not accidentally ship their own in-progress local branches.
 
 `gstack-build merge` uses the same active-run registry and reports skipped active branches. Shipping and cleanup touch only branches owned by the current run. Before `/ship`, the CLI fetches base and merges/rebases it into the owned feature branch; on conflict it aborts the sync, marks only that run paused, and writes the conflict files into state/logs.
 
-Both gates are skipped when `--dry-run` or `--skip-ship` is active.
+This check is skipped when `--dry-run` or `--skip-ship` is active.
 
 ### Manual Recovery and Submodule Boundaries
 

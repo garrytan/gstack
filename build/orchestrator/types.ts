@@ -11,6 +11,13 @@
 
 import type { RoleConfigs } from "./role-config";
 
+export type PhaseKind =
+  | "code"
+  | "writing"
+  | "experiment"
+  | "research"
+  | "manual";
+
 export type PhaseStatus =
   | "pending"
   | "test_spec_running"
@@ -124,6 +131,8 @@ export interface Phase {
   testSpecCheckboxLine: number;
   /** True when --dual-impl CLI flag is active; stamped by the CLI after parse. */
   dualImpl: boolean;
+  /** Kind of phase — determines which checkpoint labels and subagent prompts apply. */
+  kind: PhaseKind;
   /** Parsed gate state for per-phase checkboxes (test_spec, verify_red, implementation, green_tests, review_qa). */
   gates?: Partial<Record<PhaseGate, PlanGateState>>;
 }
@@ -239,6 +248,11 @@ export interface PhaseState {
   originIssueLogPath?: string;
   /** Dual-implementor tournament state (populated when --dual-impl is active). */
   dualImpl?: DualImplState;
+  /** Coverage measured after GREEN tests pass. Set when phase body contains `#### Test Spec`. */
+  coverageResult?: {
+    actual: number;
+    target: number;
+  };
   committedAt?: string;
   error?: string;
 }
