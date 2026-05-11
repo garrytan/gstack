@@ -83,11 +83,19 @@ Never skip a verification step because a prior `/ship` run already performed it.
 
 {{REVIEW_DASHBOARD}}
 
-If the Eng Review is NOT "CLEAR":
+Evaluate the dashboard:
 
-Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
+- **If Content Review is "CLEAR" and Eng Review is absent or "N/A (non-code feature)":**
+  This is a non-code feature. Content Review clears the gate — no Eng Review needed.
+  Continue to Step 2.
 
-Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+- **If Eng Review is "CLEAR":**
+  Standard code review cleared. Continue to Step 2.
+
+- **If neither is CLEAR:**
+  Print: "No prior review found — ship will run its own pre-landing review in Step 9."
+
+  Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
 
 If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
 

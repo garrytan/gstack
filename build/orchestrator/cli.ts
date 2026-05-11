@@ -97,7 +97,11 @@ import {
   type ParsedFeatureVerdict,
 } from "./feature-review";
 import { promptYesNo, buildBlockedFeatureMd } from "./feature-review-prompt";
-import { runPlanReview, reconcilePlanReview } from "./plan-reviewer";
+import {
+  runPlanReview,
+  reconcilePlanReview,
+  readPlanReviewRound,
+} from "./plan-reviewer";
 import { shipAndDeploy, shipOnly } from "./ship";
 import { runReleaseDaemon, retryReleaseQueueRecord } from "./release-daemon";
 import {
@@ -2660,6 +2664,67 @@ function buildGeminiPromptBody(
   return sections.join("\n");
 }
 
+export function buildKindInstructions(phase: Phase): string[] {
+  const sharedTail = [
+    `Do NOT run /review, /qa, /ship, or any orchestration skill — those are downstream of you.`,
+    `Do NOT update the plan file's checkboxes — the orchestrator handles that.`,
+    `Reference existing code by file path — your --yolo file tools work, you don't need code inlined.`,
+    REPO_BOUNDARY_INSTRUCTIONS[0],
+    REPO_BOUNDARY_INSTRUCTIONS[1],
+  ];
+  let kindInstructions: string[];
+  switch (phase.kind) {
+    case "writing":
+      kindInstructions = [
+        `Produce the written deliverable described in the phase. Quality bar: a reader unfamiliar with the project understands it after one read. No placeholder content.`,
+        `Commit the completed artifact to the file path(s) named in the phase body.`,
+        `Do NOT write or run tests — this is a writing phase, not a code phase.`,
+      ];
+      break;
+    case "experiment":
+      kindInstructions = [
+        `Execute the experiment as described. Run the named scripts/commands literally.`,
+        `Commit raw results to the named output path(s). Verify output files exist and are non-empty before committing.`,
+        `Do NOT summarize or interpret results in this step — that belongs in Review & QA.`,
+        `Do NOT write or run tests — this is an experiment phase, not a code phase.`,
+      ];
+      break;
+    case "research":
+      kindInstructions = [
+        `Produce the synthesis artifact described. Cite primary sources.`,
+        `Commit the artifact to the named output path(s). No speculation without explicitly labeling it as such.`,
+        `Do NOT write or run tests — this is a research phase, not a code phase.`,
+      ];
+      break;
+    case "manual":
+      kindInstructions = [
+        `This phase requires a human action outside the AI agent's scope. Ask the user to complete the action named in the phase description, then wait for their confirmation.`,
+        `Once the user confirms the action is done, commit a record of completion to the named path (if specified) and return.`,
+        `Do NOT attempt to automate the manual action — it is intentionally a human gate.`,
+      ];
+      break;
+    default: // "code"
+      kindInstructions = [
+        `Make all failing tests pass with minimal correct code. Do NOT change test assertions.`,
+        `Also complete every non-code deliverable in the phase description: if it says "run X and produce Y" or "record Z to <path>", actually execute that script/command and commit the output files. Writing the code that could produce Y is not the same as producing Y.`,
+        `If there are no existing failing tests, implement the work described above.`,
+        `If the project uses GitHub Actions, ensure your changes pass them.`,
+        `Commit your changes to the current branch with a clear conventional-commit message.`,
+        `Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
+      ];
+      break;
+  }
+  const allLines =
+    phase.kind === "code"
+      ? [...kindInstructions, ...sharedTail]
+      : [
+          ...kindInstructions,
+          `Commit your changes to the current branch with a clear conventional-commit message.`,
+          ...sharedTail,
+        ];
+  return allLines.map((line, i) => `${i + 1}. ${line}`);
+}
+
 /**
  * Build the review-gate context body that gets written to a file. Captures
  * which phase, what changed, and what to verify so each configured gate command
@@ -2836,7 +2901,9 @@ async function verifyOriginPlanFeature(args: {
 }
 
 export function extractCoverageTarget(phaseBody: string): number {
-  const m = phaseBody.match(/\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+)%\*\*/i);
+  const m = phaseBody.match(
+    /\*\*Coverage target:\s*(?:>=|[≥>])\s*(\d+(?:\.\d+)?)%\*\*/i,
+  );
   return m ? parseInt(m[1], 10) : 80;
 }
 
@@ -6291,6 +6358,7 @@ async function main() {
           timeoutMs: BUILD_DEFAULTS.timeoutsMs.planReview,
           logDirPath: logDir(slug),
           cwd,
+          round: readPlanReviewRound(planReviewReportPath),
         });
         const outcome = await reconcilePlanReview(verdict, args.planFile, {
           planReviewReportPath,
@@ -7182,6 +7250,15 @@ async function main() {
         // queued PRs.
         state.completed = !args.dryRun && !args.skipShip;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
+        // When --skip-ship leaves features at origin_verified, exit 13
+        // (FINALIZATION_REQUIRED) instead of 0 so the skill agent cannot infer
+        // "done" from exit 0 — Step 3 (ship + archive) is mandatory.
+        if (
+          args.skipShip &&
+          state.features?.some((f) => f.status === "origin_verified")
+        ) {
+          exitCode = 13;
+        }
       }
       if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
         const archivedPath = archiveLivingPlan(state.planFile);
@@ -7209,7 +7286,10 @@ async function main() {
             state.launch.runId,
           );
         } else {
-          updateActiveRunFromState(state, exitCode === 0 ? "paused" : "failed");
+          updateActiveRunFromState(
+            state,
+            exitCode === 0 || exitCode === 13 ? "paused" : "failed",
+          );
         }
       } else if (launch.runId && launch.activeRunRegistry) {
         writeProvisionalActiveRunRecord({
@@ -7231,7 +7311,7 @@ async function main() {
       exitCode = 1;
     }
     logActivity({
-      event: exitCode === 0 ? "success" : "failed",
+      event: exitCode === 0 || exitCode === 13 ? "success" : "failed",
       slug,
       durationMs: Date.now() - startedAt,
       exitCode,

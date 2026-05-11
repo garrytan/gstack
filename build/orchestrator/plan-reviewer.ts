@@ -33,6 +33,26 @@ import type {
 
 export type { PlanReviewVerdict, PlanReviewObjection, PlanReviewSeverity };
 
+/**
+ * Read the `round` field from a previous plan-review-report.json and return
+ * the next round number. Returns 1 when the file is absent or unreadable.
+ *
+ * Used by the CLI to increment the round counter across re-launch cycles so
+ * the SKILL.md Step 5.5 "Round 3 stalemate → AskUser" escape is reachable.
+ */
+export function readPlanReviewRound(reportPath: string): number {
+  try {
+    const raw = fs.readFileSync(reportPath, "utf8");
+    const parsed = JSON.parse(raw) as { round?: unknown };
+    if (typeof parsed.round === "number" && parsed.round >= 1) {
+      return parsed.round + 1;
+    }
+  } catch {
+    // No prior report or corrupt JSON — start at round 1
+  }
+  return 1;
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------

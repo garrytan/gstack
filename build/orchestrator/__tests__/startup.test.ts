@@ -11,6 +11,7 @@ import {
   verifyNoUnmergedFeatBranches,
 } from "../cli";
 import { activeOwnedBranches, writeActiveRunRecord } from "../active-runs";
+import { readPlanReviewRound } from "../plan-reviewer";
 
 describe("checkWorkingTreeClean", () => {
   let tempDir: string;
@@ -449,5 +450,64 @@ describe("findUnshippedFeatBranches", () => {
       ignoreBranches: new Set(["feat/active"]),
     });
     expect(ignored).toEqual({ ok: true, branches: [] });
+  });
+});
+
+describe("readPlanReviewRound", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-review-round-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns 1 when no report file exists", () => {
+    const reportPath = path.join(tmpDir, "plan-review-report.json");
+    expect(readPlanReviewRound(reportPath)).toBe(1);
+  });
+
+  it("increments round from an existing CRITICAL report", () => {
+    const reportPath = path.join(tmpDir, "plan-review-report.json");
+    fs.writeFileSync(
+      reportPath,
+      JSON.stringify({
+        verdict: "REVISE",
+        round: 1,
+        objections: [],
+        assessment: "",
+        reviewedBy: "gpt-5",
+      }),
+    );
+    expect(readPlanReviewRound(reportPath)).toBe(2);
+  });
+
+  it("continues incrementing on each successive re-launch", () => {
+    const reportPath = path.join(tmpDir, "plan-review-report.json");
+    fs.writeFileSync(
+      reportPath,
+      JSON.stringify({
+        verdict: "REVISE",
+        round: 2,
+        objections: [],
+        assessment: "",
+        reviewedBy: "gpt-5",
+      }),
+    );
+    expect(readPlanReviewRound(reportPath)).toBe(3);
+  });
+
+  it("returns 1 when the report file is corrupt JSON", () => {
+    const reportPath = path.join(tmpDir, "plan-review-report.json");
+    fs.writeFileSync(reportPath, "not-valid-json{{{");
+    expect(readPlanReviewRound(reportPath)).toBe(1);
+  });
+
+  it("returns 1 when report has no round field", () => {
+    const reportPath = path.join(tmpDir, "plan-review-report.json");
+    fs.writeFileSync(reportPath, JSON.stringify({ verdict: "REVISE" }));
+    expect(readPlanReviewRound(reportPath)).toBe(1);
   });
 });

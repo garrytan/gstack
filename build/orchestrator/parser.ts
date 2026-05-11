@@ -22,13 +22,38 @@ import type {
   FeatureGate,
   Phase,
   PhaseGate,
+  PhaseKind,
   PlanGateState,
 } from "./types";
 
 const FEATURE_HEADING = /^##\s+Feature\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/i;
-const PHASE_HEADING = /^###\s+Phase\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/;
-const IMPL_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Implementation\b/;
-const REVIEW_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/;
+const PHASE_HEADING =
+  /^###\s+Phase\s+(\d+(?:\.\d+)?)\s*(?:\[[^\]]*\])?\s*:\s*(.+?)\s*$/;
+
+/** Primary format: [kind] bracket in phase heading. */
+const HEADING_KIND_PATTERN = /\[(code|writing|experiment|research|manual)\]/i;
+/** Fallback format: HTML comment anywhere in phase body. */
+const BODY_KIND_PATTERN =
+  /<!--\s*kind:\s*(code|writing|experiment|research|manual)\s*-->/i;
+
+/** Implementation checkbox regex keyed by phase kind. */
+const IMPL_LABELS_BY_KIND: Record<PhaseKind, RegExp> = {
+  code: /^\s*-\s+\[([ xX])\]\s+\*\*Implementation\b/,
+  writing: /^\s*-\s+\[([ xX])\]\s+\*\*Draft\b/,
+  experiment: /^\s*-\s+\[([ xX])\]\s+\*\*Execute\b/,
+  research: /^\s*-\s+\[([ xX])\]\s+\*\*Explore\b/,
+  manual: /^\s*-\s+\[([ xX])\]\s+\*\*Action Required\b/,
+};
+
+/** Review checkbox regex keyed by phase kind. */
+const REVIEW_LABELS_BY_KIND: Record<PhaseKind, RegExp> = {
+  code: /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/,
+  writing: /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/,
+  experiment: /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/,
+  research: /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/,
+  manual: /^\s*-\s+\[([ xX])\]\s+\*\*Verify Completion\b/,
+};
+
 const TESTSPEC_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Test Specification/i;
 const VERIFY_RED_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Verify Red\b/i;
 const GREEN_TESTS_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Green Tests\b/i;
@@ -98,6 +123,41 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
   const finalize = (endLineExclusive: number) => {
     if (!currentPhase) return;
     const p = currentPhase;
+
+    // HTML comment body fallback: if the heading had no [kind] bracket and the
+    // body contains <!-- kind: X -->, use that kind and re-scan for its checkboxes.
+    if ((p.kind ?? "code") === "code" && p.implementationCheckboxLine == null) {
+      const bodyText = p.bodyLines.join("\n");
+      const bodyKindMatch = bodyText.match(BODY_KIND_PATTERN);
+      if (bodyKindMatch) {
+        p.kind = bodyKindMatch[1].toLowerCase() as PhaseKind;
+        const implRe = IMPL_LABELS_BY_KIND[p.kind];
+        const reviewRe = REVIEW_LABELS_BY_KIND[p.kind];
+        p.bodyLines.forEach((bodyLine, idx) => {
+          // bodyLines[0] is the line immediately after the heading (1-based: currentPhaseStartLine + 2)
+          const lineNum = currentPhaseStartLine + 2 + idx;
+          if (p.implementationCheckboxLine == null) {
+            const m = bodyLine.match(implRe);
+            if (m) {
+              p.implementationCheckboxLine = lineNum;
+              p.implementationDone = m[1].toLowerCase() === "x";
+              if (!p.gates) p.gates = {};
+              p.gates.implementation = gateState(m[1], lineNum, bodyLine);
+            }
+          }
+          if (p.reviewCheckboxLine == null) {
+            const m = bodyLine.match(reviewRe);
+            if (m) {
+              p.reviewCheckboxLine = lineNum;
+              p.reviewDone = m[1].toLowerCase() === "x";
+              if (!p.gates) p.gates = {};
+              p.gates.review_qa = gateState(m[1], lineNum, bodyLine);
+            }
+          }
+        });
+      }
+    }
+
     if (p.implementationCheckboxLine == null) {
       warnings.push(
         `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing an Implementation checkbox`,
@@ -135,6 +195,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
         implementationCheckboxLine: p.implementationCheckboxLine,
         reviewCheckboxLine: p.reviewCheckboxLine,
         dualImpl: !!opts.dualImpl,
+        kind: p.kind ?? "code",
         ...(p.gates && Object.keys(p.gates).length > 0
           ? { gates: p.gates }
           : {}),
@@ -165,9 +226,11 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       finalize(i);
       currentPhaseStartLine = i;
       ensureFeature();
+      const kindMatch = line.match(HEADING_KIND_PATTERN);
       currentPhase = {
         number: headingMatch[1],
         name: headingMatch[2],
+        kind: kindMatch ? (kindMatch[1].toLowerCase() as PhaseKind) : "code",
         bodyLines: [],
       };
       continue;
@@ -236,7 +299,10 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       currentPhase.bodyLines.push(line);
       continue;
     }
-    const implMatch = line.match(IMPL_CHECKBOX);
+
+    // Kind-aware implementation checkbox: matches the label for the current phase kind.
+    const implRe = IMPL_LABELS_BY_KIND[currentPhase.kind ?? "code"];
+    const implMatch = line.match(implRe);
     if (implMatch) {
       currentPhase.implementationCheckboxLine = i + 1; // 1-based
       currentPhase.implementationDone = implMatch[1].toLowerCase() === "x";
@@ -244,6 +310,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       currentPhase.bodyLines.push(line);
       continue;
     }
+
     const greenTestsMatch = line.match(GREEN_TESTS_CHECKBOX);
     if (greenTestsMatch) {
       currentPhase.gates.green_tests = gateState(
@@ -254,7 +321,10 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       currentPhase.bodyLines.push(line);
       continue;
     }
-    const reviewMatch = line.match(REVIEW_CHECKBOX);
+
+    // Kind-aware review checkbox: matches the label for the current phase kind.
+    const reviewRe = REVIEW_LABELS_BY_KIND[currentPhase.kind ?? "code"];
+    const reviewMatch = line.match(reviewRe);
     if (reviewMatch) {
       currentPhase.reviewCheckboxLine = i + 1; // 1-based
       currentPhase.reviewDone = reviewMatch[1].toLowerCase() === "x";

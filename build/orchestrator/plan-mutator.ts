@@ -17,7 +17,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Phase } from "./types";
+import type { Phase, PhaseKind } from "./types";
 
 export interface FlipResult {
   /** True if the line was found unchecked and flipped. */
@@ -199,6 +199,24 @@ export function flipCheckbox(args: {
   return setCheckboxState({ ...args, checked: true });
 }
 
+/** Kind-to-marker lookup for implementation checkboxes. */
+const IMPL_MARKER_BY_KIND: Record<PhaseKind, string> = {
+  code: "**Implementation",
+  writing: "**Draft",
+  experiment: "**Execute",
+  research: "**Explore",
+  manual: "**Action Required",
+};
+
+/** Kind-to-marker lookup for review checkboxes. */
+const REVIEW_MARKER_BY_KIND: Record<PhaseKind, string> = {
+  code: "**Review",
+  writing: "**Review",
+  experiment: "**Review",
+  research: "**Review",
+  manual: "**Verify Completion",
+};
+
 /**
  * Flip both Implementation and Review checkboxes for one phase. Returns
  * a per-checkbox result. If either reports an error, both are still
@@ -208,16 +226,20 @@ export function flipPhaseCheckboxes(args: {
   planFile: string;
   implementationLine: number;
   reviewLine: number;
+  /** Phase kind — determines the expected checkbox label. Defaults to "code". */
+  kind?: PhaseKind;
 }): { implementation: FlipResult; review: FlipResult } {
+  const implMarker = IMPL_MARKER_BY_KIND[args.kind ?? "code"];
+  const reviewMarker = REVIEW_MARKER_BY_KIND[args.kind ?? "code"];
   const implementation = flipCheckbox({
     planFile: args.planFile,
     lineNumber: args.implementationLine,
-    expectedMarker: "**Implementation",
+    expectedMarker: implMarker,
   });
   const review = flipCheckbox({
     planFile: args.planFile,
     lineNumber: args.reviewLine,
-    expectedMarker: "**Review",
+    expectedMarker: reviewMarker,
   });
   return { implementation, review };
 }
@@ -387,6 +409,7 @@ export function reconcilePhaseCheckboxes(
     planFile,
     implementationLine: phase.implementationCheckboxLine,
     reviewLine: phase.reviewCheckboxLine,
+    kind: phase.kind,
   });
   if (result.implementation.error)
     errors.push(`impl: ${result.implementation.error}`);

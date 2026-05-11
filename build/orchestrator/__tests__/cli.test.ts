@@ -38,6 +38,7 @@ import {
   renderSystemdReleaseDaemonService,
   runRoleTask,
   HELP_TEXT,
+  buildKindInstructions,
 } from "../cli";
 import type {
   BuildState,
@@ -93,6 +94,7 @@ const basePhase: Phase = {
   implementationDone: false,
   reviewDone: false,
   dualImpl: false,
+  kind: "code",
 };
 
 function expectParseArgsExit(argv: string[], message: string): void {
@@ -232,6 +234,10 @@ describe("extractCoverageTarget", () => {
       "| T1 | ...",
     ].join("\n");
     expect(extractCoverageTarget(body)).toBe(82);
+  });
+
+  it("handles decimal coverage targets like ≥90.5%", () => {
+    expect(extractCoverageTarget("**Coverage target: ≥90.5%**")).toBe(90.5);
   });
 });
 
@@ -3702,5 +3708,70 @@ describe("monitor emits RUN_FAILED when failureReason set (regression)", () => {
     });
 
     expect(result.terminalEvent?.event).toBe("RUN_FAILED");
+  });
+});
+
+describe("buildKindInstructions — non-code phase prompts", () => {
+  function makePhase(kind: Phase["kind"]): Phase {
+    return {
+      ...basePhase,
+      kind,
+      testSpecDone: true,
+      testSpecCheckboxLine: -1,
+    };
+  }
+
+  it("writing phase: prompt contains quality bar and no test instructions", () => {
+    const lines = buildKindInstructions(makePhase("writing"));
+    const joined = lines.join("\n");
+    expect(joined).toContain("Quality bar: a reader unfamiliar");
+    expect(joined).not.toContain("write failing tests");
+    expect(joined).not.toContain("Make all failing tests pass");
+  });
+
+  it("experiment phase: prompt contains raw results and no test instructions", () => {
+    const lines = buildKindInstructions(makePhase("experiment"));
+    const joined = lines.join("\n");
+    expect(joined).toContain("Commit raw results");
+    expect(joined).not.toContain("Make all failing tests pass");
+    expect(joined).not.toContain("write failing tests");
+  });
+
+  it("research phase: prompt contains cite primary sources and no test instructions", () => {
+    const lines = buildKindInstructions(makePhase("research"));
+    const joined = lines.join("\n");
+    expect(joined).toContain("Cite primary sources");
+    expect(joined).not.toContain("Make all failing tests pass");
+  });
+
+  it("manual phase: prompt mentions human gate and no automation", () => {
+    const lines = buildKindInstructions(makePhase("manual"));
+    const joined = lines.join("\n");
+    expect(joined).toContain("human action");
+    expect(joined).toContain("Do NOT attempt to automate");
+    expect(joined).not.toContain("Make all failing tests pass");
+  });
+
+  it("code phase: prompt contains standard TDD instructions", () => {
+    const lines = buildKindInstructions(makePhase("code"));
+    const joined = lines.join("\n");
+    expect(joined).toContain("Make all failing tests pass");
+    expect(joined).toContain("Fail forward");
+  });
+
+  it("all kinds include commit and boundary instructions", () => {
+    for (const kind of [
+      "code",
+      "writing",
+      "experiment",
+      "research",
+      "manual",
+    ] as const) {
+      const lines = buildKindInstructions(makePhase(kind));
+      const joined = lines.join("\n");
+      expect(joined).toContain("Commit");
+      expect(joined).toContain("Do NOT run /review");
+      expect(joined).toContain("Do NOT update the plan file");
+    }
   });
 });

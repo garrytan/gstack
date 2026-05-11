@@ -788,7 +788,9 @@ describe("REVIEW_DASHBOARD resolver", () => {
       path.join(ROOT, "ship", "SKILL.md"),
       "utf-8",
     );
-    expect(content).toContain("plan-eng-review, review, plan-design-review");
+    expect(content).toContain(
+      "plan-eng-review, review, content-review, plan-design-review",
+    );
     expect(content).toContain("`review` (diff-scoped pre-landing review)");
     expect(content).toContain(
       "`plan-eng-review` (plan-stage architecture review)",
@@ -803,7 +805,9 @@ describe("REVIEW_DASHBOARD resolver", () => {
       path.join(ROOT, "plan-eng-review", "SKILL.md"),
       "utf-8",
     );
-    expect(content).toContain("plan-eng-review, review, plan-design-review");
+    expect(content).toContain(
+      "plan-eng-review, review, content-review, plan-design-review",
+    );
     expect(content).toContain("`review` (diff-scoped pre-landing review)");
   });
 

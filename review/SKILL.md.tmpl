@@ -261,10 +261,55 @@ If no documentation files exist, skip this step silently.
 
 {{ADVERSARIAL_STEP}}
 
+## Step 5.75: Non-code feature detection
+
+Before persisting the review result, check whether this branch implements a pure
+non-code feature. A pure non-code feature has NO runnable source code changes —
+only documents, data files, or manual-action records. If so, the review outcome
+is logged as a Content Review rather than an Eng Review, and the ship gate accepts
+it accordingly.
+
+**Detection — try in order:**
+
+1. Find the living plan file for this branch (use the plan file discovered earlier in
+   this session, or run the Plan File Discovery step from Step 1.5 if not yet found).
+2. If a plan file is found, scan it for phase headings that match the pattern
+   `### Phase \d+.*\[(writing|experiment|research|manual)\]`. Count matching phase
+   headings vs. total phase headings (lines matching `### Phase \d+`).
+3. If ALL phase headings have a non-code `[kind]` bracket (and at least one exists),
+   this is a **pure non-code feature**. Set `REVIEW_KIND=content`.
+4. Fallback (no plan file or mixed): check the diff for source-code files.
+   Run `git diff origin/<base>...HEAD --name-only` and check for files with
+   extensions `.ts .js .py .rb .go .rs .java .c .cpp .cs .swift .kt .scala`.
+   If none exist in the diff, this is also a pure non-code feature; set `REVIEW_KIND=content`.
+5. Otherwise: `REVIEW_KIND=eng` (standard code review).
+
+**If REVIEW_KIND=content:**
+
+Adjust the review rubric for the subsequent persist step:
+- Replace "code quality" with "deliverable completeness and artifact correctness"
+- Verify the artifact files named in the phase body actually exist and are non-empty
+- Flag any referenced output paths that are missing from the diff as CRITICAL findings
+- Do NOT apply code-quality checks (linting, typing, test coverage) to non-code artifacts
+
+Note `REVIEW_KIND=content` for use in Step 5.8.
+
+---
+
+{{ADVERSARIAL_STEP}}
+
 ## Step 5.8: Persist Eng Review result
 
 After all review passes complete, persist the final `/review` outcome so `/ship` can
 recognize that Eng Review was run on this branch.
+
+**If REVIEW_KIND=content** (detected in Step 5.75), persist as a content review:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"content-review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"commit":"COMMIT"}'
+```
+
+**Otherwise** (standard code review), persist as an eng review:
 
 Run:
 

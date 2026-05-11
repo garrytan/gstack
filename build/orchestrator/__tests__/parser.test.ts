@@ -453,3 +453,101 @@ describe("parsePlan — gate checkboxes", () => {
     expect(phases[0].gates?.verify_red).toBeUndefined();
   });
 });
+
+describe("parsePlan — phase kinds", () => {
+  it("defaults to kind=code when no annotation present", () => {
+    const md = `### Phase 1: Default
+- [ ] **Implementation**: work
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("code");
+  });
+
+  it("parses [writing] heading annotation", () => {
+    const md = `### Phase 1 [writing]: Write Methodology Section
+- [ ] **Draft**: write it
+- [ ] **Review & QA**: review
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(warnings).toEqual([]);
+    expect(phases[0].kind).toBe("writing");
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+    expect(phases[0].implementationDone).toBe(false);
+  });
+
+  it("parses [experiment] heading annotation", () => {
+    const md = `### Phase 1 [experiment]: Run Ablation Benchmark
+- [ ] **Execute**: run scripts
+- [ ] **Review & QA**: review
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(warnings).toEqual([]);
+    expect(phases[0].kind).toBe("experiment");
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+  });
+
+  it("parses [research] heading annotation", () => {
+    const md = `### Phase 1 [research]: Survey Prior Work
+- [ ] **Explore**: research it
+- [ ] **Review & QA**: review
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(warnings).toEqual([]);
+    expect(phases[0].kind).toBe("research");
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+  });
+
+  it("parses [manual] heading annotation", () => {
+    const md = `### Phase 1 [manual]: Vendor API Key Setup
+- [ ] **Action Required**: complete signup
+- [ ] **Verify Completion**: confirm key present
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(warnings).toEqual([]);
+    expect(phases[0].kind).toBe("manual");
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+    expect(phases[0].reviewCheckboxLine).toBeGreaterThan(0);
+  });
+
+  it("Draft checkbox maps to implementationCheckboxLine for writing phase", () => {
+    const md = `### Phase 2.1 [writing]: Write Methodology Section
+- [ ] **Draft**: write the methodology
+- [ ] **Review & QA (review roles)**: check clarity
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("writing");
+    expect(phases[0].implementationCheckboxLine).toBe(2);
+    expect(phases[0].reviewCheckboxLine).toBe(3);
+  });
+
+  it("backward compat: no annotation defaults to code kind", () => {
+    const md = `### Phase 1: Legacy Phase
+- [ ] **Implementation**: impl
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("code");
+  });
+
+  it("HTML comment fallback sets kind for body without heading bracket", () => {
+    const md = `### Phase 1: Some Phase
+<!-- kind: writing -->
+- [ ] **Draft**: write it
+- [ ] **Review & QA**: review
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(warnings).toEqual([]);
+    expect(phases[0].kind).toBe("writing");
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+  });
+
+  it("unknown bracket value defaults to code", () => {
+    const md = `### Phase 1 [unknown]: Some Phase
+- [ ] **Implementation**: impl
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("code");
+  });
+});
