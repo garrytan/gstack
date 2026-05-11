@@ -1215,6 +1215,13 @@ export function parseCoveragePercent(
   return null;
 }
 
+export function extractCoverageTarget(phaseBody: string): number {
+  const m = phaseBody.match(
+    /\*\*Coverage target:\s*(?:>=|[≥>])\s*([\d.]+)%\*\*/i,
+  );
+  return m ? parseFloat(m[1]) : 80;
+}
+
 function detectPackageManager(
   cwd: string,
   pkg: any,
