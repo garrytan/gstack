@@ -805,6 +805,7 @@ set -o pipefail
 BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}
 "$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS" 2>&1 | tee "$BUILD_TMP_DIR/monitor-output.log"
 _MONITOR_EXIT=${PIPESTATUS[0]}
+printf '%s\n' "$_MONITOR_EXIT" > "$BUILD_TMP_DIR/monitor-exit-code"
 ```
 
 The monitor emits compact JSON lines. Every line has `event`, `timestamp`, and `message`; run events also include `runId`, `repoSlug`, `stateSlug`, `status`, `pidFile`, `stateFile`, and `stdoutLog`. Terminal events and exit codes are:
@@ -835,7 +836,10 @@ When the final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`, immediately run the ho
 
 ```bash
 printf '%s\n' "<committed from JSON>" > "<countFile from JSON>"
-"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
+set -o pipefail
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS" 2>&1 | tee -a "$BUILD_TMP_DIR/monitor-output.log"
+_MONITOR_EXIT=${PIPESTATUS[0]}
+printf '%s\n' "$_MONITOR_EXIT" > "$BUILD_TMP_DIR/monitor-exit-code"
 ```
 
 If the host cannot invoke skills natively, report that limitation once and write the count file to avoid a noisy loop; do not spawn a cross-provider substitute.
@@ -854,6 +858,9 @@ After the monitor exits, scan its output for skill-fault detections and dispatch
 The `fault_investigator_model` is read from `configure.cm` and faults are written to `~/.gstack/skill-faults/`:
 
 ```bash
+_MONITOR_EXIT="${_MONITOR_EXIT:-0}"
+[ -f "$BUILD_TMP_DIR/monitor-exit-code" ] && _MONITOR_EXIT=$(cat "$BUILD_TMP_DIR/monitor-exit-code" 2>/dev/null || printf '0\n')
+
 if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
   _FAULT_LINES=$(grep "SKILL_FAULT_DETECTED" "$BUILD_TMP_DIR/monitor-output.log" 2>/dev/null || true)
   if [ -n "$_FAULT_LINES" ]; then
@@ -869,13 +876,30 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
     # Flatten to TSV: runId<TAB>category<TAB>file (one row per (fault, sourceFile)).
     _FAULT_ROWS=$(printf '%s\n' "$_FAULT_LINES" | jq -rc 'select(.event == "SKILL_FAULT_DETECTED") | .runId as $rid | .faults[] | . as $f | (($f.sourceFiles // [])[]) | [$rid, $f.category, .] | @tsv' 2>/dev/null || true)
 
+    _resolve_fault_path() {
+      _FAULT_INPUT="$1"
+      if _FAULT_TARGET=$(readlink "$_FAULT_INPUT" 2>/dev/null); then
+        case "$_FAULT_TARGET" in
+          /*) printf '%s\n' "$_FAULT_TARGET" ;;
+          *) printf '%s\n' "$(cd "$(dirname "$_FAULT_INPUT")" 2>/dev/null && pwd -P)/$_FAULT_TARGET" ;;
+        esac
+      elif [ -e "$_FAULT_INPUT" ]; then
+        printf '%s\n' "$(cd "$(dirname "$_FAULT_INPUT")" 2>/dev/null && pwd -P)/$(basename "$_FAULT_INPUT")"
+      else
+        case "$_FAULT_INPUT" in
+          /*) printf '%s\n' "$_FAULT_INPUT" ;;
+          *) printf '%s\n' "$(pwd -P)/$_FAULT_INPUT" ;;
+        esac
+      fi
+    }
+
     _SEEN_PATHS=""
     while IFS=$'\t' read -r _FAULT_RUN_ID _FAULT_CATEGORY _FAULT_FILE; do
       [ -z "$_FAULT_FILE" ] && continue
-      _FAULT_ABS=$(readlink "$_FAULT_FILE" 2>/dev/null || printf '%s\n' "$_FAULT_FILE")
+      _FAULT_ABS=$(_resolve_fault_path "$_FAULT_FILE")
       _FAULT_KEY="$_FAULT_RUN_ID|$_FAULT_CATEGORY|$_FAULT_ABS"
 
-      # dedupe on (runId, category, resolved path) via readlink (not readlink -f)
+      # dedupe on (runId, category, resolved path) via readlink, using macOS-safe flags only
       case "|$_SEEN_PATHS|" in
         *"|$_FAULT_KEY|"*) continue ;;
       esac
@@ -884,26 +908,31 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
       _FAULT_ENV="FAULT_FILE=$_FAULT_ABS FAULT_CATEGORY=$_FAULT_CATEGORY FAULT_RUN_ID=$_FAULT_RUN_ID"
       [ -n "$_FAULT_INVESTIGATOR_MODEL" ] && _FAULT_ENV="$_FAULT_ENV FAULT_INVESTIGATOR_MODEL=$_FAULT_INVESTIGATOR_MODEL"
 
-      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_CATEGORY}.log"
+      _FAULT_LOG_CATEGORY=$(printf '%s' "$_FAULT_CATEGORY" | tr '/[:space:]' '___')
+      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_LOG_CATEGORY}.log"
 
       if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
-        env $_FAULT_ENV $GSTACK_FAULT_INVESTIGATOR_COMMAND > "$_LOG_PATH" 2>&1 &
+        (FAULT_FILE="$_FAULT_ABS" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" bash -lc "$GSTACK_FAULT_INVESTIGATOR_COMMAND") > "$_LOG_PATH" 2>&1 &
       else
+        if [ -z "$_FAULT_INVESTIGATOR_PROVIDER" ] || [ -z "$_FAULT_INVESTIGATOR_MODEL" ]; then
+          echo "unsupported fault investigator provider/model: $_FAULT_INVESTIGATOR_PROVIDER / $_FAULT_INVESTIGATOR_MODEL" >&2
+          continue
+        fi
         # Spawn one background general-purpose investigator agent per non-duplicate fault
         _INV_PROMPT="A skill fault was detected in $_FAULT_ABS (category: $_FAULT_CATEGORY, runId: $_FAULT_RUN_ID). Investigate the root cause. You MUST ONLY read files and report findings — do NOT write code, modify files, run tests, or commit anything."
         case "$_FAULT_INVESTIGATOR_PROVIDER" in
           gemini)
-            (env $_FAULT_ENV gemini -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo) > "$_LOG_PATH" 2>&1 &
+            (FAULT_FILE="$_FAULT_ABS" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" gemini -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo) > "$_LOG_PATH" 2>&1 &
             ;;
           kimi)
-            (env $_FAULT_ENV kimi --work-dir "$(dirname "$_FAULT_ABS")" -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo --print --final-message-only) > "$_LOG_PATH" 2>&1 &
+            (FAULT_FILE="$_FAULT_ABS" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" kimi --work-dir "$(dirname "$_FAULT_ABS")" -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo --print --final-message-only) > "$_LOG_PATH" 2>&1 &
             ;;
           claude)
-            (env $_FAULT_ENV claude --model "$_FAULT_INVESTIGATOR_MODEL" -p "$_INV_PROMPT") > "$_LOG_PATH" 2>&1 &
+            (FAULT_FILE="$_FAULT_ABS" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" claude --model "$_FAULT_INVESTIGATOR_MODEL" -p "$_INV_PROMPT") > "$_LOG_PATH" 2>&1 &
             ;;
           codex)
             _INV_REASONING=$(jq -r '.roles.faultInvestigator.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
-            (env $_FAULT_ENV codex exec "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_INV_REASONING\"" -C "$(dirname "$_FAULT_ABS")") > "$_LOG_PATH" 2>&1 &
+            (FAULT_FILE="$_FAULT_ABS" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" codex exec "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_INV_REASONING\"" -C "$(dirname "$_FAULT_ABS")") > "$_LOG_PATH" 2>&1 &
             ;;
           *)
             echo "unsupported fault investigator provider: $_FAULT_INVESTIGATOR_PROVIDER" >&2
@@ -913,6 +942,7 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
     done < <(printf '%s\n' "$_FAULT_ROWS")
   fi
 fi
+exit "$_MONITOR_EXIT"
 ```
 
 ---

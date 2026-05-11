@@ -658,6 +658,7 @@ test("SKILL.md.tmpl Step M3 uses pipefail and PIPESTATUS[0] with monitor-output.
   expect(content).toContain("${PIPESTATUS[0]}");
   expect(content).not.toMatch(/_MONITOR_EXIT=\$\?/);
   expect(content).toContain("monitor-output.log");
+  expect(content).toContain("monitor-exit-code");
 });
 
 test("SKILL.md.tmpl contains Step M3.5 fault investigator", () => {
@@ -669,6 +670,7 @@ test("SKILL.md.tmpl contains Step M3.5 fault investigator", () => {
   expect(content).toContain("fault_investigator_model");
   expect(content).toContain("~/.gstack/skill-faults/");
   expect(content).toContain("GSTACK_FAULT_INVESTIGATOR_COMMAND");
+  expect(content).toContain('exit "$_MONITOR_EXIT"');
   // Loop over all fault rows, not just one (TSV-split runId/category/file)
   expect(content).toMatch(/while IFS=.*read -r.*_FAULT/);
   // Dedupe uses readlink (not readlink -f)

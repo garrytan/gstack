@@ -9,6 +9,7 @@
  * Coverage:
  *   Step M3 monitor launch block:
  *     - Uses ${PIPESTATUS[0]} (not just $?) to preserve real monitor exit code
+ *     - Persists and returns the captured monitor exit code after Step M3.5
  *     - Captures monitor stdout to monitor-output.log (via tee)
  *   Step M3.5 existence:
  *     - build/SKILL.md.tmpl contains a "### Step M3.5" section
@@ -119,6 +120,13 @@ describe("build/SKILL.md.tmpl — Step M3 monitor launch", () => {
     expect(m3).not.toBeNull();
     expect(m3).toContain("pipefail");
   });
+
+  test("Step M3 persists the captured monitor exit code for Step M3.5", () => {
+    const m3 = extractStepM3Block(tmplContent);
+    expect(m3).not.toBeNull();
+    expect(m3).toContain("monitor-exit-code");
+    expect(m3).toMatch(/printf '%s\\n' "\$_MONITOR_EXIT"/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -216,6 +224,21 @@ describe("build/SKILL.md.tmpl — Step M3.5 content", () => {
     expect(m35).not.toBeNull();
     expect(m35).toContain("FAULT_RUN_ID");
   });
+
+  test("Step M3.5 returns the captured monitor exit code after dispatching investigators", () => {
+    const m35 = extractSection(tmplContent, "### Step M3.5");
+    expect(m35).not.toBeNull();
+    expect(m35).toContain("monitor-exit-code");
+    expect(m35).toContain('exit "$_MONITOR_EXIT"');
+  });
+
+  test("Step M3.5 resolves relative fault paths to absolute paths without readlink -f", () => {
+    const m35 = extractSection(tmplContent, "### Step M3.5");
+    expect(m35).not.toBeNull();
+    expect(m35).toContain("_resolve_fault_path");
+    expect(m35).toContain("pwd -P");
+    expect(m35).not.toMatch(/readlink\s+-f/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -261,6 +284,15 @@ describe("build/SKILL.md (generated) — Step M3.5 parity", () => {
     const m3 = extractStepM3Block(generatedContent);
     expect(m3).not.toBeNull();
     expect(m3).toContain("monitor-output.log");
+  });
+
+  test("generated SKILL.md preserves and returns the monitor exit code", () => {
+    const m3 = extractStepM3Block(generatedContent);
+    const m35 = extractSection(generatedContent, "### Step M3.5");
+    expect(m3).not.toBeNull();
+    expect(m35).not.toBeNull();
+    expect(m3).toContain("monitor-exit-code");
+    expect(m35).toContain('exit "$_MONITOR_EXIT"');
   });
 });
 
