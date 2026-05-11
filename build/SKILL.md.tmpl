@@ -1018,7 +1018,8 @@ if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
 
       _FAULT_SOURCE_LIST=$(printf '%s' "$_FAULT_JSON" | jq -r '(.sourceFiles // [])[]' 2>/dev/null | while IFS= read -r _FAULT_FILE; do [ -n "$_FAULT_FILE" ] && _resolve_fault_path "$_FAULT_FILE"; done)
 
-      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_CATEGORY}.log"
+      _FAULT_LOG_CATEGORY=$(printf '%s' "$_FAULT_CATEGORY" | tr '/[:space:]' '___')
+      _LOG_PATH=~/.gstack/skill-faults/"$(basename "$_FAULT_ABS").${_FAULT_LOG_CATEGORY}.log"
 
       if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
         (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" bash -lc "$GSTACK_FAULT_INVESTIGATOR_COMMAND"; _FAULT_RC=$?; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true; exit "$_FAULT_RC") > "$_FAULT_PRIMARY" 2>&1 &
