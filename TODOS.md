@@ -1764,3 +1764,22 @@ Explicitly deferred from the v1.28.0.0 /plan-eng-review. Ship now; revisit when 
 **Effort:** XS (human: ~1 hour / CC: ~10 min)
 **Priority:** P3
 **Depends on:** gate-reconciler.ts extraction above
+
+### Add `gstack-build patch-state` CLI command
+
+**What:** A safe `gstack-build patch-state <slug> [--clear-failure] [--reset-feature <n>]` CLI command that atomically edits the build state JSON — clearing `failureReason` and/or resetting a feature's status to `"phases_done"` — without requiring the user to edit raw JSON by hand.
+
+**Why:** The current ship-failure recovery path requires manual JSON edits documented in SKILL.md. A CLI command with validation (checks slug exists, validates the requested mutation is safe) is less error-prone and faster to use. The `--clear-failure` flag removes `failureReason`; `--reset-feature <n>` sets `features[n].status = "phases_done"`. Together they replace the full manual recovery workflow with two flags.
+
+**Effort:** S (human: ~half day / CC: ~20 min)
+**Priority:** P2
+
+### Move "dead process + paused state = terminal" invariant into `monitor.ts`
+
+**What:** The invariant that a dead process with a paused feature state should produce `RUN_FAILED` (not `RUN_RESUMED`) is currently enforced by each cli.ts producer setting `state.failureReason` before `saveState`. The invariant belongs in `readRunSnapshot` in `monitor.ts`: when `pidAlive=false` and any feature has `status="paused"` and there is no `failureReason`, treat it as failed rather than stale.
+
+**Why:** The per-producer fix (4 one-liners in cli.ts) is sufficient but fragile — a new paused path added in the future won't automatically benefit. Encoding the invariant in the consumer (`readRunSnapshot`) means all present and future paused paths are covered, and the unit tests for monitor behavior become the source of truth rather than per-callsite discipline.
+
+**Effort:** S (human: ~1 day / CC: ~20 min)
+**Priority:** P2
+**Depends on:** ship-failure failureReason fix (landed in this branch)

@@ -1,7 +1,7 @@
 ---
 name: build
 preamble-tier: 4
-version: 1.21.4
+version: 1.21.5
 description: |
   gstack autonomous execution skill. Reads the latest implementation plan and enters
   a strict coding loop to build the feature in phases, running tests and reviews
@@ -754,7 +754,7 @@ You are the Execution Agent. The planning phase is over. Your job is to locate t
 
 **Always use the code-driven CLI.** Route all plans — even single-phase — to `gstack-build`. The LLM-driven loop stalls between phases even on 2-phase builds, and context compaction mid-build causes the agent to silently forget rules. Your role: locate plan → synthesize living plan → confirm with user → launch CLI → monitor.
 
-**Never use `ScheduleWakeup` for `/build` monitoring.** A scheduled host wakeup is not durable build supervision: the build can fail, block, or need recovery while the chat stays asleep until the user manually asks for status. After every launch, relaunch, resume, or manual recovery, the next action must be the foreground `gstack-build monitor --manifest ... --watch --supervise` command. Do not say "checking back", "back in N minutes", or end the turn while a manifest-backed run is still active. Do not create ad-hoc watcher scripts or run `sleep ... && tail ...` polling loops; all waiting and stale-lock recovery belongs to the CLI monitor.
+**Never use `ScheduleWakeup` for `/build` monitoring, Monitor tool task notifications, or any other passive notification mechanism.** These approaches share the same failure mode: if the build fails silently, the agent goes idle until the user intervenes. A scheduled host wakeup is not durable build supervision: the build can fail, block, or need recovery while the chat stays asleep until the user manually asks for status. After every launch, relaunch, resume, or manual recovery, the next action must be the foreground `gstack-build monitor --manifest ... --watch --supervise` command. Do not say "checking back", "back in N minutes", or end the turn while a manifest-backed run is still active. Do not create ad-hoc watcher scripts or run `sleep ... && tail ...` polling loops; all waiting and stale-lock recovery belongs to the CLI monitor. **If you are woken by a task notification about gstack-build progress (i.e., a `<task-notification>` block arrives), that means the monitor is running in background — that is wrong. Immediately run the foreground monitor command.**
 
 **Execution Modes**:
 - **Normal Mode**: Locate the source plan, synthesize a new living plan, create the first feature branch, then launch the CLI. (Default)
@@ -1129,17 +1129,41 @@ Skip source-plan synthesis in Reexamine Mode. Resume Mode must still run the sha
      Acceptance: [what must be true for this feature to satisfy the source plan]
 
      ### Phase X: [Phase Name]
-     - [ ] **Test Specification (test-writer role)**: Write failing tests covering the behavior
-       described below. Tests MUST fail during the CLI Verify Red gate before implementation
-       begins. Cover happy path + key edge cases using the project's existing test framework.
-       Do NOT write any implementation code yet.
+     - [ ] **Test Specification (test-writer role)**: Implement the test cases listed in the
+       `#### Test Spec` section below (minimum requirement). You MAY add additional cases you
+       identify, but MUST NOT remove or weaken any specified test. Tests MUST fail before
+       implementation (Verify Red gate). Do NOT write any implementation code yet.
      - [ ] **Implementation (primary-impl role)**: Make all failing tests pass with minimal correct
        code. Do NOT change test assertions. After this checkbox runs, the CLI runs the Green
        tests gate and invokes the configured test-fixer role until tests pass or the cap is hit.
      - [ ] **Review & QA (review roles)**: Run primary /review, optional secondary review
        if configured, and /qa; all required gates must pass.
 
+     [Phase description prose — what this phase builds, inputs, outputs, constraints]
+
+     #### Test Spec
+     **Coverage target: ≥80%**
+
+     | ID | Scenario | Given | When | Then |
+     |----|----------|-------|------|------|
+     | T1 | [happy path scenario] | [preconditions] | [action] | [expected outcome] |
+     | T2 | [error/edge case]     | [preconditions] | [action] | [expected outcome] |
+     | T3 | [boundary condition]  | [preconditions] | [action] | [expected outcome] |
+
+     **Edge cases to cover:**
+     - [specific edge case 1]
+     - [specific edge case 2]
+
    - A dedicated test plan strategy section.
+   - For EVERY phase, include a `#### Test Spec` section in the phase body with:
+     a `**Coverage target: ≥80%**` line, a scenario table with at least 3 rows
+     (ID, Scenario, Given, When, Then columns), and an explicit edge cases list.
+     Use the phase description to derive concrete inputs/outputs — name real values
+     where possible (HTTP status codes, field names, error messages). Do NOT include
+     a test file path in the spec; the test-writer determines the correct test file
+     location from the repo layout. Write enough detail that no design judgment is
+     needed — the test-writer implements these cases as a quality floor and MAY add
+     additional cases on top.
 
    Living plan filenames MUST be unique and must never use date-only names. Use:
    `<repoSlug>-impl-plan-<sourceSlug>-<YYYYMMDD-HHMMSS>-<hash>.md`.
@@ -1268,13 +1292,12 @@ Use this execution path for all plans — Normal Mode (after Step 1.6 confirmati
 
 ### Startup Gates (v1.18.0)
 
-Before launching, `gstack-build` runs two preflight checks:
+Before launching, `gstack-build` runs one preflight check:
 1. **Pre-build clean check** — exits 1 if any tracked file is modified or staged. Commit or stash before building. Bypass with `--skip-clean-check`.
-2. **Unshipped feat/* sweep** — scans unmerged remote `origin/feat/*` branches and runs the same review/fix/ship/land engine as `gstack-build merge`, but skips branches owned by records in `~/.gstack/build-state/active-runs` unless that run is terminal and no PID is alive. Bypass with `--skip-sweep`. Local-only branches are handled by explicit Merge Mode so resume runs do not accidentally ship their own in-progress local branches.
 
 `gstack-build merge` uses the same active-run registry and reports skipped active branches. Shipping and cleanup touch only branches owned by the current run. Before `/ship`, the CLI fetches base and merges/rebases it into the owned feature branch; on conflict it aborts the sync, marks only that run paused, and writes the conflict files into state/logs.
 
-Both gates are skipped when `--dry-run` or `--skip-ship` is active.
+This check is skipped when `--dry-run` or `--skip-ship` is active.
 
 ### Manual Recovery and Submodule Boundaries
 
@@ -1496,12 +1519,14 @@ After this launch block finishes, the next tool call must be Bash running Step M
 
 ### Step M3: Foreground CLI Monitor
 
-Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. Do not use `ScheduleWakeup`, delayed reminders, `sleep ... && tail ...`, ad-hoc watcher scripts, or "check back later" messages as a substitute for this command. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
+Hard rule: `/build` polling is owned by the CLI monitor, not by host timer tools. Do not use `ScheduleWakeup`, delayed reminders, `sleep ... && tail ...`, ad-hoc watcher scripts, or "check back later" messages as a substitute for this command. Also forbidden: running the monitor command with `run_in_background: true` and using Monitor tool events as a substitute. The monitor command MUST run as a blocking foreground Bash tool call. After launch, keep this host turn alive by running the CLI-owned foreground monitor. If the command blocks for a long time, that is expected behavior:
 
 ```bash
+set -o pipefail
 BUILD_MONITOR_MAX_WALL_MS=${BUILD_MONITOR_MAX_WALL_MS:-3600000}
-"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
-_MONITOR_EXIT=$?
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS" 2>&1 | tee "$BUILD_TMP_DIR/monitor-output.log"
+_MONITOR_EXIT=${PIPESTATUS[0]}
+printf '%s\n' "$_MONITOR_EXIT" > "$BUILD_TMP_DIR/monitor-exit-code"
 ```
 
 The monitor emits compact JSON lines. Every line has `event`, `timestamp`, and `message`; run events also include `runId`, `repoSlug`, `stateSlug`, `status`, `pidFile`, `stateFile`, and `stdoutLog`. Terminal events and exit codes are:
@@ -1532,7 +1557,10 @@ When the final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`, immediately run the ho
 
 ```bash
 printf '%s\n' "<committed from JSON>" > "<countFile from JSON>"
-"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS"
+set -o pipefail
+"$_GSTACK_BUILD_CLI" monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise --poll-ms 60000 --max-wall-ms "$BUILD_MONITOR_MAX_WALL_MS" 2>&1 | tee -a "$BUILD_TMP_DIR/monitor-output.log"
+_MONITOR_EXIT=${PIPESTATUS[0]}
+printf '%s\n' "$_MONITOR_EXIT" > "$BUILD_TMP_DIR/monitor-exit-code"
 ```
 
 If the host cannot invoke skills natively, report that limitation once and write the count file to avoid a noisy loop; do not spawn a cross-provider substitute.
@@ -1544,6 +1572,145 @@ If the host cannot invoke skills natively, report that limitation once and write
 - `MONITOR_AGENT_ESCALATION`: the CLI-owned supervisor already asked the configured `monitorAgent` to diagnose a blocking event. Read `sourceEvent`, `verdict`, `recommendedHostAction`, `suggestedCommands`, and `userChoices`. If `verdict` is `host_action_required`, perform the safe host action or inspection command. If `verdict` is `user_action_required`, ask the user to choose. Do not let the monitor agent edit, commit, kill processes, patch state JSON, or override deterministic monitor identity checks.
 - `MONITOR_REENTER`: the foreground watch reached `--max-wall-ms`; immediately re-run the same monitor command in the same host session. Do not use `ScheduleWakeup` here.
 - `MONITOR_ERROR`: stop and report the error. Historical manifests without `launchCommand` are invalid; regenerate or relaunch through Step M2.
+
+#### Ship Failure Recovery (RUN_FAILED after queued-mode ship)
+
+When the monitor emits `RUN_FAILED` with a message like "Feature N: ship succeeded but PR number could not be parsed", the feature's ship step failed after phases completed.
+
+To recover:
+1. Diagnose why /ship failed (check the log path in the error message).
+2. Fix the underlying issue (e.g., broken `gh` CLI auth, missing PR template, base sync conflict — see the `features[N].error` field in the state JSON).
+3. Edit the state JSON to clear the failure and reset the feature:
+   - File: `~/.gstack/build-state/<slug>.json` (logs remain under `~/.gstack/build-state/<slug>/`)
+   - Remove the top-level `failureReason` key.
+   - Set `features[N].status` to `"phases_done"` (where N is the 0-based feature index).
+4. Re-run the monitor: `gstack-build monitor --manifest ... --watch --supervise`
+
+### Step M3.5: Skill Fault Investigator
+
+After the monitor exits, scan its output for skill-fault detections and dispatch investigators.
+The `fault_investigator_model` is read from `configure.cm` and faults are written to `~/.gstack/skill-faults/`:
+
+```bash
+_MONITOR_EXIT="${_MONITOR_EXIT:-0}"
+[ -f "$BUILD_TMP_DIR/monitor-exit-code" ] && _MONITOR_EXIT=$(cat "$BUILD_TMP_DIR/monitor-exit-code" 2>/dev/null || printf '0\n')
+
+if [ -f "$BUILD_TMP_DIR/monitor-output.log" ]; then
+  _FAULT_LINES=$(grep '"event":"SKILL_FAULT_DETECTED"' "$BUILD_TMP_DIR/monitor-output.log" 2>/dev/null || grep "SKILL_FAULT_DETECTED" "$BUILD_TMP_DIR/monitor-output.log" 2>/dev/null || true)
+  if [ -n "$_FAULT_LINES" ]; then
+    _FAULT_PRIMARY_DIR="$HOME/.gstack/skill-faults"
+    _FAULT_SECONDARY_DIR=""
+    mkdir -p "$_FAULT_PRIMARY_DIR"
+    if _GSTACK_SKILL_TARGET=$(readlink "$HOME/.claude/skills/gstack" 2>/dev/null); then
+      case "$_GSTACK_SKILL_TARGET" in
+        /*) _GSTACK_SKILL_ABS="$_GSTACK_SKILL_TARGET" ;;
+        *) _GSTACK_SKILL_ABS="$(cd "$(dirname "$HOME/.claude/skills/gstack")" 2>/dev/null && pwd -P)/$_GSTACK_SKILL_TARGET" ;;
+      esac
+      _FAULT_SECONDARY_DIR="$_GSTACK_SKILL_ABS/inbox/faults"
+      mkdir -p "$_FAULT_SECONDARY_DIR"
+    fi
+
+    _FAULT_INVESTIGATOR_MODEL=$($GSTACK_BIN/gstack-config get fault_investigator_model 2>/dev/null || true)
+    [ -z "$_FAULT_INVESTIGATOR_MODEL" ] && _FAULT_INVESTIGATOR_MODEL=$(jq -r '.roles.faultInvestigator.model // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+    [ -z "$_FAULT_INVESTIGATOR_MODEL" ] && _FAULT_INVESTIGATOR_MODEL="claude-sonnet-4-6"
+    _FAULT_INVESTIGATOR_PROVIDER=$($GSTACK_BIN/gstack-config get fault_investigator_provider 2>/dev/null || true)
+    [ -z "$_FAULT_INVESTIGATOR_PROVIDER" ] && _FAULT_INVESTIGATOR_PROVIDER=$(jq -r '.roles.faultInvestigator.provider // empty' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+    if [ -z "$_FAULT_INVESTIGATOR_PROVIDER" ]; then
+      case "$_FAULT_INVESTIGATOR_MODEL" in
+        gemini*) _FAULT_INVESTIGATOR_PROVIDER="gemini" ;;
+        kimi*) _FAULT_INVESTIGATOR_PROVIDER="kimi" ;;
+        gpt-*|o*) _FAULT_INVESTIGATOR_PROVIDER="codex" ;;
+        *) _FAULT_INVESTIGATOR_PROVIDER="claude" ;;
+      esac
+    fi
+
+    # Each SKILL_FAULT_DETECTED line is a JSON event:
+    #   {event,timestamp,runId,stateSlug,stateFile,manifestPath,
+    #    faults:[{category,severity,description,sourceFiles,evidence}]}
+    # Flatten to TSV: runId<TAB>category<TAB>fault-json-base64<TAB>event-json-base64.
+    _FAULT_ROWS=$(printf '%s\n' "$_FAULT_LINES" | jq -rc 'select(.event == "SKILL_FAULT_DETECTED") as $ev | ($ev.runId // "unknown") as $rid | ($ev.faults // [])[] | [($rid|tostring), ((.category // "UNKNOWN")|tostring), (. | @base64), ($ev | @base64)] | @tsv' 2>/dev/null || true)
+
+    _resolve_fault_path() {
+      _FAULT_INPUT="$1"
+      if _FAULT_TARGET=$(readlink "$_FAULT_INPUT" 2>/dev/null); then
+        case "$_FAULT_TARGET" in
+          /*) printf '%s\n' "$_FAULT_TARGET" ;;
+          *) printf '%s\n' "$(cd "$(dirname "$_FAULT_INPUT")" 2>/dev/null && pwd -P)/$_FAULT_TARGET" ;;
+        esac
+      elif [ -e "$_FAULT_INPUT" ]; then
+        printf '%s\n' "$(cd "$(dirname "$_FAULT_INPUT")" 2>/dev/null && pwd -P)/$(basename "$_FAULT_INPUT")"
+      else
+        case "$_FAULT_INPUT" in
+          /*) printf '%s\n' "$_FAULT_INPUT" ;;
+          *) printf '%s\n' "$(pwd -P)/$_FAULT_INPUT" ;;
+        esac
+      fi
+    }
+
+    _decode_fault_b64() {
+      _FAULT_B64_INPUT="$1"
+      printf '%s' "$_FAULT_B64_INPUT" | base64 --decode 2>/dev/null || printf '%s' "$_FAULT_B64_INPUT" | base64 -D 2>/dev/null || true
+    }
+
+    _SEEN_FAULTS=""
+    while IFS=$'\t' read -r _FAULT_RUN_ID _FAULT_CATEGORY _FAULT_B64 _FAULT_EVENT_B64; do
+      [ -z "$_FAULT_B64" ] && continue
+      _FAULT_JSON=$(_decode_fault_b64 "$_FAULT_B64")
+      _FAULT_EVENT=$(_decode_fault_b64 "$_FAULT_EVENT_B64")
+      _FAULT_RUN_SAFE=$(printf '%s' "$_FAULT_RUN_ID" | tr -c 'A-Za-z0-9._-' '_')
+      _FAULT_CATEGORY_SAFE=$(printf '%s' "$_FAULT_CATEGORY" | tr -c 'A-Za-z0-9._-' '_')
+      _FAULT_REPORT_NAME="skill-fault-${_FAULT_RUN_SAFE}-${_FAULT_CATEGORY_SAFE}.md"
+      _FAULT_PRIMARY="$_FAULT_PRIMARY_DIR/$_FAULT_REPORT_NAME"
+      _FAULT_SECONDARY=""
+      [ -n "$_FAULT_SECONDARY_DIR" ] && _FAULT_SECONDARY="$_FAULT_SECONDARY_DIR/$_FAULT_REPORT_NAME"
+      _FAULT_KEY="$_FAULT_RUN_SAFE|$_FAULT_CATEGORY_SAFE"
+
+      # dedupe on runId + category via a fault report glob, using readlink without -f
+      _FAULT_DUPLICATE="no"
+      for _FAULT_EXISTING in "$_FAULT_PRIMARY_DIR"/*-"$_FAULT_RUN_SAFE"-"$_FAULT_CATEGORY_SAFE".md "$_FAULT_PRIMARY"; do
+        [ -e "$_FAULT_EXISTING" ] && _FAULT_DUPLICATE="yes"
+      done
+      case "|$_SEEN_FAULTS|" in
+        *"|$_FAULT_KEY|"*) _FAULT_DUPLICATE="yes" ;;
+      esac
+      [ "$_FAULT_DUPLICATE" = "yes" ] && continue
+      _SEEN_FAULTS="$_SEEN_FAULTS|$_FAULT_KEY"
+
+      _FAULT_SOURCE_LIST=$(printf '%s' "$_FAULT_JSON" | jq -r '(.sourceFiles // [])[]' 2>/dev/null | while IFS= read -r _FAULT_FILE; do [ -n "$_FAULT_FILE" ] && _resolve_fault_path "$_FAULT_FILE"; done)
+
+      if [ -n "$GSTACK_FAULT_INVESTIGATOR_COMMAND" ]; then
+        (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" bash -lc "$GSTACK_FAULT_INVESTIGATOR_COMMAND"; _FAULT_RC=$?; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true; exit "$_FAULT_RC") > "$_FAULT_PRIMARY" 2>&1 &
+      else
+        if [ -z "$_FAULT_INVESTIGATOR_PROVIDER" ] || [ -z "$_FAULT_INVESTIGATOR_MODEL" ]; then
+          echo "unsupported fault investigator provider/model: $_FAULT_INVESTIGATOR_PROVIDER / $_FAULT_INVESTIGATOR_MODEL" >&2
+          continue
+        fi
+        # Spawn one background general-purpose investigator agent per non-duplicate fault
+        _INV_PROMPT="A skill fault was detected (category: $_FAULT_CATEGORY, runId: $_FAULT_RUN_ID). Source files: ${_FAULT_SOURCE_LIST:-none}. Event JSON: $_FAULT_EVENT. Investigate the root cause. You MUST ONLY read files and write the investigation report to $_FAULT_PRIMARY. Do NOT write code, modify any other file, run tests, or commit anything."
+        case "$_FAULT_INVESTIGATOR_PROVIDER" in
+          gemini)
+            (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" gemini -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true) > "$_FAULT_PRIMARY" 2>&1 &
+            ;;
+          kimi)
+            (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" kimi --work-dir "$(pwd -P)" -p "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" --yolo --print --final-message-only; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true) > "$_FAULT_PRIMARY" 2>&1 &
+            ;;
+          claude)
+            (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" claude --model "$_FAULT_INVESTIGATOR_MODEL" -p "$_INV_PROMPT"; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true) > "$_FAULT_PRIMARY" 2>&1 &
+            ;;
+          codex)
+            _INV_REASONING=$(jq -r '.roles.faultInvestigator.reasoning // "high"' ~/.claude/skills/gstack/build/configure.cm 2>/dev/null)
+            (FAULT_PRIMARY="$_FAULT_PRIMARY" FAULT_SECONDARY="$_FAULT_SECONDARY" FAULT_EVENT="$_FAULT_EVENT" FAULT_CATEGORY="$_FAULT_CATEGORY" FAULT_RUN_ID="$_FAULT_RUN_ID" FAULT_REPORT_NAME="$_FAULT_REPORT_NAME" FAULT_INVESTIGATOR_MODEL="$_FAULT_INVESTIGATOR_MODEL" codex exec "$_INV_PROMPT" -m "$_FAULT_INVESTIGATOR_MODEL" -s workspace-write -c "model_reasoning_effort=\"$_INV_REASONING\"" -C "$(pwd -P)"; [ -n "$_FAULT_SECONDARY" ] && [ -s "$_FAULT_PRIMARY" ] && cp "$_FAULT_PRIMARY" "$_FAULT_SECONDARY" 2>/dev/null || true) > "$_FAULT_PRIMARY" 2>&1 &
+            ;;
+          *)
+            echo "unsupported fault investigator provider: $_FAULT_INVESTIGATOR_PROVIDER" >&2
+            ;;
+        esac
+      fi
+    done < <(printf '%s\n' "$_FAULT_ROWS")
+  fi
+fi
+exit "$_MONITOR_EXIT"
+```
 
 ---
 

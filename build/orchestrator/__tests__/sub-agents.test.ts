@@ -4,6 +4,7 @@ import {
   stripAnsi,
   detectTestCmd,
   parseFailureCount,
+  parseCoveragePercent,
   parseJudgeVerdict,
   buildCodexImplArgv,
   buildCodexReviewArgv,
@@ -199,6 +200,69 @@ describe("runTests", () => {
     });
 
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe("parseCoveragePercent", () => {
+  it("parses jest/vitest Statements line", () => {
+    const out = "Statements   : 87.5% ( 70/80 )";
+    expect(parseCoveragePercent(out, "jest")).toBe(87.5);
+  });
+
+  it("parses jest with --coverage flag in testCmd", () => {
+    const out = "Statements: 92.1%";
+    expect(
+      parseCoveragePercent(out, "jest --coverage --coverageReporters text"),
+    ).toBe(92.1);
+  });
+
+  it("parses vitest coverage output", () => {
+    const out = "Statements : 77.8%";
+    expect(parseCoveragePercent(out, "vitest --coverage")).toBe(77.8);
+  });
+
+  it("parses bun test coverage line", () => {
+    const out = "coverage: 82.3%";
+    expect(parseCoveragePercent(out, "bun test")).toBe(82.3);
+  });
+
+  it("parses bun run test coverage line", () => {
+    const out = "coverage: 64.0%";
+    expect(parseCoveragePercent(out, "bun run test")).toBe(64.0);
+  });
+
+  it("parses pytest TOTAL line", () => {
+    const out = "TOTAL   1000   200   80%";
+    expect(parseCoveragePercent(out, "pytest")).toBe(80);
+  });
+
+  it("parses pytest with --cov flag in testCmd", () => {
+    const out = "TOTAL   500   125   75%";
+    expect(
+      parseCoveragePercent(out, "pytest --cov --cov-report term-missing"),
+    ).toBe(75);
+  });
+
+  it("parses go test coverage line", () => {
+    const out = "ok  ./...  coverage: 72.3% of statements";
+    expect(parseCoveragePercent(out, "go test ./...")).toBe(72.3);
+  });
+
+  it("returns null for cargo test (tarpaulin not guaranteed installed)", () => {
+    const out = "running 5 tests\ntest result: ok. 5 passed; 0 failed";
+    expect(parseCoveragePercent(out, "cargo test")).toBeNull();
+  });
+
+  it("returns null for unknown framework", () => {
+    expect(parseCoveragePercent("some output", "make test")).toBeNull();
+  });
+
+  it("returns null when jest output has no Statements line", () => {
+    expect(parseCoveragePercent("no coverage data here", "jest")).toBeNull();
+  });
+
+  it("returns null when bun test has no coverage line", () => {
+    expect(parseCoveragePercent("5 pass 0 fail", "bun test")).toBeNull();
   });
 });
 

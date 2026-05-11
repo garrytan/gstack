@@ -14,7 +14,9 @@ import type {
   BuildRunManifestRun,
   BuildState,
   PhaseStatus,
+  SkillFaultDetectedEvent,
 } from "./types";
+import { detectSkillFaults } from "./skill-fault-detector";
 
 export type MonitorEventName =
   | "RUN_RUNNING"
@@ -79,6 +81,7 @@ interface MonitorRunSnapshot {
   stateFile: string;
   state: BuildState | null;
   stateError?: string;
+  stateDir: string;
   pid: number | null;
   pidAlive: boolean;
   registryPidAlive: boolean;
@@ -104,6 +107,7 @@ export interface MonitorOnceOptions {
 export interface MonitorEvaluation {
   manifest?: BuildRunManifest;
   events: MonitorEvent[];
+  skillFaultEvents: SkillFaultDetectedEvent[];
   terminalEvent: MonitorEvent;
 }
 
@@ -331,6 +335,7 @@ function readRunSnapshot(
   return {
     run,
     stateFile,
+    stateDir: path.dirname(stateFile),
     state,
     stateError,
     pid,
@@ -474,6 +479,7 @@ export function evaluateMonitorOnce(
 ): MonitorEvaluation {
   const now = opts.now ?? new Date();
   const pollMs = opts.pollMs ?? 60_000;
+  const skillFaultEvents: SkillFaultDetectedEvent[] = [];
   try {
     const manifest = loadMonitorManifest(opts.manifestPath);
     const events: MonitorEvent[] = [];
@@ -482,6 +488,28 @@ export function evaluateMonitorOnce(
     );
 
     for (const snapshot of snapshots) {
+      try {
+        const faults = detectSkillFaults({
+          state: snapshot.state,
+          worktreePath: snapshot.run.worktreePath,
+          stdoutLogPath: snapshot.run.stdoutLog,
+          stateDir: snapshot.stateDir,
+          livingPlanPath: snapshot.run.livingPlanPath,
+        });
+        if (faults.length > 0) {
+          skillFaultEvents.push({
+            event: "SKILL_FAULT_DETECTED",
+            timestamp: nowIso(now),
+            runId: snapshot.run.runId,
+            stateSlug: snapshot.run.stateSlug,
+            stateFile: snapshot.stateFile,
+            manifestPath: opts.manifestPath,
+            faults,
+          });
+        }
+      } catch {
+        // swallow
+      }
       if (snapshot.stateError) {
         const terminalEvent = runEvent(
           "MONITOR_ERROR",
@@ -489,7 +517,7 @@ export function evaluateMonitorOnce(
           `state file is unreadable: ${snapshot.stateError}`,
           now,
         );
-        return { manifest, events: [...events, terminalEvent], terminalEvent };
+        return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
       }
       if (!snapshot.registryOk || (snapshot.state && !snapshot.identityOk)) {
         const terminalEvent = runEvent(
@@ -498,7 +526,7 @@ export function evaluateMonitorOnce(
           "run identity is ambiguous; refusing automatic recovery",
           now,
         );
-        return { manifest, events: [...events, terminalEvent], terminalEvent };
+        return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
       }
       if (
         snapshot.committedCount > snapshot.priorContextSaveCount &&
@@ -514,7 +542,7 @@ export function evaluateMonitorOnce(
             countFile: snapshot.contextSaveCountFile,
           },
         );
-        return { manifest, events: [...events, terminalEvent], terminalEvent };
+        return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
       }
       if (snapshot.failed) {
         writeClaimStatus(manifest, snapshot.run, "failed", now);
@@ -524,7 +552,7 @@ export function evaluateMonitorOnce(
           snapshot.state?.failureReason ?? "build run failed",
           now,
         );
-        return { manifest, events: [...events, terminalEvent], terminalEvent };
+        return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
       }
       if (snapshot.completed) {
         writeClaimStatus(manifest, snapshot.run, "completed", now);
@@ -555,7 +583,7 @@ export function evaluateMonitorOnce(
             "run process or active-run registry owner is alive but state is stale",
             now,
           );
-          return { manifest, events: [...events, terminalEvent], terminalEvent };
+          return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
         }
         if (!snapshot.state || !snapshot.identityOk) {
           const terminalEvent = runEvent(
@@ -564,7 +592,7 @@ export function evaluateMonitorOnce(
             "run is stale but identity could not be proven",
             now,
           );
-          return { manifest, events: [...events, terminalEvent], terminalEvent };
+          return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
         }
         const lockCleanup = cleanupDeadLock(snapshot.run.stateSlug);
         if (lockCleanup.status === "live") {
@@ -574,7 +602,7 @@ export function evaluateMonitorOnce(
             "run state is stale but its lock is still held by a live process",
             now,
           );
-          return { manifest, events: [...events, terminalEvent], terminalEvent };
+          return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
         }
         if (
           lockCleanup.status === "invalid" ||
@@ -586,7 +614,7 @@ export function evaluateMonitorOnce(
             `run state is stale but its lock cannot be safely verified (${lockCleanup.status})`,
             now,
           );
-          return { manifest, events: [...events, terminalEvent], terminalEvent };
+          return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
         }
         let resumedPid = 0;
         if (opts.spawnResume !== false) {
@@ -601,7 +629,7 @@ export function evaluateMonitorOnce(
           now,
           { resumeAttempted: true },
         );
-        return { manifest, events: [...events, terminalEvent], terminalEvent };
+        return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
       }
       events.push(
         runEvent(
@@ -625,7 +653,7 @@ export function evaluateMonitorOnce(
       },
       now,
     );
-    return { manifest, events: [...events, terminalEvent], terminalEvent };
+    return { manifest, events: [...events, terminalEvent], skillFaultEvents, terminalEvent };
   } catch (err) {
     const terminalEvent = event(
       {
@@ -634,7 +662,7 @@ export function evaluateMonitorOnce(
       },
       now,
     );
-    return { events: [terminalEvent], terminalEvent };
+    return { events: [terminalEvent], skillFaultEvents, terminalEvent };
   }
 }
 

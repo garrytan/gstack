@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { evaluateMonitorOnce } from "../monitor";
 import {
   buildGeminiTestSpecPrompt,
+  extractCoverageTarget,
   buildDualImplPromptBody,
   buildCodexReviewBody,
   buildJudgePrompt,
@@ -137,6 +139,99 @@ describe("buildGeminiTestSpecPrompt", () => {
     const prompt = buildGeminiTestSpecPrompt(basePhase, "plan.md");
     expect(prompt).toContain("do not edit git submodules");
     expect(prompt).toContain("report a plan mismatch");
+  });
+});
+
+describe("buildGeminiTestSpecPrompt — spec-aware path", () => {
+  const specPhase: Phase = {
+    ...basePhase,
+    body: [
+      "Some prose describing the phase.",
+      "",
+      "#### Test Spec",
+      "**Coverage target: ≥80%**",
+      "",
+      "| ID | Scenario | Given | When | Then |",
+      "|----|----------|-------|------|------|",
+      "| T1 | happy path | valid input | call fn | returns result |",
+      "| T2 | error case | null input | call fn | throws TypeError |",
+      "| T3 | boundary | empty list | call fn | returns [] |",
+      "",
+      "**Edge cases to cover:**",
+      "- Empty input",
+    ].join("\n"),
+  };
+
+  it('uses floor language "minimum requirement" instead of "write failing tests"', () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("minimum requirement");
+    expect(prompt.toLowerCase()).not.toContain(
+      "write failing tests that cover",
+    );
+  });
+
+  it("tells test-writer they may add cases beyond the spec", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("MAY add additional cases");
+  });
+
+  it("includes the coverage target from the spec", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("≥80%");
+  });
+
+  it("passes phase body verbatim (including Test Spec section)", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt).toContain("#### Test Spec");
+    expect(prompt).toContain("T1");
+  });
+
+  it("still tells test-writer not to write implementation code", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt.toLowerCase()).toMatch(
+      /do not implement|do not write.*production/,
+    );
+  });
+
+  it("still enforces red phase (tests must fail before implementation)", () => {
+    const prompt = buildGeminiTestSpecPrompt(specPhase, "plan.md");
+    expect(prompt.toLowerCase()).toContain("must fail");
+  });
+});
+
+describe("extractCoverageTarget", () => {
+  it("extracts percentage from **Coverage target: ≥80%**", () => {
+    expect(extractCoverageTarget("**Coverage target: ≥80%**")).toBe(80);
+  });
+
+  it("defaults to 80 when no coverage target line is present", () => {
+    expect(extractCoverageTarget("some phase body with no coverage line")).toBe(
+      80,
+    );
+  });
+
+  it("handles >=85% variant (ASCII greater-than-or-equal)", () => {
+    expect(extractCoverageTarget("**Coverage target: >=85%**")).toBe(85);
+  });
+
+  it("handles plain > variant", () => {
+    expect(extractCoverageTarget("**Coverage target: >90%**")).toBe(90);
+  });
+
+  it("is case-insensitive", () => {
+    expect(extractCoverageTarget("**coverage target: ≥75%**")).toBe(75);
+  });
+
+  it("extracts from a multi-line phase body", () => {
+    const body = [
+      "Some prose",
+      "",
+      "#### Test Spec",
+      "**Coverage target: ≥82%**",
+      "",
+      "| T1 | ...",
+    ].join("\n");
+    expect(extractCoverageTarget(body)).toBe(82);
   });
 });
 
@@ -980,11 +1075,10 @@ describe("--parallel-phases flag wiring", () => {
   });
 });
 
-describe("--skip-clean-check / --skip-sweep flags", () => {
-  it("parseArgs default -> skipCleanCheck=false, skipSweep=false", () => {
+describe("--skip-clean-check flag", () => {
+  it("parseArgs default -> skipCleanCheck=false", () => {
     const args = parseArgs(["plan.md"]);
     expect(args.skipCleanCheck).toBe(false);
-    expect(args.skipSweep).toBe(false);
   });
 
   it("parseArgs([plan, --skip-clean-check]) -> skipCleanCheck=true", () => {
@@ -992,17 +1086,8 @@ describe("--skip-clean-check / --skip-sweep flags", () => {
     expect(args.skipCleanCheck).toBe(true);
   });
 
-  it("parseArgs([plan, --skip-sweep]) -> skipSweep=true", () => {
-    const args = parseArgs(["plan.md", "--skip-sweep"]);
-    expect(args.skipSweep).toBe(true);
-  });
-
   it("HELP_TEXT contains --skip-clean-check", () => {
     expect(HELP_TEXT).toContain("--skip-clean-check");
-  });
-
-  it("HELP_TEXT contains --skip-sweep", () => {
-    expect(HELP_TEXT).toContain("--skip-sweep");
   });
 
   it("parseArgs rejects removed context-save CLI flags", () => {
@@ -3233,5 +3318,389 @@ process.stdout.write(match[1]);
         force: true,
       });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ship failure paths: state.failureReason is set at all 4 paused locations
+// ---------------------------------------------------------------------------
+
+describe("ship failure sets state.failureReason at paused paths", () => {
+  function git(args: string[], cwd: string): void {
+    const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (r.status !== 0)
+      throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
+  }
+
+  function initRepo(): string {
+    const dir = path.join(tmpDir!, "repo");
+    fs.mkdirSync(dir, { recursive: true });
+    git(["init", "-b", "main"], dir);
+    git(["config", "user.email", "t@t.com"], dir);
+    git(["config", "user.name", "T"], dir);
+    fs.writeFileSync(path.join(dir, "README.md"), "# test\n");
+    git(["add", "."], dir);
+    git(["commit", "-m", "init"], dir);
+    return dir;
+  }
+
+  function initRepoWithOrigin(): string {
+    const repo = path.join(tmpDir!, "repo");
+    const bare = path.join(tmpDir!, "origin.git");
+    fs.mkdirSync(repo, { recursive: true });
+    fs.mkdirSync(bare, { recursive: true });
+    git(["init", "--bare", "-b", "main"], bare);
+    git(["init", "-b", "main"], repo);
+    git(["config", "user.email", "t@t.com"], repo);
+    git(["config", "user.name", "T"], repo);
+    git(["remote", "add", "origin", bare], repo);
+    fs.writeFileSync(path.join(repo, "README.md"), "# test\n");
+    git(["add", "."], repo);
+    git(["commit", "-m", "init"], repo);
+    git(["push", "-u", "origin", "main"], repo);
+    git(["fetch", "origin"], repo);
+    return repo;
+  }
+
+  function committedPlanFile(): string {
+    const p = path.join(tmpDir!, "plan.md");
+    fs.writeFileSync(
+      p,
+      [
+        "## Feature 1: Test Ship",
+        "",
+        "### Phase 1: Phase 1",
+        "- [x] **Implementation (Gemini)**",
+        "- [x] **Review & QA (Codex)**",
+        "",
+      ].join("\n"),
+    );
+    return p;
+  }
+
+  function seedShipState(
+    repoPath: string,
+    planFile: string,
+    runId: string,
+  ): void {
+    const stateSlug = `build-${runId}`;
+    const registryDir = path.join(tmpDir!, "registry");
+    fs.mkdirSync(registryDir, { recursive: true });
+    fs.mkdirSync(path.join(tmpStateDir!, stateSlug), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpStateDir!, `${stateSlug}.json`),
+      JSON.stringify({
+        planFile,
+        planBasename: "plan",
+        slug: stateSlug,
+        branch: "main",
+        startedAt: new Date().toISOString(),
+        lastUpdatedAt: new Date().toISOString(),
+        launch: {
+          argv: [planFile],
+          projectRoot: repoPath,
+          runId,
+          stateSlug,
+          activeRunRegistry: registryDir,
+          dryRun: false,
+          skipShip: false,
+          skipFeatureReview: true,
+          launchedAt: new Date().toISOString(),
+        },
+        currentPhaseIndex: 0,
+        currentFeatureIndex: 0,
+        features: [
+          {
+            index: 0,
+            number: "1",
+            name: "Test Ship",
+            phaseIndexes: [0],
+            status: "phases_done",
+            branch: "main",
+          },
+        ],
+        phases: [
+          { index: 0, number: "1", name: "Phase 1", status: "committed" },
+        ],
+        completed: false,
+      }),
+    );
+  }
+
+  function runShipCli(
+    planFile: string,
+    repoPath: string,
+    runId: string,
+    extraEnv: Record<string, string> = {},
+  ) {
+    const registryDir = path.join(tmpDir!, "registry");
+    return spawnSync(
+      process.execPath,
+      [
+        path.resolve("build/orchestrator/cli.ts"),
+        planFile,
+        "--project-root",
+        repoPath,
+        "--run-id",
+        runId,
+        "--active-run-registry",
+        registryDir,
+        "--release-mode",
+        "queued",
+        "--skip-feature-review",
+        "--no-plan-review",
+        "--skip-clean-check",
+        "--no-gbrain",
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GSTACK_BUILD_STATE_DIR: tmpStateDir!,
+          ...extraEnv,
+        },
+        timeout: 30_000,
+      },
+    );
+  }
+
+  function loadSavedState(runId: string): BuildState {
+    const stateSlug = `build-${runId}`;
+    return JSON.parse(
+      fs.readFileSync(path.join(tmpStateDir!, `${stateSlug}.json`), "utf8"),
+    ) as BuildState;
+  }
+
+  it("Location A: base sync conflict → state.failureReason contains Feature + base sync", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-ship-loc-a-"));
+    const runId = `ship-loc-a-${process.pid}`;
+    const repo = initRepo(); // no remote — git fetch origin fails
+    const planFile = committedPlanFile();
+    seedShipState(repo, planFile, runId);
+
+    const result = runShipCli(planFile, repo, runId);
+
+    expect(result.status).toBe(1);
+    const state = loadSavedState(runId);
+    expect(state.failureReason).toMatch(/Feature 1: base sync/);
+  }, 30_000);
+
+  it("Location B: ship non-zero exit → state.failureReason contains Feature + ship failed", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-ship-loc-b-"));
+    const runId = `ship-loc-b-${process.pid}`;
+    const repo = initRepoWithOrigin();
+    const planFile = committedPlanFile();
+    seedShipState(repo, planFile, runId);
+
+    const fakeKimi = path.join(tmpDir!, "kimi");
+    const fakeGemini = path.join(tmpDir!, "gemini");
+    fs.writeFileSync(fakeKimi, "#!/bin/sh\nexit 1\n");
+    fs.chmodSync(fakeKimi, 0o755);
+    fs.writeFileSync(fakeGemini, "#!/bin/sh\nexit 1\n");
+    fs.chmodSync(fakeGemini, 0o755);
+
+    const result = runShipCli(planFile, repo, runId, {
+      KIMI_BIN: fakeKimi,
+      GEMINI_BIN: fakeGemini,
+    });
+
+    expect(result.status).toBe(1);
+    const state = loadSavedState(runId);
+    expect(state.failureReason).toMatch(/Feature 1: ship failed/);
+  }, 30_000);
+
+  it("Location C: unparseable PR → state.failureReason contains PR number could not be parsed", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-ship-loc-c-"));
+    const runId = `ship-loc-c-${process.pid}`;
+    const repo = initRepoWithOrigin();
+    const planFile = committedPlanFile();
+    seedShipState(repo, planFile, runId);
+
+    // exits 0 without writing to staged output → mergeOutputFile returns empty stdout
+    const fakeKimi = path.join(tmpDir!, "kimi");
+    fs.writeFileSync(fakeKimi, "#!/bin/sh\nexit 0\n");
+    fs.chmodSync(fakeKimi, 0o755);
+
+    const result = runShipCli(planFile, repo, runId, { KIMI_BIN: fakeKimi });
+
+    expect(result.status).toBe(1);
+    const state = loadSavedState(runId);
+    expect(state.failureReason).toMatch(/PR number could not be parsed/);
+  }, 30_000);
+
+  it("Location D: markPrQueued failure → state.failureReason contains could not be marked queued", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-ship-loc-d-"));
+    const runId = `ship-loc-d-${process.pid}`;
+    const repo = initRepoWithOrigin();
+    const planFile = committedPlanFile();
+    seedShipState(repo, planFile, runId);
+
+    // writes "PR #123" to the staged output path extracted from the -p prompt
+    const fakeKimi = path.join(tmpDir!, "kimi");
+    fs.writeFileSync(
+      fakeKimi,
+      `#!${process.execPath}
+const fs = require("node:fs");
+const argv = process.argv.slice(2);
+const prompt = argv[argv.indexOf("-p") + 1] || "";
+const m = prompt.match(/Write your complete output to (.+?)\\. Return ONLY/);
+if (m) fs.writeFileSync(m[1], "PR #123\\nship complete\\n");
+process.exit(0);
+`,
+    );
+    fs.chmodSync(fakeKimi, 0o755);
+
+    // fake gh that always fails — markPrQueued calls "gh pr edit"
+    const fakeGhDir = path.join(tmpDir!, "fake-gh");
+    fs.mkdirSync(fakeGhDir, { recursive: true });
+    fs.writeFileSync(path.join(fakeGhDir, "gh"), "#!/bin/sh\nexit 1\n");
+    fs.chmodSync(path.join(fakeGhDir, "gh"), 0o755);
+
+    const result = runShipCli(planFile, repo, runId, {
+      KIMI_BIN: fakeKimi,
+      PATH: `${fakeGhDir}:${process.env.PATH ?? ""}`,
+    });
+
+    expect(result.status).toBe(1);
+    const state = loadSavedState(runId);
+    expect(state.failureReason).toMatch(/could not be marked queued/);
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// monitor regression: RUN_FAILED vs RUN_RESUMED based on failureReason
+// ---------------------------------------------------------------------------
+
+describe("monitor emits RUN_FAILED when failureReason set (regression)", () => {
+  function buildMonitorFixture(runId: string, failureReason?: string) {
+    const stateSlug = `build-${runId}`;
+    const worktreePath = path.join(tmpDir!, "worktree");
+    const repoPath = worktreePath;
+    const livingPlanPath = path.join(tmpDir!, "plan.md");
+    const manifestPath = path.join(tmpDir!, "manifest.json");
+    const registryDir = path.join(tmpDir!, "registry");
+    const pidFile = path.join(tmpDir!, "pid"); // does not exist → dead process
+    const stdoutLog = path.join(tmpDir!, "stdout.log");
+
+    fs.mkdirSync(worktreePath, { recursive: true });
+    fs.mkdirSync(registryDir, { recursive: true });
+    fs.mkdirSync(path.join(tmpStateDir!, stateSlug), { recursive: true });
+    // context-save count matches committed phase count so HOST_CONTEXT_SAVE_REQUIRED doesn't fire
+    fs.writeFileSync(
+      path.join(tmpStateDir!, stateSlug, ".host-context-save-count"),
+      "1\n",
+    );
+
+    const staleTs = new Date(Date.now() - 5_000).toISOString();
+    const stateData: Record<string, unknown> = {
+      planFile: livingPlanPath,
+      planBasename: "plan",
+      slug: stateSlug,
+      branch: "main",
+      startedAt: staleTs,
+      lastUpdatedAt: staleTs,
+      launch: {
+        argv: [livingPlanPath],
+        projectRoot: worktreePath,
+        baseProjectRoot: repoPath,
+        runId,
+        stateSlug,
+        activeRunRegistry: registryDir,
+        dryRun: false,
+        skipShip: false,
+        skipFeatureReview: true,
+        launchedAt: staleTs,
+      },
+      currentPhaseIndex: 0,
+      currentFeatureIndex: 0,
+      features: [
+        {
+          index: 0,
+          number: "1",
+          name: "Test",
+          phaseIndexes: [0],
+          status: "paused",
+          branch: "main",
+          error: "ship succeeded but PR number could not be parsed",
+        },
+      ],
+      phases: [{ index: 0, number: "1", name: "Phase 1", status: "committed" }],
+      completed: false,
+    };
+    if (failureReason !== undefined) stateData.failureReason = failureReason;
+
+    fs.writeFileSync(
+      path.join(tmpStateDir!, `${stateSlug}.json`),
+      JSON.stringify(stateData),
+    );
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        manifestId: "m",
+        runGroupId: "g",
+        tmpDir: tmpDir!,
+        runs: [
+          {
+            runId,
+            repoPath,
+            repoSlug: "repo",
+            livingPlanPath,
+            worktreePath,
+            stateSlug,
+            branchPrefix: `repo-${runId}`,
+            pidFile,
+            stdoutLog,
+            launchCommand: [
+              "/bin/sh",
+              "-c",
+              "echo resume",
+              "--active-run-registry",
+              registryDir,
+            ],
+            launchEnv: {},
+          },
+        ],
+      }),
+    );
+    return manifestPath;
+  }
+
+  it("pre-fix: dead process + paused + no failureReason → RUN_RESUMED (documents old bug)", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-monitor-t5-"));
+    const runId = `monitor-t5-${process.pid}`;
+    const manifestPath = buildMonitorFixture(
+      runId,
+      /* no failureReason */ undefined,
+    );
+
+    const result = evaluateMonitorOnce({
+      manifestPath,
+      pollMs: 1,
+      now: new Date(),
+      spawnResume: false,
+    });
+
+    // This assertion documents the pre-fix bug. When the TODOS.md
+    // "dead process + paused state = terminal" invariant is moved to
+    // readRunSnapshot in monitor.ts, this expectation must flip to RUN_FAILED.
+    expect(result.terminalEvent?.event).toBe("RUN_RESUMED");
+  });
+
+  it("post-fix: dead process + paused + failureReason set → RUN_FAILED", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-monitor-t6-"));
+    const runId = `monitor-t6-${process.pid}`;
+    const reason =
+      "Feature 1: ship succeeded but PR number could not be parsed; see /tmp/ship.log";
+    const manifestPath = buildMonitorFixture(runId, reason);
+
+    const result = evaluateMonitorOnce({
+      manifestPath,
+      pollMs: 1,
+      now: new Date(),
+      spawnResume: false,
+    });
+
+    expect(result.terminalEvent?.event).toBe("RUN_FAILED");
   });
 });

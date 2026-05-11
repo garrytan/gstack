@@ -1165,6 +1165,56 @@ export function detectTestCmd(cwd: string): string | null {
   return null;
 }
 
+/**
+ * Parse the overall coverage percentage from test runner stdout.
+ *
+ * Framework detection uses `testCmd` (the command string, e.g. "jest --watch"):
+ *   jest / vitest  → "Statements: N.NN%" line
+ *   bun test       → "coverage: N.NN%" line
+ *   pytest         → "TOTAL ... N%" terminal line
+ *   go test        → "coverage: N.N% of statements"
+ *   cargo test     → advisory only (tarpaulin not guaranteed installed) → null
+ *   unknown        → null (advisory-only; caller should not fail the phase)
+ */
+export function parseCoveragePercent(
+  stdout: string,
+  testCmd: string,
+): number | null {
+  const clean = stripAnsi(stdout);
+  const cmd = testCmd.toLowerCase();
+
+  if (/\bvitest\b/.test(cmd) || /\bjest\b/.test(cmd)) {
+    // "Statements   : 87.5% ( 70/80 )" or "Statements: 87.5%"
+    const m = clean.match(/statements\s*:?\s*([\d.]+)%/i);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  if (/\bbun\s+test\b/.test(cmd) || /\bbun\s+run\s+test\b/.test(cmd)) {
+    // "coverage: 82.3%"
+    const m = clean.match(/\bcoverage:\s*([\d.]+)%/i);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  if (/\bpytest\b/.test(cmd)) {
+    // "TOTAL   1000   200   80%"
+    const m = clean.match(/^TOTAL\s+\d+\s+\d+\s+([\d.]+)%/im);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  if (/\bgo\s+test\b/.test(cmd)) {
+    // "ok  ./...  coverage: 72.3% of statements"
+    const m = clean.match(/coverage:\s*([\d.]+)%\s+of\s+statements/i);
+    if (m) return parseFloat(m[1]);
+    return null;
+  }
+
+  // cargo test / tarpaulin: not guaranteed installed, return null (advisory only)
+  return null;
+}
+
 function detectPackageManager(
   cwd: string,
   pkg: any,

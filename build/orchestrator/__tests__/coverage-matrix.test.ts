@@ -19,21 +19,35 @@ const MODULE_TEST_OWNERS: Record<string, string[]> = {
   "feature-review-prompt.ts": ["feature-review-prompt.test.ts"],
   "feature-review.ts": ["feature-review.test.ts"],
   "gbrain.ts": ["gbrain.test.ts"],
-  "monitor-supervisor.ts": ["monitor.test.ts", "cli.test.ts", "role-config.test.ts"],
+  "monitor-supervisor.ts": [
+    "monitor.test.ts",
+    "cli.test.ts",
+    "role-config.test.ts",
+  ],
   "monitor.ts": ["monitor.test.ts", "cli.test.ts", "skill-md.test.ts"],
   "parallel-planner.ts": ["parallel-planner.test.ts", "integration.test.ts"],
   "plan-claims.ts": ["plan-selection.test.ts", "monitor.test.ts"],
-  "plan-selection.ts": ["plan-selection.test.ts", "cli.test.ts", "skill-md.test.ts"],
+  "plan-selection.ts": [
+    "plan-selection.test.ts",
+    "cli.test.ts",
+    "skill-md.test.ts",
+  ],
   "parser.ts": ["parser.test.ts"],
   "phase-runner.ts": ["phase-runner.test.ts"],
   "plan-mutator.ts": ["plan-mutator.test.ts"],
+  "plan-reviewer.ts": ["cli.test.ts"],
   "registry.ts": ["release-queue.test.ts", "active-runs.test.ts"],
   "release-daemon.ts": ["cli.test.ts", "release-daemon.test.ts"],
-  "release-identity.ts": ["release-identity.test.ts", "release-lock.test.ts", "release-queue.test.ts"],
+  "release-identity.ts": [
+    "release-identity.test.ts",
+    "release-lock.test.ts",
+    "release-queue.test.ts",
+  ],
   "release-lock.ts": ["release-lock.test.ts"],
   "release-queue.ts": ["release-queue.test.ts", "cli.test.ts"],
   "role-config.ts": ["role-config.test.ts", "cli.test.ts"],
   "ship.ts": ["cli.test.ts", "integration.test.ts"],
+  "skill-fault-detector.ts": ["../../../test/skill-fault-detector.test.ts"],
   "state.ts": ["state.test.ts", "startup.test.ts"],
   "sub-agents.ts": ["sub-agents.test.ts", "cli-security.test.ts"],
   "types.ts": [
@@ -60,7 +74,11 @@ const FEATURE_MATRIX = [
   },
   {
     feature: "Role configuration, provider routing, and subprocess wrappers",
-    tests: ["role-config.test.ts", "sub-agents.test.ts", "cli-security.test.ts"],
+    tests: [
+      "role-config.test.ts",
+      "sub-agents.test.ts",
+      "cli-security.test.ts",
+    ],
   },
   {
     feature: "Feature review, origin verification, and blocked-plan reporting",
@@ -76,8 +94,14 @@ const FEATURE_MATRIX = [
     tests: ["worktree.test.ts", "phase-runner.test.ts", "integration.test.ts"],
   },
   {
-    feature: "Startup safety gates, state persistence, locks, and gbrain mirror",
-    tests: ["startup.test.ts", "state.test.ts", "gbrain.test.ts", "active-runs.test.ts"],
+    feature:
+      "Startup safety gates, state persistence, locks, and gbrain mirror",
+    tests: [
+      "startup.test.ts",
+      "state.test.ts",
+      "gbrain.test.ts",
+      "active-runs.test.ts",
+    ],
   },
   {
     feature: "Foreground build monitor, manifest events, and safe recovery",
@@ -107,7 +131,10 @@ describe("build skill TDD coverage matrix", () => {
     expect(Object.keys(MODULE_TEST_OWNERS).sort()).toEqual(modules);
 
     for (const [moduleName, owners] of Object.entries(MODULE_TEST_OWNERS)) {
-      expect(owners.length, `${moduleName} should have at least one owner`).toBeGreaterThan(0);
+      expect(
+        owners.length,
+        `${moduleName} should have at least one owner`,
+      ).toBeGreaterThan(0);
       for (const owner of owners) {
         expect(
           fs.existsSync(testPath(owner)),
@@ -119,7 +146,10 @@ describe("build skill TDD coverage matrix", () => {
 
   test("every build-critical behavior has deterministic test coverage", () => {
     for (const entry of FEATURE_MATRIX) {
-      expect(entry.tests.length, `${entry.feature} should list test files`).toBeGreaterThan(0);
+      expect(
+        entry.tests.length,
+        `${entry.feature} should list test files`,
+      ).toBeGreaterThan(0);
       for (const owner of entry.tests) {
         const resolved = owner.startsWith("../../../")
           ? path.resolve(import.meta.dir, owner)

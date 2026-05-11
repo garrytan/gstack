@@ -7,40 +7,49 @@ test("SKILL.md.tmpl contains TDD changes", () => {
   const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
   const content = fs.readFileSync(tmplPath, "utf-8");
 
-  expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.21.3')).toBe(true);
-  expect(content.includes('tests_red')).toBe(true);
-  expect(content.includes('Test Specification (test-writer role)')).toBe(true);
-  expect(content.includes('exactly this durable sub-checkbox structure')).toBe(true);
-  expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
+  expect(content.includes("**Test Specification")).toBe(true);
+  expect(content.includes("version: 1.21.4")).toBe(true);
+  expect(content.includes("tests_red")).toBe(true);
+  expect(content.includes("Test Specification (test-writer role)")).toBe(true);
+  expect(content.includes("exactly this durable sub-checkbox structure")).toBe(
+    true,
+  );
+  expect(content.includes("*-gstack/inbox/living-plan")).toBe(true);
   expect(content.includes('--project-root "$worktreePath"')).toBe(true);
-  expect(content.includes('Archive Plans')).toBe(true);
-  expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
-  expect(content.includes('Feature Verification')).toBe(true);
-  expect(content.includes('Origin trace:')).toBe(true);
-  expect(content.includes('Parallel Phase Planner (`--parallel-phases N`)')).toBe(true);
+  expect(content.includes("Archive Plans")).toBe(true);
+  expect(content.includes("## Feature X: [Feature Name]")).toBe(true);
+  expect(content.includes("Feature Verification")).toBe(true);
+  expect(content.includes("Origin trace:")).toBe(true);
+  expect(
+    content.includes("Parallel Phase Planner (`--parallel-phases N`)"),
+  ).toBe(true);
 });
 
 test("generated SKILL.md reflects TDD changes", () => {
   const skillPath = path.resolve(import.meta.dir, "../../SKILL.md");
   const content = fs.readFileSync(skillPath, "utf-8");
 
-  expect(content.includes('**Test Specification')).toBe(true);
-  expect(content.includes('version: 1.21.3')).toBe(true);
-  expect(content.includes('tests_red')).toBe(true);
-  expect(content.includes('*-gstack/inbox/living-plan')).toBe(true);
+  expect(content.includes("**Test Specification")).toBe(true);
+  expect(content.includes("version: 1.21.4")).toBe(true);
+  expect(content.includes("tests_red")).toBe(true);
+  expect(content.includes("*-gstack/inbox/living-plan")).toBe(true);
   expect(content.includes('--project-root "$worktreePath"')).toBe(true);
-  expect(content.includes('## Feature X: [Feature Name]')).toBe(true);
-  expect(content.includes('Feature Verification')).toBe(true);
-  expect(content.includes('Origin trace:')).toBe(true);
-  expect(content.includes('Parallel Phase Planner (`--parallel-phases N`)')).toBe(true);
+  expect(content.includes("## Feature X: [Feature Name]")).toBe(true);
+  expect(content.includes("Feature Verification")).toBe(true);
+  expect(content.includes("Origin trace:")).toBe(true);
+  expect(
+    content.includes("Parallel Phase Planner (`--parallel-phases N`)"),
+  ).toBe(true);
 });
 
 test("build docs define TDD as Test Specification, Verify Red, Implementation, Green tests, Review/QA", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
     path.resolve(import.meta.dir, "../../README.md"),
     path.resolve(import.meta.dir, "../README.md"),
   ];
@@ -67,7 +76,8 @@ test("build skill and CLI do not hardcode default model names", () => {
     path.resolve(import.meta.dir, "../../SKILL.md"),
     path.resolve(import.meta.dir, "../cli.ts"),
   ];
-  const forbidden = /(claude-opus|gemini-\d|gpt-\d|Claude Opus|Gemini 3|Codex GPT|Opus|Sonnet|--model sonnet)/;
+  const forbidden =
+    /(claude-opus|gemini-\d|gpt-\d|Claude Opus|Gemini 3|Codex GPT|Opus|Sonnet|--model sonnet)/;
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
@@ -81,7 +91,10 @@ test("build skill docs resolve gstack-build through _GSTACK_BUILD_CLI", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -100,7 +113,10 @@ test("build skill keeps context-save owned by the host build session", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -112,9 +128,15 @@ test("build skill keeps context-save owned by the host build session", () => {
     expect(content).toContain("Claude must invoke `/context-save`");
     expect(content).toContain("Do not route this through");
     expect(content).toContain("never a configured build role");
-    expect(content).toContain("final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`");
-    expect(content).toContain("emitted `committed` value to the emitted `countFile`");
-    expect(content).not.toContain('echo "$_COMMITTED_COUNT" > "$_HOST_CONTEXT_SAVE_COUNT_FILE"');
+    expect(content).toContain(
+      "final JSON line is `HOST_CONTEXT_SAVE_REQUIRED`",
+    );
+    expect(content).toContain(
+      "emitted `committed` value to the emitted `countFile`",
+    );
+    expect(content).not.toContain(
+      'echo "$_COMMITTED_COUNT" > "$_HOST_CONTEXT_SAVE_COUNT_FILE"',
+    );
   }
 });
 
@@ -122,7 +144,10 @@ test("build skill documents CLI-backed merge mode", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -137,7 +162,10 @@ test("build skill launch examples do not advertise --skip-ship", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -152,13 +180,16 @@ test("build skill docs route plan lookup through plan-status", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
     expect(content).toContain("gstack-build plan-status --gstack-repo");
-    expect(content).toContain("--plan \"$_EXPLICIT_PLAN_ABS\" --json");
+    expect(content).toContain('--plan "$_EXPLICIT_PLAN_ABS" --json');
     expect(content).toContain("--all-inbox --json");
     expect(content).toContain("single source of truth");
     expect(content).not.toContain("_LOCATOR_PROVIDER");
@@ -170,31 +201,54 @@ test("build skill docs route resume requests through plan-status before resuming
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
-    expect(content).toContain("Resume Mode may use visible session context only to extract exact run IDs");
+    expect(content).toContain(
+      "Resume Mode may use visible session context only to extract exact run IDs",
+    );
     expect(content).toContain("Skip source-plan synthesis in Reexamine Mode");
-    expect(content).not.toContain("Skip this entire step if in Reexamine or Resume Mode");
+    expect(content).not.toContain(
+      "Skip this entire step if in Reexamine or Resume Mode",
+    );
     expect(content).toContain('_RESUME_REQUESTED="no"');
     expect(content).toContain('_RESUME_RUN_ID=""');
     expect(content).toContain('_RESUME_PLAN_PATH=""');
     expect(content).toContain("_RESUME_STATUS_ARGS=(--resume)");
-    expect(content).toContain('_RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")');
-    expect(content).toContain('_RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")');
-    expect(content).toContain('plan-status --resume --plan "$_RESUME_PLAN_ABS" --json');
-    expect(content).toContain("Do not add this path to `_EXPLICIT_SOURCE_PLAN_PATHS`");
+    expect(content).toContain(
+      '_RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")',
+    );
+    expect(content).toContain(
+      '_RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")',
+    );
+    expect(content).toContain(
+      'plan-status --resume --plan "$_RESUME_PLAN_ABS" --json',
+    );
+    expect(content).toContain(
+      "Do not add this path to `_EXPLICIT_SOURCE_PLAN_PATHS`",
+    );
     expect(content).toContain("build-plan-status-resume.json");
     expect(content).toContain(".selected.monitorCommand");
     expect(content).toContain(".selected.manifestPath");
-    expect(content).toContain("Resuming exact manifest-backed build monitor with supervisor");
-    expect(content).toContain('monitor --manifest "$_MONITOR_MANIFEST" --watch --supervise');
+    expect(content).toContain(
+      "Resuming exact manifest-backed build monitor with supervisor",
+    );
+    expect(content).toContain(
+      'monitor --manifest "$_MONITOR_MANIFEST" --watch --supervise',
+    );
     expect(content).toContain("No safe resume candidate found");
     expect(content).toContain("legacy manifestless resume candidate");
-    expect(content).toContain("raw `--resume` remains a `plan-status` flag only");
-    expect(content).toContain("vague session memory, branch name, newest mtime, recency, or unlabeled tokens");
+    expect(content).toContain(
+      "raw `--resume` remains a `plan-status` flag only",
+    );
+    expect(content).toContain(
+      "vague session memory, branch name, newest mtime, recency, or unlabeled tokens",
+    );
   }
 });
 
@@ -202,27 +256,60 @@ test("build skill docs allow exact host-extracted session hints only through pla
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf-8");
-    expect(content).toContain("Session Context Hints (host-owned, resolver-validated)");
-    expect(content).toContain("The Claude/Codex host session may inspect only its visible current conversation");
+    expect(content).toContain(
+      "Session Context Hints (host-owned, resolver-validated)",
+    );
+    expect(content).toContain(
+      "The Claude/Codex host session may inspect only its visible current conversation",
+    );
     expect(content).toContain("Do not add CLI transcript parsing");
-    expect(content).toContain("The host suggests exact inputs; `gstack-build plan-status` remains the only authority");
-    expect(content).toContain("Explicit arguments in the current `/build` request always win");
-    expect(content).toContain("exactly one session hint may populate `_EXPLICIT_SOURCE_PLAN_PATHS`, `_RESUME_RUN_ID`, or `_RESUME_PLAN_PATH`");
-    expect(content).toContain("Treat a session source-plan hint exactly like `/build /abs/plan.md`");
-    expect(content).toContain('gstack-build plan-status --plan "$_EXPLICIT_PLAN_ABS" --json');
-    expect(content).toContain("STOP and ask for an exact `/build /abs/plan.md` command");
-    expect(content).toContain("Apply only when the current request has resume intent");
-    expect(content).toContain("`RUN_ID:`, `runId`, or `/build --resume <runId>`");
-    expect(content).toContain("If both a labeled run ID and a living-plan path are visible, `_RESUME_RUN_ID` is the stronger identity");
-    expect(content).toContain("STOP and ask for an exact `/build --resume <runId>` or `/build /abs/living-plan.md --resume` command");
-    expect(content).toContain("Ignore vague references, branch names, newest mtime, recency, and unlabeled hyphenated tokens");
-    expect(content).toContain('_RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")');
-    expect(content).toContain('_RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")');
+    expect(content).toContain(
+      "The host suggests exact inputs; `gstack-build plan-status` remains the only authority",
+    );
+    expect(content).toContain(
+      "Explicit arguments in the current `/build` request always win",
+    );
+    expect(content).toContain(
+      "exactly one session hint may populate `_EXPLICIT_SOURCE_PLAN_PATHS`, `_RESUME_RUN_ID`, or `_RESUME_PLAN_PATH`",
+    );
+    expect(content).toContain(
+      "Treat a session source-plan hint exactly like `/build /abs/plan.md`",
+    );
+    expect(content).toContain(
+      'gstack-build plan-status --plan "$_EXPLICIT_PLAN_ABS" --json',
+    );
+    expect(content).toContain(
+      "STOP and ask for an exact `/build /abs/plan.md` command",
+    );
+    expect(content).toContain(
+      "Apply only when the current request has resume intent",
+    );
+    expect(content).toContain(
+      "`RUN_ID:`, `runId`, or `/build --resume <runId>`",
+    );
+    expect(content).toContain(
+      "If both a labeled run ID and a living-plan path are visible, `_RESUME_RUN_ID` is the stronger identity",
+    );
+    expect(content).toContain(
+      "STOP and ask for an exact `/build --resume <runId>` or `/build /abs/living-plan.md --resume` command",
+    );
+    expect(content).toContain(
+      "Ignore vague references, branch names, newest mtime, recency, and unlabeled hyphenated tokens",
+    );
+    expect(content).toContain(
+      '_RESUME_STATUS_ARGS=(--resume "$_RESUME_RUN_ID")',
+    );
+    expect(content).toContain(
+      '_RESUME_STATUS_ARGS+=(--plan "$_RESUME_PLAN_ABS")',
+    );
   }
 });
 
@@ -230,7 +317,10 @@ test("build skill docs distinguish storage discovery from plan discovery", () =>
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -245,7 +335,10 @@ test("build skill docs use explicit source plan paths through resolver", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -265,7 +358,10 @@ test("build skill docs support workspace-root repo routing", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -277,7 +373,9 @@ test("build skill docs support workspace-root repo routing", () => {
     expect(content).toContain('"repoPath"');
     expect(content).toContain('"livingPlanPath"');
     expect(content).toContain('--project-root "$worktreePath"');
-    expect(content).toContain("Run `git log` and all verifier subagents from the child repo, never the workspace root");
+    expect(content).toContain(
+      "Run `git log` and all verifier subagents from the child repo, never the workspace root",
+    );
     expect(content).toContain("build-final-exam-${repoSlug}-input.md");
     expect(content).toContain("all manifest runs");
     expect(content).toContain("launch all manifest runs concurrently");
@@ -288,7 +386,10 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -302,40 +403,60 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain("runGroupId");
     expect(content).toContain("runIds");
     expect(content).toContain("no global `build-active-run-index`");
-    expect(content).toContain("--run-id \"$runId\"");
-    expect(content).toContain("--base-project-root \"$repoPath\"");
-    expect(content).toContain("--branch-prefix \"$branchPrefix\"");
+    expect(content).toContain('--run-id "$runId"');
+    expect(content).toContain('--base-project-root "$repoPath"');
+    expect(content).toContain('--branch-prefix "$branchPrefix"');
     expect(content).toContain("active-runs");
     expect(content).toContain("refs/remotes/origin/HEAD");
     expect(content).toContain("_VERIFY_BASE_REF");
     expect(content).toContain("_FINAL_BASE_REF");
     expect(content).toContain('git log --oneline "$_FINAL_BASE_REF"');
     expect(content).toContain("Remote base ref:");
-    expect(content).toContain('git -C "$worktreePath" rev-parse --is-inside-work-tree');
+    expect(content).toContain(
+      'git -C "$worktreePath" rev-parse --is-inside-work-tree',
+    );
     expect(content).toContain("worktree path exists but is not a git worktree");
-    expect(content).toContain('git worktree add -b "$_FIRST_BRANCH" "$worktreePath" "$_BASE_COMMIT"');
+    expect(content).toContain(
+      'git worktree add -b "$_FIRST_BRANCH" "$worktreePath" "$_BASE_COMMIT"',
+    );
     expect(content).not.toContain('-d "$worktreePath/.git"');
     expect(content).not.toContain("sed 's#^origin/##'");
     expect(content).toContain('status:"claimed"');
     expect(content).toContain('--arg status "manifested"');
     expect(content).toContain('--arg status "running"');
     expect(content).toContain("runStatuses");
-    expect(content).toContain("top-level claim status terminal when all `runIds` are terminal");
-    expect(content).toContain('git -C "$repoPath" worktree remove "$worktreePath"');
+    expect(content).toContain(
+      "top-level claim status terminal when all `runIds` are terminal",
+    );
+    expect(content).toContain(
+      'git -C "$repoPath" worktree remove "$worktreePath"',
+    );
     expect(content).toContain("Failure paths preserve worktrees for debugging");
     expect(content).toContain("launchCommand");
     expect(content).toContain("launchEnv");
-    expect(content).toContain("Never use `ScheduleWakeup` for `/build` monitoring");
-    expect(content).toContain("After every launch, relaunch, resume, or manual recovery");
+    expect(content).toContain(
+      "Never use `ScheduleWakeup` for `/build` monitoring",
+    );
+    expect(content).toContain(
+      "After every launch, relaunch, resume, or manual recovery",
+    );
     expect(content).toContain("Do not create ad-hoc watcher scripts");
     expect(content).toContain("sleep ... && tail ...");
-    expect(content).toContain("the next tool call must be Bash running Step M3");
+    expect(content).toContain(
+      "the next tool call must be Bash running Step M3",
+    );
     expect(content).toContain("Do not summarize status, call `ScheduleWakeup`");
     expect(content).toContain("create a watcher script");
-    expect(content).toContain("polling is owned by the CLI monitor, not by host timer tools");
+    expect(content).toContain(
+      "polling is owned by the CLI monitor, not by host timer tools",
+    );
     expect(content).toContain("Do not use `ScheduleWakeup`, delayed reminders");
-    expect(content).toContain("If the command blocks for a long time, that is expected behavior");
-    expect(content).toContain("monitor --manifest \"$BUILD_RUN_MANIFEST\" --watch --supervise");
+    expect(content).toContain(
+      "If the command blocks for a long time, that is expected behavior",
+    );
+    expect(content).toContain(
+      'monitor --manifest "$BUILD_RUN_MANIFEST" --watch --supervise',
+    );
     expect(content).toContain("ALL_RUNS_COMPLETE");
     expect(content).toContain("MONITOR_REENTER");
     expect(content).toContain("USER_ACTION_REQUIRED");
@@ -351,7 +472,7 @@ test("build skill docs describe safe parallel manifest v2 runs", () => {
     expect(content).toContain(
       "Manifest paths must be concrete absolute paths.",
     );
-    expect(content).toContain('do not emit literal');
+    expect(content).toContain("do not emit literal");
     expect(content).toContain(
       '"worktreePath": "<expanded home directory>/.gstack/build-worktrees/<repoSlug>/<runId>"',
     );
@@ -380,8 +501,14 @@ test("build READMEs describe manifest worktree launch instead of stale sequentia
   const files = [
     path.resolve(import.meta.dir, "../../README.md"),
     path.resolve(import.meta.dir, "../README.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/README.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/orchestrator/README.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/README.md",
+    ),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/orchestrator/README.md",
+    ),
   ];
 
   for (const file of files) {
@@ -390,7 +517,9 @@ test("build READMEs describe manifest worktree launch instead of stale sequentia
     expect(content).not.toContain("invokes this CLI sequentially");
     expect(content).not.toContain("Multi-repo plans run sequentially");
   }
-  expect(fs.readFileSync(files[0], "utf-8")).toContain("launch all manifest runs");
+  expect(fs.readFileSync(files[0], "utf-8")).toContain(
+    "launch all manifest runs",
+  );
   expect(fs.readFileSync(files[1], "utf-8")).toContain("private git worktrees");
 });
 
@@ -398,7 +527,10 @@ test("build skill docs describe manual recovery and submodule fail-closed bounda
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -407,7 +539,9 @@ test("build skill docs describe manual recovery and submodule fail-closed bounda
     expect(content).toContain("--allow-submodule-recovery <submodule-path>");
     expect(content).toContain("fails closed by default");
     expect(content).toContain("stages only the submodule gitlink");
-    expect(content).toContain("do not use `--reset-phase` when the phase artifacts are already valid");
+    expect(content).toContain(
+      "do not use `--reset-phase` when the phase artifacts are already valid",
+    );
   }
 });
 
@@ -487,7 +621,10 @@ test("build skill docs route template-only roles by provider", () => {
   const files = [
     path.resolve(import.meta.dir, "../../SKILL.md.tmpl"),
     path.resolve(import.meta.dir, "../../SKILL.md"),
-    path.resolve(import.meta.dir, "../../../.agents/skills/gstack-build/SKILL.md"),
+    path.resolve(
+      import.meta.dir,
+      "../../../.agents/skills/gstack-build/SKILL.md",
+    ),
   ];
 
   for (const file of files) {
@@ -497,18 +634,148 @@ test("build skill docs route template-only roles by provider", () => {
     expect(content).toContain("unsupported planSynthesizer provider");
     expect(content).toContain("unsupported featureVerifier provider");
     expect(content).toContain("codex exec");
-    expect(content).toContain("-c \"model_reasoning_effort=\\\"");
+    expect(content).toContain('-c "model_reasoning_effort=\\"');
     expect(content).toContain('case "$_SYNTH_PROVIDER" in');
     expect(content).toContain('case "$_VERIFIER_PROVIDER" in');
-    expect(content).not.toContain("Spawn (model read from configure.cm `planSynthesizer` role)");
-    expect(content).not.toContain("Spawn (model read from configure.cm `featureVerifier` role)");
+    expect(content).not.toContain(
+      "Spawn (model read from configure.cm `planSynthesizer` role)",
+    );
+    expect(content).not.toContain(
+      "Spawn (model read from configure.cm `featureVerifier` role)",
+    );
     expect(content).not.toContain("Claude subagent");
-    expect(content).not.toContain('claude -p "Read .llm-tmp/build-reexamine-feature');
+    expect(content).not.toContain(
+      'claude -p "Read .llm-tmp/build-reexamine-feature',
+    );
   }
 });
 
+test("SKILL.md.tmpl Step M3 uses pipefail and PIPESTATUS[0] with monitor-output.log", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  expect(content).toContain("set -o pipefail");
+  expect(content).toContain("${PIPESTATUS[0]}");
+  expect(content).not.toMatch(/_MONITOR_EXIT=\$\?/);
+  expect(content).toContain("monitor-output.log");
+  expect(content).toContain("monitor-exit-code");
+});
+
+test("SKILL.md.tmpl contains Step M3.5 fault investigator", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  expect(content).toContain("### Step M3.5");
+  expect(content).toContain("SKILL_FAULT_DETECTED");
+  expect(content).toContain("fault_investigator_model");
+  expect(content).toContain("~/.gstack/skill-faults/");
+  expect(content).toContain("GSTACK_FAULT_INVESTIGATOR_COMMAND");
+  expect(content).toContain("FAULT_PRIMARY");
+  expect(content).toContain("FAULT_SECONDARY");
+  expect(content).toContain("FAULT_EVENT");
+  expect(content).toContain("FAULT_REPORT_NAME");
+  expect(content).toContain('exit "$_MONITOR_EXIT"');
+  // Loop over all fault rows, not just one (TSV-split runId/category/file)
+  expect(content).toMatch(/while IFS=.*read -r.*_FAULT/);
+  // Dedupe uses readlink (not readlink -f)
+  expect(content).toMatch(/readlink(?!\s+-f)/);
+  // Investigator prompt says ONLY for write constraint
+  expect(content).toMatch(/ONLY.*read.*report/i);
+  // Background spawn is non-blocking
+  expect(content).toMatch(/&\s*$/m);
+  // GSTACK_FAULT_INVESTIGATOR_COMMAND check precedes agent spawn
+  const commandCheckIndex = content.indexOf(
+    "GSTACK_FAULT_INVESTIGATOR_COMMAND",
+  );
+  const agentSpawnIndex = content.search(
+    /case\s+"\$_FAULT_INVESTIGATOR_PROVIDER"/,
+  );
+  expect(commandCheckIndex).toBeGreaterThan(0);
+  expect(agentSpawnIndex).toBeGreaterThan(0);
+  expect(commandCheckIndex).toBeLessThan(agentSpawnIndex);
+});
+
+test("generated SKILL.md reflects Step M3.5 fault investigator", () => {
+  const skillPath = path.resolve(import.meta.dir, "../../SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+
+  expect(content).toContain("### Step M3.5");
+  expect(content).toContain("SKILL_FAULT_DETECTED");
+  expect(content).toContain("fault_investigator_model");
+  expect(content).toContain("~/.gstack/skill-faults/");
+  expect(content).toContain("GSTACK_FAULT_INVESTIGATOR_COMMAND");
+});
+
+test("gen:skill-docs exits cleanly", () => {
+  const result = spawnSync("bun", ["run", "gen:skill-docs"], {
+    cwd: path.resolve(import.meta.dir, "../../.."),
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  expect(result.status).toBe(0);
+});
+
+test("SKILL.md.tmpl contains Monitor tool task notifications prohibition (Location 1)", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  expect(content).toContain("Monitor tool task notifications");
+  // Verify the new text is in the top-level monitoring ban context (near ScheduleWakeup)
+  expect(content).toContain(
+    "Never use `ScheduleWakeup` for `/build` monitoring, Monitor tool task notifications",
+  );
+});
+
+test("SKILL.md.tmpl contains run_in_background: true prohibition in Step M3 hard-rule context (Location 2)", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  // Check for the specific new forbidden-pattern sentence added to Step M3 hard rule
+  expect(content).toContain(
+    "Also forbidden: running the monitor command with `run_in_background: true`",
+  );
+  // Ensure the prohibition is near the Step M3 hard rule, not just anywhere
+  const m3Index = content.indexOf("### Step M3: Foreground CLI Monitor");
+  const forbiddenIndex = content.indexOf(
+    "Also forbidden: running the monitor command with `run_in_background: true`",
+  );
+  expect(m3Index).toBeGreaterThan(0);
+  expect(forbiddenIndex).toBeGreaterThan(m3Index);
+});
+
+test("SKILL.md.tmpl contains Ship Failure Recovery sub-section (Location 3)", () => {
+  const tmplPath = path.resolve(import.meta.dir, "../../SKILL.md.tmpl");
+  const content = fs.readFileSync(tmplPath, "utf-8");
+
+  expect(content).toContain("Ship Failure Recovery");
+  expect(content).toContain("#### Ship Failure Recovery");
+  // Verify it's near the failure handling section
+  const reenterIndex = content.indexOf("MONITOR_REENTER");
+  const recoveryIndex = content.indexOf("#### Ship Failure Recovery");
+  expect(reenterIndex).toBeGreaterThan(0);
+  expect(recoveryIndex).toBeGreaterThan(reenterIndex);
+});
+
+test("generated SKILL.md reflects Monitor tool task notifications prohibition", () => {
+  const skillPath = path.resolve(import.meta.dir, "../../SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+
+  expect(content).toContain("Monitor tool task notifications");
+});
+
+test("generated SKILL.md reflects Ship Failure Recovery sub-section", () => {
+  const skillPath = path.resolve(import.meta.dir, "../../SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf-8");
+
+  expect(content).toContain("Ship Failure Recovery");
+  expect(content).toContain("#### Ship Failure Recovery");
+});
+
 test("bin/gstack-build wrapper prints CLI help", () => {
-  const wrapperPath = path.resolve(import.meta.dir, "../../../bin/gstack-build");
+  const wrapperPath = path.resolve(
+    import.meta.dir,
+    "../../../bin/gstack-build",
+  );
   const result = spawnSync(wrapperPath, ["--help"], {
     cwd: path.resolve(import.meta.dir, "../../.."),
     encoding: "utf8",

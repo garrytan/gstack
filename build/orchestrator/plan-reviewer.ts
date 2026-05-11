@@ -380,6 +380,15 @@ Review for:
 3. TEST COVERAGE GAPS — What edge cases or failure modes are missing?
 4. RISK — Which phases are high-risk and need extra guard phases?
 5. DEPENDENCIES — Implicit prerequisites not captured as phases?
+6. TEST SPEC QUALITY — Does every phase have a \`#### Test Spec\` section?
+   - Flag CRITICAL if SOME phases have \`#### Test Spec\` and OTHERS don't (structural
+     inconsistency — the plan is malformed; the build will apply spec instructions
+     to some phases but not others).
+   - Flag IMPORTANT if NO phases have \`#### Test Spec\` (likely a legacy plan; user
+     can pass --no-plan-review to proceed without fixing).
+   - Flag IMPORTANT if a phase has a spec but fewer than 3 test cases, vague scenarios
+     (no concrete inputs/outputs named), or no edge cases listed.
+   - Flag SUGGESTION if the coverage target line is missing (add \`**Coverage target: ≥80%**\`).
 
 Output format (strict, machine-parsed):
 PLAN_REVIEW: APPROVE | REVISE
