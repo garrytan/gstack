@@ -19,7 +19,7 @@ let j;
 try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
 
 // Field validation: type must be from allowed list
-const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational'];
+const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational', 'investigation'];
 if (!j.type || !ALLOWED_TYPES.includes(j.type)) {
   process.stderr.write('gstack-learnings-log: invalid type \"' + (j.type || '') + '\", must be one of: ' + ALLOWED_TYPES.join(', ') + '\n');
   process.exit(1);

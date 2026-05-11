@@ -75,6 +75,27 @@ describe('gstack-learnings-log', () => {
     expect(parsed.confidence).toBe(8);
   });
 
+  test('accepts investigation learnings with affected files', () => {
+    const input = JSON.stringify({
+      skill: 'investigate',
+      type: 'investigation',
+      key: 'root-cause-key',
+      insight: 'Root cause summary',
+      confidence: 9,
+      source: 'observed',
+      files: ['affected/file1.ts', 'affected/file2.ts'],
+    });
+    const result = runLog(input);
+    expect(result.exitCode).toBe(0);
+
+    const f = findLearningsFile();
+    expect(f).not.toBeNull();
+    const parsed = JSON.parse(fs.readFileSync(f!, 'utf-8').trim());
+    expect(parsed.skill).toBe('investigate');
+    expect(parsed.type).toBe('investigation');
+    expect(parsed.files).toEqual(['affected/file1.ts', 'affected/file2.ts']);
+  });
+
   test('auto-injects timestamp when ts is missing', () => {
     const input = '{"skill":"review","type":"pattern","key":"ts-test","insight":"test","confidence":5,"source":"observed"}';
     runLog(input);
