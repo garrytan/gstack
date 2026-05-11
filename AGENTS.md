@@ -57,6 +57,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/context-save` | Save working context (git state, decisions, remaining work). |
 | `/context-restore` | Resume from a saved context, even across Conductor workspaces. |
 | `/learn` | Manage what gstack learned across sessions. |
+| `/plan-status` | Check progress of a plan against the codebase and git log. Phase-by-phase DONE/PARTIAL/REMAINING dashboard. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |
 | `/benchmark` | Performance regression detection (page load, Core Web Vitals). |

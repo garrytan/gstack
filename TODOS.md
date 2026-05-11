@@ -1,5 +1,15 @@
 # TODOS
 
+## plan-status follow-on
+
+### P3: Monitor issue #1343 for community asks
+
+Check whether @wwybdd23-bot has replied to our clarifying questions on GitHub issue #1343 (non-code plan evidence: calendar, email, external services). If the maintainer engages, design an extensible evidence-source plugin interface before implementing. Scope for that work belongs in a separate PR, not this one.
+
+**Priority:** P3 (monitor only — no implementation until maintainer decision)
+
+---
+
 ## Browser-skills follow-on (Phases 2-4)
 
 ### P1: Browser-skills Phase 2 — `/scrape` and `/skillify` skill templates
