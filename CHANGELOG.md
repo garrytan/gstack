@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.34.0.0] - 2026-05-11
+
+## **`/plan-status` ships. Ask "where am I on this plan?" and get an answer in seconds.**
+## **`/ship` now warns before creating a PR if the plan has open checkboxes.**
+
+Plans have always been written by gstack. Now gstack can tell you how far along you are. `/plan-status` reads the plan that already exists, cross-references git commits and filesystem state, and produces a dashboard: a gstack Lifecycle Dashboard (which workflow skills have run, matching the Review Readiness Dashboard format) plus a phase-by-phase DONE/PARTIAL/REMAINING breakdown with a Branch Commits table. No setup, no ticket creation, no pre-registration of work. The plan is already there. The git history is already there. The skill just cross-references them.
+
+As a side effect, `/ship`'s Step 1 pre-flight now runs a 3-second open-checkbox grep. If the current branch's plan has unchecked `- [ ]` items, it surfaces an informational note before PR creation. You decide whether to proceed or check `/plan-status` first. Never blocks.
+
+### The numbers that matter
+
+Measured against v1.32.0.0 on the `plan-status-skill` branch. No external API calls, no new dependencies.
+
+| Metric | v1.32.0.0 | v1.33.0.0 | Δ |
+|---|---|---|---|
+| Skills | 40 | 41 | **+1** |
+| Gate-tier E2E tests | (prior count) | +1 | **+1** |
+| Free (Tier 1) tests | 400 | 400 | 0 |
+| SKILL.md files | 40 | 41 | **+1** |
+| LOC added (skill + test + fixture + docs) | — | ~280 | — |
+
+The `/plan-status` preamble runs in ~10s typical (gstack-update-check + gstack-slug + plan find + git log + analytics write). Evidence gathering is O(n) on file references in the plan, typically 5-20 files, 5-15 seconds. Total expected runtime: 15-40 seconds — consistent with `/learn` and `/canary`.
+
+### What this means for you
+
+If you've run `/office-hours` or `/plan-ceo-review`, you have a plan file. Run `/plan-status` on your feature branch and get a scannable dashboard in under a minute. No setup. The skill finds your plan from `~/.gstack/projects/<project>/ceo-plans/` automatically.
+
+For non-code projects (board planning, grant pipelines, accreditation prep): set `gstack-config set plan_glob "~/board-plans/*.md"` to point the skill at any folder of markdown plan files.
+
+### Itemized changes
+
+#### Added
+
+- **`/plan-status` skill** (`plan-status/SKILL.md.tmpl` + generated `SKILL.md`). Five-step flow: resolve plan file → extract phases and success-criteria checkboxes → gather git and filesystem evidence → classify DONE/PARTIAL/REMAINING/DROPPED → produce gstack Lifecycle Dashboard + Plan Detail report. Evidence sources for v1: `git log`, `git diff --name-only`, filesystem `ls`, `Gemfile` grep. All read-only. Optional `plan_glob` knob (`gstack-config set plan_glob "~/your-plans/*.md"`) for non-default plan directories.
+- **`test/fixtures/plans/sample-ruby-llm-plan.md`** — fixture plan for the E2E test (2 phases, 4 checkboxes, 2 file refs, 1 gem ref).
+- **`test/skill-e2e-plan-status.test.ts`** — gate-tier E2E test. Loose assertions: transcript contains "Plan Status" and at least one of "DONE" or "REMAINING". Classified `gate` because it's deterministic, read-only, filesystem-only fixture, < $0.50/run.
+- **`TODOS.md`** — added entry to monitor GitHub issue #1343 for maintainer response to community asks about non-code evidence sources.
+
+#### Changed
+
+- **`/ship` Step 1 pre-flight** (`ship/SKILL.md.tmpl`) — new item 5: 3-second bash grep checks for open `- [ ]` checkboxes in the current branch's plan file. Informational only, never blocks. Suggests running `/plan-status` if open items are found.
+- **`docs/skills.md`** — added `/plan-status` skill description and full section.
+- **`AGENTS.md`** — added `/plan-status` row.
+
+#### For contributors
+
+- `test/helpers/touchfiles.ts`: new entry `'plan-status': ['plan-status/**', 'test/fixtures/plans/sample-ruby-llm-plan.md']` in `E2E_TOUCHFILES` and `'plan-status': 'gate'` in `E2E_TIERS`.
+- Ship golden baselines (`test/fixtures/golden/`) regenerated to include the new pre-flight step 5.
+
 ## [1.32.0.0] - 2026-05-10
 
 ## **Seven contributor PRs land. Three are security or hardening.**
