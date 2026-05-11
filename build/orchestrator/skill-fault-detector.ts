@@ -44,7 +44,8 @@ function appendAnalytics(faults: SkillFault[]): void {
   const analyticsPath = path.join(analyticsDir, "skill-faults.jsonl");
   try {
     fs.mkdirSync(analyticsDir, { recursive: true });
-    const line = JSON.stringify({ ts: new Date().toISOString(), faults }) + "\n";
+    const line =
+      JSON.stringify({ ts: new Date().toISOString(), faults }) + "\n";
     fs.appendFileSync(analyticsPath, line, "utf8");
   } catch {
     // Swallow analytics failures — must not block fault return.
@@ -197,7 +198,10 @@ export function detectSkillFaults(input: DetectorInput): SkillFault[] {
     // ------------------------------------------------------------------
     if (state && state.failureReason) {
       const reason = state.failureReason;
-      if (reason.includes("trivially") || reason.includes("without implementation")) {
+      if (
+        reason.includes("trivially") ||
+        reason.includes("without implementation")
+      ) {
         faults.push({
           category: "RED_SPEC_TRIVIAL",
           severity: "MEDIUM",
@@ -237,9 +241,7 @@ export function detectSkillFaults(input: DetectorInput): SkillFault[] {
         };
         const round = typeof report.round === "number" ? report.round : 0;
         const hasCritical = Array.isArray(report.objections)
-          ? report.objections.some(
-              (o) => o && o.severity === "CRITICAL",
-            )
+          ? report.objections.some((o) => o && o.severity === "CRITICAL")
           : false;
         if (round >= 3 && hasCritical) {
           faults.push({
