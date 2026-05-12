@@ -1172,7 +1172,7 @@ test("plan-reviewer critical_exit releases the lock and exits 3", () => {
       codexPath,
       `#!/bin/sh
 prompt="$2"
-output=$(printf '%s\\n' "$prompt" | sed -n 's/.*Write your full review report to \\([^ ]*\\).*/\\1/p')
+output=$(printf '%s\\n' "$prompt" | sed -n 's/.*Write your full review report to \\([^ ]*\\.md\\)\\..*/\\1/p')
 cat > "$output" <<'EOF'
 PLAN_REVIEW: REVISE
 

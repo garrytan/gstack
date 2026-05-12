@@ -2725,9 +2725,7 @@ export function buildCodexReviewBody(
       : "",
     "## Your task",
     "",
-    (phase.kind ?? "code") !== "code"
-      ? `Review rubric: deliverable completeness and artifact correctness — not code quality or tests. Verify the artifact exists at the path named in the phase, is non-empty, and satisfies the acceptance criteria in the phase description.`
-      : "",
+    "",
     `1. Run the slash command specified by the runner prompt on the current branch's working tree against its base.`,
     `2. If iteration > 1, this is a re-run after an earlier gate tried to fix findings — be especially thorough.`,
     `3. Use --yolo / workspace-write file tools to inspect the actual code; don't ask the orchestrator to inline anything.`,
@@ -7237,11 +7235,9 @@ async function main() {
         // queued PRs.
         state.completed = !args.dryRun && !args.skipShip;
         saveState(state, { noGbrain: args.noGbrain, log: console.warn });
-        // When --skip-ship leaves features at origin_verified, exit 13
-        // (FINALIZATION_REQUIRED) instead of 0 so the skill agent cannot infer
-        // "done" from the exit code — Step 3 (ship + archive) is mandatory.
-        // --skip-ship no longer forces a non-zero exit code; origin-verified
-        // features are a normal paused state and resume cleanly on the next run.
+        // --skip-ship leaves features at origin_verified, which is a normal
+        // paused state that resumes cleanly on the next run without forcing
+        // a non-zero exit code.
       }
       if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
         const archivedPath = archiveLivingPlan(state.planFile);
@@ -7271,7 +7267,7 @@ async function main() {
         } else {
           updateActiveRunFromState(
             state,
-            exitCode === 0 || exitCode === 13 ? "paused" : "failed",
+            exitCode === 0 ? "paused" : "failed",
           );
         }
       } else if (launch.runId && launch.activeRunRegistry) {
