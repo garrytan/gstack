@@ -806,35 +806,68 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     fi
     log "  browse: $BROWSE_BIN"
   else
-    # Not inside a skills/ directory — symlink into ~/.claude/skills/ and retry
+    # Not inside a skills/ directory — would symlink the source into
+    # ~/.claude/skills/gstack/ and register from there.
     CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
     CLAUDE_GSTACK_LINK="$CLAUDE_SKILLS_DIR/gstack"
-    mkdir -p "$CLAUDE_SKILLS_DIR"
-    ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
-    log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
-    INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
-    INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
-    # Clean up stale symlinks from the opposite prefix mode
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+
+    # Conductor worktree guard: if ~/.claude/skills/gstack is already a real
+    # (non-symlink) directory pointing to a *different* install, refuse to plant
+    # a symlink there. On macOS/BSD, `ln -snf SRC DST` won't replace a real DST;
+    # it creates DST/$(basename SRC) → SRC inside it. The result is per-worktree
+    # symlinks leaking into the global install that Claude Code picks up as
+    # separate top-level skills (dublin-v1, lincoln-v2, ...). Typical trigger:
+    # running ./setup from a Conductor worktree of the gstack repo itself.
+    _SKIP_CLAUDE_REGISTER=0
+    if [ -d "$CLAUDE_GSTACK_LINK" ] && [ ! -L "$CLAUDE_GSTACK_LINK" ]; then
+      _EXISTING_REAL=$(cd "$CLAUDE_GSTACK_LINK" 2>/dev/null && pwd -P || echo "")
+      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ]; then
+        _SKIP_CLAUDE_REGISTER=1
+      fi
+    fi
+
+    if [ "$_SKIP_CLAUDE_REGISTER" -eq 1 ]; then
+      log ""
+      log "  $CLAUDE_GSTACK_LINK already exists as a separate global install."
+      log "  Skipping Claude skill registration to avoid polluting it with"
+      log "  per-worktree symlinks. (Binaries still built locally for dev.)"
+      log ""
+      log "    Global install:  $CLAUDE_GSTACK_LINK"
+      log "    This worktree:   $SOURCE_GSTACK_DIR"
+      log ""
+      log "  To register this worktree as the active gstack, remove the global"
+      log "  install first:  rm -rf $CLAUDE_GSTACK_LINK"
+      log ""
+      log "gstack built (claude registration skipped)."
+      log "  browse: $BROWSE_BIN"
     else
-      cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      mkdir -p "$CLAUDE_SKILLS_DIR"
+      ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
+      log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
+      INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
+      INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
+      # Clean up stale symlinks from the opposite prefix mode
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      else
+        cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      fi
+      "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
+      link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
+      if [ -x "$GSTACK_RELINK" ]; then
+        GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
+      fi
+      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
+      fi
+      if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
+        ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+      fi
+      log "gstack ready (claude)."
+      log "  browse: $BROWSE_BIN"
     fi
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
-    link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
-    if [ -x "$GSTACK_RELINK" ]; then
-      GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
-    fi
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-    fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
-    fi
-    log "gstack ready (claude)."
-    log "  browse: $BROWSE_BIN"
   fi
 fi
 

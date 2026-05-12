@@ -312,54 +312,101 @@ describe("gstack-memory-ingest --limit", () => {
   });
 });
 
-// ── Writer regression: gbrain v0.27+ uses `put`, not `put_page` ───────────
+// ── Writer regression: batch-import via `gbrain import <dir>` ─────────────
 
 /**
  * Stand up a fake `gbrain` shim on PATH that:
- *  - advertises `put` in `--help` output (so gbrainAvailable() passes)
- *  - records `put <slug>` invocations + their stdin to a log
- *  - rejects `put_page` with a non-zero exit, mimicking real gbrain v0.27+
+ *  - advertises `import` in `--help` output (gbrainAvailable() passes)
+ *  - records `import <dir>` invocations, args, and a sample of staged files
+ *  - emits a valid `--json` summary on stdout (status, imported, etc.)
+ *  - optionally drops failures to a sync-failures.jsonl path (HOME/.gbrain/)
  *
- * If the writer ever regresses to the legacy flag-form, the bulk pass will
- * report 0 writes and the assertion on `Wrote: 1` will fail loudly.
+ * Architecture being verified (post plan-eng-review + Codex outside-voice):
+ *  - new code uses `gbrain import <stagingDir> --no-embed --json` ONE time,
+ *    not `gbrain put <slug>` per file. The fixture would catch a regression
+ *    to the legacy per-file loop because (a) `put` is no longer advertised,
+ *    so gbrainAvailable() returns false; (b) we assert the recorded args
+ *    include `import` and the dir argument.
  */
-function installFakeGbrain(home: string): { binDir: string; logFile: string; stdinFile: string } {
+function installFakeGbrain(
+  home: string,
+  opts: { failingPaths?: string[] } = {},
+): { binDir: string; logFile: string; argsFile: string; stagingListFile: string } {
   const binDir = join(home, "fake-bin");
   mkdirSync(binDir, { recursive: true });
   const logFile = join(home, "gbrain-calls.log");
-  const stdinFile = join(home, "gbrain-stdin.log");
+  const argsFile = join(home, "gbrain-args.log");
+  const stagingListFile = join(home, "gbrain-staging-list.log");
+  // Bash-side: when failingPaths is set, append matching JSONL entries to
+  // ~/.gbrain/sync-failures.jsonl so D7's readNewFailures can read them.
+  const failingList = (opts.failingPaths || []).join("|");
   const script = `#!/usr/bin/env bash
 set -euo pipefail
 LOG="${logFile}"
-STDIN_LOG="${stdinFile}"
+ARGS_LOG="${argsFile}"
+STAGING_LIST="${stagingListFile}"
+FAILING_LIST="${failingList}"
 case "\${1:-}" in
   --help|-h)
     cat <<EOF
 Usage: gbrain <command> [options]
 
 Commands:
-  put <slug>           Write a page (content via stdin, YAML frontmatter for metadata)
+  import <dir>         Import markdown directory (batch, content-addressed)
   search <query>       Keyword search across pages
   ask <question>       Hybrid semantic + keyword query
 EOF
     exit 0
     ;;
-  put)
-    if [ "\${2:-}" = "--help" ]; then
-      echo "Usage: gbrain put <slug>"
-      exit 0
-    fi
-    echo "put \${2:-}" >> "\$LOG"
+  import)
+    DIR="\${2:-}"
+    NO_EMBED=0
+    JSON=0
+    shift 2 || true
+    for arg in "\$@"; do
+      case "\$arg" in
+        --no-embed) NO_EMBED=1 ;;
+        --json) JSON=1 ;;
+      esac
+    done
+    echo "import \$DIR" >> "\$LOG"
     {
-      echo "--- slug=\${2:-} ---"
-      cat
-      echo
-    } >> "\$STDIN_LOG"
+      echo "dir=\$DIR no_embed=\$NO_EMBED json=\$JSON"
+    } >> "\$ARGS_LOG"
+    # Capture file tree from staging dir for assertion-on-shape later.
+    if [ -d "\$DIR" ]; then
+      ( cd "\$DIR" && find . -type f | sort ) > "\$STAGING_LIST" 2>/dev/null || true
+    fi
+    # If failingPaths configured, drop fake entries to sync-failures.jsonl
+    # (mtime byte-offset snapshot lets the ingest's readNewFailures pick them up).
+    if [ -n "\$FAILING_LIST" ]; then
+      mkdir -p "\${HOME}/.gbrain"
+      IFS='|' read -ra FAIL_PATHS <<< "\$FAILING_LIST"
+      for p in "\${FAIL_PATHS[@]}"; do
+        echo "{\\"path\\":\\"\$p\\",\\"error\\":\\"File too large\\",\\"code\\":\\"FILE_TOO_LARGE\\",\\"commit\\":\\"\\",\\"ts\\":\\"2026-05-09T22:00:00Z\\"}" >> "\${HOME}/.gbrain/sync-failures.jsonl"
+      done
+    fi
+    # Count files in staging dir for the imported count.
+    if [ -d "\$DIR" ]; then
+      TOTAL=\$(find "\$DIR" -name "*.md" -type f | wc -l | tr -d ' ')
+    else
+      TOTAL=0
+    fi
+    ERRORS=0
+    if [ -n "\$FAILING_LIST" ]; then
+      ERRORS=\$(echo "\$FAILING_LIST" | tr '|' '\\n' | wc -l | tr -d ' ')
+    fi
+    IMPORTED=\$((TOTAL - ERRORS))
+    if [ \$JSON -eq 1 ]; then
+      echo "{\\"status\\":\\"success\\",\\"duration_s\\":0.1,\\"imported\\":\$IMPORTED,\\"skipped\\":0,\\"errors\\":\$ERRORS,\\"chunks\\":\$IMPORTED,\\"total_files\\":\$TOTAL}"
+    fi
     exit 0
     ;;
-  put_page|put-page)
-    echo "Unknown command: \$1" >&2
-    exit 2
+  put|put_page|put-page)
+    # If new ingest code ever regresses to per-file puts, fail loudly so the
+    # test signals a real architectural regression.
+    echo "Unexpected legacy command: \$1" >&2
+    exit 99
     ;;
   *)
     echo "Unknown command: \${1:-<empty>}" >&2
@@ -370,18 +417,18 @@ esac
   const binPath = join(binDir, "gbrain");
   writeFileSync(binPath, script, "utf-8");
   chmodSync(binPath, 0o755);
-  return { binDir, logFile, stdinFile };
+  return { binDir, logFile, argsFile, stagingListFile };
 }
 
-describe("gstack-memory-ingest writer (gbrain v0.27+ `put` interface)", () => {
-  it("invokes `gbrain put <slug>` with stdin body, not legacy `put_page`", () => {
+describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)", () => {
+  it("invokes `gbrain import <dir> --no-embed --json` exactly once with hierarchical staging", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
-    const { binDir, logFile, stdinFile } = installFakeGbrain(home);
+    const { binDir, logFile, argsFile, stagingListFile } = installFakeGbrain(home);
 
-    // Single Claude Code session fixture. --include-unattributed lets it write
-    // even though there's no resolvable git remote in /tmp.
+    // Single Claude Code session fixture. --include-unattributed lets it
+    // write even though there's no resolvable git remote in /tmp.
     const session =
       `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
       `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
@@ -396,35 +443,55 @@ describe("gstack-memory-ingest writer (gbrain v0.27+ `put` interface)", () => {
     expect(r.exitCode).toBe(0);
     expect(existsSync(logFile)).toBe(true);
 
-    const calls = readFileSync(logFile, "utf-8");
-    expect(calls).toContain("put ");
-    expect(calls).not.toContain("put_page");
+    // Verify gbrain was called exactly ONCE with import, not per-file put.
+    const calls = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toMatch(/^import\s+\/.+\/\.staging-ingest-\d+-\d+$/);
 
-    // Body should ride stdin and carry frontmatter that gbrain can parse.
-    // The transcript builder prepends its own frontmatter (agent, session_id,
-    // etc.) but does NOT include title/type/tags — the writer injects those
-    // into the existing frontmatter so gbrain pages list/search/filter
-    // actually surface the page. Asserting all three guards against the
-    // exact regression that landed in v1.26.0.0 (writer ignored these fields
-    // entirely; pages landed empty-titled, un-typed, un-tagged).
-    const stdin = readFileSync(stdinFile, "utf-8");
-    expect(stdin).toContain("---");
-    expect(stdin).toMatch(/agent:\s+claude-code/);
-    expect(stdin).toMatch(/title:\s/);
-    expect(stdin).toMatch(/type:\s+transcript/);
-    expect(stdin).toMatch(/tags:/);
+    // Verify args: --no-embed and --json both present.
+    const argDump = readFileSync(argsFile, "utf-8");
+    expect(argDump).toMatch(/no_embed=1/);
+    expect(argDump).toMatch(/json=1/);
 
-    rmSync(home, { recursive: true, force: true });
+    // D1 regression: staged file lives in a slug-shaped subdirectory tree
+    // ("transcripts/claude-code/_unattributed/..."), not flat at the staging
+    // dir root. If writeStaged ever regresses to flat layout, this fails.
+    const stagedList = readFileSync(stagingListFile, "utf-8");
+    expect(stagedList).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
   });
 
-  // Postgres rejects 0x00 in UTF-8 text columns. Some Claude Code transcripts
-  // contain NUL inside user-pasted content or tool output. The writer strips
-  // them at submit time so the brain doesn't return `invalid byte sequence`.
-  it("strips NUL bytes from the body before piping to `gbrain put`", () => {
+  // Originally landed in v1.32.0.0 (PR #1411) on the per-file `gbrain put`
+  // path. Postgres rejects 0x00 in UTF-8 text columns. Some Claude Code
+  // transcripts contain NUL inside user-pasted content or tool output. The
+  // renderPageBody helper strips them so the staged .md never carries them
+  // into gbrain. Adapted for the batch architecture: we read the staged file
+  // contents instead of fake-gbrain stdin.
+  it("strips NUL bytes from the staged body before gbrain import", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
-    const { binDir, stdinFile } = installFakeGbrain(home);
+
+    // Shim that copies staging dir into stagingCopy so we can inspect the
+    // exact bytes that would have been fed to gbrain.
+    const binDir = join(home, "fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const stagingCopy = join(home, "staging-copy");
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Usage: gbrain <command>"; echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import)
+    DIR="\${2:-}"
+    cp -R "\$DIR" "${stagingCopy}" 2>/dev/null || true
+    if [[ " \$* " == *" --json "* ]]; then
+      echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":0,"errors":0,"chunks":1,"total_files":1}'
+    fi
+    exit 0 ;;
+  *) echo "unknown"; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
 
     // Pasted content with embedded NUL bytes in a few shapes:
     //  - inline mid-token: abc\x00def
@@ -445,31 +512,166 @@ describe("gstack-memory-ingest writer (gbrain v0.27+ `put` interface)", () => {
     });
 
     expect(r.exitCode).toBe(0);
-    const stdin = readFileSync(stdinFile, "utf-8");
-    // The body that hit gbrain MUST NOT contain any 0x00 byte. Even one would
-    // make Postgres reject the insert with `invalid byte sequence`.
-    expect(stdin.includes("\x00")).toBe(false);
+    expect(existsSync(stagingCopy)).toBe(true);
+    const findMd = spawnSync("find", [stagingCopy, "-name", "*.md", "-type", "f"], {
+      encoding: "utf-8",
+    });
+    const mdPaths = (findMd.stdout || "").trim().split("\n").filter(Boolean);
+    expect(mdPaths.length).toBeGreaterThan(0);
+    const body = readFileSync(mdPaths[0], "utf-8");
+
+    // The body that gbrain will read MUST NOT contain any 0x00 byte.
+    expect(body.includes("\x00")).toBe(false);
     // But the surrounding content should survive intact — we strip NUL only.
-    expect(stdin).toContain("abcdef");
-    expect(stdin).toContain("helloworld");
-    expect(stdin).toContain("leadingline");
-    expect(stdin).toContain("line-trailing");
-    expect(stdin).toContain("clean line");
+    expect(body).toContain("abcdef");
+    expect(body).toContain("helloworld");
+    expect(body).toContain("leadingline");
+    expect(body).toContain("line-trailing");
+    expect(body).toContain("clean line");
 
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("fails fast when gbrain CLI is missing the `put` subcommand", () => {
+  it("injects title/type/tags into the staged page's YAML frontmatter", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
-    // Fake gbrain that ONLY advertises legacy `put_page` (no `put`).
+    // This shim sleeps long enough to let us read the staging dir mid-run.
+    // Easier path: intercept by copying the staging dir before gbrain exits.
+    const binDir = join(home, "fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const stagingCopy = join(home, "staging-copy");
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Usage: gbrain <command>"; echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import)
+    DIR="\${2:-}"
+    cp -R "\$DIR" "${stagingCopy}" 2>/dev/null || true
+    # Emit valid --json output
+    if [[ " \$* " == *" --json "* ]]; then
+      echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":0,"errors":0,"chunks":1,"total_files":1}'
+    fi
+    exit 0 ;;
+  *) echo "unknown"; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
+
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "abc123", session);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(stagingCopy)).toBe(true);
+
+    // Find the staged .md file; assert frontmatter has title/type/tags.
+    // (The exact slug path varies with the staging dir generation, so we
+    // walk to find a .md and read its head.)
+    const findMd = spawnSync("find", [stagingCopy, "-name", "*.md", "-type", "f"], {
+      encoding: "utf-8",
+    });
+    const mdPaths = (findMd.stdout || "").trim().split("\n").filter(Boolean);
+    expect(mdPaths.length).toBeGreaterThan(0);
+    const body = readFileSync(mdPaths[0], "utf-8");
+    expect(body).toContain("---");
+    expect(body).toMatch(/title:\s/);
+    expect(body).toMatch(/type:\s+transcript/);
+    expect(body).toMatch(/tags:/);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("D7: files listed in ~/.gbrain/sync-failures.jsonl are NOT recorded in state", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    // Write TWO sessions so we can verify one lands and the other doesn't.
+    const sessionA =
+      `{"type":"user","message":{"role":"user","content":"a"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"a"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
+    const sessionB =
+      `{"type":"user","message":{"role":"user","content":"b"},"timestamp":"2026-05-02T00:00:00Z","cwd":"/tmp/bar"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"b"},"timestamp":"2026-05-02T00:00:01Z"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "aaaa", sessionA);
+    writeClaudeCodeSession(home, "tmp-bar", "bbbb", sessionB);
+
+    // Configure fake gbrain to "fail" the second session's staged path.
+    // The staging-dir-relative path is "transcripts/claude-code/...bbbb.md"
+    // (Codex sessions take a different prefix). We use a wildcard via the
+    // last segment matching the session id.
+    // The fake matches a literal path against the staging-list it captures,
+    // but since we can't know the exact path ahead of time, we let the
+    // ingest run once normally, inspect the staging list, then set HOME
+    // .gbrain/sync-failures.jsonl manually. Simpler: cause the SHA-id
+    // session-id segment to be in the failing list directly — gbrain's
+    // failure record uses the staging-relative path.
+    // Easiest: write a sync-failures.jsonl pre-existing that we OVERWRITE
+    // after the ingest starts. To keep this deterministic without timing,
+    // we run a passthrough fake that itself writes the failure entry.
+    const binDir = join(home, "fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Usage: gbrain"; echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import)
+    DIR="\${2:-}"
+    # Pick the SECOND .md found in the staging dir and mark it failed in
+    # ~/.gbrain/sync-failures.jsonl using the dir-relative path. The first
+    # one lands cleanly.
+    mkdir -p "\${HOME}/.gbrain"
+    REL=\$(cd "\$DIR" && find . -name "*.md" -type f | sed 's|^\\./||' | sort | tail -1)
+    if [ -n "\$REL" ]; then
+      echo "{\\"path\\":\\"\$REL\\",\\"error\\":\\"File too large\\",\\"code\\":\\"FILE_TOO_LARGE\\",\\"commit\\":\\"\\",\\"ts\\":\\"2026-05-09T22:00:00Z\\"}" >> "\${HOME}/.gbrain/sync-failures.jsonl"
+    fi
+    if [[ " \$* " == *" --json "* ]]; then
+      echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":0,"errors":1,"chunks":1,"total_files":2}'
+    fi
+    exit 0 ;;
+  *) echo "unknown"; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.exitCode).toBe(0);
+
+    // State file should have exactly 1 session entry (the non-failed one).
+    const statePath = join(gstackHome, ".transcript-ingest-state.json");
+    expect(existsSync(statePath)).toBe(true);
+    const state = JSON.parse(readFileSync(statePath, "utf-8"));
+    const sessionPaths = Object.keys(state.sessions || {});
+    expect(sessionPaths.length).toBe(1);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("emits ERR with system_error and exits non-zero when gbrain CLI is missing the `import` subcommand", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    // Fake gbrain that advertises ONLY `put` (legacy) — no `import`.
     const binDir = join(home, "legacy-bin");
     mkdirSync(binDir, { recursive: true });
     const script = `#!/usr/bin/env bash
 case "\${1:-}" in
-  --help|-h) echo "Commands:"; echo "  put_page    Write a page (legacy)"; exit 0 ;;
+  --help|-h) echo "Commands:"; echo "  put <slug>    Write a page (legacy)"; exit 0 ;;
   *) echo "Unknown command: \$1" >&2; exit 2 ;;
 esac
 `;
@@ -487,9 +689,69 @@ esac
       PATH: `${binDir}:${process.env.PATH || ""}`,
     });
 
-    // Bulk completes (the script is per-page tolerant), but every page
-    // surfaces the missing-`put` error rather than the old "Unknown command".
-    expect(r.stderr + r.stdout).toMatch(/missing `put` subcommand|gbrain CLI not in PATH/);
+    // D6: system_error sets non-zero exit; orchestrator marks ERR.
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toMatch(/\[memory-ingest\] ERR:.*missing `import` subcommand|gbrain CLI not in PATH/);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("--scan-secrets opt-in: skips files with gitleaks findings, lets clean files through", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    // Fake gitleaks: prints a "finding" for any file whose path contains
+    // "dirty", clean for everything else. The fake-gbrain shim doesn't
+    // interfere — gitleaks is invoked from preparePages before staging.
+    const fakeGitleaksDir = join(home, "fake-gitleaks-bin");
+    mkdirSync(fakeGitleaksDir, { recursive: true });
+    const fakeGitleaks = `#!/usr/bin/env bash
+# gitleaks detect --no-git --source <path> --report-format json --report-path /dev/stdout --exit-code 0
+# We just need to emit a JSON findings array on stdout. Find the --source arg.
+SRC=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --source) SRC="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if echo "$SRC" | grep -q dirty; then
+  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":1,"Match":"REDACTED","Secret":"AKIAFAKEFAKEFAKE12345"}]'
+else
+  echo '[]'
+fi
+exit 0
+`;
+    const gitleaksBin = join(fakeGitleaksDir, "gitleaks");
+    writeFileSync(gitleaksBin, fakeGitleaks, "utf-8");
+    chmodSync(gitleaksBin, 0o755);
+
+    // Two sessions: one "clean" (filename has no "dirty"), one "dirty"
+    // (filename contains "dirty" so the fake gitleaks reports a finding).
+    const sessionA =
+      `{"type":"user","message":{"role":"user","content":"clean"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n`;
+    const sessionB =
+      `{"type":"user","message":{"role":"user","content":"dirty"},"timestamp":"2026-05-02T00:00:00Z","cwd":"/tmp/bar"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "cleansess123", sessionA);
+    // Force the path to contain the "dirty" marker.
+    writeClaudeCodeSession(home, "tmp-dirty-bar", "dirtysess456", sessionB);
+
+    // Run with --scan-secrets enabled. Combine the fake gitleaks bin
+    // before fake-gbrain in PATH so both shims resolve.
+    const r = runScript(["--bulk", "--include-unattributed", "--scan-secrets"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${fakeGitleaksDir}:${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    // Bulk report shows skipped (secret-scan) >= 1
+    expect(r.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+    // Stderr from the secret-scan match path (printed when !quiet) includes the dirty path's basename.
+    // Match generously: any occurrence of "secret-scan match" line.
+    expect(r.stderr + r.stdout).toMatch(/secret-scan match/);
 
     rmSync(home, { recursive: true, force: true });
   });
