@@ -22,12 +22,7 @@ export interface SkillFaultDetectedEvent {
   faults: SkillFault[];
 }
 
-export type PhaseKind =
-  | "code"
-  | "writing"
-  | "experiment"
-  | "research"
-  | "manual";
+export type PhaseKind = "code";
 
 export type PhaseStatus =
   | "pending"
@@ -142,8 +137,10 @@ export interface Phase {
   testSpecCheckboxLine: number;
   /** True when --dual-impl CLI flag is active; stamped by the CLI after parse. */
   dualImpl: boolean;
-  /** Kind of phase — determines which checkpoint labels and subagent prompts apply. */
-  kind: PhaseKind;
+  /** Kind of phase — determines which checkpoint labels and subagent prompts apply.
+   *  Always "code" after the kind-detection logic was removed; optional so test
+   *  fixtures that omit it still type-check under strict mode. */
+  kind?: PhaseKind;
   /** Parsed gate state for per-phase checkboxes (test_spec, verify_red, implementation, green_tests, review_qa). */
   gates?: Partial<Record<PhaseGate, PlanGateState>>;
 }

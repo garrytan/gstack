@@ -2594,57 +2594,19 @@ export function buildKindInstructions(phase: Phase): string[] {
     REPO_BOUNDARY_INSTRUCTIONS[0],
     REPO_BOUNDARY_INSTRUCTIONS[1],
   ];
-  let kindInstructions: string[];
-  switch (phase.kind) {
-    case "writing":
-      kindInstructions = [
-        `Produce the written deliverable described in the phase. Quality bar: a reader unfamiliar with the project understands it after one read. No placeholder content.`,
-        `Commit the completed artifact to the file path(s) named in the phase body.`,
-        `Do NOT write or run tests — this is a writing phase, not a code phase.`,
-      ];
-      break;
-    case "experiment":
-      kindInstructions = [
-        `Execute the experiment as described. Run the named scripts/commands literally.`,
-        `Commit raw results to the named output path(s). Verify output files exist and are non-empty before committing.`,
-        `Do NOT summarize or interpret results in this step — that belongs in Review & QA.`,
-        `Do NOT write or run tests — this is an experiment phase, not a code phase.`,
-      ];
-      break;
-    case "research":
-      kindInstructions = [
-        `Produce the synthesis artifact described. Cite primary sources.`,
-        `Commit the artifact to the named output path(s). No speculation without explicitly labeling it as such.`,
-        `Do NOT write or run tests — this is a research phase, not a code phase.`,
-      ];
-      break;
-    case "manual":
-      kindInstructions = [
-        `This phase requires a human action outside the AI agent's scope. Ask the user to complete the action named in the phase description, then wait for their confirmation.`,
-        `Once the user confirms the action is done, commit a record of completion to the named path (if specified) and return.`,
-        `Do NOT attempt to automate the manual action — it is intentionally a human gate.`,
-      ];
-      break;
-    default: // "code"
-      kindInstructions = [
-        `Make all failing tests pass with minimal correct code. Do NOT change test assertions.`,
-        `Also complete every non-code deliverable in the phase description: if it says "run X and produce Y" or "record Z to <path>", actually execute that script/command and commit the output files. Writing the code that could produce Y is not the same as producing Y.`,
-        `If there are no existing failing tests, implement the work described above.`,
-        `If the project uses GitHub Actions, ensure your changes pass them.`,
-        `Commit your changes to the current branch with a clear conventional-commit message.`,
-        `Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
-      ];
-      break;
-  }
-  const allLines =
-    phase.kind === "code"
-      ? [...kindInstructions, ...sharedTail]
-      : [
-          ...kindInstructions,
-          `Commit your changes to the current branch with a clear conventional-commit message.`,
-          ...sharedTail,
-        ];
-  return allLines.map((line, i) => `${i + 1}. ${line}`);
+  // Parser only ever emits "code" kind; other kinds were removed. Keep the
+  // default path so test fixtures that omit kind still work.
+  const kindInstructions = [
+    `Make all failing tests pass with minimal correct code. Do NOT change test assertions.`,
+    `Also complete every non-code deliverable in the phase description: if it says "run X and produce Y" or "record Z to <path>", actually execute that script/command and commit the output files. Writing the code that could produce Y is not the same as producing Y.`,
+    `If there are no existing failing tests, implement the work described above.`,
+    `If the project uses GitHub Actions, ensure your changes pass them.`,
+    `Commit your changes to the current branch with a clear conventional-commit message.`,
+    `Fail forward: if a test fails, fix it before returning. Only return when the code is done and all artifacts are committed.`,
+  ];
+  return [...kindInstructions, ...sharedTail].map(
+    (line, i) => `${i + 1}. ${line}`,
+  );
 }
 
 /**
@@ -2763,7 +2725,7 @@ export function buildCodexReviewBody(
       : "",
     "## Your task",
     "",
-    phase.kind !== "code"
+    (phase.kind ?? "code") !== "code"
       ? `Review rubric: deliverable completeness and artifact correctness — not code quality or tests. Verify the artifact exists at the path named in the phase, is non-empty, and satisfies the acceptance criteria in the phase description.`
       : "",
     `1. Run the slash command specified by the runner prompt on the current branch's working tree against its base.`,
@@ -6384,8 +6346,19 @@ async function main() {
         if (outcome === "critical_exit") {
           // Don't persist to state — the !state.planReview guard must stay falsy so
           // the next gstack-build invocation (after SKILL.md re-synthesis) re-runs the review.
-          // Release the lock explicitly since process.exit bypasses the finally block.
+          // Replicate the finally-block cleanup that process.exit would otherwise skip.
+          if (state?.launch?.runId && state.launch.activeRunRegistry) {
+            updateActiveRunFromState(state, "failed");
+          }
           releaseLock(slug);
+          logActivity({
+            event: "failed",
+            slug,
+            durationMs: Date.now() - startedAt,
+            exitCode: 3,
+            dryRun: args.dryRun,
+            skipShip: args.skipShip,
+          });
           process.exit(3);
         }
         state.planReview = verdict;
@@ -7267,12 +7240,8 @@ async function main() {
         // When --skip-ship leaves features at origin_verified, exit 13
         // (FINALIZATION_REQUIRED) instead of 0 so the skill agent cannot infer
         // "done" from the exit code — Step 3 (ship + archive) is mandatory.
-        if (
-          args.skipShip &&
-          state.features?.some((f) => f.status === "origin_verified")
-        ) {
-          exitCode = 13;
-        }
+        // --skip-ship no longer forces a non-zero exit code; origin-verified
+        // features are a normal paused state and resume cleanly on the next run.
       }
       if (exitCode === 0 && state.completed && !args.dryRun && !args.skipShip) {
         const archivedPath = archiveLivingPlan(state.planFile);

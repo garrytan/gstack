@@ -1123,3 +1123,108 @@ test("two same-basename plans with run ids cannot load each other's state", () =
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 });
+
+test("plan-reviewer critical_exit releases the lock and exits 3", () => {
+  const criticalDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "gstack-critical-exit-"),
+  );
+  try {
+    const repo = path.join(criticalDir, "repo");
+    fs.mkdirSync(repo);
+    expect(
+      spawnSync("git", ["init", "-b", "main"], { cwd: repo }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.email", "test@example.com"], {
+        cwd: repo,
+      }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.name", "Test User"], {
+        cwd: repo,
+      }).status,
+    ).toBe(0);
+    fs.writeFileSync(path.join(repo, "README.md"), "# test\n");
+    expect(
+      spawnSync("git", ["add", "README.md"], { cwd: repo }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["commit", "-m", "init"], { cwd: repo }).status,
+    ).toBe(0);
+
+    const criticalPlanFile = path.join(criticalDir, "critical-plan.md");
+    fs.writeFileSync(
+      criticalPlanFile,
+      `# Critical Plan
+
+## Feature 1: Auth
+
+### Phase 1.1: Login
+- [ ] **Implementation (Gemini Sub-agent)**: Implement login.
+- [ ] **Review & QA (Codex Sub-agent)**: Review login.
+`,
+    );
+
+    const binDir = path.join(criticalDir, "bin");
+    fs.mkdirSync(binDir);
+    const codexPath = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexPath,
+      `#!/bin/sh
+prompt="$2"
+output=$(printf '%s\\n' "$prompt" | sed -n 's/.*Write your full review report to \\([^ ]*\\).*/\\1/p')
+cat > "$output" <<'EOF'
+PLAN_REVIEW: REVISE
+
+## Objections
+- CRITICAL: [Feature 1, Phase 1] Missing test coverage → Add unit tests for edge cases
+
+## Overall Assessment
+Critical issues found.
+EOF
+`,
+      { mode: 0o755 },
+    );
+
+    const cliPath = path.resolve(import.meta.dir, "../cli.ts");
+    const result = spawnSync(
+      "bun",
+      [
+        "run",
+        cliPath,
+        criticalPlanFile,
+        "--project-root",
+        repo,
+        "--test-cmd",
+        "bun test",
+        "--no-gbrain",
+        "--no-resume",
+      ],
+      {
+        env: {
+          ...process.env,
+          HOME: criticalDir,
+          GSTACK_HOME: path.join(criticalDir, ".gstack"),
+          PATH: `${binDir}:${process.env.PATH}`,
+          CODEX_BIN: codexPath,
+        },
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
+
+    const out = result.stdout + result.stderr;
+    const lockFile = path.join(
+      criticalDir,
+      ".gstack",
+      "build-state",
+      "build-critical-plan.lock",
+    );
+
+    expect(result.status).toBe(3);
+    expect(out).toContain("CRITICAL objections found");
+    expect(fs.existsSync(lockFile)).toBe(false);
+  } finally {
+    fs.rmSync(criticalDir, { recursive: true, force: true });
+  }
+});
