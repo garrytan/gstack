@@ -34,7 +34,12 @@ function buildHostPaths(): Record<string, HostPaths> {
         makePdfDir: '$GSTACK_MAKE_PDF',
       };
     } else {
-      const root = `~/${config.globalRoot}`;
+      // Use $HOME (not ~) so the path survives being interpolated into a
+      // double-quoted bash string. POSIX shells do NOT expand `~` inside
+      // double quotes, but `$HOME` does expand — and most preamble emitters
+      // wrap binDir-derived values in double quotes for safe whitespace
+      // handling. See: bash(1) "Tilde Expansion" + "Parameter Expansion".
+      const root = `$HOME/${config.globalRoot}`;
       paths[config.name] = {
         skillRoot: root,
         localSkillRoot: config.localSkillRoot,
