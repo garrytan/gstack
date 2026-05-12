@@ -1,6 +1,6 @@
 ---
 name: plan-status
-preamble-tier: 2
+preamble-tier: 1
 version: 1.0.0
 description: |
   Check progress of a gstack plan against the current codebase and git log.
@@ -77,7 +77,7 @@ If the user named a specific plan file in their message, use that path directly.
 Otherwise, use the `AVAILABLE_PLANS` list from the Setup block to pick the most relevant plan:
 - If only one plan exists for this project, use it.
 - If the current branch name appears in a plan filename, prefer that one.
-- If multiple plans exist with no clear match, use AskUserQuestion to let the user pick.
+- If multiple plans exist with no clear match, use AskUserQuestion to let the user pick. Present a numbered list of the plan filenames and ask which one to check. This is the only case where AskUserQuestion is needed in this skill — keep the prompt simple (no D<N> format required).
 - If `AVAILABLE_PLANS` is empty, stop and display the empty-state message from Setup.
 
 Read the resolved plan file in full before proceeding.
