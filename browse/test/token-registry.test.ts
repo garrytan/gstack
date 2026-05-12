@@ -28,6 +28,39 @@ describe('token-registry', () => {
       expect(info!.scopes).toEqual(['read', 'write', 'admin', 'meta', 'control']);
       expect(info!.rateLimit).toBe(0);
     });
+
+    // Regression: the previous fix did a JS string-length short-circuit before
+    // crypto.timingSafeEqual, but the buffers passed in are UTF-8. A multibyte
+    // input with matching string length but mismatched byte length would slip
+    // past the check and crash inside timingSafeEqual. Auth path must return
+    // false, not error.
+    it('returns false for a multibyte token whose string length matches but UTF-8 byte length differs', () => {
+      // 'root-token-for-tests' is 20 ASCII chars (20 bytes).
+      // 'é'.repeat(20) is 20 chars but 40 UTF-8 bytes.
+      const multibyte = 'é'.repeat(20);
+      expect(multibyte.length).toBe('root-token-for-tests'.length);
+      expect(Buffer.byteLength(multibyte, 'utf8')).not.toBe(
+        Buffer.byteLength('root-token-for-tests', 'utf8'),
+      );
+      expect(() => isRootToken(multibyte)).not.toThrow();
+      expect(isRootToken(multibyte)).toBe(false);
+    });
+
+    it('returns false for a token that differs only in length (same prefix)', () => {
+      expect(isRootToken('root-token-for-tests-extra')).toBe(false);
+      expect(isRootToken('root-token-for-test')).toBe(false);
+    });
+
+    it('returns false for a same-length token that differs only in the last byte', () => {
+      const expected = 'root-token-for-tests';
+      const wrong = expected.slice(0, -1) + (expected.endsWith('x') ? 'y' : 'x');
+      expect(wrong.length).toBe(expected.length);
+      expect(isRootToken(wrong)).toBe(false);
+    });
+
+    it('returns false for the empty string even when root is set', () => {
+      expect(isRootToken('')).toBe(false);
+    });
   });
 
   describe('createToken', () => {
