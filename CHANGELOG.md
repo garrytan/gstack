@@ -3,7 +3,7 @@
 ## [1.31.0.1] - 2026-05-11
 
 ### Changed
-- Increase test timeout from 300000 to 900000 in build configuration
+- Version bump for branch-ahead discipline. No user-facing changes yet.
 
 ## [1.31.0.0] - 2026-05-09
 
