@@ -205,12 +205,43 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
 fi
 
 ensure_playwright_browser() {
-  if [ "$IS_WINDOWS" -eq 1 ]; then
+  if [ "${GSTACK_SKIP_PLAYWRIGHT:-0}" = "1" ]; then
+    log "Skipping download step. Testing system Chromium instead..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      
+      # Force the Playwright library to be available locally without downloading Ubuntu browsers 
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 bun add playwright --dev
+      
+      echo "
+        const { chromium } = require('playwright');
+        (async () => {
+          try {
+            const browser = await chromium.launch({
+              executablePath: '${GSTACK_CHROMIUM_PATH:-/usr/bin/chromium}',
+              args: ['--no-sandbox', '--disable-setuid-sandbox', '--headless']
+            });
+            await browser.close();
+            console.log('Smoke test successfully completed!');
+            process.exit(0);
+          } catch (e) {
+            console.error('Error launching system Chromium:', e);
+            process.exit(1);
+          }
+        })();
+      " > test-chromium.js
+      
+      bun test-chromium.js
+      local_exit_code=$?
+      rm -f test-chromium.js
+      return $local_exit_code
+    )
+  elif [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Bun can't launch Chromium due to broken pipe handling
     # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
     (
       cd "$SOURCE_GSTACK_DIR"
-      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()"
     )
   else
     (
@@ -219,6 +250,7 @@ ensure_playwright_browser() {
     ) >/dev/null 2>&1
   fi
 }
+
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
@@ -322,7 +354,9 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
-if ! ensure_playwright_browser; then
+if [ "${GSTACK_SKIP_PLAYWRIGHT:-0}" = "1" ]; then
+    echo "Skipping Playwright browser check (GSTACK_SKIP_PLAYWRIGHT=1)"
+elif ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
     cd "$SOURCE_GSTACK_DIR"

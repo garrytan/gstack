@@ -62,6 +62,27 @@ No vendored files in your repo, no version drift, no manual upgrades. Every Clau
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
+### Advanced Linux Installation (Arch Linux, NixOS, etc.)
+
+If you are using a non-Ubuntu Linux distribution, Playwright's pre-compiled Chromium binaries may fail to launch due to missing system libraries or sandbox constraints. 
+
+You can bypass the bundled browser download and use your system's native Chromium instead by installing it via your package manager and setting the environment variables:
+
+```bash
+# Arch Linux example
+sudo pacman -S chromium
+
+# Export variables before running setup
+export GSTACK_SKIP_PLAYWRIGHT=1
+export GSTACK_CHROMIUM_PATH="/usr/bin/chromium"
+export CHROME_PATH="/usr/bin/chromium"
+
+# Run setup
+./setup
+```
+
+Make sure to add these exports to your `~/.bashrc` or `~/.zshrc` so Claude Code can locate your system browser during runtime execution.
+
 ### OpenClaw
 
 OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works
