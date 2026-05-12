@@ -920,6 +920,31 @@ For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <
 
 Continue to Step 2 — do NOT block or ask. Ship runs its own review in Step 9.
 
+5. Check for open plan items:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_PLAN_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
+_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+_PLAN_FILE=$(find "$_PLAN_DIR" -name "*.md" 2>/dev/null | grep -E "ceo-plans|eng-plans" | \
+  grep -i "$(echo "$_BRANCH" | tr '/' '-')" 2>/dev/null | sort -r | head -1)
+if [ -z "$_PLAN_FILE" ]; then
+  _PLAN_FILE=$(find "$_PLAN_DIR" -name "*.md" 2>/dev/null | grep -E "ceo-plans|eng-plans" | sort -r | head -1)
+fi
+if [ -n "$_PLAN_FILE" ]; then
+  _REMAINING=$(grep -c "- \[ \]" "$_PLAN_FILE" 2>/dev/null || echo "0")
+  echo "PLAN_FILE: $_PLAN_FILE"
+  echo "OPEN_CHECKBOXES: $_REMAINING"
+else
+  echo "PLAN_FILE: none"
+fi
+```
+
+If `OPEN_CHECKBOXES` > 0, print an informational warning (never block):
+"Note: Plan has N open checkbox(es) in `<plan filename>`. Run /plan-status to review what's REMAINING before the PR lands — or proceed if these items are intentionally deferred."
+
+If `PLAN_FILE` is none, skip silently.
+
 ---
 
 ## Step 2: Distribution Pipeline Check

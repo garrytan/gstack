@@ -32,6 +32,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
 | [`/plan-tune`](#plan-tune) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
+| [`/plan-status`](#plan-status) | **Plan Status** | Check progress of a gstack plan against the codebase and git log. Phase-by-phase DONE/PARTIAL/REMAINING dashboard. gstack Lifecycle Dashboard shows which workflow skills have run. |
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
 | [`/health`](#health) | **Code Quality Dashboard** | Wraps type checker, linter, tests, dead code detection. Computes a weighted 0-10 score; tracks trends over time. |
@@ -966,6 +967,51 @@ Claude: 23 learnings for this project (14 high confidence, 6 medium, 3 low)
         - "auth middleware uses JWT" — auth/middleware.ts was deleted
         [Prune these? Y/N]
 ```
+
+---
+
+## `/plan-status`
+
+This is my **progress dashboard** for any gstack plan.
+
+After `/office-hours` or `/plan-ceo-review` writes a plan, implementation starts — and there's no way to answer "where am I?" without manually re-reading the whole plan and cross-referencing the codebase. `/plan-status` closes that gap. It reads the plan that already exists, cross-references evidence from git and the filesystem, and produces a scannable dashboard in seconds. No setup. No ticket creation.
+
+The output has two parts: a **gstack Lifecycle Dashboard** showing which workflow skills have run (matching the same format as the Review Readiness Dashboard), and a **Plan Detail** section with per-phase and per-criteria DONE/PARTIAL/REMAINING classification.
+
+```
+You:   /plan-status
+
+Claude: ## gstack Lifecycle Dashboard
+        +====================================================================================+
+        |                         GSTACK LIFECYCLE DASHBOARD                                 |
+        +====================================================================================+
+        | Phase    | Skill               | Runs | Last Run         | Status   | Required    |
+        |----------|---------------------|------|------------------|----------|-------------|
+        | Think    | /office-hours       |  1   | 2026-05-11 22:00 | DONE     | no          |
+        | Plan     | /plan-ceo-review    |  1   | 2026-05-11 22:00 | DONE     | no          |
+        |          | /plan-eng-review    |  0   | —                | —        | YES         |
+        | Build    | (commits)           |  4   | —                | DONE     | YES         |
+        ...
+        +------------------------------------------------------------------------------------+
+        | VERDICT: IN PROGRESS — 1 required skill REMAINING (plan-eng-review)                |
+        +====================================================================================+
+
+        ## Plan Status: 2026-05-11-migrate-to-ruby-llm.md
+        Branch: migrate-to-ruby-llm | As of: 2026-05-11
+
+        ### Phase Summary
+        | Phase | Status | Notes |
+        |-------|--------|-------|
+        | Phase 0: Foundation | DONE | Gems added, initializer present |
+        | Phase 1: Schema Migration | REMAINING | No migration files found |
+
+        ### Summary
+        1 of 2 phases complete. 2 of 4 success criteria met.
+        Key blockers: langchainrb still in Gemfile, no db/migrate/ files
+        Suggested next action: Run /plan-eng-review, then write the schema migration.
+```
+
+Configure a custom plan search path: `gstack-config set plan_glob "~/board-plans/*.md"` — useful for non-code projects like board planning or accreditation prep.
 
 ---
 
