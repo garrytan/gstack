@@ -48,7 +48,8 @@ cat "${FILES[@]}" 2>/dev/null | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const now = Date.now();
 const type = process.env.GSTACK_SEARCH_TYPE || '';
-const query = (process.env.GSTACK_SEARCH_QUERY || '').toLowerCase();
+const queryRaw = (process.env.GSTACK_SEARCH_QUERY || '').toLowerCase();
+const queryTokens = queryRaw.split(/\s+/).filter(Boolean);
 const limit = parseInt(process.env.GSTACK_SEARCH_LIMIT || '10', 10);
 const slug = process.env.GSTACK_SEARCH_SLUG || '';
 
@@ -94,12 +95,11 @@ let results = Array.from(seen.values());
 // Filter by type
 if (type) results = results.filter(e => e.type === type);
 
-// Filter by query
-if (query) results = results.filter(e =>
-  (e.key || '').toLowerCase().includes(query) ||
-  (e.insight || '').toLowerCase().includes(query) ||
-  (e.files || []).some(f => f.toLowerCase().includes(query))
-);
+// Filter by query (token-OR: match if ANY whitespace-split token appears in ANY haystack)
+if (queryTokens.length > 0) results = results.filter(e => {
+  const haystacks = [(e.key || '').toLowerCase(), (e.insight || '').toLowerCase(), ...(e.files || []).map(f => f.toLowerCase())];
+  return queryTokens.some(tok => haystacks.some(h => h.includes(tok)));
+});
 
 // Sort by effective confidence desc, then recency
 results.sort((a, b) => {
