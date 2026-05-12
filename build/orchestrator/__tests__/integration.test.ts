@@ -541,7 +541,7 @@ test("resume continues landed features at origin verification without checking o
     const out = result.stdout + result.stderr;
     const saved = JSON.parse(fs.readFileSync(stateFile, "utf8"));
 
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(13); // FINALIZATION_REQUIRED: --skip-ship leaves features at origin_verified
     expect(out).toContain("origin-plan-verification");
     expect(out).not.toContain("checking out feat/already-landed-and-deleted");
     expect(saved.features[0].status).toBe("origin_verified");
@@ -654,7 +654,7 @@ test("--skip-ship leaves completed features ready to ship on a later resume", ()
       .split("\n")
       .map((line) => JSON.parse(line));
 
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(13); // FINALIZATION_REQUIRED: --skip-ship leaves features at origin_verified
     expect(out).toContain("--skip-ship active: shipping is disabled");
     expect(saved.features[0].status).toBe("origin_verified");
     expect(saved.features[1].status).toBe("origin_verified");

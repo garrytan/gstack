@@ -24,7 +24,7 @@ import type {
   PhaseState,
 } from "./types";
 import type { SubAgentResult, Verdict } from "./sub-agents";
-import { parseVerdict } from "./sub-agents";
+import { parseVerdict, parseCoveragePercent, extractCoverageTarget } from "./sub-agents";
 import { BUILD_DEFAULTS, envNumberOrDefault } from "./build-config";
 
 /** Maximum recursive Codex review iterations before giving up. */
@@ -413,6 +413,9 @@ export function decideNextAction(
  * All fields are optional — only relevant ones need to be populated per action type.
  */
 export interface ApplyResultExtra {
+  /** RUN_TESTS: phase body text (for extractCoverageTarget) and test command (for parseCoveragePercent) */
+  phaseBody?: string;
+  testCmd?: string;
   /** RUN_DUAL_IMPL: worktree paths + branches set up by createWorktrees() */
   dualImplInit?: DualImplState;
   /** RUN_DUAL_TESTS: individual test outcomes for each worktree */
@@ -616,6 +619,23 @@ export function applyResult(
       return next;
     }
     next.status = result.exitCode === 0 ? "tests_green" : "test_fix_running";
+    // Advisory coverage check: parse coverage from stdout and store on state.
+    // Only runs when tests are GREEN (no point reporting coverage on a red run).
+    if (next.status === "tests_green" && extra?.phaseBody !== undefined) {
+      const actualCoverage = parseCoveragePercent(
+        result.stdout,
+        extra.testCmd ?? "",
+      );
+      if (actualCoverage !== null) {
+        const target = extractCoverageTarget(extra.phaseBody);
+        next.coverageResult = { actual: actualCoverage, target };
+        if (actualCoverage < target) {
+          console.warn(
+            `  ⚠ coverage advisory: ${actualCoverage}% is below target ${target}% — not blocking`,
+          );
+        }
+      }
+    }
     return next;
   }
 

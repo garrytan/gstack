@@ -83,11 +83,26 @@ Never skip a verification step because a prior `/ship` run already performed it.
 
 {{REVIEW_DASHBOARD}}
 
+**Determine whether this is a pure non-code feature** by checking the diff for source code changes:
+
+```bash
+git diff <base>...HEAD --name-only | grep -E '\.(ts|js|py|go|rs|java|c|cpp|rb|sh)$' | head -5
+```
+
+If NO source code files are in the diff (only markdown, data files, or documents): this is a **pure non-code feature**. Check the Content Review row in the dashboard instead of Eng Review.
+
+- If Content Review shows CONTENT_REVIEW_PASS: **gate is cleared**. Continue to Step 2.
+- If Content Review is missing: Print "No Content Review found — ship will run its own content check in Step 9." Continue to Step 2.
+
+If source code files ARE in the diff: check Eng Review as normal.
+
 If the Eng Review is NOT "CLEAR":
 
 Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
 
 Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+
+If this is a **mixed feature** (some non-code phases in the diff): also check Content Review. If Content Review is missing, note: "Content Review not run — some phases in this diff are non-code. Consider running /review after ship to check artifact completeness."
 
 If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
 

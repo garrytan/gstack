@@ -598,3 +598,147 @@ describe("setCheckboxStatusNote", () => {
     fs.rmSync(path.dirname(p), { recursive: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1.3: Kind-aware flipPhaseCheckboxes tests
+// ---------------------------------------------------------------------------
+
+describe("flipPhaseCheckboxes — kind-aware marker lookup", () => {
+  function makePlan(implLabel: string, reviewLabel: string): string {
+    return `### Phase 1: Test
+- [ ] **${implLabel}**: do the work
+- [ ] **${reviewLabel}**: review the work
+`;
+  }
+
+  it("code phase flips **Implementation marker (regression check)", () => {
+    const md = makePlan("Implementation", "Review");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "code",
+    });
+    expect(r.implementation.flipped).toBe(true);
+    expect(r.review.flipped).toBe(true);
+    expect(r.implementation.error).toBeUndefined();
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("writing phase flips **Draft marker for Implementation", () => {
+    const md = makePlan("Draft", "Review");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "writing",
+    });
+    expect(r.implementation.flipped).toBe(true);
+    expect(r.review.flipped).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("experiment phase flips **Execute marker for Implementation", () => {
+    const md = makePlan("Execute", "Review");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "experiment",
+    });
+    expect(r.implementation.flipped).toBe(true);
+    expect(r.review.flipped).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("research phase flips **Explore marker for Implementation", () => {
+    const md = makePlan("Explore", "Review");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "research",
+    });
+    expect(r.implementation.flipped).toBe(true);
+    expect(r.review.flipped).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("manual phase flips **Action Required marker for Implementation", () => {
+    const md = makePlan("Action Required", "Verify Completion");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "manual",
+    });
+    expect(r.implementation.flipped).toBe(true);
+    expect(r.review.flipped).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("manual phase flips **Verify Completion marker for Review", () => {
+    const md = makePlan("Action Required", "Verify Completion");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "manual",
+    });
+    expect(r.review.flipped).toBe(true);
+    expect(r.review.error).toBeUndefined();
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("writing/experiment/research Review maps to **Review marker", () => {
+    for (const kind of ["writing", "experiment", "research"] as const) {
+      const md = makePlan("Draft", "Review");
+      const p = _testWritePlan(md);
+      const r = flipPhaseCheckboxes({
+        planFile: p,
+        implementationLine: 2,
+        reviewLine: 3,
+        kind,
+      });
+      expect(r.review.flipped).toBe(true);
+      expect(r.review.error).toBeUndefined();
+      fs.rmSync(path.dirname(p), { recursive: true });
+    }
+  });
+
+  it("wrong marker returns error struct (not silent failure)", () => {
+    const md = makePlan("Draft", "Review");
+    const p = _testWritePlan(md);
+    // Use code kind but plan has **Draft — marker mismatch
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      kind: "code",
+    });
+    // code kind expects **Implementation but line has **Draft
+    expect(r.implementation.error).toBeDefined();
+    expect(r.implementation.flipped).toBe(false);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+
+  it("missing kind defaults to code markers (backward compat for callers that omit kind)", () => {
+    const md = makePlan("Implementation", "Review");
+    const p = _testWritePlan(md);
+    const r = flipPhaseCheckboxes({
+      planFile: p,
+      implementationLine: 2,
+      reviewLine: 3,
+      // kind intentionally omitted
+    });
+    expect(r.implementation.flipped).toBe(true);
+    expect(r.review.flipped).toBe(true);
+    fs.rmSync(path.dirname(p), { recursive: true });
+  });
+});

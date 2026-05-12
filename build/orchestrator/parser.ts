@@ -7,13 +7,19 @@
  *   - [ ] **Implementation (Gemini Sub-agent)**: ...
  *   - [ ] **Review & QA (Codex Sub-agent)**: ...
  *
+ * Non-coding phases use a bracket annotation in the heading:
+ *
+ *   ### Phase 2.1 [writing]: Draft the paper
+ *   - [ ] **Draft**: write the draft
+ *   - [ ] **Review**: review the draft
+ *
  * Output: array of Phase objects with checkbox state and line numbers
  * (so the plan-mutator can flip checkboxes without re-parsing).
  *
  * Robust against:
  *   - blank lines between heading and checkboxes
  *   - extra prose between heading and checkboxes
- *   - text inside fenced code blocks (```...```) — never matched
+ *   - text inside fenced code blocks (```...```) --- never matched
  *   - BOM, trailing whitespace
  */
 
@@ -22,11 +28,72 @@ import type {
   FeatureGate,
   Phase,
   PhaseGate,
+  PhaseKind,
   PlanGateState,
 } from "./types";
 
 const FEATURE_HEADING = /^##\s+Feature\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/i;
-const PHASE_HEADING = /^###\s+Phase\s+(\d+(?:\.\d+)?)\s*:\s*(.+?)\s*$/;
+/** Phase heading -- optional [kind] bracket between number and colon. */
+const PHASE_HEADING =
+  /^###\s+Phase\s+(\d+(?:\.\d+)?)\s*(?:\[([^\]]*)\])?\s*:\s*(.+?)\s*$/;
+/** Fallback HTML comment anywhere in the phase body. */
+const BODY_KIND_PATTERN = /<!--\s*kind:\s*([a-z]+)\s*-->/i;
+
+const VALID_KINDS: ReadonlySet<string> = new Set([
+  "code",
+  "writing",
+  "experiment",
+  "research",
+  "manual",
+]);
+
+function parseKind(
+  raw: string,
+  phaseLabel: string,
+  warnings: string[],
+): PhaseKind {
+  const normalised = raw.trim().toLowerCase();
+  if (VALID_KINDS.has(normalised)) return normalised as PhaseKind;
+  warnings.push(
+    `Phase ${phaseLabel}: unrecognised kind annotation "[${raw}]" -- defaulting to "code"`,
+  );
+  return "code";
+}
+
+/** Per-kind Implementation checkbox label. */
+export const IMPL_LABELS_BY_KIND: Record<PhaseKind, string> = {
+  code: "Implementation",
+  writing: "Draft",
+  experiment: "Execute",
+  research: "Explore",
+  manual: "Action Required",
+};
+
+/** Per-kind Review checkbox label. */
+export const REVIEW_LABELS_BY_KIND: Record<PhaseKind, string> = {
+  code: "Review",
+  writing: "Review",
+  experiment: "Review",
+  research: "Review",
+  manual: "Verify Completion",
+};
+
+function implCheckboxRe(kind: PhaseKind): RegExp {
+  const label = IMPL_LABELS_BY_KIND[kind];
+  const escaped = label
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/ /g, "\\s+");
+  return new RegExp(`^\\s*-\\s+\\[([  xX])\\]\\s+\\*\\*${escaped}\\b`);
+}
+
+function reviewCheckboxRe(kind: PhaseKind): RegExp {
+  const label = REVIEW_LABELS_BY_KIND[kind];
+  const escaped = label
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/ /g, "\\s+");
+  return new RegExp(`^\\s*-\\s+\\[([  xX])\\]\\s+\\*\\*${escaped}\\b`);
+}
+
 const IMPL_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Implementation\b/;
 const REVIEW_CHECKBOX = /^\s*-\s+\[([ xX])\]\s+\*\*Review\b/;
 const TESTSPEC_CHECKBOX = /^\s*-\s*\[([xX ])\]\s*\*\*Test Specification/i;
@@ -58,7 +125,7 @@ function gateState(
 export interface ParseResult {
   features: Feature[];
   phases: Phase[];
-  /** Diagnostics for phases that look broken — missing checkboxes etc. */
+  /** Diagnostics for phases that look broken -- missing checkboxes etc. */
   warnings: string[];
 }
 
@@ -98,6 +165,18 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
   const finalize = (endLineExclusive: number) => {
     if (!currentPhase) return;
     const p = currentPhase;
+
+    // Detect kind from body comment if not already set from heading bracket.
+    if (!p.kind) {
+      const bodyText = p.bodyLines.join("\n");
+      const bodyKindMatch = bodyText.match(BODY_KIND_PATTERN);
+      if (bodyKindMatch) {
+        p.kind = parseKind(bodyKindMatch[1], p.number ?? "?", warnings);
+      } else {
+        p.kind = "code";
+      }
+    }
+
     if (p.implementationCheckboxLine == null) {
       warnings.push(
         `Phase ${p.number} ("${p.name}") at line ${currentPhaseStartLine + 1} is missing an Implementation checkbox`,
@@ -115,7 +194,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       p.testSpecDone = true;
     }
 
-    // Only emit phases with both core checkboxes — the orchestrator can't run a half-shaped phase.
+    // Only emit phases with both core checkboxes.
     if (p.implementationCheckboxLine != null && p.reviewCheckboxLine != null) {
       const feature = ensureFeature();
       const phaseIndex = phases.length;
@@ -136,6 +215,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
         reviewCheckboxLine: p.reviewCheckboxLine,
         kind: "code",
         dualImpl: !!opts.dualImpl,
+        kind: p.kind ?? "code",
         ...(p.gates && Object.keys(p.gates).length > 0
           ? { gates: p.gates }
           : {}),
@@ -155,7 +235,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
     }
 
     if (inFence) {
-      // Inside a code block — never match phase syntax.
+      // Inside a code block -- never match phase syntax.
       if (currentPhase) currentPhase.bodyLines.push(line);
       continue;
     }
@@ -166,9 +246,16 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       finalize(i);
       currentPhaseStartLine = i;
       ensureFeature();
+      // headingMatch[1]=number, headingMatch[2]=optional kind bracket, headingMatch[3]=name
+      const kindAnnotation = headingMatch[2];
+      const phaseName = headingMatch[3];
+      const kind: PhaseKind | undefined = kindAnnotation
+        ? parseKind(kindAnnotation, headingMatch[1], warnings)
+        : undefined; // resolved in finalize() from body comment or defaulted to "code"
       currentPhase = {
         number: headingMatch[1],
-        name: headingMatch[2],
+        name: phaseName,
+        kind,
         bodyLines: [],
       };
       continue;
@@ -191,7 +278,7 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
 
     if (!currentPhase) {
       if (currentFeature) {
-        // Feature gate checkboxes appear in the feature body (between heading and first phase).
+        // Feature gate checkboxes appear in the feature body.
         const frMatch = line.match(FEATURE_REVIEW_CHECKBOX);
         if (frMatch) {
           if (!currentFeature.gates) currentFeature.gates = {};
@@ -223,6 +310,12 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
     // We're inside a phase body. Look for checkboxes.
     if (!currentPhase.gates) currentPhase.gates = {};
 
+    // Detect HTML comment kind annotation inline (so kind is known before checkboxes).
+    if (!currentPhase.kind && BODY_KIND_PATTERN.test(line)) {
+      const km = line.match(BODY_KIND_PATTERN);
+      if (km) currentPhase.kind = parseKind(km[1], currentPhase.number ?? "?", warnings);
+    }
+
     const testSpecMatch = line.match(TESTSPEC_CHECKBOX);
     if (testSpecMatch) {
       currentPhase.testSpecCheckboxLine = i + 1; // 1-based
@@ -237,6 +330,41 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
       currentPhase.bodyLines.push(line);
       continue;
     }
+
+    // For impl/review checkboxes: try kind-specific patterns first if kind is known.
+    const effectiveKind: PhaseKind = currentPhase.kind ?? "code";
+
+    if (effectiveKind !== "code") {
+      // Kind-specific implementation checkbox (Draft/Execute/Explore/Action Required)
+      const kindImplMatch = line.match(implCheckboxRe(effectiveKind));
+      if (kindImplMatch) {
+        currentPhase.implementationCheckboxLine = i + 1;
+        currentPhase.implementationDone =
+          kindImplMatch[1].toLowerCase() === "x";
+        currentPhase.gates.implementation = gateState(
+          kindImplMatch[1],
+          i + 1,
+          line,
+        );
+        currentPhase.bodyLines.push(line);
+        continue;
+      }
+      // Kind-specific review checkbox (Verify Completion for manual; others use generic Review)
+      const kindReviewMatch = line.match(reviewCheckboxRe(effectiveKind));
+      if (kindReviewMatch) {
+        currentPhase.reviewCheckboxLine = i + 1;
+        currentPhase.reviewDone = kindReviewMatch[1].toLowerCase() === "x";
+        currentPhase.gates.review_qa = gateState(
+          kindReviewMatch[1],
+          i + 1,
+          line,
+        );
+        currentPhase.bodyLines.push(line);
+        continue;
+      }
+    }
+
+    // Generic Implementation / Review (code phases; non-code phases using generic labels)
     const implMatch = line.match(IMPL_CHECKBOX);
     if (implMatch) {
       currentPhase.implementationCheckboxLine = i + 1; // 1-based
@@ -311,7 +439,7 @@ export function isPhaseComplete(phase: Phase): boolean {
 /**
  * Find the next phase needing work, or null if everything is done.
  * "In progress" phases (one box checked, one not) are returned and the
- * orchestrator runs only the unchecked half — that's how we resume from
+ * orchestrator runs only the unchecked half -- that's how we resume from
  * a crash that happened between Gemini completing and Codex starting.
  */
 export function findNextPhase(phases: Phase[]): Phase | null {
