@@ -213,7 +213,6 @@ export function parsePlan(content: string, opts: ParseOpts = {}): ParseResult {
         testSpecCheckboxLine: p.testSpecCheckboxLine,
         implementationCheckboxLine: p.implementationCheckboxLine,
         reviewCheckboxLine: p.reviewCheckboxLine,
-        kind: "code",
         dualImpl: !!opts.dualImpl,
         kind: p.kind ?? "code",
         ...(p.gates && Object.keys(p.gates).length > 0
