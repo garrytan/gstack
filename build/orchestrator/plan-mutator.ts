@@ -17,7 +17,25 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Phase } from "./types";
+import type { Phase, PhaseKind } from "./types";
+
+/** Per-kind marker string that must follow the Implementation checkbox. */
+export const IMPL_MARKER_BY_KIND: Record<PhaseKind, string> = {
+  code: "**Implementation",
+  writing: "**Draft",
+  experiment: "**Execute",
+  research: "**Explore",
+  manual: "**Action Required",
+};
+
+/** Per-kind marker string that must follow the Review checkbox. */
+export const REVIEW_MARKER_BY_KIND: Record<PhaseKind, string> = {
+  code: "**Review",
+  writing: "**Review",
+  experiment: "**Review",
+  research: "**Review",
+  manual: "**Verify Completion",
+};
 
 export interface FlipResult {
   /** True if the line was found unchecked and flipped. */
@@ -208,16 +226,21 @@ export function flipPhaseCheckboxes(args: {
   planFile: string;
   implementationLine: number;
   reviewLine: number;
+  /** Phase kind — used to select the correct checkbox marker. Defaults to "code". */
+  kind?: PhaseKind;
 }): { implementation: FlipResult; review: FlipResult } {
+  const kind = args.kind ?? "code";
+  const implMarker = IMPL_MARKER_BY_KIND[kind];
+  const reviewMarker = REVIEW_MARKER_BY_KIND[kind];
   const implementation = flipCheckbox({
     planFile: args.planFile,
     lineNumber: args.implementationLine,
-    expectedMarker: "**Implementation",
+    expectedMarker: implMarker,
   });
   const review = flipCheckbox({
     planFile: args.planFile,
     lineNumber: args.reviewLine,
-    expectedMarker: "**Review",
+    expectedMarker: reviewMarker,
   });
   return { implementation, review };
 }
@@ -387,6 +410,7 @@ export function reconcilePhaseCheckboxes(
     planFile,
     implementationLine: phase.implementationCheckboxLine,
     reviewLine: phase.reviewCheckboxLine,
+    kind: phase.kind,
   });
   if (result.implementation.error)
     errors.push(`impl: ${result.implementation.error}`);

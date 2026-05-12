@@ -1665,6 +1665,39 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 
 ---
 
+## Step 5.75: Content Review (pure non-code features only)
+
+Check whether this diff is a pure non-code feature: all changed phases are of kind `writing`,
+`experiment`, `research`, or `manual` — no code changes, no tests, no source files.
+
+**If NOT a pure non-code feature:** Skip this step entirely. Continue to Step 5.8.
+
+**If this IS a pure non-code feature:**
+
+1. Check that all deliverable files described in the phase description exist on disk:
+   ```bash
+   git diff <base>...HEAD --name-only
+   ```
+
+2. Verify the artifacts are committed and non-empty.
+
+3. For `writing` phases: check that the written content addresses the stated objective.
+   For `experiment` phases: check that raw result files (CSV, JSON, logs) are present.
+   For `research` phases: check that the findings document cites sources and flags gaps.
+   For `manual` phases: check that the preparation artifact describes the remaining human step.
+
+4. Write your full content review report to the output file (same path as a regular review).
+
+5. **End the output file with one of:**
+   - `CONTENT_REVIEW_PASS` — all deliverables present and meet the phase quality bar
+   - `CONTENT_REVIEW_FAIL` — one or more deliverables missing or below quality bar (list findings)
+
+Note: `CONTENT_REVIEW_PASS` is recognized by the ship gate in place of `GATE PASS` for
+pure non-code features. Mixed features (some code, some non-code phases) require both
+Eng Review AND Content Review to clear the ship gate.
+
+---
+
 ## Step 5.8: Persist Eng Review result
 
 After all review passes complete, persist the final `/review` outcome so `/ship` can

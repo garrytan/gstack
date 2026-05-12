@@ -453,3 +453,167 @@ describe("parsePlan — gate checkboxes", () => {
     expect(phases[0].gates?.verify_red).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1.2: Kind-aware parsing tests
+// ---------------------------------------------------------------------------
+
+describe("parsePlan — PhaseKind from heading bracket annotation", () => {
+  it("[writing] heading emits kind='writing'", () => {
+    const md = `### Phase 1 [writing]: Draft the intro
+- [ ] **Draft**: write the draft
+- [ ] **Review**: review it
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(phases).toHaveLength(1);
+    expect(phases[0].kind).toBe("writing");
+    expect(warnings.filter((w) => w.includes("unrecognised"))).toHaveLength(0);
+  });
+
+  it("[experiment] heading emits kind='experiment'", () => {
+    const md = `### Phase 2.1 [experiment]: Run the benchmark
+- [ ] **Execute**: run it
+- [ ] **Review**: review results
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("experiment");
+  });
+
+  it("[research] heading emits kind='research'", () => {
+    const md = `### Phase 3 [research]: Survey literature
+- [ ] **Explore**: survey papers
+- [ ] **Review**: synthesize
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("research");
+  });
+
+  it("[manual] heading emits kind='manual'", () => {
+    const md = `### Phase 4 [manual]: Deploy to staging
+- [ ] **Action Required**: deploy manually
+- [ ] **Verify Completion**: confirm deployed
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("manual");
+  });
+
+  it("no annotation emits kind='code' (backward compat)", () => {
+    const md = `### Phase 1: Plain code phase
+- [ ] **Implementation**: impl
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("code");
+  });
+
+  it("malformed [wrtng] defaults to 'code' and emits a warning", () => {
+    const md = `### Phase 1 [wrtng]: Misspelled
+- [ ] **Implementation**: impl
+- [ ] **Review**: review
+`;
+    const { phases, warnings } = parsePlan(md);
+    expect(phases[0].kind).toBe("code");
+    expect(warnings.some((w) => w.includes("unrecognised kind annotation"))).toBe(true);
+  });
+
+  it("HTML comment fallback sets kind when heading bracket absent", () => {
+    const md = `### Phase 1: Write the paper
+<!-- kind: writing -->
+- [ ] **Draft**: write it
+- [ ] **Review**: review it
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("writing");
+  });
+
+  it("heading bracket wins over HTML comment fallback", () => {
+    const md = `### Phase 1 [research]: Survey lit
+<!-- kind: writing -->
+- [ ] **Explore**: survey
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].kind).toBe("research");
+  });
+
+  it("**Draft** checkbox in writing phase populates implementationCheckboxLine", () => {
+    const md = `### Phase 1 [writing]: Draft intro
+- [ ] **Draft**: write the draft
+- [ ] **Review**: review it
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+    expect(phases[0].implementationDone).toBe(false);
+  });
+
+  it("[x] **Draft** sets implementationDone=true", () => {
+    const md = `### Phase 1 [writing]: Draft intro
+- [x] **Draft**: done
+- [ ] **Review**: review it
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].implementationDone).toBe(true);
+  });
+
+  it("**Verify Completion** checkbox in manual phase populates reviewCheckboxLine", () => {
+    const md = `### Phase 1 [manual]: Setup env
+- [ ] **Action Required**: set it up
+- [ ] **Verify Completion**: confirm done
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].reviewCheckboxLine).toBeGreaterThan(0);
+    expect(phases[0].reviewDone).toBe(false);
+  });
+
+  it("[x] **Verify Completion** sets reviewDone=true", () => {
+    const md = `### Phase 1 [manual]: Setup env
+- [ ] **Action Required**: set it up
+- [x] **Verify Completion**: confirmed
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].reviewDone).toBe(true);
+  });
+
+  it("**Execute** checkbox in experiment phase populates implementationCheckboxLine", () => {
+    const md = `### Phase 1 [experiment]: Run bench
+- [ ] **Execute**: run it
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+  });
+
+  it("**Explore** checkbox in research phase populates implementationCheckboxLine", () => {
+    const md = `### Phase 1 [research]: Survey
+- [ ] **Explore**: read papers
+- [ ] **Review**: synthesize
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].implementationCheckboxLine).toBeGreaterThan(0);
+  });
+
+  it("mixed plan: code phase keeps kind='code', non-code keeps its kind", () => {
+    const md = `### Phase 1: Code it
+- [ ] **Implementation**: impl
+- [ ] **Review**: review
+
+### Phase 2 [writing]: Write the docs
+- [ ] **Draft**: write
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases).toHaveLength(2);
+    expect(phases[0].kind).toBe("code");
+    expect(phases[1].kind).toBe("writing");
+  });
+
+  it("decimal phase number with kind bracket parses correctly", () => {
+    const md = `### Phase 2.1 [writing]: Sub-chapter draft
+- [ ] **Draft**: write sub
+- [ ] **Review**: review
+`;
+    const { phases } = parsePlan(md);
+    expect(phases[0].number).toBe("2.1");
+    expect(phases[0].kind).toBe("writing");
+  });
+});
