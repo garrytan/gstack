@@ -37,9 +37,22 @@ happens after you say yes.
 
 ## What gets scanned for secrets
 
-Every ingested page passes through **gitleaks** before write
-(per D19 — replaces the regex scanner that previously ran only on
-staged git diffs). Gitleaks is industry-standard, covers:
+The cross-machine secret boundary is `gstack-brain-sync` (the git push
+to your private artifacts repo), which runs its own scanner before any
+content leaves this Mac. Local PGLite ingest doesn't change the exposure
+surface for content that already lives on disk in plaintext.
+
+Per-file **gitleaks** scanning during memory ingest is **opt-in** as of
+v1.33.0.0 — off by default. To re-enable it (adds ~4-8 min to cold runs
+on a large transcript corpus), use either:
+
+```bash
+gstack-memory-ingest --bulk --scan-secrets
+# or
+GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 gstack-memory-ingest --bulk
+```
+
+When enabled, gitleaks covers:
 
 - AWS / GCP / Azure access keys
 - ANTHROPIC_API_KEY, OPENAI_API_KEY, GitHub tokens
@@ -50,13 +63,11 @@ A session with a positive finding is **skipped entirely** — not partially
 redacted. The match line + rule ID are logged to stderr; you can see what
 was skipped via `bun run bin/gstack-memory-ingest.ts --probe` (which
 shows new vs. updated counts) or by reviewing the helper's output during
-`/gbrain-sync --full`.
+`/sync-gbrain --full`.
 
 If gitleaks is not installed (run `brew install gitleaks` on macOS, or
-`apt install gitleaks` on Linux), the helper warns once and disables
-secret scanning. **In that mode, transcripts ingest unscanned. Don't run
-ingest without gitleaks if you have any concern about secrets in your
-sessions.**
+`apt install gitleaks` on Linux) and you passed `--scan-secrets` anyway,
+the helper warns once and disables secret scanning for that run.
 
 ## Where it goes
 
@@ -168,14 +179,14 @@ Common cases:
 - Brain-sync git history shows every curated artifact push with the
   user's git identity.
 
-If you find a transcript page that contains a secret gitleaks missed,
-the recovery path is:
+If you find a transcript page that contains a secret (either because
+per-file scanning was off, or gitleaks missed it), the recovery path is:
 1. `gbrain delete_page <slug>` — removes from index immediately
 2. Rotate the secret (rotate it anyway as a defensive measure)
 3. If brain-sync is on: `git filter-repo --invert-paths --path <relative-path>`
    on the brain remote for hard-delete from history
-4. File a gitleaks issue with the pattern (or extend the gitleaks config
-   at `~/.gitleaks.toml`).
+4. If the miss looks like a gitleaks rule gap, file a gitleaks issue
+   with the pattern (or extend the gitleaks config at `~/.gitleaks.toml`).
 
 ## Path 4: Remote MCP setup (v1.27.0.0+)
 
