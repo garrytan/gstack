@@ -36,6 +36,7 @@ import {
   renderLaunchdReleaseDaemonPlist,
   renderSystemdReleaseDaemonService,
   runRoleTask,
+  buildKindInstructions,
   HELP_TEXT,
 } from "../cli";
 import type {
@@ -92,6 +93,7 @@ const basePhase: Phase = {
   implementationDone: false,
   reviewDone: false,
   dualImpl: false,
+  kind: "code",
 };
 
 function expectParseArgsExit(argv: string[], message: string): void {
@@ -2909,6 +2911,7 @@ describe("reconcileVisiblePlanState", () => {
       reviewCheckboxLine: 4,
       testSpecCheckboxLine: 2,
       dualImpl: false,
+      kind: "code",
       ...overrides,
     };
   }
@@ -3318,6 +3321,99 @@ process.stdout.write(match[1]);
         recursive: true,
         force: true,
       });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1.4: buildKindInstructions tests
+// ---------------------------------------------------------------------------
+
+describe("buildKindInstructions", () => {
+  const makePhaseWithKind = (kind: Phase["kind"]): Phase => ({
+    ...basePhase,
+    kind,
+  });
+
+  const joinInstructions = (instructions: string[]): string =>
+    instructions.join("\n");
+
+  // Shared requirements — all kinds
+  it("all kinds: contains 'Commit'", () => {
+    for (const kind of ["code", "writing", "experiment", "research", "manual"] as const) {
+      const result = joinInstructions(buildKindInstructions(makePhaseWithKind(kind)));
+      expect(result).toContain("Commit");
+    }
+  });
+
+  it("all kinds: contains 'Do NOT run /review'", () => {
+    for (const kind of ["code", "writing", "experiment", "research", "manual"] as const) {
+      const result = joinInstructions(buildKindInstructions(makePhaseWithKind(kind)));
+      expect(result).toContain("Do NOT run /review");
+    }
+  });
+
+  it("all kinds: contains 'Do NOT update the plan file'", () => {
+    for (const kind of ["code", "writing", "experiment", "research", "manual"] as const) {
+      const result = joinInstructions(buildKindInstructions(makePhaseWithKind(kind)));
+      expect(result).toContain("Do NOT update the plan file");
+    }
+  });
+
+  // code phase
+  it("code phase: contains 'Make all failing tests pass'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("code")));
+    expect(result).toContain("Make all failing tests pass");
+  });
+
+  it("code phase: contains 'Fail forward'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("code")));
+    expect(result).toContain("Fail forward");
+  });
+
+  // writing phase
+  it("writing phase: contains 'Quality bar: a reader'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("writing")));
+    expect(result).toContain("Quality bar: a reader");
+  });
+
+  it("writing phase: does NOT contain 'write failing tests'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("writing")));
+    expect(result).not.toContain("write failing tests");
+    expect(result).not.toContain("Make all failing tests pass");
+  });
+
+  // experiment phase
+  it("experiment phase: contains 'Commit raw results'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("experiment")));
+    expect(result).toContain("Commit raw results");
+  });
+
+  // research phase
+  it("research phase: contains 'Cite primary sources'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("research")));
+    expect(result).toContain("Cite primary sources");
+  });
+
+  // manual phase
+  it("manual phase: contains 'human action'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("manual")));
+    expect(result).toContain("human action");
+  });
+
+  it("manual phase: contains 'Do NOT attempt to automate'", () => {
+    const result = joinInstructions(buildKindInstructions(makePhaseWithKind("manual")));
+    expect(result).toContain("Do NOT attempt to automate");
+  });
+
+  it("returns an array of strings (one per instruction line)", () => {
+    for (const kind of ["code", "writing", "experiment", "research", "manual"] as const) {
+      const result = buildKindInstructions(makePhaseWithKind(kind));
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBeGreaterThanOrEqual(6);
+      for (const line of result) {
+        expect(typeof line).toBe("string");
+      }
     }
   });
 });

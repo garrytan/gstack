@@ -38,6 +38,7 @@ function fakePhase(overrides: Partial<Phase> = {}): Phase {
     reviewCheckboxLine: 3,
     testSpecCheckboxLine: -1,
     dualImpl: false,
+    kind: "code",
     ...overrides,
   };
 }

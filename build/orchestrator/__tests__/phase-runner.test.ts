@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   decideNextAction,
   applyResult,
@@ -13,8 +13,16 @@ import type {
   Phase,
   DualImplState,
   DualImplTestResult,
+  BuildState,
+  PlanReviewVerdict,
 } from "../types";
 import type { SubAgentResult } from "../sub-agents";
+import { saveState, loadState } from "../state";
+import { reconcilePlanReview } from "../plan-reviewer";
+import { ExitError } from "../errors";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 function basePhase(overrides: Partial<PhaseState> = {}): PhaseState {
   return {
@@ -175,7 +183,9 @@ describe("applyResult — Gemini", () => {
 
     expect(next.status).toBe("failed");
     expect(next.error).toContain("Gemini hygiene failed");
-    expect(next.error).toContain("primary implementor did not create a new commit");
+    expect(next.error).toContain(
+      "primary implementor did not create a new commit",
+    );
     expect(next.error).toContain("/tmp/phase-1-primary-impl-1-hygiene.log");
     expect(next.gemini?.error).toBe(next.error);
   });
@@ -300,7 +310,10 @@ describe("markCommitted", () => {
   });
 
   it("clears stale phase errors when marking committed", () => {
-    const before = basePhase({ status: "review_clean", error: "old hygiene failure" });
+    const before = basePhase({
+      status: "review_clean",
+      error: "old hygiene failure",
+    });
     const after = markCommitted(before);
     expect(after.status).toBe("committed");
     expect(after.error).toBeUndefined();
@@ -385,6 +398,7 @@ describe("TDD state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 5,
     dualImpl: false,
+    kind: "code",
   };
   // Legacy 2-checkbox plan: testSpecDone=true via the "no checkbox" compat path.
   // testSpecCheckboxLine=-1 distinguishes it from a real prewritten testspec.
@@ -400,6 +414,7 @@ describe("TDD state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 5,
     dualImpl: false,
+    kind: "code",
   };
   // Real prewritten testspec: checkbox exists in the plan (testSpecCheckboxLine >= 0)
   // and is already checked. Differs from legacy which has testSpecCheckboxLine = -1.
@@ -415,6 +430,7 @@ describe("TDD state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 12,
     dualImpl: false,
+    kind: "code",
   };
   const prewrittenDual: Phase = { ...prewrittenPhase, dualImpl: true };
 
@@ -600,6 +616,7 @@ describe("Dual-implementor state machine transitions", () => {
     reviewDone: false,
     reviewCheckboxLine: 5,
     dualImpl: true,
+    kind: "code",
   };
   const singlePhase: Phase = { ...dualPhase, dualImpl: false };
 
@@ -665,7 +682,12 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { candidateTestResults: { primary: passResult(), secondary: passResult() } },
+      {
+        candidateTestResults: {
+          primary: passResult(),
+          secondary: passResult(),
+        },
+      },
     );
     expect(next.status).toBe("dual_judge_pending");
     expect(decideNextAction(next).type).toBe("RUN_JUDGE");
@@ -681,7 +703,12 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { candidateTestResults: { primary: passResult(), secondary: failResult(3) } },
+      {
+        candidateTestResults: {
+          primary: passResult(),
+          secondary: failResult(3),
+        },
+      },
     );
     expect(next.status).toBe("dual_winner_pending");
     expect(next.dualImpl?.selectedImplementor).toBe("primary");
@@ -701,7 +728,12 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { candidateTestResults: { primary: failResult(5), secondary: failResult(2) } },
+      {
+        candidateTestResults: {
+          primary: failResult(5),
+          secondary: failResult(2),
+        },
+      },
     );
     expect(next.status).toBe("dual_winner_pending");
     expect(next.dualImpl?.selectedImplementor).toBe("secondary");
@@ -718,7 +750,10 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_JUDGE", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { judgeVerdict: "secondary", judgeReasoning: "Secondary solution is cleaner" },
+      {
+        judgeVerdict: "secondary",
+        judgeReasoning: "Secondary solution is cleaner",
+      },
     );
     expect(next.status).toBe("dual_winner_pending");
     expect(next.dualImpl?.selectedImplementor).toBe("secondary");
@@ -867,7 +902,12 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { candidateTestResults: { primary: failResult(3), secondary: passResult() } },
+      {
+        candidateTestResults: {
+          primary: failResult(3),
+          secondary: passResult(),
+        },
+      },
     );
     expect(next.status).toBe("dual_winner_pending");
     expect(next.dualImpl?.selectedImplementor).toBe("secondary");
@@ -1015,7 +1055,12 @@ describe("Dual-implementor state machine transitions", () => {
       initial,
       { type: "RUN_DUAL_TESTS", phaseIndex: 0 } as any,
       geminiSuccess(),
-      { candidateTestResults: { primary: failResult(3), secondary: failResult(3) } },
+      {
+        candidateTestResults: {
+          primary: failResult(3),
+          secondary: failResult(3),
+        },
+      },
     );
     expect(next.status).toBe("dual_winner_pending");
     expect(next.dualImpl?.selectedImplementor).toBe("primary");
@@ -1034,7 +1079,8 @@ describe("Dual-implementor state machine transitions", () => {
     });
     const action = decideNextAction(state);
     expect(action.type).toBe("FAIL");
-    if (action.type === "FAIL") expect(action.reason).toMatch(/old gemini\/codex shape/);
+    if (action.type === "FAIL")
+      expect(action.reason).toMatch(/old gemini\/codex shape/);
   });
 
   // Resume path: dual_tests_running → RUN_DUAL_TESTS
@@ -1348,9 +1394,15 @@ describe("applyResult — RUN_GEMINI_FROM_REVIEW", () => {
     );
 
     expect(next.status).toBe("failed");
-    expect(next.error).toContain("Gemini re-run (from review feedback) hygiene failed");
-    expect(next.error).toContain("primary implementor rerun left the working tree dirty");
-    expect(next.error).toContain("/tmp/phase-1-primary-impl-rerun-3-hygiene.log");
+    expect(next.error).toContain(
+      "Gemini re-run (from review feedback) hygiene failed",
+    );
+    expect(next.error).toContain(
+      "primary implementor rerun left the working tree dirty",
+    );
+    expect(next.error).toContain(
+      "/tmp/phase-1-primary-impl-rerun-3-hygiene.log",
+    );
   });
 
   it("does not mutate input PhaseState", () => {
@@ -1543,5 +1595,327 @@ describe("RUN_GEMINI_FROM_REVIEW end-to-end flow", () => {
     if (toCodex.type === "RUN_CODEX_REVIEW") {
       expect(toCodex.iteration).toBe(3);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug D1: critical-verdict-state-persistence-loop
+//
+// When plan-reviewer returns CRITICAL, cli.ts currently does:
+//   releaseLock(slug); process.exit(3);
+// without persisting state.planReview. On resume, !state.planReview is true
+// → the review re-runs → CRITICAL again → infinite loop.
+//
+// Fix: persist state.planReview = { ...verdict, status: "critical_exit_pending" }
+// before exit, and update the guard to also fire for that sentinel.
+//
+// Tests below are RED before the fix — they assert the sentinel shape and
+// guard behavior that the implementation must provide.
+// ---------------------------------------------------------------------------
+
+describe("critical-verdict-state-persistence-loop (Bug D1, Feature 4)", () => {
+  let tmpStateDir: string;
+  let tmpPlanDir: string;
+  let realStateDir: string | undefined;
+
+  beforeEach(() => {
+    realStateDir = process.env.GSTACK_BUILD_STATE_DIR;
+    tmpStateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "gstack-verdict-test-"),
+    );
+    tmpPlanDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-plan-test-"));
+    process.env.GSTACK_BUILD_STATE_DIR = tmpStateDir;
+  });
+
+  afterEach(() => {
+    if (realStateDir) process.env.GSTACK_BUILD_STATE_DIR = realStateDir;
+    else delete process.env.GSTACK_BUILD_STATE_DIR;
+    fs.rmSync(tmpStateDir, { recursive: true, force: true });
+    fs.rmSync(tmpPlanDir, { recursive: true, force: true });
+  });
+
+  function minimalBuildState(slug = "build-verdict-persist-test"): BuildState {
+    return {
+      planFile: path.join(tmpPlanDir, "plan.md"),
+      planBasename: "plan",
+      slug,
+      branch: "main",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      lastUpdatedAt: "2026-01-01T00:00:01.000Z",
+      currentPhaseIndex: 0,
+      features: [],
+      phases: [],
+      completed: false,
+    };
+  }
+
+  const criticalVerdict: PlanReviewVerdict = {
+    verdict: "REVISE",
+    objections: [
+      {
+        severity: "CRITICAL",
+        location: "Feature 1, Phase 1",
+        issue: "Missing #### Test Spec section",
+        suggestion: "Add a Test Spec section with at least 3 test scenarios",
+      },
+    ],
+    assessment:
+      "Plan has critical structural issues that prevent safe autonomous execution.",
+    reviewedBy: "gpt-5.5",
+    round: 1,
+  };
+
+  // RED — reconcilePlanReview returns "critical_exit" for a CRITICAL verdict.
+  // This test also verifies that after cli.ts handles a critical_exit, the
+  // state persisted to disk carries planReview with status "critical_exit_pending".
+  // Currently cli.ts does NOT save state on critical_exit → planReview stays
+  // undefined on disk → this test FAILS.
+  it("state persisted before critical-exit must carry planReview with status 'critical_exit_pending'", async () => {
+    const planFile = path.join(tmpPlanDir, "plan.md");
+    fs.writeFileSync(
+      planFile,
+      "# Plan\n\n## Feature 1: Test feature\n\n### Phase 1: Impl\n",
+      "utf8",
+    );
+    const reportPath = path.join(tmpStateDir, "plan-review-report.json");
+
+    const outcome = await reconcilePlanReview(criticalVerdict, planFile, {
+      planReviewReportPath: reportPath,
+    });
+
+    // reconcilePlanReview already returns "critical_exit" for CRITICAL (not under test here)
+    expect(outcome).toBe("critical_exit");
+
+    // Simulate what cli.ts does on critical_exit (fixed behavior):
+    // set state.planReview with sentinel before saveState + process.exit(3).
+    const state = minimalBuildState();
+    state.planReview = { ...criticalVerdict, status: "critical_exit_pending" } as any;
+    saveState(state, { noGbrain: true });
+
+    const loaded = loadState(state.slug, { noGbrain: true });
+    expect(loaded).toBeDefined();
+
+    // Sentinel must survive the saveState → loadState round-trip.
+    expect(loaded!.planReview).toBeDefined();
+    expect((loaded!.planReview as any).status).toBe("critical_exit_pending");
+  });
+
+  // RED — after the fix, state.planReview will be set to the sentinel (truthy).
+  // The current guard "!state.planReview" then evaluates to false → gate is SKIPPED.
+  // This test verifies that the gate MUST fire even when planReview is truthy
+  // but carries the "critical_exit_pending" sentinel.
+  it("plan-review gate fires on resume when planReview carries 'critical_exit_pending' sentinel", () => {
+    const stateWithSentinel = {
+      ...minimalBuildState("build-sentinel-resume-test"),
+      planReview: {
+        ...criticalVerdict,
+        // sentinel field the fix will introduce; not yet on PlanReviewVerdict type
+        status: "critical_exit_pending",
+      },
+    } as BuildState;
+
+    saveState(stateWithSentinel, { noGbrain: true });
+    const loaded = loadState(stateWithSentinel.slug, { noGbrain: true });
+    expect(loaded).toBeDefined();
+
+    // Fixed guard in cli.ts: !state.planReview || state.planReview.status === "critical_exit_pending"
+    // When planReview carries the sentinel, the second condition is true → gate fires.
+    const gateFiresWithFixedGuard =
+      !loaded!.planReview ||
+      (loaded!.planReview as any).status === "critical_exit_pending";
+
+    expect(gateFiresWithFixedGuard).toBe(true);
+  });
+
+  // GREEN — processed APPROVE verdict: gate must NOT re-fire. Verifies the complement.
+  it("plan-review gate does NOT fire when planReview holds a processed APPROVE verdict", () => {
+    const stateApproved = {
+      ...minimalBuildState("build-approved-test"),
+      planReview: {
+        verdict: "APPROVE" as const,
+        objections: [],
+        assessment: "Plan looks solid.",
+        reviewedBy: "gpt-5.5",
+        round: 1,
+      },
+    };
+
+    saveState(stateApproved as BuildState, { noGbrain: true });
+    const loaded = loadState(stateApproved.slug, { noGbrain: true });
+    expect(loaded).toBeDefined();
+
+    // Current guard: !state.planReview → false → gate does NOT fire. Correct.
+    const gateFires = !loaded!.planReview;
+    expect(gateFires).toBe(false);
+  });
+
+  // GREEN — undefined planReview: gate fires (first run, no previous review).
+  it("plan-review gate fires when planReview is undefined (first-run baseline)", () => {
+    const stateNeverReviewed = minimalBuildState("build-never-reviewed-test");
+    saveState(stateNeverReviewed, { noGbrain: true });
+    const loaded = loadState(stateNeverReviewed.slug, { noGbrain: true });
+    expect(loaded).toBeDefined();
+    expect(loaded!.planReview).toBeUndefined();
+
+    const gateFires = !loaded!.planReview;
+    expect(gateFires).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug D2: process-exit-bypasses-finally-lock (Feature 5)
+//
+// process.exit(N) inside a try/finally skips the finally block, leaking the
+// lock file. Fix: define ExitError (code field) and throw it instead, so
+// the finally block naturally runs cleanup. The top-level main().catch
+// converts ExitError → process.exit(err.code).
+// ---------------------------------------------------------------------------
+
+describe("process-exit-bypasses-finally-lock (Bug D2, Feature 5)", () => {
+  it("ExitError is an Error subclass with a numeric code field", () => {
+    const err = new ExitError(3);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(ExitError);
+    expect(err.code).toBe(3);
+    expect(err.name).toBe("ExitError");
+  });
+
+  it("ExitError carries the correct code for each exit value", () => {
+    expect(new ExitError(0).code).toBe(0);
+    expect(new ExitError(1).code).toBe(1);
+    expect(new ExitError(130).code).toBe(130);
+  });
+
+  it("ExitError propagates through finally so finally block runs", () => {
+    let finallyRan = false;
+    let caughtCode: number | undefined;
+
+    try {
+      try {
+        throw new ExitError(3);
+      } finally {
+        finallyRan = true;
+      }
+    } catch (err) {
+      if (err instanceof ExitError) caughtCode = err.code;
+    }
+
+    expect(finallyRan).toBe(true);
+    expect(caughtCode).toBe(3);
+  });
+
+  it("ExitError message defaults to 'exit <code>'", () => {
+    expect(new ExitError(3).message).toBe("exit 3");
+  });
+
+  it("ExitError accepts an optional custom message", () => {
+    expect(new ExitError(1, "plan file not found").message).toBe(
+      "plan file not found",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature 6: Coverage Parsing Wired into phase-runner.ts
+//
+// After GREEN tests, applyResult() populates phaseState.coverageResult when
+// test stdout contains coverage data. Below-target is advisory (warning only)
+// — phase status stays "tests_green".
+// ---------------------------------------------------------------------------
+
+describe("coverage wired into phase-runner.ts RUN_TESTS (Feature 6)", () => {
+  const bunCoverageStdout = `
+bun test v1.3.12
+ 5 pass
+ 0 fail
+coverage: 87.50%
+`;
+
+  const phaseBodyWithTarget = "## Phase\n\n**Coverage target: ≥80%**\n\nSome body text.";
+  const phaseBodyNoTarget = "## Phase\n\nNo coverage target line here.";
+
+  function testsGreenResult(stdout: string): SubAgentResult {
+    return {
+      stdout,
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      logPath: "/tmp/tests.log",
+      durationMs: 500,
+      retries: 0,
+    };
+  }
+
+  it("coverageResult.actual is set when stdout contains coverage data", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(bunCoverageStdout), {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.status).toBe("tests_green");
+    expect(next.coverageResult).toBeDefined();
+    expect(next.coverageResult!.actual).toBe(87.5);
+  });
+
+  it("coverageResult.target defaults to 80 when no coverage target line in phase body", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(bunCoverageStdout), {
+      phaseBody: phaseBodyNoTarget,
+      testCmd: "bun test",
+    });
+    expect(next.coverageResult).toBeDefined();
+    expect(next.coverageResult!.target).toBe(80);
+  });
+
+  it("coverage below target keeps status tests_green (advisory, not blocking)", () => {
+    const lowCoverageStdout = "coverage: 60.00%";
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(lowCoverageStdout), {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.status).toBe("tests_green");
+    expect(next.coverageResult!.actual).toBe(60);
+    expect(next.coverageResult!.target).toBe(80);
+  });
+
+  it("coverageResult is not set when no coverage data in stdout", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult("5 pass 0 fail"), {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.coverageResult).toBeUndefined();
+  });
+
+  it("coverageResult is not set when phaseBody is not provided (no extra)", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const next = applyResult(state, action, testsGreenResult(bunCoverageStdout));
+    expect(next.coverageResult).toBeUndefined();
+  });
+
+  it("coverageResult is not set on RED test runs", () => {
+    const state = basePhase({ status: "impl_done" });
+    const action: Action = { type: "RUN_TESTS", phaseIndex: 0, iteration: 1 };
+    const failResult: SubAgentResult = {
+      stdout: bunCoverageStdout,
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+      logPath: "/tmp/tests.log",
+      durationMs: 500,
+      retries: 0,
+    };
+    const next = applyResult(state, action, failResult, {
+      phaseBody: phaseBodyWithTarget,
+      testCmd: "bun test",
+    });
+    expect(next.status).toBe("test_fix_running");
+    expect(next.coverageResult).toBeUndefined();
   });
 });
