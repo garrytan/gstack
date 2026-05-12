@@ -84,7 +84,14 @@ describeE2E('/plan-design-review with UI scope (gate)', () => {
 
           // Classify the recent tail only — old permission text persists
           // in visibleSince(since) and would otherwise re-trigger forever.
-          const recentTail = visible.slice(-2500);
+          // 5KB window: plan-design-review Step 0 renders a numbered AUQ with
+          // box dividers + per-option descriptions + footer prompt. The full
+          // rendering frequently exceeds 2.5KB, especially after TTY cursor-
+          // positioning escapes resolve through stripAnsi. A 2.5KB tail can
+          // capture the cursor `❯1.` line without capturing the line that has
+          // `2.`, defeating isNumberedOptionListVisible. 5KB comfortably
+          // covers the full AUQ block without including stale scrollback.
+          const recentTail = visible.slice(-5000);
 
           // Real skill AskUserQuestion visible (not a permission dialog)?
           if (

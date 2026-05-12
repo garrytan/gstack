@@ -1,5 +1,66 @@
 # TODOS
 
+## /sync-gbrain memory stage perf follow-up
+
+### P2: Investigate `gbrain import` perf on large staging dirs
+
+**What:** Cold-run time on a 5131-file staging dir is >10 min in `gbrain import`
+alone (after gstack's prepare phase, which is now <10s after dropping per-file
+gitleaks). On 501 files it took 10s. The scaling is worse than linear and the
+bottleneck is inside gbrain, not the gstack orchestrator.
+
+**Why:** With memory-ingest's prepare phase now fast, the remaining cold-run cost
+is entirely on the gbrain side. Users with large corpora (5K+ files) currently pay
+~15-30 min on first ingest. Likely culprits in `~/git/gbrain/src/core/import-file.ts`:
+
+- N+1 SQL queries: `engine.getPage(slug)` for each file's content_hash check
+  (line 242 + 478) — should be batched into a single query
+- Per-page auto-link reconciliation that fires even for unchanged content
+- FTS / vector index updates without batching transactions
+
+**Pros:** Lives in gbrain (cleaner separation). Fix in gbrain benefits other
+gbrain callers too (`gbrain sync`, MCP `put_page` workflows). Likely 10-50x
+speedup from batched queries alone.
+
+**Cons:** Cross-repo change, requires gbrain test coverage for the new batched
+path. Not on the gstack critical path; gstack's architecture is already correct.
+
+**Context:** Verified on real corpus 2026-05-10. gstack-side prepare with
+`--scan-secrets` off runs in <10s. The full gbrain import on the same staged
+dir consumes 100% CPU for >10 min. Both observations from
+`bin/gstack-memory-ingest.ts:ingestPass` reaching the `runGbrainImport` call
+quickly, then the child process taking the bulk of the wall time.
+
+**Depends on:** None — gstack's batch-ingest architecture (D1-D8 in
+`docs/designs/SYNC_GBRAIN_BATCH_INGEST.md`) is already shipped and correct.
+
+---
+
+### P3: Cache "no changes since last import" at the prepare-batch level
+
+**What:** Even with the prepare phase fast (<10s for 5135 files), walking and
+mtime-stat'ing every file on a true no-op run adds a few seconds and creates
+spurious staging dirs. Cache the most-recent-source-mtime per-source in the
+state file; if no source dir has a newer mtime, skip the walk + stage + import
+entirely.
+
+**Why:** Most `/sync-gbrain` invocations have nothing new to ingest. The
+fastest path is "do nothing, fast." `gbrain doctor` should still report state,
+but the actual ingest pipeline can short-circuit when last_full_walk is recent
+and no source-tree mtime has moved.
+
+**Pros:** Trivial implementation (~20 lines in `ingestPass`). Makes the
+incremental fast-path actually live up to "<30s" in the original plan.
+
+**Cons:** Adds a cache invalidation surface. If a user edits a file but its
+parent dir's mtime doesn't update (rare on macOS APFS), changes get missed.
+Mitigation: only short-circuit when last_full_walk is recent (e.g. <1 min ago).
+
+**Context:** Filed during 2026-05-10 perf testing after `--scan-secrets` was
+made opt-in. Lower priority than the gbrain-side perf issue above.
+
+---
+
 ## Browser-skills follow-on (Phases 2-4)
 
 ### P1: Browser-skills Phase 2 — `/scrape` and `/skillify` skill templates

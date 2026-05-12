@@ -155,7 +155,20 @@ export function getRootToken(): string {
 }
 
 export function isRootToken(token: string): boolean {
-  return token === rootToken;
+  // Constant-time compare so a tunnel-reachable caller who can provoke an
+  // isRootToken() call (e.g., via the 403 "root over tunnel" rejection path)
+  // can't measure byte-by-byte string-compare timing to recover the token.
+  // Compare UTF-8 byte lengths (not JS string length) before timingSafeEqual,
+  // which throws on length-mismatched buffers. A multibyte input whose JS
+  // string length matches rootToken but whose UTF-8 byte length differs must
+  // return false on the auth path, not error out.
+  if (!rootToken) return false;
+  const tokenBytes = Buffer.byteLength(token, 'utf8');
+  const rootBytes = Buffer.byteLength(rootToken, 'utf8');
+  if (tokenBytes !== rootBytes) return false;
+  const a = Buffer.from(token, 'utf8');
+  const b = Buffer.from(rootToken, 'utf8');
+  return crypto.timingSafeEqual(a, b);
 }
 
 function generateToken(prefix: string): string {

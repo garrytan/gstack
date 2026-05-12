@@ -503,7 +503,7 @@ Write the full output (including the GATE verdict) to ${codexDir}/codex-output.m
       timeout: 300_000,
       testName: 'codex-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/codex review', result);
