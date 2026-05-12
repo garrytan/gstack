@@ -1708,6 +1708,14 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
+  test('/codex review bare --base path no longer mixes prompt and base', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('_gstack_codex_timeout_wrapper 330 codex review --base <base>');
+    expect(content).not.toContain('_gstack_codex_timeout_wrapper 330 codex review "IMPORTANT: Do NOT read');
+    expect(content).toContain('_gstack_codex_timeout_wrapper 330 codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/');
+    expect(content).not.toContain('${CODEX_BOUNDARY}');
+  });
+
   test('--host codex --dry-run freshness', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
       cwd: ROOT,

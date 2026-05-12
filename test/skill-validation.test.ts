@@ -1394,6 +1394,13 @@ describe('Codex skill', () => {
     expect(reviewContent).not.toContain('Investigate and fix');
   });
 
+  test('/codex review docs do not pair prompt and --base on codex review', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('Codex CLI `0.130.0+` rejects `[PROMPT]` combined with `--base`');
+    expect(content).toContain('codex review --base <base>');
+    expect(content).not.toContain('codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/');
+  });
+
   test('codex integration in /plan-eng-review offers plan critique', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Codex');
