@@ -442,14 +442,30 @@ function runMemoryIngest(args: CliArgs): StageResult {
     timeout: 35 * 60 * 1000,
   });
 
-  const summary = (result.stderr || "").split("\n").filter((l) => l.includes("[memory-ingest]")).slice(-1)[0] || "ingest pass complete";
+  // D6: parse [memory-ingest] lines from the child's stderr. ERR-prefixed
+  // lines indicate a system-level failure (gbrain crashed or CLI missing)
+  // and the child exits non-zero. Per-file failures are summarized in the
+  // last non-ERR [memory-ingest] line but do NOT make the verdict ERR.
+  const stderrLines = (result.stderr || "").split("\n");
+  const memLines = stderrLines.filter((l) => l.includes("[memory-ingest]"));
+  const errLine = memLines.find((l) => l.includes("[memory-ingest] ERR"));
+  const lastMemLine = memLines.slice(-1)[0];
+  const rawSummary = errLine || lastMemLine || "ingest pass complete";
+  // Strip the "[memory-ingest] " prefix and any leading "ERR: " for cleaner
+  // verdict output. The orchestrator's own formatStage will prefix with OK/ERR.
+  const summary = rawSummary
+    .replace(/^.*\[memory-ingest\]\s*/, "")
+    .replace(/^ERR:\s*/, "");
 
+  const ok = result.status === 0;
   return {
     name: "memory",
     ran: true,
-    ok: result.status === 0,
+    ok,
     duration_ms: Date.now() - t0,
-    summary: result.status === 0 ? summary : `memory ingest exited ${result.status}`,
+    summary: ok
+      ? summary
+      : `${summary}${result.status === null ? " (killed by signal / timeout)" : ` (exit ${result.status})`}`,
   };
 }
 

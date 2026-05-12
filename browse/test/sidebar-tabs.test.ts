@@ -254,3 +254,15 @@ describe('manifest: ws permission + xterm-safe CSP', () => {
     }
   });
 });
+
+describe('manifest: live tab awareness needs "tabs" permission', () => {
+  // Without "tabs", chrome.tabs.query() returns tab objects with undefined
+  // url/title for any site outside host_permissions (e.g., everything except
+  // 127.0.0.1). snapshotTabs() then writes empty strings into tabs.json and
+  // active-tab.json silently skips the write — the sidebar agent loses track
+  // of what page the user is on. activeTab is too narrow (only after a user
+  // gesture on the extension action) for background polling.
+  test('permissions includes "tabs"', () => {
+    expect(MANIFEST.permissions).toContain('tabs');
+  });
+});
