@@ -511,28 +511,23 @@ export async function runKimi(opts: {
  * parsing fails the way it should ("unclear"), and surface the original
  * shell stdout in stderr for forensics.
  */
-function mergeOutputFile(
+export function mergeOutputFile(
   result: SubAgentResult,
   outputFilePath: string,
-  opts?: { emptyFileIsError?: boolean },
+  opts?: { emptyFileIsError?: boolean; emptyFileErrorLabel?: string },
 ): SubAgentResult {
   try {
     const fileContent = fs.readFileSync(outputFilePath, "utf8");
     if (fileContent.trim() === "") {
       if (opts?.emptyFileIsError) {
-        // For judge calls the output file is the only authoritative source.
-        // An empty file means the judge didn't write its verdict. Do NOT embed
-        // any original stdout in the returned stdout — parseJudgeVerdict scans
-        // stdout for WINNER: and a stray line from judge narration would give a
-        // false verdict. All debugging content goes to stderr only.
+        // For strict file-output calls the artifact is the only authoritative
+        // source. Do NOT embed original stdout in returned stdout: parsers scan
+        // stdout for sentinels like WINNER:/GATE PASS and tool chatter can
+        // create a false verdict. All debugging content goes to stderr only.
+        const label = opts?.emptyFileErrorLabel ?? "output file";
         return {
           ...result,
-          stderr:
-            result.stderr +
-            `\n# judge output file ${outputFilePath} was empty — treating as parse failure` +
-            (result.stdout
-              ? `\n# original shell stdout:\n${result.stdout}`
-              : ""),
+          stderr: `# ${label} ${outputFilePath} was empty — treating as parse failure; original stdout/stderr preserved in ${result.logPath}`,
           stdout: "",
         };
       }
@@ -552,6 +547,14 @@ function mergeOutputFile(
       stdout: fileContent,
     };
   } catch (err) {
+    if (opts?.emptyFileIsError) {
+      const label = opts?.emptyFileErrorLabel ?? "output file";
+      return {
+        ...result,
+        stderr: `# ${label} ${outputFilePath} was not readable: ${(err as Error).message}; original stdout/stderr preserved in ${result.logPath}`,
+        stdout: "",
+      };
+    }
     return {
       ...result,
       stderr:
@@ -746,6 +749,8 @@ export function buildClaudeTaskArgv(opts: {
     `Read instructions at ${opts.inputFilePath}.`,
     commandLine,
     `Write your complete output to ${opts.outputFilePath}.`,
+    `Do not print the report to stdout; stdout is only for the output file path.`,
+    `If you cannot write ${opts.outputFilePath}, exit non-zero.`,
     gateLine,
     `Return ONLY the output file path. No narrative.`,
   ]
@@ -880,7 +885,7 @@ export async function runClaudeTask(opts: {
     cwd: opts.cwd,
     timeoutMs: opts.timeoutMs ?? CODEX_TIMEOUT_MS,
     logPath,
-    closeStdin: false,
+    closeStdin: true,
   });
   if (result.timedOut) {
     const retryLog = logPath.replace(/\.log$/, "-retry.log");
@@ -890,12 +895,18 @@ export async function runClaudeTask(opts: {
       cwd: opts.cwd,
       timeoutMs: opts.timeoutMs ?? CODEX_TIMEOUT_MS,
       logPath: retryLog,
-      closeStdin: false,
+      closeStdin: true,
     });
     retryResult.retries = 1;
-    return mergeOutputFile(retryResult, opts.outputFilePath);
+    return mergeOutputFile(retryResult, opts.outputFilePath, {
+      emptyFileIsError: true,
+      emptyFileErrorLabel: "Claude output file",
+    });
   }
-  return mergeOutputFile(result, opts.outputFilePath);
+  return mergeOutputFile(result, opts.outputFilePath, {
+    emptyFileIsError: true,
+    emptyFileErrorLabel: "Claude output file",
+  });
 }
 
 /**

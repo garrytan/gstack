@@ -18,6 +18,7 @@ import {
   runTests,
   runShip,
   runSlashCommand,
+  mergeOutputFile,
 } from "../sub-agents";
 import fs from "node:fs";
 import os from "node:os";
@@ -61,6 +62,76 @@ describe("parseVerdict", () => {
   it("case-sensitive (lowercase gate pass does NOT match)", () => {
     // Per the convention in real plans — Codex emits the keyword in caps.
     expect(parseVerdict("gate pass")).toBe("unclear");
+  });
+});
+
+describe("mergeOutputFile strict artifact mode", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir && fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not promote Claude tool chatter from stdout when the report file is empty", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-output-strict-"));
+    const outputFilePath = path.join(tmpDir, "review-output.md");
+    fs.writeFileSync(outputFilePath, "");
+
+    const result = mergeOutputFile(
+      {
+        stdout: "TaskOutput task: \"bulk-tool-output\"\nGATE PASS\n",
+        stderr: "TaskOutput stderr task: \"bulk-tool-output\"\nGATE FAIL\n",
+        exitCode: 0,
+        timedOut: false,
+        logPath: path.join(tmpDir, "review.log"),
+        durationMs: 12,
+        retries: 0,
+      },
+      outputFilePath,
+      {
+        emptyFileIsError: true,
+        emptyFileErrorLabel: "Claude output file",
+      },
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Claude output file");
+    expect(result.stderr).not.toContain("TaskOutput");
+    expect(result.stderr).not.toContain("GATE PASS");
+    expect(result.stderr).not.toContain("GATE FAIL");
+    expect(parseVerdict(result.stdout)).toBe("unclear");
+    expect(parseVerdict(`${result.stdout}\n${result.stderr}`)).toBe("unclear");
+  });
+
+  it("does not promote Claude tool chatter when the report file is missing", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-output-missing-"));
+    const outputFilePath = path.join(tmpDir, "missing-review-output.md");
+
+    const result = mergeOutputFile(
+      {
+        stdout: "TaskOutput task: \"bulk-tool-output\"\nGATE PASS\n",
+        stderr: "TaskOutput stderr task: \"bulk-tool-output\"\nGATE FAIL\n",
+        exitCode: 0,
+        timedOut: false,
+        logPath: path.join(tmpDir, "review.log"),
+        durationMs: 12,
+        retries: 0,
+      },
+      outputFilePath,
+      {
+        emptyFileIsError: true,
+        emptyFileErrorLabel: "Claude output file",
+      },
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("not readable");
+    expect(result.stderr).not.toContain("TaskOutput");
+    expect(result.stderr).not.toContain("GATE PASS");
+    expect(result.stderr).not.toContain("GATE FAIL");
+    expect(parseVerdict(`${result.stdout}\n${result.stderr}`)).toBe("unclear");
   });
 });
 
@@ -835,6 +906,8 @@ describe("buildClaudeTaskArgv (claude role invocation shape)", () => {
     expect(prompt).toContain("Use xhigh thinking");
     expect(prompt).toContain("/review");
     expect(prompt).toContain("GATE PASS");
+    expect(prompt).toContain("Do not print the report to stdout");
+    expect(prompt).toContain("If you cannot write /tmp/review-out.md");
   });
 
   it("builds a configured /codex review second-opinion prompt", () => {
