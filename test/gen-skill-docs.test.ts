@@ -3047,3 +3047,51 @@ describe('GSTACK REVIEW REPORT delete-then-append flow', () => {
     expect(src).not.toContain('If it was found mid-file, move it');
   });
 });
+
+describe('LEARNINGS_SEARCH resolver: query parameter', () => {
+  // Lazy-load resolver and types after describe block to keep test file self-contained.
+  const { generateLearningsSearch } = require('../scripts/resolvers/learnings');
+  const { HOST_PATHS } = require('../scripts/resolvers/types');
+
+  const claudeCtx = {
+    skillName: 'test',
+    tmplPath: 'test/SKILL.md.tmpl',
+    host: 'claude',
+    paths: HOST_PATHS.claude,
+  };
+  const codexCtx = { ...claudeCtx, host: 'codex', paths: HOST_PATHS.codex };
+
+  test('no args → bash does not contain --query (backwards-compat)', () => {
+    const out = generateLearningsSearch(claudeCtx);
+    expect(out).not.toContain('--query');
+  });
+
+  test('claude host + query=foo bar → both cross-project and project-scoped branches contain --query', () => {
+    const out = generateLearningsSearch(claudeCtx, ['query=foo bar']);
+    // Both branches of the if/else must carry the flag.
+    const lines = out.split('\n').filter(l => l.includes('gstack-learnings-search'));
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const line of lines) {
+      expect(line).toContain('--query "foo bar"');
+    }
+  });
+
+  test('codex host + query=foo bar → codex bash variant contains --query', () => {
+    const out = generateLearningsSearch(codexCtx, ['query=foo bar']);
+    expect(out).toContain('--query "foo bar"');
+    expect(out).toContain('$GSTACK_BIN/gstack-learnings-search');
+  });
+
+  test('empty value query= → bash does not contain --query (locked semantics: falls through)', () => {
+    const claudeOut = generateLearningsSearch(claudeCtx, ['query=']);
+    expect(claudeOut).not.toContain('--query');
+    const codexOut = generateLearningsSearch(codexCtx, ['query=']);
+    expect(codexOut).not.toContain('--query');
+  });
+
+  test('shell-injection chars in query= → throws at gen-time (defense in depth)', () => {
+    for (const bad of ['$(whoami)', '`cmd`', 'a;b', 'a&b', 'a"b', 'a\\b', 'foo$x']) {
+      expect(() => generateLearningsSearch(claudeCtx, [`query=${bad}`])).toThrow(/alphanumeric/);
+    }
+  });
+});
