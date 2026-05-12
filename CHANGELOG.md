@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.33.2.0] - 2026-05-12
+
+## **Parser kind field fixed, PhaseKind cleanup completed, critical-exit lock leaks sealed.**
+
+The parser now correctly emits `kind: "code"` on all Phase objects,
+restoring backward compatibility for test fixtures and downstream
+consumers that expect the field. The half-landed PhaseKind
+(writing/experiment/research/manual) branch has been fully swept from
+the CLI — `buildKindInstructions` and `buildCodexReviewBody` no longer
+branch on non-existent kinds, shrinking the code surface and eliminating
+dead paths.
+
+### What this means for builders
+
+- Build orchestrator plans always use code-phase instructions, matching
+  what the parser actually produces.
+- `--skip-ship` exits cleanly with code 0 instead of forcing 13;
+  origin-verified features resume on the next run without manual
+  intervention.
+- Critical plan-review objections release the build lock before exit,
+  preventing stuck locks that blocked resume.
+
+### Itemized changes
+
+#### Parser & types
+- `parser.ts:216` — emit `kind: p.kind ?? "code"` on parsed phases
+- `types.ts` — narrow `PhaseKind` to `"code"`; make `kind` optional on
+  `Phase` for strict-mode test fixtures
+
+#### CLI cleanup
+- `cli.ts` — remove `switch (phase.kind)` branches for
+  writing/experiment/research/manual in `buildKindInstructions`
+- `cli.ts` — remove kind-conditional review-rubric line in
+  `buildCodexReviewBody`
+- `cli.ts` — remove exit-code 13 override for `--skip-ship`; let
+  origin-verified pause naturally
+
+#### Reliability fixes
+- `cli.ts` — persist `critical_exit_pending` sentinel to state instead
+  of raw `process.exit(3)`, letting the finally block release the lock
+
+#### Tests
+- `integration.test.ts` — add `--skip-ship` resume + origin-verification
+  tests and `critical_exit` lock-release test
+- `parser.test.ts` — add kind-annotation parsing tests and
+  ReferenceError-guard tests
+
+#### Build skill
+- `build/SKILL.md.tmpl` — bump frontmatter version to 1.22.0
+
+#### Repo hygiene
+- `.gitignore` — add `.llm-tmp/`
+
 ## [1.31.0.0] - 2026-05-09
 
 ## **AskUserQuestion stops getting silently buried in plan files.**
