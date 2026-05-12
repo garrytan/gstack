@@ -459,11 +459,6 @@ describe("parsePlan — gate checkboxes", () => {
 // ---------------------------------------------------------------------------
 
 describe("parsePlan — PhaseKind from heading bracket annotation", () => {
-// ---------------------------------------------------------------------------
-// Phase 1.2: Kind-aware parsing tests
-// ---------------------------------------------------------------------------
-
-describe("parsePlan — PhaseKind from heading bracket annotation", () => {
   it("[writing] heading emits kind='writing'", () => {
     const md = `### Phase 1 [writing]: Draft the intro
 - [ ] **Draft**: write the draft
