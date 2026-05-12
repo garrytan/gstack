@@ -324,6 +324,7 @@ const DIALOG_LOG_PATH = config.dialogLog;
 // terminal-agent.ts; chat queue + per-tab agent multiplexing are no
 // longer needed.
 
+let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
 let lastDialogFlushed = 0;
 let flushInProgress = false;
