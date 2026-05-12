@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.33.0.1] - 2026-05-12
+
+## **Build skill version bumped to 1.22.0.**
+
+The `/build` skill frontmatter version moves from `1.21.4` to `1.22.0`,
+and the derived `SKILL.md` is regenerated to match. Test expectations
+in `skill-md.test.ts` are updated for the new version string.
+
 ## [1.31.0.0] - 2026-05-09
 
 ## **AskUserQuestion stops getting silently buried in plan files.**
