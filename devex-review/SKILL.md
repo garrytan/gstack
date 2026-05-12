@@ -10,7 +10,11 @@ description: |
   exist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to
   "test the DX", "DX audit", "developer experience test", or "try the
   onboarding". Proactively suggest after shipping a developer-facing feature. (gstack)
-  Voice triggers (speech-to-text aliases): "dx audit", "test the developer experience", "try the onboarding", "developer experience test".
+voice-triggers:
+  - "dx audit"
+  - "test the developer experience"
+  - "try the onboarding"
+  - "developer experience test"
 allowed-tools:
   - Read
   - Edit

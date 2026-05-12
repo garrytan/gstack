@@ -11,7 +11,13 @@ description: |
   or "API design review".
   Proactively suggest when the user has a plan for developer-facing products
   (APIs, CLIs, SDKs, libraries, platforms, docs). (gstack)
-  Voice triggers (speech-to-text aliases): "dx review", "developer experience review", "devex review", "devex audit", "API design review", "onboarding review".
+voice-triggers:
+  - "dx review"
+  - "developer experience review"
+  - "devex review"
+  - "devex audit"
+  - "API design review"
+  - "onboarding review"
 benefits-from: [office-hours]
 allowed-tools:
   - Read
