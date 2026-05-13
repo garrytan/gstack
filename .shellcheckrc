@@ -1,0 +1,8 @@
+# ShellCheck configuration
+# https://www.shellcheck.net/wiki/
+
+# Allow sourcing from paths relative to the script
+external-sources=true
+
+# Disable "not following" warning for sourced files
+disable=SC1091
