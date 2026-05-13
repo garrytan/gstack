@@ -16,13 +16,17 @@ data class NewsItem(
 
 object RssRepository {
 
+    // These feeds are tested on real Android devices (home/mobile IP).
+    // Cloud/datacenter IPs are blocked by most news CDNs — that is expected.
     val feeds = linkedMapOf(
-        "BBC News" to "https://feeds.bbci.co.uk/news/rss.xml",
-        "Google Top Stories" to "https://news.google.com/rss",
-        "Al Jazeera" to "https://www.aljazeera.com/xml/rss/all.xml",
-        "NPR News" to "https://feeds.npr.org/1001/rss.xml",
-        "The Guardian" to "https://www.theguardian.com/world/rss",
-        "NY Times" to "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+        "BBC News"        to "https://feeds.bbci.co.uk/news/rss.xml",
+        "Google News"     to "https://news.google.com/rss",
+        "Al Jazeera"      to "https://www.aljazeera.com/xml/rss/all.xml",
+        "NPR News"        to "https://feeds.npr.org/1001/rss.xml",
+        "The Guardian"    to "https://www.theguardian.com/world/rss",
+        "NY Times"        to "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "Sky News"        to "https://feeds.skynews.com/feeds/rss/home.xml",
+        "Deutsche Welle"  to "https://rss.dw.com/rdf/rss-en-all"
     )
 
     suspend fun fetch(url: String): Result<List<NewsItem>> = withContext(Dispatchers.IO) {
@@ -30,8 +34,19 @@ object RssRepository {
             val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 12_000
             conn.readTimeout = 12_000
-            conn.setRequestProperty("User-Agent", "ReelsCreator/1.0")
-            conn.inputStream.use { parseRss(it) }
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
+            )
+            conn.setRequestProperty("Accept", "application/rss+xml, application/xml, text/xml, */*")
+            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+            try {
+                conn.inputStream.use { parseRss(it) }
+            } finally {
+                conn.disconnect()
+            }
         }
     }
 

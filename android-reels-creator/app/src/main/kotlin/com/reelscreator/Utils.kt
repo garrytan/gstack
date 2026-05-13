@@ -9,18 +9,8 @@ fun getOutputPath(context: Context, filename: String): String {
     return "${dir?.absolutePath}/$filename"
 }
 
-fun getFontPath(context: Context): String {
-    val fontFile = java.io.File(context.filesDir, "Roboto-Regular.ttf")
-    if (!fontFile.exists()) {
-        context.assets.open("Roboto-Regular.ttf").use { input ->
-            fontFile.outputStream().use { output -> input.copyTo(output) }
-        }
-    }
-    return fontFile.absolutePath
-}
-
 // Copies a content:// URI to a private cache file and returns the path.
-// FFmpegKit requires a real filesystem path, not a content URI.
+// Media3 Transformer requires a real filesystem path, not a content URI.
 fun Uri.copyToCacheFile(context: Context, suffix: String = ".mp4"): String? {
     return try {
         val tmp = java.io.File(context.cacheDir, "media_${System.currentTimeMillis()}$suffix")

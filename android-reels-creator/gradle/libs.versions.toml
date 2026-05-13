@@ -5,7 +5,6 @@ composeBom = "2024.09.03"
 activityCompose = "1.9.3"
 activityKtx = "1.9.3"
 coroutines = "1.8.1"
-ffmpegKit = "6.0-2"
 exoplayer = "1.4.1"
 coreKtx = "1.15.0"
 lifecycleViewModel = "2.8.6"
@@ -24,7 +23,8 @@ compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-ffmpeg-kit-full = { group = "com.arthenica", name = "ffmpeg-kit-full", version.ref = "ffmpegKit" }
+media3-transformer = { group = "androidx.media3", name = "media3-transformer", version.ref = "exoplayer" }
+media3-effect = { group = "androidx.media3", name = "media3-effect", version.ref = "exoplayer" }
 exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "exoplayer" }
 exoplayer-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "exoplayer" }
 

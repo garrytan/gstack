@@ -1,0 +1,57 @@
+name: Build Reels Creator APK
+
+on:
+  push:
+    branches:
+      - 'claude/android-reels-creator-lzCSq'
+    paths:
+      - 'android-reels-creator/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android-reels-creator/**/*.gradle.kts', 'android-reels-creator/gradle/libs.versions.toml') }}
+          restore-keys: gradle-
+
+      - name: Grant execute permission for gradlew
+        working-directory: android-reels-creator
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        working-directory: android-reels-creator
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: |
+          mv android-reels-creator/app/build/outputs/apk/debug/app-debug.apk \
+             android-reels-creator/app/build/outputs/apk/debug/ReelsCreator.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReelsCreator-debug
+          path: android-reels-creator/app/build/outputs/apk/debug/ReelsCreator.apk
+          retention-days: 30

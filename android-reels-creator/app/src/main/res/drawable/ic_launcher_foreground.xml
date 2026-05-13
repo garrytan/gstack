@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Film strip bars -->
+    <path
+        android:fillColor="#FF4081"
+        android:pathData="M22,36 L30,36 L30,72 L22,72 Z" />
+    <path
+        android:fillColor="#FF4081"
+        android:pathData="M78,36 L86,36 L86,72 L78,72 Z" />
+
+    <!-- Notches on left bar -->
+    <path android:fillColor="#00000080" android:pathData="M21,42 L31,42 L31,46 L21,46 Z"/>
+    <path android:fillColor="#00000080" android:pathData="M21,52 L31,52 L31,56 L21,56 Z"/>
+    <path android:fillColor="#00000080" android:pathData="M21,62 L31,62 L31,66 L21,66 Z"/>
+
+    <!-- Notches on right bar -->
+    <path android:fillColor="#00000080" android:pathData="M77,42 L87,42 L87,46 L77,46 Z"/>
+    <path android:fillColor="#00000080" android:pathData="M77,52 L87,52 L87,56 L77,56 Z"/>
+    <path android:fillColor="#00000080" android:pathData="M77,62 L87,62 L87,66 L77,66 Z"/>
+
+    <!-- Play triangle -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42,34 L42,74 L76,54 Z" />
+</vector>
