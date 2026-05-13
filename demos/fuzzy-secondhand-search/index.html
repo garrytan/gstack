@@ -14,6 +14,12 @@
           <span class="brand-name">Tradeoff Search</span>
         </div>
         <h1 id="app-title">Find the cheapest second-hand item that still fits.</h1>
+        <form class="auth-form" id="auth-form">
+          <label class="sr-only" for="email-input">Invited email</label>
+          <input id="email-input" name="email" type="email" autocomplete="email" placeholder="invited@email.com" />
+          <button type="submit">Email link</button>
+        </form>
+        <p class="status-line" id="auth-status"></p>
         <form class="search-form" id="search-form">
           <label class="sr-only" for="search-input">Describe what you need</label>
           <input
@@ -30,6 +36,10 @@
           <button type="button" data-query="small house near school and market">house near school</button>
           <button type="button" data-query="daily motorbike for college student, fuel efficient">college motorbike</button>
           <button type="button" data-query="used laptop for design work but lowest possible price">design laptop</button>
+        </div>
+        <div class="action-row">
+          <button class="secondary-action" type="button" id="save-search">Save search</button>
+          <span class="status-line" id="app-status"></span>
         </div>
       </section>
 
@@ -55,6 +65,7 @@
           <p class="tradeoff"></p>
           <div class="chips"></div>
           <ul class="reasons"></ul>
+          <a class="source-link" target="_blank" rel="noreferrer"></a>
         </div>
       </article>
     </template>

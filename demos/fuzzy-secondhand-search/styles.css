@@ -77,6 +77,7 @@ h1 {
   letter-spacing: 0;
 }
 
+.auth-form,
 .search-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -89,6 +90,12 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.auth-form {
+  max-width: 560px;
+  box-shadow: none;
+}
+
+.auth-form input,
 .search-form input {
   min-width: 0;
   border: 0;
@@ -99,6 +106,7 @@ h1 {
   font-size: 1.03rem;
 }
 
+.auth-form button,
 .search-form button,
 .sample-row button {
   border: 1px solid transparent;
@@ -107,6 +115,7 @@ h1 {
   white-space: nowrap;
 }
 
+.auth-form button,
 .search-form button {
   padding: 0 22px;
   background: var(--accent);
@@ -114,8 +123,15 @@ h1 {
   font-weight: 750;
 }
 
+.auth-form button:hover,
 .search-form button:hover {
   background: var(--accent-strong);
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .sample-row {
@@ -134,6 +150,32 @@ h1 {
 .sample-row button:hover {
   border-color: var(--accent);
   color: var(--accent-strong);
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.secondary-action {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.status-line {
+  min-height: 20px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .results-stage {
@@ -281,6 +323,27 @@ h2 {
   line-height: 1.38;
 }
 
+.source-link {
+  width: fit-content;
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.empty-state {
+  padding: 22px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -299,10 +362,12 @@ h2 {
     padding-top: 18px;
   }
 
+  .auth-form,
   .search-form {
     grid-template-columns: 1fr;
   }
 
+  .auth-form button,
   .search-form button {
     min-height: 46px;
   }

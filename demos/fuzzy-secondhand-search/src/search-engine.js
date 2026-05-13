@@ -1,5 +1,3 @@
-import { listings } from "./data.js";
-
 const CATEGORY_WORDS = {
   car: ["car", "mobil", "family car", "avanza", "brio", "xenia", "vehicle"],
   motorcycle: ["motorcycle", "motorbike", "bike", "scooter", "motor", "moto", "college", "commute"],
@@ -26,9 +24,10 @@ const DEFAULT_WEIGHTS = {
   locationFit: 0.06,
 };
 
-export function searchListings(query, source = listings) {
+export function searchListings(query, source = []) {
   const intent = parseQuery(query);
   const scored = source
+    .filter((listing) => listing && listing.title && Number.isFinite(Number(listing.price)))
     .map((listing) => scoreListing(listing, intent))
     .sort((a, b) => b.score.total - a.score.total || a.listing.price - b.listing.price)
     .slice(0, 5);
@@ -115,27 +114,34 @@ function getCategoryScorer(category) {
 }
 
 function scoreCar(listing, intent) {
-  const attrs = listing.attributes;
+  const attrs = listing.attributes || {};
   const priceFit = scorePrice(listing, intent);
   const dealFit = scoreDeal(listing);
-  const mileageScore = inverseScale(attrs.mileageKm, 35000, 150000);
-  const maintenanceScore = maintenanceScoreFor(attrs.maintenanceCost);
+  const mileageKm = attrs.mileageKm ?? 90000;
+  const year = attrs.year ?? 2017;
+  const seats = attrs.seats ?? 5;
+  const fuelEfficiency = attrs.fuelEfficiency ?? 70;
+  const familyFit = attrs.familyFit ?? 70;
+  const reliability = attrs.reliability ?? 72;
+  const maintenanceCost = attrs.maintenanceCost || "medium";
+  const mileageScore = inverseScale(mileageKm, 35000, 150000);
+  const maintenanceScore = maintenanceScoreFor(maintenanceCost);
   const categoryBoost = categoryBoostFor(listing, intent);
   const needFit = average([
-    attrs.reliability,
-    attrs.fuelEfficiency,
+    reliability,
+    fuelEfficiency,
     maintenanceScore,
-    intent.normalized.includes("family") ? attrs.familyFit : 72,
-    intent.normalized.includes("family") ? scale(attrs.seats, 4, 7) : 70,
+    intent.normalized.includes("family") ? familyFit : 72,
+    intent.normalized.includes("family") ? scale(seats, 4, 7) : 70,
     categoryBoost,
   ]);
-  const conditionFit = average([listing.condition, mileageScore, scale(attrs.year, 2012, 2022)]);
+  const conditionFit = average([listing.condition, mileageScore, scale(year, 2012, 2022)]);
   const riskFit = average([100 - listing.sellerRisk, maintenanceScore, mileageScore]);
   const locationFit = locationScore(listing, intent);
   const reasons = [
-    `${attrs.seats} seats and ${attrs.maintenanceCost} maintenance fit the buyer need better than a raw-cheapest car.`,
+    `${seats} seats and ${maintenanceCost} maintenance fit the buyer need better than a raw-cheapest car.`,
     `${formatMoney(listing)} sits ${dealFit >= 75 ? "below" : "near"} the seeded market estimate.`,
-    `${attrs.mileageKm.toLocaleString()} km keeps the condition score at ${Math.round(conditionFit)}, so inspection still matters.`,
+    `${mileageKm.toLocaleString()} km keeps the condition score at ${Math.round(conditionFit)}, so inspection still matters.`,
   ];
 
   return {
@@ -154,30 +160,36 @@ function scoreCar(listing, intent) {
 }
 
 function scoreMotorcycle(listing, intent) {
-  const attrs = listing.attributes;
+  const attrs = listing.attributes || {};
   const priceFit = scorePrice(listing, intent);
   const dealFit = scoreDeal(listing);
-  const maintenanceScore = maintenanceScoreFor(attrs.maintenanceCost);
+  const maintenanceCost = attrs.maintenanceCost || "medium";
+  const fuelEfficiency = attrs.fuelEfficiency ?? 82;
+  const commuteFit = attrs.commuteFit ?? 76;
+  const engineHealth = attrs.engineHealth ?? listing.condition ?? 72;
+  const paperwork = attrs.paperwork || "unknown";
+  const mileageKm = attrs.mileageKm ?? 32000;
+  const maintenanceScore = maintenanceScoreFor(maintenanceCost);
   const categoryBoost = categoryBoostFor(listing, intent);
   const needFit = average([
-    attrs.commuteFit,
-    attrs.fuelEfficiency,
+    commuteFit,
+    fuelEfficiency,
     maintenanceScore,
-    attrs.engineHealth,
+    engineHealth,
     categoryBoost,
   ]);
-  const mileageScore = inverseScale(attrs.mileageKm, 12000, 52000);
-  const conditionFit = average([listing.condition, attrs.engineHealth, mileageScore]);
+  const mileageScore = inverseScale(mileageKm, 12000, 52000);
+  const conditionFit = average([listing.condition, engineHealth, mileageScore]);
   const riskFit = average([
     100 - listing.sellerRisk,
-    attrs.paperwork === "complete" ? 90 : 50,
-    attrs.engineHealth,
+    paperwork === "complete" ? 90 : 50,
+    engineHealth,
   ]);
   const locationFit = locationScore(listing, intent);
   const reasons = [
-    `${attrs.fuelEfficiency}/100 fuel fit is strong for daily commuting.`,
-    `${attrs.maintenanceCost} maintenance protects the total cost after purchase.`,
-    `${attrs.paperwork} paperwork keeps the ownership-risk score at ${Math.round(riskFit)}.`,
+    `${fuelEfficiency}/100 fuel fit is strong for daily commuting.`,
+    `${maintenanceCost} maintenance protects the total cost after purchase.`,
+    `${paperwork} paperwork keeps the ownership-risk score at ${Math.round(riskFit)}.`,
   ];
 
   return {
@@ -196,25 +208,33 @@ function scoreMotorcycle(listing, intent) {
 }
 
 function scoreHouse(listing, intent) {
-  const attrs = listing.attributes;
+  const attrs = listing.attributes || {};
   const priceFit = scorePrice(listing, intent);
   const dealFit = scoreDeal(listing);
-  const nearSchool = inverseScale(attrs.schoolDistanceKm, 0.2, 2.5);
-  const nearMarket = inverseScale(attrs.marketDistanceKm, 0.2, 2.5);
-  const spaceFit = average([scale(attrs.bedrooms, 1, 3), scale(attrs.areaM2, 45, 110), attrs.familyFit]);
+  const bedrooms = attrs.bedrooms ?? 2;
+  const bathrooms = attrs.bathrooms ?? 1;
+  const areaM2 = attrs.areaM2 ?? 70;
+  const schoolDistanceKm = attrs.schoolDistanceKm ?? 1.8;
+  const marketDistanceKm = attrs.marketDistanceKm ?? 1.8;
+  const floodRisk = attrs.floodRisk ?? 35;
+  const renovationRisk = attrs.renovationRisk ?? 35;
+  const familyFit = attrs.familyFit ?? 68;
+  const nearSchool = inverseScale(schoolDistanceKm, 0.2, 2.5);
+  const nearMarket = inverseScale(marketDistanceKm, 0.2, 2.5);
+  const spaceFit = average([scale(bedrooms, 1, 3), scale(areaM2, 45, 110), familyFit]);
   const needFit = average([
     spaceFit,
     intent.normalized.includes("school") ? nearSchool : 65,
     intent.normalized.includes("market") ? nearMarket : 65,
     categoryBoostFor(listing, intent),
   ]);
-  const conditionFit = average([listing.condition, 100 - attrs.renovationRisk]);
-  const riskFit = average([100 - listing.sellerRisk, 100 - attrs.floodRisk, 100 - attrs.renovationRisk]);
+  const conditionFit = average([listing.condition, 100 - renovationRisk]);
+  const riskFit = average([100 - listing.sellerRisk, 100 - floodRisk, 100 - renovationRisk]);
   const locationFit = average([nearSchool, nearMarket]);
   const reasons = [
-    `${attrs.bedrooms}BR and ${attrs.areaM2} m2 score as a practical starter-home fit.`,
-    `${attrs.schoolDistanceKm} km to school and ${attrs.marketDistanceKm} km to market support the location request.`,
-    `Renovation risk is ${attrs.renovationRisk}/100, which is the main sacrifice behind the price.`,
+    `${bedrooms}BR/${bathrooms}BA and ${areaM2} m2 score as a practical starter-home fit.`,
+    `${schoolDistanceKm} km to school and ${marketDistanceKm} km to market support the location request.`,
+    `Renovation risk is ${renovationRisk}/100, which is the main sacrifice behind the price.`,
   ];
 
   return {
@@ -225,7 +245,7 @@ function scoreHouse(listing, intent) {
     locationFit,
     dealFit,
     tradeoff:
-      attrs.renovationRisk > 35
+      renovationRisk > 35
         ? "Lowest housing price, but repair risk explains why it is cheap."
         : "Good livability for the price, with location doing most of the ranking work.",
     reasons,
@@ -233,7 +253,7 @@ function scoreHouse(listing, intent) {
 }
 
 function scoreGeneralGoods(listing, intent) {
-  const attrs = listing.attributes;
+  const attrs = listing.attributes || {};
   const priceFit = scorePrice(listing, intent);
   const dealFit = scoreDeal(listing);
   const designFit = attrs.designWorkFit || 55;
@@ -284,6 +304,9 @@ function weightsForIntent(intent) {
 }
 
 function scorePrice(listing, intent) {
+  listing.marketHigh = Number(listing.marketHigh || listing.price * 1.15);
+  listing.marketLow = Number(listing.marketLow || listing.price * 0.9);
+
   if (!intent.budget) {
     return clamp(72 + scoreDeal(listing) * 0.18 - listing.price / Math.max(listing.marketHigh, listing.price) * 12);
   }
@@ -298,6 +321,8 @@ function scorePrice(listing, intent) {
 }
 
 function scoreDeal(listing) {
+  listing.marketHigh = Number(listing.marketHigh || listing.price * 1.15);
+  listing.marketLow = Number(listing.marketLow || listing.price * 0.9);
   const midpoint = (listing.marketLow + listing.marketHigh) / 2;
   const discount = (midpoint - listing.price) / midpoint;
   return clamp(58 + discount * 190);
