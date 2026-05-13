@@ -52,7 +52,7 @@ private fun ProcessButton(label: String, enabled: Boolean, onClick: () -> Unit) 
     ) { Text(label) }
 }
 
-// Always copy via ContentResolver so FFmpegKit gets a real path on all API levels.
+// Always copy via ContentResolver so Media3 Transformer gets a real path on all API levels.
 private fun Uri.toPath(context: android.content.Context, suffix: String = ".mp4"): String? =
     copyToCacheFile(context, suffix)
 
@@ -216,8 +216,7 @@ fun CaptionTab(vm: ReelsViewModel) {
         ) {
             val path = videoUri!!.toPath(context) ?: return@ProcessButton
             val output = getOutputPath(context, "caption_${System.currentTimeMillis()}.mp4")
-            val fontPath = getFontPath(context)
-            vm.addCaption(path, output, captionText, fontPath)
+            vm.addCaption(path, output, captionText)
         }
     }
 }
@@ -256,8 +255,7 @@ fun TextToVideoTab(vm: ReelsViewModel) {
             enabled = lines.isNotEmpty()
         ) {
             val output = getOutputPath(context, "text2video_${System.currentTimeMillis()}.mp4")
-            val fontPath = getFontPath(context)
-            vm.textToVideo(lines, output, fontPath)
+            vm.textToVideo(lines, output)
         }
     }
 }
@@ -346,8 +344,7 @@ fun TxtOverlayTab(vm: ReelsViewModel) {
             }
 
             val output = getOutputPath(context, "txt_overlay_${System.currentTimeMillis()}.mp4")
-            val fontPath = getFontPath(context)
-            vm.addTxtOverlay(vPath, tmpTxt.absolutePath, output, fontPath, dur)
+            vm.addTxtOverlay(vPath, tmpTxt.absolutePath, output, dur)
         }
     }
 }
@@ -517,8 +514,7 @@ fun NewsFeedTab(vm: ReelsViewModel) {
                 onClick = {
                     val lines = selected.sorted().map { newsState.items[it].title }
                     val output = getOutputPath(context, "news_reel_${System.currentTimeMillis()}.mp4")
-                    val fontPath = getFontPath(context)
-                    vm.textToVideo(lines, output, fontPath)
+                    vm.textToVideo(lines, output)
                 },
                 enabled = selected.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth()
