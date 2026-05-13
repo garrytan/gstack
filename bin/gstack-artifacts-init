@@ -227,8 +227,18 @@ projects/*/ceo-plans/*.md
 projects/*/ceo-plans/*/*.md
 projects/*/designs/*.md
 projects/*/designs/*/*.md
+# Project-root design / test-plan artifacts written by /office-hours,
+# /plan-eng-review, and /autoplan. The skills emit
+# `{user}-{branch}-design-{datetime}.md`,
+# `{user}-{branch}-test-plan-{datetime}.md`, and
+# `{user}-{branch}-eng-review-test-plan-{datetime}.md` at the project
+# root (not under designs/), so the existing `designs/*.md` patterns
+# miss them. Without these the cross-machine pull on machine B gets
+# the referencing CEO plan but not the underlying design / test plan
+# (#1452).
 projects/*/*-design-*.md
 projects/*/*-test-plan-*.md
+projects/*/*-eng-review-test-plan-*.md
 projects/*/timeline.jsonl
 retros/*.md
 developer-profile.json
@@ -256,6 +266,7 @@ cat > "$GSTACK_HOME/.brain-privacy-map.json" <<'EOF'
   {"pattern": "projects/*/designs/*/*.md", "class": "artifact"},
   {"pattern": "projects/*/*-design-*.md", "class": "artifact"},
   {"pattern": "projects/*/*-test-plan-*.md", "class": "artifact"},
+  {"pattern": "projects/*/*-eng-review-test-plan-*.md", "class": "artifact"},
   {"pattern": "retros/*.md", "class": "artifact"},
   {"pattern": "builder-journey.md", "class": "artifact"},
   {"pattern": "projects/*/timeline.jsonl", "class": "behavioral"},
