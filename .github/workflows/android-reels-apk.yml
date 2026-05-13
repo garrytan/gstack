@@ -40,9 +40,6 @@ jobs:
 
       - name: Build debug APK
         working-directory: android-reels-creator
-        env:
-          GPR_USER: ${{ github.actor }}
-          GPR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Rename APK
