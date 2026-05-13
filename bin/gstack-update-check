@@ -4,7 +4,17 @@
 # Output (one line, or nothing):
 #   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
 #   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
+#   UPGRADED <old> <new>            — `--apply` ran a successful upgrade
 #   (nothing)                       — up to date, snoozed, disabled, or check skipped
+#
+# Flags:
+#   --force   Bust cache and snooze (used by standalone /gstack-upgrade).
+#   --apply   When an upgrade is available, actually run it: `git fetch` +
+#             `git reset --hard origin/main` + `./setup` inside `$GSTACK_DIR`.
+#             For the full ceremony (stash, vendored-install handling,
+#             local-vendored copy sync, migrations), use /gstack-upgrade.
+#             `--apply` is the minimal headless variant for CI / scripted
+#             update gates.
 #
 # Env overrides (for testing):
 #   GSTACK_DIR          — override auto-detected gstack root
@@ -20,11 +30,25 @@ SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
 
-# ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
-if [ "${1:-}" = "--force" ]; then
-  rm -f "$CACHE_FILE"
-  rm -f "$SNOOZE_FILE"
-fi
+# ─── Parse flags ──────────────────────────────────────────────
+APPLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --force)
+      rm -f "$CACHE_FILE"
+      rm -f "$SNOOZE_FILE"
+      ;;
+    --apply)
+      APPLY=1
+      # Force a fresh check so a stale cache doesn't suppress the upgrade.
+      rm -f "$CACHE_FILE"
+      ;;
+    *)
+      # Unknown flag — fall through silently to preserve the historical
+      # zero-noise contract of the periodic-check path.
+      ;;
+  esac
+done
 
 # ─── Step 0: Check if updates are disabled ────────────────────
 _UC=$("$GSTACK_DIR/bin/gstack-config" get update_check 2>/dev/null || true)
@@ -197,6 +221,44 @@ fi
 
 # Versions differ — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
+
+# ─── Apply branch ────────────────────────────────────────────
+# `--apply` is the headless / scripted variant of /gstack-upgrade Step 4
+# for git installs. It does NOT cover vendored installs, local-vendored
+# copy sync, or the migrations pipeline — point users at /gstack-upgrade
+# for any of those. Snooze is intentionally ignored on --apply: the
+# caller asked for the upgrade explicitly.
+if [ "$APPLY" = "1" ]; then
+  if [ ! -d "$GSTACK_DIR/.git" ]; then
+    echo "ERROR: --apply requires a git install at $GSTACK_DIR" >&2
+    echo "       Run /gstack-upgrade for vendored installs." >&2
+    exit 1
+  fi
+  if ! git -C "$GSTACK_DIR" fetch origin main >/dev/null 2>&1; then
+    echo "ERROR: --apply failed to fetch origin/main from $GSTACK_DIR" >&2
+    exit 1
+  fi
+  if ! git -C "$GSTACK_DIR" reset --hard origin/main >/dev/null 2>&1; then
+    echo "ERROR: --apply failed to reset $GSTACK_DIR to origin/main" >&2
+    exit 1
+  fi
+  if [ -x "$GSTACK_DIR/setup" ]; then
+    if ! ( cd "$GSTACK_DIR" && ./setup >/dev/null 2>&1 ); then
+      echo "ERROR: --apply ran git reset but ./setup failed in $GSTACK_DIR" >&2
+      echo "       Working tree is at the new version; re-run ./setup manually." >&2
+      exit 1
+    fi
+  fi
+  # Confirm the version moved.
+  NEW_LOCAL=""
+  if [ -f "$VERSION_FILE" ]; then
+    NEW_LOCAL="$(cat "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+  fi
+  echo "UPGRADED $LOCAL ${NEW_LOCAL:-$REMOTE}" > "$CACHE_FILE"
+  echo "UPGRADED $LOCAL ${NEW_LOCAL:-$REMOTE}"
+  exit 0
+fi
+
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet
 fi
