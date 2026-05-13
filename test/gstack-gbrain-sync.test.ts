@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -213,6 +213,62 @@ describe("gstack-gbrain-sync CLI", () => {
 
     rmSync(parent, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it("derives distinct source ids for the same absolute path on different hosts", () => {
+    // Issue #1414: two machines with identical home-dir layouts (chezmoi-managed
+    // dotfiles, ansible-provisioned VMs) collide on the same source id when
+    // federated against a shared gbrain DB, because the pre-fix `pathHash` was
+    // sha1(absolute path) only — host-agnostic. Folding hostname into the hash
+    // key keeps them distinct. `GSTACK_HOSTNAME` env var is the test-only knob;
+    // production uses `os.hostname()`.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const repo = mkdtempSync(join(tmpdir(), "gstack-host-collide-"));
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    spawnSync("git", ["remote", "add", "origin", "https://github.com/example/multihost.git"], { cwd: repo });
+
+    // Dry-run still gates the code stage on `command -v gbrain`. Drop a no-op
+    // shim on PATH so the stage runs (we only assert the preview line, never
+    // invoke gbrain itself).
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-host-collide-bin-"));
+    const shim = join(bindir, "gbrain");
+    writeFileSync(shim, "#!/bin/sh\nexit 0\n");
+    chmodSync(shim, 0o755);
+    const PATH = `${bindir}:${process.env.PATH || ""}`;
+
+    const runAs = (host: string) =>
+      spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
+        encoding: "utf-8",
+        timeout: 60000,
+        cwd: repo,
+        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome, GSTACK_HOSTNAME: host, PATH },
+      });
+
+    const a = runAs("machine-a");
+    const b = runAs("machine-b");
+    expect(a.status).toBe(0);
+    expect(b.status).toBe(0);
+    const idA = (a.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
+    const idB = (b.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
+    expect(idA).toBeTruthy();
+    expect(idB).toBeTruthy();
+    expect(idA).not.toBe(idB);
+    // Both still gbrain-valid.
+    const VALID_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+    expect(idA!).toMatch(VALID_ID);
+    expect(idB!).toMatch(VALID_ID);
+
+    // Same host + same path stays stable across invocations.
+    const a2 = runAs("machine-a");
+    expect(a2.status).toBe(0);
+    const idA2 = (a2.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
+    expect(idA2).toBe(idA);
+
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
   });
 
   it("dry-run does NOT acquire the lock file (lock is for write paths only)", () => {

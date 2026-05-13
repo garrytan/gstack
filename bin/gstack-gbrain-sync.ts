@@ -32,7 +32,7 @@
 import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
 import { join, dirname } from "path";
 import { execSync, spawnSync } from "child_process";
-import { homedir } from "os";
+import { homedir, hostname } from "os";
 import { createHash } from "crypto";
 
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
@@ -159,30 +159,35 @@ function originUrl(): string | null {
 }
 
 /**
- * Derive a worktree-aware source id for the cwd code corpus.
+ * Derive a host- and worktree-aware source id for the cwd code corpus.
  *
- * Pattern: `gstack-code-<slug>-<pathhash8>` where slug comes from origin
- * (org/repo) and pathhash8 is the first 8 hex chars of sha1(absolute repo
- * path). The pathhash8 is what makes Conductor worktrees of the same repo
- * coexist as separate sources in the same gbrain DB instead of stomping on
- * each other.
+ * Pattern: `gstack-code-<slug>-<hostpathhash8>` where slug comes from origin
+ * (org/repo) and hostpathhash8 is the first 8 hex chars of
+ * sha1(`${hostname}::${absolute repo path}`). Folding hostname into the hash
+ * keeps Conductor worktrees of the same repo as distinct sources on one host
+ * AND keeps two machines that share an absolute layout (e.g. chezmoi-managed
+ * home dirs against a federated brain) from colliding on each other.
  *
  * Falls back to the repo basename when there is no origin (local repo).
+ *
+ * `GSTACK_HOSTNAME` env override is honored for deterministic tests; in
+ * production paths it is unset and `os.hostname()` is used.
  *
  * gbrain enforces source ids to be 1-32 lowercase alnum chars with
  * optional interior hyphens. `constrainSourceId` handles the 32-char cap
  * with a hashed-tail fallback when the combined slug exceeds budget.
  */
 function deriveCodeSourceId(repoPath: string): string {
-  const pathHash = createHash("sha1").update(repoPath).digest("hex").slice(0, 8);
+  const host = process.env.GSTACK_HOSTNAME || hostname();
+  const hostPathHash = createHash("sha1").update(`${host}::${repoPath}`).digest("hex").slice(0, 8);
   const remote = canonicalizeRemote(originUrl());
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
     const slugSource = segs.slice(-2).join("-");
-    return constrainSourceId("gstack-code", `${slugSource}-${pathHash}`);
+    return constrainSourceId("gstack-code", `${slugSource}-${hostPathHash}`);
   }
   const base = repoPath.split("/").pop() || "repo";
-  return constrainSourceId("gstack-code", `${base}-${pathHash}`);
+  return constrainSourceId("gstack-code", `${base}-${hostPathHash}`);
 }
 
 /**
