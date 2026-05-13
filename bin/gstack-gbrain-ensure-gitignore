@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# gstack-gbrain-ensure-gitignore — append .gbrain-source to .gitignore if missing
+#
+# Usage:
+#   gstack-gbrain-ensure-gitignore [path-to-repo]
+#
+# Ensures .gbrain-source is in the repo's .gitignore. Idempotent.
+# Called after gbrain sources attach to prevent per-worktree pin from
+# leaking across branches (per v1.29.0.0 changelog promise).
+#
+# Exit codes:
+#   0 — success (entry added or already present)
+#   1 — .gitignore unwritable or other IO error
+
+set -euo pipefail
+
+REPO_ROOT="${1:-.}"
+GITIGNORE_PATH="$REPO_ROOT/.gitignore"
+ENTRY=".gbrain-source"
+
+# Read existing .gitignore content (empty string if file doesn't exist)
+existing=""
+if [ -f "$GITIGNORE_PATH" ]; then
+  existing=$(cat "$GITIGNORE_PATH")
+fi
+
+# Check if entry already exists (exact match on its own line)
+if echo "$existing" | grep -qxF "$ENTRY"; then
+  exit 0  # Already present, nothing to do
+fi
+
+# Append entry with proper newline handling
+if [ -n "$existing" ] && [ "${existing: -1}" != $'\n' ]; then
+  # Existing content doesn't end with newline, add one first
+  echo "" >> "$GITIGNORE_PATH"
+fi
+
+echo "$ENTRY" >> "$GITIGNORE_PATH"
+exit 0
