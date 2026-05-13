@@ -32,14 +32,22 @@ let fakeBinDir: string;
 let ghCallLog: string;
 let glabCallLog: string;
 
-function makeFakeGh(opts: { authStatus?: 'ok' | 'fail'; repoCreate?: 'success' | 'already-exists' | 'fail'; webUrl?: string } = {}) {
+function makeFakeGh(opts: { authStatus?: 'ok' | 'fail'; repoCreate?: 'success' | 'already-exists' | 'fail'; webUrl?: string; gitProtocol?: 'https' | 'ssh' | '' } = {}) {
   const authStatus = opts.authStatus ?? 'ok';
   const repoCreate = opts.repoCreate ?? 'success';
   const webUrl = opts.webUrl ?? `https://github.com/testuser/gstack-artifacts-testuser`;
+  const gitProtocol = opts.gitProtocol ?? '';
   const script = `#!/bin/bash
 echo "gh $@" >> "${ghCallLog}"
 case "$1" in
   auth) ${authStatus === 'ok' ? 'exit 0' : 'exit 1'} ;;
+  config)
+    # gh config get git_protocol
+    if [ "$2" = "get" ] && [ "$3" = "git_protocol" ]; then
+      ${gitProtocol ? `echo "${gitProtocol}"; exit 0` : 'exit 1'}
+    fi
+    exit 1
+    ;;
   repo)
     shift
     case "$1" in
@@ -65,14 +73,21 @@ exit 0
   fs.writeFileSync(path.join(fakeBinDir, 'gh'), script, { mode: 0o755 });
 }
 
-function makeFakeGlab(opts: { authStatus?: 'ok' | 'fail'; repoCreate?: 'success' | 'fail'; webUrl?: string } = {}) {
+function makeFakeGlab(opts: { authStatus?: 'ok' | 'fail'; repoCreate?: 'success' | 'fail'; webUrl?: string; gitProtocol?: 'https' | 'ssh' | '' } = {}) {
   const authStatus = opts.authStatus ?? 'ok';
   const repoCreate = opts.repoCreate ?? 'success';
   const webUrl = opts.webUrl ?? 'https://gitlab.com/testuser/gstack-artifacts-testuser';
+  const gitProtocol = opts.gitProtocol ?? '';
   const script = `#!/bin/bash
 echo "glab $@" >> "${glabCallLog}"
 case "$1" in
   auth) ${authStatus === 'ok' ? 'exit 0' : 'exit 1'} ;;
+  config)
+    if [ "$2" = "get" ] && [ "$3" = "git_protocol" ]; then
+      ${gitProtocol ? `echo "${gitProtocol}"; exit 0` : 'exit 1'}
+    fi
+    exit 1
+    ;;
   repo)
     shift
     case "$1" in
@@ -296,6 +311,69 @@ describe('gstack-artifacts-init brain-admin hookup printout (codex Finding #3)',
     // Note: the SSH form does appear in the printout as informational
     // (the "Push: ..." line), which is intentional — that's the URL git
     // actually uses for push.
+  });
+});
+
+describe('gstack-artifacts-init push protocol (issue #1348)', () => {
+  test('--push-protocol=auto + gh git_protocol=https → origin uses HTTPS', () => {
+    // Issue #1348: users with `gh config set git_protocol https` (the
+    // `gh auth login` default) lack an SSH key on the remote, so forcing
+    // an SSH push URL fails at the ls-remote verification step.
+    makeFakeGh({ gitProtocol: 'https', webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github']);
+    if (r.status !== 0) console.error('STDERR:', r.stderr);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+  });
+
+  test('--push-protocol=auto + gh git_protocol=ssh → origin uses SSH (existing default)', () => {
+    makeFakeGh({ gitProtocol: 'ssh', webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+  });
+
+  test('--push-protocol=auto + gh git_protocol unset → falls back to SSH (legacy default)', () => {
+    // gh config get returns non-zero / empty when never set. We default to
+    // SSH to keep the historical behavior for users who haven't opted in.
+    makeFakeGh({ gitProtocol: '', webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+  });
+
+  test('--push-protocol=https overrides gh git_protocol=ssh', () => {
+    makeFakeGh({ gitProtocol: 'ssh', webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github', '--push-protocol', 'https']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+  });
+
+  test('--push-protocol=ssh overrides gh git_protocol=https', () => {
+    makeFakeGh({ gitProtocol: 'https', webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github', '--push-protocol', 'ssh']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+  });
+
+  test('--push-protocol with invalid value exits 1', () => {
+    makeFakeGh({});
+    const r = run(['--host', 'github', '--push-protocol', 'bogus']);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('Invalid --push-protocol');
+  });
+
+  test('gitlab branch: glab git_protocol=https → origin uses HTTPS', () => {
+    makeFakeGlab({ gitProtocol: 'https' });
+    const r = run(['--host', 'gitlab']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('https://gitlab.com/testuser/gstack-artifacts-testuser');
   });
 });
 
