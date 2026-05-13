@@ -179,7 +179,14 @@ function deriveCodeSourceId(repoPath: string): string {
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
     const slugSource = segs.slice(-2).join("-");
-    return constrainSourceId("gstack-code", `${slugSource}-${pathHash}`);
+    const fullId = constrainSourceId("gstack-code", `${slugSource}-${pathHash}`);
+    // If the org+repo+pathhash fits cleanly (suffix preserved), use it.
+    if (fullId.endsWith(`-${pathHash}`)) return fullId;
+    // Otherwise drop the org prefix and retry with just repo+pathhash so the
+    // repo name stays readable. If that still doesn't fit, constrainSourceId
+    // falls back to a deterministic hash-only form.
+    const repoOnly = segs[segs.length - 1] || "repo";
+    return constrainSourceId("gstack-code", `${repoOnly}-${pathHash}`);
   }
   const base = repoPath.split("/").pop() || "repo";
   return constrainSourceId("gstack-code", `${base}-${pathHash}`);
@@ -210,6 +217,10 @@ function deriveLegacyCodeSourceId(repoPath: string): string {
  * Build a gbrain-valid source id (1-32 lowercase alnum + interior hyphens). Sanitizes
  * `raw`, prefixes with `prefix`, and falls back to a hashed-tail form when total length
  * would exceed 32 chars.
+ *
+ * Truncation cuts on hyphen boundaries (whole-word units) from the right, never
+ * mid-word. Inputs like "drummerms-av-sow-wiz-skill-270c0001" produce
+ * "${prefix}-270c0001-<hash>", not "${prefix}-kill-270c0001-<hash>".
  */
 function constrainSourceId(prefix: string, raw: string): string {
   const MAX = 32;
@@ -228,7 +239,20 @@ function constrainSourceId(prefix: string, raw: string): string {
   // Total budget: prefix + "-" + tail + "-" + hash
   const tailBudget = MAX - prefix.length - 2 - hash.length;
   if (tailBudget < 1) return `${prefix}-${hash}`;
-  const tail = slug.slice(-tailBudget).replace(/^-+|-+$/g, "");
+  // Cut on hyphen boundaries instead of mid-word. Walk tokens from the right,
+  // accumulating until adding the next token would exceed tailBudget. This
+  // preserves readable suffixes (pathhash, repo name) and avoids embarrassing
+  // mid-word artifacts like "skill" → "kill".
+  const tokens = slug.split("-").filter(Boolean);
+  const kept: string[] = [];
+  let len = 0;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const add = kept.length === 0 ? tokens[i].length : tokens[i].length + 1;
+    if (len + add > tailBudget) break;
+    kept.unshift(tokens[i]);
+    len += add;
+  }
+  const tail = kept.join("-");
   return tail ? `${prefix}-${tail}-${hash}` : `${prefix}-${hash}`;
 }
 
