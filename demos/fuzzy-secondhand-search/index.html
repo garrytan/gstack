@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tradeoff Search</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="search-stage" aria-labelledby="app-title">
+        <div class="brand-row">
+          <span class="brand-mark" aria-hidden="true">T</span>
+          <span class="brand-name">Tradeoff Search</span>
+        </div>
+        <h1 id="app-title">Find the cheapest second-hand item that still fits.</h1>
+        <form class="search-form" id="search-form">
+          <label class="sr-only" for="search-input">Describe what you need</label>
+          <input
+            id="search-input"
+            name="q"
+            autocomplete="off"
+            spellcheck="true"
+            value="cheap family car low maintenance under 100k"
+            placeholder="cheap family car low maintenance under 100k"
+          />
+          <button type="submit">Search</button>
+        </form>
+        <div class="sample-row" aria-label="Example searches">
+          <button type="button" data-query="small house near school and market">house near school</button>
+          <button type="button" data-query="daily motorbike for college student, fuel efficient">college motorbike</button>
+          <button type="button" data-query="used laptop for design work but lowest possible price">design laptop</button>
+        </div>
+      </section>
+
+      <section class="results-stage" aria-live="polite">
+        <div class="interpretation" id="interpretation"></div>
+        <div class="results-list" id="results"></div>
+      </section>
+    </main>
+
+    <template id="result-template">
+      <article class="result-card">
+        <div class="rank"></div>
+        <div class="thumb" aria-hidden="true"></div>
+        <div class="result-body">
+          <div class="result-topline">
+            <div>
+              <p class="category"></p>
+              <h2></h2>
+            </div>
+            <div class="score-pill"></div>
+          </div>
+          <div class="meta-row"></div>
+          <p class="tradeoff"></p>
+          <div class="chips"></div>
+          <ul class="reasons"></ul>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
