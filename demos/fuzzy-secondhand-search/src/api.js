@@ -8,6 +8,7 @@ export function createApiHandler({ repository, ingestion, env = process.env } = 
       if (request.method === "GET" && url.pathname === "/api/config") {
         return json({
           authEnabled: repository?.isConfigured ?? false,
+          ingestConfigured: Boolean(normalizeToken(env.INGEST_ADMIN_TOKEN)),
           supabaseUrl: env.SUPABASE_URL || "",
           supabasePublishableKey: env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || "",
         });
@@ -49,9 +50,15 @@ export function createApiHandler({ repository, ingestion, env = process.env } = 
       }
 
       if (request.method === "POST" && url.pathname === "/api/ingest/run") {
-        const expected = env.INGEST_ADMIN_TOKEN;
-        const provided = bearerToken(request) || request.headers.get("x-ingest-token");
-        if (!expected || provided !== expected) return json({ error: "Invalid ingestion token." }, 401);
+        const expected = normalizeToken(env.INGEST_ADMIN_TOKEN);
+        const provided = normalizeToken(bearerToken(request) || request.headers.get("x-ingest-token"));
+        if (!expected) {
+          return json({ error: "Ingestion is not configured. Set INGEST_ADMIN_TOKEN and restart the server." }, 503);
+        }
+        if (!provided) {
+          return json({ error: "Ingestion token required. Send Authorization: Bearer <INGEST_ADMIN_TOKEN>." }, 401);
+        }
+        if (provided !== expected) return json({ error: "Invalid ingestion token." }, 401);
         const body = await readJson(request, {});
         const summary = await ingestion.run({ only: body.sourceKey || null });
         return json({ summary });
@@ -88,6 +95,12 @@ function bearerToken(request) {
   const header = request.headers.get("authorization") || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
   return match?.[1] || "";
+}
+
+function normalizeToken(value) {
+  const token = String(value || "").trim();
+  const quoted = token.match(/^["'](.+)["']$/);
+  return quoted ? quoted[1].trim() : token;
 }
 
 async function readJson(request, fallback = null) {
