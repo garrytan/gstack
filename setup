@@ -401,12 +401,19 @@ link_claude_skill_dirs() {
       mkdir -p "$target"
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      if [ "$IS_WINDOWS" -eq 1 ]; then
+        cp -f "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      else
+        ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      fi
       linked+=("$link_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+      echo "  note: Windows install uses file copies. Re-run ./setup after every 'git pull' to refresh skill files."
+    fi
   fi
 }
 
