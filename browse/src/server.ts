@@ -59,6 +59,34 @@ import * as net from 'net';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
+// ─── Unicode Sanitization ───────────────────────────────────────
+/**
+ * Remove lone Unicode surrogate characters (unpaired \uD800–\uDFFF) from a string.
+ * Lone surrogates cause JSON.stringify to fail with "no low surrogate in string" errors.
+ * Replaces them with \uFFFD (Unicode replacement character).
+ */
+function sanitizeLoneSurrogates(str: string): string {
+  return str.replace(/[\uD800-\uDFFF]/g, (match, offset) => {
+    const code = match.charCodeAt(0);
+    // High surrogate (0xD800-0xDBFF) should be followed by low surrogate (0xDC00-0xDFFF)
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = str.charCodeAt(offset + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        return match; // Valid surrogate pair, keep it
+      }
+    }
+    // Low surrogate (0xDC00-0xDFFF) should be preceded by high surrogate
+    if (code >= 0xDC00 && code <= 0xDFFF) {
+      const prev = str.charCodeAt(offset - 1);
+      if (prev >= 0xD800 && prev <= 0xDBFF) {
+        return match; // Valid surrogate pair, keep it
+      }
+    }
+    // Lone surrogate - replace with replacement character
+    return '\uFFFD';
+  });
+}
+
 // ─── Config ─────────────────────────────────────────────────────
 const config = resolveConfig();
 ensureStateDir(config);
@@ -928,7 +956,9 @@ async function handleCommandInternal(
 async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<Response> {
   const cr = await handleCommandInternal(body, tokenInfo);
   const contentType = cr.json ? 'application/json' : 'text/plain';
-  return new Response(cr.result, {
+  // Sanitize lone Unicode surrogates to prevent JSON serialization errors
+  const sanitizedResult = sanitizeLoneSurrogates(cr.result);
+  return new Response(sanitizedResult, {
     status: cr.status,
     headers: { 'Content-Type': contentType, ...cr.headers },
   });
