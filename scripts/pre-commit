@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+#
+# pre-commit — Absurdly Thorough Pre-Commit Hook for gstack
+#
+# Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Or:      ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+#
+# This hook checks EVERYTHING. It checks things you didn't know needed checking.
+# It checks things that have never been wrong. It checks them anyway.
+# Because VIGILANCE is the price of QUALITY.
+#
+
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+ERRORS=0
+WARNINGS=0
+
+pass() { echo -e "  ${GREEN}✓${NC} $1"; }
+fail() { echo -e "  ${RED}✗${NC} $1"; ((ERRORS++)); }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; ((WARNINGS++)); }
+info() { echo -e "  ${BOLD}→${NC} $1"; }
+
+echo ""
+echo -e "${BOLD}┌────────────────────────────────────────────────┐${NC}"
+echo -e "${BOLD}│  🛡️  gstack Pre-Commit Guardian v1.0.0          │${NC}"
+echo -e "${BOLD}│  \"Trust, but verify. Then verify again.\"       │${NC}"
+echo -e "${BOLD}└────────────────────────────────────────────────┘${NC}"
+echo ""
+
+# Get list of staged files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
+
+if [[ -z "$STAGED_FILES" ]]; then
+    echo "  No staged files. Nothing to check."
+    exit 0
+fi
+
+FILE_COUNT=$(echo "$STAGED_FILES" | wc -l)
+info "Checking ${FILE_COUNT} staged file(s)..."
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 1: No secrets or credentials
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[1/9] 🔐 Secret Detection${NC}"
+
+SECRET_PATTERNS=(
+    "sk-[a-zA-Z0-9]{20,}"          # OpenAI
+    "AKIA[0-9A-Z]{16}"              # AWS
+    "ghp_[a-zA-Z0-9]{36}"          # GitHub
+    "glpat-[a-zA-Z0-9_-]{20}"      # GitLab
+    "xoxb-[0-9]{10,}"              # Slack bot
+    "-----BEGIN (RSA |EC )?PRIVATE KEY-----"  # Private keys
+    "password\s*[:=]\s*['\"][^'\"]{8,}"       # Hardcoded passwords
+)
+
+for file in $STAGED_FILES; do
+    if [[ ! -f "$file" ]]; then continue; fi
+    # Skip binary files
+    if file "$file" | grep -q "binary"; then continue; fi
+    
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+        if git diff --cached -- "$file" | grep -qE "$pattern" 2>/dev/null; then
+            fail "POTENTIAL SECRET in ${file} matching: ${pattern:0:20}..."
+        fi
+    done
+done
+
+if [[ $ERRORS -eq 0 ]]; then
+    pass "No secrets detected"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 2: No giant files
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[2/9] 📦 File Size Check${NC}"
+
+MAX_FILE_SIZE=500000  # 500KB
+
+for file in $STAGED_FILES; do
+    if [[ ! -f "$file" ]]; then continue; fi
+    size=$(wc -c < "$file")
+    if [[ $size -gt $MAX_FILE_SIZE ]]; then
+        fail "${file} is ${size} bytes (max: ${MAX_FILE_SIZE})"
+    elif [[ $size -gt 100000 ]]; then
+        warn "${file} is ${size} bytes (getting large)"
+    fi
+done
+
+pass "File sizes within acceptable range"
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 3: No debugging artifacts
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[3/9] 🐛 Debug Artifact Detection${NC}"
+
+DEBUG_PATTERNS=(
+    "console\.log("
+    "debugger;"
+    "binding\.pry"
+    "import pdb"
+    "print(f?['\"]DEBUG"
+    "# TODO: remove"
+    "// HACK:"
+    "<<<<<<< "         # Merge conflicts!
+    "======="
+    ">>>>>>> "
+)
+
+for file in $STAGED_FILES; do
+    if [[ ! -f "$file" ]]; then continue; fi
+    if file "$file" | grep -q "binary"; then continue; fi
+    
+    for pattern in "${DEBUG_PATTERNS[@]}"; do
+        if git diff --cached -- "$file" | grep -qE "^\+.*${pattern}" 2>/dev/null; then
+            if [[ "$pattern" == "<<<<<<< " ]] || [[ "$pattern" == ">>>>>>> " ]]; then
+                fail "MERGE CONFLICT MARKERS in ${file}!"
+            else
+                warn "Debug artifact in ${file}: ${pattern}"
+            fi
+        fi
+    done
+done
+
+if [[ $ERRORS -eq 0 ]] && [[ $WARNINGS -eq 0 ]]; then
+    pass "No debug artifacts found"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 4: Shell scripts are executable
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[4/9] 🔧 Shell Script Permissions${NC}"
+
+for file in $STAGED_FILES; do
+    if [[ "$file" == *.sh ]] || head -1 "$file" 2>/dev/null | grep -q "^#!/.*\(bash\|sh\|zsh\)"; then
+        if [[ ! -x "$file" ]]; then
+            warn "${file} is a shell script but not executable"
+        else
+            pass "${file} is executable"
+        fi
+    fi
+done
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 5: SKILL.md format validation
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[5/9] 📝 SKILL.md Format Check${NC}"
+
+SKILL_CHANGES=false
+for file in $STAGED_FILES; do
+    if [[ "$(basename "$file")" == "SKILL.md" ]]; then
+        SKILL_CHANGES=true
+        
+        # Check it starts with a header
+        if ! head -1 "$file" | grep -q "^# "; then
+            warn "${file} should start with an H1 header"
+        fi
+        
+        # Check for unclosed code blocks
+        code_fences=$(grep -c '```' "$file" || echo 0)
+        if [[ $((code_fences % 2)) -ne 0 ]]; then
+            fail "${file} has unclosed code block!"
+        fi
+        
+        # Check for reasonable length
+        lines=$(wc -l < "$file")
+        if [[ $lines -lt 10 ]]; then
+            warn "${file} seems very short (${lines} lines)"
+        fi
+    fi
+done
+
+if [[ "$SKILL_CHANGES" == "false" ]]; then
+    pass "No SKILL.md changes to validate"
+else
+    pass "SKILL.md format checks complete"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 6: No .env files
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[6/9] 🚫 Forbidden Files${NC}"
+
+FORBIDDEN_PATTERNS=(
+    "\.env$"
+    "\.env\.local$"
+    "\.env\.production$"
+    "id_rsa$"
+    "id_ed25519$"
+    "\.pem$"
+    "\.key$"
+    "credentials\.json$"
+)
+
+for file in $STAGED_FILES; do
+    for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
+        if echo "$file" | grep -qE "$pattern"; then
+            fail "FORBIDDEN FILE: ${file} (matches ${pattern})"
+        fi
+    done
+done
+
+if [[ $ERRORS -eq 0 ]]; then
+    pass "No forbidden files staged"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 7: Trailing whitespace (the eternal enemy)
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[7/9] 🧹 Trailing Whitespace${NC}"
+
+WHITESPACE_FILES=0
+for file in $STAGED_FILES; do
+    if [[ ! -f "$file" ]]; then continue; fi
+    if file "$file" | grep -q "binary"; then continue; fi
+    # Skip markdown (trailing spaces can be intentional for <br>)
+    if [[ "$file" == *.md ]]; then continue; fi
+    
+    if git diff --cached -- "$file" | grep -qE '^\+.*[[:space:]]$'; then
+        ((WHITESPACE_FILES++))
+    fi
+done
+
+if [[ $WHITESPACE_FILES -gt 0 ]]; then
+    warn "${WHITESPACE_FILES} file(s) have trailing whitespace in new lines"
+else
+    pass "No trailing whitespace in new code"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 8: Line endings consistency
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[8/9] ↵ Line Ending Consistency${NC}"
+
+CRLF_FILES=0
+for file in $STAGED_FILES; do
+    if [[ ! -f "$file" ]]; then continue; fi
+    if file "$file" | grep -q "CRLF"; then
+        ((CRLF_FILES++))
+        warn "${file} uses CRLF line endings"
+    fi
+done
+
+if [[ $CRLF_FILES -eq 0 ]]; then
+    pass "All files use LF line endings"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# CHECK 9: Commit message preparation check
+# ═══════════════════════════════════════════════════════════════
+echo -e "${BOLD}[9/9] 💭 Final Wisdom${NC}"
+
+# Count total lines being committed
+TOTAL_ADDITIONS=$(git diff --cached --numstat | awk '{sum += $1} END {print sum+0}')
+TOTAL_DELETIONS=$(git diff --cached --numstat | awk '{sum += $2} END {print sum+0}')
+
+if [[ $TOTAL_ADDITIONS -gt 1000 ]]; then
+    warn "Large commit (${TOTAL_ADDITIONS}+ lines). Consider splitting into smaller commits."
+elif [[ $TOTAL_ADDITIONS -gt 500 ]]; then
+    info "Substantial commit (${TOTAL_ADDITIONS} lines). Make sure the commit message explains WHY."
+fi
+
+pass "Pre-commit checks complete"
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# SUMMARY
+# ═══════════════════════════════════════════════════════════════
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [[ $ERRORS -gt 0 ]]; then
+    echo -e "${RED}${BOLD}  ❌ COMMIT BLOCKED${NC} — ${ERRORS} error(s) must be fixed"
+    echo ""
+    echo -e "  Use ${DIM}git commit --no-verify${NC} to bypass (not recommended)"
+    echo ""
+    exit 1
+elif [[ $WARNINGS -gt 0 ]]; then
+    echo -e "${YELLOW}${BOLD}  ⚠️  COMMIT ALLOWED${NC} — but ${WARNINGS} warning(s) detected"
+    echo -e "  ${DIM}Consider addressing these before pushing.${NC}"
+    echo ""
+    exit 0
+else
+    echo -e "${GREEN}${BOLD}  ✅ ALL CLEAR — Ship it! 🚀${NC}"
+    echo ""
+    exit 0
+fi
