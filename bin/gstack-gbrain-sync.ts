@@ -241,6 +241,52 @@ function gbrainAvailable(): boolean {
   }
 }
 
+/**
+ * gbrain auto-loads `.env.local` from cwd via dotenv. When this orchestrator
+ * runs inside a Next.js / Prisma / Rails project whose .env.local defines its
+ * own DATABASE_URL (pointing at the app's DB), gbrain picks that up instead of
+ * its own `~/.gbrain/config.json` connection URL. Auth fails, code + memory
+ * stages crash. brain-sync survives because it only does git push.
+ *
+ * Fix: read ~/.gbrain/config.json once and build a child-env dict with the
+ * correct DATABASE_URL. Pass `env: gbrainEnv` to every gbrain spawn. gbrain's
+ * own dotenv-load respects pre-set env (override=false), so the explicit value
+ * beats .env.local.
+ *
+ * Important Bun caveat: mutating `process.env.DATABASE_URL` at runtime does
+ * NOT propagate to children of `child_process.spawnSync` — Bun's child gets
+ * the original startup env. So we cannot just set process.env; we must thread
+ * an explicit env dict to every spawn. lib/gbrain-sources.ts already accepts
+ * an `env` option for exactly this reason.
+ *
+ * Escape hatch: GSTACK_RESPECT_ENV_DATABASE_URL=1 returns process.env
+ * unchanged (e.g., when intentionally syncing a brain that lives in the
+ * project's local DB).
+ */
+function buildGbrainEnv(quiet: boolean): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = { ...process.env };
+  if (process.env.GSTACK_RESPECT_ENV_DATABASE_URL === "1") return base;
+  const configPath = join(HOME, ".gbrain", "config.json");
+  if (!existsSync(configPath)) return base;
+  let cfg: { database_url?: string } = {};
+  try {
+    cfg = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch {
+    return base;
+  }
+  if (!cfg.database_url) return base;
+  if (base.DATABASE_URL === cfg.database_url) return base;
+  const had = base.DATABASE_URL !== undefined;
+  base.DATABASE_URL = cfg.database_url;
+  if (!quiet) {
+    console.error(
+      `[gbrain-sync] seeded DATABASE_URL from ~/.gbrain/config.json` +
+      (had ? " (overrode value from caller env / .env.local)" : "")
+    );
+  }
+  return base;
+}
+
 // ── Lock file (D1) ─────────────────────────────────────────────────────────
 
 interface LockInfo {
@@ -290,7 +336,7 @@ function releaseLock(): void {
 
 // ── Stage runners ──────────────────────────────────────────────────────────
 
-async function runCodeImport(args: CliArgs): Promise<StageResult> {
+async function runCodeImport(args: CliArgs, env: NodeJS.ProcessEnv): Promise<StageResult> {
   const t0 = Date.now();
   const root = repoRoot();
   if (!root) {
@@ -327,6 +373,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       encoding: "utf-8",
       timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
+      env,
     });
     // Treat absent-source as success (clean state). gbrain emits "not found" on
     // missing id; treat any non-zero exit without "not found" as a soft fail.
@@ -337,7 +384,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // no synchronous duplicate here (per /codex review #12).
   let registered = false;
   try {
-    const result = await ensureSourceRegistered(sourceId, root, { federated: true });
+    const result = await ensureSourceRegistered(sourceId, root, { federated: true, env });
     registered = result.changed;
   } catch (err) {
     return {
@@ -358,6 +405,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const syncResult = spawnSync("gbrain", syncArgs, {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 35 * 60 * 1000,
+    env,
   });
 
   if (syncResult.status !== 0) {
@@ -385,8 +433,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     timeout: 10_000,
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
+    env,
   });
-  const pageCount = sourcePageCount(sourceId);
+  const pageCount = sourcePageCount(sourceId, env);
   const legacyNote = legacyRemoved ? `, removed legacy ${legacyId}` : "";
   const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
 
@@ -424,7 +473,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   };
 }
 
-function runMemoryIngest(args: CliArgs): StageResult {
+function runMemoryIngest(args: CliArgs, env: NodeJS.ProcessEnv): StageResult {
   const t0 = Date.now();
 
   if (args.mode === "dry-run") {
@@ -440,6 +489,7 @@ function runMemoryIngest(args: CliArgs): StageResult {
   const result = spawnSync("bun", ingestArgs, {
     encoding: "utf-8",
     timeout: 35 * 60 * 1000,
+    env,
   });
 
   // D6: parse [memory-ingest] lines from the child's stderr. ERR-prefixed
@@ -469,7 +519,7 @@ function runMemoryIngest(args: CliArgs): StageResult {
   };
 }
 
-function runBrainSyncPush(args: CliArgs): StageResult {
+function runBrainSyncPush(args: CliArgs, env: NodeJS.ProcessEnv): StageResult {
   const t0 = Date.now();
 
   if (args.mode === "dry-run") {
@@ -484,10 +534,12 @@ function runBrainSyncPush(args: CliArgs): StageResult {
   spawnSync(brainSyncPath, ["--discover-new"], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 60 * 1000,
+    env,
   });
   const result = spawnSync(brainSyncPath, ["--once"], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 60 * 1000,
+    env,
   });
 
   return {
@@ -550,6 +602,8 @@ function formatStage(s: StageResult): string {
 async function main(): Promise<void> {
   const args = parseArgs();
 
+  const gbrainEnv = buildGbrainEnv(args.quiet);
+
   if (!args.quiet) {
     const engine = detectEngineTier();
     console.error(`[gbrain-sync] mode=${args.mode} engine=${engine.engine}`);
@@ -581,13 +635,13 @@ async function main(): Promise<void> {
     const stages: StageResult[] = [];
 
     if (!args.noCode) {
-      stages.push(await withErrorContext("sync:code", () => runCodeImport(args), "gstack-gbrain-sync"));
+      stages.push(await withErrorContext("sync:code", () => runCodeImport(args, gbrainEnv), "gstack-gbrain-sync"));
     }
     if (!args.noMemory) {
-      stages.push(await withErrorContext("sync:memory", () => runMemoryIngest(args), "gstack-gbrain-sync"));
+      stages.push(await withErrorContext("sync:memory", () => runMemoryIngest(args, gbrainEnv), "gstack-gbrain-sync"));
     }
     if (!args.noBrainSync) {
-      stages.push(await withErrorContext("sync:brain-sync", () => runBrainSyncPush(args), "gstack-gbrain-sync"));
+      stages.push(await withErrorContext("sync:brain-sync", () => runBrainSyncPush(args, gbrainEnv), "gstack-gbrain-sync"));
     }
 
     if (args.mode !== "dry-run") {
