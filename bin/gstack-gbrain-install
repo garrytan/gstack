@@ -131,9 +131,24 @@ if $DRY_RUN; then
 fi
 
 # --- install + link ---
+# On Windows MSYS/Cygwin shells, bun's postinstall scripts (notably gbrain's
+# native-bindings setup) fail to parse path arguments correctly and abort
+# `bun install` with a non-zero exit. The package itself installs fine
+# without scripts, so detect Windows and pass --ignore-scripts there. The
+# `bun link` step below is unaffected.
+IS_WINDOWS=0
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
+esac
+
 if ! $VALIDATE_ONLY; then
-  log "running bun install in $INSTALL_DIR"
-  ( cd "$INSTALL_DIR" && bun install --silent )
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    log "running bun install --ignore-scripts in $INSTALL_DIR (Windows shell detected)"
+    ( cd "$INSTALL_DIR" && bun install --silent --ignore-scripts )
+  else
+    log "running bun install in $INSTALL_DIR"
+    ( cd "$INSTALL_DIR" && bun install --silent )
+  fi
   log "running bun link in $INSTALL_DIR"
   ( cd "$INSTALL_DIR" && bun link --silent )
 fi
