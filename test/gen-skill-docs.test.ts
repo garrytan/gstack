@@ -2275,6 +2275,19 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
   });
 
+  test('Hermes host banner is explicit that setup is not an installer', () => {
+    const hermesStart = setupContent.indexOf('  hermes)');
+    const hermesEnd = setupContent.indexOf('  gbrain)', hermesStart);
+    expect(hermesStart).toBeGreaterThan(-1);
+    expect(hermesEnd).toBeGreaterThan(hermesStart);
+
+    const hermesBlock = setupContent.slice(hermesStart, hermesEnd);
+    expect(hermesBlock).toContain('./setup --host hermes does not install files into Hermes today.');
+    expect(hermesBlock).toContain('It only prints integration instructions.');
+    expect(hermesBlock).toContain('bun run gen:skill-docs --host hermes');
+    expect(hermesBlock).toContain('This writes .hermes/skills/ in this checkout.');
+  });
+
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');

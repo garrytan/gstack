@@ -71,12 +71,17 @@ case "$HOST" in
     exit 0 ;;
   hermes)
     echo ""
-    echo "Hermes integration uses the same model as OpenClaw — Hermes spawns"
+    echo "Hermes integration uses the same model as OpenClaw: Hermes spawns"
     echo "Claude Code sessions, and gstack provides methodology artifacts."
+    echo ""
+    echo "./setup --host hermes does not install files into Hermes today."
+    echo "It only prints integration instructions."
     echo ""
     echo "To integrate gstack with Hermes:"
     echo "  1. Tell your Hermes agent: 'install gstack for hermes'"
-    echo "  2. Or generate artifacts: bun run gen:skill-docs --host hermes"
+    echo "  2. Or generate reviewable artifacts locally:"
+    echo "     bun run gen:skill-docs --host hermes"
+    echo "     This writes .hermes/skills/ in this checkout."
     echo ""
     exit 0 ;;
   gbrain)
