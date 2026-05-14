@@ -42,6 +42,12 @@ test('PRICING table covers the key model families', () => {
   expect(PRICING['claude-sonnet-4-6']).toBeDefined();
   expect(PRICING['gpt-5.4']).toBeDefined();
   expect(PRICING['gemini-2.5-pro']).toBeDefined();
+  expect(PRICING['qwen2.5-coder:7b']).toBeDefined();
+});
+
+test('Ollama models are priced at $0 (local inference)', () => {
+  expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'qwen2.5-coder:7b')).toBe(0);
+  expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'llama3.2:3b')).toBe(0);
 });
 
 test('missingTools reports unsupported tools per provider', () => {
@@ -51,12 +57,15 @@ test('missingTools reports unsupported tools per provider', () => {
   expect(missingTools('claude', ['Edit', 'Glob', 'Grep', 'Bash', 'Read'])).toEqual([]);
   // Gemini has very limited agentic surface
   expect(missingTools('gemini', ['Bash', 'Edit'])).toEqual(['Bash', 'Edit']);
+  // Ollama /api/generate has zero agentic surface — every tool is unsupported
+  expect(missingTools('ollama', ['Read', 'Bash', 'Edit'])).toEqual(['Read', 'Bash', 'Edit']);
 });
 
-test('TOOL_COMPATIBILITY is populated for all three families', () => {
+test('TOOL_COMPATIBILITY is populated for all four families', () => {
   expect(TOOL_COMPATIBILITY.claude).toBeDefined();
   expect(TOOL_COMPATIBILITY.gpt).toBeDefined();
   expect(TOOL_COMPATIBILITY.gemini).toBeDefined();
+  expect(TOOL_COMPATIBILITY.ollama).toBeDefined();
 });
 
 test('formatTable handles a report with mixed success/error/unavailable entries', () => {

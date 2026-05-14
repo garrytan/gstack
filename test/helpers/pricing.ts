@@ -32,6 +32,13 @@ export const PRICING: Record<string, ModelPricing> = {
   // Google
   'gemini-2.5-pro':     { input_per_mtok: 1.25,  output_per_mtok: 5.00,  as_of: '2026-04' },
   'gemini-2.5-flash':   { input_per_mtok: 0.30,  output_per_mtok: 1.20,  as_of: '2026-04' },
+
+  // Ollama (local inference — no API cost). Entries exist so estimateCostUsd
+  // returns 0 without emitting a "no pricing" WARN. If you ever run Ollama
+  // against a paid GPU host, override the rates per-model here.
+  'qwen2.5-coder:7b':   { input_per_mtok: 0,     output_per_mtok: 0,     as_of: '2026-04' },
+  'llama3.2:3b':        { input_per_mtok: 0,     output_per_mtok: 0,     as_of: '2026-04' },
+  'nomic-embed-text':   { input_per_mtok: 0,     output_per_mtok: 0,     as_of: '2026-04' },
 };
 
 const WARNED = new Set<string>();

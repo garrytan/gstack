@@ -147,6 +147,23 @@ describe('gstack-model-benchmark --dry-run', () => {
     // Summary truncates to 80 chars + ellipsis
     expect(r.stdout).toMatch(/prompt:\s+x{80}…/);
   });
+
+  test('ollama is accepted in --models whitelist', () => {
+    const r = run(['--prompt', 'hi', '--models', 'claude,ollama', '--dry-run']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('providers:  claude, ollama');
+    // Ollama adapter must appear in availability section with OK or NOT READY
+    expect(r.stdout).toMatch(/ollama:\s+(OK|NOT READY)/);
+    // Stderr must NOT contain the unknown-provider warning for ollama
+    expect(r.stderr).not.toContain("unknown provider 'ollama'");
+  });
+
+  test('valid provider list in WARN message includes ollama', () => {
+    const r = run(['--prompt', 'hi', '--models', 'fake-provider', '--dry-run']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('ollama');
+    expect(r.stderr).toContain('Valid:');
+  });
 });
 
 describe('gstack-model-benchmark prompt resolution', () => {
