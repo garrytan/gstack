@@ -134,6 +134,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `disconnect`: Disconnect headed browser, return to headless mode
 - `focus [@ref]`: Bring headed browser window to foreground (macOS)
 - `handoff [message]`: Open visible Chrome at current page for user takeover
+- `record start [path] [--size WxH]  |  record stop  |  record status`: Record video of browser activity to .webm.
 - `restart`: Restart server
 - `resume`: Re-snapshot after user takeover, return control to AI
 - `state save|load <name>`: Save/load browser state (cookies + URLs)
