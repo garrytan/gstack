@@ -20,6 +20,25 @@ import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
+import { resolveChromiumProfile, cleanSingletonLocks } from './config';
+
+/**
+ * Detect whether GSTACK_CHROMIUM_PATH points at a custom Chromium build that
+ * already bakes the gstack extension in as a component extension (e.g.,
+ * GStack Browser.app / GBrowser). Passing --load-extension against such a
+ * binary triggers a ServiceWorkerState::SetWorkerId DCHECK because two
+ * copies of the same service worker try to register.
+ *
+ * Resolution:
+ *   1. GSTACK_CHROMIUM_KIND === 'custom-extension-baked' (preferred, explicit)
+ *   2. GSTACK_CHROMIUM_PATH path substring contains 'GBrowser' or 'gbrowser'
+ *      (fallback for callers that only set the path)
+ */
+export function isCustomChromium(): boolean {
+  if (process.env.GSTACK_CHROMIUM_KIND === 'custom-extension-baked') return true;
+  const p = process.env.GSTACK_CHROMIUM_PATH || '';
+  return p.includes('GBrowser') || p.includes('gbrowser');
+}
 
 export type { RefEntry };
 
@@ -283,9 +302,17 @@ export class BrowserManager {
       '--disable-blink-features=AutomationControlled',
     ];
     if (extensionPath) {
-      launchArgs.push(`--disable-extensions-except=${extensionPath}`);
-      launchArgs.push(`--load-extension=${extensionPath}`);
-      // Write auth token for extension bootstrap.
+      // Skip --load-extension when running against a custom Chromium build
+      // that already bakes the extension in as a component extension
+      // (gbrowser / GStack Browser.app). Loading it twice causes a
+      // ServiceWorkerState::SetWorkerId DCHECK crash.
+      if (!isCustomChromium()) {
+        launchArgs.push(`--disable-extensions-except=${extensionPath}`);
+        launchArgs.push(`--load-extension=${extensionPath}`);
+      }
+      // Write auth token for extension bootstrap (still required even when
+      // the extension is component-baked — it reads ~/.gstack/.auth.json at
+      // startup to learn how to call the daemon).
       // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
       // in .app bundles and breaks codesigning).
       if (authToken) {
@@ -308,8 +335,16 @@ export class BrowserManager {
     // so we use Playwright's bundled Chromium which reliably loads extensions.
     const fs = require('fs');
     const path = require('path');
-    const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+    const userDataDir = resolveChromiumProfile();
     fs.mkdirSync(userDataDir, { recursive: true });
+
+    // Pre-launch cleanup of stale SingletonLock/Socket/Cookie. Chromium's
+    // ProcessSingleton refuses to start when these exist from a prior crash
+    // (SIGKILL, hard crash) — the lockfiles point at a PID that may no longer
+    // exist. Shutdown cleanup doesn't run on hard crashes, so we clean here
+    // too. Safe under external coordination: gbd.lock for gbrowser,
+    // single-instance CLI check for gstack.
+    cleanSingletonLocks(userDataDir);
 
     // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
     // Used by GStack Browser.app to point at the bundled Chromium.

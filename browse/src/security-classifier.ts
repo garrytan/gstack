@@ -500,17 +500,9 @@ export async function checkTranscript(params: {
     // timeout rate in the v1.5.2.0 ensemble bench because of this, plus
     // ~44k cache_creation tokens per call (massive cost inflation).
     // Using os.tmpdir() gives Haiku a clean context for pure classification.
-    const claude = resolveClaudeCommand();
-    if (!claude) {
-      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: 'claude_cli_not_found' } });
-    }
-    const p = spawn(claude.command, [
-      ...claude.argsPrefix,
-      '-p', prompt,
-      '--model', HAIKU_MODEL,
-      '--output-format', 'json',
-    ], { stdio: ['ignore', 'pipe', 'pipe'], cwd: os.tmpdir() });
-
+    // TDZ fix: declare `finish` BEFORE `resolveClaudeCommand` so the early
+    // return at the !claude guard below doesn't ReferenceError. Triggered
+    // only when claude CLI is missing from PATH (dormant otherwise).
     let stdout = '';
     let done = false;
     const finish = (signal: LayerSignal) => {
@@ -518,6 +510,30 @@ export async function checkTranscript(params: {
       done = true;
       resolve(signal);
     };
+
+    // Wrap resolveClaudeCommand + spawn in try/catch so any unexpected
+    // throw (PATH probe failure, transient FS error) degrades gracefully
+    // instead of rejecting the Promise with a raw exception.
+    let claude: ReturnType<typeof resolveClaudeCommand>;
+    try {
+      claude = resolveClaudeCommand();
+    } catch (err: any) {
+      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: `resolve_error_${err?.message ?? 'unknown'}` } });
+    }
+    if (!claude) {
+      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: 'claude_cli_not_found' } });
+    }
+    let p: ReturnType<typeof spawn>;
+    try {
+      p = spawn(claude.command, [
+        ...claude.argsPrefix,
+        '-p', prompt,
+        '--model', HAIKU_MODEL,
+        '--output-format', 'json',
+      ], { stdio: ['ignore', 'pipe', 'pipe'], cwd: os.tmpdir() });
+    } catch (err: any) {
+      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: `spawn_throw_${err?.message ?? 'unknown'}` } });
+    }
 
     p.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
     p.on('exit', (code) => {

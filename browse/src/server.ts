@@ -35,7 +35,7 @@ import {
   isRootToken, checkConnectRateLimit, type TokenInfo,
 } from './token-registry';
 import { validateTempPath } from './path-security';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
 import { initAuditLog, writeAuditEntry } from './audit';
 import { inspectElement, modifyStyle, resetModifications, getModificationHistory, detachSession, type InspectorResult } from './cdp-inspector';
@@ -65,7 +65,23 @@ ensureStateDir(config);
 initAuditLog(config.auditLog);
 
 // ─── Auth ───────────────────────────────────────────────────────
-const AUTH_TOKEN = crypto.randomUUID();
+// AUTH_TOKEN is injectable via process.env.AUTH_TOKEN so embedders
+// (gbrowser's gbd daemon spawn) can pre-allocate the token and hand it to
+// the Bun child via env.
+//
+// Validation: require >= 16 chars after stripping ALL unicode whitespace
+// (not just ASCII — .trim() misses U+200B / U+FEFF / U+00A0 / etc., which
+// would otherwise let a misconfigured embedder ship a one-character BOM as
+// the bearer secret). Reject tokens that are too short or contain only
+// whitespace; fall back to randomUUID so the security boundary is never
+// silently weakened by misconfiguration.
+function sanitizeAuthToken(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const stripped = raw.replace(/[\s ​-‍﻿]/g, '');
+  if (stripped.length < 16) return null;
+  return stripped;
+}
+const AUTH_TOKEN = sanitizeAuthToken(process.env.AUTH_TOKEN) || crypto.randomUUID();
 initRegistry(AUTH_TOKEN);
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
@@ -96,6 +112,93 @@ let tunnelServer: ReturnType<typeof Bun.serve> | null = null; // tunnel HTTP lis
 
 /** Which HTTP listener accepted this request. */
 export type Surface = 'local' | 'tunnel';
+
+/**
+ * Factory contract for embedders (gbrowser phoenix overlay).
+ *
+ * Today the CLI calls `start()` which reads env vars and binds Bun.serve
+ * itself. Embedders building on this server as a submodule (gbrowser's
+ * fd-passing gbd architecture) need to inject auth + ports + a
+ * BrowserManager they pre-launched, and own the listener themselves.
+ *
+ * Status: v1 surfaces this type as documentation. AUTH_TOKEN env-injection
+ * is already live (see ~L70). `start()` is exported and the kickoff /
+ * signal-handler registration is gated on `import.meta.main`, so phoenix
+ * can `import { start } from '.../server'` without auto-starting. Full
+ * `buildFetchHandler` extraction lands in a follow-up; see plan
+ * `/Users/garrytan/.claude/plans/system-instruction-you-are-working-swirling-fountain.md`
+ * Part 1.
+ */
+export interface ServerConfig {
+  /** Bearer token clients must present. Today injected via AUTH_TOKEN env. */
+  authToken: string;
+  /** Local listener port. Used in /welcome URL + state-file. */
+  browsePort: number;
+  /** Idle shutdown timeout. Default 30 min. */
+  idleTimeoutMs: number;
+  /** Result of resolveConfig() — stateDir, auditLog, stateFile. */
+  config: ReturnType<typeof resolveConfig>;
+  /** Pre-launched BrowserManager. Caller owns lifecycle. */
+  browserManager: BrowserManager;
+  /** Optional Chromium profile path override. Resolved by resolveChromiumProfile(). */
+  chromiumProfile?: string;
+  /** Caller-owned. shutdown() does NOT call xvfb.stop(); caller is responsible. */
+  xvfb?: XvfbHandle | null;
+  /** Caller-owned. shutdown() does NOT call proxyBridge.close(); caller is responsible. */
+  proxyBridge?: BridgeHandle | null;
+  startTime: number;
+  /**
+   * Overlay hook. Runs AFTER gstack resolves auth and BEFORE route dispatch.
+   * Invalid tokens are auto-rejected at the gstack layer (401 returned
+   * before hook fires), so the hook only ever sees valid TokenInfo or null
+   * (no token presented). Returning a Response short-circuits gstack
+   * dispatch; returning null falls through.
+   */
+  beforeRoute?: (req: Request, surface: Surface, auth: TokenInfo | null) => Promise<Response | null>;
+}
+
+/**
+ * Return shape of buildFetchHandler() — fetch handlers + lifecycle helpers
+ * embedders need to drive their own Bun.serve binding. See ServerConfig.
+ */
+export interface ServerHandle {
+  fetchLocal: (req: Request, server: any) => Promise<Response>;
+  fetchTunnel: (req: Request, server: any) => Promise<Response>;
+  /**
+   * Drains buffers, kills terminal-agent, closes browser, clears intervals,
+   * removes state files. Does NOT stop bound Bun.Server listeners — call
+   * stopListeners() for that. CLI relies on process.exit() to drop sockets.
+   */
+  shutdown: (exitCode?: number) => Promise<void>;
+  /**
+   * Graceful listener stop for embedders. Calls server.stop(true) on each
+   * passed Bun.Server. CLI doesn't need this (process.exit handles it).
+   */
+  stopListeners: (local: any, tunnel?: any) => Promise<void>;
+}
+
+/**
+ * Build a ServerConfig-shaped object from process.env. Used by gstack's
+ * own CLI when running `bun run dev` or the compiled binary directly.
+ * Embedders construct their own ServerConfig explicitly.
+ *
+ * Reads env, calls resolveConfig(). Does NOT bind a listener or call
+ * initAuditLog/initRegistry — those happen inside the buildFetchHandler
+ * lifecycle.
+ */
+export function resolveConfigFromEnv(): Omit<ServerConfig, 'browserManager' | 'startTime'> & {
+  config: ReturnType<typeof resolveConfig>;
+} {
+  return {
+    // Same sanitizer as the module-level AUTH_TOKEN: strips ALL unicode
+    // whitespace and rejects tokens shorter than 16 chars so a misconfigured
+    // embedder can't ship a BOM/zero-width as the bearer secret.
+    authToken: sanitizeAuthToken(process.env.AUTH_TOKEN) || crypto.randomUUID(),
+    browsePort: parseInt(process.env.BROWSE_PORT || '0', 10),
+    idleTimeoutMs: parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10),
+    config: resolveConfig(),
+  };
+}
 
 /**
  * Paths reachable over the tunnel surface. Everything else returns 404.
@@ -964,11 +1067,9 @@ async function shutdown(exitCode: number = 0) {
 
   await browserManager.close();
 
-  // Clean up Chromium profile locks (prevent SingletonLock on next launch)
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    safeUnlinkQuiet(path.join(profileDir, lockFile));
-  }
+  // Clean up Chromium profile locks (prevent SingletonLock on next launch).
+  // Defensive guard inside the helper refuses to clean unrecognized dirs.
+  cleanSingletonLocks(resolveChromiumProfile());
 
   // Clean up state file
   safeUnlinkQuiet(config.stateFile);
@@ -983,36 +1084,41 @@ async function shutdown(exitCode: number = 0) {
 // passed as exitCode and process.exit() coerces it to NaN, exiting with code 1
 // instead of 0. (Caught in v0.18.1.0 #1025.)
 //
-// SIGINT (Ctrl+C): user intentionally stopping → shutdown.
-process.on('SIGINT', () => shutdown());
-// SIGTERM behavior depends on mode:
-// - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
-//   parent shell exits between tool invocations. Ignoring it keeps the server
-//   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
-// - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
-//   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
-//   without waiting forever. Ctrl+C and /stop still work either way.
-// - Active cookie picker: never tear down mid-import regardless of mode —
-//   would strand the picker UI with "Failed to fetch."
-process.on('SIGTERM', () => {
-  if (hasActivePicker()) {
-    console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
-    return;
-  }
-  const headed = browserManager.getConnectionMode() === 'headed';
-  if (headed || tunnelActive) {
-    console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
-    shutdown();
-  } else {
-    console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
-  }
-});
-// Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
-// Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
-if (process.platform === 'win32') {
-  process.on('exit', () => {
-    safeUnlinkQuiet(config.stateFile);
+// Gated on `import.meta.main` so embedders (gbrowser phoenix) that import
+// server.ts as a submodule can register their own signal handlers without
+// fighting with gstack's. CLI path is unchanged.
+if (import.meta.main) {
+  // SIGINT (Ctrl+C): user intentionally stopping → shutdown.
+  process.on('SIGINT', () => shutdown());
+  // SIGTERM behavior depends on mode:
+  // - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
+  //   parent shell exits between tool invocations. Ignoring it keeps the server
+  //   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
+  // - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
+  //   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
+  //   without waiting forever. Ctrl+C and /stop still work either way.
+  // - Active cookie picker: never tear down mid-import regardless of mode —
+  //   would strand the picker UI with "Failed to fetch."
+  process.on('SIGTERM', () => {
+    if (hasActivePicker()) {
+      console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
+      return;
+    }
+    const headed = browserManager.getConnectionMode() === 'headed';
+    if (headed || tunnelActive) {
+      console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+      shutdown();
+    } else {
+      console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
+    }
   });
+  // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
+  // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
+  if (process.platform === 'win32') {
+    process.on('exit', () => {
+      safeUnlinkQuiet(config.stateFile);
+    });
+  }
 }
 
 // Emergency cleanup for crashes (OOM, uncaught exceptions, browser disconnect)
@@ -1044,26 +1150,37 @@ function emergencyCleanup() {
     }
   } catch { /* state file unparseable — fall through to lock + state cleanup */ }
 
-  // Clean Chromium profile locks
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    safeUnlinkQuiet(path.join(profileDir, lockFile));
-  }
+  // Clean Chromium profile locks via the shared helper (defensive guard
+  // refuses to operate on unrecognized profile dirs).
+  cleanSingletonLocks(resolveChromiumProfile());
   safeUnlinkQuiet(config.stateFile);
 }
-process.on('uncaughtException', (err) => {
-  console.error('[browse] FATAL uncaught exception:', err.message);
-  emergencyCleanup();
-  process.exit(1);
-});
-process.on('unhandledRejection', (err: any) => {
-  console.error('[browse] FATAL unhandled rejection:', err?.message || err);
-  emergencyCleanup();
-  process.exit(1);
-});
+// Same import.meta.main gate as SIGINT/SIGTERM — embedders register their
+// own crash handlers.
+if (import.meta.main) {
+  process.on('uncaughtException', (err) => {
+    console.error('[browse] FATAL uncaught exception:', err.message);
+    emergencyCleanup();
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (err: any) => {
+    console.error('[browse] FATAL unhandled rejection:', err?.message || err);
+    emergencyCleanup();
+    process.exit(1);
+  });
+}
 
 // ─── Start ─────────────────────────────────────────────────────
-async function start() {
+/**
+ * Entry point for `bun run dev` and the compiled binary.
+ *
+ * Exported so embedders (gbrowser phoenix overlay) can call it
+ * directly with env vars set, bypassing the module-level `import.meta.main`
+ * gate. Phoenix's eventual fd-passing path will use `buildFetchHandler`
+ * directly; until that lands, calling `start()` from a non-main entry is
+ * supported via env (AUTH_TOKEN, BROWSE_PORT, BROWSE_OWN_SIGNALS).
+ */
+export async function start() {
   // Clear old log files
   safeUnlink(CONSOLE_LOG_PATH);
   safeUnlink(NETWORK_LOG_PATH);
@@ -2273,16 +2390,21 @@ async function start() {
   }
 }
 
-start().catch((err) => {
-  console.error(`[browse] Failed to start: ${err.message}`);
-  // Write error to disk for the CLI to read — on Windows, the CLI can't capture
-  // stderr because the server is launched with detached: true, stdio: 'ignore'.
-  try {
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    mkdirSecure(config.stateDir);
-    writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
-  } catch {
-    // stateDir may not exist — nothing more we can do
-  }
-  process.exit(1);
-});
+// Auto-kickoff only when this module is the entry point. Embedders
+// (gbrowser phoenix overlay) import { start, buildFetchHandler, ... }
+// without triggering the listener-binding side effects.
+if (import.meta.main) {
+  start().catch((err) => {
+    console.error(`[browse] Failed to start: ${err.message}`);
+    // Write error to disk for the CLI to read — on Windows, the CLI can't capture
+    // stderr because the server is launched with detached: true, stdio: 'ignore'.
+    try {
+      const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+      mkdirSecure(config.stateDir);
+      writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
+    } catch {
+      // stateDir may not exist — nothing more we can do
+    }
+    process.exit(1);
+  });
+}

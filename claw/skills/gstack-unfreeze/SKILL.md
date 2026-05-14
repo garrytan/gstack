@@ -22,7 +22,8 @@ echo '{"skill":"unfreeze","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(bas
 ## Clear the boundary
 
 ```bash
-STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}"
+eval "$(~/.claw/skills/gstack/bin/gstack-paths)"
+STATE_DIR="$GSTACK_STATE_ROOT"
 if [ -f "$STATE_DIR/freeze-dir.txt" ]; then
   PREV=$(cat "$STATE_DIR/freeze-dir.txt")
   rm -f "$STATE_DIR/freeze-dir.txt"

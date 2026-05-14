@@ -323,6 +323,26 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
+12. **Non-ASCII characters — write directly, never \u-escape.** When any
+    string field (question, option label, option description) contains
+    Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
+    the literal UTF-8 characters in the JSON string. **Never escape them
+    as `\uXXXX`.** Claude Code's tool parameter pipe is UTF-8 native
+    and passes characters through unchanged. Manually escaping requires
+    recalling each codepoint from training, which is unreliable for long
+    CJK strings — the model regularly emits the wrong codepoint (e.g.
+    writes `\u3103` thinking it is 管 U+7BA1, but `\u3103` is
+    actually ㄃, so the user sees `管理工具` rendered as `㄃3用箱`).
+    The trigger is long, multi-line questions with hundreds of CJK
+    characters: that is exactly when reflexive escaping kicks in and
+    exactly when miscoding is most damaging. Long ≠ escape. Keep
+    characters literal.
+
+    Wrong: `"question": "請選擇\uXXXX\uXXXX\uXXXX\uXXXX"`
+    Right: `"question": "請選擇管理工具"`
+
+    Only JSON-mandatory escapes remain allowed: `\n`, `\t`, `\"`, `\\`.
+
 ### Self-check before emitting
 
 Before calling AskUserQuestion, verify:
@@ -335,6 +355,7 @@ Before calling AskUserQuestion, verify:
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
 - [ ] You are calling the tool, not writing prose
+- [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
 
 
 ## Artifacts Sync (skill start)
@@ -1047,9 +1068,9 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "qa testing bug regression flake fixture" --cross-project 2>/dev/null || true
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "qa testing bug regression flake fixture" 2>/dev/null || true
 fi
 ```
 
@@ -1404,6 +1425,20 @@ Sort all discovered issues by severity, then decide which to fix based on the se
 - **Exhaustive:** Fix all, including cosmetic/low severity.
 
 Mark issues that cannot be fixed from source code (e.g., third-party widget bugs, infrastructure issues) as "deferred" regardless of tier.
+
+### Refresh learnings for the component/page where the bug lives
+
+The top-of-skill learnings pull was keyed to "qa testing" broadly. Before the fix loop, re-pull learnings keyed to the component or page where the bug you're about to fix lives so prior fixes for the same component-shape surface.
+
+Pick ONE keyword that names the buggy component or page. The keyword should be a noun: the failing component name, the page route base, or the feature noun. The keyword MUST be alphanumeric or hyphen only — no quotes, slashes, dots, colons, or whitespace. If your candidate has any of those, simplify to just the alphanumeric stem.
+
+Worked examples (qa-specific): good keywords are `checkout-button`, `signup-form`, `payment`. Bad: `tests are failing`, `<failing-test>`, `app/views/_checkout.html.erb`.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+```
+
+If any learnings come back, name which one applies to the fix you're about to make in one sentence. If none come back, continue without reference — the absence is itself useful information.
 
 ---
 

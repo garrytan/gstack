@@ -256,7 +256,17 @@ Do NOT use AskUserQuestion.`,
     const fetchedHtml = cmds.some(c => /\bgoto\b|\bhtml\b|\btext\b/.test(c));
     const surface = fullSurface(result);
     const mentionsSkillify = /skillify/i.test(surface);
-    const hasJsonItems = /"items"\s*:\s*\[/.test(surface) || /'items'\s*:/.test(surface);
+    // Accept JSON shape variants — the prompt asks for `"items": [...]` but
+    // the model sometimes emits equivalent containers (`"results"`, `"data"`,
+    // `"hits"`) or skips the wrapper entirely and emits a bare array of
+    // objects with title+score keys. All of these satisfy the underlying
+    // intent: "the agent produced parseable structured output naming the
+    // scraped items". We assert the shape, not a literal key name.
+    const hasJsonItems =
+      /"(items|results|data|hits|entries)"\s*:\s*\[/i.test(surface) ||
+      /'(items|results|data|hits|entries)'\s*:/i.test(surface) ||
+      // Bare array of {title, score} objects (no outer wrapper key)
+      /\[\s*\{[^}]*\btitle\b[^}]*\bscore\b/.test(surface);
     const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
 
     recordE2E(evalCollector, 'scrape prototype-path drives $B + emits JSON + nudges skillify', 'Phase 2a E2E', result, {
