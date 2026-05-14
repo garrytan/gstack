@@ -81,6 +81,8 @@ function run(extraEnv: Record<string, string> = {}, input = ''): { code: number;
   return { code: r.status ?? -1, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
+const AUTO_MIGRATE = { GSTACK_AUTO_MIGRATE: '1' };
+
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-v1.27-'));
   fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-v1.27-fake-'));
@@ -120,7 +122,7 @@ describe('v1.27.0.0 migration — nothing to migrate', () => {
   });
 });
 
-describe('v1.27.0.0 migration — GitHub host (non-interactive)', () => {
+describe('v1.27.0.0 migration — GitHub host', () => {
   beforeEach(() => {
     fs.writeFileSync(
       path.join(tmpHome, '.gstack-brain-remote.txt'),
@@ -133,8 +135,20 @@ describe('v1.27.0.0 migration — GitHub host (non-interactive)', () => {
     makeFakeGh({});
   });
 
-  test('renames repo, mvs remote.txt, rewrites config key, writes done', () => {
+  test('non-interactive without explicit opt-in waits for user confirmation', () => {
     const r = run();
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain('waiting for user confirmation');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.pending-user-confirmation'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack-artifacts-remote.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(fakeBinDir, 'gh-calls.log'))).toBe(false);
+    const cfg = fs.readFileSync(path.join(tmpHome, '.gstack/config.yaml'), 'utf-8');
+    expect(cfg).toContain('gbrain_sync_mode: full');
+  });
+
+  test('explicit auto-migrate renames repo, mvs remote.txt, rewrites config key, writes done', () => {
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0);
     // gh rename was called (or edit fallback).
     const ghLog = fs.readFileSync(path.join(fakeBinDir, 'gh-calls.log'), 'utf-8');
@@ -154,7 +168,7 @@ describe('v1.27.0.0 migration — GitHub host (non-interactive)', () => {
   });
 
   test('idempotent: re-run after success is a no-op', () => {
-    run();
+    run(AUTO_MIGRATE);
     const r2 = run();
     expect(r2.code).toBe(0);
     expect(r2.stderr).toBe('');
@@ -162,9 +176,23 @@ describe('v1.27.0.0 migration — GitHub host (non-interactive)', () => {
 
   test('repo already renamed (gh repo view succeeds with new name) → no rename attempt', () => {
     makeFakeGh({ alreadyRenamed: true });
-    const r = run();
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0);
     expect(r.stderr).toContain('already named');
+  });
+
+  test('gh rename failure aborts before local state rewrite', () => {
+    makeFakeGh({ renameSucceeds: false });
+    const r = run(AUTO_MIGRATE);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('gh rename failed');
+    expect(r.stderr).toContain('Aborting before rewriting local artifact remote/config state');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack-brain-remote.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack-artifacts-remote.txt'))).toBe(false);
+    const cfg = fs.readFileSync(path.join(tmpHome, '.gstack/config.yaml'), 'utf-8');
+    expect(cfg).toContain('gbrain_sync_mode: full');
+    expect(cfg).not.toContain('artifacts_sync_mode: full');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(false);
   });
 });
 
@@ -183,7 +211,7 @@ describe('v1.27.0.0 migration — interruption resume', () => {
     fs.mkdirSync(migDir, { recursive: true });
     fs.writeFileSync(path.join(migDir, 'v1.27.0.0.journal'), 'gh_repo_renamed\nremote_txt_renamed\n');
 
-    const r = run();
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0);
     // gh should NOT have been called (step 1 already done).
     if (fs.existsSync(path.join(fakeBinDir, 'gh-calls.log'))) {
@@ -210,7 +238,7 @@ describe('v1.27.0.0 migration — remote-MCP mode (step 5 prints, never executes
     makeFakeGh({});
     makeFakeGbrain({}); // installed, but should NOT be called for sources commands
 
-    const r = run();
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0);
     expect(r.stderr).toContain('Remote MCP detected');
     expect(r.stderr).toContain('Send this to your brain admin');
@@ -235,7 +263,7 @@ describe('v1.27.0.0 migration — local CLI sources swap (codex Finding #6 order
     makeFakeGh({});
     makeFakeGbrain({ hasOldSource: true });
 
-    const r = run();
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0);
 
     const log = fs.readFileSync(path.join(fakeBinDir, 'gbrain-calls.log'), 'utf-8');
@@ -256,7 +284,7 @@ describe('v1.27.0.0 migration — local CLI sources swap (codex Finding #6 order
     makeFakeGh({});
     makeFakeGbrain({ addSucceeds: false });
 
-    const r = run();
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0); // step 5 warns, doesn't fail the migration
     expect(r.stderr).toContain('failed to add');
     const log = fs.readFileSync(path.join(fakeBinDir, 'gbrain-calls.log'), 'utf-8');
@@ -281,7 +309,7 @@ describe('v1.27.0.0 migration — CLAUDE.md block field rewrite', () => {
     fs.writeFileSync(path.join(tmpHome, 'CLAUDE.md'), claudeMd);
     makeFakeGh({});
 
-    const r = run();
+    const r = run(AUTO_MIGRATE);
     expect(r.code).toBe(0);
     const updated = fs.readFileSync(path.join(tmpHome, 'CLAUDE.md'), 'utf-8');
     expect(updated).toContain('- Artifacts sync: full');

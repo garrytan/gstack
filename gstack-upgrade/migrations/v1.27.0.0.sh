@@ -44,6 +44,7 @@ MIGRATION_DIR="${GSTACK_HOME}/.migrations"
 JOURNAL="${MIGRATION_DIR}/v1.27.0.0.journal"
 DONE="${MIGRATION_DIR}/v1.27.0.0.done"
 SKIPPED="${MIGRATION_DIR}/v1.27.0.0.skipped-by-user"
+PENDING="${MIGRATION_DIR}/v1.27.0.0.pending-user-confirmation"
 
 USER_NAME="${USER:-$(whoami 2>/dev/null || echo unknown)}"
 OLD_REPO_NAME="gstack-brain-${USER_NAME}"
@@ -121,17 +122,26 @@ EOF
       n|N|no|No|NO)
         echo "  Skipping migration. Re-run via /setup-gbrain --rerun-migration." >&2
         touch "$SKIPPED"
+        rm -f "$PENDING" 2>/dev/null || true
         exit 0
         ;;
       skip|skip-for-now|s)
         echo "  Skipping for now. Will ask again next upgrade." >&2
+        touch "$PENDING"
         # Don't write SKIPPED — leave both old + new state untouched, ask again next time.
         exit 0
         ;;
     esac
+    rm -f "$PENDING" 2>/dev/null || true
   else
-    # Non-interactive (CI, scripted upgrade): proceed automatically.
-    echo "  (non-interactive: proceeding automatically)" >&2
+    if [ "${GSTACK_AUTO_MIGRATE:-}" = "1" ]; then
+      echo "  (non-interactive: GSTACK_AUTO_MIGRATE=1, proceeding automatically)" >&2
+      rm -f "$PENDING" 2>/dev/null || true
+    else
+      echo "  (non-interactive: waiting for user confirmation; set GSTACK_AUTO_MIGRATE=1 to run automatically)" >&2
+      touch "$PENDING"
+      exit 0
+    fi
   fi
 fi
 
@@ -194,14 +204,15 @@ if ! journal_done "gh_repo_renamed"; then
             echo "    renamed on GitHub" >&2
             mark_done "gh_repo_renamed"
           else
-            echo "    WARNING: gh rename failed (repo may not exist or permission denied)" >&2
-            echo "    skipping step 1; subsequent steps still run" >&2
-            mark_done "gh_repo_renamed"
+            echo "    ERROR: gh rename failed (repo may not exist, permission denied, or confirmation unavailable)" >&2
+            echo "    Aborting before rewriting local artifact remote/config state." >&2
+            exit 1
           fi
         fi
       else
-        echo "    gh CLI not available — skipping rename step (manual: gh repo rename ...)" >&2
-        mark_done "gh_repo_renamed"
+        echo "    ERROR: gh CLI not available — cannot safely rename GitHub repo." >&2
+        echo "    Aborting before rewriting local artifact remote/config state." >&2
+        exit 1
       fi
       ;;
     gitlab)
@@ -211,19 +222,22 @@ if ! journal_done "gh_repo_renamed"; then
           mark_done "gh_repo_renamed"
         else
           # GitLab CLI doesn't have a direct rename; user has to do it via API.
-          echo "    glab repo rename isn't a single command on GitLab." >&2
+          echo "    ERROR: glab repo rename isn't a single command on GitLab." >&2
           echo "    Manual: visit your GitLab project Settings → General → Advanced → Rename" >&2
           echo "    or use: glab api projects/:id -X PUT -f name=$NEW_REPO_NAME -f path=$NEW_REPO_NAME" >&2
-          mark_done "gh_repo_renamed"
+          echo "    Aborting before rewriting local artifact remote/config state." >&2
+          exit 1
         fi
       else
-        echo "    glab not available — manual rename required" >&2
-        mark_done "gh_repo_renamed"
+        echo "    ERROR: glab not available — manual rename required" >&2
+        echo "    Aborting before rewriting local artifact remote/config state." >&2
+        exit 1
       fi
       ;;
     manual|*)
-      echo "    unknown host (not github/gitlab) — manual rename required" >&2
-      mark_done "gh_repo_renamed"
+      echo "    ERROR: unknown host (not github/gitlab) — manual rename required" >&2
+      echo "    Aborting before rewriting local artifact remote/config state." >&2
+      exit 1
       ;;
   esac
 fi
