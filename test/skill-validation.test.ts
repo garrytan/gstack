@@ -1346,14 +1346,20 @@ describe('Codex skill', () => {
     expect(content).toContain('mktemp');
   });
 
-  test('codex JSON stream parser uses portable Python discovery', () => {
+  test('codex JSON stream parser uses gstack-codex-jsonl-parser binary (issue #1329)', () => {
+    // Pattern 4 fix: inline python with #-comments replaced by standalone binary
+    // to avoid PreToolUse security hook triggers on multi-line python code blocks.
     const files = ['codex/SKILL.md.tmpl', 'codex/SKILL.md'];
 
     for (const rel of files) {
       const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).toContain('PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)');
-      expect(content).toContain('PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c');
+      // Standalone parser binary must be invoked for JSONL streaming
+      expect(content).toContain('gstack-codex-jsonl-parser');
+      // No inline python -u -c blocks (these triggered security hooks)
       expect(content).not.toContain('PYTHONUNBUFFERED=1 python3 -u -c');
+      expect(content).not.toContain('"$PYTHON_CMD" -u -c');
+      // Python availability check must use command -v (not hardcoded python3)
+      expect(content).toContain('command -v python3');
     }
   });
 
