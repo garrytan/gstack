@@ -53,7 +53,7 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
   try {
     stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
-      timeout: 10_000,
+      timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
       env,
     });
@@ -164,7 +164,7 @@ export function sourcePageCount(id: string, env?: NodeJS.ProcessEnv): number | n
   try {
     stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
-      timeout: 10_000,
+      timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
       env,
     });
