@@ -80,7 +80,7 @@ The hook reads `file_path` from the Edit/Write tool input JSON, then checks
 whether the path starts with the freeze directory. If not, it returns
 a `hookSpecificOutput` deny decision to block the operation.
 
-The hook is registered globally in `~/.claude/settings.json` by the gstack
+The hook is registered globally in Claude Code's settings by the gstack
 installer. It is a no-op when no freeze state file exists, so it does not
 interfere in sessions where `/freeze` has not been invoked. The freeze
 boundary persists via the state file; `/unfreeze` clears it.
