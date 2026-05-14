@@ -408,6 +408,24 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
+  // After a successful attach, ensure .gbrain-source is in the consumer repo's
+  // .gitignore. The v1.29.0.0 changelog promised this; the original patch only
+  // added it to gstack's own .gitignore, not the consuming repo's. Without this,
+  // `git add -A` in any Conductor sibling worktree can commit the pin and silently
+  // override other worktrees' per-worktree source IDs on next pull.
+  try {
+    const gitignorePath = join(root, ".gitignore");
+    let existing = "";
+    try { existing = readFileSync(gitignorePath, "utf-8"); } catch { /* will create */ }
+    if (!existing.split("\n").some((line) => line.trim() === ".gbrain-source")) {
+      const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+      writeFileSync(gitignorePath, existing + sep + ".gbrain-source\n");
+    }
+  } catch {
+    // Non-fatal — unwritable .gitignore (read-only checkout, weird perms) should
+    // not fail the stage. The user will need to add the entry manually.
+  }
+
   return {
     name: "code",
     ran: true,
