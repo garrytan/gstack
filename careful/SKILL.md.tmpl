@@ -35,6 +35,15 @@ mkdir -p ~/.gstack/analytics
 echo '{"skill":"careful","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 ```
 
+Activate the careful guard (writes the state file that check-careful.sh checks):
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+mkdir -p "$GSTACK_STATE_ROOT"
+touch "$GSTACK_STATE_ROOT/careful-active.txt"
+echo "CAREFUL_STATE: $GSTACK_STATE_ROOT/careful-active.txt"
+```
+
 ## What's protected
 
 | Pattern | Example | Risk |
@@ -59,4 +68,13 @@ The hook reads the command from the tool input JSON, checks it against the
 patterns above, and returns `permissionDecision: "ask"` with a warning message
 if a match is found. You can always override the warning and proceed.
 
-To deactivate, end the conversation or start a new one. Hooks are session-scoped.
+The hook is registered globally at install time but is a no-op unless
+`~/.gstack/careful-active.txt` exists. The file is created when `/careful` is
+invoked and deleted when the session ends or when the user explicitly removes it.
+
+To deactivate, run:
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+rm -f "$GSTACK_STATE_ROOT/careful-active.txt"
+echo "careful guardrails deactivated"
+```

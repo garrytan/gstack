@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 # check-freeze.sh — PreToolUse hook for /freeze skill
 # Reads JSON from stdin, checks if file_path is within the freeze boundary.
-# Returns {"permissionDecision":"deny","message":"..."} to block, or {} to allow.
+# Returns hookSpecificOutput with permissionDecision "deny" to block, or {} to allow.
 set -euo pipefail
 
 # Read stdin
 INPUT=$(cat)
 
-# Locate the freeze directory state file
-STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}"
+# Locate the freeze directory state file via gstack-paths for consistent resolution
+# across GSTACK_HOME / CLAUDE_PLUGIN_DATA / $HOME/.gstack fallback chain.
+_PATHS_BIN=""
+for _p in \
+    "${CLAUDE_SKILL_DIR:-}/../gstack/bin/gstack-paths" \
+    "$HOME/.claude/skills/gstack/bin/gstack-paths"; do
+  [ -x "$_p" ] && { _PATHS_BIN="$_p"; break; }
+done
+
+if [ -n "$_PATHS_BIN" ]; then
+  eval "$("$_PATHS_BIN" 2>/dev/null)" 2>/dev/null || true
+  STATE_DIR="${GSTACK_STATE_ROOT:-${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}}"
+else
+  STATE_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}"
+fi
+
 FREEZE_FILE="$STATE_DIR/freeze-dir.txt"
 
 # If no freeze file exists, allow everything (not yet configured)
@@ -74,6 +88,7 @@ case "$FILE_PATH" in
     mkdir -p ~/.gstack/analytics 2>/dev/null || true
     echo '{"event":"hook_fire","skill":"freeze","pattern":"boundary_deny","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
-    printf '{"permissionDecision":"deny","message":"[freeze] Blocked: %s is outside the freeze boundary (%s). Only edits within the frozen directory are allowed."}\n' "$FILE_PATH" "$FREEZE_DIR"
+    _REASON=$(printf '[freeze] Blocked: %s is outside the freeze boundary (%s). Only edits within the frozen directory are allowed.' "$FILE_PATH" "$FREEZE_DIR" | sed 's/"/\\"/g')
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$_REASON"
     ;;
 esac
