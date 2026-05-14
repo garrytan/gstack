@@ -824,6 +824,7 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 | Tier | Standard | `--quick`, `--exhaustive` |
 | Mode | full | `--regression .gstack/qa-reports/baseline.json` |
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
+| Evidence layout | flat (default) | `--evidence-per-finding`, `evidence per finding`, `one folder per bug` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
 | Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
 
@@ -1285,6 +1286,74 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 
 **Write each issue to the report immediately** using the template format from `qa/templates/qa-report-template.md`.
 
+#### Evidence layout: flat (default) vs per-finding
+
+By default, evidence files share one `screenshots/` directory and the report references them by filename (`issue-001-step-1.png`, etc). This stays compact and works well for 1-5 findings.
+
+When the run is invoked with **`--evidence-per-finding`**, switch to one folder per finding:
+
+```
+.gstack/qa-reports/
+└── qa-report-{domain}-{YYYY-MM-DD}/
+    ├── REPORT.md                          # top-level report (same content as flat mode)
+    ├── findings/
+    │   ├── 001-critical-checkout-500-on-submit/
+    │   │   ├── finding.md                 # severity + repro + env + expected/actual
+    │   │   ├── step-1.png                 # before action
+    │   │   ├── step-2.png                 # after action
+    │   │   ├── result.png                 # final state
+    │   │   └── repro.webm                 # OPTIONAL — present iff `$B record` was active
+    │   ├── 002-high-search-no-results/
+    │   │   └── ...
+    │   └── 003-low-cosmetic-spacing/
+    │       └── ...
+    └── baseline.json                       # unchanged
+```
+
+**finding.md** (per-finding) MUST have this shape:
+
+```markdown
+# {NNN}: {Title}
+
+**Severity:** critical / high / medium / low / cosmetic
+**Category:** functional / visual / ux / accessibility / performance / content / console / links
+**Page:** `<url>`
+**Detected:** {YYYY-MM-DD HH:mm} ({tier} mode)
+
+## What's wrong
+{one paragraph plain-language description}
+
+## Repro steps
+1. {step}
+2. {step} — see `step-1.png`
+3. {step} — see `step-2.png`
+
+## Expected vs actual
+- **Expected:** {what should happen}
+- **Actual:** {what does happen}
+
+## Environment
+- Browser: Chromium {version}
+- Viewport: {WxH}
+- Auth: {persona/cookie name or "none"}
+
+## Evidence
+- `step-1.png` — before the action
+- `step-2.png` — after the action
+- `result.png` — final state
+- `repro.webm` — full interactive repro (if recorded)
+```
+
+**When per-finding is the right call:**
+- Run produces ≥5 findings (the flat layout gets noisy past that).
+- Any finding is critical or high severity — those tickets travel further, need self-contained evidence.
+- An interactive bug needs video evidence — `record start` then `record stop` (Playwright `recordVideo`) writes a `.webm`; move it into the corresponding finding folder during Phase 6.
+- Findings will be handed off as Linear/Jira tickets — each folder zips into a self-contained attachment.
+
+**When per-finding is overkill:** quick smoke runs, 1-2 findings, regression-mode reruns where the baseline is the canonical artifact. Stick with the flat layout.
+
+Top-level `REPORT.md` content is identical between the two layouts; only the on-disk filing differs.
+
 ### Phase 6: Wrap Up
 
 1. **Compute health score** using the rubric below
@@ -1399,6 +1468,8 @@ Record baseline health score at end of Phase 6.
 
 ## Output Structure
 
+**Default (flat layout):**
+
 ```
 .gstack/qa-reports/
 ├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
@@ -1413,6 +1484,8 @@ Record baseline health score at end of Phase 6.
 ```
 
 Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
+
+**With `--evidence-per-finding`:** one folder per finding under a per-run report dir. Each folder is self-contained — `finding.md` plus step screenshots, fix before/after, and (if `$B record` was active) a `repro.webm`. See "Evidence layout: flat vs per-finding" in the Document phase below for the full structure and `finding.md` template.
 
 ---
 
