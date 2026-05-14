@@ -872,8 +872,13 @@ This keeps the skill working whether installed as a Claude Code plugin
 (`CLAUDE_PLANS_DIR` set), a global `~/.claude/skills/gstack/` install, or a CI
 container where `HOME` may be unset and `/tmp` may be read-only.
 
+`--get <key>` is preferred over `eval "$(...)"` here: the eval form trips Claude
+Code's bash AST parser (tilde inside `$()` inside double-quoted eval arg) and
+forces a manual confirmation on every run. Issue #1329 Pattern 2.
+
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+PLAN_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get plan-root)
+TMP_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get tmp-root)
 ```
 
 After this, every subsequent bash block in this skill uses `"$PLAN_ROOT"` and

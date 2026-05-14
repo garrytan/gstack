@@ -98,4 +98,61 @@ describe('gstack-paths', () => {
       expect(line).toMatch(/^[A-Z_]+=.*/);
     }
   });
+
+  // --- --get <key> CLI form (issue #1329 Pattern 2) ---
+
+  function runGet(env: Record<string, string | undefined>, args: string[]): { stdout: string; stderr: string; status: number } {
+    const r = spawnSync('bash', [BIN, ...args], {
+      env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
+      encoding: 'utf-8',
+    });
+    return { stdout: r.stdout || '', stderr: r.stderr || '', status: r.status ?? -1 };
+  }
+
+  describe('--get <key>', () => {
+    test('--get state-root prints just the resolved state root (no KEY= prefix)', () => {
+      const r = runGet({ HOME: '/tmp/myhome' }, ['--get', 'state-root']);
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe('/tmp/myhome/.gstack');
+      expect(r.stdout).not.toContain('=');
+    });
+
+    test('--get plan-root respects the GSTACK_PLAN_DIR override', () => {
+      const r = runGet({ GSTACK_PLAN_DIR: '/tmp/explicit', HOME: '/h' }, ['--get', 'plan-root']);
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe('/tmp/explicit');
+    });
+
+    test('--get tmp-root honors TMPDIR', () => {
+      const r = runGet({ TMPDIR: '/tmp/x', HOME: '/h' }, ['--get', 'tmp-root']);
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe('/tmp/x');
+    });
+
+    test('--get with unknown key exits 1 and explains', () => {
+      const r = runGet({ HOME: '/h' }, ['--get', 'bogus']);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("unknown key 'bogus'");
+    });
+
+    test('--get without a key exits 1', () => {
+      const r = runGet({ HOME: '/h' }, ['--get']);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('--get requires a key');
+    });
+
+    test('unknown top-level flag exits 1', () => {
+      const r = runGet({ HOME: '/h' }, ['--bogus']);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('unknown argument');
+    });
+
+    test('bare invocation stays backward-compatible (KEY=VALUE form)', () => {
+      const r = runGet({ HOME: '/tmp/h' }, []);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('GSTACK_STATE_ROOT=');
+      expect(r.stdout).toContain('PLAN_ROOT=');
+      expect(r.stdout).toContain('TMP_ROOT=');
+    });
+  });
 });

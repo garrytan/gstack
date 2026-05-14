@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # gstack-paths — output portable state-root paths for skill bash blocks
-# Usage: eval "$(gstack-paths)"  → sets GSTACK_STATE_ROOT, PLAN_ROOT, TMP_ROOT
-# Or:    gstack-paths            → prints GSTACK_STATE_ROOT=... etc.
+# Usage: eval "$(gstack-paths)"        → sets GSTACK_STATE_ROOT, PLAN_ROOT, TMP_ROOT
+#        gstack-paths                  → prints GSTACK_STATE_ROOT=... etc.
+#        gstack-paths --get <key>      → prints a single resolved path (no KEY= prefix)
+#                                         where <key> is state-root | plan-root | tmp-root
+#
+# The --get form was added so callers can use `PLAN_ROOT=$(gstack-paths --get plan-root)`
+# instead of `eval "$(gstack-paths)"`. The eval form trips Claude Code's PreToolUse
+# bash AST parser (tilde inside $() inside double-quoted eval arg = "Unhandled node
+# type: string"), forcing manual approval on every skill that needs portable roots.
+# See issue #1329 Pattern 2.
 #
 # Resolves three roots with explicit fallback chains so skills work the same
 # whether installed as a Claude Code plugin (CLAUDE_PLUGIN_DATA / CLAUDE_PLANS_DIR
@@ -17,6 +25,27 @@
 # shell-special characters if env vars contain them. Skills should always quote
 # expansions ("$GSTACK_STATE_ROOT", not $GSTACK_STATE_ROOT).
 set -u
+
+# Parse optional --get <key> selector.
+_get_key=""
+case "${1:-}" in
+  --help|-h)
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  --get)
+    if [ -z "${2:-}" ]; then
+      echo "gstack-paths: --get requires a key (state-root|plan-root|tmp-root)" >&2
+      exit 1
+    fi
+    _get_key="$2"
+    ;;
+  "" ) ;;  # bare invocation — backward-compatible default output
+  *)
+    echo "gstack-paths: unknown argument '$1' (expected --get <key>)" >&2
+    exit 1
+    ;;
+esac
 
 # State root: where gstack writes projects/, sessions/, analytics/.
 if [ -n "${GSTACK_HOME:-}" ]; then
@@ -56,6 +85,18 @@ fi
 # will discover that on their own write attempt. Don't fail the eval here.
 mkdir -p "$_tmp_root" 2>/dev/null || true
 
-echo "GSTACK_STATE_ROOT=$_state_root"
-echo "PLAN_ROOT=$_plan_root"
-echo "TMP_ROOT=$_tmp_root"
+if [ -n "$_get_key" ]; then
+  case "$_get_key" in
+    state-root) echo "$_state_root" ;;
+    plan-root)  echo "$_plan_root" ;;
+    tmp-root)   echo "$_tmp_root" ;;
+    *)
+      echo "gstack-paths: unknown key '$_get_key' (expected state-root|plan-root|tmp-root)" >&2
+      exit 1
+      ;;
+  esac
+else
+  echo "GSTACK_STATE_ROOT=$_state_root"
+  echo "PLAN_ROOT=$_plan_root"
+  echo "TMP_ROOT=$_tmp_root"
+fi
