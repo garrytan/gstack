@@ -41,6 +41,7 @@ export const META_COMMANDS = new Set([
   'watch',
   'state',
   'frame',
+  'record',
   'ux-audit',
   'domain-skill',
   'skill',
@@ -168,6 +169,8 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'watch':   { category: 'Meta', description: 'Passive observation — periodic snapshots while user browses', usage: 'watch [stop]' },
   // State
   'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
+  // Recording
+  'record':  { category: 'Server', description: 'Record video of browser activity to .webm. Useful as repro evidence for interactive bug findings. `start` saves session state, rebuilds the context with recordVideo enabled, and restores state; `stop` closes the context (which flushes the .webm files) and returns the paths; `status` prints the active recording dir. Calling `start` while already recording auto-stops the prior recording first.', usage: 'record start [path] [--size WxH]  |  record stop  |  record status' },
   // Frame
   'frame':   { category: 'Meta', description: 'Switch to iframe context (or main to return)', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
   // CSS Inspector
@@ -223,6 +226,7 @@ export function canonicalizeCommand(cmd: string): string {
  */
 export const NEW_IN_VERSION: Record<string, string> = {
   'load-html': '0.19.0.0',
+  'record': '1.35.0.0',
 };
 
 /**

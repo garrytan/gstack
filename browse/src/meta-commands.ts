@@ -981,6 +981,84 @@ export async function handleMetaCommand(
       throw new Error('Usage: state save|load <name>');
     }
 
+    // ─── Record (video) ────────────────────────────────────
+    case 'record': {
+      const [action, ...rest] = args;
+      if (!action) {
+        throw new Error('Usage: record start [path] [--size WxH]  |  record stop  |  record status');
+      }
+
+      if (action === 'status') {
+        const dir = bm.getRecordVideoDir();
+        if (!dir) return 'Not recording.';
+        return `Recording → ${dir}`;
+      }
+
+      if (action === 'stop') {
+        if (!bm.isRecording()) {
+          return 'No active recording (record stop is a no-op).';
+        }
+        const paths = await bm.stopRecording();
+        if (paths.length === 0) {
+          return 'Recording stopped. No video files were produced (no pages were open during the recording window?).';
+        }
+        return `Recording saved:\n${paths.map(p => `  ${p}`).join('\n')}`;
+      }
+
+      if (action === 'start') {
+        // Parse: record start [<dir>] [--size WxH]
+        let dirArg: string | undefined;
+        let sizeArg: string | undefined;
+        for (let i = 0; i < rest.length; i++) {
+          const tok = rest[i];
+          if (tok === '--size') {
+            sizeArg = rest[++i];
+            if (!sizeArg) throw new Error('record start --size: missing value (e.g. --size 1280x720)');
+          } else if (tok.startsWith('--')) {
+            throw new Error(`Unknown record start flag: ${tok}`);
+          } else if (dirArg === undefined) {
+            dirArg = tok;
+          } else {
+            throw new Error(`Unexpected positional arg: ${tok}. Usage: record start [path] [--size WxH]`);
+          }
+        }
+
+        // Default to a timestamped subdirectory under TEMP_DIR so concurrent
+        // recordings never collide and the user can find the file by mtime.
+        const defaultDir = path.join(
+          TEMP_DIR,
+          `browse-record-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+        );
+        const targetDir = dirArg ? path.resolve(dirArg) : defaultDir;
+
+        // Reuse the standard output-path policy so a malicious caller can't
+        // smuggle videos to system dirs.
+        validateOutputPath(targetDir);
+        mkdirSecure(targetDir);
+
+        let size: { width: number; height: number } | undefined;
+        if (sizeArg) {
+          if (!sizeArg.includes('x')) {
+            throw new Error('record start --size: expected WxH (e.g. 1280x720)');
+          }
+          const [rawW, rawH] = sizeArg.split('x').map(Number);
+          if (!Number.isFinite(rawW) || !Number.isFinite(rawH) || rawW < 1 || rawH < 1) {
+            throw new Error(`record start --size: invalid dimensions '${sizeArg}'`);
+          }
+          size = {
+            width: Math.min(Math.max(Math.round(rawW), 1), 16384),
+            height: Math.min(Math.max(Math.round(rawH), 1), 16384),
+          };
+        }
+
+        const err = await bm.startRecording(targetDir, size);
+        if (err) return `Recording started with warnings: ${err}`;
+        return `Recording → ${targetDir}\n(call \`record stop\` to flush and get the .webm paths)`;
+      }
+
+      throw new Error(`Unknown record action: '${action}'. Usage: record start|stop|status`);
+    }
+
     // ─── Frame ───────────────────────────────────────
     case 'frame': {
       const target = args[0];
