@@ -1,0 +1,107 @@
+name: Windows Free Tests
+
+# Curated subset of the free test suite that runs on windows-latest.
+#
+# Codex's v1.18.0.0 review flagged that the existing evals.yml workflow uses
+# a Linux container, so a windows-latest matrix entry there isn't a drop-in.
+# This workflow is non-container, runs the curated Windows-safe subset, plus
+# targeted resolver tests that exercise the Bun.which-based claude binary
+# resolution + the GSTACK_CLAUDE_BIN override path on Windows.
+#
+# What this DOES NOT do (out of scope for v1.18.0.0):
+#   - Run the full free suite on Windows. The 24 tests that hardcode /bin/sh,
+#     spawn('sh',...), or raw /tmp/ paths are excluded by scripts/test-free-shards.ts
+#     --windows-only. They need POSIX-bound surfaces to be ported off shell
+#     primitives before they can run on Windows. Tracked as a follow-up TODO.
+#   - Run Playwright/browser-backed tests. Browse server bring-up on Windows is
+#     a separate concern (PR #1238 windows-pty-bun-pty-fix is in flight).
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-free-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-free-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Configure git identity (required by tests that init temp repos)
+        run: |
+          git config --global user.email "windows-ci@gstack.test"
+          git config --global user.name "Windows CI"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build server-node.mjs (required by Windows browse path)
+        # browse/src/cli.ts module-level throws on Windows if server-node.mjs
+        # is missing — Bun can't drive Playwright's Chromium on Windows
+        # (oven-sh/bun#4253). The bundle must exist for any test that
+        # transitively loads cli.ts to even import. We build only the
+        # Node-compatible server bundle here; full `bun run build` would
+        # also compile every binary which is slow and unnecessary for tests.
+        run: bash browse/scripts/build-node-server.sh
+        shell: bash
+
+      - name: Generate host SKILL.md outputs (.agents, .factory)
+        # The golden-file regression tests in test/gen-skill-docs.test.ts read
+        # .agents/skills/gstack-ship/SKILL.md and .factory/skills/gstack-ship/
+        # SKILL.md. Both are gitignored — generated on demand by gen:skill-docs.
+        # On Mac/Linux CI the existing eval workflow regenerates these as part
+        # of its own pipeline; the windows-free-tests lane doesn't share that
+        # so it must regenerate explicitly.
+        run: bun run gen:skill-docs --host all
+        shell: bash
+
+      # The Windows job verifies the new portability work this PR delivers,
+      # not the entire free suite. After v1.20.0.0 ships, full-suite Windows
+      # parity is a P4 follow-up TODO that depends on porting many tests off
+      # POSIX-bound surfaces (raw /tmp paths, /bin/bash hardcodes, bash
+      # shebang spawns, mode-bit assertions, deleted v1.14 sidebar refs, etc).
+      #
+      # The curated subset enumeration in scripts/test-free-shards.ts is
+      # retained for future expansion — `bun run test:windows --list` gives
+      # contributors a starting point to grow Windows coverage incrementally.
+      #
+      # What we verify here is exactly the new code paths v1.20.0.0 ships:
+      #  - bin/gstack-paths state-root resolution (test/gstack-paths.test.ts)
+      #  - browse/src/claude-bin.ts Bun.which wrapper + override + arg-prefix
+      #    resolution including the GSTACK_CLAUDE_BIN=wsl PATHEXT path
+      #    (browse/test/claude-bin.test.ts)
+      #  - scripts/test-free-shards.ts curation logic itself
+      #    (test/test-free-shards.test.ts)
+
+      - name: Show curated subset (informational — for future expansion)
+        run: bun run scripts/test-free-shards.ts --windows-only --list
+        shell: bash
+        continue-on-error: true
+
+      - name: Verify new portability work on Windows
+        # Tests targeting the v1.20.0.0 lane plus v1.30.0.0 fix-wave additions.
+        # v1.30.0.0 extension covers icacls hardening (#1308), bash.exe telemetry
+        # wrap (#1306), and Bun.which-based binary resolvers (#1307). These must
+        # pass on Windows for the wave's "Windows hardening" framing to be honest.
+        run: |
+          bun test \
+            test/gstack-paths.test.ts \
+            browse/test/claude-bin.test.ts \
+            test/test-free-shards.test.ts \
+            browse/test/file-permissions.test.ts \
+            browse/test/security.test.ts \
+            make-pdf/test/browseClient.test.ts \
+            make-pdf/test/pdftotext.test.ts
+        shell: bash

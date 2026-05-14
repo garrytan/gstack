@@ -97,8 +97,16 @@ describe('selectTests', () => {
     expect(result.selected).toContain('ask-user-question-format-pty');
     expect(result.selected).toContain('plan-ceo-mode-routing');
     expect(result.selected).toContain('autoplan-chain-pty');
-    expect(result.selected.length).toBe(18);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 18);
+    // Per-finding count + review-report-at-bottom (v1.21.x)
+    expect(result.selected).toContain('plan-ceo-finding-count');
+    // v1.22+ AskUserQuestion-blocked regression: auto-decide-preserved
+    // also depends on plan-ceo-review/** (autoplan-auto-mode test was
+    // removed in v1.28 — see commit message for the rationale).
+    expect(result.selected).toContain('auto-decide-preserved');
+    // v1.27+ gate-tier reviewCount-floor regression for transcript bug
+    expect(result.selected).toContain('plan-ceo-finding-floor');
+    expect(result.selected.length).toBe(21);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
   });
 
   test('global touchfile triggers ALL tests', () => {

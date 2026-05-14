@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# gstack-artifacts-url — canonical-URL helper for the artifacts repo.
+#
+# We store the HTTPS URL as canonical (in ~/.gstack-artifacts-remote.txt) and
+# derive other forms on demand. Centralizes the regex so callers don't each
+# string-mangle, which is how URL-format bugs creep into branch logic
+# (codex Finding #10).
+#
+# Usage:
+#   gstack-artifacts-url --to ssh    <https-url>   # https → git@host:owner/repo.git
+#   gstack-artifacts-url --to https  <any-url>     # idempotent canonicalization
+#   gstack-artifacts-url --host      <any-url>     # extract hostname
+#   gstack-artifacts-url --owner-repo <any-url>    # extract owner/repo
+#
+# Inputs accepted:
+#   https://github.com/garrytan/gstack-artifacts-garrytan
+#   https://github.com/garrytan/gstack-artifacts-garrytan.git
+#   git@github.com:garrytan/gstack-artifacts-garrytan.git
+#   ssh://git@gitlab.com/garrytan/gstack-artifacts-garrytan.git
+#   git@gitlab.example.org:team/gstack-artifacts-team.git
+#
+# Output: the requested form on stdout. Exits non-zero on parse failure with
+# an error on stderr.
+set -euo pipefail
+
+usage() {
+  echo "Usage: gstack-artifacts-url --to {ssh|https} <url>" >&2
+  echo "       gstack-artifacts-url --host <url>" >&2
+  echo "       gstack-artifacts-url --owner-repo <url>" >&2
+  exit 2
+}
+
+[ $# -ge 2 ] || usage
+
+mode=""
+to=""
+case "$1" in
+  --to) mode="to"; to="$2"; shift 2 ;;
+  --host) mode="host"; shift ;;
+  --owner-repo) mode="owner-repo"; shift ;;
+  *) usage ;;
+esac
+
+[ $# -eq 1 ] || usage
+url="$1"
+
+# Strip trailing .git for normalization; reattach where needed.
+strip_git() {
+  echo "${1%.git}"
+}
+
+# Parse to (host, owner_repo) regardless of input shape.
+parse_url() {
+  local u="$1"
+  local host="" owner_repo=""
+  case "$u" in
+    https://*)
+      # https://host/owner/repo[.git]
+      local rest="${u#https://}"
+      host="${rest%%/*}"
+      owner_repo="${rest#*/}"
+      owner_repo=$(strip_git "$owner_repo")
+      ;;
+    ssh://*)
+      # ssh://git@host/owner/repo[.git] OR ssh://host/owner/repo[.git]
+      local rest="${u#ssh://}"
+      # Strip optional user@
+      rest="${rest#*@}"
+      host="${rest%%/*}"
+      owner_repo="${rest#*/}"
+      owner_repo=$(strip_git "$owner_repo")
+      ;;
+    git@*:*)
+      # git@host:owner/repo[.git]
+      local rest="${u#git@}"
+      host="${rest%%:*}"
+      owner_repo="${rest#*:}"
+      owner_repo=$(strip_git "$owner_repo")
+      ;;
+    *)
+      echo "gstack-artifacts-url: unrecognized URL form: $u" >&2
+      exit 3
+      ;;
+  esac
+  if [ -z "$host" ] || [ -z "$owner_repo" ] || [ "$owner_repo" = "$u" ]; then
+    echo "gstack-artifacts-url: failed to parse host/owner from: $u" >&2
+    exit 3
+  fi
+  printf '%s\n%s\n' "$host" "$owner_repo"
+}
+
+parsed=$(parse_url "$url")
+host=$(echo "$parsed" | head -1)
+owner_repo=$(echo "$parsed" | tail -1)
+
+case "$mode" in
+  to)
+    case "$to" in
+      ssh)   printf 'git@%s:%s.git\n' "$host" "$owner_repo" ;;
+      https) printf 'https://%s/%s\n' "$host" "$owner_repo" ;;
+      *) usage ;;
+    esac
+    ;;
+  host)       printf '%s\n' "$host" ;;
+  owner-repo) printf '%s\n' "$owner_repo" ;;
+esac

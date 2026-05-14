@@ -84,11 +84,34 @@ describe('$B domain-skill (E2E gate tier)', () => {
     expect(out).toContain('[quarantined] 127.0.0.1');
   });
 
-  test('readSkill returns null until the skill is promoted to active (T6)', async () => {
+  test('readSkill returns null while quarantined; classifier_score=0 blocks auto-promote (#1369)', async () => {
     const { readSkill, recordSkillUse } = await import('../src/domain-skills');
+    const jsonlPath = path.join(TMP_HOME, 'projects', 'e2e-test-slug', 'learnings.jsonl');
+
     // While quarantined, readSkill returns null
     expect(await readSkill('127.0.0.1', 'e2e-test-slug')).toBeNull();
-    // Three uses without flag triggers auto-promote
+
+    // Three uses without flag with classifier_score=0 (the default until L4 is
+    // rewired) MUST stay quarantined per #1369. The gate is load-bearing: a
+    // quarantined skill written under the influence of a poisoned page would
+    // otherwise auto-promote after three benign uses without the L4 body scan
+    // ever running.
+    await recordSkillUse('127.0.0.1', 'e2e-test-slug', false);
+    await recordSkillUse('127.0.0.1', 'e2e-test-slug', false);
+    await recordSkillUse('127.0.0.1', 'e2e-test-slug', false);
+    expect(await readSkill('127.0.0.1', 'e2e-test-slug')).toBeNull();
+
+    // Simulate L4 having scored the body (classifier_score > 0) by appending a
+    // new tombstone row with a non-zero score, then verify the next use
+    // promotes. This documents the unblock path the day L4 starts populating
+    // classifier_score for skill writes again.
+    const lines = (await fs.readFile(jsonlPath, 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    const latest = lines.filter((r: any) => r.type === 'domain' && r.host === '127.0.0.1').pop();
+    expect(latest).toBeTruthy();
+    const scored = { ...latest, classifier_score: 0.05, version: latest.version + 1, updated_ts: new Date().toISOString() };
+    await fs.appendFile(jsonlPath, JSON.stringify(scored) + '\n');
+
+    // Now three uses promote
     await recordSkillUse('127.0.0.1', 'e2e-test-slug', false);
     await recordSkillUse('127.0.0.1', 'e2e-test-slug', false);
     await recordSkillUse('127.0.0.1', 'e2e-test-slug', false);

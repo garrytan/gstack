@@ -25,6 +25,30 @@ triggers:
   - expand scope
   - strategy review
   - rethink this plan
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-ceo-plans
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/ceo-plans/*.md"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Prior CEO plans for this project"
+    - id: recent-design-docs
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-design-*.md"
+      sort: mtime_desc
+      limit: 3
+      render_as: "## Recent design docs for this project"
+    - id: recent-reviews
+      kind: list
+      filter:
+        type: timeline
+        tags_contains: "repo:{repo_slug}"
+        content_contains: "plan-ceo-review"
+      sort: updated_at_desc
+      limit: 5
+      render_as: "## Recent CEO review activity"
 ---
 
 {{PREAMBLE}}
@@ -387,6 +411,8 @@ Present these mode options via AskUserQuestion using the preamble's AskUserQuest
 
 **Anti-skip rule:** Never condense, abbreviate, or skip any review section (1-11) regardless of plan type (strategy, spec, code, infra). Every section in this skill exists for a reason. "This is a strategy doc so implementation sections don't apply" is always wrong — implementation details are where strategy breaks down. If a section genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
 
+{{ANTI_SHORTCUT_CLAUSE}}
+
 ### Section 1: Architecture Review
 Evaluate and diagram:
 * Overall system design and component boundaries. Draw the dependency graph.
@@ -655,7 +681,7 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * For each option: effort, risk, and maintenance burden in one line.
 * **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference.
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch (tightened):** If a section has zero findings, state "No issues, moving on" and proceed. If it has findings, use AskUserQuestion for each — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan. Only skip AskUserQuestion when the decision is genuinely trivial (e.g., a typo fix) AND there are no meaningful alternatives. When in doubt, ask.
+* **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each finding — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan.
 
 ## Required Outputs
 

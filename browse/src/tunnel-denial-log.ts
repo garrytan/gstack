@@ -18,6 +18,7 @@
 import { promises as fsp } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { mkdirSecure } from './file-permissions';
 
 const LOG_DIR = path.join(os.homedir(), '.gstack', 'security');
 const LOG_PATH = path.join(LOG_DIR, 'attempts.jsonl');
@@ -31,7 +32,10 @@ let dirEnsured = false;
 async function ensureDir(): Promise<void> {
   if (dirEnsured) return;
   try {
-    await fsp.mkdir(LOG_DIR, { recursive: true, mode: 0o700 });
+    // Sync mkdir is fine here — runs once per process at first denial. The
+    // (OI)(CI) inheritance set on Windows means subsequent fsp.appendFile
+    // writes pick up the owner-only ACL automatically.
+    mkdirSecure(LOG_DIR);
     dirEnsured = true;
   } catch {
     // Swallow — log writes are best-effort. Failure to mkdir just means

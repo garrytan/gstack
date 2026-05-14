@@ -4,7 +4,7 @@
  * The gbrain-sync preamble block instructs the model to fire a one-time
  * AskUserQuestion when:
  *   - `BRAIN_SYNC: off` in the preamble echo (sync mode not on)
- *   - config `gbrain_sync_mode_prompted` is "false"
+ *   - config `artifacts_sync_mode_prompted` is "false"
  *   - gbrain is detected on the host (binary on PATH or `gbrain doctor`
  *     --fast --json succeeds)
  *
@@ -31,14 +31,14 @@ const describeE2E = shouldRun ? describe : describe.skip;
 
 describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
   test('gstack skill preamble fires the 3-option AskUserQuestion when gbrain is detected', async () => {
-    // Stage a fresh GSTACK_HOME with gbrain_sync_mode_prompted=false.
+    // Stage a fresh GSTACK_HOME with artifacts_sync_mode_prompted=false.
     const gstackHome = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-gstack-'));
     const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-bin-'));
 
     // Seed the config so the gate's condition passes.
     fs.writeFileSync(
       path.join(gstackHome, 'config.yaml'),
-      'gbrain_sync_mode: off\ngbrain_sync_mode_prompted: false\n',
+      'artifacts_sync_mode: off\nartifacts_sync_mode_prompted: false\n',
       { mode: 0o600 }
     );
 
@@ -151,14 +151,14 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
     }
   }, 180_000);
 
-  test('privacy gate does NOT fire when gbrain_sync_mode_prompted is already true', async () => {
+  test('privacy gate does NOT fire when artifacts_sync_mode_prompted is already true', async () => {
     // Same staging, but prompted=true this time. Gate should be silent.
     const gstackHome = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-off-'));
     const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-off-bin-'));
 
     fs.writeFileSync(
       path.join(gstackHome, 'config.yaml'),
-      'gbrain_sync_mode: off\ngbrain_sync_mode_prompted: true\n',
+      'artifacts_sync_mode: off\nartifacts_sync_mode_prompted: true\n',
       { mode: 0o600 }
     );
 

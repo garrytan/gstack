@@ -68,7 +68,7 @@ export interface EvalTestEntry {
   last_tool_call?: string;    // e.g. "Write(review-output.md)"
 
   // Model + timing diagnostics (added for Sonnet/Opus split)
-  model?: string;                // e.g. 'claude-sonnet-4-6' or 'claude-opus-4-6'
+  model?: string;                // e.g. 'claude-sonnet-4-6' or 'claude-opus-4-7'
   first_response_ms?: number;    // time from spawn to first NDJSON line
   max_inter_turn_ms?: number;    // peak latency between consecutive tool calls
 

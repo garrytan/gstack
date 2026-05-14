@@ -29,7 +29,9 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { mkdirSecure } from './file-permissions';
 import { THRESHOLDS, type LayerSignal } from './security';
+import { resolveClaudeCommand } from './claude-bin';
 
 /**
  * Pinned Haiku model for the transcript classifier. Bumped deliberately when a
@@ -155,7 +157,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
 }
 
 async function ensureTestsavantStaged(onProgress?: (msg: string) => void): Promise<void> {
-  fs.mkdirSync(path.join(TESTSAVANT_DIR, 'onnx'), { recursive: true, mode: 0o700 });
+  mkdirSecure(path.join(TESTSAVANT_DIR, 'onnx'));
 
   // Small config/tokenizer files
   for (const f of TESTSAVANT_FILES) {
@@ -300,7 +302,7 @@ export async function scanPageContent(text: string): Promise<LayerSignal> {
 // ─── L4c: DeBERTa-v3 ensemble (opt-in) ───────────────────────
 
 async function ensureDebertaStaged(onProgress?: (msg: string) => void): Promise<void> {
-  fs.mkdirSync(path.join(DEBERTA_DIR, 'onnx'), { recursive: true, mode: 0o700 });
+  mkdirSecure(path.join(DEBERTA_DIR, 'onnx'));
   for (const f of DEBERTA_FILES) {
     const dst = path.join(DEBERTA_DIR, f);
     if (fs.existsSync(dst)) continue;
@@ -392,8 +394,13 @@ let haikuAvailableCache: boolean | null = null;
 
 function checkHaikuAvailable(): Promise<boolean> {
   if (haikuAvailableCache !== null) return Promise.resolve(haikuAvailableCache);
+  const claude = resolveClaudeCommand();
+  if (!claude) {
+    haikuAvailableCache = false;
+    return Promise.resolve(false);
+  }
   return new Promise((resolve) => {
-    const p = spawn('claude', ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(claude.command, [...claude.argsPrefix, '--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let done = false;
     const finish = (ok: boolean) => {
       if (done) return;
@@ -493,12 +500,9 @@ export async function checkTranscript(params: {
     // timeout rate in the v1.5.2.0 ensemble bench because of this, plus
     // ~44k cache_creation tokens per call (massive cost inflation).
     // Using os.tmpdir() gives Haiku a clean context for pure classification.
-    const p = spawn('claude', [
-      '-p', prompt,
-      '--model', HAIKU_MODEL,
-      '--output-format', 'json',
-    ], { stdio: ['ignore', 'pipe', 'pipe'], cwd: os.tmpdir() });
-
+    // TDZ fix: declare `finish` BEFORE `resolveClaudeCommand` so the early
+    // return at the !claude guard below doesn't ReferenceError. Triggered
+    // only when claude CLI is missing from PATH (dormant otherwise).
     let stdout = '';
     let done = false;
     const finish = (signal: LayerSignal) => {
@@ -506,6 +510,30 @@ export async function checkTranscript(params: {
       done = true;
       resolve(signal);
     };
+
+    // Wrap resolveClaudeCommand + spawn in try/catch so any unexpected
+    // throw (PATH probe failure, transient FS error) degrades gracefully
+    // instead of rejecting the Promise with a raw exception.
+    let claude: ReturnType<typeof resolveClaudeCommand>;
+    try {
+      claude = resolveClaudeCommand();
+    } catch (err: any) {
+      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: `resolve_error_${err?.message ?? 'unknown'}` } });
+    }
+    if (!claude) {
+      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: 'claude_cli_not_found' } });
+    }
+    let p: ReturnType<typeof spawn>;
+    try {
+      p = spawn(claude.command, [
+        ...claude.argsPrefix,
+        '-p', prompt,
+        '--model', HAIKU_MODEL,
+        '--output-format', 'json',
+      ], { stdio: ['ignore', 'pipe', 'pipe'], cwd: os.tmpdir() });
+    } catch (err: any) {
+      return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: `spawn_throw_${err?.message ?? 'unknown'}` } });
+    }
 
     p.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
     p.on('exit', (code) => {

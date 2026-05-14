@@ -54,6 +54,13 @@ interface ResolvedAuth {
   source: 'env' | 'state-file';
 }
 
+function parseIntegerEnvValue(value: string | undefined): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || !/^-?\d+$/.test(trimmed)) return undefined;
+  const parsed = parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 /** Resolve the daemon port + token. Throws a clear error if neither path works. */
 export function resolveBrowseAuth(opts: BrowseClientOptions = {}): ResolvedAuth {
   if (opts.port !== undefined && opts.token !== undefined) {
@@ -64,8 +71,8 @@ export function resolveBrowseAuth(opts: BrowseClientOptions = {}): ResolvedAuth 
   const envPort = process.env.GSTACK_PORT;
   const envToken = process.env.GSTACK_SKILL_TOKEN;
   if (envPort && envToken) {
-    const port = opts.port ?? parseInt(envPort, 10);
-    if (!isNaN(port)) {
+    const port = opts.port ?? parseIntegerEnvValue(envPort);
+    if (port !== undefined) {
       return { port, token: opts.token ?? envToken, source: 'env' };
     }
   }
@@ -132,7 +139,7 @@ export class BrowseClient {
     const auth = resolveBrowseAuth(opts);
     this.port = auth.port;
     this.token = auth.token;
-    this.tabId = opts.tabId ?? (process.env.BROWSE_TAB ? parseInt(process.env.BROWSE_TAB, 10) : undefined);
+    this.tabId = opts.tabId ?? parseIntegerEnvValue(process.env.BROWSE_TAB);
     this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 

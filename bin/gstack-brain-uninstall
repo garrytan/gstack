@@ -28,8 +28,8 @@
 #   consumers.json             — consumer/reader registry
 #
 # What it clears (via gstack-config):
-#   gbrain_sync_mode            → off
-#   gbrain_sync_mode_prompted   → false (so user re-prompts on re-init)
+#   artifacts_sync_mode            → off
+#   artifacts_sync_mode_prompted   → false (so user re-prompts on re-init)
 #
 # What it does NOT touch:
 #   Project data (projects/*, retros/*, developer-profile.json, etc.)
@@ -42,7 +42,12 @@ set -euo pipefail
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_BIN="$SCRIPT_DIR/gstack-config"
-REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+# v1.27.0.0+ canonical name; brain-remote is the legacy fallback during migration.
+if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+  REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
+else
+  REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
+fi
 
 ASSUME_YES=0
 DELETE_REMOTE=0
@@ -67,7 +72,7 @@ if [ "$ASSUME_YES" != "1" ]; then
   cat <<EOF
 This will remove gstack-brain sync from this machine:
   - Remove ~/.gstack/.git and sync config files
-  - Clear gbrain_sync_mode in gstack-config
+  - Clear artifacts_sync_mode in gstack-config
   - Remote: $REMOTE_URL will be $([ "$DELETE_REMOTE" = "1" ] && echo "DELETED" || echo "kept")
 
 Local memory (learnings, plans, etc.) is NOT touched.
@@ -133,8 +138,8 @@ fi
 rm -f "$GSTACK_HOME/consumers.json" 2>/dev/null || true
 
 # ---- clear config keys ----
-"$CONFIG_BIN" set gbrain_sync_mode off >/dev/null 2>&1 || true
-"$CONFIG_BIN" set gbrain_sync_mode_prompted false >/dev/null 2>&1 || true
+"$CONFIG_BIN" set artifacts_sync_mode off >/dev/null 2>&1 || true
+"$CONFIG_BIN" set artifacts_sync_mode_prompted false >/dev/null 2>&1 || true
 
 # ---- leave remote-helper file alone unless user asked to delete remote ----
 if [ "$DELETE_REMOTE" = "1" ]; then

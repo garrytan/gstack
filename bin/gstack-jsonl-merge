@@ -4,7 +4,7 @@
 # Usage (called by git, not by users):
 #   gstack-jsonl-merge <base> <ours> <theirs>
 #
-# Registered in local git config by bin/gstack-brain-init and
+# Registered in local git config by bin/gstack-artifacts-init and
 # bin/gstack-brain-restore:
 #   git config merge.jsonl-append.driver \
 #       "$GSTACK_BIN/gstack-jsonl-merge %O %A %B"

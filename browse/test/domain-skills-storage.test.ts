@@ -106,6 +106,31 @@ describe('domain-skills: state machine (T6)', () => {
       })
     ).rejects.toThrow(/classifier flagged/);
   });
+
+  // domain-skill-commands.ts:140 (handleSave) writes classifier_score=0 with
+  // the comment "L4 deferred to load-time" — but sidebar-agent (the deferred
+  // scanner) was ripped per CLAUDE.md "Sidebar architecture." Without an
+  // explicit gate, three benign uses promote any quarantined skill, including
+  // one authored under a poisoned page, into prompt context permanently.
+  it('does NOT auto-promote when classifier_score is 0 (production handleSave shape)', async () => {
+    const m = await freshImport();
+    await m.writeSkill({
+      host: 'linkedin.com',
+      body: '# LinkedIn',
+      projectSlug: 'test-slug',
+      source: 'agent',
+      classifierScore: 0, // matches domain-skill-commands.ts:140 production path
+    });
+    const after3 = await m.recordSkillUse('linkedin.com', 'test-slug', false);
+    await m.recordSkillUse('linkedin.com', 'test-slug', false);
+    const final = await m.recordSkillUse('linkedin.com', 'test-slug', false);
+    expect(after3?.state).toBe('quarantined');
+    expect(final?.state).toBe('quarantined');
+    expect(final?.use_count).toBe(3);
+    // readSkill returns null for quarantined skills — they don't fire.
+    const read = await m.readSkill('linkedin.com', 'test-slug');
+    expect(read).toBeNull();
+  });
 });
 
 describe('domain-skills: scope shadowing (T4)', () => {

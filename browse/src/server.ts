@@ -26,6 +26,7 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
 import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
   initRegistry, validateToken as validateScopedToken, checkScope, checkDomain,
@@ -34,13 +35,17 @@ import {
   isRootToken, checkConnectRateLimit, type TokenInfo,
 } from './token-registry';
 import { validateTempPath } from './path-security';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
 import { initAuditLog, writeAuditEntry } from './audit';
 import { inspectElement, modifyStyle, resetModifications, getModificationHistory, detachSession, type InspectorResult } from './cdp-inspector';
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
+import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
+import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
+import { redactProxyUrl } from './proxy-redact';
+import { shouldSpawnXvfb, pickFreeDisplay, spawnXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { logTunnelDenial } from './tunnel-denial-log';
 import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
@@ -60,7 +65,23 @@ ensureStateDir(config);
 initAuditLog(config.auditLog);
 
 // ─── Auth ───────────────────────────────────────────────────────
-const AUTH_TOKEN = crypto.randomUUID();
+// AUTH_TOKEN is injectable via process.env.AUTH_TOKEN so embedders
+// (gbrowser's gbd daemon spawn) can pre-allocate the token and hand it to
+// the Bun child via env.
+//
+// Validation: require >= 16 chars after stripping ALL unicode whitespace
+// (not just ASCII — .trim() misses U+200B / U+FEFF / U+00A0 / etc., which
+// would otherwise let a misconfigured embedder ship a one-character BOM as
+// the bearer secret). Reject tokens that are too short or contain only
+// whitespace; fall back to randomUUID so the security boundary is never
+// silently weakened by misconfiguration.
+function sanitizeAuthToken(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const stripped = raw.replace(/[\s ​-‍﻿]/g, '');
+  if (stripped.length < 16) return null;
+  return stripped;
+}
+const AUTH_TOKEN = sanitizeAuthToken(process.env.AUTH_TOKEN) || crypto.randomUUID();
 initRegistry(AUTH_TOKEN);
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
@@ -91,6 +112,93 @@ let tunnelServer: ReturnType<typeof Bun.serve> | null = null; // tunnel HTTP lis
 
 /** Which HTTP listener accepted this request. */
 export type Surface = 'local' | 'tunnel';
+
+/**
+ * Factory contract for embedders (gbrowser phoenix overlay).
+ *
+ * Today the CLI calls `start()` which reads env vars and binds Bun.serve
+ * itself. Embedders building on this server as a submodule (gbrowser's
+ * fd-passing gbd architecture) need to inject auth + ports + a
+ * BrowserManager they pre-launched, and own the listener themselves.
+ *
+ * Status: v1 surfaces this type as documentation. AUTH_TOKEN env-injection
+ * is already live (see ~L70). `start()` is exported and the kickoff /
+ * signal-handler registration is gated on `import.meta.main`, so phoenix
+ * can `import { start } from '.../server'` without auto-starting. Full
+ * `buildFetchHandler` extraction lands in a follow-up; see plan
+ * `/Users/garrytan/.claude/plans/system-instruction-you-are-working-swirling-fountain.md`
+ * Part 1.
+ */
+export interface ServerConfig {
+  /** Bearer token clients must present. Today injected via AUTH_TOKEN env. */
+  authToken: string;
+  /** Local listener port. Used in /welcome URL + state-file. */
+  browsePort: number;
+  /** Idle shutdown timeout. Default 30 min. */
+  idleTimeoutMs: number;
+  /** Result of resolveConfig() — stateDir, auditLog, stateFile. */
+  config: ReturnType<typeof resolveConfig>;
+  /** Pre-launched BrowserManager. Caller owns lifecycle. */
+  browserManager: BrowserManager;
+  /** Optional Chromium profile path override. Resolved by resolveChromiumProfile(). */
+  chromiumProfile?: string;
+  /** Caller-owned. shutdown() does NOT call xvfb.stop(); caller is responsible. */
+  xvfb?: XvfbHandle | null;
+  /** Caller-owned. shutdown() does NOT call proxyBridge.close(); caller is responsible. */
+  proxyBridge?: BridgeHandle | null;
+  startTime: number;
+  /**
+   * Overlay hook. Runs AFTER gstack resolves auth and BEFORE route dispatch.
+   * Invalid tokens are auto-rejected at the gstack layer (401 returned
+   * before hook fires), so the hook only ever sees valid TokenInfo or null
+   * (no token presented). Returning a Response short-circuits gstack
+   * dispatch; returning null falls through.
+   */
+  beforeRoute?: (req: Request, surface: Surface, auth: TokenInfo | null) => Promise<Response | null>;
+}
+
+/**
+ * Return shape of buildFetchHandler() — fetch handlers + lifecycle helpers
+ * embedders need to drive their own Bun.serve binding. See ServerConfig.
+ */
+export interface ServerHandle {
+  fetchLocal: (req: Request, server: any) => Promise<Response>;
+  fetchTunnel: (req: Request, server: any) => Promise<Response>;
+  /**
+   * Drains buffers, kills terminal-agent, closes browser, clears intervals,
+   * removes state files. Does NOT stop bound Bun.Server listeners — call
+   * stopListeners() for that. CLI relies on process.exit() to drop sockets.
+   */
+  shutdown: (exitCode?: number) => Promise<void>;
+  /**
+   * Graceful listener stop for embedders. Calls server.stop(true) on each
+   * passed Bun.Server. CLI doesn't need this (process.exit handles it).
+   */
+  stopListeners: (local: any, tunnel?: any) => Promise<void>;
+}
+
+/**
+ * Build a ServerConfig-shaped object from process.env. Used by gstack's
+ * own CLI when running `bun run dev` or the compiled binary directly.
+ * Embedders construct their own ServerConfig explicitly.
+ *
+ * Reads env, calls resolveConfig(). Does NOT bind a listener or call
+ * initAuditLog/initRegistry — those happen inside the buildFetchHandler
+ * lifecycle.
+ */
+export function resolveConfigFromEnv(): Omit<ServerConfig, 'browserManager' | 'startTime'> & {
+  config: ReturnType<typeof resolveConfig>;
+} {
+  return {
+    // Same sanitizer as the module-level AUTH_TOKEN: strips ALL unicode
+    // whitespace and rejects tokens shorter than 16 chars so a misconfigured
+    // embedder can't ship a BOM/zero-width as the bearer secret.
+    authToken: sanitizeAuthToken(process.env.AUTH_TOKEN) || crypto.randomUUID(),
+    browsePort: parseInt(process.env.BROWSE_PORT || '0', 10),
+    idleTimeoutMs: parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10),
+    config: resolveConfig(),
+  };
+}
 
 /**
  * Paths reachable over the tunnel surface. Everything else returns 404.
@@ -313,6 +421,27 @@ const CONSOLE_LOG_PATH = config.consoleLog;
 const NETWORK_LOG_PATH = config.networkLog;
 const DIALOG_LOG_PATH = config.dialogLog;
 
+/**
+ * Per-process state-file temp path. The state-file write pattern is
+ * `writeFileSync(tmp, ...) → renameSync(tmp, stateFile)` for atomicity,
+ * but a shared `${stateFile}.tmp` filename means two concurrent writers
+ * (cold-start race when N CLIs hit a fresh repo simultaneously, parallel
+ * /tunnel/start handlers, or a combination) collide on the rename: the
+ * first writer's renameSync moves the shared temp file out of the way,
+ * the second writer's writeFileSync re-creates it, the second rename
+ * then races with the first writer's already-renamed state. Worst case
+ * the second renameSync throws ENOENT mid-air, killing one of the
+ * spawning daemons during startup.
+ *
+ * Per-process suffix (pid + 4 random bytes) makes each writer's temp
+ * path unique. The atomic rename still gives last-writer-wins semantics
+ * for the final state.json content; the only behavior change is that
+ * concurrent writers no longer kill each other on the rename.
+ */
+function tmpStatePath(): string {
+  return `${config.stateFile}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+}
+
 
 // ─── Sidebar agent / chat state ripped ──────────────────────────────
 // ChatEntry, SidebarSession, TabAgentState interfaces; chatBuffer,
@@ -324,6 +453,7 @@ const DIALOG_LOG_PATH = config.dialogLog;
 // terminal-agent.ts; chat queue + per-tab agent multiplexing are no
 // longer needed.
 
+let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
 let lastDialogFlushed = 0;
 let flushInProgress = false;
@@ -937,11 +1067,9 @@ async function shutdown(exitCode: number = 0) {
 
   await browserManager.close();
 
-  // Clean up Chromium profile locks (prevent SingletonLock on next launch)
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    safeUnlinkQuiet(path.join(profileDir, lockFile));
-  }
+  // Clean up Chromium profile locks (prevent SingletonLock on next launch).
+  // Defensive guard inside the helper refuses to clean unrecognized dirs.
+  cleanSingletonLocks(resolveChromiumProfile());
 
   // Clean up state file
   safeUnlinkQuiet(config.stateFile);
@@ -956,62 +1084,103 @@ async function shutdown(exitCode: number = 0) {
 // passed as exitCode and process.exit() coerces it to NaN, exiting with code 1
 // instead of 0. (Caught in v0.18.1.0 #1025.)
 //
-// SIGINT (Ctrl+C): user intentionally stopping → shutdown.
-process.on('SIGINT', () => shutdown());
-// SIGTERM behavior depends on mode:
-// - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
-//   parent shell exits between tool invocations. Ignoring it keeps the server
-//   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
-// - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
-//   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
-//   without waiting forever. Ctrl+C and /stop still work either way.
-// - Active cookie picker: never tear down mid-import regardless of mode —
-//   would strand the picker UI with "Failed to fetch."
-process.on('SIGTERM', () => {
-  if (hasActivePicker()) {
-    console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
-    return;
-  }
-  const headed = browserManager.getConnectionMode() === 'headed';
-  if (headed || tunnelActive) {
-    console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
-    shutdown();
-  } else {
-    console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
-  }
-});
-// Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
-// Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
-if (process.platform === 'win32') {
-  process.on('exit', () => {
-    safeUnlinkQuiet(config.stateFile);
+// Gated on `import.meta.main` so embedders (gbrowser phoenix) that import
+// server.ts as a submodule can register their own signal handlers without
+// fighting with gstack's. CLI path is unchanged.
+if (import.meta.main) {
+  // SIGINT (Ctrl+C): user intentionally stopping → shutdown.
+  process.on('SIGINT', () => shutdown());
+  // SIGTERM behavior depends on mode:
+  // - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
+  //   parent shell exits between tool invocations. Ignoring it keeps the server
+  //   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
+  // - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
+  //   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
+  //   without waiting forever. Ctrl+C and /stop still work either way.
+  // - Active cookie picker: never tear down mid-import regardless of mode —
+  //   would strand the picker UI with "Failed to fetch."
+  process.on('SIGTERM', () => {
+    if (hasActivePicker()) {
+      console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
+      return;
+    }
+    const headed = browserManager.getConnectionMode() === 'headed';
+    if (headed || tunnelActive) {
+      console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+      shutdown();
+    } else {
+      console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
+    }
   });
+  // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
+  // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
+  if (process.platform === 'win32') {
+    process.on('exit', () => {
+      safeUnlinkQuiet(config.stateFile);
+    });
+  }
 }
 
 // Emergency cleanup for crashes (OOM, uncaught exceptions, browser disconnect)
 function emergencyCleanup() {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  // Clean Chromium profile locks
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    safeUnlinkQuiet(path.join(profileDir, lockFile));
-  }
+  // Xvfb cleanup MUST happen before state-file deletion. spawnXvfb detaches
+  // the child, so without this, an uncaught exception leaves the Xvfb
+  // running with no PID record — orphan accumulates and eventually
+  // exhausts the :99-:120 display range. Read the state file FIRST,
+  // call cleanupXvfb (validates cmdline + start-time before kill), THEN
+  // delete the state file.
+  try {
+    if (fs.existsSync(config.stateFile)) {
+      const raw = fs.readFileSync(config.stateFile, 'utf-8');
+      const state = JSON.parse(raw);
+      if (state.xvfbPid && state.xvfbStartTime) {
+        // Lazy import — emergencyCleanup may run on platforms where
+        // ./xvfb's Linux-specific helpers fail to load. Best effort.
+        try {
+          const { cleanupXvfb } = require('./xvfb');
+          cleanupXvfb({
+            pid: state.xvfbPid,
+            startTime: state.xvfbStartTime,
+            display: state.xvfbDisplay || ':99',
+          });
+        } catch { /* best effort */ }
+      }
+    }
+  } catch { /* state file unparseable — fall through to lock + state cleanup */ }
+
+  // Clean Chromium profile locks via the shared helper (defensive guard
+  // refuses to operate on unrecognized profile dirs).
+  cleanSingletonLocks(resolveChromiumProfile());
   safeUnlinkQuiet(config.stateFile);
 }
-process.on('uncaughtException', (err) => {
-  console.error('[browse] FATAL uncaught exception:', err.message);
-  emergencyCleanup();
-  process.exit(1);
-});
-process.on('unhandledRejection', (err: any) => {
-  console.error('[browse] FATAL unhandled rejection:', err?.message || err);
-  emergencyCleanup();
-  process.exit(1);
-});
+// Same import.meta.main gate as SIGINT/SIGTERM — embedders register their
+// own crash handlers.
+if (import.meta.main) {
+  process.on('uncaughtException', (err) => {
+    console.error('[browse] FATAL uncaught exception:', err.message);
+    emergencyCleanup();
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (err: any) => {
+    console.error('[browse] FATAL unhandled rejection:', err?.message || err);
+    emergencyCleanup();
+    process.exit(1);
+  });
+}
 
 // ─── Start ─────────────────────────────────────────────────────
-async function start() {
+/**
+ * Entry point for `bun run dev` and the compiled binary.
+ *
+ * Exported so embedders (gbrowser phoenix overlay) can call it
+ * directly with env vars set, bypassing the module-level `import.meta.main`
+ * gate. Phoenix's eventual fd-passing path will use `buildFetchHandler`
+ * directly; until that lands, calling `start()` from a non-main entry is
+ * supported via env (AUTH_TOKEN, BROWSE_PORT, BROWSE_OWN_SIGNALS).
+ */
+export async function start() {
   // Clear old log files
   safeUnlink(CONSOLE_LOG_PATH);
   safeUnlink(NETWORK_LOG_PATH);
@@ -1019,6 +1188,97 @@ async function start() {
 
   const port = await findPort();
   LOCAL_LISTEN_PORT = port;
+
+  // ─── Proxy config (D8 + codex F5) ──────────────────────────────
+  // BROWSE_PROXY_URL is set by the CLI when --proxy was passed. For SOCKS5
+  // with auth, we run a local 127.0.0.1 bridge that relays to the
+  // authenticated upstream (Chromium can't do SOCKS5 auth itself). For
+  // HTTP/HTTPS or unauthenticated SOCKS5, we pass the URL directly to
+  // Chromium's proxy.server option.
+  let proxyBridge: BridgeHandle | null = null;
+  const proxyUrl = process.env.BROWSE_PROXY_URL;
+  if (proxyUrl) {
+    let parsed;
+    try {
+      parsed = parseProxyConfig({
+        proxyUrl,
+        envUser: process.env.BROWSE_PROXY_USER,
+        envPass: process.env.BROWSE_PROXY_PASS,
+      });
+    } catch (err) {
+      if (err instanceof ProxyConfigError) {
+        console.error(`[browse] error: ${err.message} (${err.hint})`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    if (parsed.scheme === 'socks5' && parsed.hasAuth) {
+      // Pre-flight: verify upstream accepts our creds before launching
+      // Chromium. 5s budget, 3 retries with 500ms backoff (D4: handles VPN
+      // warm-up race). On failure, exit with redacted error.
+      console.log(`[browse] Testing SOCKS5 upstream ${redactProxyUrl(proxyUrl)}...`);
+      try {
+        const test = await testUpstream({
+          upstream: toUpstreamConfig(parsed),
+          budgetMs: 5000,
+          retries: 3,
+          backoffMs: 500,
+        });
+        console.log(`[browse] [proxy] upstream test ok in ${test.ms}ms (${test.attempts} attempt${test.attempts === 1 ? '' : 's'})`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[browse] [proxy] FAIL upstream ${redactProxyUrl(proxyUrl)}: ${msg}`);
+        process.exit(1);
+      }
+
+      proxyBridge = await startSocksBridge({ upstream: toUpstreamConfig(parsed) });
+      console.log(`[browse] [proxy] bridge listening on 127.0.0.1:${proxyBridge.port}`);
+      browserManager.setProxyConfig({ server: `socks5://127.0.0.1:${proxyBridge.port}` });
+    } else {
+      // HTTP/HTTPS or unauth SOCKS5 — pass through to Chromium directly.
+      browserManager.setProxyConfig({
+        server: `${parsed.scheme}://${parsed.host}:${parsed.port}`,
+        ...(parsed.userId ? { username: parsed.userId } : {}),
+        ...(parsed.password ? { password: parsed.password } : {}),
+      });
+      console.log(`[browse] [proxy] using ${redactProxyUrl(proxyUrl)} (pass-through to Chromium)`);
+    }
+
+    // Tear down bridge on shutdown.
+    process.on('exit', () => {
+      if (proxyBridge) {
+        proxyBridge.close().catch(() => { /* shutting down anyway */ });
+      }
+    });
+  }
+
+  // ─── Xvfb auto-spawn (Linux + headed + no DISPLAY) ─────────────
+  // codex F2: walk display range to pick a free one (never hardcode :99);
+  // record start-time alongside PID so cleanup can validate ownership and
+  // not kill a recycled PID.
+  let xvfb: XvfbHandle | null = null;
+  const xvfbDecision = shouldSpawnXvfb(process.env, process.platform);
+  if (xvfbDecision.spawn) {
+    const displayNum = pickFreeDisplay();
+    if (displayNum == null) {
+      console.error('[browse] no free X display in range :99-:120 — refusing to clobber existing X servers');
+      process.exit(1);
+    }
+    try {
+      xvfb = await spawnXvfb(displayNum);
+      process.env.DISPLAY = xvfb.display;
+      console.log(`[browse] [xvfb] spawned on ${xvfb.display} (pid ${xvfb.pid})`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[browse] [xvfb] FAILED: ${msg}`);
+      console.error(`[browse] [xvfb] hint: ${xvfbInstallHint()}`);
+      process.exit(1);
+    }
+    process.on('exit', () => { try { xvfb?.close(); } catch { /* shutting down */ } });
+  } else if (process.env.BROWSE_HEADED === '1') {
+    console.log(`[browse] [xvfb] skipped: ${xvfbDecision.reason}`);
+  }
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
@@ -1476,7 +1736,7 @@ async function start() {
           // Update state file
           const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
           stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-          const tmpState = config.stateFile + '.tmp';
+          const tmpState = tmpStatePath();
           fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
           fs.renameSync(tmpState, config.stateFile);
 
@@ -1998,8 +2258,15 @@ async function start() {
     serverPath: path.resolve(import.meta.dir, 'server.ts'),
     binaryVersion: readVersionHash() || undefined,
     mode: browserManager.getConnectionMode(),
+    // D2 daemon-mismatch detection: CLI computes the same hash from its
+    // resolved flags and refuses if it differs from this stored value.
+    ...(process.env.BROWSE_CONFIG_HASH ? { configHash: process.env.BROWSE_CONFIG_HASH } : {}),
+    // Xvfb child PID + start-time + display so disconnect (or a future
+    // daemon launch on this state file) can validate-then-cleanup orphans
+    // without clobbering a recycled PID.
+    ...(xvfb ? { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display } : {}),
   };
-  const tmpFile = config.stateFile + '.tmp';
+  const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
 
@@ -2080,7 +2347,7 @@ async function start() {
         // Update state file with tunnel URL
         const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
         stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-        const tmpState = config.stateFile + '.tmp';
+        const tmpState = tmpStatePath();
         fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
         fs.renameSync(tmpState, config.stateFile);
       } catch (err: any) {
@@ -2110,7 +2377,7 @@ async function start() {
       console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
       const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
       stateContent.tunnelLocalPort = tunnelPort;
-      const tmpState = config.stateFile + '.tmp';
+      const tmpState = tmpStatePath();
       fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
       fs.renameSync(tmpState, config.stateFile);
     } catch (err: any) {
@@ -2119,16 +2386,21 @@ async function start() {
   }
 }
 
-start().catch((err) => {
-  console.error(`[browse] Failed to start: ${err.message}`);
-  // Write error to disk for the CLI to read — on Windows, the CLI can't capture
-  // stderr because the server is launched with detached: true, stdio: 'ignore'.
-  try {
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`, { mode: 0o600 });
-  } catch {
-    // stateDir may not exist — nothing more we can do
-  }
-  process.exit(1);
-});
+// Auto-kickoff only when this module is the entry point. Embedders
+// (gbrowser phoenix overlay) import { start, buildFetchHandler, ... }
+// without triggering the listener-binding side effects.
+if (import.meta.main) {
+  start().catch((err) => {
+    console.error(`[browse] Failed to start: ${err.message}`);
+    // Write error to disk for the CLI to read — on Windows, the CLI can't capture
+    // stderr because the server is launched with detached: true, stdio: 'ignore'.
+    try {
+      const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+      mkdirSecure(config.stateDir);
+      writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
+    } catch {
+      // stateDir may not exist — nothing more we can do
+    }
+    process.exit(1);
+  });
+}

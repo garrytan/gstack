@@ -8,7 +8,8 @@
 #
 # Env overrides (for testing):
 #   GSTACK_DIR          — override auto-detected gstack root
-#   GSTACK_REMOTE_URL   — override remote VERSION URL
+#   GSTACK_REMOTE_URL   — override remote VERSION URL (branch-pinned fallback)
+#   GSTACK_REMOTE_REPO  — override remote git URL for ls-remote SHA resolution
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
 set -euo pipefail
 
@@ -19,6 +20,7 @@ MARKER_FILE="$STATE_DIR/just-upgraded-from"
 SNOOZE_FILE="$STATE_DIR/update-snoozed"
 VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
+REMOTE_REPO="${GSTACK_REMOTE_REPO:-https://github.com/garrytan/gstack.git}"
 
 # ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
 if [ "${1:-}" = "--force" ]; then
@@ -178,9 +180,34 @@ if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" 
     >/dev/null 2>&1 &
 fi
 
-# GitHub raw fetch (primary, always reliable)
+# Resolve VERSION via a SHA-pinned raw URL. GitHub's branch-raw CDN
+# (raw.githubusercontent.com/<owner>/<repo>/<branch>/...) can serve stale
+# content for several minutes after a push, which previously caused
+# /gstack-upgrade to silently report "up to date" right after a release
+# landed. git ls-remote always returns the live HEAD; SHA-pinned raw URLs
+# are immediately consistent.
+#
+# An explicit GSTACK_REMOTE_URL override (tests, mirrors) skips this path
+# so the override is honored verbatim.
 REMOTE=""
-REMOTE="$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null || true)"
+if [ -z "${GSTACK_REMOTE_URL:-}" ]; then
+  # Disable credential prompts and apply a 5-second low-speed timeout so a
+  # flaky network or captive portal can't hang every skill preamble.
+  _LSR_LINE="$(GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
+    git ls-remote "$REMOTE_REPO" refs/heads/main 2>/dev/null || true)"
+  _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
+  if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+    _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
+    REMOTE="$(curl -sf --max-time 5 "$_SHA_URL" 2>/dev/null || true)"
+  fi
+fi
+
+# Fallback: branch-pinned URL when ls-remote is unavailable (no git, no
+# network, mirror without refs/heads/main) or when GSTACK_REMOTE_URL was
+# explicitly overridden.
+if [ -z "$REMOTE" ]; then
+  REMOTE="$(curl -sf --max-time 5 "$REMOTE_URL" 2>/dev/null || true)"
+fi
 REMOTE="$(echo "$REMOTE" | tr -d '[:space:]')"
 
 # Validate: must look like a version number (reject HTML error pages)
@@ -195,7 +222,17 @@ if [ "$LOCAL" = "$REMOTE" ]; then
   exit 0
 fi
 
-# Versions differ — upgrade available
+# Semver-order guard: only flag an upgrade when REMOTE sorts higher than
+# LOCAL. Protects against transient stale-CDN regressions (REMOTE < LOCAL)
+# and dev installs running ahead of main, both of which would otherwise
+# emit a backwards UPGRADE_AVAILABLE line.
+_HIGHER="$(printf '%s\n%s\n' "$LOCAL" "$REMOTE" | sort -V | tail -1)"
+if [ "$_HIGHER" != "$REMOTE" ]; then
+  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  exit 0
+fi
+
+# REMOTE is strictly newer — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet

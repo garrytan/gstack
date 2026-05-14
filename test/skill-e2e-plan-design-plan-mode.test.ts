@@ -10,7 +10,10 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { runPlanSkillObservation } from './helpers/claude-pty-runner';
+import {
+  runPlanSkillObservation,
+  assertReportAtBottomIfPlanWritten,
+} from './helpers/claude-pty-runner';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
@@ -32,5 +35,6 @@ describeE2E('plan-design-review plan-mode smoke (gate)', () => {
       );
     }
     expect(['asked', 'plan_ready']).toContain(obs.outcome);
+    assertReportAtBottomIfPlanWritten(obs);
   }, 360_000);
 });
