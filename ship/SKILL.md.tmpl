@@ -295,7 +295,14 @@ Review the diff for structural issues that tests don't catch.
 
 1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
+2. Compute the merge base and diff the working tree against it:
+
+   ```bash
+   DIFF_BASE=$(git merge-base origin/<base> HEAD)
+   git diff "$DIFF_BASE"
+   ```
+
+   This keeps uncommitted work in scope while excluding commits that landed on the base branch after this branch was created.
 
 3. Apply the review checklist in two passes:
    - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary

@@ -1735,6 +1735,19 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
+  test('/review and /ship use merge-base diffs for pre-landing review scope', () => {
+    const reviewContent = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    const shipContent = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+
+    expect(reviewContent).toContain('DIFF_BASE=$(git merge-base origin/<base> HEAD)');
+    expect(reviewContent).toContain('git diff "$DIFF_BASE"');
+    expect(reviewContent).toContain('excluding commits that landed on the base branch after this branch was created');
+
+    expect(shipContent).toContain('DIFF_BASE=$(git merge-base origin/<base> HEAD)');
+    expect(shipContent).toContain('git diff "$DIFF_BASE"');
+    expect(shipContent).toContain('excluding commits that landed on the base branch after this branch was created');
+  });
+
   test('--host codex --dry-run freshness', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
       cwd: ROOT,
