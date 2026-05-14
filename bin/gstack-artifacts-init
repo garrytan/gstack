@@ -227,6 +227,9 @@ projects/*/ceo-plans/*.md
 projects/*/ceo-plans/*/*.md
 projects/*/designs/*.md
 projects/*/designs/*/*.md
+projects/*/*-design-*.md
+projects/*/*-eng-review-test-plan-*.md
+projects/*/*-test-plan-*.md
 projects/*/timeline.jsonl
 retros/*.md
 developer-profile.json
@@ -247,6 +250,9 @@ cat > "$GSTACK_HOME/.brain-privacy-map.json" <<'EOF'
   {"pattern": "projects/*/ceo-plans/*/*.md", "class": "artifact"},
   {"pattern": "projects/*/designs/*.md", "class": "artifact"},
   {"pattern": "projects/*/designs/*/*.md", "class": "artifact"},
+  {"pattern": "projects/*/*-design-*.md", "class": "artifact"},
+  {"pattern": "projects/*/*-eng-review-test-plan-*.md", "class": "artifact"},
+  {"pattern": "projects/*/*-test-plan-*.md", "class": "artifact"},
   {"pattern": "retros/*.md", "class": "artifact"},
   {"pattern": "builder-journey.md", "class": "artifact"},
   {"pattern": "projects/*/timeline.jsonl", "class": "behavioral"},
