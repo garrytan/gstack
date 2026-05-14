@@ -2287,6 +2287,33 @@ describe('setup script validation', () => {
     expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
   });
 
+  // FIX #1499: link function must also mirror supporting .md files and asset directories
+  // so SKILL.md Step 2 can read checklist.md, greptile-triage.md, specialists/, etc.
+  // via .claude/skills/<skill>/<file> without requiring gstack-prefixed paths.
+  test('link_claude_skill_dirs mirrors supporting .md files alongside SKILL.md', () => {
+    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    // Must iterate over sibling .md files in the skill source dir
+    expect(fnBody).toContain('for support_file in "$gstack_dir/$dir_name"/*.md');
+    // Must skip SKILL.md itself (already linked above)
+    expect(fnBody).toContain('[ "$fname" = "SKILL.md" ] && continue');
+    // Must use _link_or_copy (not raw ln -snf) for Windows compatibility
+    expect(fnBody).toContain('_link_or_copy "$support_file" "$target/$fname"');
+  });
+
+  test('link_claude_skill_dirs mirrors support asset directories (specialists/, bin/, etc.)', () => {
+    const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    // Must iterate over subdirectories in the skill source dir
+    expect(fnBody).toContain('for support_dir in "$gstack_dir/$dir_name"/*/');
+    // Must exclude build and source dirs to avoid polluting the skill surface
+    expect(fnBody).toContain('dist|src|test|tests|scripts|node_modules');
+    // Must use _link_or_copy (not raw ln -snf) for Windows compatibility
+    expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/$sname" "$target/$sname"');
+  });
+
   test('setup supports --host auto|claude|codex|kiro|opencode', () => {
     expect(setupContent).toContain('--host');
     expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
