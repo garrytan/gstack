@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# gstack-codex-version-check: standalone version check. Warns on known-bad Codex
+# CLI versions. Replaces _gstack_codex_version_check() from gstack-codex-probe.
+#
+# Anchored regex prevents false positives like 0.120.10 or 0.120.20.
+# Update the pattern when a new Codex CLI version regresses.
+_ver=$(codex --version 2>/dev/null | head -1)
+[ -z "$_ver" ] && exit 0
+if echo "$_ver" | grep -Eq '(^|[^0-9.])0\.120\.(0|1|2)([^0-9.]|$)'; then
+  echo "WARN: Codex CLI $_ver has known stdin deadlock bugs. Run: npm install -g @openai/codex@latest"
+fi
+exit 0
