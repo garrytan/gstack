@@ -40,6 +40,37 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 5. Run `/qa` on your staging URL
 6. Stop there. You'll know if this is for you.
 
+## iOS app workflow idea
+
+gstack can also work as the AI development workflow layer behind an iOS app team. Instead of embedding gstack directly into an iOS app, run it on a macOS runner, CI machine, or developer Mac, and let the iOS app act as a mobile control surface for planning, review, QA, and release status.
+
+One useful iOS feature loop:
+
+1. Run `/office-hours` to clarify the user pain and feature hypothesis
+2. Run `/plan-ceo-review` to decide whether the feature is worth building
+3. Run `/plan-eng-review` to check the SwiftUI/UIKit, API, state management, persistence, auth, notification, and release architecture
+4. Run `/plan-design-review` to catch UX, hierarchy, accessibility, and platform-fit issues
+5. Run `/review` on the implementation branch
+6. Run an iOS-specific QA pass with Simulator, XCUITest, screenshots, permissions, Dark Mode, Dynamic Type, VoiceOver, offline states, and App Store review risks
+7. Use `/ship` and `/land-and-deploy` to create, land, and verify the PR
+
+For repeated mobile workflows, a custom `/ios-pipeline` skill could sequence `/office-hours`, `/plan-eng-review`, `/review`, and a project-specific `/ios-qa` skill. The iOS app would submit a backend job such as:
+
+```json
+{
+  "repo": "your-org/your-ios-app",
+  "branch": "feature/new-onboarding",
+  "pipeline": [
+    "office-hours",
+    "plan-eng-review",
+    "review",
+    "ios-qa"
+  ]
+}
+```
+
+The runner executes gstack and posts back logs, approval prompts, PR links, CI status, TestFlight status, screenshots, and QA reports.
+
 ## Install — 30 seconds
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
