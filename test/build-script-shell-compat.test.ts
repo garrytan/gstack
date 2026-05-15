@@ -13,9 +13,14 @@ function stripSingleQuoted(s: string): string {
   return s.replace(/'[^']*'/g, "''");
 }
 
-describe('package.json build scripts — POSIX shell compat (D-1460)', () => {
-  // Bun's Windows shell parser doesn't grok bash brace groups `{ cmd; }`.
-  // Subshells `( cmd )` are POSIX-universal. This test prevents regression.
+describe('package.json build scripts — Bun shell compat (D-1460)', () => {
+  // Bun's Windows shell parser rejects several patterns that are POSIX-valid:
+  //   - bash brace groups: `{ cmd; }`
+  //   - subshells with redirection: `( cmd ) > file`
+  //   - multiple redirections on one command: `cmd 2>/dev/null > file`
+  // The safe approach is to keep these out of npm scripts entirely and
+  // delegate to bash scripts when needed. See scripts/write-versions.sh.
+
   test('no bash brace groups in any npm script', () => {
     const offending: { script: string; pattern: string }[] = [];
     for (const [name, body] of Object.entries(PKG.scripts)) {
@@ -28,13 +33,41 @@ describe('package.json build scripts — POSIX shell compat (D-1460)', () => {
     expect(offending).toEqual([]);
   });
 
-  test('every `> path/.version` redirect is preceded by a subshell, not a brace group', () => {
-    // The original PR #1460 target: package.json line 12 had three of these.
-    const build = PKG.scripts.build ?? '';
-    const versionRedirects = [...build.matchAll(/(\([^)]*\)|\{[^}]*\})\s*>\s*\S+\/\.version/g)];
-    expect(versionRedirects.length).toBeGreaterThan(0);
-    for (const m of versionRedirects) {
-      expect(m[1].startsWith('(')).toBe(true);
+  test('no subshell-with-redirection patterns in any npm script', () => {
+    // `( cmd ) > file` parses on POSIX shells but throws on Bun shell (Windows):
+    //   error: Subshells with redirections are currently not supported.
+    const offending: { script: string; pattern: string }[] = [];
+    for (const [name, body] of Object.entries(PKG.scripts)) {
+      const stripped = stripSingleQuoted(body);
+      const match = stripped.match(/\([^)]*\)\s*[12]?>/);
+      if (match) {
+        offending.push({ script: name, pattern: match[0] });
+      }
     }
+    expect(offending).toEqual([]);
+  });
+
+  test('no command with both stderr-suppress and stdout-redirect on one line', () => {
+    // `cmd 2>/dev/null > file` parses on POSIX shells but throws on Bun shell:
+    //   error: expected a command or assignment but got: "Redirect"
+    const offending: { script: string; pattern: string }[] = [];
+    for (const [name, body] of Object.entries(PKG.scripts)) {
+      const stripped = stripSingleQuoted(body);
+      const dualRedirect = stripped.match(/\d>\S+\s+>\s*\S+|>\s*\S+\s+\d>\S+/);
+      if (dualRedirect) {
+        offending.push({ script: name, pattern: dualRedirect[0] });
+      }
+    }
+    expect(offending).toEqual([]);
+  });
+
+  test('.version writes are delegated to a bash script (not inline)', () => {
+    // .version writing must NOT be inlined into the build script — every
+    // safe inline form requires a Bun-shell-hostile pattern. It must go
+    // through scripts/write-versions.sh instead.
+    const build = PKG.scripts.build ?? '';
+    expect(build).not.toMatch(/>\s*\S*\/\.version/);
+    expect(build).toContain('bash scripts/write-versions.sh');
+    expect(fs.existsSync(path.join(ROOT, 'scripts/write-versions.sh'))).toBe(true);
   });
 });
