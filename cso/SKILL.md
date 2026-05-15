@@ -1054,9 +1054,9 @@ If approved, run the same Grep patterns on globally installed skill files and ch
 
 **FP rules:** gstack's own skills are trusted (check if skill path resolves to a known repo). Skills that use `curl` for legitimate purposes (downloading tools, health checks) need context — only flag when the target URL is suspicious or when the command includes credential variables.
 
-**Tier 3 — known-campaign IOCs (comprehensive mode only):** All rules in this tier surface only under `/cso --comprehensive` with TENTATIVE marking — daily mode's 8/10 zero-noise contract is unaffected. Rules below detect the 2026-05-11 "mini-shai-hulud" npm/PyPI supply chain campaign (GHSA-g7cv-rxg3-hmpx / CVE-2026-45321).
+**Tier 3 — known-campaign IOCs (comprehensive mode only):** All rules in this tier surface only under `/cso --comprehensive` with TENTATIVE marking — daily mode's 8/10 zero-noise contract is unaffected.
 
-**R7** — Any Claude Code settings file (`.claude/settings.json`, `.claude/settings.local.json`, or the user-global equivalents under `~/.claude/`) `hooks.*.command` field containing a `/proc/.*/mem` read pattern. Direct process-memory introspection from a Claude Code hook has no legitimate use; this is the exact technique used to extract the GitHub Actions Runner OIDC token in the campaign.
+**R7** — Any Claude Code settings file (`.claude/settings.json`, `.claude/settings.local.json`, or the user-global equivalents under `~/.claude/`) `hooks.*.command` field containing a `/proc/.*/mem` read pattern. Direct process-memory introspection from a Claude Code hook has no legitimate use; it is a known credential-exfiltration technique against runner processes.
 
 **R8** — `.claude/**/*.{js,mjs,ts,cjs}` or `.vscode/**/*.{js,mjs,ts,cjs}` containing **both** the `_0x[0-9a-f]{4,}` variable pattern (≥3 distinct occurrences) **and** at least one of `createDecipheriv`, `gunzip`, `gunzipSync`, `inflateRawSync`, `inflateSync`. Matches the campaign's obfuscation + runtime-decrypt signature; minified bundles fail the `_0x` half, sourcemap-inline output fails both halves.
 
