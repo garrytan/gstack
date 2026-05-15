@@ -255,6 +255,51 @@ describe('init + sync + restore round-trip', () => {
     expect(log.stdout).toMatch(/sync: 1 file/);
   });
 
+  test('--once advances the brain worktree HEAD to match parent after push', () => {
+    // The brain worktree is what gbrain indexes from. If --once commits +
+    // pushes but leaves the detached worktree behind, gbrain reports
+    // 0 pages and recent artifacts never become searchable.
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+
+    // Set up a detached worktree at the init commit, mirroring what
+    // gstack-gbrain-source-wireup does in real installs.
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-worktree-'));
+    fs.rmSync(worktree, { recursive: true, force: true });
+    const initSha = git(['rev-parse', 'HEAD'], tmpHome).stdout.trim();
+    const addRes = spawnSync(
+      'git',
+      ['-C', tmpHome, 'worktree', 'add', '--detach', worktree, initSha],
+      { encoding: 'utf-8' },
+    );
+    expect(addRes.status).toBe(0);
+
+    // Enqueue + sync. brain-sync should commit, push, AND advance the
+    // worktree's detached HEAD to the new commit.
+    fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, 'projects/p/learnings.jsonl'),
+      '{"skill":"x","insight":"y","ts":"2026-04-22T10:00:00Z"}\n',
+    );
+    run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+    const r = run(['gstack-brain-sync', '--once'], {
+      env: { GSTACK_BRAIN_WORKTREE: worktree },
+    });
+    expect(r.status).toBe(0);
+
+    const parentSha = git(['rev-parse', 'HEAD'], tmpHome).stdout.trim();
+    const worktreeSha = git(['rev-parse', 'HEAD'], worktree).stdout.trim();
+    expect(parentSha).not.toBe(initSha); // sanity: commit actually happened
+    expect(worktreeSha).toBe(parentSha); // the actual regression check
+    expect(
+      fs.existsSync(path.join(worktree, 'projects/p/learnings.jsonl')),
+    ).toBe(true);
+
+    // Cleanup.
+    spawnSync('git', ['-C', tmpHome, 'worktree', 'remove', '--force', worktree]);
+    fs.rmSync(worktree, { recursive: true, force: true });
+  });
+
   test('restore round-trip: writes on machine A visible on machine B', () => {
     // Machine A.
     run(['gstack-artifacts-init', '--remote', bareRemote]);
