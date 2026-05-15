@@ -257,7 +257,7 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('contributor-logs');
     expect(content).toContain('Operational Self-Improvement');
     expect(content).toContain('gstack-learnings-log');
-    expect(content).toContain('gstack-learnings-search --limit 3');
+    expect(content).toContain('gstack-learnings-search --limit "$_LEARN_PREAMBLE_LIMIT"');
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {

@@ -41,7 +41,8 @@ export function generateLearningsSearch(ctx: TemplateContext, args?: string[]): 
 Search for relevant learnings from previous sessions on this project:
 
 \`\`\`bash
-$GSTACK_BIN/gstack-learnings-search --limit 10${queryFlag} 2>/dev/null || true
+_LEARN_SKILL_LIMIT=$($GSTACK_BIN/gstack-config get learnings_skill_limit 2>/dev/null || echo "10")
+$GSTACK_BIN/gstack-learnings-search --limit "$_LEARN_SKILL_LIMIT"${queryFlag} 2>/dev/null || true
 \`\`\`
 
 If learnings are found, incorporate them into your analysis. When a review finding
@@ -53,12 +54,13 @@ matches a past learning, note it: "Prior learning applied: [key] (confidence N, 
 Search for relevant learnings from previous sessions:
 
 \`\`\`bash
+_LEARN_SKILL_LIMIT=$(${ctx.paths.binDir}/gstack-config get learnings_skill_limit 2>/dev/null || echo "10")
 _CROSS_PROJ=$(${ctx.paths.binDir}/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ${ctx.paths.binDir}/gstack-learnings-search --limit 10${queryFlag} --cross-project 2>/dev/null || true
+  ${ctx.paths.binDir}/gstack-learnings-search --limit "$_LEARN_SKILL_LIMIT"${queryFlag} --cross-project 2>/dev/null || true
 else
-  ${ctx.paths.binDir}/gstack-learnings-search --limit 10${queryFlag} 2>/dev/null || true
+  ${ctx.paths.binDir}/gstack-learnings-search --limit "$_LEARN_SKILL_LIMIT"${queryFlag} 2>/dev/null || true
 fi
 \`\`\`
 
