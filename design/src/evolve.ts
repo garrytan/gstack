@@ -8,11 +8,13 @@
 import fs from "fs";
 import path from "path";
 import { requireApiKey } from "./auth";
+import { DEFAULT_IMAGE_GEN_TIMEOUT_MS } from "./constants";
 
 export interface EvolveOptions {
   screenshot: string;  // Path to current site screenshot
   brief: string;       // What to change ("make it calmer", "fix the hierarchy")
   output: string;      // Output path for evolved mockup
+  apiTimeoutMs?: number;
 }
 
 /**
@@ -52,7 +54,7 @@ export async function evolve(options: EvolveOptions): Promise<void> {
   ].join("\n");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 240_000);
+  const timeout = setTimeout(() => controller.abort(), options.apiTimeoutMs ?? DEFAULT_IMAGE_GEN_TIMEOUT_MS);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {

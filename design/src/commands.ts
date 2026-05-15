@@ -17,17 +17,17 @@ export const COMMANDS = new Map<string, {
   ["generate", {
     description: "Generate a UI mockup from a design brief",
     usage: "generate --brief \"...\" --output /path.png",
-    flags: ["--brief", "--brief-file", "--output", "--check", "--retry", "--size", "--quality"],
+    flags: ["--brief", "--brief-file", "--output", "--check", "--retry", "--size", "--quality", "--api-timeout"],
   }],
   ["variants", {
     description: "Generate N design variants from a brief",
     usage: "variants --brief \"...\" --count 3 --output-dir /path/",
-    flags: ["--brief", "--brief-file", "--count", "--output-dir", "--size", "--quality", "--viewports"],
+    flags: ["--brief", "--brief-file", "--count", "--output-dir", "--size", "--quality", "--viewports", "--api-timeout"],
   }],
   ["iterate", {
     description: "Iterate on an existing mockup with feedback",
     usage: "iterate --session /path/session.json --feedback \"...\" --output /path.png",
-    flags: ["--session", "--feedback", "--output"],
+    flags: ["--session", "--feedback", "--output", "--api-timeout"],
   }],
   ["check", {
     description: "Vision-based quality check on a mockup",
@@ -47,7 +47,7 @@ export const COMMANDS = new Map<string, {
   ["evolve", {
     description: "Generate improved mockup from existing screenshot",
     usage: "evolve --screenshot current.png --brief \"make it calmer\" --output /path.png",
-    flags: ["--screenshot", "--brief", "--output"],
+    flags: ["--screenshot", "--brief", "--output", "--api-timeout"],
   }],
   ["verify", {
     description: "Compare live site screenshot against approved mockup",
