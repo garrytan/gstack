@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - 2026-05-15
+## [1.39.2.0] - 2026-05-15
 
 ## **`/review` and `/ship` now survive Codex CLI 0.130.0's review argv rules.**
 ## **The fix that made `/codex review` bare now applies to the shared structured review gate too.**
