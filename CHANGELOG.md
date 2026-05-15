@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.39.2.0] - 2026-05-15
+
+## **`bun run build` now actually parses on Windows.**
+## **The `.version` writes route through a bash script so no Bun-shell-hostile pattern remains in `package.json`.**
+
+The v1.39.1.0 fix swapped bash brace groups for subshells in the build script's `.version` redirects to "match the v1.38.0.0 invariant." But subshells-with-redirect (`( cmd ) > file`) are *also* rejected by Bun's bundled shell on Windows — different parser error from the brace-group form, same outcome. The compat test gated on the wrong property (subshell prefix present), so the regression green-lit. The third option — `cmd 2>/dev/null > file` with dual redirection on one command — is rejected too. No single-line inline form of "swallow stderr, swallow exit code, write stdout to a file" parses under Bun shell on Windows.
+
+The fix delegates `.version` writes to `scripts/write-versions.sh`, mirroring the existing precedent of `browse/scripts/build-node-server.sh`. The build script now calls `bash scripts/write-versions.sh` for all three files; the bash script handles git-missing cleanly, and `setup`'s safety net still backfills empty `.version` files at install time.
+
+### The numbers that matter
+
+Source: `bun test test/build-script-shell-compat.test.ts` — 4 passing tests covering all three Bun-shell-hostile patterns plus the delegation property. Verified end-to-end on Windows 11 + Git Bash + bun 1.3.13: `bun run build` exits 0; all three `.version` files contain the correct HEAD SHA.
+
+| Surface | Before | After |
+|---|---|---|
+| `( cmd ) > file` subshell-with-redirect in `scripts.build` | 3 occurrences (v1.39.1.0 form) | 0 |
+| `{ cmd; } > file` brace-group-with-redirect | 0 (caught by existing test) | 0 |
+| `cmd 2>X > Y` dual-redirect single command | 0 (no observed) | 0; new test prevents introduction |
+| Compat-test assertions | 2 (no braces; subshell present) | 4 (no braces; no subshell-with-redirect; no dual-redirect; `.version` delegated to script) |
+| `bun run build` on Windows + bun 1.3.13 | crashes with "Subshells with redirections are currently not supported" | exits 0 |
+
+### What this means for Windows users
+
+Fresh installs (`./setup`) and `/gstack-upgrade` from any older version both complete the build step cleanly. No manual workarounds, no `bun run build` interventions. The `bin/gstack-global-discover` binary, the three `.version` files, and the Node-compatible server bundle all materialize as expected. Run `/gstack-upgrade` once and you're caught up.
+
+### Itemized changes
+
+#### Fixed
+
+- **`package.json`** `scripts.build` — three `( git rev-parse HEAD 2>/dev/null || true ) > path/.version` subshells replaced with one `bash scripts/write-versions.sh` call. Bun shell on Windows rejected the subshell-with-redirect form with `error: Subshells with redirections are currently not supported`. The same parser also rejects bash brace groups (the v1.38.0.0 → v1.39.1.0 ping-pong) and dual-redirect single commands, so all single-line inline forms are unsafe.
+
+#### Added
+
+- **`scripts/write-versions.sh`** — bash script that writes `git rev-parse HEAD` to all three `.version` files. Mirrors the precedent of `browse/scripts/build-node-server.sh`. Empty file is acceptable when git is unavailable; `setup`'s safety net backfills.
+- **`test/build-script-shell-compat.test.ts`** — strengthened from 2 to 4 assertions:
+  - `no bash brace groups in any npm script` — unchanged.
+  - `no subshell-with-redirection patterns in any npm script` — new; would have caught the v1.39.1.0 regression.
+  - `no command with both stderr-suppress and stdout-redirect on one line` — new; locks out the third Bun-shell-hostile form.
+  - `.version writes are delegated to a bash script (not inline)` — replaces the prior `must be a subshell` assertion. Gates on the right property (delegation), not the previously-wrong property (subshell prefix).
+
+#### For contributors
+
+- A complementary defense beyond the regex tests would be to execute `bun run build` (or a parse-only probe) under `windows-free-tests.yml`. Regex assertions catch only currently-known hostile patterns; an execution check would surface any future Bun shell limitation. Flagged as a follow-up in #1530, not included in this PR.
+
 ## [1.39.1.0] - 2026-05-15
 
 ## **Plan-mode reviews now enforce a blocking ExitPlanMode gate.**
