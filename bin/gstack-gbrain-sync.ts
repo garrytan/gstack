@@ -459,6 +459,13 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
+  // v1.29.0.0 changelog promised the per-worktree pin would be ignored in the
+  // consuming repo, but the change actually only added .gbrain-source to
+  // gstack's own .gitignore. Without the consumer-side entry, the pin gets
+  // committed and breaks the per-worktree promise: Conductor sibling worktrees
+  // step on each other's pin every time anyone commits (#1384).
+  ensureGbrainSourceGitignored(root);
+
   return {
     name: "code",
     ran: true,
@@ -473,6 +480,39 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       status: "ok",
     },
   };
+}
+
+/**
+ * Ensure `.gbrain-source` is listed in the consumer repo's `.gitignore`.
+ *
+ * Idempotent: only appends when the entry is not already present (matched on
+ * trimmed lines so a leading/trailing whitespace difference doesn't add a
+ * second copy). Wraps writes in try/catch so a read-only checkout or weird
+ * perms logs a warning and lets the rest of the sync continue.
+ */
+export function ensureGbrainSourceGitignored(root: string): void {
+  const gitignorePath = join(root, ".gitignore");
+  try {
+    let existing = "";
+    try {
+      existing = readFileSync(gitignorePath, "utf-8");
+    } catch {
+      // No .gitignore yet — we'll create it.
+    }
+    const alreadyIgnored = existing
+      .split("\n")
+      .some((line) => line.trim() === ".gbrain-source");
+    if (alreadyIgnored) {
+      return;
+    }
+    const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    writeFileSync(gitignorePath, existing + sep + ".gbrain-source\n");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[sync:code] could not add .gbrain-source to ${gitignorePath}: ${msg}`,
+    );
+  }
 }
 
 function runMemoryIngest(args: CliArgs): StageResult {
@@ -674,8 +714,10 @@ async function main(): Promise<void> {
   process.exit(exitCode);
 }
 
-main().catch((err) => {
-  console.error(`gstack-gbrain-sync fatal: ${err instanceof Error ? err.message : String(err)}`);
-  releaseLock();
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`gstack-gbrain-sync fatal: ${err instanceof Error ? err.message : String(err)}`);
+    releaseLock();
+    process.exit(1);
+  });
+}
