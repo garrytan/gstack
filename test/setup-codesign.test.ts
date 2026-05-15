@@ -24,10 +24,11 @@ describe('setup: Apple Silicon codesign', () => {
     const forMatch = content.match(/for _bin in ([^;]+);/);
     expect(forMatch).toBeTruthy();
     const binaries = forMatch![1].trim().split(/\s+/);
-    // All four compiled binaries from `bun run build` must be covered
+    // All compiled binaries from `bun run build` must be covered
     expect(binaries).toContain('browse/dist/browse');
     expect(binaries).toContain('browse/dist/find-browse');
     expect(binaries).toContain('design/dist/design');
+    expect(binaries).toContain('make-pdf/dist/pdf');
     expect(binaries).toContain('bin/gstack-global-discover');
   });
 
@@ -49,23 +50,27 @@ describe('setup: Apple Silicon codesign', () => {
     expect(content).toContain('[ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue');
   });
 
-  test('codesign failure is a warning, not a fatal error', () => {
+  test('codesign failures surface stderr, verify signatures, and fail setup', () => {
     const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
-    // On codesign failure, log a warning but don't exit
-    expect(content).toContain('warning: codesign failed for');
-    // Should NOT have `set -e` causing exit on codesign failure
-    // (the `|| true` after --remove-signature and the if-guard around -s - -f handle this)
-    expect(content).toContain('codesign --remove-signature "$_bin_path" 2>/dev/null || true');
+    expect(content).toContain('_codesign_err="$(mktemp)"');
+    expect(content).toContain('codesign --remove-signature "$_bin_path" 2>"$_codesign_err"');
+    expect(content).toContain('codesign -s - -f "$_bin_path" 2>"$_codesign_err"');
+    expect(content).toContain('codesign --verify --strict "$_bin_path" 2>"$_codesign_err"');
+    expect(content).toContain('_print_codesign_err');
+    expect(content).toContain('_codesign_failures=$((_codesign_failures + 1))');
+    expect(content).toContain('gstack setup failed: $_codesign_failures binaries did not codesign');
+    expect(content).toContain('exit 1');
+    expect(content).not.toContain('codesign --remove-signature "$_bin_path" 2>/dev/null || true');
   });
 
   test('codesign shell snippet is syntactically valid', () => {
     // Extract the codesign block and validate it parses as bash
     const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
-    const match = content.match(
-      /# macOS Apple Silicon: ad-hoc codesign[\s\S]*?done\n\s*fi/
-    );
-    expect(match).toBeTruthy();
-    const snippet = match![0];
+    const start = content.indexOf('# macOS Apple Silicon: ad-hoc codesign');
+    const end = content.indexOf('# macOS: install coreutils', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const snippet = content.slice(start, end);
     // Wrap in a function to make it a complete script, then syntax-check
     const testScript = `#!/usr/bin/env bash\nset -e\n_test_fn() {\n${snippet}\n}\n`;
     const result = spawnSync('bash', ['-n', '-c', testScript], {

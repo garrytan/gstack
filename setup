@@ -292,14 +292,49 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   # signature block is corrupt. This is idempotent and costs <1s.
   # See: https://github.com/garrytan/gstack/issues/997
   if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    _codesign_failures=0
+    _codesign_err="$(mktemp)"
+    _print_codesign_err() {
+      if [ -s "$_codesign_err" ]; then
+        while IFS= read -r _codesign_line; do
+          log "  $_codesign_line"
+        done < "$_codesign_err"
+      else
+        log "  (no stderr output)"
+      fi
+    }
+
     for _bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
       _bin_path="$SOURCE_GSTACK_DIR/$_bin"
       [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
-      codesign --remove-signature "$_bin_path" 2>/dev/null || true
-      if ! codesign -s - -f "$_bin_path" 2>/dev/null; then
-        log "warning: codesign failed for $_bin (binary may not run on Apple Silicon)"
+
+      : > "$_codesign_err"
+      if ! codesign --remove-signature "$_bin_path" 2>"$_codesign_err"; then
+        log "warning: codesign --remove-signature failed for $_bin:"
+        _print_codesign_err
+      fi
+
+      : > "$_codesign_err"
+      if ! codesign -s - -f "$_bin_path" 2>"$_codesign_err"; then
+        log "error: codesign failed for $_bin:"
+        _print_codesign_err
+        _codesign_failures=$((_codesign_failures + 1))
+        continue
+      fi
+
+      : > "$_codesign_err"
+      if ! codesign --verify --strict "$_bin_path" 2>"$_codesign_err"; then
+        log "error: codesign verification failed for $_bin:"
+        _print_codesign_err
+        _codesign_failures=$((_codesign_failures + 1))
       fi
     done
+
+    rm -f "$_codesign_err"
+    if [ "$_codesign_failures" -gt 0 ]; then
+      echo "gstack setup failed: $_codesign_failures binaries did not codesign. Apple Silicon will SIGKILL them on first run. See output above for codesign errors." >&2
+      exit 1
+    fi
   fi
 
   # macOS: install coreutils for `gtimeout` (Codex hang protection in /codex + /autoplan).
