@@ -1062,7 +1062,7 @@ If approved, run the same Grep patterns on globally installed skill files and ch
 
 **R9** — File under `.claude/**` or `.vscode/**` where **all three** hold: (a) referenced from any Claude Code settings file (`.claude/settings.json`, `.claude/settings.local.json`, or the user-global equivalents under `~/.claude/`) `hooks.*.command` via `node|bun|python3?|bash|sh <path>` or direct path invocation, **OR** from a `tasks.json` task with `runOptions.runOn: "folderOpen"`; (b) not declared in `package.json` `files`, the npm tarball, or any lockfile `integrity` hash; (c) not exempt by the Tier 3 FP guards below. Auto-run persistence bridge in TTP form — renaming the payload file does not evade.
 
-**R12** — Strings `filev2.getsession.org` or `seed{1,2,3}.getsession.org` appearing inside an executable context: a `hooks.*.command` value, a `tasks.json` `command`/`args` field, or a `fetch`/`http.get`/`axios`/`socket.connect`/`curl`/`nc` call inside a `.{js,mjs,ts,cjs,sh,py}` file under `.claude/**`/`.vscode/**`. Documentation or IOC-note mentions do not fire.
+**R12** — Strings `filev2.getsession.org`, `seed1.getsession.org`, `seed2.getsession.org`, or `seed3.getsession.org` appearing inside an executable context: a `hooks.*.command` value, a `tasks.json` `command`/`args` field, or a `fetch`/`http.get`/`axios`/`socket.connect`/`curl`/`nc` call inside a `.{js,mjs,ts,cjs,sh,py}` file under `.claude/**`/`.vscode/**`. Documentation or IOC-note mentions do not fire.
 
 **Tier 3 FP guards:**
 - gstack-installed paths trusted: `~/.claude/skills/gstack/`, `~/.claude/skills/gstack-*/`, `~/.claude/hooks/` when content matches distributed checksums (extends the existing "gstack's own skills are trusted" precedent above).
