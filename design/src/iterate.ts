@@ -32,6 +32,9 @@ export async function iterate(options: IterateOptions): Promise<void> {
 
   const startTime = Date.now();
   const apiTimeoutMs = options.apiTimeoutMs ?? DEFAULT_IMAGE_GEN_TIMEOUT_MS;
+  // Single deadline shared across threading + fallback so cumulative wait is
+  // bounded by apiTimeoutMs rather than 2×apiTimeoutMs.
+  const deadline = startTime + apiTimeoutMs;
 
   // Try multi-turn with previous_response_id first
   let success = false;
@@ -48,13 +51,19 @@ export async function iterate(options: IterateOptions): Promise<void> {
     console.error(`  Threading failed: ${err.message}`);
     console.error("  Falling back to re-generation with accumulated feedback...");
 
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      const secs = (apiTimeoutMs / 1000).toFixed(apiTimeoutMs % 1000 === 0 ? 0 : 1);
+      throw new Error(`Timeout (${secs}s)`);
+    }
+
     // Fallback: re-generate with original brief + all feedback
     const accumulatedPrompt = buildAccumulatedPrompt(
       session.originalBrief,
       [...session.feedbackHistory, options.feedback]
     );
 
-    const result = await callFresh(apiKey, accumulatedPrompt, apiTimeoutMs);
+    const result = await callFresh(apiKey, accumulatedPrompt, remaining);
     responseId = result.responseId;
 
     fs.mkdirSync(path.dirname(options.output), { recursive: true });

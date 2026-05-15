@@ -25,13 +25,27 @@ import { evolve } from "./evolve";
 import { generateDesignToCodePrompt } from "./design-to-code";
 import { serve } from "./serve";
 import { gallery } from "./gallery";
+import { spawn as nodeSpawn } from "child_process";
 import {
-  daemonStatus as daemonStatusClient,
+  daemonStatus,
+  shutdownDaemon,
   ensureDaemon,
   publishBoard,
-  shutdownDaemon,
 } from "./daemon-client";
-import { spawn as nodeSpawn } from "child_process";
+
+/**
+ * Parse + validate `--api-timeout <ms>`. Throws on bad input so the caller can
+ * surface a clear error rather than passing NaN/0/negative to setTimeout (which
+ * would fire the AbortController immediately and instant-abort the request).
+ */
+export function parseApiTimeoutMs(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`--api-timeout must be a positive integer (ms), got: ${raw}`);
+  }
+  return parsed;
+}
 
 function parseArgs(argv: string[]): {
   command: string;
@@ -133,9 +147,13 @@ async function main(): Promise<void> {
   // Per-request timeout for OpenAI image-generation calls. Distinct from the
   // existing `--timeout` flag, which controls the `compare --serve` / `serve`
   // HTTP listener. See issue #1519.
-  const apiTimeoutMs = flags["api-timeout"]
-    ? parseInt(flags["api-timeout"] as string)
-    : undefined;
+  let apiTimeoutMs: number | undefined;
+  try {
+    apiTimeoutMs = parseApiTimeoutMs(flags["api-timeout"] as string | undefined);
+  } catch (err: any) {
+    console.error(err.message);
+    process.exit(1);
+  }
 
   switch (command) {
     case "generate":
@@ -301,7 +319,7 @@ async function main(): Promise<void> {
       // Sub-commands: `$D daemon status` and `$D daemon stop [--force]`.
       const sub = positionals[0] || "status";
       if (sub === "status") {
-        const s = await daemonStatusClient();
+        const s = await daemonStatus();
         if (!s.running) {
           console.log(JSON.stringify({ running: false }, null, 2));
           process.exit(0);
@@ -419,14 +437,16 @@ async function resolveImagePaths(input: string): Promise<string[]> {
 // the production install to a single executable; daemon-client.ts spawns
 // `<this binary> --daemon-mode` (or `bun run cli.ts --daemon-mode` in dev)
 // rather than relying on a separate daemon.ts file at a known path.
-if (process.argv.includes("--daemon-mode")) {
-  const { start } = await import("./daemon");
-  start();
-  // start() binds Bun.serve and registers signal handlers; this branch
-  // never falls through to main(). Process stays alive on the bound port.
-} else {
-  main().catch((err) => {
-    console.error(err.message || err);
-    process.exit(1);
-  });
+if (import.meta.main) {
+  if (process.argv.includes("--daemon-mode")) {
+    const { start } = await import("./daemon");
+    start();
+    // start() binds Bun.serve and registers signal handlers; this branch
+    // never falls through to main(). Process stays alive on the bound port.
+  } else {
+    main().catch((err) => {
+      console.error(err.message || err);
+      process.exit(1);
+    });
+  }
 }

@@ -128,7 +128,8 @@ export async function generateVariant(
     } catch (err: any) {
       clearTimeout(timeout);
       if (err.name === "AbortError") {
-        return { path: outputPath, success: false, error: `Timeout (${timeoutMs}ms)` };
+        const secs = (timeoutMs / 1000).toFixed(timeoutMs % 1000 === 0 ? 0 : 1);
+        return { path: outputPath, success: false, error: `Timeout (${secs}s)` };
       }
       lastError = err.message;
     }
