@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] - 2026-05-15
+
+## **`/review` and `/ship` now survive Codex CLI 0.130.0's review argv rules.**
+## **The fix that made `/codex review` bare now applies to the shared structured review gate too.**
+
+Codex CLI 0.130.0 made `codex review [PROMPT] --base <branch>` invalid: the prompt argument and `--base` are mutually exclusive ways to choose review scope. v1.34.2.0 fixed `/codex review`, but the same prompt-plus-base call still lived in the shared resolver used by `/review` and `/ship`. Large diffs that reached the structured Codex review gate could still fail before the model ran.
+
+`/review` and `/ship` now emit the same bare `codex review --base <base>` default path that already shipped for `/codex`. The filesystem-boundary prompt is intentionally not passed on this path because Codex owns the diff scope internally, and the protected skill files are public; this is the same token-efficiency tradeoff as the earlier `/codex` fix. Regression coverage now checks the resolver, generated skills, and ship golden fixtures so prompt-plus-`--base` cannot return silently.
+
+Credit to `Stashub` for the Codex CLI 0.130.0 repro and for driving the original `/codex review` fix pattern this patch completes.
+
 ## [1.39.1.0] - 2026-05-15
 
 ## **Plan-mode reviews now enforce a blocking ExitPlanMode gate.**

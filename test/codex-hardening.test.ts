@@ -427,3 +427,35 @@ describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', 
     });
   }
 });
+
+describe('/review and /ship Codex review: PROMPT + --base mutual exclusion guard', () => {
+  const targets = [
+    'scripts/resolvers/review.ts',
+    'review/SKILL.md',
+    'ship/SKILL.md',
+    'test/fixtures/golden/claude-ship-SKILL.md',
+    'test/fixtures/golden/factory-ship-SKILL.md',
+    'test/fixtures/golden-ship-claude.md',
+  ];
+
+  for (const relPath of targets) {
+    test(`${relPath}: no \`codex review\` command combines a prompt argument with --base`, () => {
+      const content = fs.readFileSync(path.join(ROOT, relPath), 'utf-8');
+      const offendingLines: string[] = [];
+      for (const line of content.split('\n')) {
+        const match = line.match(/\bcodex\s+review\b(.*)$/);
+        if (!match) continue;
+        const rest = match[1];
+        if (!/--base\b/.test(rest)) continue;
+
+        const beforeBase = rest.split(/--base\b/)[0].trim();
+        if (beforeBase === '') continue;
+        if (/^["'$]|^--\s*["']/.test(beforeBase)) {
+          offendingLines.push(line);
+        }
+      }
+
+      expect(offendingLines).toEqual([]);
+    });
+  }
+});
