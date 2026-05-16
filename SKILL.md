@@ -517,6 +517,7 @@ quality gates that produce better results than answering inline.
 - User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies`
 - User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
 - User asks what gstack has learned, "show learnings" → invoke `/learn`
+- User asks to model a physical part, design a bracket/enclosure/fixture, generate a STEP/STL file, build something for 3D printing or CNC → invoke `/cad-coder`
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`
 
