@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
 
 import requests
@@ -28,36 +27,7 @@ ZE_COLLECTION = os.environ.get("ZE_COLLECTION", "thingiverse-popular")
 CACHE_DIR = Path(os.environ.get("STL_CACHE_DIR", "/tmp/stl-cache"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-MODELS_JSONL = Path(__file__).parent / "models.jsonl"
-TAG_RE = re.compile(r"<[^>]+>")
-
-
-def _load_descriptions() -> dict[str, str]:
-    """thing_id -> plain-text description, loaded from models.jsonl."""
-    out: dict[str, str] = {}
-    if not MODELS_JSONL.exists():
-        return out
-    with MODELS_JSONL.open() as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            tid = str(rec.get("id", ""))
-            if not tid:
-                continue
-            desc = TAG_RE.sub(" ", rec.get("description") or "").strip()
-            details = TAG_RE.sub(" ", rec.get("details") or "").strip()
-            out[tid] = (desc + ("\n\n" + details if details else "")).strip()
-    return out
-
-
-DESCRIPTIONS = _load_descriptions()
-
-app = FastAPI(title="stl-search", version="0.2.0")
+app = FastAPI(title="stl-search", version="0.3.0")
 
 
 def _ze_top(query: str, k: int) -> list[dict]:
@@ -137,7 +107,7 @@ def query(
         out.append({
             "thing_id": thing_id,
             "name": meta.get("name") or "",
-            "description": DESCRIPTIONS.get(thing_id, ""),
+            "description": meta.get("description") or "",
             "thing_url": meta.get("thing_url") or "",
             "tags": tags,
             "score": hit.get("score"),

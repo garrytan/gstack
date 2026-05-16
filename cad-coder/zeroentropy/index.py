@@ -94,9 +94,15 @@ def main() -> int:
                 continue
             stls = rec.get("stl_files") or []
             primary = stls[0] if stls else {}
+            desc_plain = strip_html(rec.get("description", ""))
+            details_plain = strip_html(rec.get("details", ""))
             meta = {
                 "thing_id": str(rec.get("id", "")),
                 "name": (rec.get("name") or "")[:500],
+                # Description carried in metadata so retrieval callers don't
+                # need the source jsonl. Truncated to stay under ZE's 65536-byte
+                # metadata-value cap with headroom.
+                "description": (desc_plain + ("\n\n" + details_plain if details_plain else ""))[:8000],
                 "thing_url": rec.get("url") or "",
                 "stl_name": primary.get("name", ""),
                 "stl_url": primary.get("url", ""),
