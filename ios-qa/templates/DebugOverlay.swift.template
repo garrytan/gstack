@@ -9,118 +9,162 @@ public struct DebugOverlayView: View {
     @State private var lastAction = ""
     @State private var showingAction = false
     @State private var gradientRotation: Double = 0
-    @State private var borderWidth: CGFloat = 3
-    @State private var pulseOpacity: Double = 0
+    @State private var borderWidth: CGFloat = 5
+    @State private var pulseScale: CGFloat = 1.0
 
     public init() {}
 
     public var body: some View {
-        ZStack {
-            // Animated gradient border — flows around the screen edge
-            if isConnected {
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(
-                        AngularGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.0, green: 0.5, blue: 1.0),   // blue
-                                Color(red: 0.0, green: 0.8, blue: 1.0),   // cyan
-                                Color(red: 0.4, green: 0.3, blue: 1.0),   // purple
-                                Color(red: 0.0, green: 0.6, blue: 1.0),   // blue-cyan
-                                Color(red: 0.2, green: 0.9, blue: 0.9),   // teal
-                                Color(red: 0.5, green: 0.2, blue: 1.0),   // violet
-                                Color(red: 0.0, green: 0.5, blue: 1.0),   // back to blue
-                            ]),
-                            center: .center,
-                            startAngle: .degrees(gradientRotation),
-                            endAngle: .degrees(gradientRotation + 360)
-                        ),
-                        lineWidth: borderWidth
-                    )
-                    .ignoresSafeArea()
-                    .onAppear {
-                        withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
-                            gradientRotation = 360
-                        }
-                    }
-
-                // Outer glow
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(
-                        AngularGradient(
-                            gradient: Gradient(colors: [
-                                .cyan.opacity(0.3), .blue.opacity(0.1),
-                                .purple.opacity(0.3), .cyan.opacity(0.1),
-                                .blue.opacity(0.3), .purple.opacity(0.1),
-                                .cyan.opacity(0.3)
-                            ]),
-                            center: .center,
-                            startAngle: .degrees(gradientRotation + 180),
-                            endAngle: .degrees(gradientRotation + 540)
-                        ),
-                        lineWidth: 8
-                    )
-                    .blur(radius: 6)
-                    .ignoresSafeArea()
-            }
-
-            // Top debug bar with glassmorphism
-            VStack(spacing: 0) {
+        GeometryReader { geo in
+            ZStack {
                 if isConnected {
-                    HStack(spacing: 8) {
-                        // Glowing connection dot
-                        Circle()
-                            .fill(Color.cyan)
-                            .frame(width: 6, height: 6)
-                            .shadow(color: .cyan, radius: 4)
-                            .shadow(color: .cyan, radius: 8)
+                    // Layer 1: Outermost aura — wide, soft, fades inward from edges
+                    RoundedRectangle(cornerRadius: 44)
+                        .strokeBorder(
+                            AngularGradient(
+                                gradient: Gradient(colors: [
+                                    .cyan.opacity(0.15), .blue.opacity(0.05),
+                                    .purple.opacity(0.15), .cyan.opacity(0.05),
+                                    .blue.opacity(0.15), .purple.opacity(0.05),
+                                    .cyan.opacity(0.15)
+                                ]),
+                                center: .center,
+                                startAngle: .degrees(gradientRotation + 90),
+                                endAngle: .degrees(gradientRotation + 450)
+                            ),
+                            lineWidth: 40
+                        )
+                        .blur(radius: 20)
+                        .scaleEffect(pulseScale)
 
-                        Text("Claude is debugging")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.white, .cyan.opacity(0.9)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
+                    // Layer 2: Mid glow — tighter, more color
+                    RoundedRectangle(cornerRadius: 30)
+                        .strokeBorder(
+                            AngularGradient(
+                                gradient: Gradient(colors: [
+                                    .cyan.opacity(0.4), .blue.opacity(0.2),
+                                    .purple.opacity(0.4), .cyan.opacity(0.2),
+                                    .blue.opacity(0.4), .purple.opacity(0.2),
+                                    .cyan.opacity(0.4)
+                                ]),
+                                center: .center,
+                                startAngle: .degrees(gradientRotation + 180),
+                                endAngle: .degrees(gradientRotation + 540)
+                            ),
+                            lineWidth: 16
+                        )
+                        .blur(radius: 8)
+
+                    // Layer 3: Core border — sharp, vibrant, animated rotation
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(
+                            AngularGradient(
+                                gradient: Gradient(colors: [
+                                    Color(red: 0.0, green: 0.5, blue: 1.0),
+                                    Color(red: 0.0, green: 0.85, blue: 1.0),
+                                    Color(red: 0.4, green: 0.3, blue: 1.0),
+                                    Color(red: 0.0, green: 0.7, blue: 1.0),
+                                    Color(red: 0.2, green: 0.9, blue: 0.9),
+                                    Color(red: 0.5, green: 0.2, blue: 1.0),
+                                    Color(red: 0.0, green: 0.5, blue: 1.0),
+                                ]),
+                                center: .center,
+                                startAngle: .degrees(gradientRotation),
+                                endAngle: .degrees(gradientRotation + 360)
+                            ),
+                            lineWidth: borderWidth
+                        )
+
+                    // Layer 4: Inner tint — subtle color wash bleeding inward
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(
+                            RadialGradient(
+                                gradient: Gradient(colors: [
+                                    .clear,
+                                    .clear,
+                                    .clear,
+                                    .cyan.opacity(0.03),
+                                    .blue.opacity(0.06)
+                                ]),
+                                center: .center,
+                                startRadius: min(geo.size.width, geo.size.height) * 0.3,
+                                endRadius: max(geo.size.width, geo.size.height) * 0.55
                             )
+                        )
+                }
+
+                // Top debug bar with glassmorphism
+                VStack(spacing: 0) {
+                    if isConnected {
+                        HStack(spacing: 8) {
+                            // Glowing connection dot
+                            Circle()
+                                .fill(Color.cyan)
+                                .frame(width: 7, height: 7)
+                                .shadow(color: .cyan, radius: 4)
+                                .shadow(color: .cyan.opacity(0.6), radius: 8)
+                                .shadow(color: .cyan.opacity(0.3), radius: 12)
+
+                            Text("Claude is controlling")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.white, .cyan.opacity(0.9)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+
+                            Spacer()
+
+                            if showingAction {
+                                Text(lastAction)
+                                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .lineLimit(1)
+                                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(.ultraThinMaterial)
+                                .environment(\.colorScheme, .dark)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(
+                                            LinearGradient(
+                                                colors: [.white.opacity(0.25), .clear, .cyan.opacity(0.15)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
+                                            lineWidth: 0.5
+                                        )
+                                )
+                                .shadow(color: .cyan.opacity(0.2), radius: 8, y: 2)
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.top, getSafeAreaTop() + 4)
 
                         Spacer()
-
-                        if showingAction {
-                            Text(lastAction)
-                                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.6))
-                                .transition(.opacity.combined(with: .move(edge: .trailing)))
-                        }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(
-                                        LinearGradient(
-                                            colors: [.white.opacity(0.2), .clear, .white.opacity(0.1)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        ),
-                                        lineWidth: 0.5
-                                    )
-                            )
-                    )
-                    .padding(.horizontal, 8)
-                    .padding(.top, getSafeAreaTop() + 4)
-
-                    Spacer()
                 }
             }
+            .ignoresSafeArea()
         }
+        .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.linear(duration: 3.0).repeatForever(autoreverses: false)) {
+                gradientRotation = 360
+            }
+            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+                pulseScale = 1.02
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .debugBridgeConnected)) { _ in
-            withAnimation(.easeInOut(duration: 0.5)) {
+            withAnimation(.easeInOut(duration: 0.6)) {
                 isConnected = true
             }
         }
@@ -131,7 +175,7 @@ public struct DebugOverlayView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .debugBridgeAction)) { notification in
             if let action = notification.userInfo?["action"] as? String {
-                lastAction = action
+                lastAction = String(action.prefix(30))
                 withAnimation(.easeInOut(duration: 0.2)) { showingAction = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     withAnimation(.easeOut(duration: 0.3)) { showingAction = false }
@@ -139,13 +183,13 @@ public struct DebugOverlayView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .debugBridgeStateMutation)) { _ in
-            // Pulse the border on state mutations
-            withAnimation(.easeIn(duration: 0.1)) {
-                borderWidth = 6
+            // Pulse border thicker on state mutations
+            withAnimation(.easeIn(duration: 0.08)) {
+                borderWidth = 9
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                withAnimation(.easeOut(duration: 0.4)) {
-                    borderWidth = 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                withAnimation(.easeOut(duration: 0.5)) {
+                    borderWidth = 5
                 }
             }
         }
