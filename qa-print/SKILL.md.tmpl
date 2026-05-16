@@ -112,6 +112,65 @@ If no cad-built artifact exists, ask the user: "Which printed part are
 we checking? Filename or part description is fine." Then try to find
 the matching session.json.
 
+## Phase 0.5: Pre-print stress check (engineered mode only)
+
+Skip this phase entirely in casual mode — physical iteration is faster
+than simulation for hobby parts.
+
+If the read session.json shows `mode == "engineered"` AND
+`requirements.load_case` is set AND `engineered_constraints` has a
+filament σ_y AND the user hasn't printed yet (no measurements being
+reported, no "I just printed this" framing), offer a pre-print stress
+sanity check. ONE confirmation:
+
+> "Before you print: want me to run a quick stress estimate against
+> your stated load? Rule-of-thumb, ~30% accuracy — catches obvious
+> mistakes (specced wall too thin, geometry not strong enough for
+> the load) before you commit to a 3-hour print. Takes 5 seconds."
+
+If yes, run `cad-coder/stress.py` with the same geometry-class +
+dimensions + load + σ_y inputs that /cad-coder would use (see
+/cad-coder's Phase 2 "Stress check" section for the heuristic). Then
+report:
+
+```
+Pre-print stress check (engineered mode):
+  Geometry model: cantilever (60mm effective length, 40×4mm cross-section)
+  Load:           50 N (5 kg, in-plane)
+  Material:       PETG, σ_y 45 MPa
+  Peak stress:    28 MPa at the root
+  Actual FoS:     1.6  (you specced 5.0)
+  Verdict:        MARGINAL — will deform under sustained load.
+
+Recommendation: don't print this yet. The bracket geometry doesn't
+deliver the safety factor you specced. Take one of these back to
+/cad-coder before printing:
+  → "bump WALL to 6.6mm" (meets FoS 5.0 at the spec'd load)
+  → "add a 4mm fillet at the wall-bracket junction" (cuts peak
+    stress by ~30%)
+  → "drop FoS to 2.0 — this is a prototype, I'll iterate" (intent
+    change, not a geometry change)
+
+Or override: "print it anyway, I want to see what happens" — fair if
+you're testing. I'll log it as an experimental print.
+```
+
+If the check passes (actual FoS ≥ spec FoS), surface a one-liner and
+move on to Phase 1:
+
+```
+Pre-print stress check: actual FoS 5.6 vs spec 5.0 — margin OK,
+go ahead and print.
+```
+
+If the geometry doesn't fit any of the 5 closed-form formulas, skip
+the check with a note: "Can't model this shape with the closed-form
+formulas — skipping pre-print stress check. We'll find issues in the
+eyeball pass after you print."
+
+Write the pre-print stress result to the qa-print artifact (Phase 4)
+under a `## Pre-print stress check` heading regardless of outcome.
+
 ## Phase 1: The eyeball pass
 
 ONE `AskUserQuestion` call with at most 4 questions, all plain language:

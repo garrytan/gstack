@@ -803,6 +803,111 @@ If any hard check fails, fix the script and re-run silently. Do not
 report success until the geometry sanity-checks pass (and on export
 turns, the file lands).
 
+### Stress check (engineered mode only)
+
+If `session.mode == "engineered"` AND `session.requirements.load_case`
+is set AND `session.engineered_constraints` has a filament σ_y, run a
+closed-form stress estimate via `cad-coder/stress.py` every validate
+turn. This catches "the spec says FoS 5.0 but the actual geometry
+delivers FoS 2.1" *before* the user prints.
+
+Step 1 — pick the geometry class from the part shape. Heuristics:
+
+| Shape signal | Geometry class | Reasoning |
+|--------------|----------------|-----------|
+| Long-thin part, mount holes at one end, load at the other | `cantilever` | Bracket holding a mass at its tip |
+| Two mount sets across a span, load in the middle | `beam` | Simply-supported beam |
+| Flat-ish (length × width >> thickness), holes spread, distributed load | `plate` | Mounting plate under center pull |
+| Screw tightening against a thin wall under axial pull | `pull_through` | M-screw extracting plastic cone |
+| Boss under axial squeeze (screw clamp, stack-up) | `boss` | Compressive axial load |
+
+If you can't pick one cleanly, pick the **most conservative** one (the
+one with the highest stress estimate for the given dimensions). Note
+the choice in the report so the user can correct: "Assuming cantilever
+— if the load is actually distributed across the long edge instead,
+say 'use beam geometry' and I'll re-estimate."
+
+Step 2 — extract the dimensions from the part's params:
+
+```bash
+$CAD_PY cad-coder/stress.py cantilever \
+  --L <effective_length>  \
+  --b <width>             \
+  --h <thickness>         \
+  --F <load_n>            \
+  --sigma_y <sigma_y_mpa> \
+  --layer_factor <1.0 in-plane or 0.5 cross-layer FDM>
+```
+
+For cantilever-like parts, `effective_length` is the distance from
+the fixed mount to the load point — NOT the overall part length.
+A 60mm bracket with mount holes at one end and a load at the far
+end has effective length ≈ 60mm; a 60mm bracket where the load is
+at the centre is effective length ≈ 30mm.
+
+`load_n` comes from `session.requirements.load_case` — convert mass
+to force (kg × 9.81). If the load is cyclic, multiply by 2× for fatigue
+(rule of thumb — peak amplitude beats RMS for plastic fatigue).
+
+Step 3 — read the JSON output:
+
+```json
+{
+  "geometry": "cantilever_beam_tip_load",
+  "max_stress_mpa": 28.12,
+  "location": "root of cantilever (top/bottom fibre at fixed end)",
+  "fos": 1.6,
+  "verdict": "marginal — likely to deform under load, may not break",
+  "inputs": {...},
+  "sigma_y_mpa": 45.0, "layer_factor": 1.0
+}
+```
+
+Surface in the engineered-mode report as ONE line under the
+`Engineering:` line, with the verdict in plain language:
+
+```
+Engineering: FoS 5.0 spec · σ_y 45 MPa (PETG, in-plane) · WALL ≥ 2.4mm
+Stress check: 28 MPa at the root (cantilever model, ~30% accurate)
+              actual FoS 1.6 — marginal, will deform under sustained load.
+              Add a 4mm fillet at the wall or bump WALL to 6mm to reach FoS 3.0.
+```
+
+When `actual_fos < spec_fos`, ALSO surface in `Observations:` with a
+proposed fix:
+
+```
+Observations:
+  - Stress check says actual FoS = 1.6, you specced 5.0. Either the
+    geometry needs help (thicker wall, supporting rib, larger fillet
+    at the load point) or the load estimate was conservative. Want me
+    to bump WALL to the value that meets FoS 5.0? (calculated: 6.6mm)
+```
+
+**Honesty rules:**
+- Always cite the formula name in the report ("cantilever model",
+  "plate model").
+- Always show ±30% in the first turn the stress check runs ("rule-of-
+  thumb, ~30% accurate — for production parts, use real FEA").
+- Never round FoS to "looks fine" when it's < 1.5 — surface the number.
+- If geometry doesn't fit any of the 5 formulas (complex topology,
+  multiple load paths, contact mechanics), say so: "I can't model this
+  shape with the closed-form formulas; skipping stress check this turn.
+  /qa-print after printing is the next-best validation."
+
+Cache the latest stress result in `session.json["last_stress"]` so the
+report can show the delta when a parameter edit changes it:
+
+```json
+"last_stress": {
+  "geometry": "cantilever_beam_tip_load",
+  "max_stress_mpa": 28.12,
+  "fos_actual": 1.6,
+  "fos_spec": 5.0,
+  "computed_at_turn": 4
+}
+```
+
 ### Environment check (first turn only)
 
 ```bash
