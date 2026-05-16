@@ -48,6 +48,13 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(r.stderr).toContain("Unknown argument: --bogus");
   });
 
+  it("uses the shared local gbrain status classifier instead of shelling through command -v", () => {
+    const source = readFileSync(SCRIPT, "utf-8");
+
+    expect(source).not.toContain('command -v gbrain');
+    expect(source).toContain("localEngineStatus");
+  });
+
   it("--dry-run with --code-only reports the code import preview only", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");

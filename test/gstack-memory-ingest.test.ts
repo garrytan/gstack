@@ -421,6 +421,13 @@ esac
 }
 
 describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)", () => {
+  it("probes the gbrain executable directly instead of shelling through command -v", () => {
+    const source = readFileSync(SCRIPT, "utf-8");
+
+    expect(source).not.toContain('command -v gbrain');
+    expect(source).toContain('execFileSync("gbrain", ["--help"]');
+  });
+
   it("invokes `gbrain import <dir> --no-embed --json` exactly once with hierarchical staging", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");

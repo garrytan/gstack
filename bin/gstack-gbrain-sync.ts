@@ -233,15 +233,6 @@ function constrainSourceId(prefix: string, raw: string): string {
   return tail ? `${prefix}-${tail}-${hash}` : `${prefix}-${hash}`;
 }
 
-function gbrainAvailable(): boolean {
-  try {
-    execSync("command -v gbrain", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // ── Lock file (D1) ─────────────────────────────────────────────────────────
 
 interface LockInfo {
@@ -332,9 +323,6 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const root = repoRoot();
   if (!root) {
     return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
-  }
-  if (!gbrainAvailable()) {
-    return { name: "code", ran: false, ok: false, duration_ms: 0, summary: "skipped (gbrain CLI not in PATH)" };
   }
 
   const sourceId = deriveCodeSourceId(root);

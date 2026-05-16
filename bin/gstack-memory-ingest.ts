@@ -54,7 +54,7 @@ import {
   rmSync,
 } from "fs";
 import { join, basename, dirname } from "path";
-import { execSync, execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
+import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
@@ -809,7 +809,6 @@ let _gbrainAvailability: boolean | null = null;
 function gbrainAvailable(): boolean {
   if (_gbrainAvailability !== null) return _gbrainAvailability;
   try {
-    execSync("command -v gbrain", { stdio: "ignore" });
     // Probe `--help` for the `import` subcommand. gbrain v0.20.0+ ships
     // `import <dir>` (batch markdown import via path-authoritative slugs).
     // If absent, we surface a single clean error here rather than failing

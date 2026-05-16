@@ -101,13 +101,13 @@ export function resolveGbrainBin(env?: NodeJS.ProcessEnv): string | null {
   if (_gbrainBinCache.has(key)) return _gbrainBinCache.get(key)!;
   let result: string | null = null;
   try {
-    const out = execFileSync("sh", ["-c", "command -v gbrain"], {
+    execFileSync("gbrain", ["--version"], {
       encoding: "utf-8",
       timeout: 2_000,
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "ignore", "ignore"],
       env: e,
     });
-    result = out.trim() || null;
+    result = "gbrain";
   } catch {
     result = null;
   }
@@ -266,4 +266,3 @@ export function localEngineStatus(opts: ClassifyOptions = {}): LocalEngineStatus
   writeCache(fresh, key);
   return fresh;
 }
-

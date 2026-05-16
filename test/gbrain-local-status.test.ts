@@ -21,6 +21,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   mkdtempSync,
   writeFileSync,
+  readFileSync,
   mkdirSync,
   rmSync,
   chmodSync,
@@ -158,6 +159,16 @@ describe("lib/gbrain-local-status — five status cases", () => {
     if (env) env.cleanup();
     env = null;
     restoreEnv = null;
+  });
+
+  it("probes the gbrain executable directly instead of shelling through command -v", () => {
+    const source = readFileSync(
+      join(import.meta.dir, "..", "lib", "gbrain-local-status.ts"),
+      "utf-8",
+    );
+
+    expect(source).not.toContain('command -v gbrain');
+    expect(source).toContain('execFileSync("gbrain", ["--version"]');
   });
 
   it("returns 'no-cli' when gbrain is not on PATH", () => {
