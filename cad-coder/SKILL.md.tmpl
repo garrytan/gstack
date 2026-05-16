@@ -247,6 +247,49 @@ part and re-run. /qa-print downstream uses the same plain-language
 tone: "does the part fit where it should go?" beats "measure the boss
 to ±0.05mm".
 
+### Multi-part detection (assembly vs single-part)
+
+Most requests are single parts (bracket, clip, knob, replacement
+latch). A real subset are **assemblies** — multiple parts that fit
+together with mating constraints, fasteners, and shared dimensions.
+Treat these as a `project` from turn 1.
+
+**Multi-part signals** (any of these flips you into project mode):
+
+| Signal | Examples |
+|--------|----------|
+| Words: enclosure, case, housing, shell | "drone case", "battery enclosure", "Raspberry Pi case" |
+| Two-piece / multi-piece | "two-piece", "top and bottom", "snaps together", "screws together" |
+| Mountable accessory | "with a camera mount that attaches", "with a removable lid", "modular tray system" |
+| Mating constraints | "press-fits onto", "slides into", "bayonet onto" — only one side is a part |
+| Bill-of-materials phrasing | "set of three", "this part plus a cover", "kit" |
+| Plural in the noun | "drone case parts", "the bracket and its plate" |
+
+If signals fire, **propose a decomposition** before sketching:
+
+```
+This sounds like a multi-part project. I'd split it into:
+  1. bottom-shell   — main body, gasket groove, screw bosses
+  2. top-shell      — clearance holes, vent slots
+  3. camera-mount   — male dovetail, snaps onto front face
+  4. battery-strap  — TPU strap with anchor pegs (optional, prints separately)
+
+Sound right? Say "skip the X" to drop one, "add a Y" to add one, or
+"go" to start sketching all four with shared params.
+```
+
+Get one confirmation, then proceed to **Phase 1B** (multi-part bootstrap)
+instead of Phase 1A (single-part sketch). Do NOT keep questioning past
+the decomposition — sketch the parts with defaults, surface assumptions
+in the report.
+
+If the user pushes back ("just give me the case as one piece, I'll cut
+it later"), respect that and proceed in single-part mode.
+
+If you're unsure whether multi-part applies, ask once and pick the
+single answer that lets you sketch the most likely first thing on the
+list. Don't stall.
+
 ### Upstream handoff: pre-flight check for prior artifacts
 
 Before any requirements gather, check for prior artifacts in this order
@@ -316,7 +359,11 @@ Save the answers to `session.json["requirements"]`. They become the
 inputs to the engineered-defaults table in Phase 1. Then proceed to
 sketch — engineered mode still sketches in turn 1.
 
-## Phase 1: Sketch (first turn only)
+## Phase 1A: Single-part sketch (first turn only)
+
+**Skip to Phase 1B if Phase 0 multi-part detection fired and the user
+confirmed the decomposition.** Phase 1A is the default for single
+parts (brackets, clips, knobs, replacement items).
 
 You get a one-line description. Translate it into a part name (kebab-case)
 and pick defaults for everything not specified.
@@ -527,7 +574,192 @@ re-validate against. It is set once in Phase 1 and updated only when
 the user explicitly changes a requirement (e.g., "drop the FoS to 3.0,
 this is a prototype" or "flip print orientation, load axis changed").
 
-## Phase 2: Validate (every turn) — files are NOT written here
+## Phase 1B: Multi-part project bootstrap (first turn only)
+
+Triggered when Phase 0 multi-part detection fired AND the user
+confirmed the decomposition. Build the project skeleton, then sketch
+each part with shared params.
+
+### Project directory layout
+
+```
+artifacts/
+└── <project-name>/                          # kebab-case from the user's description
+    ├── project.json                         # project-level state (parts list, interfaces, shared params)
+    ├── shared.py                            # ALL params live here; parts import them
+    ├── bottom-shell.py                      # one .py per part
+    ├── bottom-shell.session.json
+    ├── top-shell.py
+    ├── top-shell.session.json
+    ├── camera-mount.py
+    ├── camera-mount.session.json
+    └── (on export turns) *.step, *.stl + assembly.step, assembly.stl
+```
+
+Single-part workflow (Phase 1A) keeps writing to `artifacts/<part>.py`
+flat. Multi-part lives in its own subdirectory; the two never collide.
+
+### `shared.py` structure
+
+ALL dimensions live here. Each part imports them. Edits to shared.py
+propagate to every part that uses the changed name.
+
+```python
+"""Shared params for <project-name>. Edit here, propagates to all parts.
+Units: millimeters."""
+
+# ── Body envelope ────────────────────────────────────────────
+BODY_LENGTH = 80.0
+BODY_WIDTH  = 40.0
+BODY_HEIGHT = 30.0
+WALL        = 2.0
+
+# ── Main seam (bottom-shell ↔ top-shell) ─────────────────────
+SCREW_PATTERN_X = 60.0      # M3 fasteners at corners
+SCREW_PATTERN_Y = 30.0
+SCREW_DIA_BOSS  = 2.9       # thread-form into PETG boss
+SCREW_DIA_CLEAR = 3.4       # clearance through top shell
+GASKET_W = 1.5
+GASKET_D = 1.0
+
+# ── Camera-mount dovetail (bottom-shell ↔ camera-mount) ──────
+CAM_DOVETAIL_W = 12.0       # nominal
+CAM_DOVETAIL_L = 18.0
+CAM_DOVETAIL_CLEAR = 0.2    # slip fit on print
+```
+
+Group shared params by **interface** (which parts use them together)
+with a comment header per group. Future edits land in the right group.
+
+### Per-part script structure
+
+Every part script is the same shape as a single-part script, with three
+changes:
+
+1. `from shared import *` at the top instead of a local Parameters block.
+2. The script lives in the project directory.
+3. Comments at the top name the part's **interfaces** so a future
+   reader can trace what couples to what.
+
+```python
+"""bottom-shell of <project-name>.
+Interfaces:
+  - main-seam (with top-shell): SCREW_PATTERN_*, SCREW_DIA_BOSS, GASKET_*
+  - camera-dovetail (with camera-mount): CAM_DOVETAIL_*
+Units: millimeters.
+"""
+from shared import *
+import cadquery as cq
+
+body = cq.Workplane("XY").box(BODY_LENGTH, BODY_WIDTH, BODY_HEIGHT / 2)
+
+gasket_groove = (body.faces(">Z").workplane()
+    .rect(BODY_LENGTH - 2*WALL, BODY_WIDTH - 2*WALL, forConstruction=True)
+    .rect(BODY_LENGTH - 2*WALL - GASKET_W, BODY_WIDTH - 2*WALL - GASKET_W,
+          forConstruction=True)
+    .cutBlind(-GASKET_D))
+
+screw_bosses = (gasket_groove.faces(">Z").workplane()
+    .rect(SCREW_PATTERN_X, SCREW_PATTERN_Y, forConstruction=True)
+    .vertices().circle(SCREW_DIA_BOSS/2).extrude(5))
+
+cam_dovetail = (screw_bosses.faces("<Y").workplane()
+    .center(0, BODY_HEIGHT/4)
+    .moveTo(-CAM_DOVETAIL_W/2, 0).lineTo(CAM_DOVETAIL_W/2, 0)
+    .lineTo(CAM_DOVETAIL_W/2 + 1.5, -3).lineTo(-CAM_DOVETAIL_W/2 - 1.5, -3)
+    .close().extrude(CAM_DOVETAIL_L))
+
+result = cam_dovetail
+
+if __name__ == "__main__":
+    # standard dual-mode __main__ — same as single-part scripts
+    ...
+```
+
+### `project.json` structure
+
+Project-level state. Updated whenever shared params, parts list, or
+interfaces change.
+
+```json
+{
+  "project": "fpv-drone-case",
+  "created_at": "2026-05-16T13:00:00Z",
+  "mode": "casual",
+  "shared_module": "artifacts/fpv-drone-case/shared.py",
+  "parts": [
+    {"name": "bottom-shell",
+     "script": "artifacts/fpv-drone-case/bottom-shell.py",
+     "session": "artifacts/fpv-drone-case/bottom-shell.session.json"},
+    {"name": "top-shell",
+     "script": "artifacts/fpv-drone-case/top-shell.py",
+     "session": "artifacts/fpv-drone-case/top-shell.session.json"},
+    {"name": "camera-mount",
+     "script": "artifacts/fpv-drone-case/camera-mount.py",
+     "session": "artifacts/fpv-drone-case/camera-mount.session.json"}
+  ],
+  "interfaces": [
+    {"name": "main-seam",
+     "between": ["bottom-shell", "top-shell"],
+     "uses": ["SCREW_PATTERN_X", "SCREW_PATTERN_Y", "SCREW_DIA_BOSS",
+              "SCREW_DIA_CLEAR", "GASKET_W", "GASKET_D"],
+     "constraint": "bottom has bosses + Ø2.9 thread-form holes; top has Ø3.4 clearance at same XY; gasket groove on bottom only"},
+    {"name": "camera-dovetail",
+     "between": ["bottom-shell", "camera-mount"],
+     "uses": ["CAM_DOVETAIL_W", "CAM_DOVETAIL_L", "CAM_DOVETAIL_CLEAR"],
+     "constraint": "bottom has male dovetail; camera-mount has female slot at +0.2mm slip fit"}
+  ],
+  "shared_params": {
+    "BODY_LENGTH": 80.0, "BODY_WIDTH": 40.0, "BODY_HEIGHT": 30.0,
+    "WALL": 2.0, "SCREW_PATTERN_X": 60.0, "SCREW_PATTERN_Y": 30.0,
+    "SCREW_DIA_BOSS": 2.9, "SCREW_DIA_CLEAR": 3.4,
+    "GASKET_W": 1.5, "GASKET_D": 1.0,
+    "CAM_DOVETAIL_W": 12.0, "CAM_DOVETAIL_L": 18.0, "CAM_DOVETAIL_CLEAR": 0.2
+  },
+  "focused_part": "bottom-shell",
+  "last_validated_all_at": "2026-05-16T13:02:14Z",
+  "last_exported_all_at": null
+}
+```
+
+`focused_part` is what most user instructions apply to by default. The
+user can switch via "switch to top-shell" / "show me the camera-mount".
+
+### First-turn bootstrap report
+
+After Phase 1B builds the skeleton and validates all parts:
+
+```
+Project: fpv-drone-case  (3 parts, casual mode)
+
+Parts sketched:
+  - bottom-shell   80 × 40 × 15 mm  |  vol 28.4 cm³  |  41 faces
+  - top-shell      80 × 40 × 15 mm  |  vol 18.2 cm³  |  22 faces
+  - camera-mount   18 × 12 ×  8 mm  |  vol  1.1 cm³  |  14 faces
+
+Interfaces:
+  - main-seam     bottom ↔ top via 4× M3 (Ø2.9 boss / Ø3.4 clear), 1.5×1.0 gasket groove
+  - camera-dovetail bottom ↔ camera-mount via Ø12×18 dovetail, +0.2mm slip
+
+Shared params live in artifacts/fpv-drone-case/shared.py. Edits to
+shared params re-validate every part. Edits to a single part touch
+just that part's script.
+
+Focused on: bottom-shell.
+
+Observations:
+  - GASKET_D 1.0mm on a 0.4mm-nozzle print needs at least 2 layers to
+    not look terrible — set layer ≤ 0.2mm or bump to 1.2mm groove.
+  - The camera-dovetail at +0.2mm slip will be loose for a sticky cam
+    on PLA; tighten to +0.1mm if you're not using rubber bands.
+
+What's next?
+  → "tighten cam dovetail to 0.1mm" — apply observation 2
+  → "switch to top-shell" — work on a different part
+  → "add a vent slot to top-shell" — feature add on a non-focused part
+  → "drop the assembly" when ready to print all of them
+```
+
 
 The chat loop runs the script in **validate-only** mode every turn.
 That means: cadquery builds the solid in memory, prints geometry
@@ -548,6 +780,14 @@ the local `.cad-venv` first, then `python3.12`/`python3.11`/
 `python3.10` / `python3` from PATH. If none have cadquery, it exits
 non-zero so you fall back to plain `python3` and the import error
 is visible.
+
+**Multi-part projects:** if the edit touches `shared.py`, re-validate
+EVERY part in the project, not just the focused one. Walk
+`project.json["parts"]` and run each script. Diff against the
+per-part `last_geometry` snapshots and surface every part whose
+geometry changed (see Phase 3's "Cascade validation" section for the
+report format). If the edit touched only a part's own script, just
+re-validate that one part.
 
 The `__main__` block prints one JSON line with `"exported": false`
 on a validate-only run. Parse it and update
@@ -730,7 +970,7 @@ exhaustive — read intent, not exact strings):
 | "lock it in" | "lock this in", "ship this version", "this is the one" |
 | Verbose pause | "I think we're done", "looks good, I'll print it" — confirm once: "Exporting now — STEP + STL?" → on yes, run with `--export` |
 
-On every export turn, do exactly three things:
+On every **single-part export turn**, do exactly three things:
 1. Run the script with `--export` to drop `artifacts/<part>.step` and
    `artifacts/<part>.stl`.
 2. Update `session.json["last_exported_at"]` with the ISO-8601 UTC
@@ -740,6 +980,24 @@ On every export turn, do exactly three things:
    below). Validate-only turns do NOT write this artifact — it would
    spam `~/.gstack/projects/` with intermediate steps that aren't
    really builds.
+
+On a **multi-part project export** ("drop the assembly" / "export
+everything"), do:
+1. Run every part's script with `--export` — drops one `.step` + `.stl`
+   per part in `artifacts/<project>/`.
+2. Build a `cq.Assembly()` that positions every part using the
+   shared params (e.g., top-shell stacked above bottom-shell at
+   `Z = BODY_HEIGHT/2`, camera-mount slotted into the dovetail at
+   the recorded offset). Export `artifacts/<project>/assembly.step`
+   and `assembly.stl` for previewing the whole thing in one viewer.
+3. Update `project.json["last_exported_all_at"]` and each part's
+   `session.json["last_exported_at"]`.
+4. Write ONE `cad-built` artifact per part, plus one combined
+   "project-built" entry that lists the parts and the assembly file.
+
+Per-part export inside a project ("just drop the camera-mount") behaves
+like single-part: that part exports, others stay validate-only, no
+combined assembly written.
 
 If the user keeps editing after an export, return to validate-only
 mode automatically — they're refining post-export, which usually
@@ -760,6 +1018,48 @@ narrowest one that fits.
 | "go back two turns" / "undo" | **Session replay** | Read `session.json["history"]`, regenerate the script from the params at turn N. Append a new history entry; do not delete old ones. Validate-only run. |
 | "save this as a variant" / "branch" | **Snapshot** | `cp artifacts/<part>.{py,session.json} artifacts/<part>-<tag>.{py,session.json}`. Implies export so the snapshot has STEP+STL of that variant. |
 | "drop the stl" / "ready to print" / "export" / "ship it" | **Export** | Run script with `--export`. Drops `artifacts/<part>.step` and `.stl`. Write cad-built artifact. Update `last_exported_at`. |
+
+**Additional edit types — multi-part projects only** (when `artifacts/<project>/project.json` exists):
+
+| Instruction shape | Edit type | Mechanics |
+|-------------------|-----------|-----------|
+| "make the case 100mm long" / "tighten all fits to slip" / any edit referencing a `shared.py` name | **Shared param edit** | Edit `shared.py`, then re-validate ALL parts. Surface which parts changed (geometry delta). Update `project.json["shared_params"]`. |
+| "the dovetail should be Ø15 not Ø12" / "loosen the main-seam clearance" | **Interface change** | Edit the interface's shared params in `shared.py`, re-validate both sides of the interface, surface the impact on each side. Update `project.json["interfaces"][N]` if the constraint description changed. |
+| "switch to top-shell" / "show me the camera-mount" / "focus on X" | **Part focus** | Update `project.json["focused_part"]` to the named part. Subsequent instructions apply to that part by default. Re-render the report for the new focus. |
+| "add a vent slot to top-shell" / part-specific feature add when not focused | **Cross-part feature add** | Edit the named part's script (not the focused one), validate just that part, briefly switch focus or note "edit applied to top-shell, still focused on bottom-shell". |
+| "add a new part: lens-cap" / "split the bottom into front and back" | **Add part / split part** | Create a new `.py` + `.session.json` in the project dir, add to `project.json["parts"]`, sketch with shared params + propose new shared-param names if needed. Reorganise the parts list. |
+| "drop the assembly" / "export everything" / "ship all parts" | **Project export** | Run every part's script with `--export`. Build a `cq.Assembly()` that positions each part and export `artifacts/<project>/assembly.step` + `assembly.stl` (one combined file for previewing the whole thing; individual STLs are what get printed). Write cad-built artifact for each part + one for the assembly. |
+| "drop just the camera-mount" | **Single-part export from project** | Run just that part's script with `--export`. Other parts stay validate-only. |
+
+### Cascade validation for shared param edits (multi-part only)
+
+When a shared param changes, the chat loop must re-validate every
+part that imports it. Order of operations:
+
+1. Edit `shared.py` (one-line change in the right interface group).
+2. Re-run every part script in validate-only mode.
+3. Diff the geometry (`bbox_mm`, `volume_mm3`) per part against
+   `project.json["parts"][N].last_geometry`.
+4. Surface every affected part in the report, even if the focused
+   part wasn't one of them:
+
+```
+Edited: SCREW_PATTERN_X 60 → 70  (shared)
+Affected parts:
+  - bottom-shell:  bbox 80×40×15 → 80×40×15 (unchanged) | boss positions moved
+  - top-shell:     bbox 80×40×15 → 80×40×15 (unchanged) | hole positions moved
+  - camera-mount:  not affected (doesn't use SCREW_PATTERN_X)
+
+Observation:
+  - SCREW_PATTERN_X 70 with BODY_LENGTH 80 leaves only 5mm of edge
+    distance on the screw bosses. That's tight for an M3 head — at 70
+    you'll lose some strength on impact. Bump BODY_LENGTH to 86 to
+    keep ≥10mm edge, or drop SCREW_PATTERN_X to 64?
+```
+
+If a re-validation fails (boolean op produced empty solid, etc.) on
+ANY part after a shared edit, do NOT silently leave the project in a
+broken state. Surface which part broke and offer to revert.
 
 **Hard rule:** Parameter edits and feature adds/removes must NEVER
 rewrite the geometry pipeline as a whole. If you find yourself
@@ -900,9 +1200,15 @@ single coherent shape.
 4. **STEP first, STL second.** STEP preserves the CAD model
    (parametric re-import works). STL is triangulated dead-end — fine
    for printing, useless for editing.
-5. **One part per session.** If the user describes a second part,
-   start a new session file rather than cramming both into one. Cross-
-   reference siblings in the report ("see also `artifacts/lid.session.json`").
+5. **One part per script, projects for assemblies.** If the request is
+   a single object (bracket, knob, clip), one `.py` in `artifacts/` is
+   right. If it's an assembly (case, enclosure, mount-with-snap-on-
+   accessory, anything with mating parts), use a multi-part **project**:
+   `artifacts/<project>/` with `shared.py` + `project.json` + per-part
+   `.py` files that all `from shared import *`. See Phase 1B. Never
+   cram multiple parts into one `.py` (you lose per-part edit + per-
+   part print) and never duplicate shared dimensions across sibling
+   scripts (drift bug waiting to happen).
 6. **Mention cost when relevant.** If the user is making 50 of these
    in titanium and the volume is 100cm³, surface that. Geometry
    decisions have material-cost consequences.
