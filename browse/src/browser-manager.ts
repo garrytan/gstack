@@ -324,6 +324,11 @@ export class BrowserManager {
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
       ...(executablePath ? { executablePath } : {}),
+      // Match the headless launch path: enable Chromium's multi-process sandbox
+      // everywhere except Windows (where Bun→Node spawn breaks it — see launch()).
+      // Without this, Playwright defaults to --no-sandbox and Chromium shows a
+      // yellow "security will suffer" info bar.
+      chromiumSandbox: process.platform !== 'win32',
       // Playwright adds flags that block extension loading
       ignoreDefaultArgs: [
         '--disable-extensions',
@@ -975,6 +980,7 @@ export class BrowserManager {
         headless: false,
         args: launchArgs,
         viewport: null,
+        chromiumSandbox: process.platform !== 'win32',
         ignoreDefaultArgs: [
           '--disable-extensions',
           '--disable-component-extensions-with-background-pages',
