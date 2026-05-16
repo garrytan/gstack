@@ -18,6 +18,7 @@
     <main class="app-shell">
       <section class="viewport">
         <canvas id="scene" aria-label="CAD model preview"></canvas>
+        <div class="pin-layer" id="pin-layer" aria-label="CAD notes"></div>
         <div class="empty-state" id="empty-state">
           <strong>No model loaded yet</strong>
           <span>Waiting for a GLB file.</span>
@@ -63,6 +64,26 @@
             <dd id="updated-at">never</dd>
           </div>
         </dl>
+        <section class="notes-panel" aria-label="CAD change notes">
+          <header class="notes-header">
+            <div>
+              <h2>Notes</h2>
+              <p>Right-click the model to leave a change note.</p>
+            </div>
+            <span id="notes-count">0</span>
+          </header>
+          <form class="note-form is-hidden" id="note-form">
+            <label for="note-text" id="note-form-label">New note</label>
+            <textarea id="note-text" maxlength="2000" placeholder="Describe the CAD change you want..."></textarea>
+            <div class="note-actions">
+              <button id="save-note" type="submit">Save note</button>
+              <button id="cancel-note" type="button">Cancel</button>
+            </div>
+          </form>
+          <div class="notes-list" id="notes-list"></div>
+          <button class="send-notes" id="send-notes" type="button" disabled>Send to gstack</button>
+          <p class="change-request-status" id="change-request-status"></p>
+        </section>
         <pre class="log" id="message-log" aria-live="polite"></pre>
       </aside>
     </main>

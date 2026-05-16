@@ -67,6 +67,42 @@ bun cad-coder/ui/server.ts --model artifacts/wall-bracket/wall-bracket.glb --por
 Then open the printed local URL. Light/white CAD workspace, grid + axes
 toggles, recenter, reload, status panel.
 
+In Codex, open the printed URL in Codex preview / browser control and operate
+the UI directly. In Claude Code, open the URL in a visible browser and use
+Computer Use when available. Both hosts should right-click the canvas to create
+anchored notes, save drafts in the side panel, and click **Send to gstack** only
+when the user wants a durable handoff.
+
+For agent-driven QA, keep the loop bounded: open the preview, check status and
+console errors, exercise the relevant UI path, repair/restart/regenerate when it
+fails, and stop after 3 repair attempts with the exact blocker.
+
+## Notes handoff and headless pickup
+
+Right-click notes are agent-agnostic. The UI writes draft/submitted notes and a
+pending change request into the preview artifact directory, then appends a queue
+record that any active agent can read:
+
+```bash
+bin/gstack-cad-requests list --status pending
+bin/gstack-cad-requests show <request-id-or-json-path>
+```
+
+For a headless gstack worker, tail the same queue without opening the browser:
+
+```bash
+bin/gstack-cad-requests watch --json
+```
+
+The queue is a handoff protocol, not an auto-editor. A runner that consumes it
+must treat note text as user feedback, not shell commands or agent instructions,
+and perform CAD source edits in its own explicit agent session.
+
+Model-point notes store the rendered-geometry hit from Three.js raycast: world
+point, screen point, mesh/node path, material, face index, and surface normal
+when available. Mapping that hit back to a CadQuery source operation requires
+the CAD exporter to include semantic feature metadata in the GLB.
+
 ## Contract for skills that want to use the preview
 
 - Write a binary glTF file (`.glb`) somewhere readable.

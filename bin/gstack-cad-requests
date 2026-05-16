@@ -1,0 +1,234 @@
+#!/usr/bin/env bun
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
+import { basename, join, resolve } from 'path';
+
+type RequestStatus = 'pending' | 'claimed' | 'applied' | 'dismissed';
+
+type RequestFile = {
+  schemaVersion?: string;
+  id?: string;
+  createdAt?: string;
+  status?: RequestStatus;
+  title?: string;
+  model?: string;
+  renderId?: number;
+  artifactDir?: string;
+  files?: {
+    json?: string;
+    markdown?: string;
+  };
+};
+
+type Options = {
+  stateRoot: string;
+  status: RequestStatus | 'all';
+  json: boolean;
+  intervalMs: number;
+};
+
+function defaultStateRoot(): string {
+  if (process.env.GSTACK_HOME) return process.env.GSTACK_HOME;
+  if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
+  return join(homedir(), '.gstack');
+}
+
+function usage(exitCode = 0): never {
+  const out = exitCode === 0 ? console.log : console.error;
+  out(`gstack-cad-requests — list or watch CAD change requests
+
+Usage:
+  gstack-cad-requests list [--json] [--status pending|all|claimed|applied|dismissed]
+  gstack-cad-requests latest [--json]
+  gstack-cad-requests show <id-or-path> [--json]
+  gstack-cad-requests mark <id-or-path> <pending|claimed|applied|dismissed>
+  gstack-cad-requests watch [--json] [--interval-ms 1000]
+
+Options:
+  --state-root <path>   Defaults to GSTACK_HOME, CLAUDE_PLUGIN_DATA, or ~/.gstack.
+  --json                Emit JSON instead of human text.
+  --status <status>     Filter list/watch output. Defaults to pending.
+  --interval-ms <n>     Poll interval for watch. Defaults to 1000.
+`);
+  process.exit(exitCode);
+}
+
+function parseOptions(args: string[]): { command: string; positional: string[]; options: Options } {
+  const options: Options = {
+    stateRoot: defaultStateRoot(),
+    status: 'pending',
+    json: false,
+    intervalMs: 1000,
+  };
+  const positional: string[] = [];
+  let command = 'list';
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const next = () => {
+      const value = args[++i];
+      if (!value) throw new Error(`Missing value for ${arg}`);
+      return value;
+    };
+
+    if (arg === '--help' || arg === '-h') usage(0);
+    else if (arg === '--state-root') options.stateRoot = resolve(next());
+    else if (arg === '--json') options.json = true;
+    else if (arg === '--status') {
+      const status = next();
+      if (!['pending', 'all', 'claimed', 'applied', 'dismissed'].includes(status)) {
+        throw new Error(`Invalid status: ${status}`);
+      }
+      options.status = status as Options['status'];
+    } else if (arg === '--interval-ms') {
+      options.intervalMs = Math.max(250, Number(next()));
+      if (!Number.isFinite(options.intervalMs)) throw new Error('Invalid --interval-ms');
+    } else if (arg.startsWith('-')) {
+      throw new Error(`Unknown option: ${arg}`);
+    } else if (!command || command === 'list') {
+      command = arg;
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  return { command, positional, options };
+}
+
+function requestFiles(stateRoot: string): string[] {
+  const root = join(stateRoot, 'cad-coder');
+  if (!existsSync(root)) return [];
+
+  const files: string[] = [];
+  for (const entry of readdirSync(root)) {
+    const dir = join(root, entry);
+    if (!statSync(dir).isDirectory()) continue;
+    const file = join(dir, 'change-request-pending.json');
+    if (existsSync(file)) files.push(file);
+  }
+  return files;
+}
+
+function readRequest(file: string): RequestFile | null {
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as RequestFile;
+    return {
+      ...parsed,
+      files: {
+        json: file,
+        markdown: parsed.files?.markdown || join(resolve(file, '..'), 'change-request-pending.md'),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function allRequests(stateRoot: string, status: Options['status']): RequestFile[] {
+  return requestFiles(stateRoot)
+    .map(readRequest)
+    .filter((request): request is RequestFile => Boolean(request))
+    .filter((request) => status === 'all' || (request.status || 'pending') === status)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+function resolveRequest(stateRoot: string, target: string): RequestFile | null {
+  const direct = existsSync(target) ? readRequest(resolve(target)) : null;
+  if (direct) return direct;
+
+  const byMarkdown = target.endsWith('.md')
+    ? readRequest(target.replace(/\.md$/, '.json'))
+    : null;
+  if (byMarkdown) return byMarkdown;
+
+  const requests = allRequests(stateRoot, 'all');
+  return requests.find((request) => request.id === target || request.files?.json === target || request.files?.markdown === target) || null;
+}
+
+function printList(requests: RequestFile[], options: Options): void {
+  if (options.json) {
+    console.log(JSON.stringify(requests, null, 2));
+    return;
+  }
+
+  if (!requests.length) {
+    console.log('No CAD change requests found.');
+    return;
+  }
+
+  for (const request of requests) {
+    console.log(`${request.status || 'pending'} ${request.id || '(no id)'} ${request.createdAt || ''}`);
+    console.log(`  ${request.title || 'CAD change request'}`);
+    console.log(`  model: ${request.model || '(unknown)'}`);
+    console.log(`  markdown: ${request.files?.markdown || '(missing)'}`);
+  }
+}
+
+function printShow(request: RequestFile, options: Options): void {
+  if (options.json) {
+    console.log(JSON.stringify(request, null, 2));
+    return;
+  }
+  const markdown = request.files?.markdown;
+  if (markdown && existsSync(markdown)) {
+    console.log(readFileSync(markdown, 'utf8'));
+    return;
+  }
+  console.log(JSON.stringify(request, null, 2));
+}
+
+function markRequest(request: RequestFile, status: RequestStatus): void {
+  if (!request.files?.json) throw new Error('Request JSON path missing');
+  const next = {
+    ...request,
+    status,
+    updatedAt: new Date().toISOString(),
+  };
+  writeFileSync(request.files.json, JSON.stringify(next, null, 2));
+}
+
+async function watchRequests(options: Options): Promise<void> {
+  const seen = new Set<string>();
+  for (;;) {
+    for (const request of allRequests(options.stateRoot, options.status)) {
+      const key = request.id || request.files?.json || '';
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (options.json) console.log(JSON.stringify(request));
+      else console.log(`${request.files?.markdown || request.files?.json || key}`);
+    }
+    await Bun.sleep(options.intervalMs);
+  }
+}
+
+try {
+  const { command, positional, options } = parseOptions(Bun.argv.slice(2));
+
+  if (command === 'list') {
+    printList(allRequests(options.stateRoot, options.status), options);
+  } else if (command === 'latest') {
+    const request = allRequests(options.stateRoot, options.status)[0];
+    if (!request) process.exit(1);
+    printShow(request, options);
+  } else if (command === 'show') {
+    const request = positional[0] ? resolveRequest(options.stateRoot, positional[0]) : null;
+    if (!request) throw new Error('Request not found');
+    printShow(request, options);
+  } else if (command === 'mark') {
+    const request = positional[0] ? resolveRequest(options.stateRoot, positional[0]) : null;
+    const status = positional[1] as RequestStatus | undefined;
+    if (!request) throw new Error('Request not found');
+    if (!status || !['pending', 'claimed', 'applied', 'dismissed'].includes(status)) {
+      throw new Error('Expected status: pending, claimed, applied, or dismissed');
+    }
+    markRequest(request, status);
+    if (!options.json) console.log(`${request.id || basename(request.files?.json || '')} marked ${status}`);
+  } else if (command === 'watch') {
+    await watchRequests(options);
+  } else {
+    usage(1);
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
