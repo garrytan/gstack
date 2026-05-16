@@ -1,0 +1,40 @@
+import Foundation
+import SwiftUI
+
+#if DEBUG
+import DebugBridge
+
+@MainActor
+final class DebugBridgeManager {
+    static let shared = DebugBridgeManager()
+
+    private var server: StateServer?
+
+    private init() {}
+
+    func start(
+        {{INIT_PARAMS}}
+    ) {
+        if server != nil {
+            return
+        }
+
+        let server = StateServer()
+
+        {{ACCESSOR_REGISTRATIONS}}
+
+        server.start()
+        self.server = server
+
+        DebugBridgeNotifier.action("state server started")
+        print("[iStack] StateServer started on port 9999")
+    }
+
+    func stop() {
+        server?.stop()
+        server = nil
+        DebugBridgeNotifier.disconnected()
+        print("[iStack] StateServer stopped")
+    }
+}
+#endif

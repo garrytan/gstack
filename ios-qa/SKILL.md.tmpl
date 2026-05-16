@@ -1,0 +1,366 @@
+---
+name: ios-qa
+version: 4.0.0
+description: |
+  Live-device iOS QA for SwiftUI apps. Connects to a real iPhone via USB
+  port-forward, reads Swift source to understand every screen, then runs a
+  vision-driven agent loop: screenshot → analyze → decide → act → verify → repeat.
+  All interaction happens via HTTP to an embedded StateServer in the app.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Agent
+triggers:
+  - ios qa
+  - ios-qa
+  - test ios app
+  - qa my phone
+---
+
+{{PREAMBLE}}
+
+# iStack: Live-Device iOS QA (v4)
+
+You are an expert iOS QA tester. You connect to a real app running on a real
+iPhone via USB, read its source code, then run a browser-agent-loop to
+systematically find bugs: screenshot → identify elements → choose action →
+execute → verify state → repeat.
+
+## Architecture
+
+```
+Claude Code (this skill — YOU)
+  └── curl -6 http://[TUNNEL_IPv6]:9999/*   (via CoreDevice USB tunnel)
+        ├── GET  /screenshot         → base64 PNG of current screen
+        ├── GET  /elements           → accessibility tree (labels, frames, traits)
+        ├── POST /tap                → inject tap at {x, y} pixel coords
+        ├── POST /swipe              → inject swipe {fromX, fromY, toX, toY}
+        ├── POST /type               → type text into focused field
+        ├── GET  /device             → device info (model, screen size)
+        ├── GET  /state              → list all registered state keys
+        ├── GET  /state/{key}        → read @Observable property
+        ├── POST /state/{key}        → write @Observable property
+        └── GET  /health             → health check
+```
+
+**No external tools needed** besides `curl` and `xcrun devicectl`.
+Everything runs inside the app via an embedded HTTP StateServer.
+Connection uses the CoreDevice USB tunnel (IPv6) — **NOT iproxy**.
+
+## Performance Model
+
+Use **Sonnet** (fast model) for the QA execution loop. The agent loop needs speed
+over deep reasoning. Sonnet is fast enough to read accessibility trees, decide
+what to tap, and verify state. When spawning subagents for the QA loop, use
+`model: "sonnet"`.
+
+Use the **default model** (Opus) only for:
+- Initial source code analysis (Phase 1)
+- Test plan generation (Phase 4)
+- Final bug report synthesis (Phase 6)
+
+## Non-Negotiable Rules
+
+1. **Read the source code FIRST.** Before testing anything, read every ViewModel,
+   View, and Model file. Know what each screen does, what buttons exist, what
+   state they affect, and what could go wrong.
+
+2. **Use /elements as your primary navigation tool.** The accessibility tree gives
+   you element labels and pixel coordinates instantly. Use it to find tap targets,
+   understand what's on screen, and decide what to do next. This is FAST.
+
+3. **Screenshots only when needed for visual verification.** Take a screenshot when:
+   - Checking for layout bugs (text overflow, clipping, broken images)
+   - Verifying visual state that /elements can't convey (colors, alignment, spacing)
+   - Capturing evidence for a visual bug report
+   Do NOT screenshot before every action. /elements + /state is sufficient for navigation.
+
+4. **Verify with state reads.** After every action, read relevant state via
+   `/state/{key}`. Compare actual vs expected. Mismatch = bug.
+
+5. **Only report bugs you can prove.** Each bug needs evidence: a state read
+   showing wrong value, or a screenshot showing visual breakage.
+
+## The Agent Loop
+
+This is a **fast agent loop** optimized for speed. Use /elements and /state for
+most iterations. Only pull screenshots for visual verification.
+
+```
+1. IDENTIFY    → curl GET /elements → parse JSON → understand what's on screen
+2. DECIDE      → Based on test plan + element labels, choose next action
+3. EXECUTE     → curl POST /tap or /type or /swipe
+4. VERIFY      → curl GET /state/{key} → compare actual vs expected
+5. VISUAL CHECK (only when needed) → screenshot → check for layout/visual bugs
+6. REPEAT      → Go to step 1
+```
+
+**When to screenshot:**
+- After navigating to a NEW screen for the first time (baseline visual check)
+- When testing for visual bugs (overflow, clipping, broken images, wrong colors)
+- When /elements returns unexpected results and you need to see what's actually rendered
+- When capturing evidence for a bug report
+
+**When NOT to screenshot:**
+- Before every tap (use /elements instead)
+- After state mutations that have no visual component
+- When verifying numeric state values (/state/{key} is instant)
+
+Run this loop until you've covered every screen, every flow, every edge case.
+
+## Setup — Discover Device Tunnel IP
+
+Modern iOS devices connect via Apple's CoreDevice tunnel (IPv6), NOT the old
+usbmuxd protocol. **Do NOT use iproxy** — it doesn't work with CoreDevice.
+
+```bash
+# Step 1: Find the connected device
+xcrun devicectl list devices 2>&1 | grep "connected"
+# Look for a line like:
+# who paid ?   who-paid-.coredevice.local   E111536C-...   connected   iPhone 16 Pro
+
+# Step 2: Get the tunnel IP address
+# Use the device identifier from step 1
+xcrun devicectl device info details --device <IDENTIFIER> 2>&1 | grep tunnelIPAddress
+# Output: tunnelIPAddress: fdac:e671:bcd7::1
+# THIS is your device IP. It's an IPv6 address on the CoreDevice tunnel.
+
+# Step 3: Set your base URL (use this for ALL curl commands)
+DEVICE="http://[fdac:e671:bcd7::1]:9999"
+# IMPORTANT: The brackets around the IPv6 address are required.
+# IMPORTANT: Always pass -6 flag to curl for IPv6.
+
+# Step 4: Verify the StateServer is reachable
+curl -s -6 "$DEVICE/health"
+# Expected: {"status":"ok"}
+
+# Step 5: Get device info
+curl -s -6 "$DEVICE/device"
+```
+
+**CRITICAL**: Every `curl` command must use `-6` flag and the `http://[IPv6]:9999` format.
+Do NOT use `localhost`, `127.0.0.1`, or iproxy. The CoreDevice tunnel provides direct
+IPv6 access to the device over USB.
+
+If `/health` fails:
+- The app isn't running on the device → launch it: `xcrun devicectl device process launch --device <ID> <bundle-id>`
+- The app is a Release build → StateServer is `#if DEBUG` only, must be Debug build
+- The tunnel IP changed → re-run step 2 to get the current tunnel IP
+- Kill any stale iproxy processes: `pkill -f iproxy` (they interfere)
+
+## API Reference
+
+**All curl commands must use `-6` and the `http://[TUNNEL_IP]:9999` format.**
+Set `DEVICE` variable first (from Setup step 3), then use `$DEVICE` everywhere.
+
+### Screenshot
+```bash
+# Returns {"image": "<base64 PNG>"}
+curl -s -6 "$DEVICE/screenshot" | python3 -c "import sys,json,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)['image']))" > /tmp/ios-qa/screen.png
+```
+Then `Read /tmp/ios-qa/screen.png` to analyze with vision.
+
+### Accessibility Elements
+```bash
+# Returns JSON array of elements with labels, frames, centers, traits
+curl -s -6 "$DEVICE/elements"
+```
+Each element has:
+- `label` — accessibility label (what you see on screen)
+- `center` — `{"x": 200, "y": 450}` (where to tap)
+- `frame` — `{"x", "y", "width", "height"}` (bounding box)
+- `traits` — `["button"]`, `["text"]`, etc.
+- `interactive` — true if tappable
+
+### Tap
+```bash
+# Tap at pixel coordinates
+curl -s -6 -X POST "$DEVICE/tap" -d '{"x": 200, "y": 450}'
+# Returns: {"ok": true, "target": "UIButton", "label": "Add to Cart"}
+```
+
+### Swipe
+```bash
+# Swipe from point A to point B
+curl -s -6 -X POST "$DEVICE/swipe" -d '{"fromX": 200, "fromY": 600, "toX": 200, "toY": 200}'
+```
+
+### Type Text
+```bash
+# Type into the currently focused text field
+curl -s -6 -X POST "$DEVICE/type" -d '{"text": "hello@test.com"}'
+```
+
+### State Read/Write
+```bash
+# List all state keys
+curl -s -6 "$DEVICE/state"
+
+# Read a value
+curl -s -6 "$DEVICE/state/CartViewModel_total"
+
+# Write a value (body is the new value)
+curl -s -6 -X POST "$DEVICE/state/CartViewModel_items" -d '[]'
+```
+
+## Phase 1: Analyze Source
+
+```bash
+find . -maxdepth 3 \( -name "*.xcodeproj" -o -name "Package.swift" \) -not -path "*/DebugBridge/*"
+```
+
+Read every file to understand:
+- What screens exist (Views)
+- What state exists (ViewModels with @Observable)
+- What flows are possible (navigation, buttons, forms)
+- What could go wrong (force unwraps, missing recalculations, bad URLs, layout issues)
+
+## Phase 2: Generate DebugBridge (if needed)
+
+If not already generated, create the DebugBridge package and accessors.
+See templates at `~/.claude/skills/ios-qa/templates/`.
+
+The DebugBridge package (`DebugBridge/`) contains:
+- `StateServer.swift` — HTTP server with screenshot/tap/elements/state endpoints
+- `DebugOverlay.swift` — visual "Claude is debugging" indicator
+
+App-specific accessors go in `<AppSource>/DebugBridgeGenerated/`:
+- `DebugBridgeManager.swift` — starts StateServer, registers all accessors
+- `<ClassName>Accessor.swift` — per-class state read/write registrations
+- `DebugBridgeJSON.swift` — serialization helpers
+
+## Phase 3: Connect
+
+```bash
+# Kill any stale iproxy (they don't work with CoreDevice and interfere)
+pkill -f iproxy 2>/dev/null
+
+# Find connected device
+xcrun devicectl list devices 2>&1 | grep "connected"
+
+# Get tunnel IP (replace DEVICE_ID with the Identifier from above)
+TUNNEL_IP=$(xcrun devicectl device info details --device DEVICE_ID 2>&1 | grep tunnelIPAddress | awk '{print $2}')
+echo "Tunnel IP: $TUNNEL_IP"
+
+# Set the base URL for all requests
+DEVICE="http://[$TUNNEL_IP]:9999"
+
+# Verify connection
+curl -s -6 "$DEVICE/health"
+curl -s -6 "$DEVICE/device"
+curl -s -6 "$DEVICE/state"
+```
+
+## Phase 4: Build Test Plan
+
+Based on source analysis, plan tests:
+
+```
+TEST 1: Home screen renders correctly
+  - screenshot → verify hero, categories, products visible
+  
+TEST 2: Add to cart flow
+  - read CartViewModel_items → should be []
+  - find "Add to Cart" button via /elements
+  - tap it
+  - read CartViewModel_items → should have 1 item
+  - read CartViewModel_total → should match price
+
+TEST 3: Quantity change updates total
+  - add item, read total → T1
+  - increment quantity via UI
+  - read total → T2
+  - assert T2 == T1 * new_quantity (if not → BUG)
+```
+
+## Phase 5: Execute — The Agent Loop
+
+For each test, run the loop:
+
+### 5a. Screenshot + Vision
+```bash
+mkdir -p /tmp/ios-qa
+curl -s -6 "$DEVICE/screenshot" | python3 -c "import sys,json,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)['image']))" > /tmp/ios-qa/screen.png
+```
+Then **Read** `/tmp/ios-qa/screen.png` and analyze what you see.
+
+### 5b. Get elements
+```bash
+curl -s -6 "$DEVICE/elements"
+```
+Find the element you want to interact with. Note its `center.x` and `center.y`.
+
+### 5c. Perform action
+```bash
+# Tap a button
+curl -s -6 -X POST "$DEVICE/tap" -d '{"x": 207, "y": 543}'
+
+# Or type into a field
+curl -s -6 -X POST "$DEVICE/type" -d '{"text": "test@example.com"}'
+
+# Or swipe to scroll
+curl -s -6 -X POST "$DEVICE/swipe" -d '{"fromX":200,"fromY":600,"toX":200,"toY":200}'
+```
+
+### 5d. Verify state
+```bash
+curl -s -6 "$DEVICE/state/CartViewModel_total"
+# Compare to expected value
+```
+
+### 5e. Screenshot again to confirm visual state
+```bash
+curl -s -6 "$DEVICE/screenshot" | python3 -c "import sys,json,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)['image']))" > /tmp/ios-qa/after.png
+```
+
+### 5f. Loop back to 5a for next action
+
+## Phase 6: Report
+
+```markdown
+## iOS QA Report — [App Name]
+**Device:** [from /device]
+**Tests run:** N
+**Bugs found:** N (Critical: X, High: X, Medium: X, Low: X)
+
+### BUG-001: [Title]
+**Severity:** Critical/High/Medium/Low
+**Screen:** [Which screen]
+**Steps to reproduce:**
+1. [Exact curl commands used]
+2. [What you observed]
+**Expected:** [What should happen]
+**Actual:** [What actually happened]
+**Evidence:** [State read or screenshot path]
+```
+
+### Severity Guide
+- **Critical:** App crash, data loss
+- **High:** Feature completely broken, major visual breakage
+- **Medium:** Feature partially broken, incorrect data
+- **Low:** Cosmetic, minor overflow
+
+### What IS a bug
+- State doesn't match expected after action (total didn't update)
+- StateServer becomes unreachable (app crashed)
+- Screenshot shows wrong data, broken layout, missing images
+- Text overflows container
+- Navigation goes to wrong screen
+
+### What is NOT a bug
+- "I couldn't tap this element" (try different coordinates or /elements)
+- Anything without evidence
+
+## Error Handling
+
+- **curl connection refused / exit code 7:** Tunnel IP wrong or device disconnected. Re-run `xcrun devicectl device info details` to get fresh tunnel IP.
+- **curl exit code 56 (connection reset):** Stale iproxy processes are interfering. Run `pkill -f iproxy` and use the IPv6 tunnel IP directly.
+- **Empty response:** App not running or was built in Release mode. Launch with `xcrun devicectl device process launch --device <ID> <bundle-id>`.
+- **App crash:** StateServer goes silent. Note what caused it (Critical bug). Relaunch app.
+- **Tap has no effect:** Check coordinates against /elements. Try tapping the center point.
+- **No elements returned:** The view might use custom drawing. Use screenshot + vision instead.
+- **"localhost" doesn't work:** Correct. Use `http://[TUNNEL_IPv6]:9999` with `-6` flag. Never use localhost.

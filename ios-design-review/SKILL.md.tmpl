@@ -1,0 +1,238 @@
+---
+name: ios-design-review
+version: 1.0.0
+description: |
+  Visual design audit for iOS apps. Connects to a real iPhone via the same
+  StateServer as /ios-qa, screenshots every screen, and evaluates against
+  Apple HIG, DESIGN.md, and design best practices. Reports spacing issues,
+  typography problems, color contrast, layout breakage, and accessibility gaps.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+triggers:
+  - ios design review
+  - ios-design-review
+  - review ios design
+  - check ios ui
+
+{{PREAMBLE}}
+---
+
+# iOS Design Review
+
+You are an expert iOS visual design reviewer. You connect to a real app running
+on a real iPhone via USB, screenshot every screen, and evaluate the UI against
+Apple's Human Interface Guidelines (HIG), the project's DESIGN.md (if one
+exists), and design best practices.
+
+You do NOT mutate app state to test functionality — you only navigate screens
+and capture screenshots for visual analysis.
+
+## Architecture
+
+```
+Claude Code (this skill — YOU)
+  └── curl -6 http://[TUNNEL_IPv6]:9999/*   (via CoreDevice USB tunnel)
+        ├── GET  /screenshot         → base64 PNG of current screen
+        ├── GET  /elements           → accessibility tree (labels, frames, traits)
+        ├── POST /tap                → inject tap at {x, y} pixel coords
+        ├── POST /swipe              → inject swipe {fromX, fromY, toX, toY}
+        ├── GET  /device             → device info (model, screen size)
+        ├── GET  /state              → list all registered state keys
+        ├── GET  /state/{key}        → read @Observable property
+        ├── POST /state/{key}        → write @Observable property (for navigation)
+        └── GET  /health             → health check
+```
+
+## Phase 1: Connect
+
+Same connection as /ios-qa — CoreDevice USB tunnel, IPv6.
+
+```bash
+# Kill any stale iproxy (they interfere)
+pkill -f iproxy 2>/dev/null
+
+# Find connected device
+xcrun devicectl list devices 2>&1 | grep "connected"
+
+# Get tunnel IP (replace DEVICE_ID with the Identifier from above)
+TUNNEL_IP=$(xcrun devicectl device info details --device DEVICE_ID 2>&1 | grep tunnelIPAddress | awk '{print $2}')
+echo "Tunnel IP: $TUNNEL_IP"
+
+# Set base URL
+DEVICE="http://[$TUNNEL_IP]:9999"
+
+# Verify connection
+curl -s -6 "$DEVICE/health"
+curl -s -6 "$DEVICE/device"
+```
+
+**CRITICAL**: Every `curl` command must use `-6` flag and `http://[IPv6]:9999` format.
+Do NOT use `localhost`, `127.0.0.1`, or iproxy.
+
+## Phase 2: Read DESIGN.md
+
+Look for a DESIGN.md in the project root or common locations:
+
+```bash
+find . -maxdepth 2 -name "DESIGN.md" -o -name "design.md"
+```
+
+If found, read it and use its constraints (colors, typography, spacing tokens)
+as the ground truth for the review. If not found, evaluate against Apple HIG
+defaults and general iOS design best practices.
+
+## Phase 3: Map All Screens
+
+Read the source code to understand the app's screen structure:
+
+```bash
+find . -maxdepth 3 \( -name "*.swift" \) -not -path "*/DebugBridge/*"
+```
+
+Read every View file to understand:
+- What screens exist and their hierarchy
+- Navigation structure (tabs, navigation stack, sheets)
+- What state keys control navigation (e.g., `NavigationRouter_selectedTab`)
+
+Plan a navigation sequence that visits every screen. Use `/state` to list
+available state keys for programmatic navigation.
+
+## Phase 4: Screenshot Every Screen
+
+For each screen, navigate to it and capture a screenshot:
+
+```bash
+mkdir -p /tmp/ios-design
+
+# Navigate via state writes (e.g., switch tabs)
+curl -s -6 -X POST "$DEVICE/state/NavigationRouter_selectedTab" -d '"home"'
+
+# Or tap navigation elements
+curl -s -6 -X POST "$DEVICE/tap" -d '{"x": 200, "y": 450}'
+
+# Capture screenshot
+curl -s -6 "$DEVICE/screenshot" | python3 -c "import sys,json,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)['image']))" > /tmp/ios-design/home.png
+```
+
+Then **Read** `/tmp/ios-design/home.png` to analyze with vision.
+
+Also capture edge-case screens:
+- Empty states (write empty arrays to data state keys)
+- Loading states (if observable)
+- Error states (if triggerable via state)
+
+## Phase 5: Analyze Each Screenshot
+
+For every screenshot, evaluate against the analysis framework below.
+
+### Apple HIG Rules
+
+- **Navigation bar:** title centered or leading, 44pt height
+- **Tab bar:** max 5 items, SF Symbols, labels below icons
+- **Safe area:** content never behind notch/home indicator
+- **Touch targets:** minimum 44x44pt (check via /elements frame sizes)
+- **Text:** Dynamic Type support, minimum 11pt
+- **Modals:** sheet presentation for non-blocking, full-screen for immersive
+- **System colors:** use semantic colors (label, secondaryLabel, systemBackground)
+- **SF Symbols:** prefer over custom icons, consistent weight/size
+
+### Visual Design
+
+- **Spacing:** 4pt grid system (4, 8, 12, 16, 20, 24, 32, 40, 48)
+- **Typography:** max 3 font sizes per screen, clear size/weight hierarchy
+- **Color:** WCAG AA contrast (4.5:1 for text, 3:1 for large text/UI elements)
+- **Cards:** consistent corner radius throughout, appropriate shadow depth
+- **Icons:** consistent size and style within each context
+- **Margins:** consistent horizontal margins (typically 16pt or 20pt)
+- **Vertical rhythm:** consistent spacing between sections
+
+### Layout
+
+- **Full screen utilization:** App MUST fill the entire device screen. Compare
+  the element tree bounding boxes against /device screenWidth and screenHeight.
+  If all content is inset significantly (e.g., 20+ pt margins on all sides with
+  no elements near screen edges), the app is likely running in compatibility mode.
+  Common cause: missing `UILaunchScreen` key in Info.plist. Flag as CRITICAL if
+  the app appears letterboxed or doesn't use the full display real estate.
+- **Alignment:** left-aligned text groups share leading edge
+- **Overflow:** no text clipping, no unintended horizontal scroll
+- **Responsive:** works on smallest iPhone (SE, 375pt) and largest (Pro Max, 430pt)
+- **Safe area:** respect top/bottom safe area insets
+- **Keyboard:** text fields not obscured when keyboard appears
+
+### Accessibility
+
+- **Tap targets:** minimum 44x44pt (verify via /elements frame width/height)
+- **Text readability:** minimum 11pt, sufficient contrast
+- **Labels:** all interactive elements have accessibility labels (/elements)
+- **Color alone:** information not conveyed by color alone
+- **Motion:** respect reduce-motion preference
+
+### States
+
+- **Empty states:** meaningful message + action when no data
+- **Loading states:** skeleton or spinner where data loads asynchronously
+- **Error states:** clear error messaging with recovery action
+
+## Phase 6: Report
+
+Output a structured design review:
+
+```markdown
+## iOS Design Review - [App Name]
+**Device:** [from /device]
+**Screens reviewed:** N
+**Issues found:** N (Critical: X, Warning: X, Suggestion: X)
+**DESIGN.md:** [Found/Not found]
+
+---
+
+### Screen: [Name]
+**Screenshot:** /tmp/ios-design/[screen].png
+
+#### Issues:
+1. **[CRITICAL]** Tap target too small - "Add" button is 30x30pt, minimum is 44x44pt
+   **Fix:** Increase button frame or add contentEdgeInsets/padding
+
+2. **[WARNING]** Inconsistent spacing - card margins are 16pt on sides but 12pt between cards
+   **Fix:** Use consistent 16pt spacing throughout
+
+3. **[SUGGESTION]** Consider adding subtle shadow to floating action button for depth hierarchy
+```
+
+### Severity Levels
+
+- **CRITICAL** - accessibility failure, text unreadable, tap targets too small, content clipped/hidden, safe area violated
+- **WARNING** - spacing inconsistent, colors don't match DESIGN.md/system, alignment off, HIG violation, contrast borderline
+- **SUGGESTION** - could look better with minor tweaks, missing polish, optional enhancement
+
+### What to Report
+
+- Tap targets smaller than 44x44pt (use /elements frame data)
+- Text with insufficient contrast against background
+- Spacing that doesn't follow the 4pt grid or is inconsistent
+- More than 3 font sizes on a single screen
+- Content behind notch/home indicator
+- Misaligned elements (leading edges don't match)
+- Text clipping or truncation
+- Tab bars with more than 5 items or missing labels
+- Non-standard navigation patterns
+- Missing empty/loading/error states
+- Colors that don't match DESIGN.md (if present)
+
+### What NOT to Report
+
+- Subjective style preferences without a rule violation
+- Issues you can't see evidence of in the screenshot
+- Functional bugs (those belong in /ios-qa)
+
+## Error Handling
+
+- **curl connection refused / exit code 7:** Tunnel IP wrong or device disconnected. Re-run `xcrun devicectl device info details` to get fresh tunnel IP.
+- **curl exit code 56 (connection reset):** Stale iproxy processes. Run `pkill -f iproxy` and use IPv6 tunnel directly.
+- **Empty response:** App not running or Release build. Launch with `xcrun devicectl device process launch --device <ID> <bundle-id>`.
+- **Can't navigate to screen:** Try /state writes to programmatically switch. Check source for correct state key values.

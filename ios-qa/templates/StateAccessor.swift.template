@@ -1,0 +1,39 @@
+import Foundation
+#if DEBUG
+import DebugBridge
+
+// Auto-generated state accessor for {{CLASS_NAME}}
+// DO NOT EDIT - regenerate with /ios-qa
+
+@MainActor
+enum {{CLASS_NAME}}Accessor {
+
+    static func register(on server: StateServer, instance: {{CLASS_NAME}}) {
+        {{READ_REGISTRATIONS}}
+        {{WRITE_REGISTRATIONS}}
+    }
+}
+
+// --- Registration pattern (generated per-property) ---
+//
+// READ:
+//   server.registerRead("{{CLASS_NAME}}_propertyName") {
+//       return "\(instance.propertyName)"
+//   }
+//
+// WRITE:
+//   server.registerWrite("{{CLASS_NAME}}_propertyName") { value in
+//       // parse value from JSON string body
+//       instance.propertyName = parsed
+//       return true
+//   }
+//
+// Type-specific patterns:
+//   String:   instance.prop = value (body is the raw string)
+//   Int:      Int(value) → instance.prop
+//   Double:   Double(value) → instance.prop
+//   Bool:     value == "true" → instance.prop
+//   [T]:      if value == "[]" → instance.prop = []
+//   T?:       if value == "null" → instance.prop = nil
+
+#endif
