@@ -27,6 +27,9 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
+| [`/cad-coder`](#cad-coder) | **Chat-driven CAD** | Parametric cadquery scripts for 3D printing. Chat → sketch → iterate → optional live Three.js preview → export STEP/STL/GLB. Casual + engineered modes, multi-part projects, stress check, BOM README on export. |
+| [`/plan-mech-review`](#plan-mech-review) | **Mechanical Engineer** | Pre-CAD review: load case, FoS, filament σ_y (cited), print orientation, fit class, DFM flags. Writes a mech-review artifact `/cad-coder` reads as ground truth. |
+| [`/qa-print`](#qa-print) | **Print QA** | Post-print QA loop in plain language. Ruler-grade measurements, shrinkage vs calibration diagnosis, one parameter edit suggestion to take back to `/cad-coder`. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng → DX review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
@@ -881,6 +884,17 @@ The browser preserves all state (cookies, localStorage, tabs) across the handoff
 **Security note:** `/browse` runs a persistent Chromium session. Cookies, localStorage, and session state carry over between commands. Do not use it against sensitive production environments unless you intend to — it is a real browser with real state. The session auto-shuts down after 30 minutes of idle time.
 
 For the full command reference, see [BROWSER.md](../BROWSER.md).
+
+---
+
+## `/cad-coder`
+
+Live CAD preview UI. The skill opens a local browser viewer for a `.glb` model
+file and reloads it whenever that file changes. CAD-authoring skills can feed it
+models from CadQuery, OpenSCAD, Blender, or any exporter that writes GLB.
+
+The bundled E2E demo uses CadQuery to export a whistle model, then watches the
+output file so the UI updates in realtime as the exporter rewrites the GLB.
 
 ---
 

@@ -37,6 +37,24 @@ gbrain:
       glob: "~/.gstack/projects/{repo_slug}/learnings.jsonl"
       tail: 10
       render_as: "## Recent learnings"
+    - id: cad-built
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
+      sort: mtime_desc
+      limit: 15
+      render_as: "## Physical parts built via /cad-coder"
+    - id: mech-review
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-mech-review-*.md"
+      sort: mtime_desc
+      limit: 10
+      render_as: "## Mech-engineering reviews (/plan-mech-review)"
+    - id: qa-print
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-qa-print-*.md"
+      sort: mtime_desc
+      limit: 15
+      render_as: "## Print QA outcomes (/qa-print — what fit, what didn't, what was iterated)"
 ---
 
 {{PREAMBLE}}

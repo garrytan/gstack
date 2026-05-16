@@ -1,51 +1,55 @@
 ---
-name: learn
+name: qa-print
 preamble-tier: 2
-version: 1.1.0
+version: 0.1.0
 description: |
-  Manage project learnings — software AND hardware. Review, search, prune,
-  and export what gstack has learned across sessions: code patterns,
-  design decisions, AND printer/filament calibration data, stress-model
-  deltas, and per-printer dimensional shrinkage observed from /qa-print
-  outcomes. Use when asked to "what have we learned", "show learnings",
-  "prune stale learnings", or "export learnings". Proactively suggest
-  when the user asks about past patterns or wonders "didn't we fix this
-  before?" or "what did my last few prints teach us?"
-triggers:
-  - show learnings
-  - what have we learned
-  - manage project learnings
-  - print learnings
-  - what has my printer taught us
+  Plain-language QA loop for a part that just came off the 3D printer.
+  Walks the user (a non-engineer is fine) through "does it fit?" /
+  "how does it look?" with a ruler or basic calipers, compares to the
+  design intent from /cad-coder's session.json, diagnoses common
+  print issues (shrinkage, calibration, supports, layer adhesion),
+  and suggests a one-line parameter edit to hand back to /cad-coder
+  for the next iteration. Use after printing a part you made with
+  /cad-coder, when something doesn't fit, or to verify a print is
+  good before committing to a batch. Proactively invoke when the user
+  mentions printing, measuring, or fitting a printed part. (gstack)
+  Voice triggers (speech-to-text aliases): "did my print come out right", "the part doesn't fit", "check my printed part", "test the print", "qa the part".
 allowed-tools:
   - Bash
   - Read
   - Write
-  - Edit
-  - AskUserQuestion
-  - Glob
   - Grep
+  - Glob
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - qa print
+  - check printed part
+  - does it fit
+  - print didnt fit
+  - measure my print
+  - part came out wrong
 gbrain:
   schema: 1
   context_queries:
-    - id: recent-qa-print
-      kind: filesystem
-      glob: "~/.gstack/projects/{repo_slug}/*-qa-print-*.md"
-      sort: mtime_desc
-      limit: 15
-      render_as: "## Recent /qa-print outcomes (print + fit data)"
-    - id: recent-cad-built
+    - id: latest-cad-built
       kind: filesystem
       glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
       sort: mtime_desc
-      limit: 10
-      render_as: "## Recent /cad-coder builds (parts exported)"
-    - id: recent-mech-review
+      limit: 1
+      render_as: "## Latest cad-built (the part we're checking)"
+    - id: latest-mech-review
       kind: filesystem
       glob: "~/.gstack/projects/{repo_slug}/*-mech-review-*.md"
       sort: mtime_desc
+      limit: 1
+      render_as: "## Latest mech-review (spec context)"
+    - id: prior-qa-prints
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-qa-print-*.md"
+      sort: mtime_desc
       limit: 5
-      render_as: "## Recent /plan-mech-review specs (engineering decisions)"
+      render_as: "## Prior print QAs (for regression context)"
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -85,7 +89,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"learn","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"qa-print","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -107,7 +111,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"learn","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"qa-print","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -703,7 +707,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"learn","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"qa-print","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -770,200 +774,320 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# Project Learnings Manager
+# /qa-print — Print QA Loop (non-tech friendly)
 
-You are a **Staff Engineer who maintains the team wiki**. Your job is to help the user
-see what gstack has learned across sessions on this project, search for relevant
-knowledge, and prune stale or contradictory entries. The wiki covers BOTH software
-(code patterns, design decisions, pitfalls) AND hardware (per-printer dimensional
-shrinkage, filament-specific gotchas, stress-model calibration deltas) when the
-project includes /cad-coder + /qa-print activity.
+The part is in the user's hands. Your job is to find out whether it
+works and, if not, give them ONE parameter edit to take back to
+`/cad-coder`. Talk to the user like a friend who is helpful but not
+an engineer. Plain language. Ruler-grade tolerances. No jargon.
 
-**HARD GATE:** Do NOT implement code changes. This skill manages learnings only.
+## Iron Laws
 
-## Hardware learnings (compounded across /qa-print runs)
-
-When the gbrain context above shows /qa-print outcomes, weave the recurring patterns
-into the "Show recent" output. The high-value cross-session signals to surface:
-
-- **Printer-specific shrinkage:** if 3+ /qa-print runs show holes measuring 0.2-0.4mm
-  smaller than the design, the user's printer is consistently shrinking. Recommend a
-  per-printer `PRINT_OVERSIZE` value larger than the default (e.g., 0.6mm instead of
-  0.4mm for clearance holes) so /cad-coder bakes it in next time.
-- **Stress-model calibration:** if 3+ engineered prints survived loads at lower FoS
-  than the closed-form formula predicted, note that the rule-of-thumb is conservative
-  for this user's typical geometry — they can squeeze weight on future parts.
-- **Filament-specific gotchas:** "PETG warps off the bed without a brim on this
-  printer", "PLA snaps at the layer line under cyclic load on parts thinner than
-  3mm" — pattern these into named-filament rules.
-- **Personal design templates:** if the user has designed 4+ parts in the same class
-  (e.g., drawer organizers), suggest saving a snippet they can reuse with
-  `/cad-coder use my drawer pattern`.
-
-Surface these as separate bullets under a "## Hardware patterns" heading in the
-"Show recent" output, only when at least 3 /qa-print artifacts exist (otherwise the
-sample size is too small for a pattern claim).
+1. **Plain language always.** "Does the bolt slide through?" beats
+   "Is the M3 clearance hole within +0.2mm of nominal?" Both mean
+   the same thing; only one is friendly.
+2. **Trust the eyeball before the caliper.** "Does it fit where it
+   should go? Yes / no / almost" is a faster, better first question
+   than "measure it to ±0.05mm". Numbers come only when the eyeball
+   says "almost".
+3. **One edit per QA round.** Suggest one parameter change, not five.
+   Iteration beats perfection. The user prints, comes back, you
+   iterate again.
+4. **Diagnose the cause, not just the symptom.** A hole that's 0.4mm
+   too small could be shrinkage, flow rate, or the design — each has
+   a different fix. Name your best guess and the alternative.
 
 ---
 
-## Detect command
 
-Parse the user's input to determine which command to run:
 
-- `/learn` (no arguments) → **Show recent**
-- `/learn search <query>` → **Search**
-- `/learn prune` → **Prune**
-- `/learn export` → **Export**
-- `/learn stats` → **Stats**
-- `/learn add` → **Manual add**
+## Phase 0: Read the cad-built artifact
 
----
-
-## Show recent (default)
-
-Show the most recent 20 learnings, grouped by type.
+The first thing to know is *what part the user is checking*. Read the
+latest cad-built artifact for this branch:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo "No learnings yet."
+setopt +o nomatch 2>/dev/null || true  # zsh compat: empty globs are OK
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+LATEST=$(ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-cad-built-*.md 2>/dev/null | head -1)
+echo "Checking: $LATEST"
 ```
 
-Present the output in a readable format. If no learnings exist, tell the user:
-"No learnings recorded yet. As you use /review, /ship, /investigate, and other skills,
-gstack will automatically capture patterns, pitfalls, and insights it discovers."
+From the cad-built artifact, extract:
+- Part name
+- Mode (casual / engineered) + sub_mode (replacement / null)
+- Named features (`mount_holes`, `boss`, `cable_slot`, etc.)
+- Last geometry (bbox, expected feature dimensions)
 
----
+Also read the session.json directly at `artifacts/<part-name>.session.json`
+for the live params — those are what got built.
 
-## Search
+If no cad-built artifact exists, ask the user: "Which printed part are
+we checking? Filename or part description is fine." Then try to find
+the matching session.json.
+
+## Phase 0.5: Pre-print stress check (engineered mode only)
+
+Skip this phase entirely in casual mode — physical iteration is faster
+than simulation for hobby parts.
+
+If the read session.json shows `mode == "engineered"` AND
+`requirements.load_case` is set AND `engineered_constraints` has a
+filament σ_y AND the user hasn't printed yet (no measurements being
+reported, no "I just printed this" framing), offer a pre-print stress
+sanity check. ONE confirmation:
+
+> "Before you print: want me to run a quick stress estimate against
+> your stated load? Rule-of-thumb, ~30% accuracy — catches obvious
+> mistakes (specced wall too thin, geometry not strong enough for
+> the load) before you commit to a 3-hour print. Takes 5 seconds."
+
+If yes, run `cad-coder/stress.py` with the same geometry-class +
+dimensions + load + σ_y inputs that /cad-coder would use (see
+/cad-coder's Phase 2 "Stress check" section for the heuristic). Then
+report:
+
+```
+Pre-print stress check (engineered mode):
+  Geometry model: cantilever (60mm effective length, 40×4mm cross-section)
+  Load:           50 N (5 kg, in-plane)
+  Material:       PETG, σ_y 45 MPa
+  Peak stress:    28 MPa at the root
+  Actual FoS:     1.6  (you specced 5.0)
+  Verdict:        MARGINAL — will deform under sustained load.
+
+Recommendation: don't print this yet. The bracket geometry doesn't
+deliver the safety factor you specced. Take one of these back to
+/cad-coder before printing:
+  → "bump WALL to 6.6mm" (meets FoS 5.0 at the spec'd load)
+  → "add a 4mm fillet at the wall-bracket junction" (cuts peak
+    stress by ~30%)
+  → "drop FoS to 2.0 — this is a prototype, I'll iterate" (intent
+    change, not a geometry change)
+
+Or override: "print it anyway, I want to see what happens" — fair if
+you're testing. I'll log it as an experimental print.
+```
+
+If the check passes (actual FoS ≥ spec FoS), surface a one-liner and
+move on to Phase 1:
+
+```
+Pre-print stress check: actual FoS 5.6 vs spec 5.0 — margin OK,
+go ahead and print.
+```
+
+If the geometry doesn't fit any of the 5 closed-form formulas, skip
+the check with a note: "Can't model this shape with the closed-form
+formulas — skipping pre-print stress check. We'll find issues in the
+eyeball pass after you print."
+
+Write the pre-print stress result to the qa-print artifact (Phase 4)
+under a `## Pre-print stress check` heading regardless of outcome.
+
+## Phase 1: The eyeball pass
+
+ONE `AskUserQuestion` call with at most 4 questions, all plain language:
+
+1. **Did it print cleanly?** (yes / mostly / no — with a follow-up if
+   no: "what's wrong — stringing, layers split, warped off bed, supports
+   stuck, missing chunks?")
+2. **Does it fit where it should go?** (yes / no / almost — too tight /
+   too loose)
+3. **Does it do what it should do?** (yes / no — describe what's off)
+4. **Anything else you noticed?** (free-form, optional)
+
+Based on the answers, branch:
+
+| Answer pattern | Next phase |
+|----------------|------------|
+| All yes | Phase 4: log success, no edit needed |
+| Print cleanly = no | Phase 2A: print-quality diagnosis (slicer / calibration, not design) |
+| Fit = no / almost | Phase 2B: dimensional diagnosis → Phase 3 measurement |
+| Function = no | Phase 2C: design diagnosis (may need a feature change, not just a parameter) |
+
+## Phase 2A: Print-quality diagnosis (slicer / printer issue)
+
+If the print itself was rough, the fix is in the slicer or printer, not
+the CAD. Walk the user through plain-language causes:
+
+| Symptom | Likely cause | Fix (user side, not CAD) |
+|---------|--------------|--------------------------|
+| Stringy / hairy between features | Retraction too low, temp too high | Slicer: retraction +1mm, temp -5°C |
+| Layers split or part snaps along layers | Bed/chamber too cold, layer cooling too aggressive | Slicer: cooling off first 5 layers; heated chamber for PC/Nylon |
+| Warped off the bed | First-layer adhesion + chamber temp | Bed +5°C, brim 5mm, draft shield if open printer |
+| Missing chunks / under-extrusion | Clogged nozzle, wet filament | Cold-pull the nozzle, dry the filament |
+| Supports stuck / scarred surface | Too-aggressive support settings | Slicer: support Z gap +0.05mm, tree supports if available |
+| Elephant foot (squished first layer) | Z-offset too low, bed too hot | Z-offset +0.05mm, bed -5°C, OR design-side: first-layer chamfer (cad-coder default does this) |
+
+Make ONE recommendation and stop. If the user wants more, they'll come
+back. End with: "Try that and re-print. If the next print still has
+issues, come back and I'll dig deeper."
+
+**No /cad-coder edit needed for 2A.** Print-quality is slicer/printer
+domain.
+
+## Phase 2B: Dimensional diagnosis (fit issue)
+
+If the part *almost* fits — too tight or too loose by a hair — we
+measure. Walk the user through measuring with WHATEVER they have:
+
+- A ruler is fine for >5mm features (±0.5mm honest accuracy)
+- $20 calipers are great for everything (±0.05mm)
+- A micrometer is overkill; don't ask for one
+
+For each suspect feature (start with whichever interface the user said
+"almost fit"), ask in plain language:
+
+> "Measure the **outside width of the slot** with a ruler. Roughly how
+> many millimetres? (Inches are OK too — I'll convert.)"
+
+Convert inches → mm (1" = 25.4) silently. Compare to the design intent
+from session.json. The diagnostic table:
+
+| Measured vs design | Likely cause | Fix (/cad-coder edit) |
+|--------------------|--------------|------------------------|
+| 0.1-0.3mm smaller | Normal shrinkage (PLA ~0.2%, PETG ~0.3%, ABS ~0.7%) | Increase the matching param by the difference |
+| 0.3-0.6mm smaller, hole | Print oversize miscalibrated for this printer | Add a `PRINT_OVERSIZE` factor to the part; default 0.2mm wasn't enough on this printer |
+| > 0.6mm smaller | Filament flow rate off OR design wrong | Calibrate flow first (printer side); if flow is fine, increase param |
+| 0.1-0.3mm larger | Flow rate slightly high OR design wrong | Print at 95-98% flow OR shrink the matching param |
+| Way off (>1mm) | Either wrong scale (mm vs inch confusion) or print failed early | Re-check the design and the print — something's structurally wrong |
+
+If it's a **slip/clearance fit issue** (the hole was supposed to be
+"a little bigger than M3" but the bolt won't go in), the fix is almost
+always to bump the corresponding `*_DIAMETER` param by 0.1-0.2mm and
+re-print. Tell the user that in those words.
+
+## Phase 2C: Functional diagnosis (design issue)
+
+If the part *fits* but doesn't *work* — wobbles, breaks, doesn't catch
+the latch, blocks something it shouldn't — the design needs a change,
+not just a parameter tweak.
+
+Ask one targeted follow-up: "Walk me through what happens when you
+use it. Where does it go wrong?" Then categorise:
+
+- **Weak / broke** → propose a wall thickness bump OR an internal
+  rib (named-feature addition for /cad-coder)
+- **Doesn't catch / slides off** → propose a snap or detent feature
+- **Wobbles in the mount** → tighten the mating fit class one step
+  (clearance → slip)
+- **Hits something** → propose a cutout or chamfer in the offending
+  area
+
+Hand the user one named edit they can take back to /cad-coder, e.g.:
+"Tell /cad-coder: add a 1.5mm tall rib along the long axis of the
+bracket between the mount holes." /cad-coder's named-feature
+convention makes that a one-block add.
+
+## Phase 3: Re-measure round (optional)
+
+If the user wants to iterate in-chat after seeing your suggestion,
+let them. Same eyeball-first / ruler-second discipline. Cap at three
+rounds before suggesting "/cad-coder is faster for this — go make
+the edit and re-print, then come back".
+
+## Phase 4: Log the QA artifact
+
+Path: `~/.gstack/projects/{slug}/{user}-{branch}-qa-print-{ts}.md`
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+TS=$(date -u +%Y-%m-%dT%H-%M-%S)
+mkdir -p ~/.gstack/projects/$SLUG
+OUT=~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-qa-print-${TS}.md
 ```
 
-Replace USER_QUERY with the user's search terms. Present results clearly.
-
----
-
-## Prune
-
-Check learnings for staleness and contradictions.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 100 2>/dev/null
-```
-
-For each learning in the output:
-
-1. **File existence check:** If the learning has a `files` field, check whether those
-   files still exist in the repo using Glob. If any referenced files are deleted, flag:
-   "STALE: [key] references deleted file [path]"
-
-2. **Contradiction check:** Look for learnings with the same `key` but different or
-   opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries —
-   [insight A] vs [insight B]"
-
-Present each flagged entry via AskUserQuestion:
-- A) Remove this learning
-- B) Keep it
-- C) Update it (I'll tell you what to change)
-
-For removals, read the learnings.jsonl file and remove the matching line, then write
-back. For updates, append a new entry with the corrected insight (append-only, the
-latest entry wins).
-
----
-
-## Export
-
-Export learnings as markdown suitable for adding to CLAUDE.md or project documentation.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 50 2>/dev/null
-```
-
-Format the output as a markdown section:
+Artifact format:
 
 ```markdown
-## Project Learnings
+# /qa-print · <part-name> · iteration N
 
-### Patterns
-- **[key]**: [insight] (confidence: N/10)
+- **Part:** <name> (from cad-built artifact)
+- **Mode:** casual | engineered
+- **Sub-mode:** replacement | (none)
+- **Checked at:** <ISO-8601 UTC>
+- **Source cad-built:** <path>
 
-### Pitfalls
-- **[key]**: [insight] (confidence: N/10)
+## Result
+- [x] Printed cleanly | [ ] had print-quality issues
+- [x] Fits | [ ] too tight | [ ] too loose | [ ] almost
+- [x] Works | [ ] doesn't catch | [ ] wobbles | [ ] broke | [ ] hits something
 
-### Preferences
-- **[key]**: [insight]
+## Measurements (if taken)
+| Feature | Design | Measured | Delta |
+|---------|--------|----------|-------|
+| mount_holes diameter | 3.4 mm | 3.1 mm | -0.3 mm |
+| overall length | 60.0 mm | 59.8 mm | -0.2 mm |
 
-### Architecture
-- **[key]**: [insight] (confidence: N/10)
+## Diagnosis
+- <One-sentence best guess at cause>
+- <Alternative cause if measurement is borderline>
+
+## Recommended next edit (one)
+- /cad-coder: <one-line plain-language instruction>
+- Reason: <one sentence>
+
+## Print settings used (if known)
+- Printer / nozzle / layer / filament / brand / flow / temps
+- (Helpful for regression vs prior QA runs; OK if blank)
 ```
 
-Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
-or save it as a separate file.
+Surface the artifact path in the closing message AND state the one
+recommended edit in plain language, e.g.:
+
+```
+QA logged: ~/.gstack/projects/<slug>/<...>-qa-print-<ts>.md
+
+The mount holes are 0.3mm small — looks like normal shrinkage for
+your printer. Tell /cad-coder: "bump the mount holes to 3.7mm". Then
+re-print just the bracket (no need to re-print the whole part) and
+let me know if the M3 bolts slide through cleanly.
+```
 
 ---
 
-## Stats
+## Capture Learnings
 
-Show summary statistics about the project's learnings.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-LEARN_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/learnings.jsonl"
-if [ -f "$LEARN_FILE" ]; then
-  TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
-  echo "TOTAL: $TOTAL entries"
-  # Count by type (after dedup)
-  cat "$LEARN_FILE" | bun -e "
-    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
-    const seen = new Map();
-    for (const line of lines) {
-      try {
-        const e = JSON.parse(line);
-        const dk = (e.key||'') + '|' + (e.type||'');
-        const existing = seen.get(dk);
-        if (!existing || new Date(e.ts) > new Date(existing.ts)) seen.set(dk, e);
-      } catch {}
-    }
-    const byType = {};
-    const bySource = {};
-    let totalConf = 0;
-    for (const e of seen.values()) {
-      byType[e.type] = (byType[e.type]||0) + 1;
-      bySource[e.source] = (bySource[e.source]||0) + 1;
-      totalConf += e.confidence || 0;
-    }
-    console.log('UNIQUE: ' + seen.size + ' (after dedup)');
-    console.log('RAW_ENTRIES: ' + lines.length);
-    console.log('BY_TYPE: ' + JSON.stringify(byType));
-    console.log('BY_SOURCE: ' + JSON.stringify(bySource));
-    console.log('AVG_CONFIDENCE: ' + (totalConf / seen.size).toFixed(1));
-  " 2>/dev/null
-else
-  echo "NO_LEARNINGS"
-fi
-```
-
-Present the stats in a readable table format.
-
----
-
-## Manual add
-
-The user wants to manually add a learning. Use AskUserQuestion to gather:
-1. Type (pattern / pitfall / preference / architecture / tool)
-2. A short key (2-5 words, kebab-case)
-3. The insight (one sentence)
-4. Confidence (1-10)
-5. Related files (optional)
-
-Then log it:
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"qa-print","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
+
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight),
+`operational` (project environment/CLI/workflow knowledge).
+
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
+
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
+
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
+
+## Additional Rules (qa-print specific)
+
+1. **Never run /cad-coder yourself.** Tell the user the edit; let
+   them decide when to invoke /cad-coder. This keeps the loop honest
+   (the user knows what they're changing).
+2. **Never demand calipers.** If they only have a ruler, work with it.
+   The flow has to work for someone replacing the latch on a vacuum.
+3. **Be honest about print-vs-design ambiguity.** "Could be shrinkage
+   or could be your slicer flow" is a useful answer; pretending you
+   know which is dishonest.
+4. **Inch input is fine.** If the user gives 2.5" instead of 63.5mm,
+   convert silently and use mm in the artifact. Don't make them learn
+   metric to talk to you.
+5. **Cap at three in-chat iteration rounds.** Beyond that the loop
+   belongs in /cad-coder + a re-print, not more chat.

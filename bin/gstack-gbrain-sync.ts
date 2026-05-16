@@ -35,6 +35,7 @@ import { execSync, spawnSync } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
+import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
 import { ensureSourceRegistered, sourcePageCount } from "../lib/gbrain-sources";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";

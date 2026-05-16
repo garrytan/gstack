@@ -20,7 +20,7 @@ I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https
 
 Same person. Different era. The difference is the tooling.
 
-**gstack is how I do it.** It turns Claude Code into a virtual engineering team — a CEO who rethinks the product, an eng manager who locks architecture, a designer who catches AI slop, a reviewer who finds production bugs, a QA lead who opens a real browser, a security officer who runs OWASP + STRIDE audits, and a release engineer who ships the PR. Twenty-three specialists and eight power tools, all slash commands, all Markdown, all free, MIT license.
+**gstack is how I do it.** It turns Claude Code into a virtual engineering team — a CEO who rethinks the product, an eng manager who locks architecture, a designer who catches AI slop, a reviewer who finds production bugs, a QA lead who opens a real browser, a security officer who runs OWASP + STRIDE audits, a release engineer who ships the PR, AND a mechanical engineer who designs parametric 3D-printed parts (with stress checks, print-orientation calls, and a print-QA loop). Twenty-six specialists and eight power tools, all slash commands, all Markdown, all free, MIT license.
 
 This is my open source software factory. I use it every day. I'm sharing it because these tools should be available to everyone.
 
@@ -213,7 +213,22 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | **End users** (UI, web app, mobile) | `/plan-design-review` | `/design-review` |
 | **Developers** (API, CLI, SDK, docs) | `/plan-devex-review` | `/devex-review` |
 | **Architecture** (data flow, perf, tests) | `/plan-eng-review` | `/review` |
-| **All of the above** | `/autoplan` (runs CEO → design → eng → DX, auto-detects which apply) | — |
+| **Physical parts** (3D-printed brackets, enclosures, fixtures, mounts) | `/plan-mech-review` | `/qa-print` |
+| **All of the above** | `/autoplan` (runs CEO → design → mech → eng → DX, auto-detects which apply) | — |
+
+### Building physical parts (3D printing)
+
+gstack isn't just for software anymore. When you're designing something that ends up on a print bed — a replacement clip for a broken drawer, a load-bearing bracket for a drone, a multi-part enclosure — the same review-and-iterate loop you use for code works for parts.
+
+| Skill | What it does |
+|-------|--------------|
+| `/cad-coder` | **Chat-driven parametric CAD** — describe a part in one line, sketch with 3D-printing defaults, iterate turn by turn ("make it 10mm wider", "add a cable slot", "switch to M4 holes"), export STEP + STL when you say "drop the stl". Casual mode for replacement parts (plain language, ruler-grade); engineered mode for load-bearing parts (FoS, cited filament σ_y, print orientation, empirical fits, closed-form stress check). Multi-part projects supported with shared params + interface registry so mating dimensions can't drift. |
+| `/plan-mech-review` | **Mechanical-engineering review (pre-CAD)** — load case sanity, filament pick with cited σ_y, FoS justification, print orientation, fit-class selection, manufacturability flags. Writes a spec artifact that `/cad-coder` reads as ground truth. |
+| `/qa-print` | **Post-print QA** — plain language ("does it fit? yes / no / almost"), ruler-grade tolerances, diagnoses shrinkage vs calibration vs design issues, suggests ONE parameter edit to take back to `/cad-coder`. Engineered-mode parts also get a pre-print stress sanity check before you commit to a 3-hour print. |
+
+Cadquery (Python) is the modeling engine; `bin/cad-python` resolves a venv with cadquery installed so the skill works out of the box on any reasonable setup. Artifacts land in `artifacts/<part>.{py,step,stl,session.json}` for single parts or `artifacts/<project>/` for multi-part assemblies. The `.py` is the source of truth (commit it); STEP/STL/session are build artifacts (gitignored).
+
+The full chain: `/office-hours` → `/plan-mech-review` (optional, when engineered) → `/cad-coder` (chat → export) → print → `/qa-print` → `/retro` (weekly). `/learn` surfaces cross-session patterns ("your printer shrinks PETG by 0.3mm consistently — bump default oversize") so the system gets smarter the more you use it.
 
 ### Power tools
 
@@ -388,11 +403,12 @@ I open sourced how I build software. You can fork it and make it your own.
 /setup-gbrain
 ```
 
-Three paths, pick one:
+Four paths, pick one:
 
 - **Supabase, existing URL** — your cloud agent already provisioned a brain; paste the Session Pooler URL, now this laptop uses the same data.
 - **Supabase, auto-provision** — paste a Supabase Personal Access Token; the skill creates a new project, polls to healthy, fetches the pooler URL, hands it to `gbrain init`. ~90 seconds end-to-end.
 - **PGLite local** — zero accounts, zero network, ~30 seconds. Isolated brain on this Mac only. Great for try-first; migrate to Supabase later with `/setup-gbrain --switch`.
+- **Remote gbrain MCP** — your brain runs on another machine (Tailscale, ngrok, internal LAN) or a teammate's server; paste an MCP URL and bearer token. Optionally pair with a local PGLite for symbol-aware code search in split-engine mode. Best for cross-machine memory without standing up a local DB.
 
 After init, the skill offers to register gbrain as an MCP server for Claude Code (`claude mcp add gbrain -- gbrain serve`) so `gbrain search`, `gbrain put_page`, etc. show up as first-class typed tools — not bash shell-outs.
 
@@ -411,6 +427,8 @@ The skill asks once per repo. The decision is sticky across worktrees and branch
 ```bash
 gstack-brain-init
 ```
+
+**Running gstack in Conductor?** Conductor explicitly strips `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from every workspace's process env, so paid evals and gbrain embeddings won't work out of the box. Set `GSTACK_ANTHROPIC_API_KEY` and `GSTACK_OPENAI_API_KEY` in Conductor's workspace env config instead — gstack's TS entry points promote them to canonical names at runtime. Full details and the contributor checklist for adding the import to new entry points: [Conductor + GSTACK_* env vars](USING_GBRAIN_WITH_GSTACK.md#conductor--gstack_-env-vars).
 
 **Full monty — every scenario, every flag, every bin helper, every troubleshooting step:** [USING_GBRAIN_WITH_GSTACK.md](USING_GBRAIN_WITH_GSTACK.md)
 

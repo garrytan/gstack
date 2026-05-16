@@ -16,6 +16,7 @@
  * side effects beyond stdout and a ~15 token API call.
  */
 
+import '../lib/conductor-env-shim';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readOverlay } from './resolvers/model-overlay';
 import { resolveClaudeBinary } from '../browse/src/claude-bin';
