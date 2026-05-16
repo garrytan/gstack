@@ -37,7 +37,7 @@ Conventions:
 - [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
 - [/land-and-deploy](land-and-deploy/SKILL.md): Land and deploy workflow.
 - [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
-- [/learn](learn/SKILL.md): Manage project learnings.
+- [/learn](learn/SKILL.md): Manage project learnings — software AND hardware.
 - [/make-pdf](make-pdf/SKILL.md): Turn any markdown file into a publication-quality PDF.
 - [/office-hours](office-hours/SKILL.md): YC Office Hours — two modes.
 - [/open-gstack-browser](open-gstack-browser/SKILL.md): Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.

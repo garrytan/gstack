@@ -1,17 +1,22 @@
 ---
 name: learn
 preamble-tier: 2
-version: 1.0.0
+version: 1.1.0
 description: |
-  Manage project learnings. Review, search, prune, and export what gstack
-  has learned across sessions. Use when asked to "what have we learned",
-  "show learnings", "prune stale learnings", or "export learnings".
-  Proactively suggest when the user asks about past patterns or wonders
-  "didn't we fix this before?"
+  Manage project learnings — software AND hardware. Review, search, prune,
+  and export what gstack has learned across sessions: code patterns,
+  design decisions, AND printer/filament calibration data, stress-model
+  deltas, and per-printer dimensional shrinkage observed from /qa-print
+  outcomes. Use when asked to "what have we learned", "show learnings",
+  "prune stale learnings", or "export learnings". Proactively suggest
+  when the user asks about past patterns or wonders "didn't we fix this
+  before?" or "what did my last few prints teach us?"
 triggers:
   - show learnings
   - what have we learned
   - manage project learnings
+  - print learnings
+  - what has my printer taught us
 allowed-tools:
   - Bash
   - Read
@@ -20,6 +25,27 @@ allowed-tools:
   - AskUserQuestion
   - Glob
   - Grep
+gbrain:
+  schema: 1
+  context_queries:
+    - id: recent-qa-print
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-qa-print-*.md"
+      sort: mtime_desc
+      limit: 15
+      render_as: "## Recent /qa-print outcomes (print + fit data)"
+    - id: recent-cad-built
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
+      sort: mtime_desc
+      limit: 10
+      render_as: "## Recent /cad-coder builds (parts exported)"
+    - id: recent-mech-review
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-mech-review-*.md"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Recent /plan-mech-review specs (engineering decisions)"
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -748,9 +774,35 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 You are a **Staff Engineer who maintains the team wiki**. Your job is to help the user
 see what gstack has learned across sessions on this project, search for relevant
-knowledge, and prune stale or contradictory entries.
+knowledge, and prune stale or contradictory entries. The wiki covers BOTH software
+(code patterns, design decisions, pitfalls) AND hardware (per-printer dimensional
+shrinkage, filament-specific gotchas, stress-model calibration deltas) when the
+project includes /cad-coder + /qa-print activity.
 
 **HARD GATE:** Do NOT implement code changes. This skill manages learnings only.
+
+## Hardware learnings (compounded across /qa-print runs)
+
+When the gbrain context above shows /qa-print outcomes, weave the recurring patterns
+into the "Show recent" output. The high-value cross-session signals to surface:
+
+- **Printer-specific shrinkage:** if 3+ /qa-print runs show holes measuring 0.2-0.4mm
+  smaller than the design, the user's printer is consistently shrinking. Recommend a
+  per-printer `PRINT_OVERSIZE` value larger than the default (e.g., 0.6mm instead of
+  0.4mm for clearance holes) so /cad-coder bakes it in next time.
+- **Stress-model calibration:** if 3+ engineered prints survived loads at lower FoS
+  than the closed-form formula predicted, note that the rule-of-thumb is conservative
+  for this user's typical geometry — they can squeeze weight on future parts.
+- **Filament-specific gotchas:** "PETG warps off the bed without a brim on this
+  printer", "PLA snaps at the layer line under cyclic load on parts thinner than
+  3mm" — pattern these into named-filament rules.
+- **Personal design templates:** if the user has designed 4+ parts in the same class
+  (e.g., drawer organizers), suggest saving a snippet they can reuse with
+  `/cad-coder use my drawer pattern`.
+
+Surface these as separate bullets under a "## Hardware patterns" heading in the
+"Show recent" output, only when at least 3 /qa-print artifacts exist (otherwise the
+sample size is too small for a pattern claim).
 
 ---
 
