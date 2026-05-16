@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# cad-python — print the path to a Python interpreter that has cadquery
+# installed. Used by /cad-coder so the skill works whether or not the
+# user has cadquery on their default python3.
+#
+# Search order:
+#   .cad-venv/bin/python   (project-local venv, preferred)
+#   .venv/bin/python       (generic project venv)
+#   python3.12, .11, .10   (cadquery-supported versions, in PATH)
+#   python3                (last resort — likely 3.13/3.14 on modern Macs)
+#
+# Exit codes:
+#   0  on success (path written to stdout)
+#   1  if no candidate could import cadquery
+set -e
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+candidates=(
+  "$ROOT/.cad-venv/bin/python"
+  "$ROOT/.venv/bin/python"
+  "$(command -v python3.12 || true)"
+  "$(command -v python3.11 || true)"
+  "$(command -v python3.10 || true)"
+  "$(command -v python3 || true)"
+)
+
+for py in "${candidates[@]}"; do
+  [ -z "$py" ] && continue
+  [ -x "$py" ] || continue
+  if "$py" -c "import cadquery" 2>/dev/null; then
+    echo "$py"
+    exit 0
+  fi
+done
+
+exit 1

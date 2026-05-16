@@ -823,6 +823,13 @@ processes. Suggest they use a CAM/DFM-aware workflow instead.
    before I added the slot" and you can.
 4. **Units are millimeters.** cadquery is unitless; this skill is mm.
    Always state units in comments and on the report.
+5. **Validate every turn, export only on signal.** The chat loop is
+   for iteration — refining width, hole size, adding a slot, undoing
+   the slot. None of that produces a file. STEP and STL drop ONLY
+   when the user says "give me the file" / "drop the stl" / "ready
+   to print" / "export it" (see Phase 3 export signals). Doing 12
+   turns of tweaks should leave `artifacts/` with one `.py` and one
+   `.session.json`, not 12 STL files.
 
 ---
 
@@ -1124,16 +1131,26 @@ if FILLET_RADIUS > 0:
 
 if __name__ == "__main__":
     import sys, json
-    out_step = sys.argv[1] if len(sys.argv) > 1 else f"{__file__.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.step"
-    out_stl = out_step.replace(".step", ".stl")
-    cq.exporters.export(result, out_step)
-    cq.exporters.export(result, out_stl)
+    # Validate-only by default (no files written) — keeps the chat
+    # loop cheap. Pass --export to also drop STEP + STL.
+    export = "--export" in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
     bb = result.val().BoundingBox()
-    print(json.dumps({
+    out = {
         "bbox_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)],
         "volume_mm3": round(result.val().Volume(), 1),
         "faces": len(result.faces().vals()),
-    }))
+        "exported": False,
+    }
+    if export:
+        out_step = args[0] if args else f"{__file__.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.step"
+        out_stl = out_step.replace(".step", ".stl")
+        cq.exporters.export(result, out_step)
+        cq.exporters.export(result, out_stl)
+        out["exported"] = True
+        out["step"] = out_step
+        out["stl"] = out_stl
+    print(json.dumps(out))
 ```
 
 ### Session file structure (mandatory)
@@ -1163,9 +1180,16 @@ if __name__ == "__main__":
   "history": [
     {"turn": 1, "instruction": "<original one-liner>", "diff": "initial sketch"}
   ],
-  "last_geometry": {"bbox_mm": [60, 40, 4], "volume_mm3": 7100.5, "faces": 22}
+  "last_geometry": {"bbox_mm": [60, 40, 4], "volume_mm3": 7100.5, "faces": 22},
+  "last_exported_at": null,
+  "last_exported_turn": null
 }
 ```
+
+`last_exported_at` and `last_exported_turn` are null until the first
+export turn lands. After an export they hold the ISO-8601 UTC stamp
+and the turn number, respectively. The skill uses them to surface
+"STL is N turns stale" when the user keeps editing after exporting.
 
 **Engineered-mode example** — same shape with `mode`, `triage_signals`,
 and `requirements` populated, plus per-feature `engineered_constraints`
@@ -1217,58 +1241,100 @@ re-validate against. It is set once in Phase 1 and updated only when
 the user explicitly changes a requirement (e.g., "drop the FoS to 3.0,
 this is a prototype" or "flip print orientation, load axis changed").
 
-## Phase 2: Run + Validate (every turn)
+## Phase 2: Validate (every turn) — files are NOT written here
+
+The chat loop runs the script in **validate-only** mode every turn.
+That means: cadquery builds the solid in memory, prints geometry
+stats (bbox, volume, faces), and **does not write STEP or STL**.
+Iterating on width / hole size / fillet through 10 turns produces
+zero junk files in `artifacts/`. The user only gets files when they
+explicitly ask (Phase 3).
 
 ```bash
 mkdir -p artifacts
-cd artifacts
-python3 <part-name>.py <part-name>.step
+CAD_PY=$(./bin/cad-python 2>/dev/null || echo python3)
+$CAD_PY artifacts/<part-name>.py
 ```
 
-The `__main__` block prints one JSON line. Parse it and update
+`./bin/cad-python` (resolver in this repo — see Environment check
+below) finds whichever Python actually has cadquery installed:
+the local `.cad-venv` first, then `python3.12`/`python3.11`/
+`python3.10` / `python3` from PATH. If none have cadquery, it exits
+non-zero so you fall back to plain `python3` and the import error
+is visible.
+
+The `__main__` block prints one JSON line with `"exported": false`
+on a validate-only run. Parse it and update
 `session.json["last_geometry"]`. Hard checks before reporting success:
 
 | Check | Action if failed |
 |-------|------------------|
 | `volume_mm3` > 0 | Boolean op produced empty solid — debug, do not ship |
 | `bbox_mm[0..2]` matches the LENGTH/WIDTH/HEIGHT params (±0.01mm) | Script bug — debug |
-| `<name>.step` exists, > 1KB | Export silently failed — re-run |
+| (export turns only) `<name>.step` exists, > 1KB | Export silently failed — re-run |
 
 If any hard check fails, fix the script and re-run silently. Do not
-report success until the file exists and geometry sanity-checks pass.
+report success until the geometry sanity-checks pass (and on export
+turns, the file lands).
 
 ### Environment check (first turn only)
 
 ```bash
-python3 -c "import cadquery; print(cadquery.__version__)" 2>&1
+CAD_PY=$(./bin/cad-python 2>/dev/null) && $CAD_PY -c "import cadquery; print(cadquery.__version__)"
 ```
 
-If the import fails, offer to install (`pip install cadquery` or
-`uv pip install cadquery`). Do not silently `sudo` anything.
+The resolver checks, in order: `.cad-venv/bin/python`,
+`.venv/bin/python`, then `python3.12`, `python3.11`, `python3.10`,
+`python3` from PATH. First one that successfully imports `cadquery`
+wins; if none do, the resolver exits non-zero and you should offer
+to install:
+
+```bash
+# Recommended: isolated venv on a cadquery-compatible Python
+uv venv --python 3.12 .cad-venv
+uv pip install --python .cad-venv/bin/python cadquery
+```
+
+cadquery doesn't yet support Python 3.13 / 3.14 reliably — the OCP
+wheel only ships for 3.10-3.12. Don't try to install on a newer
+interpreter; create a 3.12 venv instead. Do not silently `sudo`
+anything.
 
 ## Phase 3: Report + Edit Loop (every turn after the first)
 
 After every successful run, output exactly this shape — short, scannable,
 ending in an open question. Pick the shape that matches `session.mode`.
 
-**Casual-mode report:**
+**Casual-mode validate-only report** (the default — most turns):
 
 ```
-Built: artifacts/mounting-bracket.step  (turn 1)
+Sketched: mounting-bracket  (turn 4)
 Assumed: FDM print, M3 clearance holes, 4 corners, no fillets.
 Geometry: 60 × 40 × 4 mm  |  Volume 7.10 cm³  |  22 faces
 Features: body, mount_holes
 
 What's next? (e.g. "make it 50mm wide", "add a cable slot on the long
-side", "fillet the top edges to 1mm", "switch to M4 holes", or
-"undo last change")
+side", "fillet the top edges to 1mm", or — when you're ready —
+"drop the stl" to export STEP + STL for printing.)
 ```
 
-**Engineered-mode report** (adds engineering + print orientation lines;
-never omit either in engineered mode):
+**Casual-mode export-turn report** (only on export turns — see Export
+signals below):
 
 ```
-Built: artifacts/motor-bracket.step  (turn 1, engineered)
+Built: artifacts/mounting-bracket.step + .stl  (exported on turn 7)
+Geometry: 60 × 40 × 4 mm  |  Volume 7.10 cm³  |  22 faces
+Features: body, mount_holes
+
+After you print it: run /qa-print to check the fit. Don't need calipers
+— a ruler is fine.
+```
+
+**Engineered-mode validate-only report** (default; adds engineering +
+print orientation, never omit them in engineered mode):
+
+```
+Sketched: motor-bracket  (turn 2, engineered)
 Requirements: 5kg cyclic, bolts to frame via 4× M3, FDM PETG, 0.4mm nozzle, 5 units.
 Engineering: FoS 5.0 cyclic · σ_y 45 MPa in-plane (PETG, cited) · layer factor 1.0 · WALL ≥ 2.4mm · boss slip Ø8.2 · holes Ø3.4.
 Print: Y-up, largest face on bed · est. print time 1h45m @ 0.2mm layer · ~22g PETG.
@@ -1276,26 +1342,59 @@ Geometry: 80 × 60 × 12 mm  |  Volume 28.43 cm³  |  38 faces  |  Mass ≈ 35.8
 Features: body, boss, mount_holes, load_fillets, first_layer_chamfer
 
 What's next? (e.g. "tighten the boss to press fit", "drop FoS to 3.0 for a
-prototype", "flip print orientation to Z-up", "add a stiffening rib along
-the long axis", or "undo last change")
+prototype", "flip print orientation to Z-up", or — when you're ready —
+"drop the stl" to export.)
 ```
+
+**Engineered-mode export-turn report** — same as casual export-turn,
+plus the Engineering / Print lines preserved above the Built line.
 
 Mass = volume × filament density when filament is known. Print time
 estimate is a rule of thumb (volume / typical-flow-rate) — surface as
 "est." so the user knows it's pre-slicer. Both are the cheapest sanity
 checks on whether the part makes physical sense.
 
-**After every report, add a one-liner pointing at /qa-print** for
-when the user comes back from the printer:
+**On export turns ONLY, add the /qa-print hint** at the bottom of
+the report:
 
 ```
 After you print it: run /qa-print to check the fit. Don't need calipers
 — a ruler is fine.
 ```
 
-Skip this hint on turns where the only edit was a no-op (e.g., the user
-just asked "what does this part weigh again?" without changing the
-geometry). The hint matters when a fresh STEP/STL just dropped.
+Do NOT add this hint on validate-only turns — nothing has been
+exported, so there's nothing to print yet. The hint matters when a
+fresh STEP/STL just dropped.
+
+### Export signals (what flips the run to export mode)
+
+When the user signals they want files, run the script with `--export`
+and emit the export-turn report. Trigger phrases include (not
+exhaustive — read intent, not exact strings):
+
+| Signal | What the user said |
+|--------|---------------------|
+| "ready to print" | "okay print it", "let's print this", "ready for the printer" |
+| "drop / give the file" | "drop the stl", "give me the stl", "export it", "save the files", "ship the stl" |
+| "lock it in" | "lock this in", "ship this version", "this is the one" |
+| Verbose pause | "I think we're done", "looks good, I'll print it" — confirm once: "Exporting now — STEP + STL?" → on yes, run with `--export` |
+
+On every export turn, do exactly three things:
+1. Run the script with `--export` to drop `artifacts/<part>.step` and
+   `artifacts/<part>.stl`.
+2. Update `session.json["last_exported_at"]` with the ISO-8601 UTC
+   timestamp, and `session.json["last_exported_turn"]` with the turn
+   number.
+3. Write the `cad-built` downstream artifact (see "Downstream artifact"
+   below). Validate-only turns do NOT write this artifact — it would
+   spam `~/.gstack/projects/` with intermediate steps that aren't
+   really builds.
+
+If the user keeps editing after an export, return to validate-only
+mode automatically — they're refining post-export, which usually
+means the previous STL is now stale. Surface it once when you detect
+this: "STL is now 2 turns stale — say 'export' when you want a fresh
+one."
 
 ### Handling the next instruction
 
@@ -1304,11 +1403,12 @@ narrowest one that fits.
 
 | Instruction shape | Edit type | Mechanics |
 |-------------------|-----------|-----------|
-| "make X 50mm" / "switch to M4" / "thicker walls" | **Parameter edit** | Edit one `PARAM = value` line in the script. Update `session.json["params"]`. |
-| "add a cable slot" / "pocket the bottom" / "boss on top" | **Feature add** | Add one new named-feature block between the existing ones and `result = ...`. Update `session.json["features"]` and reassign `result` to the new feature. |
-| "remove the fillet" / "drop the mounting holes" | **Feature remove** | Delete the named-feature block. Reassign `result` to the previous feature. Update `session.json["features"]`. |
-| "go back two turns" / "undo" | **Session replay** | Read `session.json["history"]`, regenerate the script from the params at turn N. Append a new history entry; do not delete old ones. |
-| "save this as a variant" / "branch" | **Snapshot** | `cp artifacts/<part>.{py,session.json} artifacts/<part>-<tag>.{py,session.json}`. |
+| "make X 50mm" / "switch to M4" / "thicker walls" | **Parameter edit** | Edit one `PARAM = value` line in the script. Update `session.json["params"]`. Validate-only run. |
+| "add a cable slot" / "pocket the bottom" / "boss on top" | **Feature add** | Add one new named-feature block between the existing ones and `result = ...`. Update `session.json["features"]` and reassign `result` to the new feature. Validate-only run. |
+| "remove the fillet" / "drop the mounting holes" | **Feature remove** | Delete the named-feature block. Reassign `result` to the previous feature. Update `session.json["features"]`. Validate-only run. |
+| "go back two turns" / "undo" | **Session replay** | Read `session.json["history"]`, regenerate the script from the params at turn N. Append a new history entry; do not delete old ones. Validate-only run. |
+| "save this as a variant" / "branch" | **Snapshot** | `cp artifacts/<part>.{py,session.json} artifacts/<part>-<tag>.{py,session.json}`. Implies export so the snapshot has STEP+STL of that variant. |
+| "drop the stl" / "ready to print" / "export" / "ship it" | **Export** | Run script with `--export`. Drops `artifacts/<part>.step` and `.stl`. Write cad-built artifact. Update `last_exported_at`. |
 
 **Hard rule:** Parameter edits and feature adds/removes must NEVER
 rewrite the geometry pipeline as a whole. If you find yourself
@@ -1362,11 +1462,14 @@ The `diff` field is a one-line plain-English summary, not a unified
 diff. It's what `session.json` shows the user when they ask "what did
 we change last?"
 
-### Downstream artifact: write `cad-built` after every successful turn
+### Downstream artifact: write `cad-built` ONLY on export turns
 
-After every turn that produces a valid STEP file, write a project-scoped
-artifact so `/retro`, a future `/qa-print`, and any other downstream
-skill can pick up what was built without inspecting `artifacts/` directly.
+When (and only when) an export turn drops a fresh STEP+STL, write a
+project-scoped artifact so `/retro`, `/qa-print`, and any other
+downstream skill can pick up what was built. Validate-only turns do
+NOT write this artifact — the parameter tweak history lives in
+`session.json` locally; only actual exports earn a project-scoped
+"build" record.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
