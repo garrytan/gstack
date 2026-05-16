@@ -22,6 +22,7 @@ import {
   slate,
   cursor,
   openclaw,
+  pi,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -30,8 +31,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -53,6 +54,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(pi.name).toBe('pi');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -191,6 +193,12 @@ describe('validateHostConfig', () => {
     const c = makeValid();
     (c.install as any).linkingStrategy = 'invalid';
     expect(validateHostConfig(c).some(e => e.includes('linkingStrategy'))).toBe(true);
+  });
+
+  test('invalid frontmatter.nameStrategy is caught', () => {
+    const c = makeValid();
+    (c.frontmatter as any).nameStrategy = 'invalid';
+    expect(validateHostConfig(c).some(e => e.includes('frontmatter.nameStrategy'))).toBe(true);
   });
 
   test('paths with $ and ~ are valid', () => {
@@ -500,6 +508,19 @@ describe('host config correctness', () => {
 
   test('openclaw has no staticFiles (SOUL.md removed)', () => {
     expect(openclaw.staticFiles).toBeUndefined();
+  });
+
+  test('pi emits generated external names so skill names match generated directories', () => {
+    expect(pi.frontmatter.nameStrategy).toBe('external');
+    expect(pi.frontmatter.descriptionLimit).toBe(1024);
+    expect(pi.frontmatter.descriptionLimitBehavior).toBe('warn');
+  });
+
+  test('pi has Pi-native skill paths and AGENTS.md rewrite', () => {
+    expect(pi.globalRoot).toBe('.pi/agent/skills/gstack');
+    expect(pi.localSkillRoot).toBe('.pi/skills/gstack');
+    expect(pi.hostSubdir).toBe('.pi');
+    expect(pi.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
   });
 
   test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {

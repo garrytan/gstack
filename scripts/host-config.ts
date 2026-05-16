@@ -48,6 +48,8 @@ export interface HostConfig {
     descriptionLimitBehavior?: 'error' | 'truncate' | 'warn';
     /** Additional frontmatter fields to inject (host-wide). */
     extraFields?: Record<string, unknown>;
+    /** Whether generated external skills should keep template names or use generated directory names. */
+    nameStrategy?: 'template' | 'external';
     /** Rename fields from template (e.g., { 'voice-triggers': 'triggers' }). */
     renameFields?: Record<string, string>;
     /** Conditionally add fields based on template frontmatter values. */
@@ -147,6 +149,9 @@ export function validateHostConfig(config: HostConfig): string[] {
   }
   if (!['allowlist', 'denylist'].includes(config.frontmatter.mode)) {
     errors.push(`frontmatter.mode must be 'allowlist' or 'denylist'`);
+  }
+  if (config.frontmatter.nameStrategy && !['template', 'external'].includes(config.frontmatter.nameStrategy)) {
+    errors.push(`frontmatter.nameStrategy must be 'template' or 'external'`);
   }
   if (!['real-dir-symlink', 'symlink-generated'].includes(config.install.linkingStrategy)) {
     errors.push(`install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`);

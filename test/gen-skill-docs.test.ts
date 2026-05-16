@@ -8,6 +8,15 @@ import * as os from 'os';
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
 
+function extractFrontmatterName(content: string): string {
+  const fmEnd = content.indexOf('\n---', 4);
+  expect(fmEnd).toBeGreaterThan(0);
+  const frontmatter = content.slice(4, fmEnd);
+  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+  expect(nameMatch).not.toBeNull();
+  return nameMatch![1].trim();
+}
+
 function extractDescription(content: string): string {
   const fmEnd = content.indexOf('\n---', 4);
   expect(fmEnd).toBeGreaterThan(0);
@@ -212,6 +221,29 @@ describe('gen-skill-docs', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
     const version = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf-8').trim();
     expect(pkg.version).toBe(version);
+  });
+
+  test('Pi host generation emits Agent Skills names matching generated directories', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'pi'], {
+      cwd: ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+
+    const shipSkill = path.join(ROOT, '.pi', 'skills', 'gstack-ship', 'SKILL.md');
+    const reviewSkill = path.join(ROOT, '.pi', 'skills', 'gstack-review', 'SKILL.md');
+    expect(fs.existsSync(shipSkill)).toBe(true);
+    expect(fs.existsSync(reviewSkill)).toBe(true);
+
+    const shipContent = fs.readFileSync(shipSkill, 'utf-8');
+    expect(extractFrontmatterName(shipContent)).toBe('gstack-ship');
+    expect(shipContent).toContain('AGENTS.md');
+    expect(shipContent).not.toContain('.claude/skills');
+    expect(shipContent).toContain('disable-model-invocation: true');
+
+    const reviewContent = fs.readFileSync(reviewSkill, 'utf-8');
+    expect(extractFrontmatterName(reviewContent)).toBe('gstack-review');
   });
 
   test('generated files are fresh (match --dry-run)', () => {
