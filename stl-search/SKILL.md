@@ -1,6 +1,6 @@
 ---
 name: stl-search
-version: 0.2.0
+version: 0.3.0
 description: |
   Find a Thingiverse STL file matching a natural-language description via the
   local stl-search HTTP API, render multi-angle previews, and visually inspect
@@ -97,41 +97,51 @@ Read `/tmp/stl-search.json`. It looks like:
       "thing_url": "https://www.thingiverse.com/thing:12345",
       "tags": ["fox", "animal"],
       "score": 0.81,
-      "stl_url": "https://www.thingiverse.com/download:67890",
+      "download_ok": true,
+      "stl_url":     "http://127.0.0.1:8000/stl/12345.stl",
+      "render_urls": {
+        "iso":   "http://127.0.0.1:8000/render/12345/iso.png",
+        "front": "http://127.0.0.1:8000/render/12345/front.png",
+        "top":   "http://127.0.0.1:8000/render/12345/top.png",
+        "right": "http://127.0.0.1:8000/render/12345/right.png"
+      },
       "stl_path": "/tmp/stl-cache/12345.stl",
-      "all_stl_urls": ["..."],
-      "download_ok": true
+      "thingiverse_stl_url": "https://www.thingiverse.com/download:67890",
+      "all_stl_urls": ["..."]
     },
     ...
   ]
 }
 ```
 
-The server downloads each STL to `stl_path` on first query and caches it.
+The server downloads each STL to its cache on first query. `stl_url` and
+`render_urls` are HTTP URLs served by this server — use these (not the
+filesystem paths) so the flow works from any client. `stl_path` is also
+returned for same-machine convenience.
+
 If `download_ok` is `false` for the top hit, fall back to the next result
 whose `download_ok` is `true`. If none have a usable file, surface that to
-the user.
+the user. If `results` is empty, tell the user no match was found and stop.
 
-If `results` is empty, tell the user no match was found and stop.
+### 2. Download the render PNGs
 
-### 2. Render multi-angle previews of the top match
-
-Pick the highest-scoring result with `download_ok: true`. Call its
-`stl_path` the chosen STL.
-
-```bash
-python cad-coder/render.py "<stl_path>" --out /tmp/stl-search/renders --views iso front top right
-```
-
-If `render.py` errors because there's no OpenGL context (headless), retry:
+Pick the highest-scoring result with `download_ok: true`. Pull each of its
+four render URLs to local files. Rendering happens lazily on the server on
+first hit (~5-15s for the first view, instant after that — the server
+caches PNGs).
 
 ```bash
-PYOPENGL_PLATFORM=egl python cad-coder/render.py "<stl_path>" --out /tmp/stl-search/renders
-PYOPENGL_PLATFORM=osmesa python cad-coder/render.py "<stl_path>" --out /tmp/stl-search/renders
+mkdir -p /tmp/stl-search/renders
+TID="<thing_id from top result>"
+for VIEW in iso front top right; do
+  curl -sS -o "/tmp/stl-search/renders/${TID}_${VIEW}.png" \
+    "http://127.0.0.1:8000/render/${TID}/${VIEW}.png"
+done
+ls -lh /tmp/stl-search/renders/
 ```
 
-The output filenames are `{stem}_{view}.png` where `{stem}` is the STL's
-basename without extension (e.g. `12345_iso.png` for `/tmp/stl-cache/12345.stl`).
+Each PNG should be more than a few KB. If `curl` returns a JSON error body
+instead, the server failed to render — surface that to the user.
 
 ### 3. Read the rendered images yourself
 
@@ -141,10 +151,10 @@ tags are often vague, and the embedding can pick a thing that *sounds* right
 but doesn't *look* right.
 
 ```
-Read /tmp/stl-search/renders/<stem>_iso.png
-Read /tmp/stl-search/renders/<stem>_front.png
-Read /tmp/stl-search/renders/<stem>_top.png
-Read /tmp/stl-search/renders/<stem>_right.png
+Read /tmp/stl-search/renders/<thing_id>_iso.png
+Read /tmp/stl-search/renders/<thing_id>_front.png
+Read /tmp/stl-search/renders/<thing_id>_top.png
+Read /tmp/stl-search/renders/<thing_id>_right.png
 ```
 
 For each view, note the shape, proportions, whether it's one piece or many,
@@ -160,7 +170,7 @@ Tell the user, in this order:
 3. **Whether it matches** — direct verdict on fit. If the geometry doesn't
    match the user's request, say so plainly and mention the next 1-2
    candidates from `/tmp/stl-search.json`; offer to render one of them.
-4. **The files** — local STL path (`stl_path`) and renders directory.
+4. **The files** — STL download URL (`stl_url`) and renders directory.
 
 Don't loop through all 3 candidates unprompted. One render pass per
 invocation unless the user asks for more.
@@ -170,14 +180,18 @@ invocation unless the user asks for more.
 - **API not running.** If `curl http://127.0.0.1:8000/healthz` returns a
   connection error, tell the user to run
   `cd cad-coder/zeroentropy && uvicorn server:app --port 8000` and stop.
-- **Multi-part things.** `stl_path` is just the first STL in the thing.
-  Other parts live at the URLs in `all_stl_urls`. If renders look like a
-  small detached piece rather than the thing the user asked for, mention
-  this and offer to download a different file.
+- **Multi-part things.** `stl_url` serves only the first STL in the thing.
+  Other parts live at the Thingiverse URLs in `all_stl_urls`. If renders
+  look like a small detached piece rather than the thing the user asked
+  for, mention this and offer to download a different file directly from
+  Thingiverse.
 - **Re-runs.** `/tmp/stl-search/renders/` is overwritten on each run, but
-  `/tmp/stl-cache/` persists (keyed by `thing_id`).
-- **Empty/blank renders.** Mesh might be degenerate. Inspect with
-  `python -c "import trimesh; m=trimesh.load('<path>'); print(m.bounds, m.extents)"`.
+  server-side caches (`/tmp/stl-cache/`, `/tmp/stl-renders/`) persist
+  (keyed by `thing_id`).
+- **First-view latency.** The server renders lazily. The first PNG GET for
+  a given STL takes ~5-15s; subsequent views are nearly instant because
+  pyrender reuses cached mesh state and the resulting PNGs are on disk.
+- **Empty/blank renders.** Mesh might be degenerate.
 
 ## Failure modes
 
@@ -186,5 +200,6 @@ invocation unless the user asks for more.
 | `curl` returns connection refused | Server not running | `cd cad-coder/zeroentropy && uvicorn server:app --port 8000` |
 | API returns `{"results": []}` | Corpus not indexed | Run `python cad-coder/zeroentropy/scrape.py && python cad-coder/zeroentropy/index.py` |
 | All results have `download_ok: false` | Thingiverse rate-limited the cache | Wait a minute and re-query, or retry with a different query |
-| `render.py` crashes with OpenGL/GLFW error | Headless machine, no display | Set `PYOPENGL_PLATFORM=egl` or `osmesa` |
-| Renders are blank/black | Degenerate mesh | Inspect bounds/extents; report to user |
+| `/render/...` returns 404 | STL never downloaded or render failed | Re-query first, then retry the render URL |
+| `/render/...` hangs on first hit | Lazy render in progress | Wait up to ~30s; subsequent views are instant |
+| Renders are blank/black | Degenerate mesh | Try the next-ranked candidate |
