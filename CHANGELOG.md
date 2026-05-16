@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.39.2.2] - 2026-05-16
+
+## **cad-coder now follows Codex skill progressive disclosure.**
+## **ZeroEntropy STL references are a first-class CAD input, not buried prompt text.**
+
+`/cad-coder` had grown into a 1,916-line instruction file, so every invocation paid the context cost for camera upload, ZeroEntropy STL search, live preview, export, engineered-mode, and multi-part workflows whether the turn needed them or not. The skill now behaves like a small dispatcher: `SKILL.md.tmpl` is 198 lines, it names the common rules, and it loads focused files under `cad-coder/references/` only when the turn needs that workflow. This matches the OpenAI Codex skills model: keep activation metadata concise, put optional docs in `references/`, and put deterministic work in `scripts/`.
+
+The ZeroEntropy STL flow also moved from prose into an executable helper. `cad-coder/scripts/zeroentropy-reference.py` queries the local ZeroEntropy service, writes `query.json` and `summary.md`, downloads render PNGs when available, and stores everything under `artifacts/<part>/references/zeroentropy/`. First-turn CAD for recognizable public objects now has an explicit contract: run the helper before writing geometry unless the user supplies an exact photo/reference, asks not to search, or the local ZeroEntropy setup is unavailable.
+
+### Itemized changes
+
+#### Added
+
+- `cad-coder/references/core-workflow.md` — core artifact layout, session state, validation, printability guards, and validate-turn report shape.
+- `cad-coder/references/zeroentropy-stl-references.md` — default first-turn STL reference workflow for recognizable objects, skip rules, provenance recording, and safety handling for retrieved metadata.
+- `cad-coder/references/live-preview.md` — GLB viewer launch, browser verification, note handoff, and repair loop.
+- `cad-coder/references/export-and-downstream.md` — STEP/STL export signals, README expectations, downstream artifact rules, and variant handling.
+- `cad-coder/references/multipart-and-engineered.md` — engineered-mode triggers, requirement gather, shared-parameter validation, and multi-part layout.
+- `cad-coder/scripts/zeroentropy-reference.py` — deterministic local helper that writes ZeroEntropy query output and render references into the part artifact folder.
+
+#### Changed
+
+- `cad-coder/SKILL.md.tmpl` — compressed from 1,916 lines to 198 lines; it now dispatches to focused reference files and makes ZeroEntropy usage the default for recognizable public/common CAD objects.
+- `cad-coder/SKILL.md` — regenerated from the slimmer template; the generated file drops from 1,916 lines to 954 lines including the common gstack preamble.
+- `gstack/llms.txt` — updated the `/cad-coder` one-line description after regeneration.
+- `stl-search/SKILL.md` — regenerated header added by the skill-docs generator.
+
+### Validation
+
+- `python3 -m py_compile cad-coder/scripts/zeroentropy-reference.py`
+- `bun run gen:skill-docs --dry-run`
+- `bun run gen:skill-docs --host codex --dry-run`
+- `bun run skill:check` reaches fresh Claude/Codex generated outputs and OK Codex skills, but still exits 1 because unrelated host outputs (`.factory`, `.kiro`, `.opencode`, `.slate`, `.cursor`, `.openclaw`, `.hermes`, `.gbrain`) are stale/missing and `claude/SKILL.md` is missing.
+
 ## [1.39.2.1] - 2026-05-16
 
 ## **The cad-coder live preview no longer renders models as dark silhouettes.**

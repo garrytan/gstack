@@ -14,7 +14,7 @@ Conventions:
 - [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
 - [/browse](browse/SKILL.md): Fast headless browser for QA testing and site dogfooding.
-- [/cad-coder](cad-coder/SKILL.md): Chat-driven parametric 3D CAD in Python with cadquery, for 3D-printed parts.
+- [/cad-coder](cad-coder/SKILL.md): Build and iterate 3D-printable parametric CAD in Python/CadQuery.
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
 - [/claude](claude/SKILL.md): Claude Code CLI wrapper for non-Claude hosts - three modes.
