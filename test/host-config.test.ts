@@ -521,6 +521,31 @@ describe('host config correctness', () => {
     expect(pi.localSkillRoot).toBe('.pi/skills/gstack');
     expect(pi.hostSubdir).toBe('.pi');
     expect(pi.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
+    expect(pi.pathRewrites).toContainEqual({ from: '.claude/skills/gstack', to: '$GSTACK_ROOT' });
+    expect(pi.pathRewrites).toContainEqual({ from: '.claude/skills/review', to: '$GSTACK_ROOT/review' });
+    expect(pi.pathRewrites).toContainEqual({ from: '$HOME/$GSTACK_ROOT', to: '$GSTACK_ROOT' });
+    expect(pi.pathRewrites).toContainEqual({ from: '$_ROOT/$GSTACK_ROOT', to: '$GSTACK_ROOT' });
+  });
+
+  test('pi declares the runtime sidecars setup must expose', () => {
+    expect(pi.runtimeRoot.globalSymlinks).toEqual(expect.arrayContaining([
+      'bin',
+      'browse/dist',
+      'browse/bin',
+      'design/dist',
+      'make-pdf/dist',
+      'gstack-upgrade',
+      'qa/templates',
+      'qa/references',
+      'ETHOS.md',
+    ]));
+    expect(pi.runtimeRoot.globalFiles?.review).toEqual(expect.arrayContaining([
+      'checklist.md',
+      'design-checklist.md',
+      'greptile-triage.md',
+      'TODOS-format.md',
+    ]));
+    expect(pi.runtimeRoot.globalFiles?.['plan-devex-review']).toContain('dx-hall-of-fame.md');
   });
 
   test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {

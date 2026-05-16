@@ -31,9 +31,14 @@ const pi: HostConfig = {
 
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
-    { from: '.claude/skills/gstack', to: '.pi/skills/gstack' },
-    { from: '.claude/skills/review', to: '.pi/skills/gstack/review' },
-    { from: '.claude/skills', to: '.pi/skills' },
+    { from: '~/.claude/skills/review', to: '$GSTACK_ROOT/review' },
+    { from: '~/.claude/skills', to: '$GSTACK_ROOT/..' },
+    { from: '.claude/skills/gstack', to: '$GSTACK_ROOT' },
+    { from: '.claude/skills/review', to: '$GSTACK_ROOT/review' },
+    { from: '.claude/skills', to: '$GSTACK_ROOT/..' },
+    { from: '$HOME/$GSTACK_ROOT', to: '$GSTACK_ROOT' },
+    { from: '${HOME}/$GSTACK_ROOT', to: '$GSTACK_ROOT' },
+    { from: '$_ROOT/$GSTACK_ROOT', to: '$GSTACK_ROOT' },
     { from: 'CLAUDE.md', to: 'AGENTS.md' },
   ],
 
@@ -65,7 +70,7 @@ const pi: HostConfig = {
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'gstack-upgrade', 'qa/templates', 'qa/references', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
       'plan-devex-review': ['dx-hall-of-fame.md'],

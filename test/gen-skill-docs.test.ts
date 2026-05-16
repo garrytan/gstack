@@ -244,6 +244,10 @@ describe('gen-skill-docs', () => {
 
     const reviewContent = fs.readFileSync(reviewSkill, 'utf-8');
     expect(extractFrontmatterName(reviewContent)).toBe('gstack-review');
+    expect(reviewContent).toContain('$GSTACK_ROOT/review/checklist.md');
+    expect(reviewContent).not.toContain('Read `.pi/skills/gstack/review');
+    expect(reviewContent).not.toContain('$HOME/$GSTACK_ROOT');
+    expect(reviewContent).not.toContain('$_ROOT/$GSTACK_ROOT');
   });
 
   test('generated files are fresh (match --dry-run)', () => {
@@ -2279,16 +2283,17 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|pi', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|pi|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
+  test('auto mode detects claude, codex, kiro, opencode, and pi binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v pi');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2328,6 +2333,48 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('qa/templates');
     expect(setupContent).toContain('qa/references');
     expect(setupContent).toContain('dx-hall-of-fame.md');
+  });
+
+  test('setup supports --host pi with generated skills, runtime root, and extension install', () => {
+    expect(setupContent).toContain('INSTALL_PI=');
+    expect(setupContent).toContain('PI_SKILLS="$HOME/.pi/agent/skills"');
+    expect(setupContent).toContain('PI_EXTENSIONS="$HOME/.pi/agent/extensions"');
+    expect(setupContent).toContain('bun run gen:skill-docs --host pi');
+    expect(setupContent).toContain('create_pi_runtime_root "$SOURCE_GSTACK_DIR" "$PI_GSTACK"');
+    expect(setupContent).toContain('create_pi_local_runtime_root "$SOURCE_GSTACK_DIR"');
+    expect(setupContent).toContain('link_pi_skill_dirs "$SOURCE_GSTACK_DIR" "$PI_SKILLS"');
+    expect(setupContent).toContain('install_pi_extension "$SOURCE_GSTACK_DIR" "$PI_EXTENSIONS" "$PI_GSTACK_EXTENSION"');
+
+    const piInstallSection = setupContent.slice(
+      setupContent.indexOf('# 6d. Install for Pi'),
+      setupContent.indexOf('# 7. Create .agents/ sidecar')
+    );
+    expect(piInstallSection.indexOf('link_pi_skill_dirs')).toBeLessThan(piInstallSection.indexOf('create_pi_local_runtime_root'));
+    expect(piInstallSection.indexOf('create_pi_local_runtime_root')).toBeLessThan(piInstallSection.indexOf('create_pi_runtime_root'));
+  });
+
+  test('Pi runtime asset helper exposes sidecars without whole-repo skill leakage', () => {
+    const fnStart = setupContent.indexOf('link_pi_runtime_assets()');
+    const fnEnd = setupContent.indexOf('create_pi_runtime_root()', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('.pi/skills');
+    expect(fnBody).toContain('root_skill="$pi_dir/gstack/SKILL.md"');
+    expect(fnBody).toContain('[ "$root_skill" != "$target_root_skill" ]');
+    expect(fnBody).toContain('browse/dist');
+    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('design/dist');
+    expect(fnBody).toContain('make-pdf/dist');
+    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    expect(fnBody).toContain('qa/templates');
+    expect(fnBody).toContain('qa/references');
+    expect(fnBody).toContain('checklist.md');
+    expect(fnBody).toContain('design-checklist.md');
+    expect(fnBody).toContain('greptile-triage.md');
+    expect(fnBody).toContain('TODOS-format.md');
+    expect(fnBody).toContain('dx-hall-of-fame.md');
+    expect(fnBody).toContain('child_name="${skill_name#gstack-}"');
+    expect(fnBody).toContain('"$pi_gstack/$child_name/SKILL.md"');
+    expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$pi_gstack"');
   });
 
   test('create_agents_sidecar links runtime assets', () => {

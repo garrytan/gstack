@@ -103,26 +103,26 @@ Generate Pi skills with:
 bun run gen:skill-docs --host pi
 ```
 
-The generated files are local build artifacts under `.pi/skills/` and are ignored by git. In this first slice they are **compatibility artifacts for inspection and adapter development**, not a complete runnable Pi installation.
+The generated files are local build artifacts under `.pi/skills/` and are ignored by git. In the first slice they were **compatibility artifacts for inspection and adapter development**, not a complete runnable Pi installation.
 
-Direct project-local execution still needs the action-layer slice because several generated skills reference runtime sidecars and tools that this slice intentionally does not provide yet:
+## Second slice: setup and thin Pi extension
 
-- review support files under a runtime root such as `$GSTACK_ROOT/review/checklist.md`
-- a structured `ask_user_question` capability
-- Pi slash-command aliases for gstack names
-- a browser tool or `$B` runtime wrapper
+The next action-layer slice adds the first runnable Pi adapter pieces without moving workflow semantics into the adapter:
+
+- `./setup --host pi` generates `.pi/skills/`, links generated `gstack-*` skills into `~/.pi/agent/skills/`, and creates matching local/global runtime roots at `.pi/skills/gstack` and `~/.pi/agent/skills/gstack`.
+- The runtime root exposes the sidecar assets generated skills already reference: `bin`, `browse/dist`, `browse/bin`, `design/dist`, `make-pdf/dist`, `gstack-upgrade`, `ETHOS.md`, review checklists, QA templates/references, and `plan-devex-review/dx-hall-of-fame.md`.
+- `.pi/extensions/pi-gstack/index.ts` registers thin aliases for `/office-hours`, `/autoplan`, `/review`, `/qa`, and `/ship`. Each alias sends the corresponding `/skill:gstack-*` message so Pi's skill loader remains the source of prompt content.
+- The same extension registers `ask_user_question`, backed by Pi UI dialogs when available and fail-closed when no UI exists.
+
+This is still not the full software factory runtime. Remaining action-layer work includes:
+
+- a browser custom tool or `$B` runtime wrapper
 - a strategy for subagent / parallel-session flows
+- durable factory run persistence and artifact storage
+- a Pi package/publish path once generated skills can be built during package installation
+- SDK orchestrator APIs for external applications
 
-This slice does **not** yet add:
-
-- `./setup --host pi`
-- a Pi package manifest
-- Pi extension slash aliases
-- `ask_user_question` tool
-- browser custom tool wrapper
-- SDK orchestrator
-
-Those are action-layer slices and should consume `lib/factory-core.ts` instead of duplicating workflow state.
+Those action-layer slices should consume `lib/factory-core.ts` instead of duplicating workflow state.
 
 ## Migration path
 
