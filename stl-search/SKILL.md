@@ -175,6 +175,15 @@ Tell the user, in this order:
 Don't loop through all 3 candidates unprompted. One render pass per
 invocation unless the user asks for more.
 
+## Adjacent: phone-camera reference flow
+
+The same `cad-coder/zeroentropy/server.py` that powers this skill also
+hosts a phone-camera upload page (`GET /camera`) for `/cad-coder`. If
+the user has a real-world reference object they want to model, point
+them to `/cad-coder` — its Phase 0 covers the camera flow. From this
+skill, only mention it if the user is clearly trying to *design* rather
+than *search*.
+
 ## Notes and edge cases
 
 - **API not running.** If `curl http://127.0.0.1:8000/healthz` returns a

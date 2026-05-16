@@ -30,9 +30,16 @@ cad-coder/
 │   ├── scrape.py             # Thingiverse popular feed → models.jsonl (auth: THINGIVERSE_TOKEN)
 │   ├── index.py              # models.jsonl → ZeroEntropy hosted collection
 │   ├── query.py              # CLI: NL query → top-K STL matches (debugging)
-│   ├── server.py             # FastAPI app: GET /healthz, GET /query?q=...&k=N
-│   │                           Lazy-downloads STLs to /tmp/stl-cache/ and returns
-│   │                           description + local stl_path.
+│   ├── server.py             # FastAPI app. Endpoints:
+│   │                           - GET  /healthz, GET /query?q=...&k=N (stl-search)
+│   │                           - GET  /stl/{id}.stl, GET /render/{id}/{view}.png
+│   │                           - GET  /camera, POST /camera/upload,
+│   │                             GET /camera/status, /camera/latest,
+│   │                             /camera/info, /camera/qr (phone-camera
+│   │                             reference flow for /cad-coder; QR in
+│   │                             ANSI or PNG)
+│   │                           Lazy-downloads STLs to /tmp/stl-cache/ and writes
+│   │                           uploaded reference photos to /tmp/cad-reference/.
 │   ├── requirements.txt      # requests, python-dotenv, fastapi, uvicorn
 │   └── .env.example          # THINGIVERSE_TOKEN, ZEROENTROPY_API_KEY, ZE_COLLECTION
 ├── ui/                       # live preview server + Three.js viewer
@@ -118,11 +125,50 @@ python index.py        # push to ZeroEntropy collection (description in metadata
 Each session:
 
 ```bash
-cd cad-coder/zeroentropy && uvicorn server:app --port 8000
+cd cad-coder/zeroentropy && uvicorn server:app --host 0.0.0.0 --port 8000
 ```
+
+(`--host 0.0.0.0` is needed if you want the phone-camera reference flow
+to reach the server from another device on your LAN; for `/stl-search`
+alone, `127.0.0.1` is enough.)
 
 Then the `/stl-search` skill (top-level in the gstack repo) talks to
 `127.0.0.1:8000`, picks a top hit, calls `render.py`, and reads the PNGs.
+
+## Phone-camera reference flow (for /cad-coder)
+
+When the user has a real-world object they want to model, `/cad-coder`
+can ask them to point a phone at it and snap a photo. Same server
+(`zeroentropy/server.py`), no extra process:
+
+1. Agent calls `GET /camera/qr?session=<CODE>` and prints the returned
+   Unicode QR code + LAN URL in the chat.
+2. User scans the QR with their phone camera (or types the URL),
+   taps **Take a photo**. The page POSTs the JPEG and shows "✓ Received".
+3. Agent polls `GET /camera/status?session=<CODE>` until `has_image: true`,
+   then `curl`s `/camera/latest?session=<CODE>` and `Read`s the JPEG to
+   ground the cadquery build.
+
+`GET /camera/qr?session=<CODE>&format=png` returns a real PNG instead
+of ANSI — useful from contexts that can render images but not terminal
+half-blocks. `GET /camera/info?session=<CODE>` returns the same URLs as
+JSON if you'd rather build your own presentation.
+
+Files land in `/tmp/cad-reference/<CODE>.jpg`. Session codes are
+1–16 alphanumerics; re-uploads on the same code overwrite.
+
+**Atomicity.** Uploads stream into a `<CODE>.<pid>.<ns>.part` temp file,
+fsync, then `os.replace()` onto `<CODE>.jpg`. Polling clients always see
+either the previous complete file or the new complete file — never a
+half-written one. A dropped Wi-Fi mid-upload leaves the `.part` file
+behind (cleanup is best-effort) but never corrupts `<CODE>.jpg`.
+
+**EXIF orientation.** Phones tag photos with rotation metadata (Pixel /
+iPhone landscape captures often come through as `Orientation=6` /
+"rotate 90° CW"). `Read` shows the raw pixel buffer, so a model agent
+will see the image sideways. The skill's Step 4 documents how to detect
+this via `file` and normalize with `PIL.ImageOps.exif_transpose` when
+proportions matter.
 
 ## Dependencies
 
