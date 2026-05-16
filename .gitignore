@@ -38,10 +38,14 @@ supabase/.temp/
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
 docs/throughput-*.json
 
-# cad-coder: venv + per-part build artifacts (track .py source, ignore the rest)
+# cad-coder: venv + per-part build artifacts (track .py source + project.json + shared.py + README.md, ignore the rest)
 .cad-venv/
 .venv/
+artifacts/**/*.step
+artifacts/**/*.stl
+artifacts/**/*.session.json
+artifacts/qa-print/
+# legacy flat layout (pre-folder versions) — keep these patterns until migrated
 artifacts/*.step
 artifacts/*.stl
 artifacts/*.session.json
-artifacts/qa-print/
