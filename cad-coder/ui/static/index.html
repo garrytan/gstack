@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cad-coder</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three/build/three.module.js",
+          "three/addons/": "/vendor/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="viewport">
+        <canvas id="scene" aria-label="CAD model preview"></canvas>
+        <div class="empty-state" id="empty-state">
+          <strong>No model loaded yet</strong>
+          <span>Waiting for a GLB file.</span>
+        </div>
+      </section>
+      <aside class="panel">
+        <header class="panel-header">
+          <div>
+            <h1>CAD Preview</h1>
+            <p id="script-path">Loading model...</p>
+          </div>
+          <span class="status-pill" id="status-pill">idle</span>
+        </header>
+        <div class="toolbar" aria-label="Viewer controls">
+          <button id="recenter" type="button" title="Recenter model">
+            <span aria-hidden="true">⌖</span>
+            Center
+          </button>
+          <button id="toggle-grid" type="button" title="Toggle grid" aria-pressed="true">
+            <span aria-hidden="true">▦</span>
+            Grid
+          </button>
+          <button id="toggle-axes" type="button" title="Toggle axes" aria-pressed="true">
+            <span aria-hidden="true">XYZ</span>
+            Axes
+          </button>
+          <button id="rerender" type="button" title="Reload model">
+            <span aria-hidden="true">↻</span>
+            Reload
+          </button>
+        </div>
+        <dl class="facts">
+          <div>
+            <dt>Version</dt>
+            <dd id="render-id">0</dd>
+          </div>
+          <div>
+            <dt>Size</dt>
+            <dd id="selected-source">none</dd>
+          </div>
+          <div>
+            <dt>Updated</dt>
+            <dd id="updated-at">never</dd>
+          </div>
+        </dl>
+        <pre class="log" id="message-log" aria-live="polite"></pre>
+      </aside>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,51 +1,56 @@
 ---
-name: learn
+name: plan-mech-review
 preamble-tier: 2
-version: 1.1.0
+version: 0.1.0
 description: |
-  Manage project learnings — software AND hardware. Review, search, prune,
-  and export what gstack has learned across sessions: code patterns,
-  design decisions, AND printer/filament calibration data, stress-model
-  deltas, and per-printer dimensional shrinkage observed from /qa-print
-  outcomes. Use when asked to "what have we learned", "show learnings",
-  "prune stale learnings", or "export learnings". Proactively suggest
-  when the user asks about past patterns or wonders "didn't we fix this
-  before?" or "what did my last few prints teach us?"
-triggers:
-  - show learnings
-  - what have we learned
-  - manage project learnings
-  - print learnings
-  - what has my printer taught us
+  Mechanical-engineering review for a 3D-printed part BEFORE /cad-coder
+  builds it. Critiques load case, picks safety factor with rationale,
+  picks filament with cited σ_y, picks print orientation, picks fit
+  classes, flags support/manufacturability issues. Writes a
+  mech-review artifact that /cad-coder reads in Phase 0 instead of
+  asking the user. Use when the user describes a load-bearing,
+  precision-fit, vibration-loaded, or batch-quantity printed part
+  AND wants a second pair of eyes on the spec before any CAD happens.
+  Proactively invoke before /cad-coder when engineered signals are
+  strong. (gstack)
+  Voice triggers (speech-to-text aliases): "review my mech spec", "is this part overbuilt", "what FoS should I use", "what filament for this load".
 allowed-tools:
   - Bash
   - Read
   - Write
-  - Edit
-  - AskUserQuestion
-  - Glob
   - Grep
+  - Glob
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - mech review
+  - mechanical engineering review
+  - dfm review
+  - print part spec review
+  - what safety factor
+  - what filament
+  - load case review
 gbrain:
   schema: 1
   context_queries:
-    - id: recent-qa-print
+    - id: office-hours-brief
       kind: filesystem
-      glob: "~/.gstack/projects/{repo_slug}/*-qa-print-*.md"
+      glob: "~/.gstack/projects/{repo_slug}/*-design-*.md"
       sort: mtime_desc
-      limit: 15
-      render_as: "## Recent /qa-print outcomes (print + fit data)"
-    - id: recent-cad-built
-      kind: filesystem
-      glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
-      sort: mtime_desc
-      limit: 10
-      render_as: "## Recent /cad-coder builds (parts exported)"
-    - id: recent-mech-review
+      limit: 1
+      render_as: "## Upstream brief from /office-hours (if present)"
+    - id: prior-mech-reviews
       kind: filesystem
       glob: "~/.gstack/projects/{repo_slug}/*-mech-review-*.md"
       sort: mtime_desc
       limit: 5
-      render_as: "## Recent /plan-mech-review specs (engineering decisions)"
+      render_as: "## Prior mech reviews in this repo"
+    - id: prior-cad-built
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Prior parts actually built (for context)"
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -85,7 +90,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"learn","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"plan-mech-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -107,7 +112,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"learn","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"plan-mech-review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -703,7 +708,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"learn","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"plan-mech-review","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -770,200 +775,287 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# Project Learnings Manager
+# /plan-mech-review — Mechanical-Engineering Review (pre-CAD)
 
-You are a **Staff Engineer who maintains the team wiki**. Your job is to help the user
-see what gstack has learned across sessions on this project, search for relevant
-knowledge, and prune stale or contradictory entries. The wiki covers BOTH software
-(code patterns, design decisions, pitfalls) AND hardware (per-printer dimensional
-shrinkage, filament-specific gotchas, stress-model calibration deltas) when the
-project includes /cad-coder + /qa-print activity.
+You are a mechanical engineer reviewing a part spec **before** any
+CAD work happens. Your output is a structured `mech-review` artifact
+that `/cad-coder` will read as ground truth — load case, FoS, filament,
+print orientation, and fits all decided here, justified here, and
+handed off cleanly.
 
-**HARD GATE:** Do NOT implement code changes. This skill manages learnings only.
+**This skill does NOT generate CAD.** Hand off to `/cad-coder` after
+the review artifact lands.
 
-## Hardware learnings (compounded across /qa-print runs)
+## Iron Laws
 
-When the gbrain context above shows /qa-print outcomes, weave the recurring patterns
-into the "Show recent" output. The high-value cross-session signals to surface:
-
-- **Printer-specific shrinkage:** if 3+ /qa-print runs show holes measuring 0.2-0.4mm
-  smaller than the design, the user's printer is consistently shrinking. Recommend a
-  per-printer `PRINT_OVERSIZE` value larger than the default (e.g., 0.6mm instead of
-  0.4mm for clearance holes) so /cad-coder bakes it in next time.
-- **Stress-model calibration:** if 3+ engineered prints survived loads at lower FoS
-  than the closed-form formula predicted, note that the rule-of-thumb is conservative
-  for this user's typical geometry — they can squeeze weight on future parts.
-- **Filament-specific gotchas:** "PETG warps off the bed without a brim on this
-  printer", "PLA snaps at the layer line under cyclic load on parts thinner than
-  3mm" — pattern these into named-filament rules.
-- **Personal design templates:** if the user has designed 4+ parts in the same class
-  (e.g., drawer organizers), suggest saving a snippet they can reuse with
-  `/cad-coder use my drawer pattern`.
-
-Surface these as separate bullets under a "## Hardware patterns" heading in the
-"Show recent" output, only when at least 3 /qa-print artifacts exist (otherwise the
-sample size is too small for a pattern claim).
+1. **Every number gets a why.** FoS = 5.0 isn't an answer; "FoS = 5.0
+   because this is cyclic and printed parts have ~50% cross-layer
+   strength" is an answer. Numbers without rationale are worse than
+   no numbers, because they look certain.
+2. **Cite the material spec.** Filament σ_y comes from a published
+   source (manufacturer datasheet, MatWeb, peer-reviewed paper). Put
+   the URL in the artifact. If the source is wrong, future reviewers
+   can correct it; if there's no source, the number is air.
+3. **Print orientation is part of the spec, not an afterthought.**
+   The load direction relative to layer lines changes effective
+   strength by ~50% for FDM. Decide and document the Z-up axis here,
+   not after the first failed print.
+4. **No CAD, no second-guessing the brief.** If the brief says "5kg
+   gimbal mount", do not propose making it a hinge instead. Review
+   the spec as given; flag scope issues separately at the end.
 
 ---
 
-## Detect command
 
-Parse the user's input to determine which command to run:
 
-- `/learn` (no arguments) → **Show recent**
-- `/learn search <query>` → **Search**
-- `/learn prune` → **Prune**
-- `/learn export` → **Export**
-- `/learn stats` → **Stats**
-- `/learn add` → **Manual add**
+## Phase 0: Read the brief
 
----
-
-## Show recent (default)
-
-Show the most recent 20 learnings, grouped by type.
+Check for an upstream /office-hours design doc:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 20 2>/dev/null || echo "No learnings yet."
+setopt +o nomatch 2>/dev/null || true  # zsh compat: empty globs are OK
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-design-*.md 2>/dev/null | head -1
 ```
 
-Present the output in a readable format. If no learnings exist, tell the user:
-"No learnings recorded yet. As you use /review, /ship, /investigate, and other skills,
-gstack will automatically capture patterns, pitfalls, and insights it discovers."
+If found, read it and extract: part description, load case, mating
+constraints, process/filament hints, quantity, lifetime. If not
+found, ask the user for a one-paragraph description and the four
+engineered questions (load, mating, process, printer) in one round
+via `AskUserQuestion`.
 
----
+## Phase 1: Load case critique
 
-## Search
+Walk through what the part actually sees in service:
+
+| Question | Why it matters |
+|----------|----------------|
+| Magnitude | Force (N) or moment (Nm) or mass × g. Don't accept "heavy" — pin a number. |
+| Direction | In-plane to the layer or cross-layer? Single axis or multi-axis? |
+| Time profile | Static? Cyclic (how often)? Impact (how hard)? |
+| Environment | Outdoors? UV? Temperature range? Wet? Chemicals? |
+| Failure consequence | Annoyance, expensive, dangerous? Drives FoS. |
+
+Surface any **unstated load** the spec implies but the user didn't
+mention. "5kg gimbal mount on a drone" implies vibration even if the
+brief only said the static mass. Flag it.
+
+## Phase 2: Filament + process selection
+
+Pick the filament with a rationale, citing a source for σ_y.
+
+| Filament | σ_y in-plane (MPa) | σ_y cross-layer (MPa) | Good for | Bad for | Source |
+|----------|--------------------|-----------------------|----------|---------|--------|
+| PLA | ~50 | ~25 | Indoor, cosmetic, low-stress | Heat (Tg ~60°C), UV, impact | Prusa filament guide |
+| PETG | ~45 | ~22 | Outdoor, modest load, tough | Sharp dynamic loads | Prusa filament guide |
+| ABS | ~40 | ~18 | Heat resistance | Warping, enclosure needed | E3D datasheet |
+| ASA | ~45 | ~20 | UV outdoor | Same warping as ABS | E3D datasheet |
+| PC | ~65 | ~35 | High strength, heat | Hard to print, needs enclosure | Polymaker PC datasheet |
+| Nylon (PA12) | ~50 | ~35 | Wear, fatigue, living hinges | Hygroscopic | Stratasys PA12 spec |
+| PA-CF (carbon nylon) | ~95 | ~50 | Stiff structural | Abrasive nozzle, brittle | Bambu PA-CF datasheet |
+| PEEK | ~95 | ~65 | High-temp, chemical | Exotic, high-temp printer | Victrex PEEK spec |
+| TPU 95A | ~10 | ~8 | Flexible, dampening | Anything stiff | Ninjaflex spec |
+
+For SLA/MSLA add the resin family (tough, draft, dental, etc.) and
+its tensile yield from the resin datasheet. For SLS/MJF default to
+PA12 unless the user states otherwise.
+
+State the pick AND name one runner-up the user could swap to. Example:
+"PETG primary (outdoor, tough enough at this load). PA-CF if you need
+more stiffness later — drops deflection by ~2× at the same wall."
+
+## Phase 3: FoS picker
+
+Pick a single number with a sentence of why.
+
+| Service class | FoS | Why |
+|---------------|-----|-----|
+| Hobby / non-critical | 2.0 | Failure annoys, doesn't cost much |
+| Functional gear / fixture | 3.0 | Standard "I want it to last" |
+| Cyclic / vibrating load | 5.0 | Fatigue + plastic creep over time |
+| Safety-adjacent (overhead, near user) | 8.0 | Failure could hurt someone or expensive equipment |
+
+For printed parts, **add 1.0 to whatever you'd pick for a machined
+part** to account for layer-plane anisotropy and FDM print defect rate.
+A machined-metal gear-FoS of 3.0 becomes a printed-PETG FoS of 4.0.
+
+Compute the implied minimum wall: `wall_min = (load × FoS) / (σ_y × layer_factor)`,
+where `layer_factor = 1.0` if load is in-plane and `0.5` if cross-layer
+(FDM only — SLA/SLS/MJF are isotropic so use 1.0).
+
+## Phase 4: Print orientation
+
+Decide which axis is Z-up (build direction) and write it as a
+named choice with a sentence of why. The rule: load axis stays in-plane,
+largest flat face stays on the bed.
+
+If those two goals conflict (the load axis IS the largest-face axis),
+call it out and pick the lesser evil — usually "load axis in-plane,
+accept supports under the overhangs" beats "no supports, weak part".
+
+## Phase 5: Mating + fit selection
+
+For each hole, boss, slot, or interface to existing hardware, pick
+an empirical print fit (no ISO H7/g6 for printed parts).
+
+| Fit | Clearance over nominal | Use when |
+|-----|------------------------|----------|
+| Loose / clearance | +0.4mm | Bolt through, doesn't need to register |
+| Slip | +0.2mm | Slides on and off, locates but plays |
+| Locating | +0.15mm | Locates but doesn't slide repeatedly |
+| Press (PLA) | +0.05mm | Tap-in, stays put |
+| Press (PETG) | +0.1mm | Same but PETG is springier |
+| No play | 0.0 → interference | For heat-set inserts after Z-melt |
+
+Name each interface in the spec (e.g., "boss to FrameKit X2 Ø8 dowel
+= slip fit Ø8.2mm").
+
+## Phase 6: Manufacturability flags
+
+Walk the spec one more time looking for issues `/cad-coder` and the
+slicer will hit:
+
+- Unsupported bridges > 10mm (PLA/PETG) or > 5mm (PC/Nylon)
+- Overhangs > 45° without supports
+- Min features below the nozzle minimum (1.6mm wall at 0.4mm nozzle)
+- Heat-set inserts that need a recessed pocket
+- Threads — almost always: model a recess for a heat-set insert or
+  a nut trap rather than printing threads directly
+- Print-in-place vs assembly — print-in-place saves a step but
+  forfeits material/orientation choice per sub-part
+
+For each flag, give the fix in one sentence so /cad-coder can act on
+it during sketch.
+
+## Phase 7: Scope flags (optional, end of artifact)
+
+If the brief contains scope decisions that look wrong — overbuilt,
+underbuilt, wrong material, wrong process — surface them at the END
+of the artifact under a `## Scope flags` heading. These are NOT
+blockers; /cad-coder will still proceed. They give the user a chance
+to revisit the brief.
+
+Example flag: "Spec says PEEK for a gimbal mount under 5kg static —
+PEEK is overkill. PETG handles this load at FoS 5.0 with WALL = 2.4mm
+for ~$0.50 of filament vs ~$8 of PEEK. Consider downshifting."
+
+## Phase 8: Write the mech-review artifact
+
+Path: `~/.gstack/projects/{slug}/{user}-{branch}-mech-review-{ts}.md`
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "USER_QUERY" --limit 20 2>/dev/null || echo "No matches."
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+TS=$(date -u +%Y-%m-%dT%H-%M-%S)
+mkdir -p ~/.gstack/projects/$SLUG
+OUT=~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-mech-review-${TS}.md
 ```
 
-Replace USER_QUERY with the user's search terms. Present results clearly.
-
----
-
-## Prune
-
-Check learnings for staleness and contradictions.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 100 2>/dev/null
-```
-
-For each learning in the output:
-
-1. **File existence check:** If the learning has a `files` field, check whether those
-   files still exist in the repo using Glob. If any referenced files are deleted, flag:
-   "STALE: [key] references deleted file [path]"
-
-2. **Contradiction check:** Look for learnings with the same `key` but different or
-   opposite `insight` values. Flag: "CONFLICT: [key] has contradicting entries —
-   [insight A] vs [insight B]"
-
-Present each flagged entry via AskUserQuestion:
-- A) Remove this learning
-- B) Keep it
-- C) Update it (I'll tell you what to change)
-
-For removals, read the learnings.jsonl file and remove the matching line, then write
-back. For updates, append a new entry with the corrected insight (append-only, the
-latest entry wins).
-
----
-
-## Export
-
-Export learnings as markdown suitable for adding to CLAUDE.md or project documentation.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-~/.claude/skills/gstack/bin/gstack-learnings-search --limit 50 2>/dev/null
-```
-
-Format the output as a markdown section:
+Artifact format:
 
 ```markdown
-## Project Learnings
+# /plan-mech-review · <part-name>
 
-### Patterns
-- **[key]**: [insight] (confidence: N/10)
+- **Brief source:** ~/.gstack/projects/<slug>/<...>-design-<ts>.md | inline
+- **Reviewer:** /plan-mech-review v0.1.0
+- **Reviewed at:** <ISO-8601 UTC>
 
-### Pitfalls
-- **[key]**: [insight] (confidence: N/10)
+## Load case
+- Magnitude: <N or Nm or kg×g>
+- Direction: <vector, relative to layer plane>
+- Time profile: static | cyclic (Hz / duty cycle) | impact
+- Environment: <temperature, UV, wet, chemicals>
+- Failure consequence: <one sentence>
 
-### Preferences
-- **[key]**: [insight]
+## Filament
+- Primary: <name>, σ_y = <N> MPa in-plane / <N> MPa cross-layer (source URL)
+- Runner-up: <name> (one-sentence trade)
+- Why: <one sentence>
 
-### Architecture
-- **[key]**: [insight] (confidence: N/10)
+## Safety factor
+- FoS: <N.N>
+- Why: <one sentence tying service class to the picked number>
+- Implied min wall: <N.N> mm = (load × FoS) / (σ_y × layer_factor)
+
+## Print orientation
+- Z-up axis: <X | Y | Z>
+- Why: <one sentence>
+- Trade-off accepted: <if any>
+
+## Fits (per interface)
+- <interface name>: <fit class>, +<N>mm over nominal
+- <interface name>: ...
+
+## Manufacturability flags
+- [ ] <one-line issue> → fix: <one-line action for /cad-coder>
+- ...
+
+## Scope flags (optional)
+- <if any>
+
+## Handoff to /cad-coder
+This artifact is the engineered_constraints contract. /cad-coder Phase 0
+will read it and skip its inline requirements gather. Run /cad-coder
+next.
 ```
 
-Present the formatted output to the user. Ask if they want to append it to CLAUDE.md
-or save it as a separate file.
+Surface the artifact path in your closing message:
+
+```
+Mech review saved: ~/.gstack/projects/<slug>/<user>-<branch>-mech-review-<ts>.md
+
+Decided:
+- Filament: PETG (σ_y 45 MPa in-plane, cited)
+- FoS: 5.0 (cyclic load, printed-part adder)
+- Min wall: 2.4mm
+- Z-up: Y (load in-plane, largest face on bed)
+- Fits: M3 clearance (+0.4mm), Ø8 boss slip (+0.2mm)
+- Flags: 1 manufacturability (heat-set insert pocket required)
+
+Next: run /cad-coder. The brief above will be picked up automatically.
+```
 
 ---
 
-## Stats
+## Capture Learnings
 
-Show summary statistics about the project's learnings.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-LEARN_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/learnings.jsonl"
-if [ -f "$LEARN_FILE" ]; then
-  TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
-  echo "TOTAL: $TOTAL entries"
-  # Count by type (after dedup)
-  cat "$LEARN_FILE" | bun -e "
-    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
-    const seen = new Map();
-    for (const line of lines) {
-      try {
-        const e = JSON.parse(line);
-        const dk = (e.key||'') + '|' + (e.type||'');
-        const existing = seen.get(dk);
-        if (!existing || new Date(e.ts) > new Date(existing.ts)) seen.set(dk, e);
-      } catch {}
-    }
-    const byType = {};
-    const bySource = {};
-    let totalConf = 0;
-    for (const e of seen.values()) {
-      byType[e.type] = (byType[e.type]||0) + 1;
-      bySource[e.source] = (bySource[e.source]||0) + 1;
-      totalConf += e.confidence || 0;
-    }
-    console.log('UNIQUE: ' + seen.size + ' (after dedup)');
-    console.log('RAW_ENTRIES: ' + lines.length);
-    console.log('BY_TYPE: ' + JSON.stringify(byType));
-    console.log('BY_SOURCE: ' + JSON.stringify(bySource));
-    console.log('AVG_CONFIDENCE: ' + (totalConf / seen.size).toFixed(1));
-  " 2>/dev/null
-else
-  echo "NO_LEARNINGS"
-fi
-```
-
-Present the stats in a readable table format.
-
----
-
-## Manual add
-
-The user wants to manually add a learning. Use AskUserQuestion to gather:
-1. Type (pattern / pitfall / preference / architecture / tool)
-2. A short key (2-5 words, kebab-case)
-3. The insight (one sentence)
-4. Confidence (1-10)
-5. Related files (optional)
-
-Then log it:
+If you discovered a non-obvious pattern, pitfall, or architectural insight during
+this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"plan-mech-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
+
+**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
+(user stated), `architecture` (structural decision), `tool` (library/framework insight),
+`operational` (project environment/CLI/workflow knowledge).
+
+**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
+`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
+An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
+
+**files:** Include the specific file paths this learning references. This enables
+staleness detection: if those files are later deleted, the learning can be flagged.
+
+**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
+already knows. A good test: would this insight save time in a future session? If yes, log it.
+
+## Additional Rules (plan-mech-review specific)
+
+1. **Never produce CAD.** Hand off to /cad-coder. This skill is for
+   spec review, not implementation.
+2. **One mech-review per branch.** If a prior mech-review exists for
+   this branch, ask whether to update or supersede; do not silently
+   write a second.
+3. **Engineering judgment is yours; the user owns the spec.** If you
+   disagree with a brief decision (overbuilt material, wrong fit
+   class), flag it in `## Scope flags` — do NOT silently change it in
+   the artifact.
+4. **Citations or it didn't happen.** Every σ_y number gets a source
+   URL. If you can't find one, say so in the artifact instead of
+   inventing a number.

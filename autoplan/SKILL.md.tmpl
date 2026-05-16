@@ -476,6 +476,67 @@ Do NOT begin Phase 3 until all Phase 2 outputs (if run) are written to the plan 
 - [ ] Design consensus table produced (if Phase 2 ran)
 - [ ] Phase-transition summary emitted
 
+## Phase 2.7: Mech Review (conditional — skip if no hardware scope)
+
+Run when the plan describes a physical, fabricable part. Detection
+signals (any one triggers the phase):
+
+| Signal | Where to look |
+|--------|---------------|
+| Plan mentions a printed/CNC/cast/molded part | plan body — words: bracket, enclosure, case, fixture, knob, mount, replacement part, 3D print, STL, STEP |
+| Plan invokes /cad-coder, /plan-mech-review, or /qa-print explicitly | plan body |
+| Plan has a `## Hardware` section, a `## Parts` list, or a BOM | plan structure |
+| Office-hours brief (`~/.gstack/projects/{slug}/*-design-*.md`) flagged the project as hardware | prior artifact |
+
+If none of these fire, skip Phase 2.7 entirely (most software plans
+won't have hardware scope). Emit a one-liner: "Phase 2.7 skipped — no
+hardware scope detected."
+
+If it fires, follow `plan-mech-review/SKILL.md` — all phases (load
+case → filament + cited σ_y → FoS justification → print orientation →
+fit selection → manufacturability flags → scope flags), full depth.
+Override: every AskUserQuestion → auto-decide using the 6 principles.
+
+**Override rules:**
+- Load case: if the plan stated a load, use it. If "I don't know yet",
+  assume static at 1× the stated weight (or 50 N if no weight) and
+  mark as TASTE DECISION at the final gate.
+- Filament: pick PETG by default for engineered mode unless plan
+  explicitly named one. Cite σ_y inline.
+- FoS: 3.0 static, 5.0 cyclic, 8.0 safety-adjacent — pick on the
+  failure-consequence axis.
+- Print orientation: largest face on bed, load axis in-plane. Note
+  the trade-off if they conflict.
+- Manufacturability flags: anything below print floor (wall < 4×nozzle,
+  unsupported bridge > 10mm, overhang > 45°) auto-flagged with the
+  fix.
+- Dual voices: run BOTH Claude subagent AND Codex if available (P6).
+  Codex prompt — independent mechanical review of the plan's load
+  case, material choice, and DFM choices. Be opinionated; flag
+  overbuilt material picks and underspec'd safety factors.
+
+Write the mech-review artifact to
+`~/.gstack/projects/{slug}/{user}-{branch}-mech-review-{ts}.md` — the
+artifact /cad-coder will read in Phase 0 when the user runs it next.
+
+**Mech consensus table** (same shape as design / eng consensus):
+
+| Signal | Claude | Codex | Consensus |
+|--------|--------|-------|-----------|
+| Filament pick | PETG | PETG | ✓ agree |
+| FoS choice | 5.0 cyclic | 3.0 (says cyclic ≠ severe) | TASTE DECISION |
+| Print orientation | Y-up | Y-up | ✓ agree |
+| ... | ... | ... | ... |
+
+TASTE DECISIONS bubble up to Phase 4.
+
+**Phase 2.7 completion checks:**
+- [ ] Hardware scope detection ran (skip note emitted if not detected)
+- [ ] If ran: mech-review followed, artifact written
+- [ ] If ran: dual voices ran (Claude + Codex if available)
+- [ ] If ran: mech consensus table produced
+- [ ] Phase-transition summary emitted
+
 ## Phase 3: Eng Review + Dual Voices
 
 Follow plan-eng-review/SKILL.md — all sections, full depth.
