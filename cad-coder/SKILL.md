@@ -351,6 +351,91 @@ reads the file when it lands.
 If the user uploads a second photo on the same session code, the new
 JPEG overwrites the old one — re-poll and re-read if you need it.
 
+### ZeroEntropy visual references (Thingiverse RAG)
+
+Orthogonal to mode and to the phone-camera flow. Use this before
+designing from scratch when the user asks for a recognizable object,
+mechanism, bracket, toy, household part, or other model where public STL
+examples can clarify shape. This is retrieval-augmented generation
+(RAG): retrieve nearby Thingiverse models from ZeroEntropy, render them
+as images, read the images, then use the observations as visual
+grounding. Do **not** copy meshes blindly; treat them as references for
+proportions, features, printability, and common design patterns.
+
+Skip only when the user provides an exact physical/photo reference, asks
+for a novel/private design where public examples would mislead, or
+explicitly says not to search.
+
+**Precondition.** The same server used by the camera flow must be up at
+`http://127.0.0.1:8000`, and it must have a working
+`ZEROENTROPY_API_KEY` + `ZE_COLLECTION` in
+`cad-coder/zeroentropy/.env`.
+
+```bash
+curl -sS http://127.0.0.1:8000/healthz
+```
+
+If the server is down, start it when the local environment permits:
+
+```bash
+cd cad-coder/zeroentropy && uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+If the server cannot start or `/query` reports a ZeroEntropy error, say
+so and continue without web references. Do not block a normal CAD build
+just because RAG is unavailable.
+
+**Steps.**
+
+1. Query the user's CAD brief with `k=3`:
+
+   ```bash
+   curl -sS -G http://127.0.0.1:8000/query \
+     --data-urlencode "q=<the user's CAD description>" \
+     --data-urlencode "k=3" \
+     > /tmp/cad-zeroentropy-references.json
+   ```
+
+2. Read `/tmp/cad-zeroentropy-references.json`. Pick the highest-scoring
+   result with `download_ok: true`. Keep the next two candidates in mind
+   in case the top render is obviously wrong.
+
+3. Download the top result's rendered PNG references:
+
+   ```bash
+   mkdir -p /tmp/cad-zeroentropy-renders
+   TID="<thing_id from top result>"
+   for VIEW in iso front top right; do
+     curl -sS -o "/tmp/cad-zeroentropy-renders/${TID}_${VIEW}.png" \
+       "http://127.0.0.1:8000/render/${TID}/${VIEW}.png"
+   done
+   ls -lh /tmp/cad-zeroentropy-renders/
+   ```
+
+4. **Read the PNGs. This is load-bearing.** Use the available image-read
+   tool on each render:
+
+   ```text
+   Read /tmp/cad-zeroentropy-renders/<thing_id>_iso.png
+   Read /tmp/cad-zeroentropy-renders/<thing_id>_front.png
+   Read /tmp/cad-zeroentropy-renders/<thing_id>_top.png
+   Read /tmp/cad-zeroentropy-renders/<thing_id>_right.png
+   ```
+
+   If the render is blank, malformed, or clearly the wrong object, move
+   to the next `download_ok` candidate and repeat once. Stop after two
+   candidates and continue from the text brief if both are poor.
+
+5. Record the grounding in `session.json["zeroentropy_reference"]`:
+   `{"query": "...", "thing_id": "...", "name": "...",
+   "thing_url": "...", "stl_path": "/tmp/stl-cache/...",
+   "renders": ["/tmp/cad-zeroentropy-renders/..._iso.png", ...],
+   "observations": "short notes on proportions, features, printability"}`.
+
+6. Echo the important visual takeaways in one or two sentences before
+   writing CAD geometry. The user should see what reference influenced
+   the design and can correct the direction early.
+
 ### Mode: casual vs engineered
 
 Most asks are *casual* — replacement parts, hobby prints, fixtures,

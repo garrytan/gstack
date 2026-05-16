@@ -40,7 +40,7 @@ cad-coder/
 │   │                             ANSI or PNG)
 │   │                           Lazy-downloads STLs to /tmp/stl-cache/ and writes
 │   │                           uploaded reference photos to /tmp/cad-reference/.
-│   ├── requirements.txt      # requests, python-dotenv, fastapi, uvicorn
+│   ├── requirements.txt      # API deps + STL render deps used by server.py
 │   └── .env.example          # THINGIVERSE_TOKEN, ZEROENTROPY_API_KEY, ZE_COLLECTION
 ├── ui/                       # live preview server + Three.js viewer
 │   ├── server.ts             # Bun HTTP server, SSE reloads on GLB change
@@ -141,6 +141,9 @@ the watcher rewrites the GLB and the UI reloads automatically.
   Returns top-3 matches with local STL paths, then renders them via
   `render.py` and reads the PNGs for visual grounding. Useful before
   designing from scratch — see what others have made for the same prompt.
+  `/cad-coder` also uses this path directly in Phase 0 as visual reference
+  grounding: query → retrieve STL metadata → render PNG views → read images
+  → record observations in `session.json["zeroentropy_reference"]`.
 
 The full chain: `/office-hours` → `/plan-mech-review` (when engineered) →
 `/stl-search` (optional grounding) → `/cad-coder` (chat → preview → export)
@@ -170,6 +173,9 @@ alone, `127.0.0.1` is enough.)
 
 Then the `/stl-search` skill (top-level in the gstack repo) talks to
 `127.0.0.1:8000`, picks a top hit, calls `render.py`, and reads the PNGs.
+The `/cad-coder` skill uses the same flow before modeling recognizable
+objects from scratch, so the retrieved renders act as image references rather
+than hidden mesh inputs.
 
 ## Phone-camera reference flow (for /cad-coder)
 

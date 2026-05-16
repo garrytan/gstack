@@ -4,3 +4,7 @@ fastapi>=0.110
 uvicorn>=0.27
 python-multipart>=0.0.9
 qrcode[pil]>=7.4
+numpy>=1.26
+Pillow>=10.0
+trimesh>=4.0
+pyrender>=0.1.45

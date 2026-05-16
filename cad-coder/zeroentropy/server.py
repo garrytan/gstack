@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 import os
 import socket
+import struct
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -30,10 +32,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 
 # render.py lives one dir up — make its render_stl() importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from render import VIEWS, render_stl  # noqa: E402
+from render import VIEWS  # noqa: E402
 
 load_dotenv()
 
+RENDER_SCRIPT = Path(__file__).resolve().parent.parent / "render.py"
 ZE_BASE = "https://api.zeroentropy.dev/v1"
 ZE_KEY = os.environ.get("ZEROENTROPY_API_KEY")
 ZE_COLLECTION = os.environ.get("ZE_COLLECTION", "thingiverse-popular")
@@ -93,13 +96,37 @@ def _ze_top(query: str, k: int) -> list[dict]:
     return r.json().get("results") or []
 
 
+def _looks_like_stl(path: Path) -> bool:
+    """Cheap validation so cached HTML/errors do not masquerade as STL files."""
+    try:
+        size = path.stat().st_size
+        if size < 84:
+            return False
+        with path.open("rb") as fh:
+            header = fh.read(512)
+        if len(header) < 84:
+            return False
+
+        tri_count = struct.unpack("<I", header[80:84])[0]
+        if tri_count > 0 and 84 + tri_count * 50 == size:
+            return True
+
+        stripped = header.lstrip().lower()
+        return stripped.startswith(b"solid") and (
+            b"facet normal" in stripped or b"endsolid" in stripped
+        )
+    except OSError:
+        return False
+
+
 def _download_stl(thing_id: str, url: str) -> Path | None:
     """Cache an STL locally. Returns path or None on failure."""
     if not thing_id or not url:
         return None
     dest = CACHE_DIR / f"{thing_id}.stl"
-    if dest.exists() and dest.stat().st_size > 1024:
+    if dest.exists() and _looks_like_stl(dest):
         return dest
+    dest.unlink(missing_ok=True)
     try:
         # Cloudflare in front of Thingiverse fingerprints UA + Accept-* +
         # Sec-Fetch-*. A bare browser UA still gets 403; the full browser-like
@@ -111,7 +138,6 @@ def _download_stl(thing_id: str, url: str) -> Path | None:
             ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
             "Referer": "https://www.thingiverse.com/",
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
@@ -131,7 +157,7 @@ def _download_stl(thing_id: str, url: str) -> Path | None:
                 for chunk in resp.iter_content(chunk_size=64 * 1024):
                     if chunk:
                         fh.write(chunk)
-        if dest.stat().st_size < 1024:
+        if not _looks_like_stl(dest):
             dest.unlink(missing_ok=True)
             return None
         return dest
@@ -151,9 +177,23 @@ def _render_view(thing_id: str, view: str) -> Path | None:
     if out_path.exists() and out_path.stat().st_size > 0:
         return out_path
     out_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        render_stl(stl_path, out_dir, views=[view])
-    except Exception:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RENDER_SCRIPT),
+            str(stl_path),
+            "--out",
+            str(out_dir),
+            "--views",
+            view,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=90,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+    if result.returncode != 0:
         return None
     return out_path if out_path.exists() else None
 
