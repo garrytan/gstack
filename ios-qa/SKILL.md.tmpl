@@ -88,11 +88,17 @@ Use the **default model** (Opus) only for:
 6. **NEVER rebuild during QA.** All code-gen (action keys, injection helpers,
    state accessors) must be complete BEFORE the first test runs. If you discover
    you need a new state key mid-QA, that means code-gen was incomplete — note it
-   as a limitation, don't rebuild. The QA phase is read-only on the source.
+   as "SKIPPED: missing action key for X" and MOVE ON. Do NOT stop to add it.
+   Each rebuild costs 2+ minutes and requires re-launching the app. A single
+   session with 7 mid-QA rebuilds wasted 14 minutes (turned a 4-min run into 20).
 
-7. **Use action keys over UI taps for state mutations.** Tapping SwiftUI buttons
-   inside List/Form cells is unreliable. Action keys are instant and never fail.
-   Only tap when testing navigation or verifying button existence.
+7. **Use action keys over UI taps for ALL state mutations.** SwiftUI toolbar
+   buttons, sheet buttons, and List/Form cell buttons CANNOT be tapped
+   programmatically — they use SwiftUI gesture handlers that are inaccessible
+   from UIKit. This is not a "sometimes fails" situation — it NEVER works.
+   Action keys are the ONLY reliable way to invoke ViewModel functions.
+   Only tap when testing: navigation (tabs), text field focus, or verifying
+   that a button element EXISTS in the accessibility tree.
 
 8. **Batch state reads.** Combine multiple `curl` calls into a single Bash
    invocation. Don't make 5 separate tool calls when one bash script handles all 5.
@@ -234,18 +240,43 @@ Read every file to understand:
 ## Phase 2: Generate DebugBridge (if needed)
 
 If not already generated, create the DebugBridge package and accessors.
-See templates at `~/.claude/skills/ios-qa/templates/`.
 
-The DebugBridge package (`DebugBridge/`) contains:
-- `StateServer.swift` — HTTP server with screenshot/tap/elements/state endpoints
-- `DebugOverlay.swift` — visual "Claude is debugging" indicator
+### Step 2a: Copy templates VERBATIM
+
+Read the templates from `~/.claude/skills/ios-qa/templates/` and copy them
+directly. **Do NOT rewrite from memory or simplify.**
+
+- `StateServer.swift.template` → copy to `<AppSource>/DebugBridgeGenerated/StateServer.swift`
+  (Replace `{{PLACEHOLDER}}` tokens only. Keep the tap priority chain intact.)
+- `DebugOverlay.swift.template` → copy to `<AppSource>/DebugBridgeGenerated/DebugOverlay.swift`
+  (Keep all 4 glow layers, GeometryReader, double .ignoresSafeArea)
+
+### Step 2b: Generate app-specific accessors
 
 App-specific accessors go in `<AppSource>/DebugBridgeGenerated/`:
 - `DebugBridgeManager.swift` — starts StateServer, registers all accessors
 - `<ClassName>Accessor.swift` — per-class state read/write registrations
-- `DebugBridgeJSON.swift` — serialization helpers
 
-### CRITICAL: Complete Code-Gen FIRST
+### Step 2c: Enumerate ALL functions (MANDATORY before build)
+
+For EVERY @Observable class, grep for `func ` and generate an action key for
+each one. Print the inventory:
+
+```
+FUNCTION INVENTORY:
+  WorkoutViewModel.addWorkout(_:)     → WorkoutViewModel_addWorkout (JSON body)
+  WorkoutViewModel.removeWorkout(at:) → WorkoutViewModel_removeWorkout (index)
+  ProfileViewModel.toggleUnit()       → ProfileViewModel_toggleUnit (no params)
+  StatsViewModel.calculateStreak(from:) → StatsViewModel_calculateStreak (trigger)
+
+  Total functions: 4
+  Action keys generated: 4
+  Missing: 0 ← MUST BE ZERO
+```
+
+Only proceed to build after missing = 0.
+
+### CRITICAL: Complete Code-Gen FIRST — PRE-FLIGHT GATE
 
 **Generate ALL accessors before building.** This includes:
 
@@ -253,26 +284,86 @@ App-specific accessors go in `<AppSource>/DebugBridgeGenerated/`:
 2. **Property writes** — every mutable `var` gets a write key
 3. **Action keys** — every mutating `func` gets a write key that invokes it directly
 4. **Data injection** — for any `func addX(item)`, also generate an injection key
-   that accepts CSV params (e.g., `"name,sets,reps,weight,daysAgo"`) so the agent
-   can create test data with specific dates/values without using the UI
+   that accepts JSON body so the agent can create test data with specific dates/values
+   without using the UI
 
-**Why this matters:** If you skip action keys, the QA agent will fail to tap
-SwiftUI buttons inside List cells (a known limitation), then need to add keys
-mid-QA, triggering a rebuild cycle. Each rebuild costs ~2 minutes. By front-loading
-ALL keys, the agent does ONE build and never rebuilds during testing.
+**Why this matters:** If you skip action keys, you will waste 10+ minutes trying
+to tap SwiftUI toolbar/sheet buttons that CANNOT be activated programmatically.
+Each failed attempt leads to a rebuild cycle (~2 min). A 5-test session with
+missing action keys took 20 minutes. With complete action keys: 4 minutes.
 
-**Example action keys to always generate:**
+### PRE-FLIGHT CHECKLIST (MUST complete before `xcodebuild`)
+
+Before running any build, print this checklist and verify every box:
+
+```
+PRE-FLIGHT: Action Key Completeness Check
+──────────────────────────────────────────
+For each @Observable class, list ALL func declarations found in source:
+
+[ ] ClassName.functionName() → action key: "ClassName_functionName" ✓
+[ ] ClassName.otherFunc(arg) → action key: "ClassName_otherFunc" ✓
+...
+
+Missing action keys: 0  ← MUST be 0 before building
+```
+
+**If ANY mutating function is missing an action key, DO NOT BUILD.** Add the key
+first. This is the #1 cause of mid-QA rebuild spirals.
+
+### HARD RULES (violations caused 14 min waste in real session)
+
+1. **NEVER try to tap SwiftUI toolbar buttons (.toolbar, .navigationBarItems).**
+   They wrap in UIKitBarItemHost → accessibilityActivate() returns true but
+   doesn't fire the action. sendActions(.touchUpInside) does nothing. Private
+   `_targets` API crashes the app. There is NO working programmatic tap for
+   SwiftUI toolbar buttons. Use action keys ALWAYS.
+
+2. **NEVER try to tap SwiftUI sheet/form confirmation buttons.**
+   Same issue — they're SwiftUI-managed, not UIKit controls.
+
+3. **Copy the StateServer template verbatim.** Do NOT write a simplified version.
+   The template at `~/.claude/skills/ios-qa/templates/StateServer.swift.template`
+   already has the correct tap priority chain:
+   - Priority 1: UITextField → becomeFirstResponder (for keyboard focus)
+   - Priority 2: UITextView → becomeFirstResponder
+   - Priority 3: UIControl → sendActions(.touchUpInside)
+   - Priority 4: accessibilityActivate()
+   - Priority 5: Ancestor walk
+   - Priority 6: Gesture recognizers
+
+   Writing your own tap handler from scratch WILL miss cases and force rebuilds.
+
+4. **Copy the DebugOverlay template verbatim.** The template has the full-screen
+   GeometryReader + 4-layer glow. Don't simplify it.
+
+5. **ONE build. ZERO rebuilds during QA.** If a test can't run because of a
+   missing key, document it as "SKIPPED: missing action key" and move on.
+   Do NOT stop to add the key and rebuild.
+
+### Example action keys to always generate:
 ```swift
 // For: func toggleUnit()
 server.registerWrite("ProfileVM_toggleUnit") { _ in instance.toggleUnit(); return true }
 
-// For: func addItem(_ item: Item)  — also generate injection helper
+// For: func addItem(_ item: Item)  — JSON injection helper
 server.registerWrite("CartVM_addItem") { value in
-    // CSV: "name,price,quantity,daysAgo"
-    let parts = value.split(separator: ",").map(String.init)
-    guard parts.count >= 3 else { return false }
-    // ... parse and create item with optional date offset
+    guard let data = value.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let name = json["name"] as? String else { return false }
+    let price = json["price"] as? Double ?? 0
+    let qty = json["quantity"] as? Int ?? 1
+    let daysAgo = json["daysAgo"] as? Double ?? 0
+    let date = Date().addingTimeInterval(-daysAgo * 86400)
+    let item = Item(name: name, price: price, quantity: qty, date: date)
     instance.addItem(item)
+    return true
+}
+
+// For: func removeItem(at index: Int)
+server.registerWrite("CartVM_removeItem") { value in
+    guard let idx = Int(value), idx < instance.items.count else { return false }
+    instance.removeItem(at: idx)
     return true
 }
 
@@ -282,6 +373,18 @@ server.registerWrite("StatsVM_calculateStats") { _ in
     return true
 }
 ```
+
+### What taps ARE safe (use these only):
+- Tab bar buttons (`_UITabButton`) — always work via accessibilityActivate
+- Navigation back buttons — always work
+- UITextField focus — works with becomeFirstResponder in template
+- Standard UIButton (not SwiftUI) — works via sendActions
+
+### What taps are NEVER safe (use action keys instead):
+- SwiftUI `.toolbar` items (Save, Done, Cancel, Add in nav bar)
+- SwiftUI `Button` inside `List` or `Form` cells
+- SwiftUI `Sheet` dismiss/confirm buttons
+- Any SwiftUI button wrapped in host views (UIKitBarItemHost, CellHostingView)
 
 **Rule: ONE build, then pure QA. Never rebuild mid-test.**
 
@@ -442,6 +545,27 @@ Do NOT screenshot between every action. Only screenshot when:
 - **curl exit code 56 (connection reset):** Stale iproxy processes are interfering. Run `pkill -f iproxy` and use the IPv6 tunnel IP directly.
 - **Empty response:** App not running or was built in Release mode. Launch with `xcrun devicectl device process launch --device <ID> <bundle-id>`.
 - **App crash:** StateServer goes silent. Note what caused it (Critical bug). Relaunch app.
-- **Tap has no effect:** Check coordinates against /elements. Try tapping the center point.
+- **Tap has no effect on toolbar/sheet button:** This is EXPECTED. SwiftUI toolbar buttons cannot be tapped programmatically. Use the action key instead. Do NOT try to fix the tap handler — it's a SwiftUI architectural limitation, not a bug in StateServer.
+- **"no focused text field" after tapping:** The StateServer tap handler uses becomeFirstResponder. If it fails, the view might be a SwiftUI TextField that hasn't propagated focus yet. Wait 500ms and try `/type` again. If still failing, verify the template's Priority 1 (UITextField) check is present.
 - **No elements returned:** The view might use custom drawing. Use screenshot + vision instead.
 - **"localhost" doesn't work:** Correct. Use `http://[TUNNEL_IPv6]:9999` with `-6` flag. Never use localhost.
+
+## Known Tap Limitations (DO NOT TRY TO FIX — use action keys)
+
+These are architectural limitations of SwiftUI's UIKit bridge. They CANNOT be
+solved by modifying the StateServer tap handler. Don't waste time trying.
+
+| UI Element | Why it fails | Solution |
+|-----------|-------------|----------|
+| `.toolbar` items (Save/Done/Cancel/Add) | Wrapped in UIKitBarItemHost, accessibilityActivate returns true but doesn't fire action | Action key |
+| `Button` inside `List`/`Form` cell | CellHostingView intercepts, accessibilityActivate activates the cell not the button | Action key |
+| `Sheet` confirm/dismiss buttons | SwiftUI manages presentation state directly | Action key |
+| `NavigationLink` with custom label | accessibilityActivate triggers but navigation state doesn't update | Tap works ~50%, use action key for reliability |
+| `Picker`/`Toggle`/`Stepper` | Composite controls with internal state | Write directly to the bound property |
+
+**The tap handler works reliably for:**
+- Tab bar buttons (UITabBarButton) — always works
+- Text fields (UITextField) — becomeFirstResponder works
+- Navigation back button — always works
+- Standard UIButtons (not SwiftUI-wrapped) — sendActions works
+- UIControl subclasses — sendActions works
