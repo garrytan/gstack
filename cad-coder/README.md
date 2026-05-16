@@ -23,6 +23,18 @@ cad-coder/
 ├── stress.py                 # closed-form stress estimates (cantilever, beam,
 │                               plate, screw pull-through, boss compression).
 │                               CLI: python cad-coder/stress.py cantilever --L 60 --b 40 --h 4 --F 50 --sigma_y 45
+├── render.py                 # STL → multi-angle PNG renderer (trimesh + pyrender).
+│                               7 named views (iso/front/back/left/right/top/bottom).
+│                               CLI: python cad-coder/render.py model.stl --out /tmp/renders --views iso front top right
+├── zeroentropy/              # Thingiverse retrieval pipeline (powers /stl-search)
+│   ├── scrape.py             # Thingiverse popular feed → models.jsonl (auth: THINGIVERSE_TOKEN)
+│   ├── index.py              # models.jsonl → ZeroEntropy hosted collection
+│   ├── query.py              # CLI: NL query → top-K STL matches (debugging)
+│   ├── server.py             # FastAPI app: GET /healthz, GET /query?q=...&k=N
+│   │                           Lazy-downloads STLs to /tmp/stl-cache/ and returns
+│   │                           description + local stl_path.
+│   ├── requirements.txt      # requests, python-dotenv, fastapi, uvicorn
+│   └── .env.example          # THINGIVERSE_TOKEN, ZEROENTROPY_API_KEY, ZE_COLLECTION
 ├── ui/                       # live preview server + Three.js viewer
 │   ├── server.ts             # Bun HTTP server, SSE reloads on GLB change
 │   ├── server.test.ts        # `bun test cad-coder/ui/server.test.ts`
@@ -81,13 +93,43 @@ the watcher rewrites the GLB and the UI reloads automatically.
   that cad-coder reads in Phase 0.
 - `/qa-print` — post-print QA loop (plain language, ruler-grade
   measurements, diagnoses shrinkage vs calibration vs design).
+- `/stl-search` — natural-language search over a scraped Thingiverse corpus.
+  Backed by `zeroentropy/server.py` (FastAPI) + a ZeroEntropy semantic index.
+  Returns top-3 matches with local STL paths, then renders them via
+  `render.py` and reads the PNGs for visual grounding. Useful before
+  designing from scratch — see what others have made for the same prompt.
 
 The full chain: `/office-hours` → `/plan-mech-review` (when engineered) →
-`/cad-coder` (chat → preview → export) → print → `/qa-print` → `/retro` +
-`/learn` for cross-session memory.
+`/stl-search` (optional grounding) → `/cad-coder` (chat → preview → export)
+→ print → `/qa-print` → `/retro` + `/learn` for cross-session memory.
+
+## /stl-search runbook
+
+One-time setup:
+
+```bash
+cd cad-coder/zeroentropy
+pip install -r requirements.txt
+cp .env.example .env   # fill in THINGIVERSE_TOKEN + ZEROENTROPY_API_KEY
+python scrape.py       # ~100 popular things → models.jsonl (gitignored)
+python index.py        # push to ZeroEntropy collection (description in metadata)
+```
+
+Each session:
+
+```bash
+cd cad-coder/zeroentropy && uvicorn server:app --port 8000
+```
+
+Then the `/stl-search` skill (top-level in the gstack repo) talks to
+`127.0.0.1:8000`, picks a top hit, calls `render.py`, and reads the PNGs.
 
 ## Dependencies
 
 - cadquery 2.7+ (Python 3.10-3.12). On modern Macs with Python 3.14 default,
   create a venv: `uv venv --python 3.12 .cad-venv && uv pip install --python .cad-venv/bin/python cadquery`. The `bin/cad-python` resolver finds it.
 - `three` (npm, for the viewer) — installed automatically via `bun install`.
+- `trimesh`, `pyrender`, `Pillow`, `numpy` (for `render.py`). Headless boxes
+  also need `PYOPENGL_PLATFORM=egl` or `osmesa` in the env.
+- `fastapi`, `uvicorn`, `requests`, `python-dotenv` (for `zeroentropy/server.py`).
+  Installed via `pip install -r cad-coder/zeroentropy/requirements.txt`.
