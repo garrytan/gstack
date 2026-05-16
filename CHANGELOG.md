@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.39.2.1] - 2026-05-16
+
+## **The cad-coder live preview no longer renders models as dark silhouettes.**
+## **Colors in the GLB now actually show up on screen.**
+
+The preview UI's Three.js renderer was outputting linear-space color values directly to an sRGB display, which crushed mid-tones to near-black. A red `[0.85, 0.13, 0.13]` baseColor in the GLB displayed as a dark maroon; a white `[0.96, 0.96, 0.96]` hemisphere displayed as muddy grey. The single-direction key light made it worse — anything not facing the +Y/+Z corner went to deep shadow. Switched the renderer to `THREE.SRGBColorSpace` output with ACES filmic tone mapping, and replaced the one-light rig with six directional lights from each principal axis plus stronger ambient + hemisphere. Every face on a multi-color GLB now reads its intended color from every camera angle.
+
+### Itemized changes
+
+#### Changed
+- `cad-coder/ui/static/app.js`: renderer now uses `SRGBColorSpace` output + ACES filmic tone mapping; lighting rig expanded from 1 directional + hemisphere to 6 axis-aligned directionals + ambient + hemisphere.
 ## [1.39.2.0] - 2026-05-15
 
 ## **Conductor workspaces wire `GSTACK_*` keys straight into gbrain embeddings and paid evals.**

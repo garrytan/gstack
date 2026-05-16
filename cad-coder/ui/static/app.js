@@ -18,6 +18,11 @@ const rerender = document.querySelector('#rerender');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setClearColor(0xffffff, 1);
+// sRGB output: GLB stores colors in linear space; without this we display
+// linear values on an sRGB monitor, which crushes mid-tones to black.
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xffffff);
@@ -33,10 +38,25 @@ scene.add(grid);
 const axes = new THREE.AxesHelper(60);
 scene.add(axes);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0xe8eef4, 2.8));
-const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
-keyLight.position.set(90, 120, 70);
-scene.add(keyLight);
+// Universal lighting rig: ambient fills every surface equally, hemisphere
+// adds subtle sky/ground variation, and 6 directional lights from each
+// principal axis give enough shape definition to read geometry without
+// any face going dark. Intensities tuned for sRGB+ACES output above.
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+scene.add(new THREE.HemisphereLight(0xffffff, 0xe8eef4, 0.5));
+const lightRig = [
+  [ 100,    0,    0, 0.6],   // +X
+  [-100,    0,    0, 0.6],   // -X
+  [   0,  100,    0, 0.8],   // +Y top
+  [   0, -100,    0, 0.6],   // -Y bottom
+  [   0,    0,  100, 0.6],   // +Z front
+  [   0,    0, -100, 0.6],   // -Z back
+];
+for (const [x, y, z, intensity] of lightRig) {
+  const light = new THREE.DirectionalLight(0xffffff, intensity);
+  light.position.set(x, y, z);
+  scene.add(light);
+}
 
 const loader = new GLTFLoader();
 let model = null;
