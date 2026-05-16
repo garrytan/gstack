@@ -20,10 +20,20 @@ from dotenv import load_dotenv
 ZE_BASE = "https://api.zeroentropy.dev/v1"
 MAX_CONTENT_BYTES = 60_000  # leave headroom under ZE's metadata-size cap
 TAG = re.compile(r"<[^>]+>")
+WS = re.compile(r"\s+")
+CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def strip_html(s: str) -> str:
     return TAG.sub(" ", s or "").strip()
+
+
+def normalize_meta(s: str) -> str:
+    """ZE metadata rejects newlines / control chars — collapse to one line."""
+    s = TAG.sub(" ", s or "")
+    s = CTRL.sub(" ", s)
+    s = WS.sub(" ", s)
+    return s.strip()
 
 
 def build_text(record: dict) -> str:
@@ -47,8 +57,10 @@ def ze_post(session: requests.Session, key: str, path: str, body: dict) -> dict:
         timeout=60,
     )
     if r.status_code >= 400:
-        # surface ZE error details
-        raise RuntimeError(f"ZE {path} -> {r.status_code}: {r.text[:500]}")
+        # surface ZE error details — tail of the response often has the real reason
+        body = r.text
+        snippet = body if len(body) < 1200 else body[:300] + " ... " + body[-600:]
+        raise RuntimeError(f"ZE {path} -> {r.status_code}: {snippet}")
     return r.json()
 
 
@@ -94,17 +106,18 @@ def main() -> int:
                 continue
             stls = rec.get("stl_files") or []
             primary = stls[0] if stls else {}
-            desc_plain = strip_html(rec.get("description", ""))
-            details_plain = strip_html(rec.get("details", ""))
+            desc_plain = normalize_meta(rec.get("description", ""))
+            details_plain = normalize_meta(rec.get("details", ""))
+            joined_desc = (desc_plain + (" — " + details_plain if details_plain else ""))[:1000]
             meta = {
                 "thing_id": str(rec.get("id", "")),
-                "name": (rec.get("name") or "")[:500],
+                "name": normalize_meta(rec.get("name", ""))[:500],
                 # Description carried in metadata so retrieval callers don't
-                # need the source jsonl. Truncated to stay under ZE's 65536-byte
-                # metadata-value cap with headroom.
-                "description": (desc_plain + ("\n\n" + details_plain if details_plain else ""))[:8000],
+                # need the source jsonl. ZE rejects newlines/control chars in
+                # metadata values, so we flatten to one line.
+                "description": joined_desc,
                 "thing_url": rec.get("url") or "",
-                "stl_name": primary.get("name", ""),
+                "stl_name": normalize_meta(primary.get("name", "")),
                 "stl_url": primary.get("url", ""),
                 # ZE metadata requires scalar strings — JSON-encode lists so
                 # callers can json.loads() them on retrieval.
