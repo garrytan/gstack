@@ -605,6 +605,17 @@ create_agents_sidecar() {
     fi
   done
 
+  # CAD preview runtime. Link only runtime subdirs so source skill files are not exposed
+  # under the root sidecar if a future /cad-coder skill is added.
+  if [ -d "$SOURCE_GSTACK_DIR/cad-coder/ui" ]; then
+    mkdir -p "$agents_gstack/cad-coder"
+    _link_or_copy "$SOURCE_GSTACK_DIR/cad-coder/ui" "$agents_gstack/cad-coder/ui"
+  fi
+  if [ -d "$SOURCE_GSTACK_DIR/cad-coder/examples" ]; then
+    mkdir -p "$agents_gstack/cad-coder"
+    _link_or_copy "$SOURCE_GSTACK_DIR/cad-coder/examples" "$agents_gstack/cad-coder/examples"
+  fi
+
   # Sidecar files that skills reference at runtime
   for file in ETHOS.md; do
     local src="$SOURCE_GSTACK_DIR/$file"
@@ -634,7 +645,7 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/cad-coder" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -661,6 +672,13 @@ create_codex_runtime_root() {
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
   fi
+  # CAD preview UI runtime, without linking cad-coder/SKILL.md into the root.
+  if [ -d "$gstack_dir/cad-coder/ui" ]; then
+    _link_or_copy "$gstack_dir/cad-coder/ui" "$codex_gstack/cad-coder/ui"
+  fi
+  if [ -d "$gstack_dir/cad-coder/examples" ]; then
+    _link_or_copy "$gstack_dir/cad-coder/examples" "$codex_gstack/cad-coder/examples"
+  fi
 }
 
 create_factory_runtime_root() {
@@ -674,7 +692,7 @@ create_factory_runtime_root() {
     rm -rf "$factory_gstack"
   fi
 
-  mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
+  mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/cad-coder" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
 
   if [ -f "$factory_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
@@ -699,6 +717,12 @@ create_factory_runtime_root() {
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
   fi
+  if [ -d "$gstack_dir/cad-coder/ui" ]; then
+    _link_or_copy "$gstack_dir/cad-coder/ui" "$factory_gstack/cad-coder/ui"
+  fi
+  if [ -d "$gstack_dir/cad-coder/examples" ]; then
+    _link_or_copy "$gstack_dir/cad-coder/examples" "$factory_gstack/cad-coder/examples"
+  fi
 }
 
 create_opencode_runtime_root() {
@@ -712,7 +736,7 @@ create_opencode_runtime_root() {
     rm -rf "$opencode_gstack"
   fi
 
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/cad-coder" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
@@ -751,6 +775,12 @@ create_opencode_runtime_root() {
   fi
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
+  fi
+  if [ -d "$gstack_dir/cad-coder/ui" ]; then
+    _link_or_copy "$gstack_dir/cad-coder/ui" "$opencode_gstack/cad-coder/ui"
+  fi
+  if [ -d "$gstack_dir/cad-coder/examples" ]; then
+    _link_or_copy "$gstack_dir/cad-coder/examples" "$opencode_gstack/cad-coder/examples"
   fi
 }
 
@@ -957,13 +987,19 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   KIRO_GSTACK="$KIRO_SKILLS/gstack"
   # Remove old whole-dir symlink from previous installs
   [ -L "$KIRO_GSTACK" ] && rm -f "$KIRO_GSTACK"
-  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
+  mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/cad-coder" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
   _link_or_copy "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
   _link_or_copy "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
   _link_or_copy "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
     _link_or_copy "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
+  fi
+  if [ -d "$SOURCE_GSTACK_DIR/cad-coder/ui" ]; then
+    _link_or_copy "$SOURCE_GSTACK_DIR/cad-coder/ui" "$KIRO_GSTACK/cad-coder/ui"
+  fi
+  if [ -d "$SOURCE_GSTACK_DIR/cad-coder/examples" ]; then
+    _link_or_copy "$SOURCE_GSTACK_DIR/cad-coder/examples" "$KIRO_GSTACK/cad-coder/examples"
   fi
   # gstack-upgrade skill
   if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then

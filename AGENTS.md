@@ -72,6 +72,9 @@ Invoke them by name (e.g., `/office-hours`).
 |-------|-------------|
 | `/browse` | Headless browser — real Chromium, real clicks, ~100ms/command. |
 | `/open-gstack-browser` | Launch the visible GStack Browser with sidebar + stealth. |
+| `/cad-coder` | Chat-driven parametric CAD for 3D printing — sketch a cadquery .py from a one-liner, iterate turn by turn, optionally launch the live Three.js preview that watches a GLB file. |
+| `/plan-mech-review` | Mechanical-engineering critique of a printed-part spec BEFORE CAD — load case, FoS, filament σ_y, print orientation, fits. Writes a mech-review artifact /cad-coder reads. |
+| `/qa-print` | Post-print QA loop in plain language — "does it fit? yes/no/almost", ruler-grade measurements, shrinkage vs calibration diagnosis, one parameter edit suggestion to take back to /cad-coder. |
 | `/setup-browser-cookies` | Import cookies from your real browser for authenticated testing. |
 | `/pair-agent` | Pair a remote AI agent (OpenClaw, Codex, etc.) with your browser. |
 

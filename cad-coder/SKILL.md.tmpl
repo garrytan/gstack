@@ -3,17 +3,14 @@ name: cad-coder
 preamble-tier: 2
 version: 0.2.0
 description: |
-  Chat your way to a parametric 3D CAD model in Python with cadquery.
-  Start from a one-line description, sketch with reasonable defaults,
-  then iterate turn by turn — "make it bigger", "add a cable slot",
-  "switch to M4 holes" — without rewriting the script each time. The
-  `.py` is the source of truth, named features make targeted edits
-  trivial, and a session state file remembers the conversation across
-  Claude restarts. Use when asked to "model a part", "design a bracket",
-  "make a CAD file", "generate STEP", "build a fixture", "design an
-  enclosure", or any back-and-forth about physical hardware to be
-  printed, milled, or laser-cut. Proactively invoke when the user
-  describes a physical object they want to fabricate. (gstack)
+  Chat-driven parametric 3D CAD in Python with cadquery, for 3D-printed
+  parts. Sketch from a one-line description, iterate turn by turn
+  ("make it bigger", "add a slot", "switch to M4 holes"), with optional
+  live Three.js preview. Multi-part projects supported with shared
+  params. Use when asked to "model a part", "design a bracket", "make
+  a CAD file", "build an enclosure", or any back-and-forth about a
+  3D-printed object. Proactively invoke when the user describes
+  physical hardware to fabricate. (gstack)
 voice-triggers:
   - "model a part"
   - "design a bracket"
@@ -355,6 +352,7 @@ Before any requirements gather, check for prior artifacts in this order
 of priority. **Take the highest-priority one that exists; don't merge.**
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat: empty globs are OK
 {{SLUG_SETUP}}
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
 USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
@@ -523,26 +521,45 @@ if FILLET_RADIUS > 0:
 
 
 if __name__ == "__main__":
-    import sys, json
-    # Validate-only by default (no files written) — keeps the chat
+    import os, sys, json
+    # Validate-only by default (no STEP/STL written) — keeps the chat
     # loop cheap. Pass --export to also drop STEP + STL.
+    # GLB is always written when --preview is passed (cheap; feeds the
+    # live preview UI without committing to a printable STL yet).
     export = "--export" in sys.argv
+    preview = "--preview" in sys.argv or os.environ.get("CAD_PREVIEW") == "1"
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     bb = result.val().BoundingBox()
+    stem = __file__.rsplit('/', 1)[-1].rsplit('.', 1)[0]
     out = {
         "bbox_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)],
         "volume_mm3": round(result.val().Volume(), 1),
         "faces": len(result.faces().vals()),
         "exported": False,
+        "previewed": False,
     }
     if export:
-        out_step = args[0] if args else f"{__file__.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.step"
+        out_step = args[0] if args else f"{stem}.step"
         out_stl = out_step.replace(".step", ".stl")
         cq.exporters.export(result, out_step)
         cq.exporters.export(result, out_stl)
         out["exported"] = True
         out["step"] = out_step
         out["stl"] = out_stl
+    if preview or export:
+        # GLB drops alongside the script so the live preview UI can
+        # pick it up via file-watch. Always written on export turns,
+        # opt-in on validate turns via --preview / CAD_PREVIEW=1.
+        # NB: cadquery exports GLB via Assembly.export, not exporters.export.
+        out_glb = args[0].replace(".step", ".glb") if args else f"{stem}.glb"
+        try:
+            assy = cq.Assembly()
+            assy.add(result, name=stem)
+            assy.export(out_glb)
+            out["previewed"] = True
+            out["glb"] = out_glb
+        except Exception as e:
+            out["preview_error"] = str(e)
     print(json.dumps(out))
 ```
 
@@ -1288,6 +1305,93 @@ The `diff` field is a one-line plain-English summary, not a unified
 diff. It's what `session.json` shows the user when they ask "what did
 we change last?"
 
+### Live preview (opt-in, browser-based)
+
+cad-coder ships with a Three.js viewer in `cad-coder/ui/` that watches
+a `.glb` file and reloads via server-sent events when the file changes.
+Use it when the user wants to **see** the part while iterating — turns
+the chat loop from "imagine the bracket from the bbox numbers" into
+"click-and-spin the actual model after every edit."
+
+**Trigger phrases:** "show me the preview", "open the viewer", "let me
+see it", "spin it up", "live preview", "open it in 3D".
+
+**Mechanics:**
+
+1. On the preview-launch turn, run the script ONCE with `--preview` to
+   generate the initial GLB next to the `.py`:
+   ```bash
+   $CAD_PY artifacts/<part-name>/<part-name>.py --preview
+   ```
+   This writes `artifacts/<part-name>/<part-name>.glb` without writing
+   STEP or STL. Cheap (~ same cost as a validate run).
+
+2. Launch the UI server in the background, pointed at the GLB:
+   ```bash
+   _ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+   _MODEL_ABS="$_ROOT/artifacts/<part-name>/<part-name>.glb"
+   _PORT=${CAD_CODER_PORT:-8765}
+   bun "$_ROOT/cad-coder/ui/server.ts" \
+     --model "$_MODEL_ABS" \
+     --project-root "$_ROOT" \
+     --port "$_PORT" &
+   echo "Preview: http://127.0.0.1:$_PORT"
+   ```
+   Tell the user the URL. They open it in a browser; it stays open
+   across turns.
+
+3. On EVERY subsequent validate turn while preview is active, set
+   `CAD_PREVIEW=1` when running the script so the GLB regenerates:
+   ```bash
+   CAD_PREVIEW=1 $CAD_PY artifacts/<part-name>/<part-name>.py
+   ```
+   The script's `__main__` block writes the GLB. The UI's file-watcher
+   detects the change and reloads the canvas through SSE — the user
+   sees the new geometry without refreshing the browser.
+
+4. Track preview state in `session.json["preview"]`:
+   ```json
+   "preview": {
+     "active": true,
+     "port": 8765,
+     "url": "http://127.0.0.1:8765",
+     "started_at": "2026-05-16T13:20:00Z",
+     "last_glb_at": "2026-05-16T13:24:18Z"
+   }
+   ```
+   When `preview.active` is true, prepend every Phase 3 report with:
+   ```
+   Live preview: http://127.0.0.1:8765 (model auto-reloads each turn)
+   ```
+
+5. The user can stop the preview with "close the preview" / "stop the
+   viewer" — kill the bun process, set `preview.active = false`, and
+   stop adding `CAD_PREVIEW=1` to validate runs.
+
+**Preview vs export:**
+
+| Mode | What runs | What writes | Cost per turn |
+|------|-----------|-------------|---------------|
+| Validate (default) | script | JSON stats only | ~ms |
+| Validate with preview | script + GLB export | JSON + GLB | ~50-200ms |
+| Export (signal turn) | script + STEP + STL + GLB | all three | ~500ms |
+
+GLB is the right format for previewing because it's the web-native 3D
+format and Three.js loads it natively. STEP and STL are still the
+shippable formats — GLB is preview-only.
+
+**For multi-part projects:** the preview shows the **assembly** GLB, not
+a single part. The assembly GLB regenerates on every validate turn
+(against any part) when preview is active, so changes to any part are
+visible in the combined viewer. The watcher in `cad-coder/examples/
+watch-cadquery.ts` is the reference for re-running CAD scripts on file
+change — useful if you want a watch-mode dev loop outside of /cad-coder.
+
+**Examples ship with the skill:** `cad-coder/examples/cadquery-whistle.py`
+is a worked-example part you can preview to confirm the UI is working
+before sketching your own. `cad-coder/README.md` documents the UI
+contract for skill authors who want to point it at a different exporter.
+
 ### Downstream artifact: write `cad-built` ONLY on export turns
 
 When (and only when) an export turn drops a fresh STEP+STL, write a
@@ -1523,6 +1627,7 @@ full assembly check: "do they all fit together?"
    ```
    artifacts/**/*.step
    artifacts/**/*.stl
+   artifacts/**/*.glb
    artifacts/**/*.session.json
    artifacts/qa-print/
    ```

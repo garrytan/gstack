@@ -807,6 +807,7 @@ The first thing to know is *what part the user is checking*. Read the
 latest cad-built artifact for this branch:
 
 ```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat: empty globs are OK
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
 USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
