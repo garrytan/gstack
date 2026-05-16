@@ -104,7 +104,7 @@ processes. Suggest they use a CAM/DFM-aware workflow instead.
    meaningful sub-object (body, holes, slots, fillets, pockets) as a
    named variable. "Make the holes bigger" must be a one-parameter edit,
    never a rewrite of the geometry pipeline.
-3. **Session state is durable.** Every turn reads `cad-out/<part>.session.json`,
+3. **Session state is durable.** Every turn reads `artifacts/<part>.session.json`,
    mutates it, writes it back. The session survives Claude restarts,
    so the user can come back tomorrow and say "go back to the version
    before I added the slot" and you can.
@@ -164,40 +164,95 @@ guessed engineered from a borderline signal, surface that in the report
 so the user can downshift to casual ("this is just a prototype, skip
 the load case").
 
-### Upstream handoff: pre-flight check for an /office-hours brief
+### Replacement-part fast path (non-tech-friendly)
 
-Before any requirements gather, check whether `/office-hours` has
-already produced a design doc for this branch. The standard gstack
-artifact path is `~/.gstack/projects/{slug}/{user}-{branch}-design-*.md`.
+If the request matches a **broken-part replacement** — phrases like
+"the X on my Y broke", "snapped", "replacement clip", "the latch on my
+vacuum", "the knob fell off my drawer" — treat the user as non-technical
+by default. The whole flow has to be friendly to someone with a ruler,
+not an engineer with calipers.
+
+1. **Set `session.json["sub_mode"] = "replacement"`.** Casual mode
+   stays selected; this is a UI flavor, not a fifth mode.
+2. **Ask for two things in plain language, ONE round:**
+   - A photo of the broken part (if they can take one). "Snap a photo
+     of the broken piece on a piece of paper with a ruler next to it,
+     if you can." Optional — they can skip.
+   - The few measurements that matter. Frame them by what they're for,
+     not by the named feature: "How wide is the slot the part slides
+     into? About how long is the part overall? How thick is the wall
+     it bolts to?" Three numbers max. Millimetres, but accept inches
+     and convert (1" = 25.4mm).
+3. **Sketch with explicit "starter" labels.** Every dimension you
+   guessed (not measured) goes in `session.json["assumptions"]`
+   prefixed with "STARTER:" so the user knows what to expect to tune
+   on the next iteration.
+4. **Suggest a scale-test before the full part.** Tell the user:
+   > "Before printing the full part, print just the mating feature at
+   > 100% scale — it'll take 10 minutes and tell us if the fit is
+   > right. I can generate a test stub if you want."
+   If they say yes, generate a separate `<part>-test.py` with just the
+   mating feature (the hole, the slot, the snap) on a 30mm coupon.
+5. **Use plain language in the report.** Not "M3 clearance hole Ø3.4mm
+   with 0.4mm print oversize" — say "a 3.4mm hole that fits an M3 screw
+   loosely". Not "0.2mm slip fit clearance" — say "0.2mm of breathing
+   room so it slides without binding". Keep the technical names in
+   `session.json` for downstream skills, but never lead with them in
+   chat.
+
+After the scale-test fits, scale the named features back into the full
+part and re-run. /qa-print downstream uses the same plain-language
+tone: "does the part fit where it should go?" beats "measure the boss
+to ±0.05mm".
+
+### Upstream handoff: pre-flight check for prior artifacts
+
+Before any requirements gather, check for prior artifacts in this order
+of priority. **Take the highest-priority one that exists; don't merge.**
 
 ```bash
 {{SLUG_SETUP}}
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
 USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
-ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-design-*.md 2>/dev/null | head -1
+
+# Priority 1: /plan-mech-review artifact (most authoritative)
+MECH=$(ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-mech-review-*.md 2>/dev/null | head -1)
+# Priority 2: /office-hours design doc
+BRIEF=$(ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-design-*.md 2>/dev/null | head -1)
 ```
 
-If a brief is present, **read it before doing anything else** and
-extract:
-
-- Part name / description
-- Load case, mating constraints, tolerances (if mentioned)
-- Process / filament preference (if mentioned)
-- Quantity / lifetime (if mentioned)
-
-Populate `session.requirements` from the brief, skip the in-skill
-`AskUserQuestion` gather, and **surface the pickup in the report**:
+**Priority 1 — mech-review present:** Read it and populate BOTH
+`session.requirements` AND `session.engineered_constraints` directly
+from the artifact. The mech-review has already chosen FoS, filament
+(with cited σ_y), print orientation, and fits — those are decisions,
+not suggestions. Skip the inline requirements gather AND skip the
+engineered-defaults table in Phase 1 (use mech-review values instead).
+Surface the pickup in the report:
 
 ```
-Picked up brief: ~/.gstack/projects/<slug>/<user>-<branch>-design-2026-05-16T12-00.md
+Picked up mech-review: ~/.gstack/projects/<slug>/<user>-<branch>-mech-review-<ts>.md
+Spec locked: PETG, FoS 5.0, WALL ≥ 2.4mm, Z-up Y, M3 clearance Ø3.4, Ø8 boss slip.
+```
+
+**Priority 2 — design doc present (no mech-review):** Read the design
+doc and populate `session.requirements`. The design doc has the
+*intent* but not the engineering decisions — Phase 1's engineered-mode
+defaults still apply for any value the brief didn't pin. Surface:
+
+```
+Picked up brief: ~/.gstack/projects/<slug>/<user>-<branch>-design-<ts>.md
 From /office-hours: 5kg cyclic gimbal mount, PETG, mounts to FrameKit X2.
 ```
 
-Only ask follow-up questions for anything the brief left blank AND that
-engineered mode requires. The brief is the user's prior intent — don't
-re-litigate it.
+Only ask follow-up questions for what the brief left blank AND that
+engineered mode requires.
 
-If no brief is found, proceed with the in-skill gather below.
+**Neither present:** Run the in-skill gather below.
+
+If both a mech-review AND a design doc exist, mech-review wins (it
+*reviewed* the design doc — it's the newer authority). Note the
+design doc as the brief source inside the mech-review's
+`brief_source` field; do not re-merge.
 
 ### Engineered-mode requirements gather (ONE round, engineered mode only)
 
@@ -264,8 +319,8 @@ layer-direction factor, the print orientation, and the fit type for
 any mating hole. Engineered mode without a visible safety margin is
 just casual mode in a lab coat.
 
-Write the script to `cad-out/<part-name>.py` and the session file to
-`cad-out/<part-name>.session.json`. Create `cad-out/` if missing; add it
+Write the script to `artifacts/<part-name>.py` and the session file to
+`artifacts/<part-name>.session.json`. Create `artifacts/` if missing; add it
 to `.gitignore` if not already there.
 
 ### Script structure (mandatory)
@@ -334,12 +389,12 @@ if __name__ == "__main__":
 
 ### Session file structure (mandatory)
 
-`cad-out/<part-name>.session.json` — read-mutate-write every turn.
+`artifacts/<part-name>.session.json` — read-mutate-write every turn.
 
 ```json
 {
   "part": "mounting-bracket",
-  "script": "cad-out/mounting-bracket.py",
+  "script": "artifacts/mounting-bracket.py",
   "created_at": "2026-05-16T11:50:00Z",
   "mode": "casual",
   "triage_signals": [],
@@ -370,7 +425,7 @@ that downstream edits must respect:
 ```json
 {
   "part": "motor-bracket",
-  "script": "cad-out/motor-bracket.py",
+  "script": "artifacts/motor-bracket.py",
   "created_at": "2026-05-16T11:50:00Z",
   "mode": "engineered",
   "triage_signals": ["holds a 5kg gimbal motor", "bolts to vibrating quadcopter frame"],
@@ -416,8 +471,8 @@ this is a prototype" or "flip print orientation, load axis changed").
 ## Phase 2: Run + Validate (every turn)
 
 ```bash
-mkdir -p cad-out
-cd cad-out
+mkdir -p artifacts
+cd artifacts
 python3 <part-name>.py <part-name>.step
 ```
 
@@ -450,7 +505,7 @@ ending in an open question. Pick the shape that matches `session.mode`.
 **Casual-mode report:**
 
 ```
-Built: cad-out/mounting-bracket.step  (turn 1)
+Built: artifacts/mounting-bracket.step  (turn 1)
 Assumed: FDM print, M3 clearance holes, 4 corners, no fillets.
 Geometry: 60 × 40 × 4 mm  |  Volume 7.10 cm³  |  22 faces
 Features: body, mount_holes
@@ -464,7 +519,7 @@ side", "fillet the top edges to 1mm", "switch to M4 holes", or
 never omit either in engineered mode):
 
 ```
-Built: cad-out/motor-bracket.step  (turn 1, engineered)
+Built: artifacts/motor-bracket.step  (turn 1, engineered)
 Requirements: 5kg cyclic, bolts to frame via 4× M3, FDM PETG, 0.4mm nozzle, 5 units.
 Engineering: FoS 5.0 cyclic · σ_y 45 MPa in-plane (PETG, cited) · layer factor 1.0 · WALL ≥ 2.4mm · boss slip Ø8.2 · holes Ø3.4.
 Print: Y-up, largest face on bed · est. print time 1h45m @ 0.2mm layer · ~22g PETG.
@@ -481,6 +536,18 @@ estimate is a rule of thumb (volume / typical-flow-rate) — surface as
 "est." so the user knows it's pre-slicer. Both are the cheapest sanity
 checks on whether the part makes physical sense.
 
+**After every report, add a one-liner pointing at /qa-print** for
+when the user comes back from the printer:
+
+```
+After you print it: run /qa-print to check the fit. Don't need calipers
+— a ruler is fine.
+```
+
+Skip this hint on turns where the only edit was a no-op (e.g., the user
+just asked "what does this part weigh again?" without changing the
+geometry). The hint matters when a fresh STEP/STL just dropped.
+
 ### Handling the next instruction
 
 Map every user instruction to one of these edit types. Pick the
@@ -492,7 +559,7 @@ narrowest one that fits.
 | "add a cable slot" / "pocket the bottom" / "boss on top" | **Feature add** | Add one new named-feature block between the existing ones and `result = ...`. Update `session.json["features"]` and reassign `result` to the new feature. |
 | "remove the fillet" / "drop the mounting holes" | **Feature remove** | Delete the named-feature block. Reassign `result` to the previous feature. Update `session.json["features"]`. |
 | "go back two turns" / "undo" | **Session replay** | Read `session.json["history"]`, regenerate the script from the params at turn N. Append a new history entry; do not delete old ones. |
-| "save this as a variant" / "branch" | **Snapshot** | `cp cad-out/<part>.{py,session.json} cad-out/<part>-<tag>.{py,session.json}`. |
+| "save this as a variant" / "branch" | **Snapshot** | `cp artifacts/<part>.{py,session.json} artifacts/<part>-<tag>.{py,session.json}`. |
 
 **Hard rule:** Parameter edits and feature adds/removes must NEVER
 rewrite the geometry pipeline as a whole. If you find yourself
@@ -550,7 +617,7 @@ we change last?"
 
 After every turn that produces a valid STEP file, write a project-scoped
 artifact so `/retro`, a future `/qa-print`, and any other downstream
-skill can pick up what was built without inspecting `cad-out/` directly.
+skill can pick up what was built without inspecting `artifacts/` directly.
 
 ```bash
 {{SLUG_SETUP}}
@@ -568,8 +635,8 @@ Artifact format (Markdown — both human-readable and easy to parse):
 
 - **Mode:** casual | engineered
 - **Part name:** <kebab-case>
-- **Script:** cad-out/<part-name>.py
-- **Session:** cad-out/<part-name>.session.json
+- **Script:** artifacts/<part-name>.py
+- **Session:** artifacts/<part-name>.session.json
 - **Built at:** <ISO-8601 UTC>
 - **Triggered by:** <one-line user instruction this turn>
 
@@ -614,14 +681,25 @@ single coherent shape.
    report. Wrong physical parts waste material and time.
 2. **No GUI assumptions.** Do not require `cq-editor` or Jupyter. The
    skill must work headless via `python3 script.py`.
-3. **Don't commit `cad-out/`.** Add to `.gitignore` if not already
-   there. The `.py` is the source; STEP/STL/session are artifacts.
+3. **Track the `.py`, ignore the rest.** The `.py` is the source of
+   truth and SHOULD be committed (it's how the part survives in git).
+   STEP, STL, and `.session.json` are build artifacts — generated
+   fresh from the `.py`, so they should be gitignored. Add this block
+   to `.gitignore` if not already there:
+   ```
+   artifacts/*.step
+   artifacts/*.stl
+   artifacts/*.session.json
+   artifacts/qa-print/
+   ```
+   Do not gitignore `artifacts/` as a whole — that would drop the
+   `.py` files too.
 4. **STEP first, STL second.** STEP preserves the CAD model
    (parametric re-import works). STL is triangulated dead-end — fine
    for printing, useless for editing.
 5. **One part per session.** If the user describes a second part,
    start a new session file rather than cramming both into one. Cross-
-   reference siblings in the report ("see also `cad-out/lid.session.json`").
+   reference siblings in the report ("see also `artifacts/lid.session.json`").
 6. **Mention cost when relevant.** If the user is making 50 of these
    in titanium and the volume is 100cm³, surface that. Geometry
    decisions have material-cost consequences.

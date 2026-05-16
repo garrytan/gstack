@@ -835,6 +835,8 @@ Key routing rules:
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 - Parametric CAD / 3D model / bracket / STEP file → invoke /cad-coder
+- Mech-engineering review of a printed-part spec (FoS, filament, fits, orientation) → invoke /plan-mech-review BEFORE /cad-coder
+- "Did my printed part come out right" / "the part doesn't fit" / measure-the-print → invoke /qa-print AFTER /cad-coder
 
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->

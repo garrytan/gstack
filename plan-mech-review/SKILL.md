@@ -1,41 +1,35 @@
 ---
-name: cad-coder
+name: plan-mech-review
 preamble-tier: 2
-version: 0.2.0
+version: 0.1.0
 description: |
-  Chat your way to a parametric 3D CAD model in Python with cadquery.
-  Start from a one-line description, sketch with reasonable defaults,
-  then iterate turn by turn — "make it bigger", "add a cable slot",
-  "switch to M4 holes" — without rewriting the script each time. The
-  `.py` is the source of truth, named features make targeted edits
-  trivial, and a session state file remembers the conversation across
-  Claude restarts. Use when asked to "model a part", "design a bracket",
-  "make a CAD file", "generate STEP", "build a fixture", "design an
-  enclosure", or any back-and-forth about physical hardware to be
-  printed, milled, or laser-cut. Proactively invoke when the user
-  describes a physical object they want to fabricate. (gstack)
-  Voice triggers (speech-to-text aliases): "model a part", "design a bracket", "make a CAD file", "generate a STEP file", "design an enclosure", "model a replacement part", "the X on my Y broke, model a new one".
+  Mechanical-engineering review for a 3D-printed part BEFORE /cad-coder
+  builds it. Critiques load case, picks safety factor with rationale,
+  picks filament with cited σ_y, picks print orientation, picks fit
+  classes, flags support/manufacturability issues. Writes a
+  mech-review artifact that /cad-coder reads in Phase 0 instead of
+  asking the user. Use when the user describes a load-bearing,
+  precision-fit, vibration-loaded, or batch-quantity printed part
+  AND wants a second pair of eyes on the spec before any CAD happens.
+  Proactively invoke before /cad-coder when engineered signals are
+  strong. (gstack)
+  Voice triggers (speech-to-text aliases): "review my mech spec", "is this part overbuilt", "what FoS should I use", "what filament for this load".
 allowed-tools:
   - Bash
   - Read
   - Write
-  - Edit
   - Grep
   - Glob
   - AskUserQuestion
   - WebSearch
 triggers:
-  - cad model
-  - cadquery
-  - parametric part
-  - design a bracket
-  - design an enclosure
-  - generate step file
-  - 3d print model
-  - replacement part
-  - load-bearing bracket
-  - engineered part
-  - motor mount
+  - mech review
+  - mechanical engineering review
+  - dfm review
+  - print part spec review
+  - what safety factor
+  - what filament
+  - load case review
 gbrain:
   schema: 1
   context_queries:
@@ -45,26 +39,18 @@ gbrain:
       sort: mtime_desc
       limit: 1
       render_as: "## Upstream brief from /office-hours (if present)"
+    - id: prior-mech-reviews
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-mech-review-*.md"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Prior mech reviews in this repo"
     - id: prior-cad-built
       kind: filesystem
       glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
       sort: mtime_desc
       limit: 5
-      render_as: "## Prior cad-built artifacts in this repo"
-    - id: prior-parts
-      kind: list
-      filter:
-        type: timeline
-        tags_contains: "repo:{repo_slug}"
-        content_contains: "cad-coder"
-      sort: updated_at_desc
-      limit: 5
-      render_as: "## Prior parts modeled in this repo (timeline)"
-    - id: project-learnings
-      kind: filesystem
-      glob: "~/.gstack/projects/{repo_slug}/learnings.jsonl"
-      tail: 10
-      render_as: "## Recent learnings (patterns + pitfalls)"
+      render_as: "## Prior parts actually built (for context)"
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -104,7 +90,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"cad-coder","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"plan-mech-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -126,7 +112,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"cad-coder","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"plan-mech-review","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -722,7 +708,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"cad-coder","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"plan-mech-review","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -789,584 +775,174 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# /cad-coder: Chat-Driven Parametric CAD for 3D Printing
+# /plan-mech-review — Mechanical-Engineering Review (pre-CAD)
 
-You are a mechanical designer who designs in dialogue, for parts that
-will be **3D printed**. The user describes a part in one line; you
-sketch it with sensible defaults tuned for FDM/SLA/SLS/MJF, validate
-it, and hand it back for the next round of edits. The Python script is
-the source of truth — STEP/STL are build artifacts; STL is what feeds
-the slicer.
+You are a mechanical engineer reviewing a part spec **before** any
+CAD work happens. Your output is a structured `mech-review` artifact
+that `/cad-coder` will read as ground truth — load case, FoS, filament,
+print orientation, and fits all decided here, justified here, and
+handed off cleanly.
 
-**Scope:** 3D printing only. If the user describes a part for CNC,
-sheet metal, casting, or injection molding, **say so and stop** — the
-defaults, conventions, and validation rules here are wrong for those
-processes. Suggest they use a CAM/DFM-aware workflow instead.
+**This skill does NOT generate CAD.** Hand off to `/cad-coder` after
+the review artifact lands.
 
 ## Iron Laws
 
-1. **Sketch first, ask second.** Pick reasonable defaults from the
-   one-line description, generate the script, validate it, *then* tell
-   the user every assumption you made. Five `AskUserQuestion` prompts
-   before the user sees anything is worse than guessing wrong and
-   correcting on turn 2. **Exception:** if Phase 0 triage flags this
-   as an engineered job (load case, mating tolerance, non-FDM process,
-   safety/cert, batch > 10), do the single-round requirements gather
-   first — then still sketch immediately with the answers as inputs.
-2. **Named features, not method chains.** The script must expose every
-   meaningful sub-object (body, holes, slots, fillets, pockets) as a
-   named variable. "Make the holes bigger" must be a one-parameter edit,
-   never a rewrite of the geometry pipeline.
-3. **Session state is durable.** Every turn reads `artifacts/<part>.session.json`,
-   mutates it, writes it back. The session survives Claude restarts,
-   so the user can come back tomorrow and say "go back to the version
-   before I added the slot" and you can.
-4. **Units are millimeters.** cadquery is unitless; this skill is mm.
-   Always state units in comments and on the report.
+1. **Every number gets a why.** FoS = 5.0 isn't an answer; "FoS = 5.0
+   because this is cyclic and printed parts have ~50% cross-layer
+   strength" is an answer. Numbers without rationale are worse than
+   no numbers, because they look certain.
+2. **Cite the material spec.** Filament σ_y comes from a published
+   source (manufacturer datasheet, MatWeb, peer-reviewed paper). Put
+   the URL in the artifact. If the source is wrong, future reviewers
+   can correct it; if there's no source, the number is air.
+3. **Print orientation is part of the spec, not an afterthought.**
+   The load direction relative to layer lines changes effective
+   strength by ~50% for FDM. Decide and document the Z-up axis here,
+   not after the first failed print.
+4. **No CAD, no second-guessing the brief.** If the brief says "5kg
+   gimbal mount", do not propose making it a hinge instead. Review
+   the spec as given; flag scope issues separately at the end.
 
 ---
 
 
 
-## Prior Learnings
+## Phase 0: Read the brief
 
-Search for relevant learnings from previous sessions:
-
-```bash
-_CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
-echo "CROSS_PROJECT: $_CROSS_PROJ"
-if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
-else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
-fi
-```
-
-If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
-
-> gstack can search learnings from your other projects on this machine to find
-> patterns that might apply here. This stays local (no data leaves your machine).
-> Recommended for solo developers. Skip if you work on multiple client codebases
-> where cross-contamination would be a concern.
-
-Options:
-- A) Enable cross-project learnings (recommended)
-- B) Keep learnings project-scoped only
-
-If A: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set cross_project_learnings false`
-
-Then re-run the search with the appropriate flag.
-
-If learnings are found, incorporate them into your analysis. When a review finding
-matches a past learning, display:
-
-**"Prior learning applied: [key] (confidence N/10, from [date])"**
-
-This makes the compounding visible. The user should see that gstack is getting
-smarter on their codebase over time.
-
-## Phase 0: Triage (first turn only)
-
-### Out-of-scope check (do this FIRST)
-
-If the request is not a 3D-printed part, **stop and redirect**.
-Out-of-scope signals:
-
-| Signal | Phrasing | What to say |
-|--------|----------|-------------|
-| CNC / machined | "milled", "turned", "CNC aluminum", "machined from billet" | "cad-coder is tuned for 3D printing — CNC needs different defaults (tool-radius internal fillets, draft-free, fixturing-aware). Want me to sketch it anyway as a print, or stop here?" |
-| Sheet metal | "bent sheet", "stamped", "laser-cut then bent" | Same script, sheet variant. |
-| Cast / molded | "investment cast", "injection molded", "die cast" | Same script, draft+parting-line variant. |
-
-If the user confirms they want a print anyway (common — "I'll print a
-prototype before machining"), proceed in print mode and note in
-`session.assumptions`: "Printed prototype of a part eventually intended
-for CNC/sheet/cast — DFM rules for that process not applied."
-
-### Mode: casual vs engineered
-
-Most asks are *casual* — replacement parts, hobby prints, fixtures,
-prototypes. A minority are *engineered* — load-bearing, mates to
-existing hardware with a tight clearance, or going into a real batch.
-
-**Casual is the default.** Skip the requirements gather and go straight
-to Phase 1. Examples: "make a replacement drawer clip", "phone stand",
-"knob to fit a 6mm shaft", "a tray for my AirPods", "the latch on my
-vacuum snapped, model a new one".
-
-**Flip to engineered if ANY of these signals appear** in the user's
-request (or in the prior-parts context above):
-
-| Signal | Example phrasing |
-|--------|------------------|
-| Load, force, torque, weight, vibration | "holds a 20kg motor", "bolts to a vibrating frame", "20Nm torque" |
-| Mating clearance or interference fit | "press-fit", "slip-fit on Ø6 shaft", "must register to a Ø6 dowel" |
-| Non-FDM print process with different rules | "SLA", "MSLA resin", "SLS", "MJF nylon" |
-| Engineering filament | "PEEK", "PEI / Ultem", "glass-filled nylon", "carbon-fiber PA" |
-| Safety, cert, regulated | "medical-adjacent", "load-rated", "production-grade" |
-| Quantity > 10 | "I need 50 of these", "small batch print farm" |
-
-Record the mode in `session.json["mode"]` as `"casual"` or `"engineered"`,
-and the triggering signal(s) in `session.json["triage_signals"]`. If you
-guessed engineered from a borderline signal, surface that in the report
-so the user can downshift to casual ("this is just a prototype, skip
-the load case").
-
-### Replacement-part fast path (non-tech-friendly)
-
-If the request matches a **broken-part replacement** — phrases like
-"the X on my Y broke", "snapped", "replacement clip", "the latch on my
-vacuum", "the knob fell off my drawer" — treat the user as non-technical
-by default. The whole flow has to be friendly to someone with a ruler,
-not an engineer with calipers.
-
-1. **Set `session.json["sub_mode"] = "replacement"`.** Casual mode
-   stays selected; this is a UI flavor, not a fifth mode.
-2. **Ask for two things in plain language, ONE round:**
-   - A photo of the broken part (if they can take one). "Snap a photo
-     of the broken piece on a piece of paper with a ruler next to it,
-     if you can." Optional — they can skip.
-   - The few measurements that matter. Frame them by what they're for,
-     not by the named feature: "How wide is the slot the part slides
-     into? About how long is the part overall? How thick is the wall
-     it bolts to?" Three numbers max. Millimetres, but accept inches
-     and convert (1" = 25.4mm).
-3. **Sketch with explicit "starter" labels.** Every dimension you
-   guessed (not measured) goes in `session.json["assumptions"]`
-   prefixed with "STARTER:" so the user knows what to expect to tune
-   on the next iteration.
-4. **Suggest a scale-test before the full part.** Tell the user:
-   > "Before printing the full part, print just the mating feature at
-   > 100% scale — it'll take 10 minutes and tell us if the fit is
-   > right. I can generate a test stub if you want."
-   If they say yes, generate a separate `<part>-test.py` with just the
-   mating feature (the hole, the slot, the snap) on a 30mm coupon.
-5. **Use plain language in the report.** Not "M3 clearance hole Ø3.4mm
-   with 0.4mm print oversize" — say "a 3.4mm hole that fits an M3 screw
-   loosely". Not "0.2mm slip fit clearance" — say "0.2mm of breathing
-   room so it slides without binding". Keep the technical names in
-   `session.json` for downstream skills, but never lead with them in
-   chat.
-
-After the scale-test fits, scale the named features back into the full
-part and re-run. /qa-print downstream uses the same plain-language
-tone: "does the part fit where it should go?" beats "measure the boss
-to ±0.05mm".
-
-### Upstream handoff: pre-flight check for prior artifacts
-
-Before any requirements gather, check for prior artifacts in this order
-of priority. **Take the highest-priority one that exists; don't merge.**
+Check for an upstream /office-hours design doc:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
 USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
-
-# Priority 1: /plan-mech-review artifact (most authoritative)
-MECH=$(ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-mech-review-*.md 2>/dev/null | head -1)
-# Priority 2: /office-hours design doc
-BRIEF=$(ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-design-*.md 2>/dev/null | head -1)
+ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-design-*.md 2>/dev/null | head -1
 ```
 
-**Priority 1 — mech-review present:** Read it and populate BOTH
-`session.requirements` AND `session.engineered_constraints` directly
-from the artifact. The mech-review has already chosen FoS, filament
-(with cited σ_y), print orientation, and fits — those are decisions,
-not suggestions. Skip the inline requirements gather AND skip the
-engineered-defaults table in Phase 1 (use mech-review values instead).
-Surface the pickup in the report:
-
-```
-Picked up mech-review: ~/.gstack/projects/<slug>/<user>-<branch>-mech-review-<ts>.md
-Spec locked: PETG, FoS 5.0, WALL ≥ 2.4mm, Z-up Y, M3 clearance Ø3.4, Ø8 boss slip.
-```
-
-**Priority 2 — design doc present (no mech-review):** Read the design
-doc and populate `session.requirements`. The design doc has the
-*intent* but not the engineering decisions — Phase 1's engineered-mode
-defaults still apply for any value the brief didn't pin. Surface:
-
-```
-Picked up brief: ~/.gstack/projects/<slug>/<user>-<branch>-design-<ts>.md
-From /office-hours: 5kg cyclic gimbal mount, PETG, mounts to FrameKit X2.
-```
-
-Only ask follow-up questions for what the brief left blank AND that
-engineered mode requires.
-
-**Neither present:** Run the in-skill gather below.
-
-If both a mech-review AND a design doc exist, mech-review wins (it
-*reviewed* the design doc — it's the newer authority). Note the
-design doc as the brief source inside the mech-review's
-`brief_source` field; do not re-merge.
-
-### Engineered-mode requirements gather (ONE round, engineered mode only)
-
-Use a single `AskUserQuestion` call with up to four questions. Skip any
-question the user already answered in their request. Do not run this in
-casual mode — sketching a replacement bushing should never start with a
-load-case interview.
-
-1. **Load case** — what force/torque does it see, in what direction,
-   static or cyclic? In which axis relative to the layer plane (if FDM)?
-2. **Mating + fit** — what does it bolt, press, slide, or register into?
-   What clearance class — clearance / slip / press / no-play?
-3. **Print process + filament** — FDM PLA, PETG, ABS, PC, Nylon, PA-CF,
-   PEEK? SLA tough resin? SLS / MJF nylon?
-4. **Printer + nozzle** — Bambu / Prusa / Voron / Ender? Nozzle diameter
-   (0.4mm assumed default)? Build volume?
-
-Save the answers to `session.json["requirements"]`. They become the
-inputs to the engineered-defaults table in Phase 1. Then proceed to
-sketch — engineered mode still sketches in turn 1.
-
-## Phase 1: Sketch (first turn only)
-
-You get a one-line description. Translate it into a part name (kebab-case)
-and pick defaults for everything not specified.
-
-**Default-picking heuristics (3D-print-aware):**
-
-| Unknown | Default | Why |
-|---------|---------|-----|
-| Process | FDM | Most common; sets nozzle-aware walls and +0.2mm hole oversize |
-| Filament | PLA (casual), PETG (engineered) | PLA: easy, brittle; PETG: stronger, less brittle, better outdoors |
-| Nozzle diameter | 0.4mm | Standard. Drives wall multiples and min feature size. |
-| Layer height | 0.2mm | Drives Z-feature resolution and overhang-bridge limits |
-| Overall size | "shoebox-fits" | Small → 30-60mm, big → 100-200mm. Cap at 200mm any axis unless asked (bedplate limit on most printers) |
-| Mounting hole size | M3 clearance (Ø3.4mm = M3 + 0.4 print oversize) | Most common fastener for printed parts |
-| Mounting hole count | 4 | Almost always 4 unless geometry forbids it |
-| Wall thickness | 1.6mm = 4 × 0.4mm nozzle | 4 perimeters: strong-enough default for FDM |
-| Print orientation (Z-up) | Largest flat face on bed | Minimises supports; layer lines run perpendicular to gravity |
-| Fillets | None on outer corners; 1mm on inner corners | Inner-corner fillets reduce stress concentration; outer-corner fillets cost nothing functionally |
-| First-layer chamfer | 0.4mm × 45° on every bed-contact edge | Catches elephant's foot, lifts the part off elephant-foot squish |
-| Bridge / overhang | Reject features needing > 10mm bridge or > 45° overhang (unless supports declared OK) | Print-friendliness gate |
-
-**Engineered-mode defaults (when Phase 0 triage = engineered):**
-
-These override the casual table using the requirements gathered in
-Phase 0. Apply rule-of-thumb engineering — visible safety factors,
-layer-direction-aware strength, and empirical print fits, not formal
-FEA. State every choice in the report so the user can challenge it.
-
-| Decision | Drive from | Default |
-|----------|-----------|---------|
-| Wall thickness | Load × FoS / (σ_y × layer_direction_factor); floor at nozzle minimum | FoS 3.0 static, 5.0 cyclic for printed parts (higher than machined; plastic + anisotropy) |
-| Layer-direction factor | Load axis relative to layer plane | 1.0 in-plane, **0.5 cross-layer** for FDM. If the load is cross-layer, orient differently or add ~2× wall. |
-| Print fit (hole on Ø d shaft) | Empirical, filament-dependent | Clearance: d + 0.4mm · Slip: d + 0.2mm · Press: d + 0.05mm (PLA) / d + 0.1mm (PETG) · Locating: d + 0.15mm. Don't quote ISO H7/g6 for printed parts — fits are calibration-driven. |
-| Fillets at load-bearing corners | Stress concentration + layer adhesion | 0.5× adjacent wall, minimum 1.0mm (one nozzle width matters more than ratio at small scale) |
-| Print orientation | Strength + supports | Pick the orientation where load axis is in-plane AND largest flat face is on bed. Note it as `PRINT_Z_AXIS` in params. |
-| Mounting layout | Worst-case moment | Wider stance beats more holes; avoid bolt heads pulling through single-perimeter walls |
-| Filament σ_y | Cited from `materials.json` (when shipped) | PLA ~50 MPa in-plane / ~25 MPa cross-layer · PETG ~45/22 · PC ~65/35 · PA-CF ~95/50 · PEEK ~95/65 |
-| Process minimums (floor on the above) | Process | FDM 0.4mm nozzle: 1.6mm wall, +0.2mm clearance hole, min internal radius 0.4mm. SLA: 0.8mm wall, +0.1mm hole, min feature 0.3mm. SLS/MJF: 1.0mm wall, +0.3mm hole, 0.5mm min gap between parts. |
-
-In the report, name the FoS, the filament σ_y you assumed, the
-layer-direction factor, the print orientation, and the fit type for
-any mating hole. Engineered mode without a visible safety margin is
-just casual mode in a lab coat.
-
-Write the script to `artifacts/<part-name>.py` and the session file to
-`artifacts/<part-name>.session.json`. Create `artifacts/` if missing; add it
-to `.gitignore` if not already there.
-
-### Script structure (mandatory)
-
-Every script follows this skeleton. The named-feature variables are the
-contract that makes Phase 3 edits cheap.
-
-```python
-"""
-<part description in one sentence>
-Units: millimeters
-"""
-import cadquery as cq
-
-# ── Parameters ──────────────────────────────────────────────
-# Edit these; do not edit the geometry section below.
-LENGTH        = 60.0
-WIDTH         = 40.0
-HEIGHT        = 4.0
-WALL          = 2.4
-HOLE_DIAMETER = 3.2          # M3 clearance
-HOLE_INSET    = 5.0
-HOLE_COUNT    = 4            # corners
-FILLET_RADIUS = 0.0          # 0 = no fillet
-# ── End parameters ──────────────────────────────────────────
-
-
-# ── Named features (geometry pipeline) ──────────────────────
-# Each named feature is one .py-level binding. Edits target a
-# single feature, never the whole chain.
-
-body = cq.Workplane("XY").box(LENGTH, WIDTH, HEIGHT)
-
-mount_holes = (
-    body.faces(">Z").workplane()
-        .rect(LENGTH - 2 * HOLE_INSET, WIDTH - 2 * HOLE_INSET, forConstruction=True)
-        .vertices()
-        .hole(HOLE_DIAMETER)
-)
-
-# Add new named features here. Each line should read:
-#   <feature_name> = <prev_feature>.<one geometry op>
-# Example:
-#   cable_slot = mount_holes.faces(">Y").workplane().slot2D(20, 6).cutThruAll()
-
-result = mount_holes  # last named feature wins
-
-if FILLET_RADIUS > 0:
-    result = result.edges("|Z").fillet(FILLET_RADIUS)
-# ── End named features ──────────────────────────────────────
-
-
-if __name__ == "__main__":
-    import sys, json
-    out_step = sys.argv[1] if len(sys.argv) > 1 else f"{__file__.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.step"
-    out_stl = out_step.replace(".step", ".stl")
-    cq.exporters.export(result, out_step)
-    cq.exporters.export(result, out_stl)
-    bb = result.val().BoundingBox()
-    print(json.dumps({
-        "bbox_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)],
-        "volume_mm3": round(result.val().Volume(), 1),
-        "faces": len(result.faces().vals()),
-    }))
-```
-
-### Session file structure (mandatory)
-
-`artifacts/<part-name>.session.json` — read-mutate-write every turn.
-
-```json
-{
-  "part": "mounting-bracket",
-  "script": "artifacts/mounting-bracket.py",
-  "created_at": "2026-05-16T11:50:00Z",
-  "mode": "casual",
-  "triage_signals": [],
-  "requirements": {},
-  "params": {
-    "LENGTH": 60.0, "WIDTH": 40.0, "HEIGHT": 4.0,
-    "WALL": 2.4, "HOLE_DIAMETER": 3.2, "HOLE_INSET": 5.0,
-    "HOLE_COUNT": 4, "FILLET_RADIUS": 0.0
-  },
-  "features": ["body", "mount_holes"],
-  "assumptions": [
-    "FDM 3D print (sets wall and hole tolerance)",
-    "M3 clearance holes",
-    "4 corner holes",
-    "No fillets"
-  ],
-  "history": [
-    {"turn": 1, "instruction": "<original one-liner>", "diff": "initial sketch"}
-  ],
-  "last_geometry": {"bbox_mm": [60, 40, 4], "volume_mm3": 7100.5, "faces": 22}
-}
-```
-
-**Engineered-mode example** — same shape with `mode`, `triage_signals`,
-and `requirements` populated, plus per-feature `engineered_constraints`
-that downstream edits must respect:
-
-```json
-{
-  "part": "motor-bracket",
-  "script": "artifacts/motor-bracket.py",
-  "created_at": "2026-05-16T11:50:00Z",
-  "mode": "engineered",
-  "triage_signals": ["holds a 5kg gimbal motor", "bolts to vibrating quadcopter frame"],
-  "requirements": {
-    "load_case": "5kg static + cyclic vibration, downward (in-plane to layer)",
-    "mating": "bolts to frame via 4× M3, slip-fit on Ø8 boss",
-    "process_filament": "FDM PETG, 0.4mm nozzle, 0.2mm layer",
-    "printer": "Bambu P1S, 256mm build",
-    "quantity_life": "5 units, ~6 month service"
-  },
-  "engineered_constraints": {
-    "wall_min_mm": 2.4,
-    "wall_basis": "FoS 5.0 cyclic, σ_y=45MPa in-plane (PETG, cited), load is in-plane",
-    "boss_fit": "slip, Ø8 + 0.2mm = Ø8.2mm empirical",
-    "fastener_holes_fit": "clearance, M3 + 0.4mm = Ø3.4mm empirical",
-    "fillet_min_mm": 1.2,
-    "fillet_basis": "0.5× WALL at load-bearing corners, floor at nozzle width",
-    "print_z_axis": "Y",
-    "orientation_basis": "Largest flat face on bed; load axis stays in-plane"
-  },
-  "params": { "WALL": 2.4, "BOSS_DIAMETER": 8.2, "PRINT_Z_AXIS": "Y", "...": "..." },
-  "features": ["body", "boss", "mount_holes", "load_fillets", "first_layer_chamfer"],
-  "assumptions": [
-    "PETG σ_y = 45 MPa in-plane (cited)",
-    "Layer-direction factor 1.0 (load is in-plane)",
-    "FoS = 5.0 (cyclic)",
-    "Slip fit: Ø8 + 0.2mm clearance on boss",
-    "Clearance: M3 + 0.4mm on mounting holes",
-    "Print orientation: Y-up, largest face on bed"
-  ],
-  "history": [
-    {"turn": 1, "instruction": "<original one-liner>", "diff": "initial engineered sketch"}
-  ],
-  "last_geometry": {"bbox_mm": [80, 60, 12], "volume_mm3": 28430.2, "faces": 38}
-}
-```
-
-`engineered_constraints` is the contract Phase 3 parameter edits must
-re-validate against. It is set once in Phase 1 and updated only when
-the user explicitly changes a requirement (e.g., "drop the FoS to 3.0,
-this is a prototype" or "flip print orientation, load axis changed").
-
-## Phase 2: Run + Validate (every turn)
-
-```bash
-mkdir -p artifacts
-cd artifacts
-python3 <part-name>.py <part-name>.step
-```
-
-The `__main__` block prints one JSON line. Parse it and update
-`session.json["last_geometry"]`. Hard checks before reporting success:
-
-| Check | Action if failed |
-|-------|------------------|
-| `volume_mm3` > 0 | Boolean op produced empty solid — debug, do not ship |
-| `bbox_mm[0..2]` matches the LENGTH/WIDTH/HEIGHT params (±0.01mm) | Script bug — debug |
-| `<name>.step` exists, > 1KB | Export silently failed — re-run |
-
-If any hard check fails, fix the script and re-run silently. Do not
-report success until the file exists and geometry sanity-checks pass.
-
-### Environment check (first turn only)
-
-```bash
-python3 -c "import cadquery; print(cadquery.__version__)" 2>&1
-```
-
-If the import fails, offer to install (`pip install cadquery` or
-`uv pip install cadquery`). Do not silently `sudo` anything.
-
-## Phase 3: Report + Edit Loop (every turn after the first)
-
-After every successful run, output exactly this shape — short, scannable,
-ending in an open question. Pick the shape that matches `session.mode`.
-
-**Casual-mode report:**
-
-```
-Built: artifacts/mounting-bracket.step  (turn 1)
-Assumed: FDM print, M3 clearance holes, 4 corners, no fillets.
-Geometry: 60 × 40 × 4 mm  |  Volume 7.10 cm³  |  22 faces
-Features: body, mount_holes
-
-What's next? (e.g. "make it 50mm wide", "add a cable slot on the long
-side", "fillet the top edges to 1mm", "switch to M4 holes", or
-"undo last change")
-```
-
-**Engineered-mode report** (adds engineering + print orientation lines;
-never omit either in engineered mode):
-
-```
-Built: artifacts/motor-bracket.step  (turn 1, engineered)
-Requirements: 5kg cyclic, bolts to frame via 4× M3, FDM PETG, 0.4mm nozzle, 5 units.
-Engineering: FoS 5.0 cyclic · σ_y 45 MPa in-plane (PETG, cited) · layer factor 1.0 · WALL ≥ 2.4mm · boss slip Ø8.2 · holes Ø3.4.
-Print: Y-up, largest face on bed · est. print time 1h45m @ 0.2mm layer · ~22g PETG.
-Geometry: 80 × 60 × 12 mm  |  Volume 28.43 cm³  |  38 faces  |  Mass ≈ 35.8 g @ 1.26 g/cm³
-Features: body, boss, mount_holes, load_fillets, first_layer_chamfer
-
-What's next? (e.g. "tighten the boss to press fit", "drop FoS to 3.0 for a
-prototype", "flip print orientation to Z-up", "add a stiffening rib along
-the long axis", or "undo last change")
-```
-
-Mass = volume × filament density when filament is known. Print time
-estimate is a rule of thumb (volume / typical-flow-rate) — surface as
-"est." so the user knows it's pre-slicer. Both are the cheapest sanity
-checks on whether the part makes physical sense.
-
-**After every report, add a one-liner pointing at /qa-print** for
-when the user comes back from the printer:
-
-```
-After you print it: run /qa-print to check the fit. Don't need calipers
-— a ruler is fine.
-```
-
-Skip this hint on turns where the only edit was a no-op (e.g., the user
-just asked "what does this part weigh again?" without changing the
-geometry). The hint matters when a fresh STEP/STL just dropped.
-
-### Handling the next instruction
-
-Map every user instruction to one of these edit types. Pick the
-narrowest one that fits.
-
-| Instruction shape | Edit type | Mechanics |
-|-------------------|-----------|-----------|
-| "make X 50mm" / "switch to M4" / "thicker walls" | **Parameter edit** | Edit one `PARAM = value` line in the script. Update `session.json["params"]`. |
-| "add a cable slot" / "pocket the bottom" / "boss on top" | **Feature add** | Add one new named-feature block between the existing ones and `result = ...`. Update `session.json["features"]` and reassign `result` to the new feature. |
-| "remove the fillet" / "drop the mounting holes" | **Feature remove** | Delete the named-feature block. Reassign `result` to the previous feature. Update `session.json["features"]`. |
-| "go back two turns" / "undo" | **Session replay** | Read `session.json["history"]`, regenerate the script from the params at turn N. Append a new history entry; do not delete old ones. |
-| "save this as a variant" / "branch" | **Snapshot** | `cp artifacts/<part>.{py,session.json} artifacts/<part>-<tag>.{py,session.json}`. |
-
-**Hard rule:** Parameter edits and feature adds/removes must NEVER
-rewrite the geometry pipeline as a whole. If you find yourself
-reformatting the entire `Workplane(...)` chain to satisfy a one-line
-ask, that's a signal the original sketch wasn't truly feature-named —
-refactor *that*, then make the edit.
-
-### Engineered-mode guard on every parameter edit
-
-If `session.mode == "engineered"`, **before applying any parameter
-edit**, check it against `session.engineered_constraints`:
-
-| Constraint | Check | Action on violation |
-|------------|-------|---------------------|
-| `wall_min_mm` | New wall ≥ FoS × load / (σ_y × layer_factor) AND ≥ nozzle minimum | Refuse silent edit; surface "WALL 2.4 → 1.6 would drop FoS from 5.0 to 3.3 under the recorded load. Confirm downshift, or pick a different value." |
-| `*_fit` | Edited hole/boss diameter still gives the recorded fit (clearance/slip/press) for the filament | Re-compute the empirical diameter for the new nominal size; warn if user gave a value that breaks the fit |
-| `fillet_min_mm` | Load-bearing fillets ≥ max(0.5× new wall, nozzle width) | Auto-bump fillet, or surface "WALL increased — load fillet should grow to N mm." |
-| `print_z_axis` | Load axis still in-plane after orientation change | Surface "Flipping Z-up makes the recorded load cross-layer (factor 0.5). FoS would drop from 5.0 to 2.5. Re-spec the wall or revert." |
-
-### Printability guards (every turn, both modes)
-
-Print-friendliness checks that run after the script generates and
-before the report. These apply to casual mode too — a part that won't
-print is useless regardless of whether it's load-rated.
-
-| Check | Threshold | Action |
-|-------|-----------|--------|
-| Unsupported bridge length | > 10mm (PLA/PETG), > 5mm (PC/Nylon) | Surface "10mm+ unsupported bridge on `<feature>` — will sag. Add support, split the part, or redesign." |
-| Overhang angle | > 45° from vertical | Surface "65° overhang on `<feature>` — needs supports or a 45° chamfer." |
-| Min wall < nozzle minimum | < 4× nozzle width for load, < 2× for cosmetic | Surface "WALL 0.6mm is below 4× nozzle (1.6mm) — will print but will be weak." |
-| Internal corner < nozzle radius | < nozzle / 2 | Surface "Internal corner 0.1mm — slicer can't resolve at 0.4mm nozzle. Add a fillet ≥ 0.2mm." |
-| Min printable feature | < 0.4mm XY, < 0.2mm Z | Surface "Detail too small for 0.4mm nozzle / 0.2mm layer — will be lost." |
-
-Surface every guard hit in the next report under an `Engineering note:`
-or `Printability note:` line. Do not silently override the user — they
-are allowed to break a constraint, but they must do it on purpose.
-Record any acknowledged downshift in `session.requirements` (e.g.,
-`"prototype_override": "FoS 5.0 → 3.0 on turn 3"`).
-
-A guard hit is **not** a hard validation failure (Phase 2). The script
-still runs; the geometry is still valid; we are flagging an
-engineering-intent or printability regression, not a code bug.
-
-### Append to history every turn
-
-```json
-{"turn": 2, "instruction": "make it 50mm wide", "diff": "WIDTH 40 → 50"}
-```
-
-The `diff` field is a one-line plain-English summary, not a unified
-diff. It's what `session.json` shows the user when they ask "what did
-we change last?"
-
-### Downstream artifact: write `cad-built` after every successful turn
-
-After every turn that produces a valid STEP file, write a project-scoped
-artifact so `/retro`, a future `/qa-print`, and any other downstream
-skill can pick up what was built without inspecting `artifacts/` directly.
+If found, read it and extract: part description, load case, mating
+constraints, process/filament hints, quantity, lifetime. If not
+found, ask the user for a one-paragraph description and the four
+engineered questions (load, mating, process, printer) in one round
+via `AskUserQuestion`.
+
+## Phase 1: Load case critique
+
+Walk through what the part actually sees in service:
+
+| Question | Why it matters |
+|----------|----------------|
+| Magnitude | Force (N) or moment (Nm) or mass × g. Don't accept "heavy" — pin a number. |
+| Direction | In-plane to the layer or cross-layer? Single axis or multi-axis? |
+| Time profile | Static? Cyclic (how often)? Impact (how hard)? |
+| Environment | Outdoors? UV? Temperature range? Wet? Chemicals? |
+| Failure consequence | Annoyance, expensive, dangerous? Drives FoS. |
+
+Surface any **unstated load** the spec implies but the user didn't
+mention. "5kg gimbal mount on a drone" implies vibration even if the
+brief only said the static mass. Flag it.
+
+## Phase 2: Filament + process selection
+
+Pick the filament with a rationale, citing a source for σ_y.
+
+| Filament | σ_y in-plane (MPa) | σ_y cross-layer (MPa) | Good for | Bad for | Source |
+|----------|--------------------|-----------------------|----------|---------|--------|
+| PLA | ~50 | ~25 | Indoor, cosmetic, low-stress | Heat (Tg ~60°C), UV, impact | Prusa filament guide |
+| PETG | ~45 | ~22 | Outdoor, modest load, tough | Sharp dynamic loads | Prusa filament guide |
+| ABS | ~40 | ~18 | Heat resistance | Warping, enclosure needed | E3D datasheet |
+| ASA | ~45 | ~20 | UV outdoor | Same warping as ABS | E3D datasheet |
+| PC | ~65 | ~35 | High strength, heat | Hard to print, needs enclosure | Polymaker PC datasheet |
+| Nylon (PA12) | ~50 | ~35 | Wear, fatigue, living hinges | Hygroscopic | Stratasys PA12 spec |
+| PA-CF (carbon nylon) | ~95 | ~50 | Stiff structural | Abrasive nozzle, brittle | Bambu PA-CF datasheet |
+| PEEK | ~95 | ~65 | High-temp, chemical | Exotic, high-temp printer | Victrex PEEK spec |
+| TPU 95A | ~10 | ~8 | Flexible, dampening | Anything stiff | Ninjaflex spec |
+
+For SLA/MSLA add the resin family (tough, draft, dental, etc.) and
+its tensile yield from the resin datasheet. For SLS/MJF default to
+PA12 unless the user states otherwise.
+
+State the pick AND name one runner-up the user could swap to. Example:
+"PETG primary (outdoor, tough enough at this load). PA-CF if you need
+more stiffness later — drops deflection by ~2× at the same wall."
+
+## Phase 3: FoS picker
+
+Pick a single number with a sentence of why.
+
+| Service class | FoS | Why |
+|---------------|-----|-----|
+| Hobby / non-critical | 2.0 | Failure annoys, doesn't cost much |
+| Functional gear / fixture | 3.0 | Standard "I want it to last" |
+| Cyclic / vibrating load | 5.0 | Fatigue + plastic creep over time |
+| Safety-adjacent (overhead, near user) | 8.0 | Failure could hurt someone or expensive equipment |
+
+For printed parts, **add 1.0 to whatever you'd pick for a machined
+part** to account for layer-plane anisotropy and FDM print defect rate.
+A machined-metal gear-FoS of 3.0 becomes a printed-PETG FoS of 4.0.
+
+Compute the implied minimum wall: `wall_min = (load × FoS) / (σ_y × layer_factor)`,
+where `layer_factor = 1.0` if load is in-plane and `0.5` if cross-layer
+(FDM only — SLA/SLS/MJF are isotropic so use 1.0).
+
+## Phase 4: Print orientation
+
+Decide which axis is Z-up (build direction) and write it as a
+named choice with a sentence of why. The rule: load axis stays in-plane,
+largest flat face stays on the bed.
+
+If those two goals conflict (the load axis IS the largest-face axis),
+call it out and pick the lesser evil — usually "load axis in-plane,
+accept supports under the overhangs" beats "no supports, weak part".
+
+## Phase 5: Mating + fit selection
+
+For each hole, boss, slot, or interface to existing hardware, pick
+an empirical print fit (no ISO H7/g6 for printed parts).
+
+| Fit | Clearance over nominal | Use when |
+|-----|------------------------|----------|
+| Loose / clearance | +0.4mm | Bolt through, doesn't need to register |
+| Slip | +0.2mm | Slides on and off, locates but plays |
+| Locating | +0.15mm | Locates but doesn't slide repeatedly |
+| Press (PLA) | +0.05mm | Tap-in, stays put |
+| Press (PETG) | +0.1mm | Same but PETG is springier |
+| No play | 0.0 → interference | For heat-set inserts after Z-melt |
+
+Name each interface in the spec (e.g., "boss to FrameKit X2 Ø8 dowel
+= slip fit Ø8.2mm").
+
+## Phase 6: Manufacturability flags
+
+Walk the spec one more time looking for issues `/cad-coder` and the
+slicer will hit:
+
+- Unsupported bridges > 10mm (PLA/PETG) or > 5mm (PC/Nylon)
+- Overhangs > 45° without supports
+- Min features below the nozzle minimum (1.6mm wall at 0.4mm nozzle)
+- Heat-set inserts that need a recessed pocket
+- Threads — almost always: model a recess for a heat-set insert or
+  a nut trap rather than printing threads directly
+- Print-in-place vs assembly — print-in-place saves a step but
+  forfeits material/orientation choice per sub-part
+
+For each flag, give the fix in one sentence so /cad-coder can act on
+it during sketch.
+
+## Phase 7: Scope flags (optional, end of artifact)
+
+If the brief contains scope decisions that look wrong — overbuilt,
+underbuilt, wrong material, wrong process — surface them at the END
+of the artifact under a `## Scope flags` heading. These are NOT
+blockers; /cad-coder will still proceed. They give the user a chance
+to revisit the brief.
+
+Example flag: "Spec says PEEK for a gimbal mount under 5kg static —
+PEEK is overkill. PETG handles this load at FoS 5.0 with WALL = 2.4mm
+for ~$0.50 of filament vs ~$8 of PEEK. Consider downshifting."
+
+## Phase 8: Write the mech-review artifact
+
+Path: `~/.gstack/projects/{slug}/{user}-{branch}-mech-review-{ts}.md`
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
@@ -1374,50 +950,72 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
 USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
 TS=$(date -u +%Y-%m-%dT%H-%M-%S)
 mkdir -p ~/.gstack/projects/$SLUG
-OUT=~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-cad-built-${TS}.md
+OUT=~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-mech-review-${TS}.md
 ```
 
-Artifact format (Markdown — both human-readable and easy to parse):
+Artifact format:
 
 ```markdown
-# cad-coder build · <part-name> · turn N
+# /plan-mech-review · <part-name>
 
-- **Mode:** casual | engineered
-- **Part name:** <kebab-case>
-- **Script:** artifacts/<part-name>.py
-- **Session:** artifacts/<part-name>.session.json
-- **Built at:** <ISO-8601 UTC>
-- **Triggered by:** <one-line user instruction this turn>
+- **Brief source:** ~/.gstack/projects/<slug>/<...>-design-<ts>.md | inline
+- **Reviewer:** /plan-mech-review v0.1.0
+- **Reviewed at:** <ISO-8601 UTC>
 
-## Geometry
-- Bounding box: L × W × H mm
-- Volume: N.NN cm³
-- Faces: N
-- Mass (if filament known): N.N g @ ρ g/cm³
+## Load case
+- Magnitude: <N or Nm or kg×g>
+- Direction: <vector, relative to layer plane>
+- Time profile: static | cyclic (Hz / duty cycle) | impact
+- Environment: <temperature, UV, wet, chemicals>
+- Failure consequence: <one sentence>
 
-## Engineering (engineered mode only)
-- FoS: N.N (static | cyclic)
-- Filament σ_y: N MPa in-plane / N MPa cross-layer (source)
-- Layer-direction factor: 1.0 | 0.5
-- Print orientation: <Z-up axis>
-- Fits applied: <slip/clearance/press summary>
+## Filament
+- Primary: <name>, σ_y = <N> MPa in-plane / <N> MPa cross-layer (source URL)
+- Runner-up: <name> (one-sentence trade)
+- Why: <one sentence>
 
-## Features
-- body, mount_holes, cable_slot, load_fillets, ...
+## Safety factor
+- FoS: <N.N>
+- Why: <one sentence tying service class to the picked number>
+- Implied min wall: <N.N> mm = (load × FoS) / (σ_y × layer_factor)
 
-## Notes (only if guard hits this turn)
-- Engineering: <FoS / fit / fillet violations and resolutions>
-- Printability: <bridge / overhang / wall / corner violations>
+## Print orientation
+- Z-up axis: <X | Y | Z>
+- Why: <one sentence>
+- Trade-off accepted: <if any>
 
-## Upstream
-- Brief: ~/.gstack/projects/<slug>/<...>-design-<datetime>.md   (if picked up)
-- None — sketched from inline description
+## Fits (per interface)
+- <interface name>: <fit class>, +<N>mm over nominal
+- <interface name>: ...
+
+## Manufacturability flags
+- [ ] <one-line issue> → fix: <one-line action for /cad-coder>
+- ...
+
+## Scope flags (optional)
+- <if any>
+
+## Handoff to /cad-coder
+This artifact is the engineered_constraints contract. /cad-coder Phase 0
+will read it and skip its inline requirements gather. Run /cad-coder
+next.
 ```
 
-One artifact per turn (don't overwrite). `/retro` globs the whole set
-to summarise what was built this week. The naming convention matches
-`-test-outcome-` and `-test-plan-` so the gstack project root has a
-single coherent shape.
+Surface the artifact path in your closing message:
+
+```
+Mech review saved: ~/.gstack/projects/<slug>/<user>-<branch>-mech-review-<ts>.md
+
+Decided:
+- Filament: PETG (σ_y 45 MPa in-plane, cited)
+- FoS: 5.0 (cyclic load, printed-part adder)
+- Min wall: 2.4mm
+- Z-up: Y (load in-plane, largest face on bed)
+- Fits: M3 clearance (+0.4mm), Ø8 boss slip (+0.2mm)
+- Flags: 1 manufacturability (heat-set insert pocket required)
+
+Next: run /cad-coder. The brief above will be picked up automatically.
+```
 
 ---
 
@@ -1427,7 +1025,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"cad-coder","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"plan-mech-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -1446,32 +1044,17 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-## Additional Rules (cad-coder specific)
+## Additional Rules (plan-mech-review specific)
 
-1. **Never fabricate dimensions silently.** When you guess a default,
-   put it in `session.json["assumptions"]` and surface it in the
-   report. Wrong physical parts waste material and time.
-2. **No GUI assumptions.** Do not require `cq-editor` or Jupyter. The
-   skill must work headless via `python3 script.py`.
-3. **Track the `.py`, ignore the rest.** The `.py` is the source of
-   truth and SHOULD be committed (it's how the part survives in git).
-   STEP, STL, and `.session.json` are build artifacts — generated
-   fresh from the `.py`, so they should be gitignored. Add this block
-   to `.gitignore` if not already there:
-   ```
-   artifacts/*.step
-   artifacts/*.stl
-   artifacts/*.session.json
-   artifacts/qa-print/
-   ```
-   Do not gitignore `artifacts/` as a whole — that would drop the
-   `.py` files too.
-4. **STEP first, STL second.** STEP preserves the CAD model
-   (parametric re-import works). STL is triangulated dead-end — fine
-   for printing, useless for editing.
-5. **One part per session.** If the user describes a second part,
-   start a new session file rather than cramming both into one. Cross-
-   reference siblings in the report ("see also `artifacts/lid.session.json`").
-6. **Mention cost when relevant.** If the user is making 50 of these
-   in titanium and the volume is 100cm³, surface that. Geometry
-   decisions have material-cost consequences.
+1. **Never produce CAD.** Hand off to /cad-coder. This skill is for
+   spec review, not implementation.
+2. **One mech-review per branch.** If a prior mech-review exists for
+   this branch, ask whether to update or supersede; do not silently
+   write a second.
+3. **Engineering judgment is yours; the user owns the spec.** If you
+   disagree with a brief decision (overbuilt material, wrong fit
+   class), flag it in `## Scope flags` — do NOT silently change it in
+   the artifact.
+4. **Citations or it didn't happen.** Every σ_y number gets a source
+   URL. If you can't find one, say so in the artifact instead of
+   inventing a number.
