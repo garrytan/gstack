@@ -240,9 +240,18 @@ function buildServer() {
       if (url.pathname === '/claude-available' && req.method === 'GET') {
         writeClaudeAvailable();
         const found = findClaude();
+        const origin = req.headers.get('origin');
         return new Response(JSON.stringify({ available: !!found, path: found }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(origin?.startsWith('chrome-extension://')
+              ? {
+                  'Access-Control-Allow-Origin': origin,
+                  'Access-Control-Allow-Credentials': 'true',
+                }
+              : {}),
+          },
         });
       }
 
