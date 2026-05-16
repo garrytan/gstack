@@ -1,3 +1,4 @@
+import { getHostConfig } from '../../hosts/index';
 import type { TemplateContext } from './types';
 import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from './constants';
 
@@ -786,21 +787,31 @@ Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developer
 }
 
 export function generateDesignSetup(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const resolveDesign = hostConfig.usesEnvVars
+    ? `D=""
+[ -n "${ctx.paths.designDir}" ] && [ -x "${ctx.paths.designDir}/design" ] && D="${ctx.paths.designDir}/design"`
+    : `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"`;
+  const resolveBrowse = hostConfig.usesEnvVars
+    ? `B=""
+[ -n "${ctx.paths.browseDir}" ] && [ -x "${ctx.paths.browseDir}/browse" ] && B="${ctx.paths.browseDir}/browse"`
+    : `B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"`;
+
   return `## DESIGN SETUP (run this check BEFORE any design mockup command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+${resolveDesign}
 if [ -x "$D" ]; then
   echo "DESIGN_READY: $D"
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+${resolveBrowse}
 if [ -x "$B" ]; then
   echo "BROWSE_READY: $B"
 else
@@ -831,13 +842,19 @@ data, not project files. They persist across branches, conversations, and worksp
 }
 
 export function generateDesignMockup(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const resolveDesign = hostConfig.usesEnvVars
+    ? `D=""
+[ -n "${ctx.paths.designDir}" ] && [ -x "${ctx.paths.designDir}/design" ] && D="${ctx.paths.designDir}/design"`
+    : `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"`;
+
   return `## Visual Design Exploration
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+${resolveDesign}
 [ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
 \`\`\`
 

@@ -1,3 +1,4 @@
+import { getHostConfig } from '../../hosts/index';
 import type { TemplateContext } from './types';
 import { COMMAND_DESCRIPTIONS } from '../../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../../browse/src/snapshot';
@@ -100,13 +101,19 @@ export function generateSnapshotFlags(_ctx: TemplateContext): string {
 }
 
 export function generateBrowseSetup(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const resolveBrowse = hostConfig.usesEnvVars
+    ? `B=""
+[ -n "${ctx.paths.browseDir}" ] && [ -x "${ctx.paths.browseDir}/browse" ] && B="${ctx.paths.browseDir}/browse"`
+    : `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"`;
+
   return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+${resolveBrowse}
 if [ -x "$B" ]; then
   echo "READY: $B"
 else

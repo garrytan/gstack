@@ -231,8 +231,12 @@ describe('gen-skill-docs', () => {
     });
     expect(result.exitCode).toBe(0);
 
-    const shipSkill = path.join(ROOT, '.pi', 'skills', 'gstack-ship', 'SKILL.md');
-    const reviewSkill = path.join(ROOT, '.pi', 'skills', 'gstack-review', 'SKILL.md');
+    const piSkillsDir = path.join(ROOT, '.pi', 'skills');
+    const shipSkill = path.join(piSkillsDir, 'gstack-ship', 'SKILL.md');
+    const reviewSkill = path.join(piSkillsDir, 'gstack-review', 'SKILL.md');
+    const browseSkill = path.join(piSkillsDir, 'gstack-browse', 'SKILL.md');
+    const designReviewSkill = path.join(piSkillsDir, 'gstack-design-review', 'SKILL.md');
+    const makePdfSkill = path.join(piSkillsDir, 'gstack-make-pdf', 'SKILL.md');
     expect(fs.existsSync(shipSkill)).toBe(true);
     expect(fs.existsSync(reviewSkill)).toBe(true);
 
@@ -246,8 +250,37 @@ describe('gen-skill-docs', () => {
     expect(extractFrontmatterName(reviewContent)).toBe('gstack-review');
     expect(reviewContent).toContain('$GSTACK_ROOT/review/checklist.md');
     expect(reviewContent).not.toContain('Read `.pi/skills/gstack/review');
-    expect(reviewContent).not.toContain('$HOME/$GSTACK_ROOT');
-    expect(reviewContent).not.toContain('$_ROOT/$GSTACK_ROOT');
+
+    const browseContent = fs.readFileSync(browseSkill, 'utf-8');
+    expect(browseContent).toContain('[ -n "$GSTACK_BROWSE" ] && [ -x "$GSTACK_BROWSE/browse" ] && B="$GSTACK_BROWSE/browse"');
+
+    const designReviewContent = fs.readFileSync(designReviewSkill, 'utf-8');
+    expect(designReviewContent).toContain('[ -n "$GSTACK_DESIGN" ] && [ -x "$GSTACK_DESIGN/design" ] && D="$GSTACK_DESIGN/design"');
+    expect(designReviewContent).toContain('[ -n "$GSTACK_BROWSE" ] && [ -x "$GSTACK_BROWSE/browse" ] && B="$GSTACK_BROWSE/browse"');
+
+    const makePdfContent = fs.readFileSync(makePdfSkill, 'utf-8');
+    expect(makePdfContent).toContain('GSTACK_ROOT="$_ROOT/.pi/skills/gstack"');
+    expect(makePdfContent).toContain('GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"');
+    expect(makePdfContent).toContain('[ -z "$P" ] && [ -n "$GSTACK_MAKE_PDF" ] && [ -x "$GSTACK_MAKE_PDF/pdf" ] && P="$GSTACK_MAKE_PDF/pdf"');
+
+    const brokenPiPathViolations: string[] = [];
+    for (const entry of fs.readdirSync(piSkillsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillMd = path.join(piSkillsDir, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      const checks: Array<[string, RegExp]> = [
+        ['repo-local Pi runtime root', /\.pi\/skills\/gstack\//],
+        ['HOME-prefixed GSTACK env path', /\$HOME\$GSTACK_[A-Z_]+/],
+        ['HOME/GSTACK_ROOT path', /\$HOME\/\$GSTACK_ROOT|\$\{HOME\}\/\$GSTACK_ROOT/],
+        ['repo-root/GSTACK_ROOT path', /\$_ROOT\/\$GSTACK_ROOT/],
+        ['Claude vendoring migration command', /git add \.claude\/|\.claude\/skills\/gstack/],
+      ];
+      for (const [label, pattern] of checks) {
+        if (pattern.test(content)) brokenPiPathViolations.push(`${entry.name}: ${label}`);
+      }
+    }
+    expect(brokenPiPathViolations).toEqual([]);
   });
 
   test('generated files are fresh (match --dry-run)', () => {
