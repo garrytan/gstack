@@ -5,6 +5,7 @@
  * tests across multiple files by category.
  */
 
+import '../../lib/conductor-env-shim';
 import { describe, test, beforeAll, afterAll, expect } from 'bun:test';
 import type { SkillTestResult } from './session-runner';
 import { EvalCollector, judgePassed } from './eval-store';

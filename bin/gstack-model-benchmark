@@ -24,6 +24,7 @@
  *   gstack-model-benchmark --prompt "hi" --models claude,gpt,gemini --dry-run
  */
 
+import '../lib/conductor-env-shim';
 import * as fs from 'fs';
 import * as path from 'path';
 import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../test/helpers/benchmark-runner';
