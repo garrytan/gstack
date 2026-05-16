@@ -233,6 +233,124 @@ prototype before machining"), proceed in print mode and note in
 `session.assumptions`: "Printed prototype of a part eventually intended
 for CNC/sheet/cast — DFM rules for that process not applied."
 
+### Live camera reference (phone photo)
+
+Orthogonal to mode. Trigger the camera flow whenever the user signals
+they have a **physical reference object in front of them** — phrases like
+"I'm holding it", "let me show you", "I have one here", "looks like
+this", "I'll take a picture", "the broken part", "the slot in my X".
+Also offer it proactively in the replacement-part fast path below.
+
+A small companion HTTP service (`cad-coder/zeroentropy/server.py`, the
+same one that powers `/stl-search`) exposes a mobile-friendly upload
+page. The phone POSTs a JPEG; the agent polls a status endpoint and
+reads the file when it lands.
+
+**Precondition.** The server must be up at `http://127.0.0.1:8000`. If
+`curl -sS http://127.0.0.1:8000/healthz` fails, tell the user to run
+`cd cad-coder/zeroentropy && uvicorn server:app --host 0.0.0.0 --port 8000`
+(the `--host 0.0.0.0` matters — phones can't reach 127.0.0.1) and stop.
+
+**Steps.**
+
+1. **Pick a session code** — a short uppercase alphanumeric like `CAD42`
+   or `MUG7`. One per conversation. Stash it as `session.json["camera_session"]`.
+
+2. **Show a scannable QR + the raw URL** so the user can pick whichever
+   is easier.
+
+   **In Claude Code (or any chat client that renders images via the
+   `Read` tool — this is the default case):** fetch the PNG variant
+   and `Read` it so it renders inline. Then print the raw URL below.
+
+   ```bash
+   curl -sS -o "/tmp/qr_<CODE>.png" \
+     "http://127.0.0.1:8000/camera/qr?session=<CODE>&format=png"
+   curl -sS "http://127.0.0.1:8000/camera/info?session=<CODE>" \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['phone_url'])"
+   ```
+
+   Then call `Read /tmp/qr_<CODE>.png` so the user sees the QR as an
+   image, and quote the `phone_url` underneath as fallback.
+
+   **In a raw terminal** (no inline-image support): fetch the ANSI
+   variant instead and emit verbatim.
+
+   ```bash
+   curl -sS "http://127.0.0.1:8000/camera/qr?session=<CODE>"
+   ```
+
+   Either way, add one line of instructions:
+
+   > Scan the QR with your phone camera (or open the URL below). Take a
+   > photo; it uploads automatically and the page turns green when
+   > received.
+
+   If the user can't scan (no phone camera access), `phone_url` from
+   `/camera/info` is enough — they can type it.
+
+3. **Poll for the upload.** Check every 3 seconds, up to 5 minutes. Stop
+   as soon as `has_image` is `true`:
+
+   ```bash
+   for i in $(seq 1 100); do
+     resp=$(curl -sS "http://127.0.0.1:8000/camera/status?session=<CODE>")
+     echo "$resp" | grep -q '"has_image":true' && { echo "$resp"; break; }
+     sleep 3
+   done
+   ```
+
+   If polling times out, ask the user whether to keep waiting or proceed
+   without a photo. Do **not** silently give up.
+
+4. **Download the JPEG** to a stable path and `Read` it:
+
+   ```bash
+   mkdir -p /tmp/cad-reference
+   curl -sS -o "/tmp/cad-reference/<CODE>.jpg" \
+     "http://127.0.0.1:8000/camera/latest?session=<CODE>"
+   file "/tmp/cad-reference/<CODE>.jpg"   # sanity-check: 'JPEG image data'
+   ```
+
+   The server writes uploads atomically (temp file + rename), so this
+   download is guaranteed to be a complete JPEG — no half-written files.
+   If `file` reports anything other than `JPEG image data`, surface the
+   error and ask for another upload.
+
+   Then call the `Read` tool on `/tmp/cad-reference/<CODE>.jpg`. **This
+   is the load-bearing step** — actually look at the image and let it
+   shape your dimensions, fits, and feature list. Quote what you see
+   back to the user (one or two sentences) so they can correct
+   misinterpretations before you spend a turn writing geometry.
+
+   **EXIF rotation gotcha.** Phone photos carry EXIF `Orientation` tags
+   (Pixel/iPhone commonly tag landscape captures as `6` / "rotate
+   90° CW"). The `Read` tool shows the raw pixel buffer, NOT the
+   EXIF-corrected view, so a portrait-looking part may actually be
+   landscape on screen. Run `file /tmp/cad-reference/<CODE>.jpg` and
+   note the `orientation=...` field — if it's anything other than
+   `upper-left`, mentally rotate the image before judging proportions.
+   For aspect-ratio-critical work, normalize first:
+
+   ```bash
+   python3 -c "
+   from PIL import Image, ImageOps
+   img = ImageOps.exif_transpose(Image.open('/tmp/cad-reference/<CODE>.jpg'))
+   img.save('/tmp/cad-reference/<CODE>_oriented.jpg', 'JPEG', quality=90)
+   "
+   ```
+
+   then `Read` the `_oriented.jpg`.
+
+5. **Record what you saw** in `session.json["camera_reference"]`:
+   `{"session": "CAD42", "path": "/tmp/cad-reference/CAD42.jpg",
+   "observations": "rectangular clip ~30mm long with a hooked tab on
+   one end, mounting hole at the other"}`. Downstream `/qa-print` and
+   `/learn` benefit from this provenance.
+
+If the user uploads a second photo on the same session code, the new
+JPEG overwrites the old one — re-poll and re-read if you need it.
+
 ### Mode: casual vs engineered
 
 Most asks are *casual* — replacement parts, hobby prints, fixtures,
@@ -275,7 +393,9 @@ not an engineer with calipers.
 2. **Ask for two things in plain language, ONE round:**
    - A photo of the broken part (if they can take one). "Snap a photo
      of the broken piece on a piece of paper with a ruler next to it,
-     if you can." Optional — they can skip.
+     if you can." Optional — they can skip. If they say yes, run the
+     **Live camera reference (phone photo)** flow above to receive it
+     from their phone directly.
    - The few measurements that matter. Frame them by what they're for,
      not by the named feature: "How wide is the slot the part slides
      into? About how long is the part overall? How thick is the wall
