@@ -39,6 +39,18 @@ triggers:
 gbrain:
   schema: 1
   context_queries:
+    - id: office-hours-brief
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-design-*.md"
+      sort: mtime_desc
+      limit: 1
+      render_as: "## Upstream brief from /office-hours (if present)"
+    - id: prior-cad-built
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
+      sort: mtime_desc
+      limit: 5
+      render_as: "## Prior cad-built artifacts in this repo"
     - id: prior-parts
       kind: list
       filter:
@@ -47,7 +59,7 @@ gbrain:
         content_contains: "cad-coder"
       sort: updated_at_desc
       limit: 5
-      render_as: "## Prior parts modeled in this repo"
+      render_as: "## Prior parts modeled in this repo (timeline)"
     - id: project-learnings
       kind: filesystem
       glob: "~/.gstack/projects/{repo_slug}/learnings.jsonl"
@@ -901,6 +913,41 @@ guessed engineered from a borderline signal, surface that in the report
 so the user can downshift to casual ("this is just a prototype, skip
 the load case").
 
+### Upstream handoff: pre-flight check for an /office-hours brief
+
+Before any requirements gather, check whether `/office-hours` has
+already produced a design doc for this branch. The standard gstack
+artifact path is `~/.gstack/projects/{slug}/{user}-{branch}-design-*.md`.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+ls -t ~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-design-*.md 2>/dev/null | head -1
+```
+
+If a brief is present, **read it before doing anything else** and
+extract:
+
+- Part name / description
+- Load case, mating constraints, tolerances (if mentioned)
+- Process / filament preference (if mentioned)
+- Quantity / lifetime (if mentioned)
+
+Populate `session.requirements` from the brief, skip the in-skill
+`AskUserQuestion` gather, and **surface the pickup in the report**:
+
+```
+Picked up brief: ~/.gstack/projects/<slug>/<user>-<branch>-design-2026-05-16T12-00.md
+From /office-hours: 5kg cyclic gimbal mount, PETG, mounts to FrameKit X2.
+```
+
+Only ask follow-up questions for anything the brief left blank AND that
+engineered mode requires. The brief is the user's prior intent — don't
+re-litigate it.
+
+If no brief is found, proceed with the in-skill gather below.
+
 ### Engineered-mode requirements gather (ONE round, engineered mode only)
 
 Use a single `AskUserQuestion` call with up to four questions. Skip any
@@ -1247,6 +1294,63 @@ engineering-intent or printability regression, not a code bug.
 The `diff` field is a one-line plain-English summary, not a unified
 diff. It's what `session.json` shows the user when they ask "what did
 we change last?"
+
+### Downstream artifact: write `cad-built` after every successful turn
+
+After every turn that produces a valid STEP file, write a project-scoped
+artifact so `/retro`, a future `/qa-print`, and any other downstream
+skill can pick up what was built without inspecting `cad-out/` directly.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+USER_SLUG=$(git config user.email 2>/dev/null | sed 's/@.*//' | tr -c 'a-zA-Z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+TS=$(date -u +%Y-%m-%dT%H-%M-%S)
+mkdir -p ~/.gstack/projects/$SLUG
+OUT=~/.gstack/projects/$SLUG/${USER_SLUG}-${BRANCH}-cad-built-${TS}.md
+```
+
+Artifact format (Markdown — both human-readable and easy to parse):
+
+```markdown
+# cad-coder build · <part-name> · turn N
+
+- **Mode:** casual | engineered
+- **Part name:** <kebab-case>
+- **Script:** cad-out/<part-name>.py
+- **Session:** cad-out/<part-name>.session.json
+- **Built at:** <ISO-8601 UTC>
+- **Triggered by:** <one-line user instruction this turn>
+
+## Geometry
+- Bounding box: L × W × H mm
+- Volume: N.NN cm³
+- Faces: N
+- Mass (if filament known): N.N g @ ρ g/cm³
+
+## Engineering (engineered mode only)
+- FoS: N.N (static | cyclic)
+- Filament σ_y: N MPa in-plane / N MPa cross-layer (source)
+- Layer-direction factor: 1.0 | 0.5
+- Print orientation: <Z-up axis>
+- Fits applied: <slip/clearance/press summary>
+
+## Features
+- body, mount_holes, cable_slot, load_fillets, ...
+
+## Notes (only if guard hits this turn)
+- Engineering: <FoS / fit / fillet violations and resolutions>
+- Printability: <bridge / overhang / wall / corner violations>
+
+## Upstream
+- Brief: ~/.gstack/projects/<slug>/<...>-design-<datetime>.md   (if picked up)
+- None — sketched from inline description
+```
+
+One artifact per turn (don't overwrite). `/retro` globs the whole set
+to summarise what was built this week. The naming convention matches
+`-test-outcome-` and `-test-plan-` so the gstack project root has a
+single coherent shape.
 
 ---
 

@@ -924,8 +924,9 @@ After the plea, suggest the next step:
 - **`/plan-ceo-review`** for ambitious features (EXPANSION mode) — rethink the problem, find the 10-star product
 - **`/plan-eng-review`** for well-scoped implementation planning — lock in architecture, tests, edge cases
 - **`/plan-design-review`** for visual/UX design review
+- **`/cad-coder`** if the design doc describes a **physical, fabricable part** (bracket, enclosure, fixture, replacement clip, mount, knob, jig) intended for 3D printing. The design doc is picked up automatically as an upstream brief — no need to restate the requirements.
 
-The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.
+The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit. `/cad-coder` specifically looks for `~/.gstack/projects/{slug}/{user}-{branch}-design-*.md` and populates its `requirements` block from it, skipping its own requirements gather.
 
 ---
 

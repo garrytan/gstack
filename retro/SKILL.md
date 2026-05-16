@@ -37,6 +37,12 @@ gbrain:
       glob: "~/.gstack/projects/{repo_slug}/learnings.jsonl"
       tail: 10
       render_as: "## Recent learnings"
+    - id: cad-built
+      kind: filesystem
+      glob: "~/.gstack/projects/{repo_slug}/*-cad-built-*.md"
+      sort: mtime_desc
+      limit: 15
+      render_as: "## Physical parts built via /cad-coder"
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
