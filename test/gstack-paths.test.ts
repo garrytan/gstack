@@ -41,12 +41,28 @@ describe('gstack-paths', () => {
     expect(got.GSTACK_STATE_ROOT).toBe('/tmp/explicit-state');
   });
 
-  test('CLAUDE_PLUGIN_DATA wins over HOME when GSTACK_HOME unset', () => {
-    const got = run({
-      CLAUDE_PLUGIN_DATA: '/tmp/plugin-data',
+  test('CLAUDE_PLUGIN_DATA ignored when CLAUDE_PLUGIN_ROOT is absent or non-gstack', () => {
+    // Without CLAUDE_PLUGIN_ROOT, falls through to HOME path.
+    const noRoot = run({ CLAUDE_PLUGIN_DATA: '/tmp/plugin-data', HOME: '/tmp/home' });
+    expect(noRoot.GSTACK_STATE_ROOT).toBe('/tmp/home/.gstack');
+
+    // With a CLAUDE_PLUGIN_ROOT that doesn't contain "gstack" (e.g. the codex plugin),
+    // still falls through to HOME path — this is the cross-plugin contamination scenario.
+    const wrongRoot = run({
+      CLAUDE_PLUGIN_DATA: '/tmp/codex-data',
+      CLAUDE_PLUGIN_ROOT: '/tmp/openai-codex',
       HOME: '/tmp/home',
     });
-    expect(got.GSTACK_STATE_ROOT).toBe('/tmp/plugin-data');
+    expect(wrongRoot.GSTACK_STATE_ROOT).toBe('/tmp/home/.gstack');
+  });
+
+  test('CLAUDE_PLUGIN_DATA respected when CLAUDE_PLUGIN_ROOT identifies gstack', () => {
+    const got = run({
+      CLAUDE_PLUGIN_DATA: '/tmp/gstack-plugin-data',
+      CLAUDE_PLUGIN_ROOT: '/tmp/gstack-garrytan',
+      HOME: '/tmp/home',
+    });
+    expect(got.GSTACK_STATE_ROOT).toBe('/tmp/gstack-plugin-data');
   });
 
   test('HOME-derived state root when GSTACK_HOME and CLAUDE_PLUGIN_DATA unset', () => {

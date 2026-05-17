@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.40.1.0] - 2026-05-17
+
+**gstack-paths stops writing state into another plugin's directory when CLAUDE_PLUGIN_DATA is set by a co-installed plugin.**
+
+`gstack-paths` previously trusted `CLAUDE_PLUGIN_DATA` as a fallback for `GSTACK_STATE_ROOT` whenever `GSTACK_HOME` was unset. The intent was to support gstack installed as a Claude Code plugin. The problem: Claude Code sets `CLAUDE_PLUGIN_DATA` per-plugin at hook invocation time, and when another plugin (e.g. the Codex plugin) uses `CLAUDE_ENV_FILE` to persist its own `CLAUDE_PLUGIN_DATA` into the session environment, gstack would pick it up and write checkpoints, analytics, and learnings into that plugin's data directory. Since gstack ships as a skill in the most common install path, anyone with the Codex plugin installed hit this silently on every session.
+
+### The numbers that matter
+
+Source: `bun test test/gstack-paths.test.ts` (9 tests, all green).
+
+| Scenario | Before | After |
+|---|---|---|
+| Codex plugin installed alongside gstack, no `GSTACK_HOME` set | `GSTACK_STATE_ROOT` = Codex plugin data dir | `GSTACK_STATE_ROOT` = `$HOME/.gstack` |
+| gstack running as its own plugin (CLAUDE_PLUGIN_ROOT contains "gstack") | `GSTACK_STATE_ROOT` = gstack plugin data dir | `GSTACK_STATE_ROOT` = gstack plugin data dir (unchanged) |
+| `GSTACK_HOME` explicitly set | `GSTACK_STATE_ROOT` = `GSTACK_HOME` | `GSTACK_STATE_ROOT` = `GSTACK_HOME` (unchanged) |
+
+If you hit unexplained state cross-contamination or missing learnings/checkpoints while running gstack alongside Codex, this is the fix. No action needed — the next `./setup` run picks it up automatically.
+
+### Itemized changes
+
+#### Fixed
+
+- `bin/gstack-paths`: guard the `CLAUDE_PLUGIN_DATA` branch so it only fires when `CLAUDE_PLUGIN_ROOT` confirms we are running as the gstack plugin (path contains "gstack"). Fixes cross-plugin state contamination when another plugin leaks its `CLAUDE_PLUGIN_DATA` into the session environment via `CLAUDE_ENV_FILE` (#1569).
+
+#### For contributors
+
+- `test/gstack-paths.test.ts`: replaced the `CLAUDE_PLUGIN_DATA wins over HOME when GSTACK_HOME unset` test with two targeted tests: one verifying `CLAUDE_PLUGIN_DATA` is ignored when `CLAUDE_PLUGIN_ROOT` is absent or points to a non-gstack plugin, one verifying it is respected when `CLAUDE_PLUGIN_ROOT` identifies gstack.
+
 ## [1.40.0.0] - 2026-05-16
 
 ## **gbrain sync stops biting users across the install path, slug algorithm, federation queue, and `.env.local` footgun.**
