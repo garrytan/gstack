@@ -237,7 +237,10 @@ export class BrowserManager {
     }
 
     this.browser = await chromium.launch({
+      //If GSTACK_CHROMIUM_PATH exist use executablePath, else undefined
+      executablePath: process.env.GSTACK_CHROMIUM_PATH || process.env.PLAYWRIGHT_CHROMIUM_HEADLESS_SHELL_EXECUTABLE_PATH || undefined,
       headless: useHeadless,
+      args: process.env.GSTACK_SKIP_PLAYWRIGHT === '1' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit.

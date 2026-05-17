@@ -124,7 +124,9 @@ describe('bridge-chromium-e2e (codex F3)', () => {
     });
     httpFixture = await startHttpFixture('<html><body><h1 id="ok">via-bridge</h1></body></html>');
     browser = await chromium.launch({
+      executablePath: process.env.GSTACK_CHROMIUM_PATH || undefined,
       headless: true,
+      args: process.env.GSTACK_SKIP_PLAYWRIGHT === '1' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
       proxy: { server: `socks5://127.0.0.1:${bridge.port}` },
     });
   });
