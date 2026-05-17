@@ -5,7 +5,7 @@
  * Outputs the absolute path to the browse binary on stdout, or exits 1 if not found.
  */
 
-import { existsSync } from 'fs';
+import { accessSync, constants } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -24,6 +24,35 @@ function getGitRoot(): string | null {
   }
 }
 
+// Probe a path for executability. accessSync(X_OK) checks the executable
+// bit on Linux/macOS and degrades to an existence check on Windows (no
+// true execute bit). Mirrors make-pdf/src/browseClient.ts:159 /
+// make-pdf/src/pdftotext.ts:117.
+function isExecutable(p: string): boolean {
+  try {
+    accessSync(p, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Resolve a bare binary path to the actual file on disk. On Windows, `bun
+// build --compile` appends `.exe` to the output filename, so `browse` on
+// disk is actually `browse.exe`. After a bare-path probe, try the Windows
+// extensions. Linux/macOS behavior is unchanged. Mirrors the helper in
+// make-pdf/src/browseClient.ts:89 and make-pdf/src/pdftotext.ts:52.
+function findExecutable(base: string): string | null {
+  if (isExecutable(base)) return base;
+  if (process.platform === 'win32') {
+    for (const ext of ['.exe', '.cmd', '.bat']) {
+      const withExt = base + ext;
+      if (isExecutable(withExt)) return withExt;
+    }
+  }
+  return null;
+}
+
 export function locateBinary(): string | null {
   const root = getGitRoot();
   const home = homedir();
@@ -33,14 +62,16 @@ export function locateBinary(): string | null {
   if (root) {
     for (const m of markers) {
       const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
-      if (existsSync(local)) return local;
+      const found = findExecutable(local);
+      if (found) return found;
     }
   }
 
   // Global fallback
   for (const m of markers) {
     const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
-    if (existsSync(global)) return global;
+    const found = findExecutable(global);
+    if (found) return found;
   }
 
   return null;
