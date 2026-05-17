@@ -1,24 +1,29 @@
 import type { TemplateContext } from '../types';
 
 export function generateRoutingInjection(ctx: TemplateContext): string {
+  const projectInstructionsFile = ctx.host === 'pi' ? 'AGENTS.md' : 'CLAUDE.md';
+  const invokeInstruction = ctx.host === 'pi'
+    ? 'invoke it with the matching /skill:gstack-* command. When in doubt, invoke the skill.'
+    : 'invoke it via the Skill tool. When in doubt, invoke the skill.';
+
   return `If \`HAS_ROUTING\` is \`no\` AND \`ROUTING_DECLINED\` is \`false\` AND \`PROACTIVE_PROMPTED\` is \`yes\`:
-Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
+Check if a ${projectInstructionsFile} file exists in the project root. If it does not exist, create it.
 
 Use AskUserQuestion:
 
-> gstack works best when your project's CLAUDE.md includes skill routing rules.
+> gstack works best when your project's ${projectInstructionsFile} includes skill routing rules.
 
 Options:
-- A) Add routing rules to CLAUDE.md (recommended)
+- A) Add routing rules to ${projectInstructionsFile} (recommended)
 - B) No thanks, I'll invoke skills manually
 
-If A: Append this section to the end of CLAUDE.md:
+If A: Append this section to the end of ${projectInstructionsFile}:
 
 \`\`\`markdown
 
 ## Skill routing
 
-When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+When the user's request matches an available skill, ${invokeInstruction}
 
 Key routing rules:
 - Product ideas/brainstorming → invoke /office-hours
@@ -35,7 +40,7 @@ Key routing rules:
 - Resume context → invoke /context-restore
 \`\`\`
 
-Then commit the change: \`git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"\`
+Then commit the change: \`git add ${projectInstructionsFile} && git commit -m "chore: add gstack skill routing rules to ${projectInstructionsFile}"\`
 
 If B: run \`${ctx.paths.binDir}/gstack-config set routing_declined true\` and say they can re-enable with \`gstack-config set routing_declined false\`.
 

@@ -337,6 +337,54 @@ const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit di
  * Process external host output: routing, frontmatter, path rewrites, metadata.
  * Shared between Codex and Factory (and future external hosts).
  */
+const PI_SLASH_SKILL_COMMANDS = discoverTemplates(ROOT)
+  .map(template => path.dirname(template.tmpl))
+  .map(dir => dir === '.' ? '' : dir)
+  .filter(dir => dir && dir !== 'codex')
+  .map(dir => ({ command: dir, skillCommand: `/skill:${externalSkillName(dir)}` }))
+  .sort((a, b) => b.command.length - a.command.length);
+const PI_INLINE_SLASH_SKILL_COMMANDS = PI_SLASH_SKILL_COMMANDS.filter(({ command }) => command !== 'health');
+const PI_INLINE_SLASH_SKILL_LOOKUP = new Map(PI_INLINE_SLASH_SKILL_COMMANDS.map(({ command, skillCommand }) => [command, skillCommand]));
+const PI_INLINE_SLASH_SKILL_PATTERN = new RegExp(
+  `(?<![\\w.:/->])/(${PI_INLINE_SLASH_SKILL_COMMANDS.map(({ command }) => escapeRegExp(command)).join('|')})(?![\\w-])`,
+  'g',
+);
+
+function rewritePiSlashSkillCommands(content: string): string {
+  const commandAwareContent = PI_SLASH_SKILL_COMMANDS.reduce((result, { command, skillCommand }) => {
+    const commandPattern = escapeRegExp(command);
+    const commandVerbs = 'invoke|invokes|invoked|run|runs|running|type|types|typed|call|calls|called|use|uses|using|via';
+
+    let rewritten = result
+      .replace(new RegExp(`(^|\\n)(#+\\s*)/${commandPattern}(?=\\s|$)`, 'gi'), `$1$2${skillCommand}`)
+      .replace(new RegExp(`(^|\\n)(\\s*[-*]\\s+)\`/${commandPattern}([^\`]*)\``, 'gi'), (_match, prefix: string, bullet: string, args: string) => `${prefix}${bullet}\`${skillCommand}${args}\``)
+      .replace(new RegExp(`\\b(${commandVerbs})\\s+\`/${commandPattern}([^\`]*)\``, 'gi'), (_match, verb: string, args: string) => `${verb} \`${skillCommand}${args}\``)
+      .replace(new RegExp(`\\b(${commandVerbs})\\s+/${commandPattern}(?![\\w-])`, 'gi'), (_match, verb: string) => `${verb} ${skillCommand}`)
+      .replace(new RegExp(`→\\s*invoke\\s+\`/${commandPattern}\``, 'gi'), `→ invoke \`${skillCommand}\``)
+      .replace(new RegExp(`→\\s*invoke\\s+/${commandPattern}(?![\\w-])`, 'gi'), `→ invoke ${skillCommand}`)
+      .replace(new RegExp(`\\\\\`/${commandPattern}([^\\\`]*)\\\\\``, 'g'), `\\\`${skillCommand}$1\\\``);
+
+    if (command !== 'health') {
+      rewritten = rewritten
+        .replace(new RegExp(`\\bor\\s+\`/${commandPattern}([^\`]*)\``, 'gi'), (_match, args: string) => `or \`${skillCommand}${args}\``)
+        .replace(new RegExp(`\\bor\\s+/${commandPattern}(?![\\w-])`, 'gi'), `or ${skillCommand}`)
+        .replace(new RegExp(`\\bas\\s+\`/${commandPattern}([^\`]*)\``, 'gi'), (_match, args: string) => `as \`${skillCommand}${args}\``);
+    }
+
+    return rewritten;
+  }, content);
+
+  return commandAwareContent
+    .replace(PI_INLINE_SLASH_SKILL_PATTERN, (_match, command: string) => PI_INLINE_SLASH_SKILL_LOOKUP.get(command) ?? _match)
+    .replace(/invoke `\/codex`/g, 'run `codex exec` directly')
+    .replace(/`\/codex review`/g, '`codex review`')
+    .replace(/\\`\/codex review\\`/g, '\\`codex review\\`');
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function processExternalHost(
   content: string,
   tmplContent: string,
@@ -388,6 +436,10 @@ function processExternalHost(
     for (const [from, to] of Object.entries(hostConfig.toolRewrites)) {
       result = result.replaceAll(from, to);
     }
+  }
+
+  if (host === 'pi') {
+    result = rewritePiSlashSkillCommands(result);
   }
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)

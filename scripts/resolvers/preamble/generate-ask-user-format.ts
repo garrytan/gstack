@@ -1,15 +1,23 @@
 import type { TemplateContext } from '../types';
 
-export function generateAskUserFormat(_ctx: TemplateContext): string {
-  return `## AskUserQuestion Format
+export function generateAskUserFormat(ctx: TemplateContext): string {
+  const toolResolution = ctx.host === 'pi'
+    ? `### Tool resolution (read first)
 
-### Tool resolution (read first)
+ask_user_question is the Pi custom tool registered by the gstack Pi extension. Call \`ask_user_question\` directly when a workflow needs an explicit user decision.
+
+**Fallback when ask_user_question is not callable:** write the decision brief into the plan file as a \`## Decisions to confirm\` section if there is a plan file. Otherwise output the brief as prose and stop. **Never silently auto-decide** — only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking.`
+    : `### Tool resolution (read first)
 
 "AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
 
 **Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
-**Fallback when neither variant is callable:** in plan mode, write the decision brief into the plan file as a \`## Decisions to confirm\` section + ExitPlanMode (the native "Ready to execute?" surfaces it). Outside plan mode, output the brief as prose and stop. **Never silently auto-decide** — only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking.
+**Fallback when neither variant is callable:** in plan mode, write the decision brief into the plan file as a \`## Decisions to confirm\` section + ExitPlanMode (the native "Ready to execute?" surfaces it). Outside plan mode, output the brief as prose and stop. **Never silently auto-decide** — only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking.`;
+
+  return `## AskUserQuestion Format
+
+${toolResolution}
 
 ### Format
 
