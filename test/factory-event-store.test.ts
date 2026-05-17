@@ -80,8 +80,9 @@ describe('FileFactoryEventStore', () => {
       expect(() => store.readEvents('../escape')).toThrow('Unsafe factory run id');
       expect(() => store.append('run-safe', { type: 'run_started', runId: 'other-run', plan })).toThrow("does not match store runId");
 
+      const otherPlan = compileRunPlan(workflow, { workflow: 'review-flow', goal: 'Other run' }, 'other-run');
       mkdirSync(path.dirname(store.eventsPath('run-safe')), { recursive: true });
-      writeFileSync(store.eventsPath('run-safe'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'other-run', plan } })}\n`);
+      writeFileSync(store.eventsPath('run-safe'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'other-run', plan: otherPlan } })}\n`);
       expect(() => store.readEvents('run-safe')).toThrow("contains event for 'other-run'");
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
@@ -96,6 +97,24 @@ describe('FileFactoryEventStore', () => {
     );
     expect(() => parseFactoryEventLog('{"sequence":2,"timestamp":"now","event":{"type":"run_failed","runId":"run-1","error":{"code":"x","message":"boom"}}}\n')).toThrow(
       'Invalid factory event sequence on line 1: expected 1, got 2',
+    );
+  });
+
+  test('rejects malformed nested event payloads before reduction', () => {
+    const plan = compileRunPlan(workflow, { workflow: 'review-flow', goal: 'Review auth changes', mode: 'review' }, 'run-1');
+    const envelope = (event: unknown) => `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event })}\n`;
+
+    expect(() => parseFactoryEventLog(envelope({ type: 'run_started', runId: 'run-1', plan: { runId: 'run-1' } }))).toThrow(
+      'Invalid factory event envelope on line 1',
+    );
+    expect(() => parseFactoryEventLog(envelope({ type: 'run_started', runId: 'run-2', plan }))).toThrow(
+      'Invalid factory event envelope on line 1',
+    );
+    expect(() => parseFactoryEventLog(envelope({ type: 'phase_completed', runId: 'run-1', phaseId: 'review', artifacts: ['not-artifact'] }))).toThrow(
+      'Invalid factory event envelope on line 1',
+    );
+    expect(() => parseFactoryEventLog(envelope({ type: 'run_completed', runId: 'run-1', result: { status: 'completed', summary: 'Done', artifacts: ['not-artifact'] } }))).toThrow(
+      'Invalid factory event envelope on line 1',
     );
   });
 });

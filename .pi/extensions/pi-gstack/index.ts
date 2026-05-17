@@ -170,11 +170,8 @@ export default function piGstack(pi: any) {
   });
 }
 
-function findBrowseBinary(projectRoot: string): string | null {
-  const candidates = uniqueStrings([
-    ...piBrowserExecutableCandidates({ repoRoot: projectRoot, home: process.env.HOME ?? '', env: process.env }),
-    ...piBrowserExecutableCandidates({ repoRoot: REPO_ROOT, home: process.env.HOME ?? '', env: process.env }),
-  ]);
+function findBrowseBinary(_projectRoot: string): string | null {
+  const candidates = piBrowserExecutableCandidates({ repoRoot: REPO_ROOT, home: process.env.HOME ?? '', env: process.env });
 
   for (const candidate of candidates) {
     try {
@@ -185,17 +182,6 @@ function findBrowseBinary(projectRoot: string): string | null {
     }
   }
   return null;
-}
-
-function uniqueStrings(values: readonly string[]): readonly string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    result.push(value);
-  }
-  return result;
 }
 
 function resolveProjectRoot(cwd: string): string {

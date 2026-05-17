@@ -190,11 +190,11 @@ function isFactoryEvent(input: unknown): input is FactoryEvent {
 
   switch (event.type) {
     case 'run_started':
-      return isObject(event.plan) && typeof (event.plan as { runId?: unknown }).runId === 'string';
+      return isRunPlan(event.plan, event.runId);
     case 'phase_started':
       return typeof event.phaseId === 'string';
     case 'phase_completed':
-      return typeof event.phaseId === 'string' && (event.artifacts === undefined || Array.isArray(event.artifacts));
+      return typeof event.phaseId === 'string' && (event.artifacts === undefined || isArtifactArray(event.artifacts));
     case 'gate_requested':
       return isGateRequest(event.gate);
     case 'gate_decision':
@@ -213,7 +213,72 @@ function isFactoryEvent(input: unknown): input is FactoryEvent {
 }
 
 function isObject(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === 'object';
+  return !!input && typeof input === 'object' && !Array.isArray(input);
+}
+
+function isRunPlan(input: unknown, eventRunId: string): boolean {
+  if (!isObject(input)) return false;
+  return input.runId === eventRunId
+    && typeof input.workflow === 'string'
+    && isFactoryMode(input.mode)
+    && typeof input.goal === 'string'
+    && isPolicy(input.policy)
+    && Array.isArray(input.phases)
+    && input.phases.every(isPlannedPhase)
+    && isCapabilityArray(input.requiredCapabilities)
+    && Array.isArray(input.expectedArtifacts)
+    && input.expectedArtifacts.every(isArtifactExpectation)
+    && Array.isArray(input.risks)
+    && input.risks.every(isRisk);
+}
+
+function isPolicy(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return typeof input.allowWrites === 'boolean'
+    && typeof input.allowNetwork === 'boolean'
+    && typeof input.allowBrowser === 'boolean'
+    && typeof input.requireHumanForDestructive === 'boolean'
+    && typeof input.maxParallelWriteTimelines === 'number'
+    && Number.isInteger(input.maxParallelWriteTimelines)
+    && isQuestionMode(input.defaultQuestionMode);
+}
+
+function isPlannedPhase(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return typeof input.id === 'string'
+    && typeof input.title === 'string'
+    && isAgentRole(input.role)
+    && typeof input.objective === 'string'
+    && isPhaseConcurrency(input.concurrency)
+    && isCapabilityArray(input.requiredCapabilities)
+    && Array.isArray(input.gates)
+    && input.gates.every(isGateSpec)
+    && Array.isArray(input.expectedArtifacts)
+    && input.expectedArtifacts.every(isArtifactExpectation);
+}
+
+function isAgentRole(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return typeof input.id === 'string'
+    && typeof input.title === 'string'
+    && (input.prompt === undefined || typeof input.prompt === 'string');
+}
+
+function isGateSpec(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return typeof input.id === 'string'
+    && typeof input.title === 'string'
+    && typeof input.description === 'string'
+    && ['human-decision', 'policy', 'verification'].includes(String(input.kind))
+    && (input.failClosed === undefined || typeof input.failClosed === 'boolean');
+}
+
+function isArtifactExpectation(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return typeof input.phaseId === 'string'
+    && isArtifactKind(input.kind)
+    && typeof input.required === 'boolean'
+    && typeof input.description === 'string';
 }
 
 function isGateRequest(input: unknown): boolean {
@@ -221,21 +286,32 @@ function isGateRequest(input: unknown): boolean {
   return typeof input.id === 'string'
     && typeof input.phaseId === 'string'
     && typeof input.title === 'string'
-    && typeof input.description === 'string';
+    && typeof input.description === 'string'
+    && (input.options === undefined || (Array.isArray(input.options) && input.options.every(option => typeof option === 'string')))
+    && (input.recommendation === undefined || typeof input.recommendation === 'string');
 }
 
 function isGateDecision(input: unknown): boolean {
   if (!isObject(input)) return false;
   return typeof input.gateId === 'string'
     && typeof input.decision === 'string'
+    && (input.reason === undefined || typeof input.reason === 'string')
     && ['user', 'policy', 'adapter'].includes(String(input.decidedBy));
 }
 
 function isArtifact(input: unknown): boolean {
   if (!isObject(input)) return false;
   return typeof input.id === 'string'
-    && typeof input.kind === 'string'
-    && typeof input.summary === 'string';
+    && isArtifactKind(input.kind)
+    && typeof input.summary === 'string'
+    && (input.phaseId === undefined || typeof input.phaseId === 'string')
+    && (input.uri === undefined || typeof input.uri === 'string')
+    && (input.path === undefined || typeof input.path === 'string')
+    && (input.metadata === undefined || isObject(input.metadata));
+}
+
+function isArtifactArray(input: unknown): boolean {
+  return Array.isArray(input) && input.every(isArtifact);
 }
 
 function isRisk(input: unknown): boolean {
@@ -250,13 +326,61 @@ function isRunResult(input: unknown): boolean {
   if (!isObject(input)) return false;
   return ['completed', 'failed', 'cancelled'].includes(String(input.status))
     && typeof input.summary === 'string'
-    && Array.isArray(input.artifacts);
+    && isArtifactArray(input.artifacts);
 }
 
 function isFactoryError(input: unknown): boolean {
   if (!isObject(input)) return false;
   return typeof input.code === 'string'
-    && typeof input.message === 'string';
+    && typeof input.message === 'string'
+    && (input.phaseId === undefined || typeof input.phaseId === 'string')
+    && (input.retryable === undefined || typeof input.retryable === 'boolean');
+}
+
+function isCapabilityArray(input: unknown): boolean {
+  return Array.isArray(input) && input.every(isCapabilityName);
+}
+
+function isFactoryMode(input: unknown): boolean {
+  return ['plan-only', 'build', 'review', 'ship'].includes(String(input));
+}
+
+function isPhaseConcurrency(input: unknown): boolean {
+  return ['serial', 'parallel-readonly', 'isolated-worktree'].includes(String(input));
+}
+
+function isQuestionMode(input: unknown): boolean {
+  return ['pause', 'auto-recommend', 'fail-closed'].includes(String(input));
+}
+
+function isCapabilityName(input: unknown): boolean {
+  return [
+    'agent-session',
+    'artifact-store',
+    'browser',
+    'ci',
+    'filesystem',
+    'git',
+    'pull-request',
+    'questions',
+    'test-runner',
+    'worktree',
+  ].includes(String(input));
+}
+
+function isArtifactKind(input: unknown): boolean {
+  return [
+    'browser-trace',
+    'design-doc',
+    'diff',
+    'plan',
+    'pr',
+    'qa-report',
+    'release-note',
+    'review',
+    'screenshot',
+    'test-result',
+  ].includes(String(input));
 }
 
 function sleepSync(ms: number): void {

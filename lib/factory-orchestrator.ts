@@ -30,6 +30,7 @@ export interface FactoryStartOptions {
 export interface FactoryStartResult {
   readonly plan: FactoryRunPlan;
   readonly missingCapabilities: readonly CapabilityName[];
+  readonly blockingRisks: readonly FactoryRunPlan['risks'];
 }
 
 export class FactoryOrchestrator {
@@ -54,8 +55,10 @@ export class FactoryOrchestrator {
       ? missingCapabilities(plan, options.availableCapabilities)
       : [];
 
-    if (gaps.length > 0) {
-      return { plan, missingCapabilities: gaps };
+    const blockingRisks = plan.risks.filter(risk => risk.severity === 'blocking');
+
+    if (gaps.length > 0 || blockingRisks.length > 0) {
+      return { plan, missingCapabilities: gaps, blockingRisks };
     }
 
     this.eventSink.append(plan.runId, { type: 'run_started', runId: plan.runId, plan });
@@ -63,7 +66,7 @@ export class FactoryOrchestrator {
       this.eventSink.append(plan.runId, { type: 'risk_detected', runId: plan.runId, risk });
     }
 
-    return { plan, missingCapabilities: gaps };
+    return { plan, missingCapabilities: gaps, blockingRisks };
   }
 
   state(runId: string): FactoryRunState {

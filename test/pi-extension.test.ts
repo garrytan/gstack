@@ -67,35 +67,48 @@ describe('Pi gstack extension wiring', () => {
       'command must be a browse command name',
     );
 
+    const oldHome = process.env.HOME;
     const oldGstackBrowse = process.env.GSTACK_BROWSE;
     const oldGstackPort = process.env.GSTACK_PORT;
     const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-browser-tool-'));
+    const tempHome = mkdtempSync(path.join(tmpdir(), 'gstack-browser-home-'));
     try {
-      const fakeBrowseDir = path.join(tempDir, '.pi', 'skills', 'gstack', 'browse', 'dist');
-      const fakeBrowse = path.join(fakeBrowseDir, 'browse');
-      mkdirSync(fakeBrowseDir, { recursive: true });
-      writeFileSync(fakeBrowse, '#!/usr/bin/env bash\necho "fake-browse:$*"\necho "state:$BROWSE_STATE_FILE"\necho "port:${GSTACK_PORT:-unset}"\n');
-      chmodSync(fakeBrowse, 0o755);
+      const projectBrowseDir = path.join(tempDir, '.pi', 'skills', 'gstack', 'browse', 'dist');
+      const projectBrowse = path.join(projectBrowseDir, 'browse');
+      mkdirSync(projectBrowseDir, { recursive: true });
+      writeFileSync(projectBrowse, '#!/usr/bin/env bash\necho "project-browse:$*"\n');
+      chmodSync(projectBrowse, 0o755);
+
+      const trustedBrowseDir = path.join(tempHome, '.pi', 'agent', 'skills', 'gstack', 'browse', 'dist');
+      const trustedBrowse = path.join(trustedBrowseDir, 'browse');
+      mkdirSync(trustedBrowseDir, { recursive: true });
+      writeFileSync(trustedBrowse, '#!/usr/bin/env bash\necho "trusted-browse:$*"\necho "state:$BROWSE_STATE_FILE"\necho "port:${GSTACK_PORT:-unset}"\n');
+      chmodSync(trustedBrowse, 0o755);
+
+      process.env.HOME = tempHome;
       delete process.env.GSTACK_BROWSE;
       process.env.GSTACK_PORT = '9999';
 
       const browserResult = await browserTool!.execute('tool-browser', { command: 'snapshot', args: ['-i'] }, undefined, undefined, { cwd: tempDir });
       expect(browserResult).toEqual({
-        content: [{ type: 'text', text: `fake-browse:snapshot -i\nstate:${path.join(tempDir, '.gstack', 'browse.json')}\nport:unset` }],
+        content: [{ type: 'text', text: `trusted-browse:snapshot -i\nstate:${path.join(tempDir, '.gstack', 'browse.json')}\nport:unset` }],
         details: {
           command: 'snapshot',
           args: ['-i'],
           exitCode: 0,
           signal: null,
-          browseBinary: fakeBrowse,
+          browseBinary: trustedBrowse,
         },
       });
     } finally {
+      if (oldHome === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHome;
       if (oldGstackBrowse === undefined) delete process.env.GSTACK_BROWSE;
       else process.env.GSTACK_BROWSE = oldGstackBrowse;
       if (oldGstackPort === undefined) delete process.env.GSTACK_PORT;
       else process.env.GSTACK_PORT = oldGstackPort;
       rmSync(tempDir, { recursive: true, force: true });
+      rmSync(tempHome, { recursive: true, force: true });
     }
 
     const questionTool = tools.find(tool => tool.name === 'ask_user_question');

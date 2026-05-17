@@ -840,16 +840,59 @@ link_pi_runtime_assets() {
     mkdir -p "$pi_gstack/$child_name"
     ln -snf "$skill_dir/SKILL.md" "$pi_gstack/$child_name/SKILL.md"
   done
+
+  : > "$pi_gstack/.gstack-managed"
+}
+
+link_points_into() {
+  local link_path="$1"
+  local expected_root="$2"
+  local target
+  local target_dir
+
+  [ -L "$link_path" ] || return 1
+  target="$(readlink "$link_path")" || return 1
+  if [ "${target#/}" = "$target" ]; then
+    target_dir="$(cd "$(dirname "$link_path")" && cd "$(dirname "$target")" 2>/dev/null && pwd -P)" || return 1
+    target="$target_dir/$(basename "$target")"
+  fi
+
+  case "$target" in
+    "$expected_root"|"$expected_root"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_pi_runtime_root_managed() {
+  local gstack_dir="$1"
+  local pi_gstack="$2"
+
+  [ ! -e "$pi_gstack" ] && return 0
+  [ -f "$pi_gstack/.gstack-managed" ] && return 0
+  if [ -L "$pi_gstack" ]; then
+    link_points_into "$pi_gstack" "$gstack_dir"
+    return $?
+  fi
+
+  link_points_into "$pi_gstack/SKILL.md" "$gstack_dir" \
+    && link_points_into "$pi_gstack/bin" "$gstack_dir" \
+    && link_points_into "$pi_gstack/browse/dist" "$gstack_dir"
 }
 
 create_pi_runtime_root() {
   local gstack_dir="$1"
   local pi_gstack="$2"
 
+  if [ -e "$pi_gstack" ] && [ "$pi_gstack" != "$gstack_dir" ]; then
+    if ! is_pi_runtime_root_managed "$gstack_dir" "$pi_gstack"; then
+      echo "  warning: preserving existing unmanaged Pi runtime root at $pi_gstack" >&2
+      echo "  move it aside and rerun ./setup --host pi to install gstack runtime assets there" >&2
+      return 0
+    fi
+  fi
+
   if [ -L "$pi_gstack" ]; then
     rm -f "$pi_gstack"
-  elif [ -d "$pi_gstack" ] && [ "$pi_gstack" != "$gstack_dir" ]; then
-    rm -rf "$pi_gstack"
   fi
 
   link_pi_runtime_assets "$gstack_dir" "$pi_gstack"

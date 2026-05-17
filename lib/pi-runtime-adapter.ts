@@ -144,9 +144,9 @@ export function piBrowserExecutableCandidates(paths: PiBrowserRuntimePaths): rea
   const envBrowse = paths.env?.GSTACK_BROWSE;
   return uniqueStrings([
     envBrowse ? joinPath(envBrowse, 'browse') : '',
+    joinPath(paths.home, '.pi', 'agent', 'skills', 'gstack', 'browse', 'dist', 'browse'),
     joinPath(paths.repoRoot, '.pi', 'skills', 'gstack', 'browse', 'dist', 'browse'),
     joinPath(paths.repoRoot, 'browse', 'dist', 'browse'),
-    joinPath(paths.home, '.pi', 'agent', 'skills', 'gstack', 'browse', 'dist', 'browse'),
   ]);
 }
 

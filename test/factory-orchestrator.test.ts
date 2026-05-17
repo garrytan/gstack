@@ -60,6 +60,7 @@ describe('FactoryOrchestrator', () => {
     });
 
     expect(result.missingCapabilities).toEqual(['git']);
+    expect(result.blockingRisks).toEqual([]);
     expect(sink.events).toEqual([]);
   });
 
@@ -73,6 +74,7 @@ describe('FactoryOrchestrator', () => {
 
     expect(result.plan.runId).toBe('run-2');
     expect(result.missingCapabilities).toEqual([]);
+    expect(result.blockingRisks).toEqual([]);
     expect(sink.events.map(event => event.type)).toEqual(['run_started']);
 
     const state = orchestrator.state('run-2');
@@ -80,18 +82,34 @@ describe('FactoryOrchestrator', () => {
     expect(state.currentPhaseId).toBe('review');
   });
 
-  test('emits plan risks as durable events', () => {
+  test('does not start when plan has blocking risks', () => {
     const writeWorkflow: WorkflowSpec = {
       ...workflow,
       phases: [{ ...workflow.phases[0], requiredCapabilities: ['filesystem'] }],
     };
     const sink = new MemoryEventSink();
-    const orchestrator = new FactoryOrchestrator({ workflows: [writeWorkflow], eventSink: sink, makeRunId: () => 'run-risk' });
+    const orchestrator = new FactoryOrchestrator({ workflows: [writeWorkflow], eventSink: sink, makeRunId: () => 'run-blocked' });
 
     const result = orchestrator.start({ workflow: 'review-flow', goal: 'Write files', mode: 'review' });
-    expect(result.plan.risks.map(risk => risk.id)).toContain('writes-disabled');
-    expect(sink.events.map(event => event.type)).toEqual(['run_started', 'risk_detected', 'risk_detected']);
-    expect(orchestrator.state('run-risk').risks.map(risk => risk.id)).toEqual(['writes-disabled', 'missing-cwd']);
+    expect(result.blockingRisks.map(risk => risk.id)).toEqual(['writes-disabled', 'missing-cwd']);
+    expect(sink.events).toEqual([]);
+  });
+
+  test('emits non-blocking plan risks as durable events', () => {
+    const browserWorkflow: WorkflowSpec = {
+      ...workflow,
+      phases: [{ ...workflow.phases[0], requiredCapabilities: ['browser'] }],
+    };
+    const sink = new MemoryEventSink();
+    const orchestrator = new FactoryOrchestrator({ workflows: [browserWorkflow], eventSink: sink, makeRunId: () => 'run-risk' });
+
+    const result = orchestrator.start({ workflow: 'review-flow', goal: 'Check UI', mode: 'review' }, {
+      availableCapabilities: ['artifact-store', 'browser'],
+    });
+    expect(result.blockingRisks).toEqual([]);
+    expect(result.plan.risks.map(risk => risk.id)).toEqual(['browser-disabled']);
+    expect(sink.events.map(event => event.type)).toEqual(['run_started', 'risk_detected']);
+    expect(orchestrator.state('run-risk').risks.map(risk => risk.id)).toEqual(['browser-disabled']);
   });
 
   test('throws when state is unavailable from the event sink', () => {

@@ -67,9 +67,9 @@ describe('pi-runtime-adapter pure calculations', () => {
       env: { GSTACK_BROWSE: '/custom/browse/dist' },
     })).toEqual([
       '/custom/browse/dist/browse',
+      '/home/user/.pi/agent/skills/gstack/browse/dist/browse',
       '/repo/gstack/.pi/skills/gstack/browse/dist/browse',
       '/repo/gstack/browse/dist/browse',
-      '/home/user/.pi/agent/skills/gstack/browse/dist/browse',
     ]);
   });
 
