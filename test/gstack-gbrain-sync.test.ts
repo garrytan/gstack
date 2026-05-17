@@ -837,4 +837,34 @@ describe("sourceLocalPath", () => {
     });
     expect(sourceLocalPath("any-id", envWithBindir(bindir))).toBeNull();
   });
+
+  it("accepts the wrapped {sources:[...]} shape returned by gbrain >= 0.35.x", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({
+          sources: [
+            { id: "other-source", local_path: "/x" },
+            { id: "target-id", local_path: "/repo/match" },
+          ],
+        }),
+      },
+    });
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
+  });
+
+  it("returns null when wrapped payload has no matching source id", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({ sources: [{ id: "other", local_path: "/x" }] }),
+      },
+    });
+    expect(sourceLocalPath("missing-id", envWithBindir(bindir))).toBeNull();
+  });
+
+  it("returns null when wrapped payload omits the sources array", () => {
+    makeShim(bindir, {
+      "sources list --json": { stdout: JSON.stringify({}) },
+    });
+    expect(sourceLocalPath("any-id", envWithBindir(bindir))).toBeNull();
+  });
 });
