@@ -132,7 +132,7 @@ Recommended path chosen for this slice:
 
 - Start with `review` instead of `ship` because review is high-value, mostly read-oriented, and does not require deploy/package/publish decisions.
 - Keep generated `/review` unchanged and add opt-in `/factory-review` plus `/factory-status` Pi commands first.
-- Persist factory runs project-locally under `.gstack/factory/runs/<run-id>/`.
+- Persist factory runs project-locally under `.gstack/factory/runs/<run-id>/`, with JSONL events plus human-readable artifact files under `artifacts/`.
 - Treat this as structured dispatch in Pi: the event-sourced runner records phases, queues the existing generated `gstack-review` skill, and leaves the run `running` with pending external review work until later slices add transcript/artifact capture.
 - Fail closed by default on runner errors, but support an explicit continue-on-error hook for greenfield continuous runs.
 

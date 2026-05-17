@@ -36,6 +36,19 @@ Make `/review` the first gstack workflow with a structured, event-sourced factor
    - Capabilities: `artifact-store`.
    - Artifact: `review`.
 
+## Durable storage
+
+Factory review runs write both events and artifact files:
+
+```text
+.gstack/factory/runs/<run-id>/events.jsonl
+.gstack/factory/runs/<run-id>/manifest.json
+.gstack/factory/runs/<run-id>/artifacts/<artifact-id>.md
+.gstack/factory/runs/<run-id>/artifacts/<artifact-id>.json
+```
+
+The `.md` file is human-readable content. The `.json` file stores the `ArtifactRef` metadata used by the runner/event log.
+
 ## Current Pi commands
 
 - `/factory-review <goal>`

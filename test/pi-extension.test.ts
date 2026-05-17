@@ -70,6 +70,8 @@ describe('Pi gstack extension wiring', () => {
       const eventLog = readFileSync(path.join(runsDir, runId, 'events.jsonl'), 'utf-8');
       expect(eventLog).toContain('artifact_created');
       expect(eventLog).not.toContain('run_completed');
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'review-intake-dispatch.md'), 'utf-8')).toContain('Factory Review Intake');
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'diff-review-dispatch.md'), 'utf-8')).toContain('Status: pending external review output capture.');
 
       await commands.get('factory-status')!.handler(runId, {
         cwd: tempDir,

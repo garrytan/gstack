@@ -15,6 +15,7 @@ import {
   type AskUserQuestionResult,
   type NormalizedPiBrowserCommandRequest,
 } from '../../../lib/pi-runtime-adapter';
+import { FileFactoryArtifactStore } from '../../../lib/factory-artifact-store';
 import { FileFactoryEventStore } from '../../../lib/factory-event-store';
 import { FactoryRunner } from '../../../lib/factory-runner';
 import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
@@ -116,11 +117,13 @@ export default function piGstack(pi: any) {
       }
 
       const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
-      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
       const runner = new FactoryRunner({
         workflows: FACTORY_WORKFLOWS,
         eventSink: store,
-        runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot),
+        runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot, artifactStore),
       });
 
       const result = await runner.run({
@@ -237,7 +240,7 @@ export default function piGstack(pi: any) {
   });
 }
 
-function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string) {
+function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, artifactStore: FileFactoryArtifactStore) {
   return {
     availableCapabilities: isGitRepository(projectRoot)
       ? ['agent-session', 'artifact-store', 'git'] as const
@@ -252,9 +255,17 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string) {
       };
 
       if (phase.id === 'review-intake') {
+        const ref = artifactStore.writeText(plan.runId, { ...artifact, kind: 'plan', summary: `Review goal: ${request.goal}` }, [
+          '# Factory Review Intake',
+          '',
+          `Run: ${plan.runId}`,
+          `Goal: ${request.goal}`,
+          `Project: ${request.cwd || projectRoot}`,
+          '',
+        ].join('\n'));
         return {
           summary: 'Review intake recorded.',
-          artifacts: [{ ...artifact, kind: 'plan', summary: `Review goal: ${request.goal}` }],
+          artifacts: [ref],
         };
       }
 
@@ -265,20 +276,36 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string) {
         } else {
           pi.sendUserMessage(message, { deliverAs: 'followUp' });
         }
+        const ref = artifactStore.writeText(plan.runId, {
+          ...artifact,
+          summary: `Queued ${message}. Review findings will appear in the Pi transcript until artifact capture is added.`,
+          metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalReview: true },
+        }, [
+          '# Factory Review Dispatch',
+          '',
+          `Run: ${plan.runId}`,
+          `Queued command: ${message}`,
+          '',
+          'Status: pending external review output capture.',
+          '',
+        ].join('\n'));
         return {
           summary: 'Generated gstack review skill queued from structured factory run.',
           status: 'pending' as const,
-          artifacts: [{
-            ...artifact,
-            summary: `Queued ${message}. Review findings will appear in the Pi transcript until artifact capture is added.`,
-            metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalReview: true },
-          }],
+          artifacts: [ref],
         };
       }
 
+      const ref = artifactStore.writeText(plan.runId, artifact, [
+        '# Factory Review Summary',
+        '',
+        `Run: ${plan.runId}`,
+        `Goal: ${request.goal}`,
+        '',
+      ].join('\n'));
       return {
         summary: 'Review summary recorded.',
-        artifacts: [{ ...artifact, summary: `Factory review dispatch completed for ${request.goal}.` }],
+        artifacts: [ref],
       };
     },
   };
