@@ -43,6 +43,21 @@ remote_auth_hint() {
   esac
 }
 
+# Advance the artifacts worktree (the path gbrain indexes) to the parent
+# repo's current HEAD. Best-effort: failures are non-fatal because the push
+# has already succeeded, so the local index can catch up on the next run.
+# Without this, the worktree stays at its init commit and gbrain reports
+# 0 pages while artifacts pile up in main.
+advance_brain_worktree_to_head() {
+  local worktree="${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}"
+  if [ ! -d "$worktree/.git" ] && [ ! -f "$worktree/.git" ]; then
+    return 0
+  fi
+  local sha
+  sha=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null) || return 0
+  ( cd "$worktree" && git checkout --detach "$sha" >/dev/null 2>&1 ) || true
+}
+
 write_status() {
   # args: status_code message [extra_json_blob]
   local code="$1"
@@ -306,6 +321,7 @@ subcmd_once() {
           : > "$QUEUE"
           date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
           write_status "ok" "pushed $n file(s) after rebase"
+          advance_brain_worktree_to_head
           exit 0
         fi
       fi
@@ -319,6 +335,7 @@ subcmd_once() {
   : > "$QUEUE"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
   write_status "ok" "pushed $n file(s)"
+  advance_brain_worktree_to_head
   exit 0
 }
 
