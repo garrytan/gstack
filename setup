@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+JUNIE_SKILLS="$HOME/.junie/skills"
+JUNIE_GSTACK="$JUNIE_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -132,16 +134,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  junie)
-    echo ""
-    echo "Installing gstack for Junie (JetBrains AI agent)..."
-    echo ""
-    PATH="$PATH:$HOME/.bun/bin" bun run gen:skill-docs --host junie
-    echo ""
-    echo "Skills generated in .junie/skills/gstack-*/"
-    echo "Add a gstack section to your AGENTS.md listing the available skills."
-    echo ""
-    exit 0 ;;
+  junie) ;;
   *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, junie, or auto)" >&2; exit 1 ;;
 esac
 
@@ -206,6 +199,7 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_JUNIE=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
@@ -226,6 +220,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "junie" ]; then
+  INSTALL_JUNIE=1
 fi
 
 migrate_direct_codex_install() {
@@ -1031,6 +1027,46 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Junie
+link_junie_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local junie_dir="$gstack_dir/.junie/skills"
+  local linked=()
+
+  if [ ! -d "$junie_dir" ]; then
+    echo "  Generating .junie/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host junie )
+  fi
+
+  if [ ! -d "$junie_dir" ]; then
+    echo "  warning: .junie/skills/ generation failed — run 'bun run gen:skill-docs --host junie' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$junie_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+if [ "$INSTALL_JUNIE" -eq 1 ]; then
+  mkdir -p "$JUNIE_SKILLS"
+  link_junie_skill_dirs "$SOURCE_GSTACK_DIR" "$JUNIE_SKILLS"
+  echo "gstack ready (junie)."
+  echo "  junie skills: $JUNIE_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
