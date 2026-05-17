@@ -9,6 +9,9 @@ Endpoints:
     POST /camera/upload?session=ABCD      — receive JPEG from phone (multipart 'file')
     GET  /camera/status?session=ABCD      — {has_image, received_at, size_bytes}
     GET  /camera/latest?session=ABCD      — last uploaded JPEG bytes
+    GET  /camera/wait?session=ABCD&since=<ts>&timeout_s=30
+                                          — long-poll: blocks until a new upload
+                                            arrives after `since` (or timeout)
     GET  /camera/qr?session=ABCD          — QR code (format=ansi|png) for the phone URL
 
 Run:
@@ -16,6 +19,7 @@ Run:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import socket
@@ -54,6 +58,46 @@ app = FastAPI(title="stl-search", version="0.6.0")
 
 # In-memory session table: { code -> {"path": Path, "received_at": float, "size": int} }
 _camera_sessions: dict[str, dict] = {}
+
+# Per-session asyncio events so long-pollers wake the instant an upload arrives.
+# Each entry carries the loop the Event was created on so we can signal it
+# threadsafely from a different loop or thread (uvicorn with >1 worker
+# routing upload and wait to different workers; TestClient spinning up a
+# loop per request). Without the loop reference, `.set()` from a non-owning
+# loop is a no-op as far as the waiter is concerned.
+_camera_events: dict[str, tuple[asyncio.Event, asyncio.AbstractEventLoop]] = {}
+_camera_events_lock = asyncio.Lock()
+
+
+async def _camera_event_for(code: str) -> asyncio.Event:
+    async with _camera_events_lock:
+        entry = _camera_events.get(code)
+        loop = asyncio.get_running_loop()
+        if entry is None or entry[1] is not loop:
+            event = asyncio.Event()
+            _camera_events[code] = (event, loop)
+            return event
+        return entry[0]
+
+
+def _signal_camera_event(code: str) -> None:
+    """Wake any waiters for this session. Safe to call from any thread/loop."""
+    entry = _camera_events.get(code)
+    if entry is None:
+        return
+    event, loop = entry
+    if loop.is_closed():
+        return
+    # call_soon_threadsafe dispatches .set() onto the owning loop, which is
+    # the only way to wake an awaiting waiter when the caller is on a
+    # different loop. Within the same loop this is still correct, just one
+    # extra hop.
+    try:
+        loop.call_soon_threadsafe(event.set)
+    except RuntimeError:
+        # Loop shut down between is_closed() check and dispatch — drop the
+        # signal; the next wait will re-check the filesystem and pick it up.
+        pass
 
 
 def _safe_session(code: str) -> str:
@@ -408,6 +452,10 @@ async def camera_upload(
         "size": total,
         "content_type": file.content_type or "image/jpeg",
     }
+    # Wake any agent watcher long-polling /camera/wait. We do this AFTER the
+    # session table is populated so the waiter's status check sees the new
+    # upload, not a stale state.
+    _signal_camera_event(code)
     return JSONResponse({"ok": True, "session": code, "size_bytes": total})
 
 
@@ -435,6 +483,101 @@ def camera_status(session: str = Query("DEFAULT")) -> dict:
         "size_bytes": entry["size"],
         "image_url": f"/camera/latest?session={code}",
     }
+
+
+def _camera_state_for(code: str) -> dict | None:
+    """Return canonical state for a session, falling back to disk after restarts."""
+    entry = _camera_sessions.get(code)
+    if entry is not None:
+        return {
+            "session": code,
+            "received_at": entry["received_at"],
+            "size_bytes": entry["size"],
+            "path": str(entry["path"]),
+            "image_url": f"/camera/latest?session={code}",
+        }
+    path = CAMERA_DIR / f"{code}.jpg"
+    if path.exists():
+        st = path.stat()
+        return {
+            "session": code,
+            "received_at": st.st_mtime,
+            "size_bytes": st.st_size,
+            "path": str(path),
+            "image_url": f"/camera/latest?session={code}",
+        }
+    return None
+
+
+@app.get("/camera/wait")
+async def camera_wait(
+    session: str = Query("DEFAULT"),
+    since: float = Query(
+        0.0,
+        ge=0.0,
+        description="Unix seconds; return only when an upload arrived strictly after this time.",
+    ),
+    timeout_s: float = Query(
+        30.0,
+        ge=0.0,
+        le=600.0,
+        description="Max seconds to block. 0 means return current state immediately.",
+    ),
+) -> JSONResponse:
+    """Long-poll for the next upload to a session.
+
+    Agent watchers call this with `since=<last_received_at>` and a moderate
+    `timeout_s`. If an upload is already on disk newer than `since`, the
+    endpoint returns immediately. Otherwise it waits on an asyncio.Event
+    that the /camera/upload handler signals on every successful write.
+
+    Returns either:
+        {"status": "image_received", ...state}    upload arrived after `since`
+        {"status": "timeout",        "session": code, "since": float}
+    """
+    code = _safe_session(session)
+
+    def _fresh_state() -> dict | None:
+        state = _camera_state_for(code)
+        if state is None:
+            return None
+        if state["received_at"] > since:
+            return state
+        return None
+
+    immediate = _fresh_state()
+    if immediate is not None or timeout_s == 0.0:
+        if immediate is not None:
+            return JSONResponse({"status": "image_received", **immediate})
+        return JSONResponse({"status": "timeout", "session": code, "since": since})
+
+    # Wait on the per-session event. Re-arm by replacing the event so that
+    # follow-up waiters with a higher `since` don't immediately see a stale
+    # .set() flag from a prior upload.
+    event = await _camera_event_for(code)
+    deadline = time.monotonic() + timeout_s
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return JSONResponse({"status": "timeout", "session": code, "since": since})
+        try:
+            await asyncio.wait_for(event.wait(), timeout=remaining)
+        except asyncio.TimeoutError:
+            return JSONResponse({"status": "timeout", "session": code, "since": since})
+
+        # Drain the event so subsequent waits start fresh, and re-check state
+        # against `since` (a wake without a newer upload would be a spurious
+        # signal; loop and keep waiting until either fresh state or timeout).
+        running_loop = asyncio.get_running_loop()
+        async with _camera_events_lock:
+            current = _camera_events.get(code)
+            if current is not None and current[0] is event:
+                _camera_events[code] = (asyncio.Event(), running_loop)
+        state = _fresh_state()
+        if state is not None:
+            return JSONResponse({"status": "image_received", **state})
+        # No fresh state yet — set up to wait on the freshly-installed event.
+        event = await _camera_event_for(code)
 
 
 @app.get("/camera/latest")
