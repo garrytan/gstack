@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# gstack-claude-md-update — keep the project's CLAUDE.md pointing at the latest
+# gstack-generated artifact (design doc, CEO plan, eng plan, etc.).
+#
+# Called by artifact-writing skills (office-hours, plan-ceo-review, plan-eng-review,
+# plan-design-review, design-consultation) at the end of artifact generation. The
+# behavior is opt-out via `gstack-config set claude_md_artifact_pointers false`.
+#
+# Usage:
+#   gstack-claude-md-update --artifact-type <type> --path <abspath> [--project-root <path>]
+#
+# Artifact types (label rendered in CLAUDE.md):
+#   design        — "design doc"
+#   ceo-plan      — "CEO plan"
+#   eng-plan      — "engineering plan"
+#   design-spec   — "design spec"
+#   checkpoint    — "checkpoint"
+#   (unrecognized types are rendered verbatim — extensible by callers)
+#
+# Behavior:
+#   - Looks for a "- Latest <label>:" line ANYWHERE in CLAUDE.md and updates the
+#     backtick-wrapped path on that line in place. User can freely move the line
+#     between sections; it's matched by content, not position.
+#   - If the line doesn't exist, looks for a "## Latest gstack artifacts" heading
+#     and appends the line under it.
+#   - If neither line nor heading exists, appends a fresh section to end of file.
+#   - If CLAUDE.md doesn't exist in the project root, exits silently (don't create
+#     CLAUDE.md unilaterally — that's invasive).
+#   - Idempotent: re-running with the same path is a no-op; re-running with a new
+#     path updates in place; no duplicate sections accumulate.
+#
+# Project root resolution (in order):
+#   1. --project-root flag
+#   2. git rev-parse --show-toplevel
+#   3. $PWD
+#
+# Env overrides:
+#   GSTACK_HOME           — see gstack-config
+#   GSTACK_CMU_DEBUG=1    — log to stderr what the helper is doing (no-op otherwise)
+#
+# Exit codes:
+#   0 — success (or no-op due to opt-out / missing CLAUDE.md)
+#   1 — usage error or write failure
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GSTACK_CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+
+ARTIFACT_TYPE=""
+ARTIFACT_PATH=""
+PROJECT_ROOT=""
+
+log_debug() {
+  [ "${GSTACK_CMU_DEBUG:-0}" = "1" ] && printf '[gstack-claude-md-update] %s\n' "$*" >&2
+  return 0
+}
+
+# Parse args
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --artifact-type) ARTIFACT_TYPE="${2:-}"; shift 2 ;;
+    --path) ARTIFACT_PATH="${2:-}"; shift 2 ;;
+    --project-root) PROJECT_ROOT="${2:-}"; shift 2 ;;
+    -h|--help)
+      sed -n '2,40p' "$0" | sed 's|^# \{0,1\}||'
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown arg: $1" >&2
+      echo "Usage: gstack-claude-md-update --artifact-type <type> --path <abspath> [--project-root <path>]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "$ARTIFACT_TYPE" ] || [ -z "$ARTIFACT_PATH" ]; then
+  echo "Error: --artifact-type and --path are required" >&2
+  exit 1
+fi
+
+# Opt-out check — default true (feature on)
+ENABLED=$("$GSTACK_CONFIG_BIN" get claude_md_artifact_pointers 2>/dev/null || echo "true")
+if [ "$ENABLED" = "false" ]; then
+  log_debug "opted out via claude_md_artifact_pointers=false"
+  exit 0
+fi
+
+# Resolve project root
+if [ -z "$PROJECT_ROOT" ]; then
+  PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+fi
+[ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$PWD"
+
+CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
+
+if [ ! -f "$CLAUDE_MD" ]; then
+  log_debug "no CLAUDE.md at $CLAUDE_MD — skipping (helper does not create CLAUDE.md unilaterally)"
+  exit 0
+fi
+
+# Map artifact type to display label
+case "$ARTIFACT_TYPE" in
+  design)      LABEL="design doc" ;;
+  ceo-plan)    LABEL="CEO plan" ;;
+  eng-plan)    LABEL="engineering plan" ;;
+  design-spec) LABEL="design spec" ;;
+  checkpoint)  LABEL="checkpoint" ;;
+  *)           LABEL="$ARTIFACT_TYPE" ;;
+esac
+
+# Normalize artifact path: prefer ~ if under $HOME for portability
+NORMALIZED_PATH="$ARTIFACT_PATH"
+case "$ARTIFACT_PATH" in
+  "$HOME"/*) NORMALIZED_PATH="~${ARTIFACT_PATH#$HOME}" ;;
+esac
+
+# Build the canonical pointer line
+NEW_LINE="- Latest $LABEL: \`$NORMALIZED_PATH\`"
+
+# Pattern: matches "- Latest <label>:" optionally followed by anything (the old path).
+# The label is escaped in case it contains regex metacharacters (it doesn't for known types, but be safe).
+ESCAPED_LABEL=$(printf '%s' "$LABEL" | sed 's|[][\.*^$/]|\\&|g')
+LINE_PATTERN="^- Latest ${ESCAPED_LABEL}:"
+
+# Decision tree:
+#   1. Line exists anywhere → replace it in place
+#   2. "## Latest gstack artifacts" heading exists → append line under heading
+#   3. Neither → append fresh section to end of file
+
+if grep -qE "$LINE_PATTERN" "$CLAUDE_MD"; then
+  log_debug "updating in place: $NEW_LINE"
+  tmpfile=$(mktemp)
+  # Replace each matching line wholesale. Use # as sed delimiter (path may contain /).
+  awk -v pat="$LINE_PATTERN" -v new="$NEW_LINE" '
+    $0 ~ pat { print new; next }
+    { print }
+  ' "$CLAUDE_MD" > "$tmpfile" && mv "$tmpfile" "$CLAUDE_MD"
+elif grep -qE "^## Latest gstack artifacts" "$CLAUDE_MD"; then
+  log_debug "appending under existing heading: $NEW_LINE"
+  tmpfile=$(mktemp)
+  # Walk the file. When we enter the gstack-artifacts section, just print through
+  # until we hit the next ## heading (or EOF), then insert the new line right
+  # before that boundary. Section grows downward; no fancy bullet-block detection.
+  awk -v new="$NEW_LINE" '
+    BEGIN { in_section = 0; inserted = 0 }
+    /^## Latest gstack artifacts/ && !inserted {
+      print
+      in_section = 1
+      next
+    }
+    in_section && /^## / && !inserted {
+      print new
+      print ""
+      inserted = 1
+      in_section = 0
+      print
+      next
+    }
+    { print }
+    END {
+      if (in_section && !inserted) print new
+    }
+  ' "$CLAUDE_MD" > "$tmpfile" && mv "$tmpfile" "$CLAUDE_MD"
+else
+  log_debug "appending fresh section: $NEW_LINE"
+  {
+    printf '\n'
+    printf '## Latest gstack artifacts\n'
+    printf '\n'
+    printf 'Auto-managed by `gstack-claude-md-update`. Move these lines anywhere in CLAUDE.md and the helper will keep finding and updating them. Opt out with `gstack-config set claude_md_artifact_pointers false`.\n'
+    printf '\n'
+    printf '%s\n' "$NEW_LINE"
+  } >> "$CLAUDE_MD"
+fi
+
+exit 0

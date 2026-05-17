@@ -73,6 +73,17 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# ─── CLAUDE.md artifact pointers ─────────────────────────────────────
+# claude_md_artifact_pointers: true
+#                           # When true, artifact-writing skills (currently /office-hours;
+#                           # other artifact skills can opt in) call
+#                           # `gstack-claude-md-update` after generating an artifact, which
+#                           # keeps a "Latest <type>" pointer line in the project's CLAUDE.md
+#                           # pointing at the freshest artifact file.
+#                           # Edit-tolerant: move the pointer line anywhere in CLAUDE.md and
+#                           # the helper still finds it by content. Idempotent. Never creates
+#                           # CLAUDE.md if absent. Set to false to disable.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
 # gstack_contributor: false # true = file field reports when gstack misbehaves
@@ -107,6 +118,7 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    claude_md_artifact_pointers) echo "true" ;;
     *) echo "" ;;
   esac
 }

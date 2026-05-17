@@ -232,6 +232,18 @@ For template authoring best practices (natural language over bash-isms, dynamic 
 
 To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
 
+## Wiring a new skill into the CLAUDE.md artifact-pointer helper
+
+If you're adding a skill that writes an artifact under `~/.gstack/projects/<slug>/` (a plan, a review, a design spec, etc.), call `bin/gstack-claude-md-update` after the write so the project's `CLAUDE.md` stays pointed at the freshest file. Currently wired into `/office-hours`; `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, and `/design-consultation` are candidates for follow-up PRs.
+
+In the skill template, immediately after the artifact is written, add:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-claude-md-update --artifact-type <type> --path "<abspath>" 2>/dev/null || true
+```
+
+Use a known artifact type (`design`, `ceo-plan`, `eng-plan`, `design-spec`, `checkpoint`) so the rendered label is consistent across skills. Unrecognized types render verbatim. The helper is opt-out (`gstack-config set claude_md_artifact_pointers false`), is a silent no-op when CLAUDE.md doesn't exist, and never creates CLAUDE.md unilaterally.
+
 ## Jargon list (V1 writing style)
 
 gstack's Writing Style section (injected into every tier-≥2 skill's preamble)
