@@ -221,7 +221,11 @@ export class BrowserManager {
     // are typically disabled in containers and are never available for the root
     // user on Linux. Detect all three cases and add --no-sandbox automatically.
     const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-    if (process.env.CI || process.env.CONTAINER || isRoot) {
+    // Ubuntu/AppArmor setups often block unprivileged Chromium sandboxing for
+    // headless agent sessions even for normal users. Keep an env escape hatch,
+    // but default Linux agent browsing to no-sandbox so /qa works reliably.
+    const forceNoSandbox = process.env.GSTACK_CHROMIUM_NO_SANDBOX === '1' || process.platform === 'linux';
+    if (process.env.CI || process.env.CONTAINER || isRoot || forceNoSandbox) {
       launchArgs.push('--no-sandbox');
     }
 
@@ -241,7 +245,7 @@ export class BrowserManager {
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit.
-      chromiumSandbox: process.platform !== 'win32',
+      chromiumSandbox: process.platform !== 'win32' && !forceNoSandbox,
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
     });
