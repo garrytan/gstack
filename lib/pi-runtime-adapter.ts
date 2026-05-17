@@ -89,6 +89,10 @@ export type FactoryReviewGoalNormalization =
   | { readonly ok: true; readonly goal: string }
   | { readonly ok: false; readonly error: string };
 
+export type FactoryCompleteReviewArgsNormalization =
+  | { readonly ok: true; readonly runId: string; readonly summary: string }
+  | { readonly ok: false; readonly error: string };
+
 export function toPiSkillCommand(skillName: string, args = ''): string {
   const trimmedSkillName = skillName.trim();
   if (!trimmedSkillName) {
@@ -109,6 +113,20 @@ export function normalizeFactoryReviewGoal(args: string): FactoryReviewGoalNorma
     return { ok: false, error: 'factory-review requires a review goal or scope' };
   }
   return { ok: true, goal };
+}
+
+export function normalizeFactoryCompleteReviewArgs(args: string): FactoryCompleteReviewArgsNormalization {
+  const trimmed = args.trim();
+  if (!trimmed) {
+    return { ok: false, error: 'factory-complete-review requires a run id and review summary' };
+  }
+
+  const [runId, ...summaryParts] = trimmed.split(/\s+/);
+  const summary = summaryParts.join(' ').trim();
+  if (!runId || !summary) {
+    return { ok: false, error: 'factory-complete-review requires a run id followed by a review summary' };
+  }
+  return { ok: true, runId, summary };
 }
 
 export function factoryRunsRoot(projectRoot: string): string {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FileFactoryArtifactStore, assertSafeArtifactId } from '../lib/factory-artifact-store';
@@ -29,6 +29,21 @@ describe('FileFactoryArtifactStore', () => {
         createdAt: '2026-01-01T00:00:00.000Z',
         content: '# Review\n\nLooks good.\n',
       });
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('normalizes tampered metadata paths on read', () => {
+    const { rootDir, store } = tempStore();
+    try {
+      store.writeText('run-1', { id: 'review-summary', kind: 'review', summary: 'Review summary' }, 'safe content');
+      writeFileSync(store.artifactMetadataPath('run-1', 'review-summary'), `${JSON.stringify({
+        ref: { id: 'review-summary', kind: 'review', summary: 'Review summary', path: '/tmp/evil' },
+        createdAt: '2026-01-01T00:00:00.000Z',
+      })}\n`);
+
+      expect(store.readText('run-1', 'review-summary').ref.path).toBe(store.artifactContentPath('run-1', 'review-summary'));
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

@@ -55,8 +55,15 @@ export class FileFactoryArtifactStore {
     }
 
     const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8')) as { ref: ArtifactRef; createdAt: string };
+    if (!metadata.ref || metadata.ref.id !== artifactId) {
+      throw new Error(`Factory artifact metadata for '${artifactId}' is invalid`);
+    }
+
     return {
-      ref: metadata.ref,
+      ref: {
+        ...metadata.ref,
+        path: this.artifactContentPath(runId, artifactId),
+      },
       createdAt: metadata.createdAt,
       content: readFileSync(this.artifactContentPath(runId, artifactId), 'utf-8'),
     };

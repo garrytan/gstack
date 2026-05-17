@@ -5,6 +5,7 @@ import {
   factoryRunsRoot,
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
+  normalizeFactoryCompleteReviewArgs,
   normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
@@ -78,6 +79,8 @@ describe('pi-runtime-adapter pure calculations', () => {
   test('normalizes factory review goals and run paths', () => {
     expect(normalizeFactoryReviewGoal('  review this branch  ')).toEqual({ ok: true, goal: 'review this branch' });
     expect(normalizeFactoryReviewGoal('   ')).toEqual({ ok: false, error: 'factory-review requires a review goal or scope' });
+    expect(normalizeFactoryCompleteReviewArgs('run-1 no blocking findings')).toEqual({ ok: true, runId: 'run-1', summary: 'no blocking findings' });
+    expect(normalizeFactoryCompleteReviewArgs('run-1')).toEqual({ ok: false, error: 'factory-complete-review requires a run id followed by a review summary' });
     expect(factoryRunsRoot('/repo/project')).toBe('/repo/project/.gstack/factory/runs');
   });
 

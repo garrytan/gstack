@@ -8,6 +8,7 @@ import {
   factoryRunsRoot,
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
+  normalizeFactoryCompleteReviewArgs,
   normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
@@ -142,6 +143,60 @@ export default function piGstack(pi: any) {
         ? `Factory review blocked: missing capabilities=${result.start.missingCapabilities.join(', ') || 'none'}, blocking risks=${result.start.blockingRisks.map(risk => risk.id).join(', ') || 'none'}`
         : `Factory review ${result.status}: ${result.plan.runId} (${result.state.artifacts.length} artifact(s)).`;
       ctx.ui.notify(message, result.status === 'completed' ? 'info' : 'warning');
+    },
+  });
+
+  pi.registerCommand('factory-complete-review', {
+    description: 'Capture review output for a pending structured factory review run and continue it.',
+    handler: async (args: string, ctx: any) => {
+      const normalized = normalizeFactoryCompleteReviewArgs(args);
+      if (!normalized.ok) {
+        ctx.ui.notify(normalized.error, 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
+
+      try {
+        if (!store.readManifest(normalized.runId)) {
+          ctx.ui.notify(`Factory run ${normalized.runId} not found in this project.`, 'warning');
+          return;
+        }
+
+        const state = store.readState(normalized.runId);
+        if (state.status !== 'running' || state.currentPhaseId !== 'diff-review' || !hasPendingDiffReviewArtifact(state)) {
+          ctx.ui.notify(`Factory run ${normalized.runId} is not waiting for diff-review output.`, 'warning');
+          return;
+        }
+
+        const ref = artifactStore.writeText(normalized.runId, {
+          id: 'diff-review-captured',
+          kind: 'review',
+          phaseId: 'diff-review',
+          summary: normalized.summary,
+        }, [
+          '# Captured Factory Review',
+          '',
+          `Run: ${normalized.runId}`,
+          '',
+          normalized.summary,
+          '',
+        ].join('\n'));
+        store.append(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'diff-review', artifacts: [ref] });
+
+        const runner = new FactoryRunner({
+          workflows: FACTORY_WORKFLOWS,
+          eventSink: store,
+          runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot, artifactStore),
+        });
+        const result = await runner.continueRun(normalized.runId);
+        ctx.ui.notify(`Factory review ${result.status}: ${normalized.runId} (${result.state.artifacts.length} artifact(s)).`, result.status === 'completed' ? 'info' : 'warning');
+      } catch (error) {
+        ctx.ui.notify(`Could not complete factory review: ${(error as Error).message}`, 'error');
+      }
     },
   });
 
@@ -315,6 +370,12 @@ function formatFactoryState(runId: string, state: { status: string; completedPha
   const phases = state.completedPhaseIds.length > 0 ? state.completedPhaseIds.join(', ') : 'none';
   const error = state.error ? ` error=${state.error.message}` : '';
   return `Factory run ${runId}: status=${state.status}, completed=[${phases}], artifacts=${state.artifacts.length}.${error}`;
+}
+
+function hasPendingDiffReviewArtifact(state: { artifacts: readonly ArtifactRef[] }): boolean {
+  return state.artifacts.some(artifact => artifact.phaseId === 'diff-review' && artifact.metadata && (
+    artifact.metadata.pendingExternalReview === true || artifact.metadata.pendingExternalWork === true
+  ));
 }
 
 function findBrowseBinary(_projectRoot: string): string | null {

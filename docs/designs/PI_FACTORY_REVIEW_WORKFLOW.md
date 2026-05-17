@@ -57,6 +57,10 @@ The `.md` file is human-readable content. The `.json` file stores the `ArtifactR
   - Queues `/skill:gstack-review <goal>` for the existing generated review workflow.
   - Leaves the factory run in `running` state with `diff-review` pending until a later artifact-capture slice records the actual review output.
   - Prints run id and status.
+- `/factory-complete-review <run-id> <summary>`
+  - Captures review output/summary as a durable artifact.
+  - Completes the pending `diff-review` phase.
+  - Continues the runner through `review-summary` and `run_completed`.
 - `/factory-status <run-id>`
   - Reads the event store and displays durable state.
 

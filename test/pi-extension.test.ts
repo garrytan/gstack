@@ -3,6 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import piGstack from '../.pi/extensions/pi-gstack/index';
+import { compileRunPlan } from '../lib/factory-core';
+import { FileFactoryEventStore } from '../lib/factory-event-store';
+import { FACTORY_REVIEW_WORKFLOW } from '../lib/factory-review-workflow';
+import { factoryRunsRoot } from '../lib/pi-runtime-adapter';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -22,7 +26,7 @@ describe('Pi gstack extension wiring', () => {
       },
     });
 
-    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-status']);
+    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-complete-review', 'factory-status']);
 
     await commands.get('review')!.handler('check this diff', {
       isIdle: () => true,
@@ -82,6 +86,15 @@ describe('Pi gstack extension wiring', () => {
         level: 'info',
       });
 
+      await commands.get('factory-complete-review')!.handler(`${runId} no blocking findings`, {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+      expect(notifications.at(-1)).toEqual({ message: `Factory review completed: ${runId} (4 artifact(s)).`, level: 'info' });
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'diff-review-captured.md'), 'utf-8')).toContain('no blocking findings');
+      expect(readFileSync(path.join(runsDir, runId, 'events.jsonl'), 'utf-8')).toContain('run_completed');
+
       await commands.get('factory-status')!.handler('../bad', {
         cwd: tempDir,
         ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
@@ -93,6 +106,49 @@ describe('Pi gstack extension wiring', () => {
         ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
       });
       expect(notifications.at(-1)).toEqual({ message: 'Factory run missing-run not found in this project.', level: 'warning' });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to complete review runs that have not reached pending capture', async () => {
+    const notifications: Array<{ message: string; level: string }> = [];
+    const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-interrupted-'));
+
+    try {
+      Bun.spawnSync(['git', 'init'], { cwd: tempDir, stdout: 'pipe', stderr: 'pipe' });
+      piGstack({
+        on() {},
+        registerCommand(name: string, definition: { handler: (args: string, ctx: unknown) => Promise<void> }) {
+          commands.set(name, definition);
+        },
+        registerTool() {},
+        sendUserMessage() {},
+      });
+
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const plan = compileRunPlan(FACTORY_REVIEW_WORKFLOW, {
+        workflow: 'review',
+        goal: 'Review current changes',
+        cwd: tempDir,
+        mode: 'review',
+        policy: { allowWrites: true },
+      }, 'run-interrupted');
+      store.append('run-interrupted', { type: 'run_started', runId: 'run-interrupted', plan });
+      store.append('run-interrupted', { type: 'phase_started', runId: 'run-interrupted', phaseId: 'diff-review' });
+
+      await commands.get('factory-complete-review')!.handler('run-interrupted no findings', {
+        cwd: tempDir,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+
+      expect(notifications.at(-1)).toEqual({
+        message: 'Factory run run-interrupted is not waiting for diff-review output.',
+        level: 'warning',
+      });
+      expect(store.readState('run-interrupted').status).toBe('running');
+      expect(store.readState('run-interrupted').completedPhaseIds).toEqual([]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
