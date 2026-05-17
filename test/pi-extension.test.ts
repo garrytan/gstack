@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
@@ -22,7 +22,7 @@ describe('Pi gstack extension wiring', () => {
       },
     });
 
-    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship']);
+    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-status']);
 
     await commands.get('review')!.handler('check this diff', {
       isIdle: () => true,
@@ -35,6 +35,97 @@ describe('Pi gstack extension wiring', () => {
       ui: { notify() {} },
     });
     expect(sent.at(-1)).toEqual({ message: '/skill:gstack-qa http://localhost:8200', options: { deliverAs: 'followUp' } });
+  });
+
+  test('starts and inspects opt-in structured factory review runs', async () => {
+    const sent: Array<{ message: string; options?: unknown }> = [];
+    const notifications: Array<{ message: string; level: string }> = [];
+    const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-review-'));
+
+    try {
+      Bun.spawnSync(['git', 'init'], { cwd: tempDir, stdout: 'pipe', stderr: 'pipe' });
+      piGstack({
+        on() {},
+        registerCommand(name: string, definition: { handler: (args: string, ctx: unknown) => Promise<void> }) {
+          commands.set(name, definition);
+        },
+        registerTool() {},
+        sendUserMessage(message: string, options?: unknown) {
+          sent.push({ message, options });
+        },
+      });
+
+      await commands.get('factory-review')!.handler('review current changes', {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+
+      expect(sent).toEqual([{ message: '/skill:gstack-review review current changes', options: { deliverAs: 'followUp' } }]);
+      expect(notifications.at(-1)?.message).toMatch(/^Factory review running: review-review-current-changes-/);
+
+      const runsDir = path.join(tempDir, '.gstack', 'factory', 'runs');
+      const runId = notifications.at(-1)!.message.match(/Factory review running: ([^ ]+)/)![1];
+      const eventLog = readFileSync(path.join(runsDir, runId, 'events.jsonl'), 'utf-8');
+      expect(eventLog).toContain('artifact_created');
+      expect(eventLog).not.toContain('run_completed');
+
+      await commands.get('factory-status')!.handler(runId, {
+        cwd: tempDir,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+      expect(notifications.at(-1)).toEqual({
+        message: `Factory run ${runId}: status=running, completed=[review-intake], artifacts=2.`,
+        level: 'info',
+      });
+
+      await commands.get('factory-status')!.handler('../bad', {
+        cwd: tempDir,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+      expect(notifications.at(-1)?.level).toBe('error');
+
+      await commands.get('factory-status')!.handler('missing-run', {
+        cwd: tempDir,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+      expect(notifications.at(-1)).toEqual({ message: 'Factory run missing-run not found in this project.', level: 'warning' });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('blocks structured factory review outside git repositories', async () => {
+    const sent: Array<{ message: string; options?: unknown }> = [];
+    const notifications: Array<{ message: string; level: string }> = [];
+    const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-no-git-'));
+
+    try {
+      piGstack({
+        on() {},
+        registerCommand(name: string, definition: { handler: (args: string, ctx: unknown) => Promise<void> }) {
+          commands.set(name, definition);
+        },
+        registerTool() {},
+        sendUserMessage(message: string, options?: unknown) {
+          sent.push({ message, options });
+        },
+      });
+
+      await commands.get('factory-review')!.handler('review current changes', {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: { notify(message: string, level: string) { notifications.push({ message, level }); } },
+      });
+
+      expect(sent).toEqual([]);
+      expect(notifications.at(-1)?.message).toContain('Factory review blocked');
+      expect(notifications.at(-1)?.message).toContain('missing capabilities=git');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('registers generated skill discovery hook and fail-closed custom tools', async () => {

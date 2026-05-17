@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import {
   PI_GSTACK_SKILL_ALIASES,
   aliasToPiSkillCommand,
+  factoryRunsRoot,
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
+  normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
   toPiSkillCommand,
@@ -71,6 +73,12 @@ describe('pi-runtime-adapter pure calculations', () => {
       '/repo/gstack/.pi/skills/gstack/browse/dist/browse',
       '/repo/gstack/browse/dist/browse',
     ]);
+  });
+
+  test('normalizes factory review goals and run paths', () => {
+    expect(normalizeFactoryReviewGoal('  review this branch  ')).toEqual({ ok: true, goal: 'review this branch' });
+    expect(normalizeFactoryReviewGoal('   ')).toEqual({ ok: false, error: 'factory-review requires a review goal or scope' });
+    expect(factoryRunsRoot('/repo/project')).toBe('/repo/project/.gstack/factory/runs');
   });
 
   test('normalizes structured user questions', () => {

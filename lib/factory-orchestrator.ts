@@ -30,7 +30,7 @@ export interface FactoryStartOptions {
 export interface FactoryStartResult {
   readonly plan: FactoryRunPlan;
   readonly missingCapabilities: readonly CapabilityName[];
-  readonly blockingRisks: readonly FactoryRunPlan['risks'];
+  readonly blockingRisks: FactoryRunPlan['risks'];
 }
 
 export class FactoryOrchestrator {

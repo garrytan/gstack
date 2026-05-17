@@ -222,6 +222,9 @@ function isRunPlan(input: unknown, eventRunId: string): boolean {
     && typeof input.workflow === 'string'
     && isFactoryMode(input.mode)
     && typeof input.goal === 'string'
+    && (input.cwd === undefined || typeof input.cwd === 'string')
+    && (input.repo === undefined || isRepoContext(input.repo))
+    && (input.context === undefined || isObject(input.context))
     && isPolicy(input.policy)
     && Array.isArray(input.phases)
     && input.phases.every(isPlannedPhase)
@@ -230,6 +233,15 @@ function isRunPlan(input: unknown, eventRunId: string): boolean {
     && input.expectedArtifacts.every(isArtifactExpectation)
     && Array.isArray(input.risks)
     && input.risks.every(isRisk);
+}
+
+function isRepoContext(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return (input.provider === undefined || ['github', 'gitlab', 'local'].includes(String(input.provider)))
+    && (input.owner === undefined || typeof input.owner === 'string')
+    && (input.name === undefined || typeof input.name === 'string')
+    && (input.branch === undefined || typeof input.branch === 'string')
+    && (input.baseBranch === undefined || typeof input.baseBranch === 'string');
 }
 
 function isPolicy(input: unknown): boolean {

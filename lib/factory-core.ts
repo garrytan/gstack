@@ -158,6 +158,9 @@ export interface FactoryRunPlan {
   workflow: string;
   mode: FactoryMode;
   goal: string;
+  cwd?: string;
+  repo?: RepoContext;
+  context?: Record<string, unknown>;
   policy: PolicySpec;
   phases: PlannedPhase[];
   requiredCapabilities: CapabilityName[];
@@ -252,6 +255,9 @@ export function compileRunPlan(workflow: WorkflowSpec, request: FactoryRunReques
     workflow: workflow.id,
     mode,
     goal: request.goal,
+    cwd: request.cwd,
+    repo: request.repo,
+    context: request.context,
     policy,
     phases,
     requiredCapabilities,

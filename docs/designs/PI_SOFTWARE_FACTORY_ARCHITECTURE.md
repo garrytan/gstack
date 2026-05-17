@@ -124,10 +124,22 @@ This is still not the full software factory runtime. Remaining action-layer work
 
 Those action-layer slices should consume `lib/factory-core.ts` instead of duplicating workflow state.
 
+## Structured review workflow slice
+
+The first runnable structured workflow is `review`, documented in `docs/designs/PI_FACTORY_REVIEW_WORKFLOW.md`.
+
+Recommended path chosen for this slice:
+
+- Start with `review` instead of `ship` because review is high-value, mostly read-oriented, and does not require deploy/package/publish decisions.
+- Keep generated `/review` unchanged and add opt-in `/factory-review` plus `/factory-status` Pi commands first.
+- Persist factory runs project-locally under `.gstack/factory/runs/<run-id>/`.
+- Treat this as structured dispatch in Pi: the event-sourced runner records phases, queues the existing generated `gstack-review` skill, and leaves the run `running` with pending external review work until later slices add transcript/artifact capture.
+- Fail closed by default on runner errors, but support an explicit continue-on-error hook for greenfield continuous runs.
+
 ## Migration path
 
 1. Keep existing skills as generated host output.
-2. Add `WorkflowSpec` definitions for one workflow at a time, starting with `office-hours`.
+2. Add `WorkflowSpec` definitions for one workflow at a time, starting with `review`.
 3. Render the same workflow to Pi skills and SDK run plans.
 4. Add a Pi extension that calls the factory core and adapts UI/tools.
 5. Add a Pi SDK adapter for external applications.

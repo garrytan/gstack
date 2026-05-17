@@ -85,6 +85,10 @@ export interface AskUserQuestionResult {
   readonly wasCustom: boolean;
 }
 
+export type FactoryReviewGoalNormalization =
+  | { readonly ok: true; readonly goal: string }
+  | { readonly ok: false; readonly error: string };
+
 export function toPiSkillCommand(skillName: string, args = ''): string {
   const trimmedSkillName = skillName.trim();
   if (!trimmedSkillName) {
@@ -97,6 +101,18 @@ export function toPiSkillCommand(skillName: string, args = ''): string {
 
 export function aliasToPiSkillCommand(spec: PiSkillAliasSpec, args = ''): string {
   return toPiSkillCommand(spec.skillName, args);
+}
+
+export function normalizeFactoryReviewGoal(args: string): FactoryReviewGoalNormalization {
+  const goal = args.trim();
+  if (!goal) {
+    return { ok: false, error: 'factory-review requires a review goal or scope' };
+  }
+  return { ok: true, goal };
+}
+
+export function factoryRunsRoot(projectRoot: string): string {
+  return joinPath(projectRoot, '.gstack', 'factory', 'runs');
 }
 
 export function normalizePiBrowserCommandRequest(input: PiBrowserCommandRequest): PiBrowserCommandNormalization {

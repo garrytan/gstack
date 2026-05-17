@@ -5,13 +5,20 @@ import { dirname, join } from 'node:path';
 import {
   PI_GSTACK_SKILL_ALIASES,
   aliasToPiSkillCommand,
+  factoryRunsRoot,
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
+  normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
+  toPiSkillCommand,
   type AskUserQuestionResult,
   type NormalizedPiBrowserCommandRequest,
 } from '../../../lib/pi-runtime-adapter';
+import { FileFactoryEventStore } from '../../../lib/factory-event-store';
+import { FactoryRunner } from '../../../lib/factory-runner';
+import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
+import type { ArtifactRef } from '../../../lib/factory-core';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(EXTENSION_DIR, '..', '..', '..');
@@ -99,6 +106,66 @@ export default function piGstack(pi: any) {
     });
   }
 
+  pi.registerCommand('factory-review', {
+    description: 'Start an opt-in structured, event-sourced gstack review run.',
+    handler: async (args: string, ctx: any) => {
+      const normalized = normalizeFactoryReviewGoal(args);
+      if (!normalized.ok) {
+        ctx.ui.notify(normalized.error, 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
+      const runner = new FactoryRunner({
+        workflows: FACTORY_WORKFLOWS,
+        eventSink: store,
+        runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot),
+      });
+
+      const result = await runner.run({
+        workflow: 'review',
+        goal: normalized.goal,
+        cwd: projectRoot,
+        mode: 'review',
+        // The current core treats git as write-capable. This opt-in review
+        // runtime only dispatches the generated review skill and writes factory
+        // events, so allowWrites is the recommended bridge until git read/write
+        // capabilities are split.
+        policy: { allowWrites: true },
+      });
+
+      const message = result.status === 'blocked'
+        ? `Factory review blocked: missing capabilities=${result.start.missingCapabilities.join(', ') || 'none'}, blocking risks=${result.start.blockingRisks.map(risk => risk.id).join(', ') || 'none'}`
+        : `Factory review ${result.status}: ${result.plan.runId} (${result.state.artifacts.length} artifact(s)).`;
+      ctx.ui.notify(message, result.status === 'completed' ? 'info' : 'warning');
+    },
+  });
+
+  pi.registerCommand('factory-status', {
+    description: 'Show status for a structured gstack factory run in this project.',
+    handler: async (args: string, ctx: any) => {
+      const runId = args.trim();
+      if (!runId) {
+        ctx.ui.notify('factory-status requires a run id', 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
+      try {
+        if (!store.readManifest(runId)) {
+          ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
+          return;
+        }
+        const state = store.readState(runId);
+        ctx.ui.notify(formatFactoryState(runId, state), state.status === 'failed' ? 'error' : 'info');
+      } catch (error) {
+        ctx.ui.notify(`Could not read factory run: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
   pi.registerTool({
     name: 'gstack_browser',
     label: 'GStack Browser',
@@ -170,6 +237,59 @@ export default function piGstack(pi: any) {
   });
 }
 
+function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string) {
+  return {
+    availableCapabilities: isGitRepository(projectRoot)
+      ? ['agent-session', 'artifact-store', 'git'] as const
+      : ['agent-session', 'artifact-store'] as const,
+    executePhase({ phase, request, plan }: any) {
+      const artifact: ArtifactRef = {
+        id: `${phase.id}-dispatch`,
+        kind: phase.expectedArtifacts[0]?.kind ?? 'review',
+        phaseId: phase.id,
+        summary: `Structured factory phase '${phase.id}' completed for ${plan.runId}.`,
+        metadata: { factoryRunId: plan.runId, goal: request.goal },
+      };
+
+      if (phase.id === 'review-intake') {
+        return {
+          summary: 'Review intake recorded.',
+          artifacts: [{ ...artifact, kind: 'plan', summary: `Review goal: ${request.goal}` }],
+        };
+      }
+
+      if (phase.id === 'diff-review') {
+        const message = toPiSkillCommand('gstack-review', request.goal);
+        if (ctx.isIdle?.()) {
+          pi.sendUserMessage(message);
+        } else {
+          pi.sendUserMessage(message, { deliverAs: 'followUp' });
+        }
+        return {
+          summary: 'Generated gstack review skill queued from structured factory run.',
+          status: 'pending' as const,
+          artifacts: [{
+            ...artifact,
+            summary: `Queued ${message}. Review findings will appear in the Pi transcript until artifact capture is added.`,
+            metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalReview: true },
+          }],
+        };
+      }
+
+      return {
+        summary: 'Review summary recorded.',
+        artifacts: [{ ...artifact, summary: `Factory review dispatch completed for ${request.goal}.` }],
+      };
+    },
+  };
+}
+
+function formatFactoryState(runId: string, state: { status: string; completedPhaseIds: readonly string[]; artifacts: readonly ArtifactRef[]; error?: { message: string } }): string {
+  const phases = state.completedPhaseIds.length > 0 ? state.completedPhaseIds.join(', ') : 'none';
+  const error = state.error ? ` error=${state.error.message}` : '';
+  return `Factory run ${runId}: status=${state.status}, completed=[${phases}], artifacts=${state.artifacts.length}.${error}`;
+}
+
 function findBrowseBinary(_projectRoot: string): string | null {
   const candidates = piBrowserExecutableCandidates({ repoRoot: REPO_ROOT, home: process.env.HOME ?? '', env: process.env });
 
@@ -197,6 +317,15 @@ function resolveProjectRoot(cwd: string): string {
   }
 
   return cwd;
+}
+
+function isGitRepository(cwd: string): boolean {
+  const gitRoot = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd,
+    encoding: 'utf-8',
+    timeout: 2_000,
+  });
+  return gitRoot.status === 0 && gitRoot.stdout.trim().length > 0;
 }
 
 function buildBrowseToolEnv(projectRoot: string): Record<string, string | undefined> {
