@@ -994,13 +994,17 @@ If none was produced (user may have cancelled), proceed with standard review.
 
 **Mid-session detection:** During Step 0A (Premise Challenge), if the user can't
 articulate the problem, keeps changing the problem statement, answers with "I'm not
-sure," or is clearly exploring rather than reviewing — offer `/office-hours`:
+sure," or is clearly exploring rather than reviewing — offer two branches:
 
-> "It sounds like you're still figuring out what to build — that's totally fine, but
-> that's what /office-hours is designed for. Want to run /office-hours right now?
-> We'll pick up right where we left off."
+> "It sounds like you're still figuring out what to build — that's totally fine.
+> Two ways to handle it:
+> - `/office-hours` — broad design interview, opens the problem back up
+> - `/absolute-brainstorm` — precise design-interview gate for adopting a specific
+>   new proposal, when you have a concrete idea you want vetted before scoping it in
+>
+> Which one fits where you are right now?"
 
-Options: A) Yes, run /office-hours now. B) No, keep going.
+Options: A) Run /office-hours. B) Run /absolute-brainstorm. C) No, keep going.
 If they keep going, proceed normally — no guilt, no re-asking.
 
 If they choose A:
@@ -1024,6 +1028,11 @@ Follow its instructions from top to bottom, **skipping these sections** (already
 - Plan Status Footer
 
 Execute every other section at full depth. When the loaded skill's instructions are complete, continue with the next step below.
+
+If they choose B: tell the user to run `/absolute-brainstorm` directly in their
+next message — it's a sibling skill, not a sub-invocation. Note current Step 0A
+progress, pause this review, and pick up once they return with the brainstorm's
+output.
 
 Note current Step 0A progress so you don't re-ask questions already answered.
 After completion, re-run the design doc check and resume the review.
