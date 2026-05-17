@@ -1587,6 +1587,14 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-{datetime}.md`.
 After writing the design doc, tell the user:
 **"Design doc saved to: {full path}. Other skills (/plan-ceo-review, /plan-eng-review) will find it automatically."**
 
+Then update the project's CLAUDE.md with a pointer to the new design doc, so future Claude sessions discover it immediately:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-claude-md-update --artifact-type design --path "<absolute path to the design doc just written>" 2>/dev/null || true
+```
+
+The helper is opt-out (`gstack-config set claude_md_artifact_pointers false` to disable); silent no-op when CLAUDE.md is absent or when opted out. See `bin/gstack-claude-md-update --help` for details.
+
 ### Startup mode design doc template:
 
 ```markdown

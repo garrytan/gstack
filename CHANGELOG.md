@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Project CLAUDE.md now auto-points at the latest gstack design doc
+
+Every gstack artifact-writing skill produces a markdown file under `~/.gstack/projects/<slug>/`. Until now, the project's own `CLAUDE.md` had no way to know which artifact was current — every new session had to be told (or guess) which `*-design-*.md` was canonical. This change closes that loop for `/office-hours` as the proof-of-concept, with the pattern available for the other artifact-writing skills to adopt.
+
+After `/office-hours` writes a design doc, it now calls `bin/gstack-claude-md-update --artifact-type design --path <abspath>`, which finds-or-appends a backtick-wrapped pointer line in the project's `CLAUDE.md`. The line is edit-tolerant: the user can move it into any section, under any heading, with any surrounding prose — the helper finds it by content pattern, not by line number. Deleting the pointer triggers a clean re-append at end of file with a self-describing `## Latest gstack artifacts` section. Re-running is idempotent; no duplicate sections accumulate.
+
+**Opt-out:** `gstack-config set claude_md_artifact_pointers false` (default is `true`).
+
+#### Added
+
+- `bin/gstack-claude-md-update` — generic helper. Usage: `gstack-claude-md-update --artifact-type <type> --path <abspath> [--project-root <path>]`. Known artifact types: `design`, `ceo-plan`, `eng-plan`, `design-spec`, `checkpoint` (unrecognized types render verbatim). Resolves project root via `--project-root`, then `git rev-parse --show-toplevel`, then `$PWD`. Silent no-op when `CLAUDE.md` is absent — never creates it unilaterally. Exits 0 on success or opt-out; 1 on usage error.
+- `claude_md_artifact_pointers` config key (default `true`) with documentation in the `gstack-config` `CONFIG_HEADER`.
+
+#### Changed
+
+- `office-hours/SKILL.md.tmpl` (and the regenerated `SKILL.md`) — Phase 5 now calls `gstack-claude-md-update` after writing the design doc.
+
+### Out of scope (deliberately deferred)
+
+- Wiring the helper into `plan-ceo-review`, `plan-eng-review`, `plan-design-review`, `design-consultation`. The pattern is now visible in `office-hours`; happy to follow up in separate PRs if maintainers want each skill adopted.
+- Claude Code hook templates (the skill-side approach is cleaner and works without per-project hook installation).
+
 ## [1.39.2.0] - 2026-05-15
 
 ## **Conductor workspaces wire `GSTACK_*` keys straight into gbrain embeddings and paid evals.**
