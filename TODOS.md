@@ -149,24 +149,6 @@ made opt-in. Lower priority than the gbrain-side perf issue above.
 
 ---
 
-### P2: Bump gbrain install-pin in lockstep with gstack memory-feature releases (#1305 part 2)
-
-**What:** `bin/gstack-gbrain-install` pins gbrain to commit `08b3698` (v0.18.2). When gstack ships features that depend on newer gbrain ops or schema (e.g. v1.26.0 manifests + `code-def`/`code-refs`/`reindex-code`), the pin doesn't move with it. Fresh `/setup-gbrain` installs an old gbrain that fails `gbrain doctor` schema_version checks (24 vs latest 32+) until the user manually upgrades.
-
-**Why:** Filed in #1305 alongside the `put_page` CLI bug. Out of scope for the v1.26.5.0 fix wave (separate release-coordination concern: which gbrain version we install vs. how we call it). The install-pin should either (a) auto-bump whenever gstack releases features that need newer gbrain, or (b) detect a stale pin during preamble and either auto-upgrade gbrain or print a one-line FIX hint.
-
-**Pros:** Closes the "fresh-install paper-cut" path. New users land on a healthy schema. Reduces support noise on `/setup-gbrain` flows. Makes the gstack/gbrain release contract visible.
-
-**Cons:** Adds release-cadence coupling between gstack and gbrain. Needs a policy: pin = "minimum version that still works" vs "latest known good." If gbrain ships a breaking change to `put` shape and gstack doesn't update the pin, fresh installs break in a new way.
-
-**Context:** Issue #1305 part 1 (the `put_page` CLI verb bug) was handled in v1.26.5.0. Part 2 (this TODO) is the install-pin staleness. Pin lives in `bin/gstack-gbrain-install` near the top as a constant. Easiest minimal fix: ship the pin as a tracked release artifact (e.g. write it from `package.json` at build time) and add a doctor-style preamble check.
-
-**Effort:** S (human: ~2 days / CC: ~3 hours)
-**Priority:** P2
-**Depends on:** Nothing.
-
----
-
 ### P3: Source-id host-collision risk in `deriveCodeSourceId` (cross-host duplicate org/repo)
 
 **What:** v1.26.5.0's `deriveCodeSourceId` drops the host segment to fit gbrain's 32-char source-id budget. This means `github.com/acme/foo` and `gitlab.com/acme/foo` collapse to the same `gstack-code-acme-foo`. `ensureSourceRegisteredSync()` in `bin/gstack-gbrain-sync.ts:323` will silently re-register the source when `local_path` differs, evicting one side.
@@ -1644,6 +1626,16 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
 ## Completed
+
+### Bump `/setup-gbrain` install pin to current gbrain release (v1.40.1.0)
+
+- Updated `bin/gstack-gbrain-install` from the original v0.18.2 gbrain pin to v0.35.4.0 (`0c6fcab`).
+- Added dry-run output/test coverage for the reviewed commit/version so the setup path cannot silently fall behind again.
+- Updated `/setup-gbrain` generated/template copy and the gbrain setup docs to name the pin/version-label maintenance contract.
+
+**Completed:** v1.40.1.0 (2026-05-17)
+
+---
 
 ### Slim preamble + real-PTY plan-mode E2E harness (v1.13.1.0)
 

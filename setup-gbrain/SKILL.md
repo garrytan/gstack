@@ -791,7 +791,7 @@ the v1.34.0.0+ `gbrain_local_status` field (one of: `ok`, `no-cli`,
 Skip downstream steps that are already done. Report the detected state in
 one line so the user knows what you found:
 
-> "Detected: gbrain v0.18.2 on PATH, engine=postgres, doctor=ok,
+> "Detected: gbrain v0.35.4.0 on PATH, engine=postgres, doctor=ok,
 >  sync=artifacts-only. Nothing to install; jumping to the policy check."
 
 Branch on the `--repo`, `--switch`, `--resume-provision`, `--cleanup-orphans`
@@ -845,7 +845,12 @@ with `GSTACK_DETECT_NO_CACHE=1` (busts the 60s cache). If the new
 ```bash
 BACKUP="$HOME/.gbrain/config.json.gstack-bak-$(date +%s)"
 mv "$HOME/.gbrain/config.json" "$BACKUP"
-if ! gbrain init --pglite --json; then
+GBRAIN_PGLITE_INIT_EXTRA=""
+if [ -z "${OPENAI_API_KEY:-}" ] && gbrain providers test --model ollama:nomic-embed-text >/dev/null 2>&1; then
+  GBRAIN_PGLITE_INIT_EXTRA="--model ollama"
+  echo "Using local Ollama embeddings for this PGLite brain (ollama:nomic-embed-text)."
+fi
+if ! gbrain init --pglite --json $GBRAIN_PGLITE_INIT_EXTRA; then
   # Restore on failure
   mv "$BACKUP" "$HOME/.gbrain/config.json"
   echo "gbrain init failed. Your previous config was restored at $HOME/.gbrain/config.json." >&2
@@ -1052,10 +1057,17 @@ Then follow the same secret-read + verify + init flow as Path 1.
 ### Path 3 (PGLite local)
 
 ```bash
-gbrain init --pglite --json
+GBRAIN_PGLITE_INIT_EXTRA=""
+if [ -z "${OPENAI_API_KEY:-}" ] && gbrain providers test --model ollama:nomic-embed-text >/dev/null 2>&1; then
+  GBRAIN_PGLITE_INIT_EXTRA="--model ollama"
+  echo "Using local Ollama embeddings for this PGLite brain (ollama:nomic-embed-text)."
+fi
+gbrain init --pglite --json $GBRAIN_PGLITE_INIT_EXTRA
 ```
 
-Done. No network, no secrets.
+Done. No secrets. If Ollama is already serving `nomic-embed-text`, this creates
+a 768-dim local embedding brain instead of the OpenAI default, avoiding first
+sync/import embedding failures when `OPENAI_API_KEY` is absent.
 
 ### Path 4 (Remote gbrain MCP — HTTP transport with bearer token)
 
@@ -1135,7 +1147,12 @@ if [ -f "$HOME/.gbrain/config.json" ]; then
   BACKUP="$HOME/.gbrain/config.json.gstack-bak-$(date +%s)"
   mv "$HOME/.gbrain/config.json" "$BACKUP"
 fi
-if ! gbrain init --pglite --json; then
+GBRAIN_PGLITE_INIT_EXTRA=""
+if [ -z "${OPENAI_API_KEY:-}" ] && gbrain providers test --model ollama:nomic-embed-text >/dev/null 2>&1; then
+  GBRAIN_PGLITE_INIT_EXTRA="--model ollama"
+  echo "Using local Ollama embeddings for this PGLite brain (ollama:nomic-embed-text)."
+fi
+if ! gbrain init --pglite --json $GBRAIN_PGLITE_INIT_EXTRA; then
   if [ -n "${BACKUP:-}" ] && [ -f "$BACKUP" ]; then mv "$BACKUP" "$HOME/.gbrain/config.json"; fi
   echo "gbrain init failed. Existing config (if any) was restored. PGLite at ~/.gbrain/pglite/ may be in a partial state — \`rm -rf ~/.gbrain/pglite\` to reset." >&2
   echo "Continuing setup without local code search; you can re-run /setup-gbrain to retry." >&2

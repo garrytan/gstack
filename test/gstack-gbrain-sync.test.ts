@@ -824,6 +824,20 @@ describe("sourceLocalPath", () => {
     expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
   });
 
+  it("accepts current gbrain sources-list object shape", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({
+          sources: [
+            { id: "other-source", local_path: "/x" },
+            { id: "target-id", local_path: "/repo/match" },
+          ],
+        }),
+      },
+    });
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
+  });
+
   it("returns null when the source is missing", () => {
     makeShim(bindir, {
       "sources list --json": { stdout: "[]" },

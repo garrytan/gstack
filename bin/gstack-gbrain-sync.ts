@@ -289,12 +289,13 @@ function gbrainSupportsSourcesRename(env?: NodeJS.ProcessEnv): boolean {
  * helper can be exercised without a real gbrain CLI.
  */
 export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): string | null {
-  const list = execGbrainJson<Array<{ id: string; local_path?: string }>>(
+  const parsed = execGbrainJson<Array<{ id: string; local_path?: string }> | { sources?: Array<{ id: string; local_path?: string }> }>(
     ["sources", "list", "--json"],
     { baseEnv: env },
   );
-  if (!list) return null;
-  const found = list.find((s) => s.id === sourceId);
+  if (!parsed) return null;
+  const sources = Array.isArray(parsed) ? parsed : parsed.sources || [];
+  const found = sources.find((s) => s.id === sourceId);
   return found?.local_path ?? null;
 }
 
