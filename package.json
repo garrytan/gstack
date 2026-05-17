@@ -47,7 +47,8 @@
     "@ngrok/ngrok": "^1.7.0",
     "diff": "^7.0.0",
     "marked": "^18.0.2",
-    "playwright": "^1.58.2",
+    "playwright": "^1.60.0",
+    "playwright-core": "^1.60.0",
     "puppeteer-core": "^24.40.0",
     "socks": "^2.8.8"
   },
