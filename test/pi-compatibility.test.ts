@@ -149,6 +149,8 @@ describe('Pi generated skill compatibility', () => {
     expect(review).toContain('$GSTACK_ROOT/review/checklist.md');
 
     const browse = fs.readFileSync(path.join(PI_SKILLS_DIR, 'gstack-browse', 'SKILL.md'), 'utf-8');
+    expect(browse).toContain('if the `gstack_browser` custom tool is available, prefer it over shelling out');
+    expect(browse).toContain('gstack_browser({ command: "snapshot", args: ["-i"] })');
     expect(browse).toContain('[ -n "$GSTACK_BROWSE" ] && [ -x "$GSTACK_BROWSE/browse" ] && B="$GSTACK_BROWSE/browse"');
   });
 });

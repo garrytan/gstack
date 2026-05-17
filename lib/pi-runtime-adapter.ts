@@ -32,6 +32,29 @@ export const PI_GSTACK_SKILL_ALIASES: readonly PiSkillAliasSpec[] = [
   },
 ] as const;
 
+export interface PiBrowserCommandRequest {
+  readonly command?: unknown;
+  readonly args?: unknown;
+  readonly cwd?: unknown;
+  readonly timeoutMs?: unknown;
+}
+
+export interface NormalizedPiBrowserCommandRequest {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly timeoutMs: number;
+}
+
+export type PiBrowserCommandNormalization =
+  | { readonly ok: true; readonly value: NormalizedPiBrowserCommandRequest }
+  | { readonly ok: false; readonly error: string };
+
+export interface PiBrowserRuntimePaths {
+  readonly repoRoot: string;
+  readonly home: string;
+  readonly env?: Record<string, string | undefined>;
+}
+
 export interface AskUserQuestionOption {
   readonly label: string;
   readonly description?: string;
@@ -76,6 +99,57 @@ export function aliasToPiSkillCommand(spec: PiSkillAliasSpec, args = ''): string
   return toPiSkillCommand(spec.skillName, args);
 }
 
+export function normalizePiBrowserCommandRequest(input: PiBrowserCommandRequest): PiBrowserCommandNormalization {
+  if (typeof input.command !== 'string' || input.command.trim().length === 0) {
+    return { ok: false, error: 'command must be a non-empty string' };
+  }
+
+  const command = input.command.trim();
+  if (!/^[a-z][a-z0-9-]*$/.test(command)) {
+    return { ok: false, error: 'command must be a browse command name such as goto, snapshot, screenshot, or console' };
+  }
+
+  if (input.args !== undefined && !Array.isArray(input.args)) {
+    return { ok: false, error: 'args must be an array of strings' };
+  }
+
+  const args = (input.args ?? []).map((arg) => typeof arg === 'string' ? arg : null);
+  if (args.some(arg => arg === null)) {
+    return { ok: false, error: 'args must be an array of strings' };
+  }
+
+  if (input.cwd !== undefined) {
+    return { ok: false, error: 'cwd is not supported; gstack_browser runs in the current Pi project' };
+  }
+
+  const timeoutMs = typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
+    ? Math.trunc(input.timeoutMs)
+    : 30_000;
+
+  if (timeoutMs < 1_000 || timeoutMs > 120_000) {
+    return { ok: false, error: 'timeoutMs must be between 1000 and 120000' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      command,
+      args: args as string[],
+      timeoutMs,
+    },
+  };
+}
+
+export function piBrowserExecutableCandidates(paths: PiBrowserRuntimePaths): readonly string[] {
+  const envBrowse = paths.env?.GSTACK_BROWSE;
+  return uniqueStrings([
+    envBrowse ? joinPath(envBrowse, 'browse') : '',
+    joinPath(paths.repoRoot, '.pi', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+    joinPath(paths.repoRoot, 'browse', 'dist', 'browse'),
+    joinPath(paths.home, '.pi', 'agent', 'skills', 'gstack', 'browse', 'dist', 'browse'),
+  ]);
+}
+
 export function normalizeAskUserQuestionRequest(input: AskUserQuestionRequest): AskUserQuestionNormalization {
   if (typeof input.question !== 'string' || input.question.trim().length === 0) {
     return { ok: false, error: 'question must be a non-empty string' };
@@ -103,6 +177,23 @@ export function formatAskUserQuestionResult(result: AskUserQuestionResult): stri
   }
 
   return result.wasCustom ? `User wrote: ${result.answer}` : `User selected: ${result.answer}`;
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function joinPath(...parts: readonly string[]): string {
+  const filtered = parts.filter(Boolean);
+  if (filtered.length === 0) return '';
+  return filtered.join('/').replace(/\/+/g, '/');
 }
 
 function normalizeQuestionOptions(input: unknown): readonly AskUserQuestionOption[] {

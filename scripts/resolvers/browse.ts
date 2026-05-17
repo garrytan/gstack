@@ -110,8 +110,15 @@ B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
 [ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"`;
 
-  return `## SETUP (run this check BEFORE any browse command)
+  const piCapability = ctx.host === 'pi'
+    ? `
+Pi capability shortcut: if the \`gstack_browser\` custom tool is available, prefer it over shelling out. Translate \`$B snapshot -i\` to \`gstack_browser({ command: "snapshot", args: ["-i"] })\`. If the tool is unavailable or reports that browse is not built, use the shell setup below.
+`
+    : '';
+  const setupCommand = ctx.host === 'pi' ? './setup --host pi' : './setup';
 
+  return `## SETUP (run this check BEFORE any browse command)
+${piCapability}
 \`\`\`bash
 ${resolveBrowse}
 if [ -x "$B" ]; then
@@ -123,7 +130,7 @@ fi
 
 If \`NEEDS_SETUP\`:
 1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: \`cd <SKILL_DIR> && ./setup\`
+2. Run: \`cd <SKILL_DIR> && ${setupCommand}\`
 3. If \`bun\` is not installed:
    \`\`\`bash
    if ! command -v bun >/dev/null 2>&1; then

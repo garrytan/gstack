@@ -4,6 +4,8 @@ import {
   aliasToPiSkillCommand,
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
+  normalizePiBrowserCommandRequest,
+  piBrowserExecutableCandidates,
   toPiSkillCommand,
 } from '../lib/pi-runtime-adapter';
 
@@ -26,6 +28,49 @@ describe('pi-runtime-adapter pure calculations', () => {
     expect(toPiSkillCommand('gstack-ship')).toBe('/skill:gstack-ship');
     expect(toPiSkillCommand(' gstack-qa ', '  http://localhost:8200  ')).toBe('/skill:gstack-qa http://localhost:8200');
     expect(() => toPiSkillCommand('   ')).toThrow('skillName is required');
+  });
+
+  test('normalizes Pi browser command requests', () => {
+    expect(normalizePiBrowserCommandRequest({
+      command: ' snapshot ',
+      args: ['-i', '-a'],
+      timeoutMs: 2500.9,
+    })).toEqual({
+      ok: true,
+      value: {
+        command: 'snapshot',
+        args: ['-i', '-a'],
+        timeoutMs: 2500,
+      },
+    });
+
+    expect(normalizePiBrowserCommandRequest({ command: 'snapshot; rm -rf /' })).toEqual({
+      ok: false,
+      error: 'command must be a browse command name such as goto, snapshot, screenshot, or console',
+    });
+
+    expect(normalizePiBrowserCommandRequest({ command: 'goto', args: ['https://example.com', 42] })).toEqual({
+      ok: false,
+      error: 'args must be an array of strings',
+    });
+
+    expect(normalizePiBrowserCommandRequest({ command: 'snapshot', cwd: '/tmp' })).toEqual({
+      ok: false,
+      error: 'cwd is not supported; gstack_browser runs in the current Pi project',
+    });
+  });
+
+  test('builds Pi browser executable candidates in runtime-preference order', () => {
+    expect(piBrowserExecutableCandidates({
+      repoRoot: '/repo/gstack',
+      home: '/home/user',
+      env: { GSTACK_BROWSE: '/custom/browse/dist' },
+    })).toEqual([
+      '/custom/browse/dist/browse',
+      '/repo/gstack/.pi/skills/gstack/browse/dist/browse',
+      '/repo/gstack/browse/dist/browse',
+      '/home/user/.pi/agent/skills/gstack/browse/dist/browse',
+    ]);
   });
 
   test('normalizes structured user questions', () => {
