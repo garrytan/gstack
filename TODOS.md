@@ -1629,7 +1629,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 ### Bump `/setup-gbrain` install pin to current gbrain release (v1.40.1.0)
 
-- Updated `bin/gstack-gbrain-install` from the original v0.18.2 gbrain pin to v0.35.4.0 (`0c6fcab`).
+- Updated `bin/gstack-gbrain-install` from the original v0.18.2 gbrain pin to v0.36.0.0 (`03947665`).
 - Added dry-run output/test coverage for the reviewed commit/version so the setup path cannot silently fall behind again.
 - Updated `/setup-gbrain` generated/template copy and the gbrain setup docs to name the pin/version-label maintenance contract.
 

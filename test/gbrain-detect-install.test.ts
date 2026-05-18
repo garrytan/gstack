@@ -169,8 +169,8 @@ describe('gstack-gbrain-install D5 detect-first', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('DRY RUN: would clone');
     expect(r.stdout).toContain('https://github.com/garrytan/gbrain.git');
-    expect(r.stdout).toContain('0c6fcab555b1ca0de80f47dbc2bd692499a82590');
-    expect(r.stdout).toContain('v0.35.4.0');
+    expect(r.stdout).toContain('03947665e4dbfeaf8a5542d160a0f4b89e4ae747');
+    expect(r.stdout).toContain('v0.36.0.0');
   });
 
   test('rejects a pre-existing path that lacks a valid gbrain package.json', () => {
