@@ -142,7 +142,7 @@ describe('Pi gstack extension wiring', () => {
   test('registers gstack slash aliases and forwards to generated Pi skills', async () => {
     const { sent, commands } = registerPiGstack();
 
-    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-complete-review', 'factory-status', 'factory-list', 'factory-gates', 'factory-decide']);
+    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-qa', 'factory-complete-review', 'factory-complete-qa', 'factory-status', 'factory-list', 'factory-gates', 'factory-decide']);
 
     await commands.get('review')!.handler('check this diff', {
       isIdle: () => true,
@@ -245,6 +245,53 @@ describe('Pi gstack extension wiring', () => {
         rmSync(tempDir, { recursive: true, force: true });
       }
     });
+  });
+
+  test('starts and completes opt-in structured factory QA runs with manual fallback', async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-'));
+
+    try {
+      initCommittedRepo(tempDir);
+      const { sent, notifications, commands } = registerPiGstack();
+
+      await commands.get('factory-qa')!.handler('QA http://localhost:8200', {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: notifyInto(notifications),
+      });
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].message).toMatch(/^\/skill:gstack-qa QA http:\/\/localhost:8200/);
+      expect(sent[0].message).toContain('factory_run_id: qa-qa-http-localhost-8200-');
+      expect(sent[0].options).toEqual({ deliverAs: 'followUp' });
+      expect(notifications.at(-1)?.message).toMatch(/^Factory QA running: qa-qa-http-localhost-8200-/);
+
+      const runId = notifications.at(-1)!.message.match(/Factory QA running: ([^ ]+)/)![1];
+      const runsDir = path.join(tempDir, '.gstack', 'factory', 'runs');
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'qa-intake-dispatch.md'), 'utf-8')).toContain('Factory QA Intake');
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'qa-execution-dispatch.md'), 'utf-8')).toContain('Status: pending QA completion capture via /factory-complete-qa.');
+
+      await commands.get('factory-status')!.handler(runId, {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+      expect(notifications.at(-1)?.message).toContain(`Factory run ${runId}`);
+      expect(notifications.at(-1)?.message).toContain('Status: paused');
+      expect(notifications.at(-1)?.message).toContain('Current phase: qa-execution');
+
+      await commands.get('factory-complete-qa')!.handler(`${runId} no browser regressions`, {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: notifyInto(notifications),
+      });
+      expect(notifications.at(-1)?.message).toContain(`Factory QA completed: ${runId}`);
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'qa-execution-captured.md'), 'utf-8')).toContain('no browser regressions');
+      const state = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) }).readState(runId);
+      expect(state.status).toBe('completed');
+      expect(state.completedPhaseIds).toEqual(['qa-intake', 'qa-execution', 'qa-summary']);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('auto-captures a pending factory review from a durable review log on agent_end', async () => {
@@ -495,6 +542,25 @@ describe('Pi gstack extension wiring', () => {
         rmSync(tempDir, { recursive: true, force: true });
       }
     });
+  });
+
+  test('gstack_browser prefers active project browse runtime', async () => {
+    const { tools } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-project-browse-'));
+
+    try {
+      const browsePath = path.join(tempDir, '.pi', 'skills', 'gstack', 'browse', 'dist', 'browse');
+      mkdirSync(path.dirname(browsePath), { recursive: true });
+      writeFileSync(browsePath, '#!/usr/bin/env sh\necho "project browse:$1"\n');
+      chmodSync(browsePath, 0o755);
+      const browserTool = tools.find(tool => tool.name === 'gstack_browser')!;
+
+      const result = await browserTool.execute('tool-1', { command: 'snapshot' }, undefined, undefined, { cwd: tempDir });
+      expect((result as any).content[0].text).toBe('project browse:snapshot');
+      expect((result as any).details.browseBinary).toBe(browsePath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('factory-status does not render untrusted event artifact paths', async () => {

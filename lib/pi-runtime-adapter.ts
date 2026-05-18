@@ -89,7 +89,15 @@ export type FactoryReviewGoalNormalization =
   | { readonly ok: true; readonly goal: string }
   | { readonly ok: false; readonly error: string };
 
+export type FactoryQaGoalNormalization =
+  | { readonly ok: true; readonly goal: string }
+  | { readonly ok: false; readonly error: string };
+
 export type FactoryCompleteReviewArgsNormalization =
+  | { readonly ok: true; readonly runId: string; readonly summary: string }
+  | { readonly ok: false; readonly error: string };
+
+export type FactoryCompleteQaArgsNormalization =
   | { readonly ok: true; readonly runId: string; readonly summary: string }
   | { readonly ok: false; readonly error: string };
 
@@ -119,16 +127,32 @@ export function normalizeFactoryReviewGoal(args: string): FactoryReviewGoalNorma
   return { ok: true, goal };
 }
 
+export function normalizeFactoryQaGoal(args: string): FactoryQaGoalNormalization {
+  const goal = args.trim();
+  if (!goal) {
+    return { ok: false, error: 'factory-qa requires a QA goal, target, or URL' };
+  }
+  return { ok: true, goal };
+}
+
 export function normalizeFactoryCompleteReviewArgs(args: string): FactoryCompleteReviewArgsNormalization {
+  return normalizeFactoryCompletionArgs(args, 'factory-complete-review', 'review summary');
+}
+
+export function normalizeFactoryCompleteQaArgs(args: string): FactoryCompleteQaArgsNormalization {
+  return normalizeFactoryCompletionArgs(args, 'factory-complete-qa', 'QA summary');
+}
+
+function normalizeFactoryCompletionArgs(args: string, command: string, summaryLabel: string): FactoryCompleteReviewArgsNormalization {
   const trimmed = args.trim();
   if (!trimmed) {
-    return { ok: false, error: 'factory-complete-review requires a run id and review summary' };
+    return { ok: false, error: `${command} requires a run id and ${summaryLabel}` };
   }
 
   const [runId, ...summaryParts] = trimmed.split(/\s+/);
   const summary = summaryParts.join(' ').trim();
   if (!runId || !summary) {
-    return { ok: false, error: 'factory-complete-review requires a run id followed by a review summary' };
+    return { ok: false, error: `${command} requires a run id followed by a ${summaryLabel}` };
   }
   return { ok: true, runId, summary };
 }

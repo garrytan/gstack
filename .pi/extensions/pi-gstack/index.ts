@@ -8,8 +8,10 @@ import {
   factoryRunsRoot,
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
+  normalizeFactoryCompleteQaArgs,
   normalizeFactoryCompleteReviewArgs,
   normalizeFactoryGateDecisionArgs,
+  normalizeFactoryQaGoal,
   normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
@@ -161,6 +163,40 @@ export default function piGstack(pi: any) {
     },
   });
 
+  pi.registerCommand('factory-qa', {
+    description: 'Start an opt-in structured, event-sourced gstack QA run.',
+    handler: async (args: string, ctx: any) => {
+      const normalized = normalizeFactoryQaGoal(args);
+      if (!normalized.ok) {
+        ctx.ui.notify(normalized.error, 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
+      const runner = new FactoryRunner({
+        workflows: FACTORY_WORKFLOWS,
+        eventSink: store,
+        runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot, artifactStore),
+      });
+
+      const result = await runner.run({
+        workflow: 'qa',
+        goal: normalized.goal,
+        cwd: projectRoot,
+        mode: 'review',
+        policy: { allowBrowser: true },
+      });
+
+      const message = result.status === 'blocked'
+        ? `Factory QA blocked: missing capabilities=${result.start.missingCapabilities.join(', ') || 'none'}, blocking risks=${result.start.blockingRisks.map(risk => risk.id).join(', ') || 'none'}`
+        : `Factory QA ${result.status}: ${result.plan.runId} (${result.state.artifacts.length} artifact(s)).`;
+      ctx.ui.notify(message, result.status === 'completed' ? 'info' : 'warning');
+    },
+  });
+
   pi.registerCommand('factory-complete-review', {
     description: 'Capture review output for a pending structured factory review run and continue it.',
     handler: async (args: string, ctx: any) => {
@@ -227,6 +263,74 @@ export default function piGstack(pi: any) {
         ctx.ui.notify(`Factory review ${result.status}: ${normalized.runId} (${result.state.artifacts.length} artifact(s)).`, result.status === 'completed' ? 'info' : 'warning');
       } catch (error) {
         ctx.ui.notify(`Could not complete factory review: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
+  pi.registerCommand('factory-complete-qa', {
+    description: 'Capture QA output for a pending structured factory QA run and continue it.',
+    handler: async (args: string, ctx: any) => {
+      const normalized = normalizeFactoryCompleteQaArgs(args);
+      if (!normalized.ok) {
+        ctx.ui.notify(normalized.error, 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
+
+      try {
+        if (!store.readManifest(normalized.runId) || !hasRunPlan(store, normalized.runId)) {
+          ctx.ui.notify(`Factory run ${normalized.runId} not found in this project.`, 'warning');
+          return;
+        }
+
+        const state = store.readState(normalized.runId);
+        if (state.status !== 'running' || state.currentPhaseId !== 'qa-execution' || !hasPendingQaArtifact(state)) {
+          ctx.ui.notify(`Factory run ${normalized.runId} is not waiting for qa-execution output.`, 'warning');
+          return;
+        }
+
+        const dispatch = pendingExternalDispatchFromState(state, 'qa-execution');
+        if (!dispatch) {
+          ctx.ui.notify(`Factory run ${normalized.runId} has invalid qa-execution dispatch metadata.`, 'warning');
+          return;
+        }
+        const ref = artifactStore.writeText(normalized.runId, {
+          id: 'qa-execution-captured',
+          kind: 'qa-report',
+          phaseId: 'qa-execution',
+          summary: normalized.summary,
+          metadata: {
+            capturedFrom: 'manual-fallback',
+            factoryRunId: normalized.runId,
+            dispatchedAt: dispatch.dispatchedAt,
+            queuedSkillCommand: dispatch.queuedSkillCommand,
+          },
+        }, [
+          '# Captured Factory QA',
+          '',
+          `Run: ${normalized.runId}`,
+          'Captured from: manual fallback',
+          `Dispatched at: ${dispatch.dispatchedAt ?? 'unknown'}`,
+          `Queued command: ${dispatch.queuedSkillCommand ?? 'unknown'}`,
+          '',
+          normalized.summary,
+          '',
+        ].join('\n'));
+        store.append(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'qa-execution', artifacts: [ref] });
+
+        const runner = new FactoryRunner({
+          workflows: FACTORY_WORKFLOWS,
+          eventSink: store,
+          runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot, artifactStore),
+        });
+        const result = await runner.continueRun(normalized.runId);
+        ctx.ui.notify(`Factory QA ${result.status}: ${normalized.runId} (${result.state.artifacts.length} artifact(s)).`, result.status === 'completed' ? 'info' : 'warning');
+      } catch (error) {
+        ctx.ui.notify(`Could not complete factory QA: ${(error as Error).message}`, 'error');
       }
     },
   });
@@ -594,10 +698,21 @@ function factoryReviewSkillRequest(goal: string, runId: string): string {
   ].join('\n');
 }
 
+function factoryQaSkillRequest(goal: string, runId: string): string {
+  return [
+    goal,
+    '',
+    'Factory QA correlation:',
+    `- factory_run_id: ${runId}`,
+    '- Preserve this run id in any QA notes or durable output so /factory-complete-qa can correlate manual fallback artifacts.',
+  ].join('\n');
+}
+
 function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, artifactStore: FileFactoryArtifactStore) {
   const capabilities: CapabilityName[] = isGitRepository(projectRoot)
     ? ['agent-session', 'artifact-store', 'git']
     : ['agent-session', 'artifact-store'];
+  if (findBrowseBinary(projectRoot)) capabilities.push('browser');
   const availableCapabilities: CapabilityName[] = ctx?.hasUI === true ? [...capabilities, 'questions'] : capabilities;
   return {
     availableCapabilities,
@@ -610,9 +725,10 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
         metadata: { factoryRunId: plan.runId, goal: request.goal },
       };
 
-      if (phase.id === 'review-intake') {
-        const ref = artifactStore.writeText(plan.runId, { ...artifact, kind: 'plan', summary: `Review goal: ${request.goal}` }, [
-          '# Factory Review Intake',
+      if (phase.id === 'review-intake' || phase.id === 'qa-intake') {
+        const workflowTitle = plan.workflow === 'qa' ? 'QA' : 'Review';
+        const ref = artifactStore.writeText(plan.runId, { ...artifact, kind: 'plan', summary: `${workflowTitle} goal: ${request.goal}` }, [
+          `# Factory ${workflowTitle} Intake`,
           '',
           `Run: ${plan.runId}`,
           `Goal: ${request.goal}`,
@@ -620,7 +736,7 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
           '',
         ].join('\n'));
         return {
-          summary: 'Review intake recorded.',
+          summary: `${workflowTitle} intake recorded.`,
           artifacts: [ref],
         };
       }
@@ -656,15 +772,45 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
         };
       }
 
+      if (phase.id === 'qa-execution') {
+        const message = toPiSkillCommand('gstack-qa', factoryQaSkillRequest(request.goal, plan.runId));
+        const dispatchedAt = new Date().toISOString();
+        if (ctx.isIdle?.()) {
+          pi.sendUserMessage(message);
+        } else {
+          pi.sendUserMessage(message, { deliverAs: 'followUp' });
+        }
+        const ref = artifactStore.writeText(plan.runId, {
+          ...artifact,
+          summary: `Queued ${message}. QA artifact capture currently uses /factory-complete-qa manual fallback.`,
+          metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalQa: true, pendingExternalWork: true, dispatchedAt },
+        }, [
+          '# Factory QA Dispatch',
+          '',
+          `Run: ${plan.runId}`,
+          `Queued command: ${message}`,
+          `Dispatched at: ${dispatchedAt}`,
+          '',
+          'Status: pending QA completion capture via /factory-complete-qa.',
+          '',
+        ].join('\n'));
+        return {
+          summary: 'Generated gstack QA skill queued from structured factory run.',
+          status: 'pending' as const,
+          artifacts: [ref],
+        };
+      }
+
+      const workflowTitle = plan.workflow === 'qa' ? 'QA' : 'Review';
       const ref = artifactStore.writeText(plan.runId, artifact, [
-        '# Factory Review Summary',
+        `# Factory ${workflowTitle} Summary`,
         '',
         `Run: ${plan.runId}`,
         `Goal: ${request.goal}`,
         '',
       ].join('\n'));
       return {
-        summary: 'Review summary recorded.',
+        summary: `${workflowTitle} summary recorded.`,
         artifacts: [ref],
       };
     },
@@ -774,8 +920,30 @@ function hasPendingDiffReviewArtifact(state: { artifacts: readonly ArtifactRef[]
   ));
 }
 
-function findBrowseBinary(_projectRoot: string): string | null {
-  const candidates = piBrowserExecutableCandidates({ repoRoot: REPO_ROOT, home: process.env.HOME ?? '', env: process.env });
+function hasPendingQaArtifact(state: { artifacts: readonly ArtifactRef[] }): boolean {
+  return state.artifacts.some(artifact => artifact.phaseId === 'qa-execution' && artifact.metadata && (
+    artifact.metadata.pendingExternalQa === true || artifact.metadata.pendingExternalWork === true
+  ));
+}
+
+function pendingExternalDispatchFromState(state: FactoryRunState, phaseId: string): { readonly dispatchedAt?: string; readonly queuedSkillCommand?: string } | null {
+  const artifact = state.artifacts.find(candidate => candidate.phaseId === phaseId && candidate.metadata && (
+    candidate.metadata.pendingExternalQa === true || candidate.metadata.pendingExternalReview === true || candidate.metadata.pendingExternalWork === true
+  ));
+  if (!artifact?.metadata) return null;
+  const metadataRunId = typeof artifact.metadata.factoryRunId === 'string' ? artifact.metadata.factoryRunId : undefined;
+  if (metadataRunId && state.runId && metadataRunId !== state.runId) return null;
+  return {
+    dispatchedAt: typeof artifact.metadata.dispatchedAt === 'string' ? artifact.metadata.dispatchedAt : undefined,
+    queuedSkillCommand: typeof artifact.metadata.queuedSkillCommand === 'string' ? artifact.metadata.queuedSkillCommand : undefined,
+  };
+}
+
+function findBrowseBinary(projectRoot: string): string | null {
+  const candidates = uniqueStrings([
+    ...piBrowserExecutableCandidates({ repoRoot: projectRoot, home: process.env.HOME ?? '', env: process.env }),
+    ...piBrowserExecutableCandidates({ repoRoot: REPO_ROOT, home: process.env.HOME ?? '', env: process.env }),
+  ]);
 
   for (const candidate of candidates) {
     try {
@@ -786,6 +954,17 @@ function findBrowseBinary(_projectRoot: string): string | null {
     }
   }
   return null;
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 function resolveProjectRoot(cwd: string): string {
