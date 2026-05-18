@@ -73,6 +73,9 @@ The `.md` file is human-readable content. The `.json` file stores the `ArtifactR
 - Pi has opt-in commands to start and inspect structured review runs.
 - Existing `/review` behavior is unchanged.
 
-## Next slice
+## Roadmap status
 
-Capture outputs from the generated review skill into first-class factory artifacts, then complete the pending `diff-review` and `review-summary` phases from those artifacts.
+This first review workflow slice has since grown automatic artifact capture from
+the durable gstack review log. The durable chunk roadmap now lives in
+[PI_SOFTWARE_FACTORY_ROADMAP.md](PI_SOFTWARE_FACTORY_ROADMAP.md). Continue there
+for Chunk B and later scope.

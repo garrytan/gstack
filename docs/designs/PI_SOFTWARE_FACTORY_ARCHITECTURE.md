@@ -136,6 +136,13 @@ Recommended path chosen for this slice:
 - Treat this as structured dispatch in Pi: the event-sourced runner records phases, queues the existing generated `gstack-review` skill, and leaves the run `running` with pending external review work until later slices add transcript/artifact capture.
 - Fail closed by default on runner errors, but support an explicit continue-on-error hook for greenfield continuous runs.
 
+## Roadmap
+
+The chunk-by-chunk implementation roadmap is tracked in
+[PI_SOFTWARE_FACTORY_ROADMAP.md](PI_SOFTWARE_FACTORY_ROADMAP.md). Read it before
+continuing factory work so the next chunk scope is explicit and durable across
+agent sessions.
+
 ## Migration path
 
 1. Keep existing skills as generated host output.
