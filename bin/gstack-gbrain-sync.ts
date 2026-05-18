@@ -401,8 +401,32 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  // Step 2: Run sync or reindex.
-  const syncArgs = args.mode === "full"
+  // Step 2: Choose between filesystem walk and existing-page reindex.
+  // `gbrain reindex-code` only re-chunks existing `type='code'` pages — it
+  // does NOT walk the filesystem (see reindex-code.ts docstring). For a
+  // source that has never been initially synced, reindex-code is a silent
+  // no-op. So for --full we first probe the source's existing code page
+  // count; if zero, fall back to `sync --strategy code` which walks the
+  // filesystem via performFullSync. Preserves the v0.21.0 backfill
+  // semantics for sources that already have code pages.
+  let useReindex = false;
+  if (args.mode === "full") {
+    const probe = spawnSync(
+      "gbrain",
+      ["reindex-code", "--source", sourceId, "--dry-run", "--json"],
+      { encoding: "utf-8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    if (probe.status === 0) {
+      try {
+        const out = JSON.parse(probe.stdout.trim());
+        useReindex = typeof out.codePages === "number" && out.codePages > 0;
+      } catch {
+        // Unparseable JSON → fall through to sync (safe default).
+      }
+    }
+    // Probe failure (non-zero exit) → fall through to sync (safe default).
+  }
+  const syncArgs = useReindex
     ? ["reindex-code", "--source", sourceId, "--yes"]
     : ["sync", "--strategy", "code", "--source", sourceId];
 
