@@ -235,7 +235,7 @@ exit 0
       });
       const parsed = JSON.parse(out) as DetectShape;
       expect(parsed.gbrain_on_path).toBe(true);
-      expect(parsed.gbrain_version).toBe("gbrain0.33.1.0");
+      expect(parsed.gbrain_version).toBe("0.33.1.0");
       expect(parsed.gbrain_config_exists).toBe(true);
       expect(parsed.gbrain_engine).toBe("pglite");
       expect(parsed.gbrain_local_status).toBe("ok");

@@ -131,3 +131,12 @@ describe('setup-gbrain Path 4 — token security regressions', () => {
     }
   });
 });
+
+describe('setup-gbrain local PGLite embeddings', () => {
+  test('PGLite init paths prefer local Ollama embeddings when OpenAI is not configured', () => {
+    expect(tmpl).toContain('gbrain providers test --model ollama:nomic-embed-text');
+    expect(tmpl).toContain('GBRAIN_PGLITE_INIT_EXTRA="--model ollama"');
+    expect(tmpl).toContain('Using local Ollama embeddings for this PGLite brain');
+    expect(tmpl).toContain('OPENAI_API_KEY');
+  });
+});

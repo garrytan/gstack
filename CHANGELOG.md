@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.40.1.0] - 2026-05-17
+
+### Fixed
+
+- `/setup-gbrain` fresh installs now pin gbrain to v0.35.4.0 (`0c6fcab`) instead of the stale v0.18.2 build from the original setup flow. The dry-run installer output includes the reviewed version label and the regression test asserts the pinned commit/version so future release waves cannot silently drift the setup path again.
+- `/setup-gbrain` local PGLite init now uses `ollama:nomic-embed-text` automatically when `OPENAI_API_KEY` is absent and `gbrain providers test --model ollama:nomic-embed-text` succeeds. This keeps fresh local dogfood brains private/free and avoids first-sync embedding failures on machines that already have Ollama serving the embedding model.
+- `/sync-gbrain --code-only` now accepts the current `gbrain sources list --json` object shape (`{ sources: [...] }`) during hostname-fold migration planning. Clean first-run dogfood on gbrain v0.35.4.0 previously crashed with `list.find is not a function` before registering the repo source.
+- `gstack-gbrain-detect` now normalizes `gbrain --version` output from `gbrain 0.35.4.0` to `0.35.4.0` instead of reporting `gbrain0.35.4.0`.
+
 ## [1.40.0.0] - 2026-05-16
 
 ## **gbrain sync stops biting users across the install path, slug algorithm, federation queue, and `.env.local` footgun.**

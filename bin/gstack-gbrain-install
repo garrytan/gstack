@@ -33,8 +33,8 @@
 set -euo pipefail
 
 # --- defaults ---
-PINNED_COMMIT="08b3698e90532b7b66c445e6b1d8cdfe71822802"  # gbrain v0.18.2
-PINNED_TAG="v0.18.2"
+PINNED_COMMIT="03947665e4dbfeaf8a5542d160a0f4b89e4ae747"  # gbrain v0.36.0.0
+PINNED_TAG="v0.36.0.0"
 GBRAIN_REPO_URL="https://github.com/garrytan/gbrain.git"
 DEFAULT_INSTALL_DIR="${GBRAIN_INSTALL_DIR:-$HOME/gbrain}"
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
@@ -113,7 +113,7 @@ elif [ -n "$DETECTED_CLONE" ]; then
 else
   # Fresh clone path.
   if $DRY_RUN; then
-    log "DRY RUN: would clone $GBRAIN_REPO_URL @ $PINNED_COMMIT → $INSTALL_DIR"
+    log "DRY RUN: would clone $GBRAIN_REPO_URL @ $PINNED_COMMIT${PINNED_TAG:+ ($PINNED_TAG)} → $INSTALL_DIR"
     exit 0
   fi
   if [ -d "$INSTALL_DIR" ]; then

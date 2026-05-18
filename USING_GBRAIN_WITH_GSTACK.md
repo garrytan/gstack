@@ -376,7 +376,7 @@ Another gstack session in a sibling Conductor workspace may be holding a lock on
 ## Related skills + next steps
 
 - `/health` — includes a GBrain dimension (doctor status, sync queue depth, last-push age) in its 0-10 composite score. The dimension is omitted when gbrain isn't installed; running `/health` on a non-gbrain machine doesn't penalize that choice.
-- `/gstack-upgrade` — keeps gstack itself up to date. Does NOT upgrade gbrain independently. To bump gbrain, update `PINNED_COMMIT` in `bin/gstack-gbrain-install` and re-run `/setup-gbrain`.
+- `/gstack-upgrade` — keeps gstack itself up to date. Does NOT upgrade gbrain independently. To bump gbrain, update `PINNED_COMMIT` and `PINNED_TAG` in `bin/gstack-gbrain-install`, add/adjust the dry-run pin assertion, and re-run `/setup-gbrain`.
 - `/retro` — weekly retrospective pulls learnings and plans from your gbrain when memory sync is on, letting the retro reference cross-machine history.
 
 Run `/setup-gbrain` and see what sticks.

@@ -82,8 +82,8 @@ function detectGbrain(): { onPath: boolean; version: string | null } {
   if (!bin) return { onPath: false, version: null };
   const verRaw = readGbrainVersion();
   if (!verRaw) return { onPath: true, version: null };
-  // Match bash behavior: head -1 | tr -d '[:space:]'
-  const version = verRaw.split("\n")[0].replace(/\s+/g, "") || null;
+  const firstLine = verRaw.split("\n")[0].trim();
+  const version = firstLine.replace(/^gbrain\s+/i, "").replace(/\s+/g, "") || null;
   return { onPath: true, version };
 }
 
