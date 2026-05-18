@@ -37,7 +37,7 @@ async function callImageGeneration(
   quality: string,
 ): Promise<{ responseId: string; imageData: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
+  const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -51,6 +51,7 @@ async function callImageGeneration(
         input: prompt,
         tools: [{
           type: "image_generation",
+          model: "gpt-image-2",
           size,
           quality,
         }],
