@@ -128,7 +128,7 @@ describe('Pi gstack extension wiring', () => {
   test('registers gstack slash aliases and forwards to generated Pi skills', async () => {
     const { sent, commands } = registerPiGstack();
 
-    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-complete-review', 'factory-status']);
+    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-complete-review', 'factory-status', 'factory-list']);
 
     await commands.get('review')!.handler('check this diff', {
       isIdle: () => true,
@@ -182,10 +182,22 @@ describe('Pi gstack extension wiring', () => {
           cwd: tempDir,
           ui: notifyInto(notifications),
         });
-        expect(notifications.at(-1)).toEqual({
-          message: `Factory run ${runId}: status=running, completed=[review-intake], artifacts=2.`,
-          level: 'info',
+        expect(notifications.at(-1)?.level).toBe('info');
+        expect(notifications.at(-1)?.message).toContain(`Factory run ${runId}`);
+        expect(notifications.at(-1)?.message).toContain('Status: running');
+        expect(notifications.at(-1)?.message).toContain('Current phase: diff-review');
+        expect(notifications.at(-1)?.message).toContain('Completed phases: review-intake');
+        expect(notifications.at(-1)?.message).toContain('Artifacts:');
+        expect(notifications.at(-1)?.message).toContain('Pending external review:');
+        expect(notifications.at(-1)?.message).toContain(`- factoryRunId: ${runId}`);
+        expect(notifications.at(-1)?.message).toContain('Recovery hint:');
+
+        await commands.get('factory-list')!.handler('', {
+          cwd: tempDir,
+          ui: notifyInto(notifications),
         });
+        expect(notifications.at(-1)?.message).toContain('Factory runs:');
+        expect(notifications.at(-1)?.message).toContain(`${runId}: status=running, current=diff-review`);
 
         await commands.get('factory-complete-review')!.handler(`${runId} no blocking findings`, {
           cwd: tempDir,
@@ -194,6 +206,14 @@ describe('Pi gstack extension wiring', () => {
         });
         expect(notifications.at(-1)).toEqual({ message: `Factory review completed: ${runId} (4 artifact(s)).`, level: 'info' });
         expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'diff-review-captured.md'), 'utf-8')).toContain('no blocking findings');
+        const manualArtifact = JSON.parse(readFileSync(path.join(runsDir, runId, 'artifacts', 'diff-review-captured.json'), 'utf-8'));
+        expect(manualArtifact.ref.metadata).toMatchObject({
+          capturedFrom: 'manual-fallback',
+          factoryRunId: runId,
+          dispatchCommit: dispatchMetadata(tempDir, runId).commit,
+          dispatchedAt: dispatchMetadata(tempDir, runId).dispatchedAt,
+          queuedSkillCommand: sent[0].message,
+        });
         expect(readFileSync(path.join(runsDir, runId, 'events.jsonl'), 'utf-8')).toContain('run_completed');
 
         await commands.get('factory-status')!.handler('../bad', {
@@ -266,10 +286,45 @@ describe('Pi gstack extension wiring', () => {
         await commands.get('factory-status')!.handler(runId, ctx);
 
         expect(notifications.some(notification => notification.message === `Factory review auto-captured: ${runId} (4 artifact(s), status=completed).`)).toBe(true);
-        expect(notifications.at(-1)).toEqual({
-          message: `Factory run ${runId}: status=completed, completed=[review-intake, diff-review, review-summary], artifacts=4.`,
-          level: 'info',
-        });
+        expect(notifications.at(-1)?.level).toBe('info');
+        expect(notifications.at(-1)?.message).toContain(`Factory run ${runId}`);
+        expect(notifications.at(-1)?.message).toContain('Status: completed');
+        expect(notifications.at(-1)?.message).toContain('Current phase: none');
+        expect(notifications.at(-1)?.message).toContain('Completed phases: review-intake, diff-review, review-summary');
+        expect(notifications.at(-1)?.message).toContain('diff-review-captured');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('factory-status recovers a targeted run while other review runs remain pending', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-status-target-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-review')!.handler('review auth changes', ctx);
+        const firstRunId = runIdFromLastNotification(notifications);
+        await commands.get('factory-review')!.handler('review billing changes', ctx);
+        const secondRunId = runIdFromLastNotification(notifications);
+        const corruptRunDir = path.join(factoryRunsRoot(tempDir), 'corrupt-run');
+        mkdirSync(corruptRunDir, { recursive: true });
+        writeFileSync(path.join(corruptRunDir, 'events.jsonl'), 'not-json\n', 'utf-8');
+        writeReviewLog(tempDir, gstackHome, [reviewEntryAfterDispatch(dispatchMetadata(tempDir, secondRunId))]);
+
+        await commands.get('factory-status')!.handler(secondRunId, ctx);
+
+        expect(notifications.some(notification => notification.message === `Factory review auto-captured: ${secondRunId} (4 artifact(s), status=completed).`)).toBe(true);
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        expect(store.readState(firstRunId).status).toBe('running');
+        expect(store.readState(firstRunId).currentPhaseId).toBe('diff-review');
+        expect(store.readState(secondRunId).status).toBe('completed');
+        expect(notifications.at(-1)?.message).toContain(`Factory run ${secondRunId}`);
+        expect(notifications.at(-1)?.message).toContain('Status: completed');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -295,19 +350,23 @@ describe('Pi gstack extension wiring', () => {
 
         await events.get('agent_end')!({}, ctx);
 
-        expect(notifications.at(-1)?.message).toContain('Factory review auto-capture skipped: multiple matching review log entries appeared after dispatch');
+        expect(notifications.at(-1)?.message).toContain(`Factory review auto-capture skipped for ${runId}: multiple matching correlated review log entries appeared after dispatch`);
         const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
         const state = store.readState(runId);
         expect(state.status).toBe('running');
         expect(state.currentPhaseId).toBe('diff-review');
         expect(state.completedPhaseIds).toEqual(['review-intake']);
+
+        await commands.get('factory-complete-review')!.handler(`${runId} manually reviewed after ambiguity`, ctx);
+        expect(notifications.at(-1)).toEqual({ message: `Factory review completed: ${runId} (4 artifact(s)).`, level: 'info' });
+        expect(store.readState(runId).status).toBe('completed');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
     });
   });
 
-  test('multiple pending factory review runs fail closed and still allow manual fallback', async () => {
+  test('multiple pending factory review runs capture only the correlated match and still allow manual fallback', async () => {
     await withTempGstackEnv(async ({ gstackHome }) => {
       const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-multiple-pending-'));
 
@@ -324,16 +383,19 @@ describe('Pi gstack extension wiring', () => {
 
         await events.get('agent_end')!({}, ctx);
 
-        expect(notifications.at(-1)?.message).toContain('multiple pending factory review runs in this project');
+        expect(notifications.at(-1)).toEqual({
+          message: `Factory review auto-captured: ${secondRunId} (4 artifact(s), status=completed).`,
+          level: 'info',
+        });
         const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
         expect(store.readState(firstRunId).status).toBe('running');
-        expect(store.readState(secondRunId).status).toBe('running');
+        expect(store.readState(secondRunId).status).toBe('completed');
 
-        await commands.get('factory-complete-review')!.handler(`${firstRunId} manually reviewed after ambiguity`, ctx);
+        await commands.get('factory-complete-review')!.handler(`${firstRunId} manually reviewed after no-match`, ctx);
 
         expect(notifications.at(-1)).toEqual({ message: `Factory review completed: ${firstRunId} (4 artifact(s)).`, level: 'info' });
         expect(store.readState(firstRunId).status).toBe('completed');
-        expect(store.readState(secondRunId).status).toBe('running');
+        expect(store.readState(secondRunId).status).toBe('completed');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -364,7 +426,7 @@ describe('Pi gstack extension wiring', () => {
     });
   });
 
-  test('review log without factory correlation leaves auto-capture pending', async () => {
+  test('review log with missing or wrong factory correlation leaves auto-capture pending', async () => {
     await withTempGstackEnv(async ({ gstackHome }) => {
       const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-no-correlation-'));
 
@@ -375,7 +437,11 @@ describe('Pi gstack extension wiring', () => {
 
         await commands.get('factory-review')!.handler('review current changes', ctx);
         const runId = runIdFromLastNotification(notifications);
-        writeReviewLog(tempDir, gstackHome, [reviewEntryAfterDispatch(dispatchMetadata(tempDir, runId), { factory_run_id: undefined })]);
+        const metadata = dispatchMetadata(tempDir, runId);
+        writeReviewLog(tempDir, gstackHome, [
+          reviewEntryAfterDispatch(metadata, { factory_run_id: undefined }),
+          reviewEntryAfterDispatch(metadata, { factory_run_id: 'other-run' }),
+        ]);
 
         await events.get('agent_end')!({}, ctx);
 
@@ -446,6 +512,51 @@ describe('Pi gstack extension wiring', () => {
       });
       expect(store.readState('run-interrupted').status).toBe('running');
       expect(store.readState('run-interrupted').completedPhaseIds).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses manual fallback when dispatch metadata does not match the run', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-invalid-dispatch-'));
+
+    try {
+      git(tempDir, ['init']);
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const plan = compileRunPlan(FACTORY_REVIEW_WORKFLOW, {
+        workflow: 'review',
+        goal: 'Review current changes',
+        cwd: tempDir,
+        mode: 'review',
+        policy: { allowWrites: true },
+      }, 'run-invalid-dispatch');
+      store.append('run-invalid-dispatch', { type: 'run_started', runId: 'run-invalid-dispatch', plan });
+      store.append('run-invalid-dispatch', { type: 'phase_started', runId: 'run-invalid-dispatch', phaseId: 'diff-review' });
+      store.append('run-invalid-dispatch', {
+        type: 'artifact_created',
+        runId: 'run-invalid-dispatch',
+        artifact: {
+          id: 'diff-review-dispatch',
+          kind: 'review',
+          phaseId: 'diff-review',
+          summary: 'Queued review',
+          metadata: { factoryRunId: 'other-run', pendingExternalReview: true },
+        },
+      });
+
+      await commands.get('factory-complete-review')!.handler('run-invalid-dispatch no findings', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+
+      expect(notifications.at(-1)).toEqual({
+        message: 'Factory run run-invalid-dispatch has invalid diff-review dispatch metadata.',
+        level: 'warning',
+      });
+      expect(store.readState('run-invalid-dispatch').status).toBe('running');
+      expect(store.readState('run-invalid-dispatch').completedPhaseIds).toEqual([]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

@@ -282,6 +282,7 @@ Substitute:
 - `specialists` = the per-specialist stats object compiled in Step 4.6. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Include Design specialist. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
 - `findings` = array of per-finding records from Step 5. For each finding (from critical pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"` (Step 5b), `"fixed"` (user approved in Step 5d), or `"skipped"` (user chose Skip in Step 5c). Suppressed findings from Step 5.0 are NOT included (they were already recorded in a prior review entry).
 - `COMMIT` = output of `git rev-parse --short HEAD`
+- If the input prompt includes `factory_run_id`, include that exact value as top-level `factory_run_id` in the `gstack-review-log` JSON. If no `factory_run_id` was provided, omit the field.
 
 {{LEARNINGS_LOG}}
 

@@ -147,6 +147,7 @@ describe('Pi generated skill compatibility', () => {
     expect(review).toContain('GSTACK_ROOT="$_ROOT/.pi/skills/gstack"');
     expect(review).toContain('ask_user_question is the Pi custom tool');
     expect(review).toContain('$GSTACK_ROOT/review/checklist.md');
+    expect(review).toContain('If the input prompt includes `factory_run_id`, include that exact value as top-level `factory_run_id`');
 
     const browse = fs.readFileSync(path.join(PI_SKILLS_DIR, 'gstack-browse', 'SKILL.md'), 'utf-8');
     expect(browse).toContain('if the `gstack_browser` custom tool is available, prefer it over shelling out');

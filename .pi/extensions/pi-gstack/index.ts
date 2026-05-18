@@ -17,7 +17,7 @@ import {
   type NormalizedPiBrowserCommandRequest,
 } from '../../../lib/pi-runtime-adapter';
 import { FileFactoryArtifactStore } from '../../../lib/factory-artifact-store';
-import { FileFactoryEventStore } from '../../../lib/factory-event-store';
+import { FileFactoryEventStore, type FactoryRunManifest } from '../../../lib/factory-event-store';
 import { FactoryRunner } from '../../../lib/factory-runner';
 import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
 import {
@@ -27,7 +27,7 @@ import {
   selectReviewCaptureEntry,
   type PendingReviewDispatch,
 } from '../../../lib/factory-review-capture';
-import type { ArtifactRef } from '../../../lib/factory-core';
+import type { ArtifactRef, FactoryRunState } from '../../../lib/factory-core';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(EXTENSION_DIR, '..', '..', '..');
@@ -101,8 +101,8 @@ export default function piGstack(pi: any) {
 
   pi.on('agent_end', async (_event: unknown, ctx: any) => {
     const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
-    const capture = await attemptAutoCaptureReview({ pi, ctx, projectRoot });
-    notifyAutoCaptureResult(ctx, capture);
+    const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot });
+    notifyAutoCaptureResults(ctx, captures);
   });
 
   for (const alias of PI_GSTACK_SKILL_ALIASES) {
@@ -185,15 +185,31 @@ export default function piGstack(pi: any) {
           return;
         }
 
+        const dispatch = pendingReviewDispatchFromState(state);
+        if (!dispatch) {
+          ctx.ui.notify(`Factory run ${normalized.runId} has invalid diff-review dispatch metadata.`, 'warning');
+          return;
+        }
         const ref = artifactStore.writeText(normalized.runId, {
           id: 'diff-review-captured',
           kind: 'review',
           phaseId: 'diff-review',
           summary: normalized.summary,
+          metadata: {
+            capturedFrom: 'manual-fallback',
+            factoryRunId: normalized.runId,
+            dispatchCommit: dispatch?.commit,
+            dispatchedAt: dispatch?.dispatchedAt,
+            queuedSkillCommand: dispatch?.queuedSkillCommand,
+          },
         }, [
           '# Captured Factory Review',
           '',
           `Run: ${normalized.runId}`,
+          'Captured from: manual fallback',
+          `Dispatch commit: ${dispatch?.commit ?? 'unknown'}`,
+          `Dispatched at: ${dispatch?.dispatchedAt ?? 'unknown'}`,
+          `Queued command: ${dispatch?.queuedSkillCommand ?? 'unknown'}`,
           '',
           normalized.summary,
           '',
@@ -230,13 +246,37 @@ export default function piGstack(pi: any) {
           return;
         }
 
-        const capture = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
-        notifyAutoCaptureResult(ctx, capture);
+        const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
+        notifyAutoCaptureResults(ctx, captures);
 
         const state = store.readState(runId);
-        ctx.ui.notify(formatFactoryState(runId, state), state.status === 'failed' ? 'error' : 'info');
+        const manifest = store.readManifest(runId);
+        ctx.ui.notify(formatFactoryState(runId, state, manifest, captures[0]), state.status === 'failed' ? 'error' : 'info');
       } catch (error) {
         ctx.ui.notify(`Could not read factory run: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
+  pi.registerCommand('factory-list', {
+    description: 'List structured gstack factory runs in this project.',
+    handler: async (_args: string, ctx: any) => {
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
+      try {
+        const runIds = store.listRunIds();
+        if (runIds.length === 0) {
+          ctx.ui.notify('No factory runs found in this project.', 'info');
+          return;
+        }
+
+        ctx.ui.notify(formatFactoryRunList(runIds.map((runId) => ({
+          runId,
+          state: store.readState(runId),
+          manifest: store.readManifest(runId),
+        }))), 'info');
+      } catch (error) {
+        ctx.ui.notify(`Could not list factory runs: ${(error as Error).message}`, 'error');
       }
     },
   });
@@ -314,9 +354,9 @@ export default function piGstack(pi: any) {
 
 type AutoCaptureReviewResult =
   | { readonly status: 'captured'; readonly runId: string; readonly runnerStatus: string; readonly artifactCount: number }
-  | { readonly status: 'no-pending' }
-  | { readonly status: 'no-match' }
-  | { readonly status: 'ambiguous'; readonly runId?: string; readonly message: string }
+  | { readonly status: 'no-pending'; readonly runId?: string }
+  | { readonly status: 'no-match'; readonly runId: string; readonly message: string }
+  | { readonly status: 'ambiguous'; readonly runId: string; readonly message: string }
   | { readonly status: 'error'; readonly runId?: string; readonly message: string };
 
 async function attemptAutoCaptureReview(options: {
@@ -324,79 +364,99 @@ async function attemptAutoCaptureReview(options: {
   readonly ctx: any;
   readonly projectRoot: string;
   readonly targetRunId?: string;
-}): Promise<AutoCaptureReviewResult> {
+}): Promise<AutoCaptureReviewResult[]> {
   const runsRoot = factoryRunsRoot(options.projectRoot);
   const store = new FileFactoryEventStore({ rootDir: runsRoot });
   const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
-  const pending = pendingReviewDispatches(store);
+  const dispatches = pendingReviewDispatches(store, options.targetRunId);
 
-  const dispatch = options.targetRunId
-    ? pending.find(candidate => candidate.runId === options.targetRunId)
-    : pending[0];
-  if (!dispatch) return { status: 'no-pending' };
-
-  if (pending.length > 1) {
-    return {
-      status: 'ambiguous',
-      runId: options.targetRunId,
-      message: `multiple pending factory review runs in this project (${pending.map(candidate => candidate.runId).join(', ')})`,
-    };
-  }
+  if (dispatches.length === 0) return [{ status: 'no-pending', runId: options.targetRunId }];
 
   const reviewLog = discoverReviewLogPath(options.projectRoot);
-  if (!reviewLog.ok) return { status: 'error', runId: dispatch.runId, message: reviewLog.error };
-  if (!existsSync(reviewLog.path)) return { status: 'no-match' };
+  if (!reviewLog.ok) {
+    return dispatches.map(dispatch => ({ status: 'error', runId: dispatch.runId, message: reviewLog.error }));
+  }
+  if (!existsSync(reviewLog.path)) {
+    return dispatches.map(dispatch => ({ status: 'no-match', runId: dispatch.runId, message: 'review log not found yet' }));
+  }
 
   let entries: ReturnType<typeof parseReviewLogJsonl>;
   try {
     entries = parseReviewLogJsonl(readFileSync(reviewLog.path, 'utf-8'));
   } catch (error) {
-    return { status: 'error', runId: dispatch.runId, message: `could not read review log: ${(error as Error).message}` };
+    return dispatches.map(dispatch => ({ status: 'error', runId: dispatch.runId, message: `could not read review log: ${(error as Error).message}` }));
   }
 
-  const selection = selectReviewCaptureEntry(entries, dispatch);
+  const results: AutoCaptureReviewResult[] = [];
+  for (const dispatch of dispatches) {
+    results.push(await captureReviewDispatch({ ...options, store, artifactStore, entries, dispatch }));
+  }
+  return results;
+}
+
+async function captureReviewDispatch(options: {
+  readonly pi: any;
+  readonly ctx: any;
+  readonly projectRoot: string;
+  readonly store: FileFactoryEventStore;
+  readonly artifactStore: FileFactoryArtifactStore;
+  readonly entries: ReturnType<typeof parseReviewLogJsonl>;
+  readonly dispatch: PendingReviewDispatch;
+}): Promise<AutoCaptureReviewResult> {
+  const selection = selectReviewCaptureEntry(options.entries, options.dispatch);
   if (!selection.ok) {
     return selection.reason === 'ambiguous'
-      ? { status: 'ambiguous', runId: dispatch.runId, message: 'multiple matching review log entries appeared after dispatch' }
-      : { status: 'no-match' };
+      ? { status: 'ambiguous', runId: options.dispatch.runId, message: 'multiple matching correlated review log entries appeared after dispatch' }
+      : { status: 'no-match', runId: options.dispatch.runId, message: 'no matching correlated review log entry found' };
   }
 
-  const freshState = store.readState(dispatch.runId);
-  if (!pendingReviewDispatchFromState(freshState)) return { status: 'no-pending' };
+  const freshState = options.store.readState(options.dispatch.runId);
+  if (!pendingReviewDispatchFromState(freshState)) return { status: 'no-pending', runId: options.dispatch.runId };
 
-  const artifact = reviewLogEntryToArtifact(dispatch.runId, selection.entry);
-  const ref = artifactStore.writeText(dispatch.runId, artifact.ref, artifact.content);
-  store.append(dispatch.runId, { type: 'phase_completed', runId: dispatch.runId, phaseId: 'diff-review', artifacts: [ref] });
+  const artifact = reviewLogEntryToArtifact(options.dispatch.runId, selection.entry);
+  const ref = options.artifactStore.writeText(options.dispatch.runId, artifact.ref, artifact.content);
+  options.store.append(options.dispatch.runId, { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'diff-review', artifacts: [ref] });
 
   const runner = new FactoryRunner({
     workflows: FACTORY_WORKFLOWS,
-    eventSink: store,
-    runtime: createPiReviewDispatchRuntime(options.pi, options.ctx, options.projectRoot, artifactStore),
+    eventSink: options.store,
+    runtime: createPiReviewDispatchRuntime(options.pi, options.ctx, options.projectRoot, options.artifactStore),
   });
-  const result = await runner.continueRun(dispatch.runId);
+  const result = await runner.continueRun(options.dispatch.runId);
   return {
     status: 'captured',
-    runId: dispatch.runId,
+    runId: options.dispatch.runId,
     runnerStatus: result.status,
     artifactCount: result.state.artifacts.length,
   };
 }
 
-function pendingReviewDispatches(store: FileFactoryEventStore): PendingReviewDispatch[] {
-  return store.listRunIds()
-    .map((runId) => pendingReviewDispatchFromState(store.readState(runId)))
-    .filter((dispatch): dispatch is PendingReviewDispatch => dispatch !== null);
+function pendingReviewDispatches(store: FileFactoryEventStore, targetRunId?: string): PendingReviewDispatch[] {
+  const runIds = targetRunId ? [targetRunId] : store.listRunIds();
+  const dispatches: PendingReviewDispatch[] = [];
+  for (const runId of runIds) {
+    try {
+      const dispatch = pendingReviewDispatchFromState(store.readState(runId));
+      if (dispatch) dispatches.push(dispatch);
+    } catch (error) {
+      if (targetRunId) throw error;
+      // Ignore unrelated corrupt runs during best-effort agent_end recovery.
+    }
+  }
+  return dispatches;
 }
 
-function notifyAutoCaptureResult(ctx: any, result: AutoCaptureReviewResult): void {
+function notifyAutoCaptureResults(ctx: any, results: readonly AutoCaptureReviewResult[]): void {
   if (!ctx?.ui?.notify) return;
-  if (result.status === 'captured') {
-    ctx.ui.notify(`Factory review auto-captured: ${result.runId} (${result.artifactCount} artifact(s), status=${result.runnerStatus}).`, result.runnerStatus === 'completed' ? 'info' : 'warning');
-  } else if (result.status === 'ambiguous') {
-    ctx.ui.notify(`Factory review auto-capture skipped: ${result.message}. Use /factory-complete-review as the fallback.`, 'warning');
-  } else if (result.status === 'error') {
-    const suffix = result.runId ? ` for ${result.runId}` : '';
-    ctx.ui.notify(`Factory review auto-capture skipped${suffix}: ${result.message}. Use /factory-complete-review as the fallback.`, 'warning');
+  for (const result of results) {
+    if (result.status === 'captured') {
+      ctx.ui.notify(`Factory review auto-captured: ${result.runId} (${result.artifactCount} artifact(s), status=${result.runnerStatus}).`, result.runnerStatus === 'completed' ? 'info' : 'warning');
+    } else if (result.status === 'ambiguous') {
+      ctx.ui.notify(`Factory review auto-capture skipped for ${result.runId}: ${result.message}. Use /factory-complete-review as the fallback.`, 'warning');
+    } else if (result.status === 'error') {
+      const suffix = result.runId ? ` for ${result.runId}` : '';
+      ctx.ui.notify(`Factory review auto-capture skipped${suffix}: ${result.message}. Use /factory-complete-review as the fallback.`, 'warning');
+    }
   }
 }
 
@@ -542,10 +602,71 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
   };
 }
 
-function formatFactoryState(runId: string, state: { status: string; completedPhaseIds: readonly string[]; artifacts: readonly ArtifactRef[]; error?: { message: string } }): string {
-  const phases = state.completedPhaseIds.length > 0 ? state.completedPhaseIds.join(', ') : 'none';
-  const error = state.error ? ` error=${state.error.message}` : '';
-  return `Factory run ${runId}: status=${state.status}, completed=[${phases}], artifacts=${state.artifacts.length}.${error}`;
+function formatFactoryState(
+  runId: string,
+  state: FactoryRunState,
+  manifest: FactoryRunManifest | null,
+  recovery?: AutoCaptureReviewResult,
+): string {
+  const lines = [
+    `Factory run ${runId}`,
+    `Status: ${state.status}`,
+    `Current phase: ${state.currentPhaseId ?? 'none'}`,
+    `Completed phases: ${state.completedPhaseIds.length > 0 ? state.completedPhaseIds.join(', ') : 'none'}`,
+    `Last updated: ${manifest?.updatedAt ?? 'unknown'}`,
+    'Artifacts:',
+    ...formatFactoryArtifacts(state.artifacts),
+  ];
+
+  const dispatch = pendingReviewDispatchFromState(state);
+  if (dispatch) {
+    lines.push(
+      'Pending external review:',
+      `- factoryRunId: ${dispatch.runId}`,
+      `- dispatch commit: ${dispatch.commit ?? 'missing'}`,
+      `- dispatchedAt: ${dispatch.dispatchedAt ?? 'missing'}`,
+      `- queuedSkillCommand: ${dispatch.queuedSkillCommand ?? 'missing'}`,
+      `Recovery hint: ${recoveryHint(recovery)}`,
+    );
+  }
+
+  if (state.error) lines.push(`Error: ${state.error.message}`);
+  return lines.join('\n');
+}
+
+function formatFactoryRunList(runs: readonly { runId: string; state: FactoryRunState; manifest: FactoryRunManifest | null }[]): string {
+  return [
+    'Factory runs:',
+    ...runs.map(({ runId, state, manifest }) => {
+      const phase = state.currentPhaseId ?? 'none';
+      const updated = manifest?.updatedAt ?? 'unknown';
+      return `- ${runId}: status=${state.status}, current=${phase}, completed=${state.completedPhaseIds.length}, artifacts=${state.artifacts.length}, updated=${updated}`;
+    }),
+  ].join('\n');
+}
+
+function formatFactoryArtifacts(artifacts: readonly ArtifactRef[]): string[] {
+  if (artifacts.length === 0) return ['- none'];
+  return artifacts.map((artifact) => {
+    const location = artifact.path ?? artifact.uri ?? '(no path)';
+    return `- ${artifact.id}: ${location} — ${artifact.summary}`;
+  });
+}
+
+function recoveryHint(result: AutoCaptureReviewResult | undefined): string {
+  if (!result) return 'run /factory-status again after the generated review logs Step 5.8 output, or use /factory-complete-review as fallback';
+  switch (result.status) {
+    case 'captured':
+      return 'captured from the durable review log';
+    case 'ambiguous':
+      return `${result.message}; use /factory-complete-review after inspecting the log`;
+    case 'error':
+      return `${result.message}; verify the review-log path and use /factory-complete-review if needed`;
+    case 'no-match':
+      return `${result.message}; verify commit, dispatchedAt, and top-level factory_run_id match this run`;
+    case 'no-pending':
+      return 'no pending diff-review capture remains for this run';
+  }
 }
 
 function hasPendingDiffReviewArtifact(state: { artifacts: readonly ArtifactRef[] }): boolean {

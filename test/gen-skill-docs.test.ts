@@ -249,6 +249,7 @@ describe('gen-skill-docs', () => {
     const reviewContent = fs.readFileSync(reviewSkill, 'utf-8');
     expect(extractFrontmatterName(reviewContent)).toBe('gstack-review');
     expect(reviewContent).toContain('$GSTACK_ROOT/review/checklist.md');
+    expect(reviewContent).toContain('If the input prompt includes `factory_run_id`, include that exact value as top-level `factory_run_id`');
     expect(reviewContent).not.toContain('Read `.pi/skills/gstack/review');
 
     const browseContent = fs.readFileSync(browseSkill, 'utf-8');
@@ -327,6 +328,11 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('Operational Self-Improvement');
     expect(content).toContain('gstack-learnings-log');
     expect(content).toContain('gstack-learnings-search --limit 3');
+  });
+
+  test('generated review skill preserves factory run correlation logging contract', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('If the input prompt includes `factory_run_id`, include that exact value as top-level `factory_run_id`');
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
