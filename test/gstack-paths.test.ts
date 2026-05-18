@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as path from 'path';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-paths');
@@ -41,11 +43,38 @@ describe('gstack-paths', () => {
     expect(got.GSTACK_STATE_ROOT).toBe('/tmp/explicit-state');
   });
 
-  test('CLAUDE_PLUGIN_DATA wins over HOME when GSTACK_HOME unset', () => {
+  test('CLAUDE_PLUGIN_DATA is ignored without a gstack plugin root', () => {
     const got = run({
       CLAUDE_PLUGIN_DATA: '/tmp/plugin-data',
       HOME: '/tmp/home',
     });
+    expect(got.GSTACK_STATE_ROOT).toBe('/tmp/home/.gstack');
+  });
+
+  test('CLAUDE_PLUGIN_DATA is ignored for a foreign plugin root', () => {
+    const foreignRoot = mkdtempSync(path.join(tmpdir(), 'other-plugin-'));
+    mkdirSync(path.join(foreignRoot, 'bin'));
+
+    const got = run({
+      CLAUDE_PLUGIN_DATA: '/tmp/plugin-data',
+      CLAUDE_PLUGIN_ROOT: foreignRoot,
+      HOME: '/tmp/home',
+    });
+
+    expect(got.GSTACK_STATE_ROOT).toBe('/tmp/home/.gstack');
+  });
+
+  test('CLAUDE_PLUGIN_DATA wins over HOME for a gstack plugin root', () => {
+    const gstackRoot = mkdtempSync(path.join(tmpdir(), 'gstack-plugin-'));
+    mkdirSync(path.join(gstackRoot, 'bin'));
+    writeFileSync(path.join(gstackRoot, 'bin', 'gstack-paths'), '#!/usr/bin/env bash\n');
+
+    const got = run({
+      CLAUDE_PLUGIN_DATA: '/tmp/plugin-data',
+      CLAUDE_PLUGIN_ROOT: gstackRoot,
+      HOME: '/tmp/home',
+    });
+
     expect(got.GSTACK_STATE_ROOT).toBe('/tmp/plugin-data');
   });
 

@@ -5,11 +5,12 @@
 #
 # Resolves three roots with explicit fallback chains so skills work the same
 # whether installed as a Claude Code plugin (CLAUDE_PLUGIN_DATA / CLAUDE_PLANS_DIR
-# set), a global ~/.claude/skills/gstack/ install, or a local checkout under
+# set with CLAUDE_PLUGIN_ROOT pointing at gstack), a global ~/.claude/skills/gstack/
+# install, or a local checkout under
 # CI / container env where HOME may be unset.
 #
 # Chains:
-#   GSTACK_STATE_ROOT: GSTACK_HOME -> CLAUDE_PLUGIN_DATA -> $HOME/.gstack -> .gstack
+#   GSTACK_STATE_ROOT: GSTACK_HOME -> guarded CLAUDE_PLUGIN_DATA -> $HOME/.gstack -> .gstack
 #   PLAN_ROOT:         GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
 #   TMP_ROOT:          TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
 #
@@ -18,10 +19,22 @@
 # expansions ("$GSTACK_STATE_ROOT", not $GSTACK_STATE_ROOT).
 set -u
 
+_gstack_plugin_data_is_ours() {
+  [ -n "${CLAUDE_PLUGIN_DATA:-}" ] || return 1
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || return 1
+
+  # CLAUDE_PLUGIN_DATA is process-global. In skill installs it can belong to a
+  # different plugin, so only trust it when the plugin root looks like gstack.
+  [ -f "$CLAUDE_PLUGIN_ROOT/bin/gstack-paths" ] && return 0
+  [ "${CLAUDE_PLUGIN_ROOT##*/}" = "gstack" ] && return 0
+
+  return 1
+}
+
 # State root: where gstack writes projects/, sessions/, analytics/.
 if [ -n "${GSTACK_HOME:-}" ]; then
   _state_root="$GSTACK_HOME"
-elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+elif _gstack_plugin_data_is_ours; then
   _state_root="$CLAUDE_PLUGIN_DATA"
 elif [ -n "${HOME:-}" ]; then
   _state_root="$HOME/.gstack"
