@@ -18,7 +18,7 @@ import {
 } from '../../../lib/pi-runtime-adapter';
 import { FileFactoryArtifactStore } from '../../../lib/factory-artifact-store';
 import { FileFactoryEventStore, type FactoryRunManifest } from '../../../lib/factory-event-store';
-import { FactoryRunner } from '../../../lib/factory-runner';
+import { FactoryRunner, findRunPlan } from '../../../lib/factory-runner';
 import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
 import {
   parseReviewLogJsonl,
@@ -174,7 +174,7 @@ export default function piGstack(pi: any) {
       const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
 
       try {
-        if (!store.readManifest(normalized.runId)) {
+        if (!store.readManifest(normalized.runId) || !hasRunPlan(store, normalized.runId)) {
           ctx.ui.notify(`Factory run ${normalized.runId} not found in this project.`, 'warning');
           return;
         }
@@ -241,7 +241,7 @@ export default function piGstack(pi: any) {
       const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
       const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
       try {
-        if (!store.readManifest(runId)) {
+        if (!store.readManifest(runId) || !hasRunPlan(store, runId)) {
           ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
           return;
         }
@@ -429,6 +429,10 @@ async function captureReviewDispatch(options: {
     runnerStatus: result.status,
     artifactCount: result.state.artifacts.length,
   };
+}
+
+function hasRunPlan(store: FileFactoryEventStore, runId: string): boolean {
+  return findRunPlan(store.readEvents(runId)) !== null;
 }
 
 function pendingReviewDispatches(store: FileFactoryEventStore, targetRunId?: string): PendingReviewDispatch[] {

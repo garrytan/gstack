@@ -63,6 +63,9 @@ describe('FileFactoryEventStore', () => {
       });
       expect(store.listRunIds()).toEqual(['run-1']);
 
+      writeFileSync(store.manifestPath('run-1'), `${JSON.stringify({ runId: 'run-1', createdAt: 'x', updatedAt: 'x', eventCount: 'abc' })}\n`);
+      expect(() => store.readManifest('run-1')).toThrow("Factory run manifest for 'run-1' is invalid");
+
       const rawLog = readFileSync(store.eventsPath('run-1'), 'utf-8');
       expect(rawLog.trim().split('\n')).toHaveLength(3);
     } finally {
@@ -82,8 +85,22 @@ describe('FileFactoryEventStore', () => {
 
       const otherPlan = compileRunPlan(workflow, { workflow: 'review-flow', goal: 'Other run' }, 'other-run');
       mkdirSync(path.dirname(store.eventsPath('run-safe')), { recursive: true });
+      writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 1 })}\n`);
       writeFileSync(store.eventsPath('run-safe'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'other-run', plan: otherPlan } })}\n`);
       expect(() => store.readEvents('run-safe')).toThrow("contains event for 'other-run'");
+
+      writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 0 })}\n`);
+      writeFileSync(store.eventsPath('run-safe'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'run-safe', plan } })}\n`);
+      store.append('run-safe', { type: 'run_started', runId: 'run-safe', plan });
+      expect(readFileSync(store.eventsPath('run-safe'), 'utf-8').trim().split('\n')).toHaveLength(1);
+
+      rmSync(store.manifestPath('run-safe'), { force: true });
+      expect(store.readEvents('run-safe')).toHaveLength(1);
+
+      writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 1 })}\n`);
+      rmSync(store.eventsPath('run-safe'), { force: true });
+      expect(store.listRunIds()).toEqual([]);
+      expect(() => store.readEvents('run-safe')).toThrow("exists without an event log");
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
@@ -91,6 +108,7 @@ describe('FileFactoryEventStore', () => {
 
   test('parses event logs fail-closed on malformed lines', () => {
     expect(parseFactoryEventLog('')).toEqual([]);
+    expect(parseFactoryEventLog('{"sequence":1,"timestamp":"now","event":{"type":"run_failed","runId":"run-1","error":{"code":"x","message":"boom"}}}\n{not json', { expectedCount: 1 })).toHaveLength(1);
     expect(() => parseFactoryEventLog('{not json}\n')).toThrow('Invalid factory event JSON on line 1');
     expect(() => parseFactoryEventLog('{"sequence":1,"timestamp":"now","event":{"type":"run_started"}}\n')).toThrow(
       'Invalid factory event envelope on line 1',

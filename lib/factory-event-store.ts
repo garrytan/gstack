@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { reduceFactoryEvents, type FactoryEvent, type FactoryRunState } from './factory-core';
 
@@ -30,6 +30,14 @@ export class FileFactoryEventStore {
   }
 
   append(runId: string, event: FactoryEvent): FactoryEventEnvelope {
+    return this.appendValidated(runId, event, () => {});
+  }
+
+  appendValidated(
+    runId: string,
+    event: FactoryEvent,
+    validate: (current: readonly FactoryEventEnvelope[]) => void,
+  ): FactoryEventEnvelope {
     assertSafeRunId(runId);
     if (event.runId !== runId) {
       throw new Error(`event runId '${event.runId}' does not match store runId '${runId}'`);
@@ -39,6 +47,8 @@ export class FileFactoryEventStore {
 
     return this.withRunLock(runId, () => {
       const current = this.readEnvelopes(runId);
+      validate(current);
+      rewriteCommittedEvents(this.eventsPath(runId), current);
       const timestamp = this.now().toISOString();
       const envelope: FactoryEventEnvelope = {
         sequence: current.length + 1,
@@ -59,9 +69,15 @@ export class FileFactoryEventStore {
   readEnvelopes(runId: string): FactoryEventEnvelope[] {
     assertSafeRunId(runId);
     const file = this.eventsPath(runId);
-    if (!existsSync(file)) return [];
+    const manifest = this.readManifest(runId);
+    if (!existsSync(file)) {
+      if (manifest) throw new Error(`Factory run manifest for '${runId}' exists without an event log`);
+      return [];
+    }
 
-    const envelopes = parseFactoryEventLog(readFileSync(file, 'utf-8'));
+    const envelopes = manifest
+      ? parseFactoryEventLog(readFileSync(file, 'utf-8'), { expectedCount: manifest.eventCount })
+      : parseFactoryEventLog(readFileSync(file, 'utf-8'));
     for (const envelope of envelopes) {
       if (envelope.event.runId !== runId) {
         throw new Error(`Factory event log for '${runId}' contains event for '${envelope.event.runId}' at sequence ${envelope.sequence}`);
@@ -77,14 +93,27 @@ export class FileFactoryEventStore {
   readManifest(runId: string): FactoryRunManifest | null {
     assertSafeRunId(runId);
     const file = this.manifestPath(runId);
-    if (!existsSync(file)) return null;
-    return JSON.parse(readFileSync(file, 'utf-8')) as FactoryRunManifest;
+    if (!existsSync(file)) return this.recoverManifestFromEventLog(runId);
+    const manifest = JSON.parse(readFileSync(file, 'utf-8')) as FactoryRunManifest;
+    if (!isFactoryRunManifest(manifest, runId)) {
+      throw new Error(`Factory run manifest for '${runId}' is invalid`);
+    }
+    return manifest;
   }
 
   listRunIds(): string[] {
     if (!existsSync(this.rootDir)) return [];
     return readdirSync(this.rootDir, { withFileTypes: true })
-      .filter(entry => entry.isDirectory() && isSafeRunId(entry.name))
+      .filter((entry) => {
+        if (!entry.isDirectory() || !isSafeRunId(entry.name) || !existsSync(this.eventsPath(entry.name))) return false;
+        try {
+          if (this.readManifest(entry.name) === null) return false;
+          const envelopes = this.readEnvelopes(entry.name);
+          return envelopes.some(envelope => envelope.event.type === 'run_started');
+        } catch {
+          return false;
+        }
+      })
       .map(entry => entry.name)
       .sort();
   }
@@ -126,22 +155,44 @@ export class FileFactoryEventStore {
     }
   }
 
+  private recoverManifestFromEventLog(runId: string): FactoryRunManifest | null {
+    const eventsPath = this.eventsPath(runId);
+    if (!existsSync(eventsPath)) return null;
+    const envelopes = parseFactoryEventLog(readFileSync(eventsPath, 'utf-8'));
+    if (envelopes.length === 0) return null;
+    const manifest: FactoryRunManifest = {
+      runId,
+      createdAt: envelopes[0].timestamp,
+      updatedAt: envelopes[envelopes.length - 1].timestamp,
+      eventCount: envelopes.length,
+    };
+    this.writeManifestFile(runId, manifest);
+    return manifest;
+  }
+
   private writeManifest(runId: string, updatedAt: string, eventCount: number) {
     const existing = this.readManifest(runId);
-    const manifest: FactoryRunManifest = {
+    this.writeManifestFile(runId, {
       runId,
       createdAt: existing?.createdAt ?? updatedAt,
       updatedAt,
       eventCount,
-    };
-    writeFileSync(this.manifestPath(runId), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+    });
+  }
+
+  private writeManifestFile(runId: string, manifest: FactoryRunManifest) {
+    const manifestPath = this.manifestPath(runId);
+    const tempPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+    renameSync(tempPath, manifestPath);
   }
 }
 
-export function parseFactoryEventLog(content: string): FactoryEventEnvelope[] {
+export function parseFactoryEventLog(content: string, options: { readonly expectedCount?: number } = {}): FactoryEventEnvelope[] {
   const envelopes: FactoryEventEnvelope[] = [];
   const lines = content.split('\n');
   for (let index = 0; index < lines.length; index += 1) {
+    if (options.expectedCount !== undefined && envelopes.length >= options.expectedCount) break;
     const line = lines[index].trim();
     if (!line) continue;
 
@@ -161,6 +212,10 @@ export function parseFactoryEventLog(content: string): FactoryEventEnvelope[] {
     envelopes.push(parsed);
   }
 
+  if (options.expectedCount !== undefined && envelopes.length < options.expectedCount) {
+    throw new Error(`Factory event log ended before manifest eventCount ${options.expectedCount}`);
+  }
+
   return envelopes;
 }
 
@@ -172,6 +227,19 @@ export function assertSafeRunId(runId: string): void {
   if (!isSafeRunId(runId)) {
     throw new Error(`Unsafe factory run id '${runId}'`);
   }
+}
+
+function rewriteCommittedEvents(file: string, envelopes: readonly FactoryEventEnvelope[]): void {
+  writeFileSync(file, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + (envelopes.length > 0 ? '\n' : ''), 'utf-8');
+}
+
+function isFactoryRunManifest(input: unknown, runId: string): input is FactoryRunManifest {
+  if (!isObject(input)) return false;
+  return input.runId === runId
+    && typeof input.createdAt === 'string'
+    && typeof input.updatedAt === 'string'
+    && Number.isInteger(input.eventCount)
+    && input.eventCount >= 0;
 }
 
 function isFactoryEventEnvelope(input: unknown): input is FactoryEventEnvelope {
