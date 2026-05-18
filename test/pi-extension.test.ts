@@ -3,12 +3,26 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import piGstack from '../.pi/extensions/pi-gstack/index';
-import { compileRunPlan } from '../lib/factory-core';
+import { compileRunPlan, type WorkflowSpec } from '../lib/factory-core';
 import { FileFactoryEventStore } from '../lib/factory-event-store';
 import { FACTORY_REVIEW_WORKFLOW } from '../lib/factory-review-workflow';
 import { factoryRunsRoot } from '../lib/pi-runtime-adapter';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+
+const GATED_WORKFLOW: WorkflowSpec = {
+  id: 'gated-review',
+  title: 'Gated Review',
+  description: 'Review behind a gate.',
+  phases: [{
+    id: 'review',
+    title: 'Review',
+    role: { id: 'reviewer', title: 'Reviewer' },
+    objective: 'Review after approval.',
+    gates: [{ id: 'approve-review', title: 'Approve review', description: 'Approve running review.', kind: 'human-decision', failClosed: true }],
+    outputs: [{ id: 'review', kind: 'review', description: 'Review output.' }],
+  }],
+};
 
 type CommandDefinition = { handler: (args: string, ctx: any) => Promise<void> };
 type Notification = { message: string; level: string };
@@ -128,7 +142,7 @@ describe('Pi gstack extension wiring', () => {
   test('registers gstack slash aliases and forwards to generated Pi skills', async () => {
     const { sent, commands } = registerPiGstack();
 
-    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-complete-review', 'factory-status', 'factory-list']);
+    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-complete-review', 'factory-status', 'factory-list', 'factory-gates', 'factory-decide']);
 
     await commands.get('review')!.handler('check this diff', {
       isIdle: () => true,
@@ -184,7 +198,7 @@ describe('Pi gstack extension wiring', () => {
         });
         expect(notifications.at(-1)?.level).toBe('info');
         expect(notifications.at(-1)?.message).toContain(`Factory run ${runId}`);
-        expect(notifications.at(-1)?.message).toContain('Status: running');
+        expect(notifications.at(-1)?.message).toContain('Status: paused');
         expect(notifications.at(-1)?.message).toContain('Current phase: diff-review');
         expect(notifications.at(-1)?.message).toContain('Completed phases: review-intake');
         expect(notifications.at(-1)?.message).toContain('Artifacts:');
@@ -197,7 +211,7 @@ describe('Pi gstack extension wiring', () => {
           ui: notifyInto(notifications),
         });
         expect(notifications.at(-1)?.message).toContain('Factory runs:');
-        expect(notifications.at(-1)?.message).toContain(`${runId}: status=running, current=diff-review`);
+        expect(notifications.at(-1)?.message).toContain(`${runId}: status=paused, current=diff-review`);
 
         await commands.get('factory-complete-review')!.handler(`${runId} no blocking findings`, {
           cwd: tempDir,
@@ -481,6 +495,54 @@ describe('Pi gstack extension wiring', () => {
         rmSync(tempDir, { recursive: true, force: true });
       }
     });
+  });
+
+  test('lists and decides factory gates through Pi commands', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-gates-'));
+
+    try {
+      git(tempDir, ['init']);
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const plan = compileRunPlan(GATED_WORKFLOW, {
+        workflow: 'gated-review',
+        goal: 'Review current changes',
+        cwd: tempDir,
+        mode: 'review',
+        policy: { allowWrites: true },
+      }, 'run-gated-pi');
+      store.append('run-gated-pi', { type: 'run_started', runId: 'run-gated-pi', plan });
+      store.append('run-gated-pi', {
+        type: 'gate_requested',
+        runId: 'run-gated-pi',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.', options: ['approve', 'cancel'], recommendation: 'approve' },
+      });
+
+      await commands.get('factory-status')!.handler('run-gated-pi', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+      expect(notifications.at(-1)?.message).toContain('Status: paused');
+
+      await commands.get('factory-gates')!.handler('run-gated-pi', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+      expect(notifications.at(-1)?.message).toContain('approve-review: status=pending');
+      expect(notifications.at(-1)?.message).toContain('requestSequence=2');
+      expect(notifications.at(-1)?.message).toContain('allowed=approve|cancel');
+
+      await commands.get('factory-decide')!.handler('run-gated-pi approve-review 2 approve looks safe', {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: notifyInto(notifications),
+      });
+      expect(notifications.at(-1)?.message).toContain('Factory gate approve: approve-review. Run run-gated-pi status=completed.');
+      expect(store.readState('run-gated-pi').status).toBe('completed');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('refuses to complete review runs that have not reached pending capture', async () => {

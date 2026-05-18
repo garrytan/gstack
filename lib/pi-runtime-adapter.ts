@@ -93,6 +93,10 @@ export type FactoryCompleteReviewArgsNormalization =
   | { readonly ok: true; readonly runId: string; readonly summary: string }
   | { readonly ok: false; readonly error: string };
 
+export type FactoryGateDecisionArgsNormalization =
+  | { readonly ok: true; readonly runId: string; readonly gateId: string; readonly requestSequence: number; readonly decision: 'approve' | 'reject' | 'waive' | 'cancel'; readonly reason?: string }
+  | { readonly ok: false; readonly error: string };
+
 export function toPiSkillCommand(skillName: string, args = ''): string {
   const trimmedSkillName = skillName.trim();
   if (!trimmedSkillName) {
@@ -127,6 +131,28 @@ export function normalizeFactoryCompleteReviewArgs(args: string): FactoryComplet
     return { ok: false, error: 'factory-complete-review requires a run id followed by a review summary' };
   }
   return { ok: true, runId, summary };
+}
+
+export function normalizeFactoryGateDecisionArgs(args: string): FactoryGateDecisionArgsNormalization {
+  const trimmed = args.trim();
+  if (!trimmed) {
+    return { ok: false, error: 'factory-decide requires a run id, gate id, request sequence, decision, and optional reason' };
+  }
+
+  const [runId, gateId, rawSequence, rawDecision, ...reasonParts] = trimmed.split(/\s+/);
+  const requestSequence = Number(rawSequence);
+  if (!runId || !gateId || !rawSequence || !rawDecision) {
+    return { ok: false, error: 'factory-decide requires: <run-id> <gate-id> <request-sequence> <approve|reject|waive|cancel> [reason]' };
+  }
+  if (!Number.isInteger(requestSequence) || requestSequence <= 0) {
+    return { ok: false, error: 'factory-decide request sequence must be a positive integer' };
+  }
+  if (rawDecision !== 'approve' && rawDecision !== 'reject' && rawDecision !== 'waive' && rawDecision !== 'cancel') {
+    return { ok: false, error: 'factory-decide decision must be approve, reject, waive, or cancel' };
+  }
+
+  const reason = reasonParts.join(' ').trim();
+  return { ok: true, runId, gateId, requestSequence, decision: rawDecision, reason: reason || undefined };
 }
 
 export function factoryRunsRoot(projectRoot: string): string {

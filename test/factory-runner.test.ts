@@ -6,12 +6,26 @@ import { FileFactoryEventStore } from '../lib/factory-event-store';
 import { FactoryRunner } from '../lib/factory-runner';
 import { FACTORY_REVIEW_WORKFLOW } from '../lib/factory-review-workflow';
 import type { FactoryRuntimeCapabilities } from '../lib/factory-capabilities';
-import { compileRunPlan, type ArtifactRef, type CapabilityName } from '../lib/factory-core';
+import { compileRunPlan, type ArtifactRef, type CapabilityName, type WorkflowSpec } from '../lib/factory-core';
 
 function tempStore() {
   const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-runner-'));
   return { rootDir, store: new FileFactoryEventStore({ rootDir }) };
 }
+
+const GATED_WORKFLOW: WorkflowSpec = {
+  id: 'gated-review',
+  title: 'Gated Review',
+  description: 'Review with approval gates.',
+  phases: [{
+    id: 'review',
+    title: 'Review',
+    role: { id: 'reviewer', title: 'Reviewer' },
+    objective: 'Run review after approval.',
+    gates: [{ id: 'approve-review', title: 'Approve review', description: 'Approve running the review.', kind: 'human-decision', failClosed: true }],
+    outputs: [{ id: 'review', kind: 'review', description: 'Review output.' }],
+  }],
+};
 
 function runtime(capabilities: CapabilityName[] = ['agent-session', 'artifact-store', 'git']): FactoryRuntimeCapabilities & { executed: string[] } {
   const executed: string[] = [];
@@ -255,6 +269,141 @@ describe('FactoryRunner', () => {
         repo: { provider: 'github', owner: 'garrytan', name: 'other' },
         context: { ticket: 'ENG-1', nested: { attempt: 2 } },
       })).rejects.toThrow('does not match persisted factory run');
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('pauses on phase gates and resumes after approval', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({
+        workflows: [GATED_WORKFLOW],
+        eventSink: store,
+        runtime: fakeRuntime,
+        makeRunId: () => 'run-gated',
+      });
+
+      const paused = await runner.run({ workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' });
+      expect(paused.status).toBe('paused');
+      expect(fakeRuntime.executed).toEqual([]);
+      expect(paused.state.currentPhaseId).toBe('review');
+      expect(paused.state.pendingGates).toMatchObject([{ id: 'approve-review', phaseId: 'review' }]);
+
+      store.append('run-gated', { type: 'gate_decision', runId: 'run-gated', decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' } });
+      const resumed = await runner.continueRun('run-gated');
+      expect(resumed.status).toBe('completed');
+      expect(fakeRuntime.executed).toEqual(['review']);
+      expect(resumed.state.completedPhaseIds).toEqual(['review']);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('cancels when a gate is rejected or cancelled', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({
+        workflows: [GATED_WORKFLOW],
+        eventSink: store,
+        runtime: fakeRuntime,
+        makeRunId: () => 'run-gate-rejected',
+      });
+
+      await runner.run({ workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' });
+      store.append('run-gate-rejected', { type: 'gate_decision', runId: 'run-gate-rejected', decision: { gateId: 'approve-review', decision: 'reject', decidedBy: 'user' } });
+      const rejected = await runner.continueRun('run-gate-rejected');
+      expect(rejected.status).toBe('cancelled');
+      expect(rejected.state.status).toBe('cancelled');
+      expect(rejected.state.result?.summary).toContain("cancelled by gate 'approve-review'");
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fail-closes gates when questions are unavailable', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const fakeRuntime = runtime([]);
+      const runner = new FactoryRunner({
+        workflows: [GATED_WORKFLOW],
+        eventSink: store,
+        runtime: fakeRuntime,
+        makeRunId: () => 'run-gate-fail-closed',
+      });
+
+      const result = await runner.run({ workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' });
+      expect(result.status).toBe('cancelled');
+      expect(result.state.status).toBe('cancelled');
+      expect(result.state.gateDecisions).toMatchObject([{ gateId: 'approve-review', decision: 'reject', decidedBy: 'policy' }]);
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed on malformed gate decisions before executing a gated phase', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-bogus-decision');
+      store.append('run-bogus-decision', { type: 'run_started', runId: 'run-bogus-decision', plan });
+      store.append('run-bogus-decision', {
+        type: 'gate_requested',
+        runId: 'run-bogus-decision',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      store.append('run-bogus-decision', { type: 'gate_decision', runId: 'run-bogus-decision', decision: { gateId: 'approve-review', decision: 'bogus', decidedBy: 'user' } });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-bogus-decision');
+      expect(result.status).toBe('failed');
+      expect(result.state.error?.message).toBe("Invalid persisted factory gate decision 'bogus' for gate 'approve-review'");
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed on disallowed gate decisions before executing a gated phase', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-disallowed-decision');
+      store.append('run-disallowed-decision', { type: 'run_started', runId: 'run-disallowed-decision', plan });
+      store.append('run-disallowed-decision', {
+        type: 'gate_requested',
+        runId: 'run-disallowed-decision',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.', options: ['cancel'] },
+      });
+      store.append('run-disallowed-decision', { type: 'gate_decision', runId: 'run-disallowed-decision', decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' } });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-disallowed-decision');
+      expect(result.status).toBe('failed');
+      expect(result.state.error?.message).toBe("Persisted factory gate decision 'approve' is not allowed for gate 'approve-review'");
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed on orphan gate decisions before executing a gated phase', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-orphan');
+      store.append('run-orphan', { type: 'run_started', runId: 'run-orphan', plan });
+      store.append('run-orphan', { type: 'gate_decision', runId: 'run-orphan', decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' } });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-orphan');
+      expect(result.status).toBe('failed');
+      expect(result.state.error?.message).toBe("Factory gate 'approve-review' has a decision without a request");
+      expect(fakeRuntime.executed).toEqual([]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

@@ -244,7 +244,8 @@ describe('factory facade', () => {
         decision: undefined,
       });
       expect(reopenedGate.requestSequence).toBeGreaterThan(pendingGates[0].requestSequence!);
-      await facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: reopenedGate.requestSequence!, decision: 'cancel' });
+      const cancelled = await facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: reopenedGate.requestSequence!, decision: 'cancel' });
+      expect(cancelled.status).toBe('cancelled');
 
       const invalidPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Bad gate decision', mode: 'review' }, 'run-invalid-gate');
       store.append('run-invalid-gate', { type: 'run_started', runId: 'run-invalid-gate', plan: invalidPlan });

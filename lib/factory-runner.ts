@@ -22,7 +22,7 @@ export interface FactoryRunnerOptions {
   readonly makeRunId?: (request: FactoryRunRequest) => string;
 }
 
-export type FactoryRunnerStatus = 'completed' | 'blocked' | 'failed' | 'running';
+export type FactoryRunnerStatus = 'completed' | 'blocked' | 'cancelled' | 'failed' | 'paused' | 'running';
 
 export interface FactoryRunnerResult {
   readonly status: FactoryRunnerStatus;
@@ -78,22 +78,104 @@ export class FactoryRunner {
       blockingRisks: [],
     };
 
+    const initialGateHistoryError = validateGateHistory(events, plan);
+    if (initialGateHistoryError) return this.failRun(runId, plan, effectiveStart, initialGateHistoryError);
+
     let state = reduceFactoryEvents(events);
     if (state.status === 'completed') {
       return { status: 'completed', plan, state, start: effectiveStart };
     }
     if (state.status === 'failed' || state.status === 'cancelled') {
-      return { status: 'failed', plan, state, start: effectiveStart };
+      return { status: state.status === 'cancelled' ? 'cancelled' : 'failed', plan, state, start: effectiveStart };
     }
 
     for (const phase of plan.phases) {
-      state = reduceFactoryEvents(this.eventSink.readEvents(runId));
+      const latestEvents = this.eventSink.readEvents(runId);
+      const gateHistoryError = validateGateHistory(latestEvents, plan);
+      if (gateHistoryError) return this.failRun(runId, plan, effectiveStart, gateHistoryError);
+      state = reduceFactoryEvents(latestEvents);
       if (state.completedPhaseIds.includes(phase.id)) continue;
       if (state.currentPhaseId === phase.id && hasPendingArtifactForPhase(state, phase.id)) {
         return { status: 'running', plan, state, start: effectiveStart };
       }
 
-      this.eventSink.append(runId, { type: 'phase_started', runId, phaseId: phase.id });
+      const gateDecision = blockingGateDecision(state, phase.gates.map(gate => gate.id));
+      if (gateDecision) {
+        this.eventSink.append(runId, {
+          type: 'run_completed',
+          runId,
+          result: {
+            status: 'cancelled',
+            summary: `Factory run '${runId}' cancelled by gate '${gateDecision.gateId}' decision '${gateDecision.decision}'.`,
+            artifacts: state.artifacts,
+          },
+        });
+        return {
+          status: 'cancelled',
+          plan,
+          start: effectiveStart,
+          state: reduceFactoryEvents(this.eventSink.readEvents(runId)),
+        };
+      }
+
+      const unrequestedGates = phase.gates.filter(gate => !hasGateDecision(state, gate.id) && !hasPendingGate(state, gate.id));
+      if (unrequestedGates.length > 0) {
+        if (!hasPhaseStarted(latestEvents, phase.id)) {
+          this.eventSink.append(runId, { type: 'phase_started', runId, phaseId: phase.id });
+        }
+        for (const gate of unrequestedGates) {
+          this.eventSink.append(runId, {
+            type: 'gate_requested',
+            runId,
+            gate: {
+              id: gate.id,
+              phaseId: phase.id,
+              title: gate.title,
+              description: gate.description,
+              options: ['approve', 'reject', 'waive', 'cancel'],
+              recommendation: gate.failClosed ? 'reject' : 'approve',
+            },
+          });
+        }
+        if (shouldDenyGates(plan, this.runtime.availableCapabilities, unrequestedGates)) {
+          for (const gate of unrequestedGates) {
+            this.eventSink.append(runId, {
+              type: 'gate_decision',
+              runId,
+              decision: { gateId: gate.id, decision: 'reject', decidedBy: 'policy', reason: 'Gate denied by fail-closed factory policy.' },
+            });
+          }
+          const deniedState = reduceFactoryEvents(this.eventSink.readEvents(runId));
+          this.eventSink.append(runId, {
+            type: 'run_completed',
+            runId,
+            result: {
+              status: 'cancelled',
+              summary: `Factory run '${runId}' cancelled by fail-closed gate policy.`,
+              artifacts: deniedState.artifacts,
+            },
+          });
+          return {
+            status: 'cancelled',
+            plan,
+            start: effectiveStart,
+            state: reduceFactoryEvents(this.eventSink.readEvents(runId)),
+          };
+        }
+        return {
+          status: 'paused',
+          plan,
+          start: effectiveStart,
+          state: reduceFactoryEvents(this.eventSink.readEvents(runId)),
+        };
+      }
+      if (phase.gates.some(gate => hasPendingGate(state, gate.id))) {
+        return { status: 'paused', plan, state, start: effectiveStart };
+      }
+
+      if (!hasPhaseStarted(latestEvents, phase.id)) {
+        this.eventSink.append(runId, { type: 'phase_started', runId, phaseId: phase.id });
+      }
       state = reduceFactoryEvents(this.eventSink.readEvents(runId));
 
       try {
@@ -172,6 +254,20 @@ export class FactoryRunner {
       state: reduceFactoryEvents(this.eventSink.readEvents(runId)),
     };
   }
+
+  private failRun(runId: string, plan: FactoryRunPlan, start: FactoryStartResult, message: string): FactoryRunnerResult {
+    this.eventSink.append(runId, {
+      type: 'run_failed',
+      runId,
+      error: { code: 'invalid_gate_history', message, retryable: false },
+    });
+    return {
+      status: 'failed',
+      plan,
+      start,
+      state: reduceFactoryEvents(this.eventSink.readEvents(runId)),
+    };
+  }
 }
 
 export function findRunPlan(events: readonly FactoryEvent[]): FactoryRunPlan | null {
@@ -204,6 +300,77 @@ function validateResumeRequest(plan: FactoryRunPlan, request: FactoryRunRequest)
     throw new Error(`Resume request does not match persisted factory run '${plan.runId}' context`);
   }
   return expected;
+}
+
+function shouldDenyGates(plan: FactoryRunPlan, capabilities: Iterable<string>, gates: readonly { failClosed?: boolean }[]): boolean {
+  const available = new Set(capabilities);
+  const questionsUnavailable = !available.has('questions');
+  return questionsUnavailable && (plan.policy.defaultQuestionMode === 'fail-closed' || gates.some(gate => gate.failClosed === true));
+}
+
+function validateGateHistory(events: readonly FactoryEvent[], plan: FactoryRunPlan): string | null {
+  const declared = new Map<string, string>();
+  for (const phase of plan.phases) {
+    for (const gate of phase.gates) {
+      if (declared.has(gate.id)) return `Factory gate id '${gate.id}' is declared in multiple phases`;
+      declared.set(gate.id, phase.id);
+    }
+  }
+
+  const requests = new Map<string, readonly string[]>();
+  for (const event of events) {
+    if (event.type === 'gate_requested') {
+      const phaseId = declared.get(event.gate.id);
+      if (!phaseId || phaseId !== event.gate.phaseId) return `Factory gate request '${event.gate.id}' does not match the run plan`;
+      const allowed = allowedGateDecisions(event.gate.options);
+      if (typeof allowed === 'string') return allowed;
+      requests.set(event.gate.id, allowed);
+    } else if (event.type === 'gate_decision') {
+      if (!declared.has(event.decision.gateId)) return `Factory gate decision '${event.decision.gateId}' does not match the run plan`;
+      const allowed = requests.get(event.decision.gateId);
+      if (!allowed) return `Factory gate '${event.decision.gateId}' has a decision without a request`;
+      if (!isGateDecisionValue(event.decision.decision)) {
+        return `Invalid persisted factory gate decision '${event.decision.decision}' for gate '${event.decision.gateId}'`;
+      }
+      if (!allowed.includes(event.decision.decision)) {
+        return `Persisted factory gate decision '${event.decision.decision}' is not allowed for gate '${event.decision.gateId}'`;
+      }
+    }
+  }
+  return null;
+}
+
+function allowedGateDecisions(options: readonly string[] | undefined): readonly string[] | string {
+  if (!options || options.length === 0) return ['approve', 'reject', 'waive', 'cancel'];
+  for (const option of options) {
+    if (!isGateDecisionValue(option)) return `Invalid persisted factory gate option '${option}'`;
+  }
+  return [...new Set(options)];
+}
+
+function isGateDecisionValue(value: string): value is 'approve' | 'reject' | 'waive' | 'cancel' {
+  return value === 'approve' || value === 'reject' || value === 'waive' || value === 'cancel';
+}
+
+function hasPhaseStarted(events: readonly FactoryEvent[], phaseId: string): boolean {
+  return events.some(event => event.type === 'phase_started' && event.phaseId === phaseId);
+}
+
+function hasPendingGate(state: FactoryRunState, gateId: string): boolean {
+  return state.pendingGates.some(gate => gate.id === gateId);
+}
+
+function hasGateDecision(state: FactoryRunState, gateId: string): boolean {
+  return state.gateDecisions.some(decision => decision.gateId === gateId);
+}
+
+function blockingGateDecision(state: FactoryRunState, gateIds: readonly string[]): { gateId: string; decision: string } | null {
+  const phaseGateIds = new Set(gateIds);
+  for (const decision of state.gateDecisions) {
+    if (!phaseGateIds.has(decision.gateId)) continue;
+    if (decision.decision === 'reject' || decision.decision === 'cancel') return decision;
+  }
+  return null;
 }
 
 function hasPendingArtifactForPhase(state: FactoryRunState, phaseId: string): boolean {

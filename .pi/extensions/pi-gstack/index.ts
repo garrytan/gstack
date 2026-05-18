@@ -9,6 +9,7 @@ import {
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
   normalizeFactoryCompleteReviewArgs,
+  normalizeFactoryGateDecisionArgs,
   normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
@@ -18,6 +19,7 @@ import {
 } from '../../../lib/pi-runtime-adapter';
 import { FileFactoryArtifactStore } from '../../../lib/factory-artifact-store';
 import { FileFactoryEventStore, type FactoryRunManifest } from '../../../lib/factory-event-store';
+import { createFactoryFacade, type FactoryGateInfoDto } from '../../../lib/factory';
 import { FactoryRunner, findRunPlan } from '../../../lib/factory-runner';
 import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
 import {
@@ -27,7 +29,7 @@ import {
   selectReviewCaptureEntry,
   type PendingReviewDispatch,
 } from '../../../lib/factory-review-capture';
-import type { ArtifactRef, FactoryRunState } from '../../../lib/factory-core';
+import type { ArtifactRef, CapabilityName, FactoryRunState } from '../../../lib/factory-core';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(EXTENSION_DIR, '..', '..', '..');
@@ -239,7 +241,8 @@ export default function piGstack(pi: any) {
       }
 
       const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
-      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
       try {
         if (!store.readManifest(runId) || !hasRunPlan(store, runId)) {
           ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
@@ -249,6 +252,7 @@ export default function piGstack(pi: any) {
         const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
         notifyAutoCaptureResults(ctx, captures);
 
+        await createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS }).readFactoryRunStatus(runId);
         const state = store.readState(runId);
         const manifest = store.readManifest(runId);
         ctx.ui.notify(formatFactoryState(runId, state, manifest, captures[0]), state.status === 'failed' ? 'error' : 'info');
@@ -262,7 +266,8 @@ export default function piGstack(pi: any) {
     description: 'List structured gstack factory runs in this project.',
     handler: async (_args: string, ctx: any) => {
       const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
-      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(projectRoot) });
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
       try {
         const runIds = store.listRunIds();
         if (runIds.length === 0) {
@@ -270,6 +275,8 @@ export default function piGstack(pi: any) {
           return;
         }
 
+        const facade = createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS });
+        for (const runId of runIds) await facade.readFactoryRunStatus(runId);
         ctx.ui.notify(formatFactoryRunList(runIds.map((runId) => ({
           runId,
           state: store.readState(runId),
@@ -277,6 +284,69 @@ export default function piGstack(pi: any) {
         }))), 'info');
       } catch (error) {
         ctx.ui.notify(`Could not list factory runs: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
+  pi.registerCommand('factory-gates', {
+    description: 'List pending gate requests for a structured gstack factory run.',
+    handler: async (args: string, ctx: any) => {
+      const runId = args.trim();
+      if (!runId) {
+        ctx.ui.notify('factory-gates requires a run id', 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      try {
+        if (!store.readManifest(runId) || !hasRunPlan(store, runId)) {
+          ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
+          return;
+        }
+        const facade = createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS });
+        const gates = await facade.listFactoryGates(runId);
+        ctx.ui.notify(formatFactoryGates(runId, gates), 'info');
+      } catch (error) {
+        ctx.ui.notify(`Could not list factory gates: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
+  pi.registerCommand('factory-decide', {
+    description: 'Record a gate decision for a structured gstack factory run and resume it when possible.',
+    handler: async (args: string, ctx: any) => {
+      const normalized = normalizeFactoryGateDecisionArgs(args);
+      if (!normalized.ok) {
+        ctx.ui.notify(normalized.error, 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      try {
+        if (!store.readManifest(normalized.runId) || !hasRunPlan(store, normalized.runId)) {
+          ctx.ui.notify(`Factory run ${normalized.runId} not found in this project.`, 'warning');
+          return;
+        }
+        const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
+        const facade = createFactoryFacade({
+          runsRoot,
+          workflows: FACTORY_WORKFLOWS,
+          runtime: createPiReviewDispatchRuntime(pi, ctx, projectRoot, artifactStore),
+        });
+        const status = await facade.decideFactoryGate({
+          runId: normalized.runId,
+          gateId: normalized.gateId,
+          requestSequence: normalized.requestSequence,
+          decision: normalized.decision,
+          reason: normalized.reason,
+        });
+        ctx.ui.notify(`Factory gate ${normalized.decision}: ${normalized.gateId}. Run ${normalized.runId} status=${status.status}.`, status.status === 'failed' ? 'error' : 'info');
+      } catch (error) {
+        ctx.ui.notify(`Could not decide factory gate: ${(error as Error).message}`, 'error');
       }
     },
   });
@@ -532,10 +602,12 @@ function factoryReviewSkillRequest(goal: string, runId: string): string {
 }
 
 function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, artifactStore: FileFactoryArtifactStore) {
+  const capabilities: CapabilityName[] = isGitRepository(projectRoot)
+    ? ['agent-session', 'artifact-store', 'git']
+    : ['agent-session', 'artifact-store'];
+  const availableCapabilities: CapabilityName[] = ctx?.hasUI === true ? [...capabilities, 'questions'] : capabilities;
   return {
-    availableCapabilities: isGitRepository(projectRoot)
-      ? ['agent-session', 'artifact-store', 'git'] as const
-      : ['agent-session', 'artifact-store'] as const,
+    availableCapabilities,
     executePhase({ phase, request, plan }: any) {
       const artifact: ArtifactRef = {
         id: `${phase.id}-dispatch`,
@@ -614,7 +686,7 @@ function formatFactoryState(
 ): string {
   const lines = [
     `Factory run ${runId}`,
-    `Status: ${state.status}`,
+    `Status: ${displayFactoryStatus(state)}`,
     `Current phase: ${state.currentPhaseId ?? 'none'}`,
     `Completed phases: ${state.completedPhaseIds.length > 0 ? state.completedPhaseIds.join(', ') : 'none'}`,
     `Last updated: ${manifest?.updatedAt ?? 'unknown'}`,
@@ -644,9 +716,31 @@ function formatFactoryRunList(runs: readonly { runId: string; state: FactoryRunS
     ...runs.map(({ runId, state, manifest }) => {
       const phase = state.currentPhaseId ?? 'none';
       const updated = manifest?.updatedAt ?? 'unknown';
-      return `- ${runId}: status=${state.status}, current=${phase}, completed=${state.completedPhaseIds.length}, artifacts=${state.artifacts.length}, updated=${updated}`;
+      return `- ${runId}: status=${displayFactoryStatus(state)}, current=${phase}, completed=${state.completedPhaseIds.length}, gates=${state.pendingGates.length}, artifacts=${state.artifacts.length}, updated=${updated}`;
     }),
   ].join('\n');
+}
+
+function formatFactoryGates(runId: string, gates: readonly FactoryGateInfoDto[]): string {
+  if (gates.length === 0) return `Factory run ${runId} has no gates.`;
+  return [
+    `Factory gates for ${runId}:`,
+    ...gates.map((gate) => [
+      `- ${gate.id}: status=${gate.status}, phase=${gate.phaseId}, requestSequence=${gate.requestSequence ?? 'none'}`,
+      `  allowed=${gate.allowedDecisions.join('|')}`,
+      gate.recommendation ? `  recommendation=${gate.recommendation}` : undefined,
+      gate.decision ? `  decision=${gate.decision.value} by ${gate.decision.decidedBy}${gate.decision.reason ? ` (${gate.decision.reason})` : ''}` : undefined,
+    ].filter(Boolean).join('\n')),
+  ].join('\n');
+}
+
+function displayFactoryStatus(state: Pick<FactoryRunState, 'status' | 'pendingGates' | 'artifacts' | 'currentPhaseId'>): string {
+  if (state.status !== 'running') return state.status;
+  if (state.pendingGates.length > 0) return 'paused';
+  const pendingExternal = state.artifacts.some(artifact => artifact.phaseId === state.currentPhaseId && artifact.metadata && (
+    artifact.metadata.pendingExternalReview === true || artifact.metadata.pendingExternalWork === true
+  ));
+  return pendingExternal ? 'paused' : 'running';
 }
 
 function formatFactoryArtifacts(artifacts: readonly ArtifactRef[]): string[] {

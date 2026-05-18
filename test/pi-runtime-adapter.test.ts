@@ -6,6 +6,7 @@ import {
   formatAskUserQuestionResult,
   normalizeAskUserQuestionRequest,
   normalizeFactoryCompleteReviewArgs,
+  normalizeFactoryGateDecisionArgs,
   normalizeFactoryReviewGoal,
   normalizePiBrowserCommandRequest,
   piBrowserExecutableCandidates,
@@ -74,6 +75,19 @@ describe('pi-runtime-adapter pure calculations', () => {
       '/repo/gstack/.pi/skills/gstack/browse/dist/browse',
       '/repo/gstack/browse/dist/browse',
     ]);
+  });
+
+  test('normalizes factory gate decision args', () => {
+    expect(normalizeFactoryGateDecisionArgs('run-1 approve-review 12 approve looks safe')).toEqual({
+      ok: true,
+      runId: 'run-1',
+      gateId: 'approve-review',
+      requestSequence: 12,
+      decision: 'approve',
+      reason: 'looks safe',
+    });
+    expect(normalizeFactoryGateDecisionArgs('run-1 gate 0 approve')).toEqual({ ok: false, error: 'factory-decide request sequence must be a positive integer' });
+    expect(normalizeFactoryGateDecisionArgs('run-1 gate 1 maybe')).toEqual({ ok: false, error: 'factory-decide decision must be approve, reject, waive, or cancel' });
   });
 
   test('normalizes factory review goals and run paths', () => {
