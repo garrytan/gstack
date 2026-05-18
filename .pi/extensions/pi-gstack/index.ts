@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -20,6 +20,13 @@ import { FileFactoryArtifactStore } from '../../../lib/factory-artifact-store';
 import { FileFactoryEventStore } from '../../../lib/factory-event-store';
 import { FactoryRunner } from '../../../lib/factory-runner';
 import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
+import {
+  parseReviewLogJsonl,
+  pendingReviewDispatchFromState,
+  reviewLogEntryToArtifact,
+  selectReviewCaptureEntry,
+  type PendingReviewDispatch,
+} from '../../../lib/factory-review-capture';
 import type { ArtifactRef } from '../../../lib/factory-core';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +97,12 @@ export default function piGstack(pi: any) {
   pi.on('resources_discover', async () => {
     if (!existsSync(GENERATED_PI_SKILLS_DIR)) return undefined;
     return { skillPaths: [GENERATED_PI_SKILLS_DIR] };
+  });
+
+  pi.on('agent_end', async (_event: unknown, ctx: any) => {
+    const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+    const capture = await attemptAutoCaptureReview({ pi, ctx, projectRoot });
+    notifyAutoCaptureResult(ctx, capture);
   });
 
   for (const alias of PI_GSTACK_SKILL_ALIASES) {
@@ -216,6 +229,10 @@ export default function piGstack(pi: any) {
           ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
           return;
         }
+
+        const capture = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
+        notifyAutoCaptureResult(ctx, capture);
+
         const state = store.readState(runId);
         ctx.ui.notify(formatFactoryState(runId, state), state.status === 'failed' ? 'error' : 'info');
       } catch (error) {
@@ -295,6 +312,161 @@ export default function piGstack(pi: any) {
   });
 }
 
+type AutoCaptureReviewResult =
+  | { readonly status: 'captured'; readonly runId: string; readonly runnerStatus: string; readonly artifactCount: number }
+  | { readonly status: 'no-pending' }
+  | { readonly status: 'no-match' }
+  | { readonly status: 'ambiguous'; readonly runId?: string; readonly message: string }
+  | { readonly status: 'error'; readonly runId?: string; readonly message: string };
+
+async function attemptAutoCaptureReview(options: {
+  readonly pi: any;
+  readonly ctx: any;
+  readonly projectRoot: string;
+  readonly targetRunId?: string;
+}): Promise<AutoCaptureReviewResult> {
+  const runsRoot = factoryRunsRoot(options.projectRoot);
+  const store = new FileFactoryEventStore({ rootDir: runsRoot });
+  const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
+  const pending = pendingReviewDispatches(store);
+
+  const dispatch = options.targetRunId
+    ? pending.find(candidate => candidate.runId === options.targetRunId)
+    : pending[0];
+  if (!dispatch) return { status: 'no-pending' };
+
+  if (pending.length > 1) {
+    return {
+      status: 'ambiguous',
+      runId: options.targetRunId,
+      message: `multiple pending factory review runs in this project (${pending.map(candidate => candidate.runId).join(', ')})`,
+    };
+  }
+
+  const reviewLog = discoverReviewLogPath(options.projectRoot);
+  if (!reviewLog.ok) return { status: 'error', runId: dispatch.runId, message: reviewLog.error };
+  if (!existsSync(reviewLog.path)) return { status: 'no-match' };
+
+  let entries: ReturnType<typeof parseReviewLogJsonl>;
+  try {
+    entries = parseReviewLogJsonl(readFileSync(reviewLog.path, 'utf-8'));
+  } catch (error) {
+    return { status: 'error', runId: dispatch.runId, message: `could not read review log: ${(error as Error).message}` };
+  }
+
+  const selection = selectReviewCaptureEntry(entries, dispatch);
+  if (!selection.ok) {
+    return selection.reason === 'ambiguous'
+      ? { status: 'ambiguous', runId: dispatch.runId, message: 'multiple matching review log entries appeared after dispatch' }
+      : { status: 'no-match' };
+  }
+
+  const freshState = store.readState(dispatch.runId);
+  if (!pendingReviewDispatchFromState(freshState)) return { status: 'no-pending' };
+
+  const artifact = reviewLogEntryToArtifact(dispatch.runId, selection.entry);
+  const ref = artifactStore.writeText(dispatch.runId, artifact.ref, artifact.content);
+  store.append(dispatch.runId, { type: 'phase_completed', runId: dispatch.runId, phaseId: 'diff-review', artifacts: [ref] });
+
+  const runner = new FactoryRunner({
+    workflows: FACTORY_WORKFLOWS,
+    eventSink: store,
+    runtime: createPiReviewDispatchRuntime(options.pi, options.ctx, options.projectRoot, artifactStore),
+  });
+  const result = await runner.continueRun(dispatch.runId);
+  return {
+    status: 'captured',
+    runId: dispatch.runId,
+    runnerStatus: result.status,
+    artifactCount: result.state.artifacts.length,
+  };
+}
+
+function pendingReviewDispatches(store: FileFactoryEventStore): PendingReviewDispatch[] {
+  return store.listRunIds()
+    .map((runId) => pendingReviewDispatchFromState(store.readState(runId)))
+    .filter((dispatch): dispatch is PendingReviewDispatch => dispatch !== null);
+}
+
+function notifyAutoCaptureResult(ctx: any, result: AutoCaptureReviewResult): void {
+  if (!ctx?.ui?.notify) return;
+  if (result.status === 'captured') {
+    ctx.ui.notify(`Factory review auto-captured: ${result.runId} (${result.artifactCount} artifact(s), status=${result.runnerStatus}).`, result.runnerStatus === 'completed' ? 'info' : 'warning');
+  } else if (result.status === 'ambiguous') {
+    ctx.ui.notify(`Factory review auto-capture skipped: ${result.message}. Use /factory-complete-review as the fallback.`, 'warning');
+  } else if (result.status === 'error') {
+    const suffix = result.runId ? ` for ${result.runId}` : '';
+    ctx.ui.notify(`Factory review auto-capture skipped${suffix}: ${result.message}. Use /factory-complete-review as the fallback.`, 'warning');
+  }
+}
+
+function discoverReviewLogPath(projectRoot: string): { readonly ok: true; readonly path: string } | { readonly ok: false; readonly error: string } {
+  const result = spawnSync(join(REPO_ROOT, 'bin', 'gstack-slug'), [], {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    timeout: 2_000,
+    env: minimalGstackEnv(),
+  });
+  if (result.status !== 0) {
+    return { ok: false, error: 'could not resolve gstack review log slug' };
+  }
+
+  const assignments = parseGstackSlugAssignments(result.stdout);
+  const slug = assignments.SLUG;
+  const branch = assignments.BRANCH;
+  if (!isSafeGstackPathSegment(slug) || !isSafeGstackPathSegment(branch)) {
+    return { ok: false, error: 'gstack review log slug or branch was unsafe' };
+  }
+
+  const home = process.env.HOME;
+  const gstackHome = process.env.GSTACK_HOME || (home ? join(home, '.gstack') : undefined);
+  if (!gstackHome) return { ok: false, error: 'HOME or GSTACK_HOME is required to locate the gstack review log' };
+  return { ok: true, path: join(gstackHome, 'projects', slug, `${branch}-reviews.jsonl`) };
+}
+
+function parseGstackSlugAssignments(output: string): Record<string, string> {
+  const assignments: Record<string, string> = {};
+  for (const line of output.split('\n')) {
+    const match = line.trim().match(/^(SLUG|BRANCH)=([A-Za-z0-9._-]+)$/);
+    if (match) assignments[match[1]] = match[2];
+  }
+  return assignments;
+}
+
+function isSafeGstackPathSegment(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !value.includes('..');
+}
+
+function minimalGstackEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (process.env.HOME) env.HOME = process.env.HOME;
+  if (process.env.PATH) env.PATH = process.env.PATH;
+  if (process.env.GSTACK_HOME) env.GSTACK_HOME = process.env.GSTACK_HOME;
+  return env;
+}
+
+function gitShortHead(projectRoot: string): string | undefined {
+  const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    timeout: 2_000,
+    env: minimalGstackEnv(),
+  });
+  const commit = result.status === 0 ? result.stdout.trim() : '';
+  return commit.length > 0 ? commit : undefined;
+}
+
+function factoryReviewSkillRequest(goal: string, runId: string): string {
+  return [
+    goal,
+    '',
+    'Factory review correlation:',
+    `- factory_run_id: ${runId}`,
+    '- This is required for /factory-review auto-capture; do not omit it.',
+    '- When persisting the Step 5.8 gstack-review-log JSON, include this exact top-level field: "factory_run_id".',
+  ].join('\n');
+}
+
 function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, artifactStore: FileFactoryArtifactStore) {
   return {
     availableCapabilities: isGitRepository(projectRoot)
@@ -325,7 +497,9 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
       }
 
       if (phase.id === 'diff-review') {
-        const message = toPiSkillCommand('gstack-review', request.goal);
+        const message = toPiSkillCommand('gstack-review', factoryReviewSkillRequest(request.goal, plan.runId));
+        const dispatchedAt = new Date().toISOString();
+        const commit = gitShortHead(projectRoot);
         if (ctx.isIdle?.()) {
           pi.sendUserMessage(message);
         } else {
@@ -333,15 +507,17 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
         }
         const ref = artifactStore.writeText(plan.runId, {
           ...artifact,
-          summary: `Queued ${message}. Review findings will appear in the Pi transcript until artifact capture is added.`,
-          metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalReview: true },
+          summary: `Queued ${message}. Review artifact capture will read the durable gstack review log.`,
+          metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalReview: true, dispatchedAt, commit },
         }, [
           '# Factory Review Dispatch',
           '',
           `Run: ${plan.runId}`,
           `Queued command: ${message}`,
+          `Dispatched at: ${dispatchedAt}`,
+          `Commit: ${commit ?? 'unknown'}`,
           '',
-          'Status: pending external review output capture.',
+          'Status: pending durable gstack review log capture.',
           '',
         ].join('\n'));
         return {
