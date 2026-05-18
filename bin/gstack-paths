@@ -13,10 +13,16 @@
 #   PLAN_ROOT:         GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
 #   TMP_ROOT:          TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
 #
-# Security: output values are not sanitized — callers may receive paths with
-# shell-special characters if env vars contain them. Skills should always quote
-# expansions ("$GSTACK_STATE_ROOT", not $GSTACK_STATE_ROOT).
+# Output values are shell-quoted so eval "$(gstack-paths)" is safe for paths
+# containing spaces, $, ;, backticks, and other metacharacters. Single quotes
+# are used for portability (POSIX sh / bash / zsh / dash).
 set -u
+
+# Wrap a path in single quotes, escaping any embedded single quotes.
+# Produces output safe for: eval "$(gstack-paths)"
+_shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
 
 # State root: where gstack writes projects/, sessions/, analytics/.
 if [ -n "${GSTACK_HOME:-}" ]; then
@@ -56,6 +62,6 @@ fi
 # will discover that on their own write attempt. Don't fail the eval here.
 mkdir -p "$_tmp_root" 2>/dev/null || true
 
-echo "GSTACK_STATE_ROOT=$_state_root"
-echo "PLAN_ROOT=$_plan_root"
-echo "TMP_ROOT=$_tmp_root"
+printf 'GSTACK_STATE_ROOT=%s\n' "$(_shell_quote "$_state_root")"
+printf 'PLAN_ROOT=%s\n' "$(_shell_quote "$_plan_root")"
+printf 'TMP_ROOT=%s\n' "$(_shell_quote "$_tmp_root")"
