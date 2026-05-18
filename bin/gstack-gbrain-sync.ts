@@ -589,26 +589,51 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  // Step 2: Run sync or reindex.
-  const syncArgs = args.mode === "full"
-    ? ["reindex-code", "--source", sourceId, "--yes"]
-    : ["sync", "--strategy", "code", "--source", sourceId];
-
-  const syncResult = spawnGbrain(syncArgs, {
+  // Step 2: Always run the page-creating file walk first, then (for --full)
+  // a full re-embed.
+  //
+  // `gbrain reindex-code` only RE-EMBEDS pages that already exist; it never
+  // walks the filesystem. On a freshly-registered source (0 pages) a --full
+  // run that called reindex-code alone found nothing ("No code pages to
+  // reindex"), finished in ~1s, and left the code index permanently empty
+  // while still reporting OK. The page-creating walk is `sync --strategy
+  // code`, so --full must run it FIRST, then reindex-code, to honor the
+  // documented "full walk + reindex" contract for both fresh and populated
+  // sources.
+  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 35 * 60 * 1000,
     baseEnv: gbrainEnv,
   });
 
-  if (syncResult.status !== 0) {
+  if (walkResult.status !== 0) {
     return {
       name: "code",
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `gbrain ${syncArgs.join(" ")} exited ${syncResult.status}`,
+      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
+  }
+
+  if (args.mode === "full") {
+    const reindexResult = spawnGbrain(["reindex-code", "--source", sourceId, "--yes"], {
+      stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
+      timeout: 35 * 60 * 1000,
+      baseEnv: gbrainEnv,
+    });
+
+    if (reindexResult.status !== 0) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain reindex-code --source ${sourceId} exited ${reindexResult.status}`,
+        detail: { source_id: sourceId, source_path: root, status: "failed" },
+      };
+    }
   }
 
   // Step 3: Pin this worktree's CWD to the source via .gbrain-source. Subsequent
