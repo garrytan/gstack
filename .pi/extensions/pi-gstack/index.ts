@@ -18,8 +18,8 @@ import {
   type NormalizedPiBrowserCommandRequest,
 } from '../../../lib/pi-runtime-adapter';
 import { FileFactoryArtifactStore } from '../../../lib/factory-artifact-store';
-import { FileFactoryEventStore, type FactoryRunManifest } from '../../../lib/factory-event-store';
-import { createFactoryFacade, type FactoryGateInfoDto } from '../../../lib/factory';
+import { FileFactoryEventStore } from '../../../lib/factory-event-store';
+import { createFactoryFacade, type FactoryArtifactSummaryDto, type FactoryGateInfoDto, type FactoryRunStatusDto } from '../../../lib/factory';
 import { FactoryRunner, findRunPlan } from '../../../lib/factory-runner';
 import { FACTORY_WORKFLOWS } from '../../../lib/factory-review-workflow';
 import {
@@ -252,10 +252,8 @@ export default function piGstack(pi: any) {
         const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
         notifyAutoCaptureResults(ctx, captures);
 
-        await createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS }).readFactoryRunStatus(runId);
-        const state = store.readState(runId);
-        const manifest = store.readManifest(runId);
-        ctx.ui.notify(formatFactoryState(runId, state, manifest, captures[0]), state.status === 'failed' ? 'error' : 'info');
+        const status = await createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS }).readFactoryRunStatus(runId);
+        ctx.ui.notify(formatFactoryState(status, captures[0]), status.status === 'failed' ? 'error' : 'info');
       } catch (error) {
         ctx.ui.notify(`Could not read factory run: ${(error as Error).message}`, 'error');
       }
@@ -267,21 +265,16 @@ export default function piGstack(pi: any) {
     handler: async (_args: string, ctx: any) => {
       const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
       const runsRoot = factoryRunsRoot(projectRoot);
-      const store = new FileFactoryEventStore({ rootDir: runsRoot });
       try {
-        const runIds = store.listRunIds();
-        if (runIds.length === 0) {
+        const facade = createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS });
+        const runs = await facade.listFactoryRuns();
+        if (runs.length === 0) {
           ctx.ui.notify('No factory runs found in this project.', 'info');
           return;
         }
 
-        const facade = createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS });
-        for (const runId of runIds) await facade.readFactoryRunStatus(runId);
-        ctx.ui.notify(formatFactoryRunList(runIds.map((runId) => ({
-          runId,
-          state: store.readState(runId),
-          manifest: store.readManifest(runId),
-        }))), 'info');
+        const statuses = await Promise.all(runs.map(run => facade.readFactoryRunStatus(run.runId)));
+        ctx.ui.notify(formatFactoryRunList(statuses), 'info');
       } catch (error) {
         ctx.ui.notify(`Could not list factory runs: ${(error as Error).message}`, 'error');
       }
@@ -679,22 +672,20 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
 }
 
 function formatFactoryState(
-  runId: string,
-  state: FactoryRunState,
-  manifest: FactoryRunManifest | null,
+  status: FactoryRunStatusDto,
   recovery?: AutoCaptureReviewResult,
 ): string {
   const lines = [
-    `Factory run ${runId}`,
-    `Status: ${displayFactoryStatus(state)}`,
-    `Current phase: ${state.currentPhaseId ?? 'none'}`,
-    `Completed phases: ${state.completedPhaseIds.length > 0 ? state.completedPhaseIds.join(', ') : 'none'}`,
-    `Last updated: ${manifest?.updatedAt ?? 'unknown'}`,
+    `Factory run ${status.runId}`,
+    `Status: ${status.status}`,
+    `Current phase: ${status.currentPhase?.id ?? 'none'}`,
+    `Completed phases: ${status.completedPhaseIds.length > 0 ? status.completedPhaseIds.join(', ') : 'none'}`,
+    `Last updated: ${status.updatedAt ?? 'unknown'}`,
     'Artifacts:',
-    ...formatFactoryArtifacts(state.artifacts),
+    ...formatFactoryArtifacts(status.artifacts),
   ];
 
-  const dispatch = pendingReviewDispatchFromState(state);
+  const dispatch = pendingReviewDispatchFromStatus(status);
   if (dispatch) {
     lines.push(
       'Pending external review:',
@@ -706,19 +697,38 @@ function formatFactoryState(
     );
   }
 
-  if (state.error) lines.push(`Error: ${state.error.message}`);
+  if (status.error) lines.push(`Error: ${status.error.message}`);
   return lines.join('\n');
 }
 
-function formatFactoryRunList(runs: readonly { runId: string; state: FactoryRunState; manifest: FactoryRunManifest | null }[]): string {
+function formatFactoryRunList(runs: readonly FactoryRunStatusDto[]): string {
   return [
     'Factory runs:',
-    ...runs.map(({ runId, state, manifest }) => {
-      const phase = state.currentPhaseId ?? 'none';
-      const updated = manifest?.updatedAt ?? 'unknown';
-      return `- ${runId}: status=${displayFactoryStatus(state)}, current=${phase}, completed=${state.completedPhaseIds.length}, gates=${state.pendingGates.length}, artifacts=${state.artifacts.length}, updated=${updated}`;
+    ...runs.map((run) => {
+      const phase = run.currentPhase?.id ?? 'none';
+      const updated = run.updatedAt ?? 'unknown';
+      const pendingGates = run.gates.filter(gate => gate.status === 'pending').length;
+      return `- ${run.runId}: status=${run.status}, current=${phase}, completed=${run.progress.completed}, gates=${pendingGates}, artifacts=${run.artifacts.length}, updated=${updated}`;
     }),
   ].join('\n');
+}
+
+function pendingReviewDispatchFromStatus(status: FactoryRunStatusDto): PendingReviewDispatch | null {
+  if (status.status !== 'paused' && status.status !== 'running') return null;
+  if (status.currentPhase?.id !== 'diff-review') return null;
+  const artifact = status.artifacts.find(candidate => candidate.phaseId === 'diff-review' && candidate.metadata && (
+    candidate.metadata.pendingExternalReview === true || candidate.metadata.pendingExternalWork === true
+  ));
+  if (!artifact) return null;
+  const metadataRunId = typeof artifact.metadata?.factoryRunId === 'string' ? artifact.metadata.factoryRunId : undefined;
+  if (metadataRunId && metadataRunId !== status.runId) return null;
+  return {
+    runId: metadataRunId ?? status.runId,
+    phaseId: 'diff-review',
+    dispatchedAt: typeof artifact.metadata?.dispatchedAt === 'string' ? artifact.metadata.dispatchedAt : undefined,
+    commit: typeof artifact.metadata?.commit === 'string' ? artifact.metadata.commit : undefined,
+    queuedSkillCommand: typeof artifact.metadata?.queuedSkillCommand === 'string' ? artifact.metadata.queuedSkillCommand : undefined,
+  };
 }
 
 function formatFactoryGates(runId: string, gates: readonly FactoryGateInfoDto[]): string {
@@ -734,16 +744,7 @@ function formatFactoryGates(runId: string, gates: readonly FactoryGateInfoDto[])
   ].join('\n');
 }
 
-function displayFactoryStatus(state: Pick<FactoryRunState, 'status' | 'pendingGates' | 'artifacts' | 'currentPhaseId'>): string {
-  if (state.status !== 'running') return state.status;
-  if (state.pendingGates.length > 0) return 'paused';
-  const pendingExternal = state.artifacts.some(artifact => artifact.phaseId === state.currentPhaseId && artifact.metadata && (
-    artifact.metadata.pendingExternalReview === true || artifact.metadata.pendingExternalWork === true
-  ));
-  return pendingExternal ? 'paused' : 'running';
-}
-
-function formatFactoryArtifacts(artifacts: readonly ArtifactRef[]): string[] {
+function formatFactoryArtifacts(artifacts: readonly FactoryArtifactSummaryDto[]): string[] {
   if (artifacts.length === 0) return ['- none'];
   return artifacts.map((artifact) => {
     const location = artifact.path ?? artifact.uri ?? '(no path)';

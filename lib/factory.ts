@@ -238,6 +238,7 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
         runId: input.runId,
         decision: {
           gateId: input.gateId,
+          requestSequence: input.requestSequence,
           decision: input.decision,
           reason: input.reason,
           decidedBy: input.decidedBy ?? 'user',
@@ -459,6 +460,7 @@ function gateStatus(isPending: boolean, decision: FactoryGateDecisionValue | und
 interface GateHistory {
   request?: Extract<FactoryEvent, { type: 'gate_requested' }>['gate'];
   requestSequence?: number;
+  requestCount: number;
   decision?: GateDecision;
 }
 
@@ -483,12 +485,21 @@ function gateHistories(envelopes: readonly FactoryEventEnvelope[], declared: Rea
       if (!phaseId || phaseId !== event.gate.phaseId) {
         throw new Error(`Factory gate request '${event.gate.id}' does not match the run plan`);
       }
-      histories.set(event.gate.id, { request: event.gate, requestSequence: envelope.sequence });
+      const previous = histories.get(event.gate.id);
+      histories.set(event.gate.id, { request: event.gate, requestSequence: envelope.sequence, requestCount: (previous?.requestCount ?? 0) + 1 });
     } else if (event.type === 'gate_decision') {
       if (!declared.has(event.decision.gateId)) {
         throw new Error(`Factory gate decision '${event.decision.gateId}' does not match the run plan`);
       }
-      const history = histories.get(event.decision.gateId) ?? {};
+      const history = histories.get(event.decision.gateId);
+      if (!history) {
+        histories.set(event.decision.gateId, { requestCount: 0, decision: event.decision });
+        continue;
+      }
+      const legacySingleRequestDecision = event.decision.requestSequence === undefined && history.requestCount === 1;
+      if (!legacySingleRequestDecision && history.requestSequence !== undefined && event.decision.requestSequence !== history.requestSequence) {
+        throw new Error(`Factory gate '${event.decision.gateId}' request is stale`);
+      }
       histories.set(event.decision.gateId, { ...history, decision: event.decision });
     }
   }

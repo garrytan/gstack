@@ -123,8 +123,9 @@ export class FactoryRunner {
         if (!hasPhaseStarted(latestEvents, phase.id)) {
           this.eventSink.append(runId, { type: 'phase_started', runId, phaseId: phase.id });
         }
+        const requestedGates: { readonly gate: (typeof unrequestedGates)[number]; readonly requestSequence: number }[] = [];
         for (const gate of unrequestedGates) {
-          this.eventSink.append(runId, {
+          const envelope = this.eventSink.append(runId, {
             type: 'gate_requested',
             runId,
             gate: {
@@ -136,13 +137,14 @@ export class FactoryRunner {
               recommendation: gate.failClosed ? 'reject' : 'approve',
             },
           });
+          requestedGates.push({ gate, requestSequence: envelopeSequence(envelope) ?? this.eventSink.readEvents(runId).length });
         }
         if (shouldDenyGates(plan, this.runtime.availableCapabilities, unrequestedGates)) {
-          for (const gate of unrequestedGates) {
+          for (const { gate, requestSequence } of requestedGates) {
             this.eventSink.append(runId, {
               type: 'gate_decision',
               runId,
-              decision: { gateId: gate.id, decision: 'reject', decidedBy: 'policy', reason: 'Gate denied by fail-closed factory policy.' },
+              decision: { gateId: gate.id, requestSequence, decision: 'reject', decidedBy: 'policy', reason: 'Gate denied by fail-closed factory policy.' },
             });
           }
           const deniedState = reduceFactoryEvents(this.eventSink.readEvents(runId));
@@ -317,22 +319,26 @@ function validateGateHistory(events: readonly FactoryEvent[], plan: FactoryRunPl
     }
   }
 
-  const requests = new Map<string, readonly string[]>();
-  for (const event of events) {
+  const requests = new Map<string, { readonly allowed: readonly string[]; readonly sequence: number; readonly count: number }>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    const sequence = index + 1;
     if (event.type === 'gate_requested') {
       const phaseId = declared.get(event.gate.id);
       if (!phaseId || phaseId !== event.gate.phaseId) return `Factory gate request '${event.gate.id}' does not match the run plan`;
       const allowed = allowedGateDecisions(event.gate.options);
       if (typeof allowed === 'string') return allowed;
-      requests.set(event.gate.id, allowed);
+      requests.set(event.gate.id, { allowed, sequence, count: (requests.get(event.gate.id)?.count ?? 0) + 1 });
     } else if (event.type === 'gate_decision') {
       if (!declared.has(event.decision.gateId)) return `Factory gate decision '${event.decision.gateId}' does not match the run plan`;
-      const allowed = requests.get(event.decision.gateId);
-      if (!allowed) return `Factory gate '${event.decision.gateId}' has a decision without a request`;
+      const request = requests.get(event.decision.gateId);
+      if (!request) return `Factory gate '${event.decision.gateId}' has a decision without a request`;
+      const legacySingleRequestDecision = event.decision.requestSequence === undefined && request.count === 1;
+      if (!legacySingleRequestDecision && event.decision.requestSequence !== request.sequence) return `Factory gate '${event.decision.gateId}' request is stale`;
       if (!isGateDecisionValue(event.decision.decision)) {
         return `Invalid persisted factory gate decision '${event.decision.decision}' for gate '${event.decision.gateId}'`;
       }
-      if (!allowed.includes(event.decision.decision)) {
+      if (!request.allowed.includes(event.decision.decision)) {
         return `Persisted factory gate decision '${event.decision.decision}' is not allowed for gate '${event.decision.gateId}'`;
       }
     }
@@ -350,6 +356,12 @@ function allowedGateDecisions(options: readonly string[] | undefined): readonly 
 
 function isGateDecisionValue(value: string): value is 'approve' | 'reject' | 'waive' | 'cancel' {
   return value === 'approve' || value === 'reject' || value === 'waive' || value === 'cancel';
+}
+
+function envelopeSequence(envelope: unknown): number | undefined {
+  return envelope && typeof envelope === 'object' && Number.isInteger((envelope as { sequence?: unknown }).sequence)
+    ? (envelope as { sequence: number }).sequence
+    : undefined;
 }
 
 function hasPhaseStarted(events: readonly FactoryEvent[], phaseId: string): boolean {

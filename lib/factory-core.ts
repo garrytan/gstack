@@ -179,6 +179,7 @@ export interface GateRequest {
 
 export interface GateDecision {
   gateId: string;
+  requestSequence?: number;
   decision: string;
   reason?: string;
   decidedBy: 'user' | 'policy' | 'adapter';
@@ -301,6 +302,7 @@ export function reduceFactoryEvents(events: readonly FactoryEvent[]): FactoryRun
         break;
       case 'gate_requested':
         state.pendingGates = replaceById(state.pendingGates, event.gate);
+        state.gateDecisions = state.gateDecisions.filter(decision => decision.gateId !== event.gate.id);
         break;
       case 'gate_decision':
         state.gateDecisions = replaceByGateId(state.gateDecisions, event.decision);

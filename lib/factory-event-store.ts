@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { reduceFactoryEvents, type FactoryEvent, type FactoryRunState } from './factory-core';
 
 export interface FactoryEventEnvelope {
@@ -46,9 +46,10 @@ export class FileFactoryEventStore {
     mkdirSync(this.runDir(runId), { recursive: true });
 
     return this.withRunLock(runId, () => {
-      const current = this.readEnvelopes(runId);
+      const currentSnapshot = this.readEnvelopeSnapshot(runId);
+      const current = currentSnapshot.envelopes;
       validate(current);
-      rewriteCommittedEvents(this.eventsPath(runId), current);
+      if (currentSnapshot.hasTornTail) rewriteCommittedEvents(this.eventsPath(runId), current);
       const timestamp = this.now().toISOString();
       const envelope: FactoryEventEnvelope = {
         sequence: current.length + 1,
@@ -56,7 +57,7 @@ export class FileFactoryEventStore {
         event,
       };
 
-      appendFileSync(this.eventsPath(runId), `${JSON.stringify(envelope)}\n`, 'utf-8');
+      appendFileDurable(this.eventsPath(runId), `${JSON.stringify(envelope)}\n`);
       this.writeManifest(runId, timestamp, envelope.sequence);
       return envelope;
     });
@@ -67,23 +68,7 @@ export class FileFactoryEventStore {
   }
 
   readEnvelopes(runId: string): FactoryEventEnvelope[] {
-    assertSafeRunId(runId);
-    const file = this.eventsPath(runId);
-    const manifest = this.readManifest(runId);
-    if (!existsSync(file)) {
-      if (manifest) throw new Error(`Factory run manifest for '${runId}' exists without an event log`);
-      return [];
-    }
-
-    const envelopes = manifest
-      ? parseFactoryEventLog(readFileSync(file, 'utf-8'), { expectedCount: manifest.eventCount })
-      : parseFactoryEventLog(readFileSync(file, 'utf-8'));
-    for (const envelope of envelopes) {
-      if (envelope.event.runId !== runId) {
-        throw new Error(`Factory event log for '${runId}' contains event for '${envelope.event.runId}' at sequence ${envelope.sequence}`);
-      }
-    }
-    return envelopes;
+    return this.readEnvelopeSnapshot(runId).envelopes;
   }
 
   readState(runId: string): FactoryRunState {
@@ -131,16 +116,54 @@ export class FileFactoryEventStore {
     return join(this.runDir(runId), 'manifest.json');
   }
 
+  private readEnvelopeSnapshot(runId: string): { readonly envelopes: FactoryEventEnvelope[]; readonly hasTornTail: boolean } {
+    assertSafeRunId(runId);
+    const file = this.eventsPath(runId);
+    const manifest = this.readManifest(runId);
+    if (!existsSync(file)) {
+      if (manifest) throw new Error(`Factory run manifest for '${runId}' exists without an event log`);
+      return { envelopes: [], hasTornTail: false };
+    }
+
+    const snapshot = manifest
+      ? parseFactoryEventLogRecoveringTail(readFileSync(file, 'utf-8'), manifest.eventCount)
+      : { envelopes: parseFactoryEventLog(readFileSync(file, 'utf-8')), hasTornTail: false };
+    for (const envelope of snapshot.envelopes) {
+      if (envelope.event.runId !== runId) {
+        throw new Error(`Factory event log for '${runId}' contains event for '${envelope.event.runId}' at sequence ${envelope.sequence}`);
+      }
+    }
+    if (manifest && snapshot.envelopes.length > manifest.eventCount) {
+      this.writeManifestFile(runId, {
+        runId,
+        createdAt: manifest.createdAt,
+        updatedAt: snapshot.envelopes[snapshot.envelopes.length - 1].timestamp,
+        eventCount: snapshot.envelopes.length,
+      });
+    }
+    return snapshot;
+  }
+
   private withRunLock<T>(runId: string, action: () => T): T {
     const lockDir = join(this.runDir(runId), 'events.lock');
     const start = Date.now();
     while (true) {
       try {
         mkdirSync(lockDir);
+        try {
+          writeLockOwner(lockDir);
+        } catch (error) {
+          rmSync(lockDir, { recursive: true, force: true });
+          throw error;
+        }
         break;
       } catch (error) {
         const code = (error as { code?: string }).code;
         if (code !== 'EEXIST') throw error;
+        if (isStaleLock(lockDir)) {
+          rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
         if (Date.now() - start > 5_000) {
           throw new Error(`Timed out acquiring factory event lock for '${runId}'`);
         }
@@ -183,9 +206,49 @@ export class FileFactoryEventStore {
   private writeManifestFile(runId: string, manifest: FactoryRunManifest) {
     const manifestPath = this.manifestPath(runId);
     const tempPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
-    writeFileSync(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+    writeFileDurable(tempPath, `${JSON.stringify(manifest, null, 2)}\n`);
     renameSync(tempPath, manifestPath);
+    fsyncParentDirectory(manifestPath);
   }
+}
+
+function parseFactoryEventLogRecoveringTail(content: string, committedCount: number): { readonly envelopes: FactoryEventEnvelope[]; readonly hasTornTail: boolean } {
+  const envelopes: FactoryEventEnvelope[] = [];
+  let hasTornTail = false;
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch (error) {
+      if (envelopes.length >= committedCount) {
+        hasTornTail = true;
+        break;
+      }
+      throw new Error(`Invalid factory event JSON on line ${index + 1}: ${(error as Error).message}`);
+    }
+
+    const invalidEnvelope = !isFactoryEventEnvelope(parsed);
+    const invalidSequence = !invalidEnvelope && parsed.sequence !== envelopes.length + 1;
+    if (invalidEnvelope || invalidSequence) {
+      if (envelopes.length >= committedCount) {
+        hasTornTail = true;
+        break;
+      }
+      if (invalidEnvelope) throw new Error(`Invalid factory event envelope on line ${index + 1}`);
+      throw new Error(`Invalid factory event sequence on line ${index + 1}: expected ${envelopes.length + 1}, got ${parsed.sequence}`);
+    }
+    envelopes.push(parsed);
+  }
+
+  if (envelopes.length < committedCount) {
+    throw new Error(`Factory event log ended before manifest eventCount ${committedCount}`);
+  }
+
+  return { envelopes, hasTornTail };
 }
 
 export function parseFactoryEventLog(content: string, options: { readonly expectedCount?: number } = {}): FactoryEventEnvelope[] {
@@ -229,8 +292,87 @@ export function assertSafeRunId(runId: string): void {
   }
 }
 
+function writeLockOwner(lockDir: string): void {
+  writeFileDurable(join(lockDir, 'owner.json'), `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`);
+}
+
+function isStaleLock(lockDir: string): boolean {
+  try {
+    const owner = JSON.parse(readFileSync(join(lockDir, 'owner.json'), 'utf-8')) as { pid?: unknown };
+    if (Number.isInteger(owner.pid)) return !isProcessAlive(owner.pid as number);
+  } catch {
+    // Fall back to age-based recovery for pre-owner or corrupt lock dirs.
+  }
+
+  try {
+    return Date.now() - statSync(lockDir).mtimeMs > 60_000;
+  } catch {
+    return false;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === 'ESRCH') return false;
+    return true;
+  }
+}
+
 function rewriteCommittedEvents(file: string, envelopes: readonly FactoryEventEnvelope[]): void {
-  writeFileSync(file, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + (envelopes.length > 0 ? '\n' : ''), 'utf-8');
+  const tempPath = `${file}.${process.pid}.${Date.now()}.tmp`;
+  writeFileDurable(tempPath, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + (envelopes.length > 0 ? '\n' : ''));
+  renameSync(tempPath, file);
+  fsyncParentDirectory(file);
+}
+
+function appendFileDurable(file: string, content: string): void {
+  const fd = openSync(file, 'a');
+  try {
+    writeAllSync(fd, content);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  fsyncParentDirectory(file);
+}
+
+function writeFileDurable(file: string, content: string): void {
+  const fd = openSync(file, 'w');
+  try {
+    writeAllSync(fd, content);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function writeAllSync(fd: number, content: string): void {
+  const buffer = Buffer.from(content, 'utf-8');
+  let offset = 0;
+  while (offset < buffer.length) {
+    const written = writeSync(fd, buffer, offset, buffer.length - offset);
+    if (written <= 0) throw new Error('Factory event store write made no progress');
+    offset += written;
+  }
+}
+
+function fsyncParentDirectory(file: string): void {
+  let fd: number | undefined;
+  try {
+    fd = openSync(dirname(file), 'r');
+    fsyncSync(fd);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code !== 'EINVAL' && code !== 'EPERM' && code !== 'EISDIR') throw error;
+    // Some filesystems do not allow syncing directory handles. The file data
+    // has already been synced; keep the store usable on those platforms.
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 function isFactoryRunManifest(input: unknown, runId: string): input is FactoryRunManifest {
@@ -374,6 +516,7 @@ function isGateRequest(input: unknown): boolean {
 function isGateDecision(input: unknown): boolean {
   if (!isObject(input)) return false;
   return typeof input.gateId === 'string'
+    && (input.requestSequence === undefined || (Number.isInteger(input.requestSequence) && input.requestSequence > 0))
     && typeof input.decision === 'string'
     && (input.reason === undefined || typeof input.reason === 'string')
     && ['user', 'policy', 'adapter'].includes(String(input.decidedBy));

@@ -117,7 +117,7 @@ describe('factory-core pure calculations', () => {
       { type: 'run_started', runId: 'run-4', plan },
       { type: 'phase_started', runId: 'run-4', phaseId: 'intake' },
       { type: 'gate_requested', runId: 'run-4', gate: { id: 'approve-plan', phaseId: 'implementation', title: 'Approve plan', description: 'Approve implementation?' } },
-      { type: 'gate_decision', runId: 'run-4', decision: { gateId: 'approve-plan', decision: 'approve', decidedBy: 'user' } },
+      { type: 'gate_decision', runId: 'run-4', decision: { gateId: 'approve-plan', requestSequence: 3, decision: 'approve', decidedBy: 'user' } },
       { type: 'artifact_created', runId: 'run-4', artifact: { id: 'design-doc', kind: 'design-doc', summary: 'Design accepted', phaseId: 'intake' } },
       { type: 'phase_completed', runId: 'run-4', phaseId: 'intake' },
       { type: 'run_completed', runId: 'run-4', result: { status: 'completed', summary: 'Done', artifacts: [{ id: 'pr-1', kind: 'pr', summary: 'PR created' }] } },

@@ -91,16 +91,68 @@ describe('FileFactoryEventStore', () => {
 
       writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 0 })}\n`);
       writeFileSync(store.eventsPath('run-safe'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'run-safe', plan } })}\n`);
-      store.append('run-safe', { type: 'run_started', runId: 'run-safe', plan });
-      expect(readFileSync(store.eventsPath('run-safe'), 'utf-8').trim().split('\n')).toHaveLength(1);
+      expect(store.append('run-safe', { type: 'run_started', runId: 'run-safe', plan }).sequence).toBe(2);
+      expect(readFileSync(store.eventsPath('run-safe'), 'utf-8').trim().split('\n')).toHaveLength(2);
 
       rmSync(store.manifestPath('run-safe'), { force: true });
-      expect(store.readEvents('run-safe')).toHaveLength(1);
+      expect(store.readEvents('run-safe')).toHaveLength(2);
 
       writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 1 })}\n`);
       rmSync(store.eventsPath('run-safe'), { force: true });
       expect(store.listRunIds()).toEqual([]);
       expect(() => store.readEvents('run-safe')).toThrow("exists without an event log");
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('recovers a valid event-log tail when manifest eventCount lags', () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-events-'));
+    try {
+      const store = new FileFactoryEventStore({ rootDir, now: () => new Date('2026-01-01T00:00:02.000Z') });
+      const plan = compileRunPlan(workflow, { workflow: 'review-flow', goal: 'Review auth changes', mode: 'review' }, 'run-recover-tail');
+      mkdirSync(path.dirname(store.eventsPath('run-recover-tail')), { recursive: true });
+      writeFileSync(store.manifestPath('run-recover-tail'), `${JSON.stringify({
+        runId: 'run-recover-tail',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        eventCount: 1,
+      })}\n`);
+      writeFileSync(store.eventsPath('run-recover-tail'), [
+        JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'run-recover-tail', plan } }),
+        JSON.stringify({ sequence: 2, timestamp: '2026-01-01T00:00:01.000Z', event: { type: 'artifact_created', runId: 'run-recover-tail', artifact: { id: 'review-1', kind: 'review', summary: 'Recovered artifact', phaseId: 'review' } } }),
+        '',
+      ].join('\n'));
+
+      expect(store.readState('run-recover-tail').artifacts.map(artifact => artifact.id)).toEqual(['review-1']);
+      expect(store.readManifest('run-recover-tail')?.eventCount).toBe(2);
+      expect(store.append('run-recover-tail', { type: 'run_completed', runId: 'run-recover-tail', result: { status: 'completed', summary: 'Done', artifacts: [] } }).sequence).toBe(3);
+      expect(store.readEnvelopes('run-recover-tail').map(envelope => envelope.sequence)).toEqual([1, 2, 3]);
+      expect(store.readManifest('run-recover-tail')?.eventCount).toBe(3);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('discards torn event-log tails after the manifest count', () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-events-'));
+    try {
+      const store = new FileFactoryEventStore({ rootDir, now: () => new Date('2026-01-01T00:00:01.000Z') });
+      const plan = compileRunPlan(workflow, { workflow: 'review-flow', goal: 'Review auth changes', mode: 'review' }, 'run-torn-tail');
+      mkdirSync(path.dirname(store.eventsPath('run-torn-tail')), { recursive: true });
+      writeFileSync(store.manifestPath('run-torn-tail'), `${JSON.stringify({
+        runId: 'run-torn-tail',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        eventCount: 1,
+      })}\n`);
+      writeFileSync(store.eventsPath('run-torn-tail'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'run-torn-tail', plan } })}\n{not json`);
+
+      expect(store.readEvents('run-torn-tail')).toHaveLength(1);
+      expect(store.append('run-torn-tail', { type: 'artifact_created', runId: 'run-torn-tail', artifact: { id: 'review-1', kind: 'review', summary: 'Clean append', phaseId: 'review' } }).sequence).toBe(2);
+      const raw = readFileSync(store.eventsPath('run-torn-tail'), 'utf-8');
+      expect(raw).not.toContain('{not json');
+      expect(raw.trim().split('\n')).toHaveLength(2);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

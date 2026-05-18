@@ -291,7 +291,8 @@ describe('FactoryRunner', () => {
       expect(paused.state.currentPhaseId).toBe('review');
       expect(paused.state.pendingGates).toMatchObject([{ id: 'approve-review', phaseId: 'review' }]);
 
-      store.append('run-gated', { type: 'gate_decision', runId: 'run-gated', decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' } });
+      const requestSequence = store.readEnvelopes('run-gated').find(envelope => envelope.event.type === 'gate_requested')!.sequence;
+      store.append('run-gated', { type: 'gate_decision', runId: 'run-gated', decision: { gateId: 'approve-review', requestSequence, decision: 'approve', decidedBy: 'user' } });
       const resumed = await runner.continueRun('run-gated');
       expect(resumed.status).toBe('completed');
       expect(fakeRuntime.executed).toEqual(['review']);
@@ -313,11 +314,108 @@ describe('FactoryRunner', () => {
       });
 
       await runner.run({ workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' });
-      store.append('run-gate-rejected', { type: 'gate_decision', runId: 'run-gate-rejected', decision: { gateId: 'approve-review', decision: 'reject', decidedBy: 'user' } });
+      const requestSequence = store.readEnvelopes('run-gate-rejected').find(envelope => envelope.event.type === 'gate_requested')!.sequence;
+      store.append('run-gate-rejected', { type: 'gate_decision', runId: 'run-gate-rejected', decision: { gateId: 'approve-review', requestSequence, decision: 'reject', decidedBy: 'user' } });
       const rejected = await runner.continueRun('run-gate-rejected');
       expect(rejected.status).toBe('cancelled');
       expect(rejected.state.status).toBe('cancelled');
       expect(rejected.state.result?.summary).toContain("cancelled by gate 'approve-review'");
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('treats reopened gates as pending instead of applying stale cancellation decisions', async () => {
+    for (const decision of ['reject', 'cancel'] as const) {
+      const { rootDir, store } = tempStore();
+      try {
+        const runId = `run-reopened-${decision}`;
+        const fakeRuntime = runtime(['questions']);
+        const runner = new FactoryRunner({
+          workflows: [GATED_WORKFLOW],
+          eventSink: store,
+          runtime: fakeRuntime,
+          makeRunId: () => runId,
+        });
+
+        await runner.run({ workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' });
+        const requestSequence = store.readEnvelopes(runId).find(envelope => envelope.event.type === 'gate_requested')!.sequence;
+        store.append(runId, { type: 'gate_decision', runId, decision: { gateId: 'approve-review', requestSequence, decision, decidedBy: 'user' } });
+        store.append(runId, {
+          type: 'gate_requested',
+          runId,
+          gate: { id: 'approve-review', phaseId: 'review', title: 'Reopened review gate', description: 'Fresh decision required.' },
+        });
+
+        const reopened = await runner.continueRun(runId);
+        expect(reopened.status).toBe('paused');
+        expect(reopened.state.pendingGates).toMatchObject([{ id: 'approve-review', title: 'Reopened review gate' }]);
+        expect(reopened.state.gateDecisions).toEqual([]);
+        expect(fakeRuntime.executed).toEqual([]);
+      } finally {
+        rmSync(rootDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('grandfathers legacy gate decisions without request sequences for a single request', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-legacy-decision');
+      store.append('run-legacy-decision', { type: 'run_started', runId: 'run-legacy-decision', plan });
+      store.append('run-legacy-decision', {
+        type: 'gate_requested',
+        runId: 'run-legacy-decision',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      store.append('run-legacy-decision', {
+        type: 'gate_decision',
+        runId: 'run-legacy-decision',
+        decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' },
+      });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-legacy-decision');
+      expect(result.status).toBe('completed');
+      expect(fakeRuntime.executed).toEqual(['review']);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed when a stale decision is appended after a gate is reopened', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-stale-reopened-decision');
+      store.append('run-stale-reopened-decision', { type: 'run_started', runId: 'run-stale-reopened-decision', plan });
+      const firstRequest = store.append('run-stale-reopened-decision', {
+        type: 'gate_requested',
+        runId: 'run-stale-reopened-decision',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      store.append('run-stale-reopened-decision', {
+        type: 'gate_decision',
+        runId: 'run-stale-reopened-decision',
+        decision: { gateId: 'approve-review', requestSequence: firstRequest.sequence, decision: 'approve', decidedBy: 'user' },
+      });
+      store.append('run-stale-reopened-decision', {
+        type: 'gate_requested',
+        runId: 'run-stale-reopened-decision',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      store.append('run-stale-reopened-decision', {
+        type: 'gate_decision',
+        runId: 'run-stale-reopened-decision',
+        decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' },
+      });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-stale-reopened-decision');
+      expect(result.status).toBe('failed');
+      expect(result.state.error?.message).toBe("Factory gate 'approve-review' request is stale");
       expect(fakeRuntime.executed).toEqual([]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
@@ -350,12 +448,12 @@ describe('FactoryRunner', () => {
     try {
       const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-bogus-decision');
       store.append('run-bogus-decision', { type: 'run_started', runId: 'run-bogus-decision', plan });
-      store.append('run-bogus-decision', {
+      const request = store.append('run-bogus-decision', {
         type: 'gate_requested',
         runId: 'run-bogus-decision',
         gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
       });
-      store.append('run-bogus-decision', { type: 'gate_decision', runId: 'run-bogus-decision', decision: { gateId: 'approve-review', decision: 'bogus', decidedBy: 'user' } });
+      store.append('run-bogus-decision', { type: 'gate_decision', runId: 'run-bogus-decision', decision: { gateId: 'approve-review', requestSequence: request.sequence, decision: 'bogus', decidedBy: 'user' } });
       const fakeRuntime = runtime(['questions']);
       const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
 
@@ -373,12 +471,12 @@ describe('FactoryRunner', () => {
     try {
       const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-disallowed-decision');
       store.append('run-disallowed-decision', { type: 'run_started', runId: 'run-disallowed-decision', plan });
-      store.append('run-disallowed-decision', {
+      const request = store.append('run-disallowed-decision', {
         type: 'gate_requested',
         runId: 'run-disallowed-decision',
         gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.', options: ['cancel'] },
       });
-      store.append('run-disallowed-decision', { type: 'gate_decision', runId: 'run-disallowed-decision', decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' } });
+      store.append('run-disallowed-decision', { type: 'gate_decision', runId: 'run-disallowed-decision', decision: { gateId: 'approve-review', requestSequence: request.sequence, decision: 'approve', decidedBy: 'user' } });
       const fakeRuntime = runtime(['questions']);
       const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
 

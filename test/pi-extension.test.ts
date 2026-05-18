@@ -497,6 +497,39 @@ describe('Pi gstack extension wiring', () => {
     });
   });
 
+  test('factory-status does not render untrusted event artifact paths', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-status-path-'));
+
+    try {
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const plan = compileRunPlan(FACTORY_REVIEW_WORKFLOW, {
+        workflow: 'review',
+        goal: 'Review current changes',
+        cwd: tempDir,
+        mode: 'review',
+        policy: { allowWrites: true },
+      }, 'run-untrusted-path');
+      store.append('run-untrusted-path', { type: 'run_started', runId: 'run-untrusted-path', plan });
+      store.append('run-untrusted-path', {
+        type: 'artifact_created',
+        runId: 'run-untrusted-path',
+        artifact: { id: 'untrusted', kind: 'review', phaseId: 'review-intake', summary: 'Untrusted path artifact', path: '/tmp/untrusted-event-path' },
+      });
+
+      await commands.get('factory-status')!.handler('run-untrusted-path', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+      expect(notifications.at(-1)?.message).toContain('Factory run run-untrusted-path');
+      expect(notifications.at(-1)?.message).toContain('- untrusted: (no path) — Untrusted path artifact');
+      expect(notifications.at(-1)?.message).not.toContain('/tmp/untrusted-event-path');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('lists and decides factory gates through Pi commands', async () => {
     const notifications: Notification[] = [];
     const { commands } = registerPiGstack();

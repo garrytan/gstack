@@ -100,7 +100,7 @@ describe('factory facade', () => {
       expect(result.run.updatedAt).toBeString();
 
       const listed = await facade.listFactoryRuns();
-      expect(listed).toEqual([{ 
+      expect(listed).toEqual([{
         runId: 'run-facade',
         workflowId: 'review',
         mode: 'review',
@@ -244,12 +244,15 @@ describe('factory facade', () => {
         decision: undefined,
       });
       expect(reopenedGate.requestSequence).toBeGreaterThan(pendingGates[0].requestSequence!);
+      await expect(facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'cancel' })).rejects.toThrow(
+        "Factory gate 'approve-review' request is stale",
+      );
       const cancelled = await facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: reopenedGate.requestSequence!, decision: 'cancel' });
       expect(cancelled.status).toBe('cancelled');
 
       const invalidPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Bad gate decision', mode: 'review' }, 'run-invalid-gate');
       store.append('run-invalid-gate', { type: 'run_started', runId: 'run-invalid-gate', plan: invalidPlan });
-      store.append('run-invalid-gate', {
+      const invalidRequest = store.append('run-invalid-gate', {
         type: 'gate_requested',
         runId: 'run-invalid-gate',
         gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
@@ -257,7 +260,7 @@ describe('factory facade', () => {
       store.append('run-invalid-gate', {
         type: 'gate_decision',
         runId: 'run-invalid-gate',
-        decision: { gateId: 'approve-review', decision: 'bogus', decidedBy: 'user' },
+        decision: { gateId: 'approve-review', requestSequence: invalidRequest.sequence, decision: 'bogus', decidedBy: 'user' },
       });
       await expect(facade.listFactoryGates('run-invalid-gate')).rejects.toThrow(
         "Invalid persisted factory gate decision 'bogus' for gate 'approve-review'",
@@ -265,7 +268,7 @@ describe('factory facade', () => {
 
       const disallowedPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Disallowed gate decision', mode: 'review' }, 'run-disallowed-gate');
       store.append('run-disallowed-gate', { type: 'run_started', runId: 'run-disallowed-gate', plan: disallowedPlan });
-      store.append('run-disallowed-gate', {
+      const disallowedRequest = store.append('run-disallowed-gate', {
         type: 'gate_requested',
         runId: 'run-disallowed-gate',
         gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.', options: ['cancel'] },
@@ -273,7 +276,7 @@ describe('factory facade', () => {
       store.append('run-disallowed-gate', {
         type: 'gate_decision',
         runId: 'run-disallowed-gate',
-        decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' },
+        decision: { gateId: 'approve-review', requestSequence: disallowedRequest.sequence, decision: 'approve', decidedBy: 'user' },
       });
       await expect(facade.listFactoryGates('run-disallowed-gate')).rejects.toThrow(
         "Persisted factory gate decision 'approve' is not allowed for gate 'approve-review'",
