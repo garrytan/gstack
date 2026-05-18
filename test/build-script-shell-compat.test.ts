@@ -13,9 +13,9 @@ function stripSingleQuoted(s: string): string {
   return s.replace(/'[^']*'/g, "''");
 }
 
-describe('package.json build scripts — POSIX shell compat (D-1460)', () => {
-  // Bun's Windows shell parser doesn't grok bash brace groups `{ cmd; }`.
-  // Subshells `( cmd )` are POSIX-universal. This test prevents regression.
+describe('package.json build scripts — Bun shell compat (D-1460, #11124)', () => {
+  // Bun's shell parser (used by `bun run <script>`) does not grok bash brace
+  // groups `{ cmd; }`. This test prevents regression.
   test('no bash brace groups in any npm script', () => {
     const offending: { script: string; pattern: string }[] = [];
     for (const [name, body] of Object.entries(PKG.scripts)) {
@@ -28,13 +28,30 @@ describe('package.json build scripts — POSIX shell compat (D-1460)', () => {
     expect(offending).toEqual([]);
   });
 
-  test('every `> path/.version` redirect is preceded by a subshell, not a brace group', () => {
-    // The original PR #1460 target: package.json line 12 had three of these.
+  // The original D-1460 fix assumed `( cmd ) > file` subshell redirects were
+  // the Bun-Windows-safe form and replaced brace groups with them. They are
+  // NOT: Bun's shell rejects redirections on subshells too — "Subshells with
+  // redirections are currently not supported" (oven-sh/bun#11124, still open
+  // on every Bun version). `bun run build` aborted at parse time on Windows
+  // because setup.sh runs the build through Bun's shell. The correct fix is
+  // to keep ALL command-output-to-.version redirects out of the build script
+  // and stamp the files from scripts/gen-version-files.ts (no shell at all).
+  test('build script has no shell redirect into a .version file', () => {
     const build = PKG.scripts.build ?? '';
-    const versionRedirects = [...build.matchAll(/(\([^)]*\)|\{[^}]*\})\s*>\s*\S+\/\.version/g)];
-    expect(versionRedirects.length).toBeGreaterThan(0);
-    for (const m of versionRedirects) {
-      expect(m[1].startsWith('(')).toBe(true);
+    const redirects = [...build.matchAll(/(\([^)]*\)|\{[^}]*\})\s*>\s*\S+\/\.version/g)];
+    expect(redirects.map((m) => m[0])).toEqual([]);
+    // A bare `cmd > path/.version` (no subshell/brace) would also be fragile
+    // once chained with `2>/dev/null`; nothing should redirect into .version.
+    expect(/>\s*\S*\/\.version/.test(build)).toBe(false);
+  });
+
+  test('build delegates .version stamping to the gen-version-files script', () => {
+    const build = PKG.scripts.build ?? '';
+    expect(build).toContain('bun run scripts/gen-version-files.ts');
+    expect(fs.existsSync(path.join(ROOT, 'scripts/gen-version-files.ts'))).toBe(true);
+    const script = fs.readFileSync(path.join(ROOT, 'scripts/gen-version-files.ts'), 'utf-8');
+    for (const t of ['browse/dist/.version', 'design/dist/.version', 'make-pdf/dist/.version']) {
+      expect(script).toContain(t);
     }
   });
 });
