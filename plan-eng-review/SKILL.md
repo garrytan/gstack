@@ -907,7 +907,22 @@ If the complexity check triggers (8+ files or 2+ new classes/services), STOP bef
 
 **STOP.** Do NOT proceed to Section 1 (Architecture review), edit the plan file with a proposed scope reduction, or call ExitPlanMode until the user responds. Naming the 80% solution in chat prose and continuing — or loading the AskUserQuestion schema via ToolSearch and then never invoking it — is the failure mode this gate exists to prevent.
 
-If the complexity check does not trigger, present your Step 0 findings and proceed directly to Section 1.
+If the complexity check does not trigger, present your Step 0 findings and proceed directly to Step 0.5.
+
+### Step 0.5: Existing-capability check (gbrain / autopilot / integration recipes)
+
+If the plan touches a knowledge-graph or agent-runtime substrate (gbrain, OpenClaw, Hermes, a similar recipe-driven system), run this 60-second check BEFORE designing new code under `ops/<substrate>/`:
+
+```bash
+# gbrain example — substitute the substrate's equivalent CLI / launchd label
+ssh <host> 'gbrain integrations list && launchctl list | grep -i gbrain'
+```
+
+The recipe-driven substrates (gbrain especially) ship a senses + reflexes system that IS the signal-detector / autopilot / ingest pattern. Most "wire X into the flow" plans should be **configuring an existing recipe** (or writing a markdown recipe modeled on an existing one), NOT building new infrastructure. If a recipe exists `AVAILABLE` → configure it. If a recipe is `CONFIGURED` but dormant → investigate why. If no recipe exists → write a markdown recipe modeled on a sibling recipe (e.g. `imessage-to-brain`), submit upstream. Only propose new ops/ code if all three branches fail.
+
+This step exists because the failure mode is real: a 2026-05-17 hash-lemma plan proposed extracting a JSONL queue lib + producer + consumer bin + LaunchAgent + OAuth-DCR migration to wire "signal-detector on every Slack message" — when the gbrain `integrations` system already shipped the pattern. The 60-second check would have flagged the wrong-buildout at scope-lock.
+
+For substrates with no equivalent capability surface (pure web apps, libraries, CLIs), skip this step.
 
 Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
 
