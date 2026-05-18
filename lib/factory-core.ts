@@ -16,6 +16,7 @@ export type CapabilityName =
   | 'git'
   | 'pull-request'
   | 'questions'
+  | 'subagent-session'
   | 'test-runner'
   | 'worktree';
 
@@ -95,6 +96,12 @@ export interface ArtifactRef {
   metadata?: Record<string, unknown>;
 }
 
+export interface WorktreePhaseSpec {
+  owner: string;
+  integrationStrategy: 'merge' | 'cherry-pick' | 'artifact-only';
+  branchPrefix?: string;
+}
+
 export interface PhaseSpec {
   id: string;
   title: string;
@@ -105,6 +112,7 @@ export interface PhaseSpec {
   gates?: GateSpec[];
   requiredCapabilities?: CapabilityName[];
   concurrency?: PhaseConcurrency;
+  worktree?: WorktreePhaseSpec;
   modes?: FactoryMode[];
 }
 
@@ -141,6 +149,7 @@ export interface PlannedPhase {
   role: AgentRoleSpec;
   objective: string;
   concurrency: PhaseConcurrency;
+  worktree?: WorktreePhaseSpec;
   requiredCapabilities: CapabilityName[];
   gates: GateSpec[];
   expectedArtifacts: ArtifactExpectation[];
@@ -347,7 +356,8 @@ function planPhase(phase: PhaseSpec): PlannedPhase {
     role: phase.role,
     objective: phase.objective,
     concurrency: phase.concurrency || 'serial',
-    requiredCapabilities: uniqueSorted(phase.requiredCapabilities || []),
+    worktree: phase.worktree,
+    requiredCapabilities: requiredCapabilitiesForPhase(phase),
     gates: phase.gates || [],
     expectedArtifacts: (phase.outputs || []).map(output => ({
       phaseId: phase.id,
@@ -356,6 +366,15 @@ function planPhase(phase: PhaseSpec): PlannedPhase {
       description: output.description,
     })),
   };
+}
+
+function requiredCapabilitiesForPhase(phase: PhaseSpec): CapabilityName[] {
+  const concurrencyCapabilities: CapabilityName[] = phase.concurrency === 'parallel-readonly'
+    ? ['subagent-session']
+    : phase.concurrency === 'isolated-worktree'
+      ? ['subagent-session', 'worktree']
+      : [];
+  return uniqueSorted([...(phase.requiredCapabilities || []), ...concurrencyCapabilities]);
 }
 
 function detectPlanRisks(input: {
@@ -367,6 +386,7 @@ function detectPlanRisks(input: {
   const risks: RiskFinding[] = [];
   const writePhases = input.phases.filter(phase => phase.requiredCapabilities.includes('filesystem') || phase.requiredCapabilities.includes('git'));
   const browserPhases = input.phases.filter(phase => phase.requiredCapabilities.includes('browser'));
+  const isolatedWorktreePhases = input.phases.filter(phase => phase.concurrency === 'isolated-worktree');
 
   if (writePhases.length > 0 && !input.policy.allowWrites) {
     risks.push({
@@ -395,7 +415,25 @@ function detectPlanRisks(input: {
     });
   }
 
-  if (input.policy.maxParallelWriteTimelines > 1 && input.phases.some(phase => phase.concurrency === 'isolated-worktree')) {
+  if (isolatedWorktreePhases.length > 0 && !input.policy.allowWrites) {
+    risks.push({
+      id: 'isolated-worktrees-require-writes',
+      severity: 'blocking',
+      message: 'The selected workflow includes isolated worktree phases but policy.allowWrites is false.',
+      recommendation: 'Enable writes only after an explicit user decision or choose a serial/readonly workflow.',
+    });
+  }
+
+  if (isolatedWorktreePhases.some(phase => !phase.worktree)) {
+    risks.push({
+      id: 'isolated-worktree-metadata-required',
+      severity: 'blocking',
+      message: 'Every isolated-worktree phase must declare ownership and integration metadata.',
+      recommendation: 'Add phase.worktree owner and integrationStrategy before dispatching isolated work.',
+    });
+  }
+
+  if (input.policy.maxParallelWriteTimelines > 1 && isolatedWorktreePhases.length > 0) {
     risks.push({
       id: 'parallel-writes-require-integration-plan',
       severity: 'info',

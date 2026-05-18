@@ -13,6 +13,22 @@ function tempStore() {
   return { rootDir, store: new FileFactoryEventStore({ rootDir }) };
 }
 
+const ISOLATED_WORKFLOW: WorkflowSpec = {
+  id: 'isolated-build',
+  title: 'Isolated Build',
+  description: 'Build in an isolated worktree.',
+  phases: [{
+    id: 'implementation',
+    title: 'Implementation',
+    role: { id: 'worker', title: 'Worker' },
+    objective: 'Write code in isolation.',
+    concurrency: 'isolated-worktree',
+    worktree: { owner: 'implementation', integrationStrategy: 'artifact-only' },
+    outputs: [{ id: 'diff', kind: 'diff', description: 'Implementation diff.' }],
+    modes: ['build'],
+  }],
+};
+
 const GATED_WORKFLOW: WorkflowSpec = {
   id: 'gated-review',
   title: 'Gated Review',
@@ -123,6 +139,34 @@ describe('FactoryRunner', () => {
       const resumed = await secondRunner.continueRun('run-resume');
       expect(resumed.status).toBe('failed');
       expect(secondRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('blocks resumed runs when required scheduler capabilities are unavailable', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const compiledPlan = compileRunPlan(ISOLATED_WORKFLOW, {
+        workflow: 'isolated-build',
+        goal: 'Build auth changes',
+        cwd: '/repo',
+        mode: 'build',
+        policy: { allowWrites: true },
+      }, 'run-isolated-resume');
+      const plan = {
+        ...compiledPlan,
+        requiredCapabilities: [],
+        phases: compiledPlan.phases.map(phase => ({ ...phase, requiredCapabilities: [] })),
+      };
+      store.append('run-isolated-resume', { type: 'run_started', runId: 'run-isolated-resume', plan });
+      const fakeRuntime = runtime(['agent-session', 'artifact-store']);
+      const runner = new FactoryRunner({ workflows: [ISOLATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-isolated-resume');
+      expect(result.status).toBe('blocked');
+      expect(result.start.missingCapabilities).toEqual(['subagent-session', 'worktree']);
+      expect(fakeRuntime.executed).toEqual([]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
@@ -259,6 +303,12 @@ describe('FactoryRunner', () => {
         repo: { provider: 'github', owner: 'garrytan', name: 'gstack' },
         context: { ticket: 'ENG-1', nested: { attempt: 1 } },
       });
+
+      await expect(runner.continueRun('run-context', {
+        workflow: 'review',
+        goal: 'Review auth changes',
+        policy: { allowWrites: true },
+      })).resolves.toMatchObject({ status: 'completed' });
 
       await expect(runner.continueRun('run-context', {
         workflow: 'review',

@@ -33,6 +33,7 @@ const workflow: WorkflowSpec = {
       role: { id: 'worker', title: 'Implementation Agent' },
       objective: 'Apply the approved plan in a repository.',
       concurrency: 'isolated-worktree',
+      worktree: { owner: 'implementation', integrationStrategy: 'merge', branchPrefix: 'factory/impl' },
       requiredCapabilities: ['filesystem', 'git', 'worktree'],
       outputs: [{ id: 'diff', kind: 'diff', description: 'Implemented code diff.' }],
       gates: [{ id: 'approve-plan', title: 'Approve plan', description: 'User approves the implementation plan.', kind: 'human-decision', failClosed: true }],
@@ -76,7 +77,7 @@ describe('factory-core pure calculations', () => {
     expect(plan.workflow).toBe('autoplan-build');
     expect(plan.mode).toBe('build');
     expect(plan.phases.map(phase => phase.id)).toEqual(['intake', 'implementation', 'qa']);
-    expect(plan.requiredCapabilities).toEqual(['agent-session', 'artifact-store', 'browser', 'filesystem', 'git', 'questions', 'test-runner', 'worktree']);
+    expect(plan.requiredCapabilities).toEqual(['agent-session', 'artifact-store', 'browser', 'filesystem', 'git', 'questions', 'subagent-session', 'test-runner', 'worktree']);
     expect(plan.expectedArtifacts.map(artifact => artifact.kind)).toEqual(['design-doc', 'diff', 'qa-report']);
     expect(plan.risks.map(risk => risk.id)).toContain('parallel-writes-require-integration-plan');
   });
@@ -91,6 +92,32 @@ describe('factory-core pure calculations', () => {
     expect(plan.risks.map(risk => risk.id)).toContain('writes-disabled');
     expect(plan.risks.map(risk => risk.id)).toContain('browser-disabled');
     expect(plan.risks.map(risk => risk.id)).toContain('missing-cwd');
+  });
+
+  test('compileRunPlan fails closed for isolated worktree phases without metadata', () => {
+    const unsafeWorkflow: WorkflowSpec = {
+      ...workflow,
+      phases: [{
+        id: 'unsafe-worktree',
+        title: 'Unsafe Worktree',
+        role: { id: 'worker', title: 'Worker' },
+        objective: 'Write in isolation without integration metadata.',
+        concurrency: 'isolated-worktree',
+        outputs: [{ id: 'diff', kind: 'diff', description: 'Diff.' }],
+        modes: ['build'],
+      }],
+    };
+
+    const plan = compileRunPlan(unsafeWorkflow, {
+      workflow: 'autoplan-build',
+      goal: 'Build notification settings',
+      cwd: '/repo',
+      mode: 'build',
+      policy: { allowWrites: true },
+    }, 'run-unsafe-worktree');
+
+    expect(plan.requiredCapabilities).toEqual(['agent-session', 'artifact-store', 'subagent-session', 'worktree']);
+    expect(plan.risks.map(risk => risk.id)).toContain('isolated-worktree-metadata-required');
   });
 
   test('missingCapabilities compares a plan against adapter-provided capabilities', () => {

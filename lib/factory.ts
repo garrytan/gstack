@@ -287,7 +287,7 @@ function operationResult(
   workflows: readonly WorkflowSpec[],
 ): FactoryRunOperationResult {
   return {
-    persisted: result.status !== 'blocked',
+    persisted: result.status !== 'blocked' || result.state.runId === result.plan.runId,
     run: result.status === 'blocked'
       ? statusFromPlan(result.plan, result.state, null, workflows, 'blocked')
       : readStatus(eventStore, artifactStore, workflows, result.plan.runId),

@@ -180,6 +180,23 @@ describe('FileFactoryEventStore', () => {
     expect(() => parseFactoryEventLog(envelope({ type: 'run_started', runId: 'run-2', plan }))).toThrow(
       'Invalid factory event envelope on line 1',
     );
+    const isolatedPlanWithoutMetadata = {
+      ...plan,
+      phases: plan.phases.map(phase => ({ ...phase, concurrency: 'isolated-worktree' as const, worktree: undefined })),
+    };
+    expect(() => parseFactoryEventLog(envelope({ type: 'run_started', runId: 'run-1', plan: isolatedPlanWithoutMetadata }))).toThrow(
+      'Invalid factory event envelope on line 1',
+    );
+    const isolatedPlanWithoutSchedulerCapabilities = {
+      ...plan,
+      phases: plan.phases.map(phase => ({
+        ...phase,
+        concurrency: 'isolated-worktree' as const,
+        worktree: { owner: 'worker', integrationStrategy: 'artifact-only' as const },
+        requiredCapabilities: [],
+      })),
+    };
+    expect(parseFactoryEventLog(envelope({ type: 'run_started', runId: 'run-1', plan: isolatedPlanWithoutSchedulerCapabilities }))).toHaveLength(1);
     expect(() => parseFactoryEventLog(envelope({ type: 'phase_completed', runId: 'run-1', phaseId: 'review', artifacts: ['not-artifact'] }))).toThrow(
       'Invalid factory event envelope on line 1',
     );

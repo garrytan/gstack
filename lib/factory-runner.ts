@@ -1,7 +1,9 @@
 import {
+  missingCapabilities,
   reduceFactoryEvents,
   type ArtifactRef,
   type FactoryError,
+  type CapabilityName,
   type FactoryEvent,
   type FactoryRunPlan,
   type FactoryRunRequest,
@@ -74,8 +76,8 @@ export class FactoryRunner {
     const effectiveRequest = request ? validateResumeRequest(plan, request) : requestFromPlan(plan);
     const effectiveStart = start ?? {
       plan,
-      missingCapabilities: [],
-      blockingRisks: [],
+      missingCapabilities: missingRuntimeCapabilities(plan, this.runtime.availableCapabilities),
+      blockingRisks: plan.risks.filter(risk => risk.severity === 'blocking'),
     };
 
     const initialGateHistoryError = validateGateHistory(events, plan);
@@ -87,6 +89,9 @@ export class FactoryRunner {
     }
     if (state.status === 'failed' || state.status === 'cancelled') {
       return { status: state.status === 'cancelled' ? 'cancelled' : 'failed', plan, state, start: effectiveStart };
+    }
+    if (effectiveStart.missingCapabilities.length > 0 || effectiveStart.blockingRisks.length > 0) {
+      return { status: 'blocked', plan, state, start: effectiveStart };
     }
 
     for (const phase of plan.phases) {
@@ -293,15 +298,38 @@ function validateResumeRequest(plan: FactoryRunPlan, request: FactoryRunRequest)
   const expected = requestFromPlan(plan);
   const matches = request.workflow === expected.workflow
     && request.goal === expected.goal
-    && request.mode === expected.mode
-    && request.cwd === expected.cwd
-    && stableJson(request.repo) === stableJson(expected.repo)
-    && stableJson(request.policy) === stableJson(expected.policy)
-    && stableJson(request.context) === stableJson(expected.context);
+    && (request.mode === undefined || request.mode === expected.mode)
+    && (request.cwd === undefined || request.cwd === expected.cwd)
+    && (request.repo === undefined || stableJson(request.repo) === stableJson(expected.repo))
+    && policySubsetMatches(expected.policy, request.policy)
+    && (request.context === undefined || stableJson(request.context) === stableJson(expected.context));
   if (!matches) {
     throw new Error(`Resume request does not match persisted factory run '${plan.runId}' context`);
   }
   return expected;
+}
+
+function missingRuntimeCapabilities(plan: FactoryRunPlan, available: Iterable<CapabilityName>): CapabilityName[] {
+  const required = uniqueCapabilities([
+    ...plan.requiredCapabilities,
+    ...plan.phases.flatMap(phase => schedulerCapabilitiesFor(phase.concurrency)),
+  ]);
+  return missingCapabilities({ ...plan, requiredCapabilities: required }, available);
+}
+
+function schedulerCapabilitiesFor(concurrency: string): CapabilityName[] {
+  if (concurrency === 'parallel-readonly') return ['subagent-session'];
+  if (concurrency === 'isolated-worktree') return ['subagent-session', 'worktree'];
+  return [];
+}
+
+function uniqueCapabilities(capabilities: readonly CapabilityName[]): CapabilityName[] {
+  return Array.from(new Set(capabilities)).sort();
+}
+
+function policySubsetMatches(expected: FactoryRunPlan['policy'], provided: FactoryRunRequest['policy']): boolean {
+  if (!provided) return true;
+  return Object.entries(provided).every(([key, value]) => expected[key as keyof typeof expected] === value);
 }
 
 function shouldDenyGates(plan: FactoryRunPlan, capabilities: Iterable<string>, gates: readonly { failClosed?: boolean }[]): boolean {

@@ -472,6 +472,8 @@ function isPlannedPhase(input: unknown): boolean {
     && isAgentRole(input.role)
     && typeof input.objective === 'string'
     && isPhaseConcurrency(input.concurrency)
+    && (input.concurrency !== 'isolated-worktree' || isWorktreePhaseSpec(input.worktree))
+    && (input.worktree === undefined || isWorktreePhaseSpec(input.worktree))
     && isCapabilityArray(input.requiredCapabilities)
     && Array.isArray(input.gates)
     && input.gates.every(isGateSpec)
@@ -493,6 +495,13 @@ function isGateSpec(input: unknown): boolean {
     && typeof input.description === 'string'
     && ['human-decision', 'policy', 'verification'].includes(String(input.kind))
     && (input.failClosed === undefined || typeof input.failClosed === 'boolean');
+}
+
+function isWorktreePhaseSpec(input: unknown): boolean {
+  if (!isObject(input)) return false;
+  return typeof input.owner === 'string'
+    && ['merge', 'cherry-pick', 'artifact-only'].includes(String(input.integrationStrategy))
+    && (input.branchPrefix === undefined || typeof input.branchPrefix === 'string');
 }
 
 function isArtifactExpectation(input: unknown): boolean {
@@ -586,6 +595,7 @@ function isCapabilityName(input: unknown): boolean {
     'git',
     'pull-request',
     'questions',
+    'subagent-session',
     'test-runner',
     'worktree',
   ].includes(String(input));
