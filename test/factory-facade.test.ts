@@ -13,6 +13,20 @@ function tempRoot() {
   return mkdtempSync(path.join(tmpdir(), 'factory-facade-'));
 }
 
+const POLICY_GATED_WORKFLOW: WorkflowSpec = {
+  id: 'policy-gated',
+  title: 'Policy Gated',
+  description: 'Workflow with a policy gate.',
+  phases: [{
+    id: 'policy-check',
+    title: 'Policy Check',
+    role: { id: 'policy', title: 'Policy' },
+    objective: 'Confirm policy readiness.',
+    gates: [{ id: 'policy-ready', title: 'Policy ready', description: 'Policy readiness is confirmed.', kind: 'policy', failClosed: true }],
+    outputs: [{ id: 'approval', kind: 'plan', description: 'Policy approval.' }],
+  }],
+};
+
 const GATED_WORKFLOW: WorkflowSpec = {
   id: 'gated-review',
   title: 'Gated Review',
@@ -207,8 +221,8 @@ describe('factory facade', () => {
       await expect(facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'approve', reason: { why: 'bad' } as any })).rejects.toThrow(
         'Factory gate decision reason must be a string',
       );
-      await expect(facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'approve', decidedBy: 'robot' as any })).rejects.toThrow(
-        "Invalid factory gate decider 'robot'",
+      await expect(facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'approve', decidedBy: 'robot' } as any)).rejects.toThrow(
+        'Factory gate decisions through the public facade are recorded as user decisions',
       );
       await expect(facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'reject' })).rejects.toThrow(
         "does not allow decision 'reject'",
@@ -249,6 +263,34 @@ describe('factory facade', () => {
       );
       const cancelled = await facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: reopenedGate.requestSequence!, decision: 'cancel' });
       expect(cancelled.status).toBe('cancelled');
+
+      const policyPlan = compileRunPlan(POLICY_GATED_WORKFLOW, { workflow: 'policy-gated', goal: 'Check deploy readiness', mode: 'review' }, 'run-policy-gate');
+      store.append('run-policy-gate', { type: 'run_started', runId: 'run-policy-gate', plan: policyPlan });
+      const policyRequest = store.append('run-policy-gate', {
+        type: 'gate_requested',
+        runId: 'run-policy-gate',
+        gate: { id: 'policy-ready', phaseId: 'policy-check', title: 'Policy ready', description: 'Policy readiness is confirmed.', kind: 'policy', options: ['approve', 'reject', 'cancel'] },
+      });
+      const policyFacade = createFactoryFacade({ runsRoot: rootDir, workflows: [POLICY_GATED_WORKFLOW] });
+      expect((await policyFacade.listFactoryGates('run-policy-gate'))[0].allowedDecisions).toEqual(['reject', 'cancel']);
+      await expect(policyFacade.decideFactoryGate({ runId: 'run-policy-gate', gateId: 'policy-ready', requestSequence: policyRequest.sequence, decision: 'approve' })).rejects.toThrow(
+        "does not allow decision 'approve'",
+      );
+      await expect(policyFacade.decideFactoryGate({ runId: 'run-policy-gate', gateId: 'policy-ready', requestSequence: policyRequest.sequence, decision: 'approve', decidedBy: 'policy' } as any)).rejects.toThrow(
+        'Factory gate decisions through the public facade are recorded as user decisions',
+      );
+
+      const failClosedPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Fail closed omitted options', mode: 'review' }, 'run-fail-closed-options');
+      store.append('run-fail-closed-options', { type: 'run_started', runId: 'run-fail-closed-options', plan: failClosedPlan });
+      const failClosedRequest = store.append('run-fail-closed-options', {
+        type: 'gate_requested',
+        runId: 'run-fail-closed-options',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      expect((await facade.listFactoryGates('run-fail-closed-options'))[0].allowedDecisions).toEqual(['approve', 'reject', 'cancel']);
+      await expect(facade.decideFactoryGate({ runId: 'run-fail-closed-options', gateId: 'approve-review', requestSequence: failClosedRequest.sequence, decision: 'waive' })).rejects.toThrow(
+        "does not allow decision 'waive'",
+      );
 
       const invalidPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Bad gate decision', mode: 'review' }, 'run-invalid-gate');
       store.append('run-invalid-gate', { type: 'run_started', runId: 'run-invalid-gate', plan: invalidPlan });

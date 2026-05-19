@@ -1,5 +1,6 @@
 import type { WorkflowSpec } from './factory-core';
 import { FACTORY_QA_WORKFLOW } from './factory-qa-workflow';
+import { FACTORY_SHIP_WORKFLOW } from './factory-ship-workflow';
 
 export const FACTORY_REVIEW_WORKFLOW: WorkflowSpec = Object.freeze({
   id: 'review',
@@ -45,4 +46,5 @@ export const FACTORY_REVIEW_WORKFLOW: WorkflowSpec = Object.freeze({
 export const FACTORY_WORKFLOWS: readonly WorkflowSpec[] = Object.freeze([
   FACTORY_REVIEW_WORKFLOW,
   FACTORY_QA_WORKFLOW,
+  FACTORY_SHIP_WORKFLOW,
 ]);

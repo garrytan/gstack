@@ -1,0 +1,80 @@
+import type { WorkflowSpec } from './factory-core';
+
+export const FACTORY_SHIP_WORKFLOW: WorkflowSpec = Object.freeze({
+  id: 'ship',
+  title: 'Structured Ship',
+  description: 'Plan a structured, gated ship/release workflow without executing release actions.',
+  requiredCapabilities: ['artifact-store'],
+  defaultPolicy: {
+    allowWrites: false,
+    allowNetwork: false,
+    allowBrowser: false,
+    requireHumanForDestructive: true,
+    maxParallelWriteTimelines: 1,
+    defaultQuestionMode: 'fail-closed',
+  },
+  phases: [
+    {
+      id: 'ship-intake',
+      title: 'Ship Intake',
+      role: { id: 'factory-intake', title: 'Factory Intake' },
+      objective: 'Record release intent, target package/app, repository context, and known constraints.',
+      requiredCapabilities: ['artifact-store'],
+      outputs: [{ id: 'ship-plan', kind: 'plan', description: 'Structured ship run plan and release target summary.' }],
+      modes: ['plan-only', 'ship'],
+    },
+    {
+      id: 'ship-readiness',
+      title: 'Ship Readiness',
+      role: { id: 'release-verifier', title: 'Release Verifier' },
+      objective: 'Verify review status, tests, version bump, and changelog readiness before any publication action.',
+      requiredCapabilities: ['artifact-store', 'test-runner'],
+      gates: [
+        { id: 'review-status-clean', title: 'Review status clean', description: 'Confirm engineering review findings are clean or explicitly accepted.', kind: 'verification', failClosed: true },
+        { id: 'tests-passing', title: 'Tests passing', description: 'Confirm required test suites pass for the release target.', kind: 'verification', failClosed: true },
+        { id: 'version-bump-ready', title: 'Version bump ready', description: 'Confirm versioning changes are correct for the release.', kind: 'verification', failClosed: true },
+        { id: 'changelog-ready', title: 'Changelog ready', description: 'Confirm changelog/release notes are complete.', kind: 'verification', failClosed: true },
+      ],
+      outputs: [
+        { id: 'test-results', kind: 'test-result', description: 'Release test readiness evidence.' },
+        { id: 'release-notes', kind: 'release-note', description: 'Draft release notes or changelog evidence.' },
+      ],
+      modes: ['ship'],
+    },
+    {
+      id: 'ship-publication-readiness',
+      title: 'Publication Readiness',
+      role: { id: 'release-coordinator', title: 'Release Coordinator' },
+      objective: 'Verify CI and PR state before enabling publication or deployment actions.',
+      requiredCapabilities: ['artifact-store', 'ci', 'pull-request', 'questions'],
+      gates: [
+        { id: 'ci-green', title: 'CI green', description: 'Confirm required CI checks are green.', kind: 'verification', failClosed: true },
+        { id: 'pr-ready', title: 'PR ready', description: 'Human confirms the PR is ready to merge/release.', kind: 'human-decision', failClosed: true },
+      ],
+      outputs: [{ id: 'release-pr', kind: 'pr', description: 'PR readiness evidence.' }],
+      modes: ['ship'],
+    },
+    {
+      id: 'ship-release-gate',
+      title: 'Release Gate',
+      role: { id: 'release-approver', title: 'Release Approver' },
+      objective: 'Collect explicit release approval and deploy readiness confirmation.',
+      requiredCapabilities: ['artifact-store', 'questions'],
+      gates: [
+        { id: 'release-approved', title: 'Release approved', description: 'Human explicitly approves release/deploy execution.', kind: 'human-decision', failClosed: true },
+        { id: 'deploy-readiness-confirmed', title: 'Deploy readiness confirmed', description: 'Verify all deploy readiness preconditions are satisfied before any release action.', kind: 'verification', failClosed: true },
+      ],
+      outputs: [{ id: 'release-approval', kind: 'plan', description: 'Final release approval record.' }],
+      modes: ['ship'],
+    },
+    {
+      id: 'ship-summary',
+      title: 'Ship Summary',
+      role: { id: 'factory-summarizer', title: 'Factory Summarizer' },
+      objective: 'Record final ship readiness state and deferred runtime actions.',
+      requiredCapabilities: ['artifact-store'],
+      outputs: [{ id: 'ship-summary', kind: 'release-note', description: 'Structured ship readiness summary.' }],
+      modes: ['plan-only', 'ship'],
+    },
+  ],
+});

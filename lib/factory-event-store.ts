@@ -518,6 +518,7 @@ function isGateRequest(input: unknown): boolean {
     && typeof input.phaseId === 'string'
     && typeof input.title === 'string'
     && typeof input.description === 'string'
+    && (input.kind === undefined || ['human-decision', 'policy', 'verification'].includes(String(input.kind)))
     && (input.options === undefined || (Array.isArray(input.options) && input.options.every(option => typeof option === 'string')))
     && (input.recommendation === undefined || typeof input.recommendation === 'string');
 }

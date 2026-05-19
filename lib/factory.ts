@@ -136,7 +136,6 @@ export interface FactoryGateDecisionInput {
   readonly requestSequence: number;
   readonly decision: FactoryGateDecisionValue;
   readonly reason?: string;
-  readonly decidedBy?: GateDecision['decidedBy'];
 }
 
 export interface FactoryFacade {
@@ -219,8 +218,8 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
       if (input.reason !== undefined && typeof input.reason !== 'string') {
         throw new Error('Factory gate decision reason must be a string');
       }
-      if (input.decidedBy !== undefined && !isFactoryGateDecider(input.decidedBy)) {
-        throw new Error(`Invalid factory gate decider '${String(input.decidedBy)}'`);
+      if ((input as { decidedBy?: unknown }).decidedBy !== undefined) {
+        throw new Error('Factory gate decisions through the public facade are recorded as user decisions');
       }
       const status = readStatus(eventStore, artifactStore, workflows, input.runId);
       const gate = status.gates.find(candidate => candidate.id === input.gateId);
@@ -229,7 +228,7 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
       if (gate.requestSequence !== input.requestSequence) {
         throw new Error(`Factory gate '${input.gateId}' request is stale`);
       }
-      if (!gate.allowedDecisions.includes(input.decision)) {
+      if (!gateAllowsDecision(gate, input.decision, 'user')) {
         throw new Error(`Factory gate '${input.gateId}' does not allow decision '${input.decision}'`);
       }
 
@@ -241,13 +240,13 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
           requestSequence: input.requestSequence,
           decision: input.decision,
           reason: input.reason,
-          decidedBy: input.decidedBy ?? 'user',
+          decidedBy: 'user',
         },
       }, (current) => {
         const currentGate = gateInfoFromEnvelopes(current, input.runId, input.gateId);
         if (currentGate.status !== 'pending') throw new Error(`Factory gate '${input.gateId}' is not pending`);
         if (currentGate.requestSequence !== input.requestSequence) throw new Error(`Factory gate '${input.gateId}' request is stale`);
-        if (!currentGate.allowedDecisions.includes(input.decision)) {
+        if (!gateAllowsDecision(currentGate, input.decision, 'user')) {
           throw new Error(`Factory gate '${input.gateId}' does not allow decision '${input.decision}'`);
         }
       });
@@ -294,6 +293,11 @@ function operationResult(
     missingCapabilities: result.start.missingCapabilities,
     blockingRisks: result.start.blockingRisks,
   };
+}
+
+function gateAllowsDecision(gate: FactoryGateInfoDto, decision: FactoryGateDecisionValue, decidedBy: GateDecision['decidedBy']): boolean {
+  return gate.allowedDecisions.includes(decision)
+    || (gate.kind === 'policy' && decision === 'approve' && (decidedBy === 'policy' || decidedBy === 'adapter'));
 }
 
 function gateInfoFromEnvelopes(
@@ -421,8 +425,8 @@ function gateInfos(plan: FactoryRunPlan, state: FactoryRunState, envelopes: read
     }
     const request = history?.request ?? state.pendingGates.find(candidate => candidate.id === gate.id);
     const decision = history ? history.decision : state.gateDecisions.find(candidate => candidate.gateId === gate.id);
-    const allowedDecisions = allowedDecisionsFromRequest(request?.options);
-    const decisionValue = decision ? validatedDecisionValue(decision.decision, gate.id, allowedDecisions) : undefined;
+    const allowedDecisions = allowedDecisionsFromRequest(request?.options, gate.kind, gate.failClosed === true);
+    const decisionValue = decision ? validatedDecisionValue(decision, gate.id, allowedDecisions, gate.kind) : undefined;
     return {
       id: gate.id,
       phaseId: phase.id,
@@ -464,25 +468,25 @@ interface GateHistory {
   decision?: GateDecision;
 }
 
-function declaredGateMap(plan: FactoryRunPlan): Map<string, string> {
-  const declared = new Map<string, string>();
+function declaredGateMap(plan: FactoryRunPlan): Map<string, { readonly phaseId: string; readonly kind: GateSpec['kind'] }> {
+  const declared = new Map<string, { readonly phaseId: string; readonly kind: GateSpec['kind'] }>();
   for (const phase of plan.phases) {
     for (const gate of phase.gates) {
-      const existingPhase = declared.get(gate.id);
-      if (existingPhase) throw new Error(`Factory gate id '${gate.id}' is declared in multiple phases`);
-      declared.set(gate.id, phase.id);
+      const existing = declared.get(gate.id);
+      if (existing) throw new Error(`Factory gate id '${gate.id}' is declared in multiple phases`);
+      declared.set(gate.id, { phaseId: phase.id, kind: gate.kind });
     }
   }
   return declared;
 }
 
-function gateHistories(envelopes: readonly FactoryEventEnvelope[], declared: ReadonlyMap<string, string>): Map<string, GateHistory> {
+function gateHistories(envelopes: readonly FactoryEventEnvelope[], declared: ReadonlyMap<string, { readonly phaseId: string; readonly kind: GateSpec['kind'] }>): Map<string, GateHistory> {
   const histories = new Map<string, GateHistory>();
   for (const envelope of envelopes) {
     const event = envelope.event;
     if (event.type === 'gate_requested') {
-      const phaseId = declared.get(event.gate.id);
-      if (!phaseId || phaseId !== event.gate.phaseId) {
+      const declaredGate = declared.get(event.gate.id);
+      if (!declaredGate || declaredGate.phaseId !== event.gate.phaseId || (event.gate.kind !== undefined && event.gate.kind !== declaredGate.kind)) {
         throw new Error(`Factory gate request '${event.gate.id}' does not match the run plan`);
       }
       const previous = histories.get(event.gate.id);
@@ -506,11 +510,13 @@ function gateHistories(envelopes: readonly FactoryEventEnvelope[], declared: Rea
   return histories;
 }
 
-function allowedDecisionsFromRequest(options: readonly string[] | undefined): readonly FactoryGateDecisionValue[] {
-  const defaults: readonly FactoryGateDecisionValue[] = ['approve', 'reject', 'waive', 'cancel'];
+function allowedDecisionsFromRequest(options: readonly string[] | undefined, gateKind: GateSpec['kind'], failClosed: boolean): readonly FactoryGateDecisionValue[] {
+  if (gateKind === 'policy') return ['reject', 'cancel'];
+  const defaults: readonly FactoryGateDecisionValue[] = failClosed ? ['approve', 'reject', 'cancel'] : ['approve', 'reject', 'waive', 'cancel'];
   if (!options || options.length === 0) return defaults;
   const allowed = options.map((option) => {
     if (!isFactoryGateDecisionValue(option)) throw new Error(`Invalid persisted factory gate option '${option}'`);
+    if (failClosed && option === 'waive') throw new Error(`Invalid persisted factory gate option '${option}'`);
     return option;
   });
   return uniqueGateDecisions(allowed);
@@ -528,17 +534,21 @@ function uniqueGateDecisions(values: readonly FactoryGateDecisionValue[]): reado
 }
 
 function validatedDecisionValue(
-  decision: string,
+  decision: GateDecision,
   gateId: string,
   allowedDecisions: readonly FactoryGateDecisionValue[],
+  gateKind: GateSpec['kind'],
 ): FactoryGateDecisionValue {
-  if (!isFactoryGateDecisionValue(decision)) {
-    throw new Error(`Invalid persisted factory gate decision '${decision}' for gate '${gateId}'`);
+  if (!isFactoryGateDecisionValue(decision.decision)) {
+    throw new Error(`Invalid persisted factory gate decision '${decision.decision}' for gate '${gateId}'`);
   }
-  if (!allowedDecisions.includes(decision)) {
-    throw new Error(`Persisted factory gate decision '${decision}' is not allowed for gate '${gateId}'`);
+  const policyApproval = gateKind === 'policy'
+    && decision.decision === 'approve'
+    && (decision.decidedBy === 'policy' || decision.decidedBy === 'adapter');
+  if (!policyApproval && !allowedDecisions.includes(decision.decision)) {
+    throw new Error(`Persisted factory gate decision '${decision.decision}' is not allowed for gate '${gateId}'`);
   }
-  return decision;
+  return decision.decision;
 }
 
 function recommendationFromRequest(
@@ -553,8 +563,4 @@ function recommendationFromRequest(
 
 function isFactoryGateDecisionValue(value: unknown): value is FactoryGateDecisionValue {
   return value === 'approve' || value === 'reject' || value === 'waive' || value === 'cancel';
-}
-
-function isFactoryGateDecider(value: unknown): value is GateDecision['decidedBy'] {
-  return value === 'user' || value === 'policy' || value === 'adapter';
 }

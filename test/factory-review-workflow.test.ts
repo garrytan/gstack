@@ -6,7 +6,7 @@ const phaseIds = FACTORY_REVIEW_WORKFLOW.phases.map(phase => phase.id);
 
 describe('factory review workflow spec', () => {
   test('registers review as the first structured factory workflow', () => {
-    expect(FACTORY_WORKFLOWS.map(workflow => workflow.id)).toEqual(['review']);
+    expect(FACTORY_WORKFLOWS.map(workflow => workflow.id)).toEqual(['review', 'qa', 'ship']);
     expect(phaseIds).toEqual(['review-intake', 'diff-review', 'review-summary']);
   });
 

@@ -138,8 +138,13 @@ export class FactoryRunner {
               phaseId: phase.id,
               title: gate.title,
               description: gate.description,
-              options: ['approve', 'reject', 'waive', 'cancel'],
-              recommendation: gate.failClosed ? 'reject' : 'approve',
+              kind: gate.kind,
+              options: gate.kind === 'policy'
+                ? ['reject', 'cancel']
+                : gate.failClosed === true
+                  ? ['approve', 'reject', 'cancel']
+                  : ['approve', 'reject', 'waive', 'cancel'],
+              recommendation: gate.kind === 'policy' || gate.failClosed ? 'reject' : 'approve',
             },
           });
           requestedGates.push({ gate, requestSequence: envelopeSequence(envelope) ?? this.eventSink.readEvents(runId).length });
@@ -339,24 +344,24 @@ function shouldDenyGates(plan: FactoryRunPlan, capabilities: Iterable<string>, g
 }
 
 function validateGateHistory(events: readonly FactoryEvent[], plan: FactoryRunPlan): string | null {
-  const declared = new Map<string, string>();
+  const declared = new Map<string, { readonly phaseId: string; readonly kind: string; readonly failClosed: boolean }>();
   for (const phase of plan.phases) {
     for (const gate of phase.gates) {
       if (declared.has(gate.id)) return `Factory gate id '${gate.id}' is declared in multiple phases`;
-      declared.set(gate.id, phase.id);
+      declared.set(gate.id, { phaseId: phase.id, kind: gate.kind, failClosed: gate.failClosed === true });
     }
   }
 
-  const requests = new Map<string, { readonly allowed: readonly string[]; readonly sequence: number; readonly count: number }>();
+  const requests = new Map<string, { readonly allowed: readonly string[]; readonly sequence: number; readonly count: number; readonly kind: string }>();
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index];
     const sequence = index + 1;
     if (event.type === 'gate_requested') {
-      const phaseId = declared.get(event.gate.id);
-      if (!phaseId || phaseId !== event.gate.phaseId) return `Factory gate request '${event.gate.id}' does not match the run plan`;
-      const allowed = allowedGateDecisions(event.gate.options);
+      const declaredGate = declared.get(event.gate.id);
+      if (!declaredGate || declaredGate.phaseId !== event.gate.phaseId || (event.gate.kind !== undefined && event.gate.kind !== declaredGate.kind)) return `Factory gate request '${event.gate.id}' does not match the run plan`;
+      const allowed = allowedGateDecisions(event.gate.options, declaredGate.kind, declaredGate.failClosed);
       if (typeof allowed === 'string') return allowed;
-      requests.set(event.gate.id, { allowed, sequence, count: (requests.get(event.gate.id)?.count ?? 0) + 1 });
+      requests.set(event.gate.id, { allowed, sequence, count: (requests.get(event.gate.id)?.count ?? 0) + 1, kind: declaredGate.kind });
     } else if (event.type === 'gate_decision') {
       if (!declared.has(event.decision.gateId)) return `Factory gate decision '${event.decision.gateId}' does not match the run plan`;
       const request = requests.get(event.decision.gateId);
@@ -366,7 +371,10 @@ function validateGateHistory(events: readonly FactoryEvent[], plan: FactoryRunPl
       if (!isGateDecisionValue(event.decision.decision)) {
         return `Invalid persisted factory gate decision '${event.decision.decision}' for gate '${event.decision.gateId}'`;
       }
-      if (!request.allowed.includes(event.decision.decision)) {
+      const policyApproval = request.kind === 'policy'
+        && event.decision.decision === 'approve'
+        && (event.decision.decidedBy === 'policy' || event.decision.decidedBy === 'adapter');
+      if (!policyApproval && !request.allowed.includes(event.decision.decision)) {
         return `Persisted factory gate decision '${event.decision.decision}' is not allowed for gate '${event.decision.gateId}'`;
       }
     }
@@ -374,10 +382,12 @@ function validateGateHistory(events: readonly FactoryEvent[], plan: FactoryRunPl
   return null;
 }
 
-function allowedGateDecisions(options: readonly string[] | undefined): readonly string[] | string {
-  if (!options || options.length === 0) return ['approve', 'reject', 'waive', 'cancel'];
+function allowedGateDecisions(options: readonly string[] | undefined, gateKind: string, failClosed: boolean): readonly string[] | string {
+  if (gateKind === 'policy') return ['reject', 'cancel'];
+  if (!options || options.length === 0) return failClosed ? ['approve', 'reject', 'cancel'] : ['approve', 'reject', 'waive', 'cancel'];
   for (const option of options) {
     if (!isGateDecisionValue(option)) return `Invalid persisted factory gate option '${option}'`;
+    if (failClosed && option === 'waive') return `Invalid persisted factory gate option '${option}'`;
   }
   return [...new Set(options)];
 }

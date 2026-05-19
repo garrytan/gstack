@@ -182,6 +182,7 @@ export interface GateRequest {
   phaseId: string;
   title: string;
   description: string;
+  kind?: GateSpec['kind'];
   options?: string[];
   recommendation?: string;
 }
@@ -386,6 +387,7 @@ function detectPlanRisks(input: {
   const risks: RiskFinding[] = [];
   const writePhases = input.phases.filter(phase => phase.requiredCapabilities.includes('filesystem') || phase.requiredCapabilities.includes('git'));
   const browserPhases = input.phases.filter(phase => phase.requiredCapabilities.includes('browser'));
+  const networkPhases = input.phases.filter(phase => phase.requiredCapabilities.includes('ci') || phase.requiredCapabilities.includes('pull-request'));
   const isolatedWorktreePhases = input.phases.filter(phase => phase.concurrency === 'isolated-worktree');
 
   if (writePhases.length > 0 && !input.policy.allowWrites) {
@@ -403,6 +405,15 @@ function detectPlanRisks(input: {
       severity: 'warning',
       message: 'The selected workflow includes browser-capable phases but policy.allowBrowser is false.',
       recommendation: 'Enable the browser capability for QA workflows or choose a non-browser review path.',
+    });
+  }
+
+  if (networkPhases.length > 0 && !input.policy.allowNetwork) {
+    risks.push({
+      id: 'network-disabled',
+      severity: 'blocking',
+      message: 'The selected workflow includes external network capabilities but policy.allowNetwork is false.',
+      recommendation: 'Enable network access only after an explicit user decision or choose a non-network plan path.',
     });
   }
 

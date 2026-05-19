@@ -29,6 +29,20 @@ const ISOLATED_WORKFLOW: WorkflowSpec = {
   }],
 };
 
+const POLICY_GATED_WORKFLOW: WorkflowSpec = {
+  id: 'policy-gated',
+  title: 'Policy Gated',
+  description: 'Policy gate decisions are not user-approvable.',
+  phases: [{
+    id: 'deploy-readiness',
+    title: 'Deploy Readiness',
+    role: { id: 'policy', title: 'Policy' },
+    objective: 'Require policy readiness.',
+    gates: [{ id: 'deploy-readiness-confirmed', title: 'Deploy readiness confirmed', description: 'Policy must confirm readiness.', kind: 'policy', failClosed: true }],
+    outputs: [{ id: 'approval', kind: 'plan', description: 'Approval record.' }],
+  }],
+};
+
 const GATED_WORKFLOW: WorkflowSpec = {
   id: 'gated-review',
   title: 'Gated Review',
@@ -339,7 +353,7 @@ describe('FactoryRunner', () => {
       expect(paused.status).toBe('paused');
       expect(fakeRuntime.executed).toEqual([]);
       expect(paused.state.currentPhaseId).toBe('review');
-      expect(paused.state.pendingGates).toMatchObject([{ id: 'approve-review', phaseId: 'review' }]);
+      expect(paused.state.pendingGates).toMatchObject([{ id: 'approve-review', phaseId: 'review', options: ['approve', 'reject', 'cancel'] }]);
 
       const requestSequence = store.readEnvelopes('run-gated').find(envelope => envelope.event.type === 'gate_requested')!.sequence;
       store.append('run-gated', { type: 'gate_decision', runId: 'run-gated', decision: { gateId: 'approve-review', requestSequence, decision: 'approve', decidedBy: 'user' } });
@@ -466,6 +480,94 @@ describe('FactoryRunner', () => {
       const result = await runner.continueRun('run-stale-reopened-decision');
       expect(result.status).toBe('failed');
       expect(result.state.error?.message).toBe("Factory gate 'approve-review' request is stale");
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed on persisted waive decisions for fail-closed gates with omitted options', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review auth changes', mode: 'review' }, 'run-fail-closed-waive');
+      store.append('run-fail-closed-waive', { type: 'run_started', runId: 'run-fail-closed-waive', plan });
+      const request = store.append('run-fail-closed-waive', {
+        type: 'gate_requested',
+        runId: 'run-fail-closed-waive',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      store.append('run-fail-closed-waive', {
+        type: 'gate_decision',
+        runId: 'run-fail-closed-waive',
+        decision: { gateId: 'approve-review', requestSequence: request.sequence, decision: 'waive', decidedBy: 'user' },
+      });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-fail-closed-waive');
+      expect(result.status).toBe('failed');
+      expect(result.state.error?.message).toBe("Persisted factory gate decision 'waive' is not allowed for gate 'approve-review'");
+      expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('does not expose approve or waive options for policy gates', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({
+        workflows: [POLICY_GATED_WORKFLOW],
+        eventSink: store,
+        runtime: fakeRuntime,
+        makeRunId: () => 'run-policy-gate',
+      });
+
+      const result = await runner.run({ workflow: 'policy-gated', goal: 'Check deploy readiness', mode: 'review' });
+      expect(result.status).toBe('paused');
+      expect(result.state.pendingGates[0]).toMatchObject({
+        id: 'deploy-readiness-confirmed',
+        kind: 'policy',
+        options: ['reject', 'cancel'],
+        recommendation: 'reject',
+      });
+      expect(fakeRuntime.executed).toEqual([]);
+      const requestSequence = store.readEnvelopes('run-policy-gate').find(envelope => envelope.event.type === 'gate_requested')!.sequence;
+      store.append('run-policy-gate', {
+        type: 'gate_decision',
+        runId: 'run-policy-gate',
+        decision: { gateId: 'deploy-readiness-confirmed', requestSequence, decision: 'approve', decidedBy: 'policy' },
+      });
+      const approved = await runner.continueRun('run-policy-gate');
+      expect(approved.status).toBe('completed');
+      expect(fakeRuntime.executed).toEqual(['deploy-readiness']);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed on persisted policy gate approvals when options are omitted', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const plan = compileRunPlan(POLICY_GATED_WORKFLOW, { workflow: 'policy-gated', goal: 'Check deploy readiness', mode: 'review' }, 'run-policy-approve');
+      store.append('run-policy-approve', { type: 'run_started', runId: 'run-policy-approve', plan });
+      const request = store.append('run-policy-approve', {
+        type: 'gate_requested',
+        runId: 'run-policy-approve',
+        gate: { id: 'deploy-readiness-confirmed', phaseId: 'deploy-readiness', title: 'Deploy readiness confirmed', description: 'Policy must confirm readiness.', kind: 'policy', options: ['approve', 'reject', 'cancel'] },
+      });
+      store.append('run-policy-approve', {
+        type: 'gate_decision',
+        runId: 'run-policy-approve',
+        decision: { gateId: 'deploy-readiness-confirmed', requestSequence: request.sequence, decision: 'approve', decidedBy: 'user' },
+      });
+      const fakeRuntime = runtime(['questions']);
+      const runner = new FactoryRunner({ workflows: [POLICY_GATED_WORKFLOW], eventSink: store, runtime: fakeRuntime });
+
+      const result = await runner.continueRun('run-policy-approve');
+      expect(result.status).toBe('failed');
+      expect(result.state.error?.message).toBe("Persisted factory gate decision 'approve' is not allowed for gate 'deploy-readiness-confirmed'");
       expect(fakeRuntime.executed).toEqual([]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
