@@ -812,7 +812,24 @@ describe("sourceLocalPath", () => {
     rmSync(bindir, { recursive: true, force: true });
   });
 
-  it("returns local_path when the source exists", () => {
+  // gbrain v0.18.0+ returns {sources: [...]}; this is the live contract.
+  it("returns local_path when the source exists (gbrain v0.18.0+ wrapped shape)", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({
+          sources: [
+            { id: "other-source", local_path: "/x" },
+            { id: "target-id", local_path: "/repo/match" },
+          ],
+        }),
+      },
+    });
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
+  });
+
+  // Pre-v0.18.0 gbrain returned a raw array. Keep back-compat so the helper
+  // works regardless of which gbrain the user has on PATH.
+  it("returns local_path when the source exists (pre-v0.18.0 raw-array shape)", () => {
     makeShim(bindir, {
       "sources list --json": {
         stdout: JSON.stringify([
@@ -824,7 +841,14 @@ describe("sourceLocalPath", () => {
     expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
   });
 
-  it("returns null when the source is missing", () => {
+  it("returns null when the source is missing (wrapped shape)", () => {
+    makeShim(bindir, {
+      "sources list --json": { stdout: JSON.stringify({ sources: [] }) },
+    });
+    expect(sourceLocalPath("missing-id", envWithBindir(bindir))).toBeNull();
+  });
+
+  it("returns null when the source is missing (raw-array shape)", () => {
     makeShim(bindir, {
       "sources list --json": { stdout: "[]" },
     });
