@@ -31,7 +31,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 describe('hosts/index.ts', () => {
   test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {

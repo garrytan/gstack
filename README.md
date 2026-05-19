@@ -101,7 +101,7 @@ These are conversational skills. Your OpenClaw agent runs them directly via chat
 
 ### Other AI Agents
 
-gstack works on 10 AI coding agents, not just Claude. Setup auto-detects which
+gstack works on 11 AI coding agents, not just Claude. Setup auto-detects which
 agents you have installed:
 
 ```bash
@@ -120,6 +120,7 @@ Or target a specific agent with `./setup --host <name>`:
 | Slate | `--host slate` | `~/.slate/skills/gstack-*/` |
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
 | Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
+| GitHub Copilot | `--host copilot` | `~/.copilot/skills/gstack-*/` |
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
