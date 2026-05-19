@@ -3,9 +3,27 @@
 // .brain-privacy-map.json, and .gitattributes.
 
 import { describe, expect, test, beforeEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+
+// Build a fake bin directory that holds symlinks to every coreutil the
+// migration script invokes — but deliberately omits `jq`. Used by the
+// #1581 regression tests to simulate a host that hasn't installed jq.
+function makeNoJqBin(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mig-nojq-bin-'));
+  // Match the actual /usr/bin paths the migration script + bash need.
+  const utils = ['bash', 'sh', 'grep', 'sed', 'printf', 'touch', 'cat',
+    'rm', 'mv', 'mkdir', 'ls', 'dirname', 'basename', 'echo', 'env',
+    'command', 'date', 'awk', 'tr', 'find', 'tee', 'sort', 'head', 'tail'];
+  for (const util of utils) {
+    const src = `/usr/bin/${util}`;
+    if (existsSync(src)) {
+      try { symlinkSync(src, join(dir, util)); } catch { /* already there */ }
+    }
+  }
+  return dir;
+}
 
 const REPO_ROOT = new URL('..', import.meta.url).pathname;
 const MIGRATION = join(REPO_ROOT, 'gstack-upgrade', 'migrations', 'v1.38.1.0.sh');
@@ -328,6 +346,92 @@ describe('v1.40.0.0 migration', () => {
       expect(existsSync(join(home, '.gstack', '.migrations', 'v1.40.0.0.done'))).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // Regression for #1581: when jq is missing on the host, the privacy-map
+  // block is skipped. Previously the done-marker was written anyway, so the
+  // next /gstack-upgrade no-op'd and the privacy-map never landed. The
+  // marker must now stay unwritten so the next run retries.
+  test('#1581: jq missing leaves done-marker unwritten and patches the rest', () => {
+    const home = setupFakeHome();
+    const fakeBinDir = makeNoJqBin();
+    try {
+      writeFileSync(join(home, '.gstack', '.brain-allowlist'), 'existing-line\n');
+      writeFileSync(join(home, '.gstack', '.brain-privacy-map.json'), JSON.stringify([
+        { pattern: 'projects/*/*-design-*.md', class: 'artifact' },
+      ], null, 2));
+      writeFileSync(join(home, '.gstack', '.gitattributes'), 'projects/*/*-design-*.md merge=union\n');
+
+      // PATH points only at the no-jq bin dir (coreutils symlinks, no jq).
+      // Mirrors a Debian box that hasn't apt-installed jq yet.
+      const proc = Bun.spawnSync({
+        cmd: ['/bin/bash', MIGRATION_V1_40],
+        env: { HOME: home, PATH: fakeBinDir },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const r = {
+        code: proc.exitCode ?? -1,
+        stderr: new TextDecoder().decode(proc.stderr),
+      };
+      expect(r.code).toBe(0);
+
+      // Allowlist and gitattributes were patchable without jq — both updated.
+      expect(readFileSync(join(home, '.gstack', '.brain-allowlist'), 'utf-8'))
+        .toContain('projects/*/*-eng-review-test-plan-*.md');
+      expect(readFileSync(join(home, '.gstack', '.gitattributes'), 'utf-8'))
+        .toContain('projects/*/*-eng-review-test-plan-*.md merge=union');
+
+      // Privacy-map untouched (no jq) — the eng-review entry didn't land.
+      const privacy = JSON.parse(readFileSync(join(home, '.gstack', '.brain-privacy-map.json'), 'utf-8'));
+      expect(privacy.find((e: any) => e.pattern === 'projects/*/*-eng-review-test-plan-*.md')).toBeUndefined();
+
+      // Crucially: done-marker NOT written, so /gstack-upgrade retries on
+      // the next run once jq is installed.
+      expect(existsSync(join(home, '.gstack', '.migrations', 'v1.40.0.0.done'))).toBe(false);
+
+      // User gets an actionable WARN block, not a single buried line.
+      expect(r.stderr).toContain('ACTION REQUIRED');
+      expect(r.stderr).toContain('Install jq');
+      expect(r.stderr).toContain('done-marker NOT written');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(fakeBinDir, { recursive: true, force: true });
+    }
+  });
+
+  // Companion to the regression above — re-running after installing jq
+  // completes the migration: privacy-map patched, done-marker now written.
+  test('#1581: retry after jq install completes the migration', () => {
+    const home = setupFakeHome();
+    const fakeBinDir = makeNoJqBin();
+    try {
+      writeFileSync(join(home, '.gstack', '.brain-allowlist'), 'existing\n');
+      writeFileSync(join(home, '.gstack', '.brain-privacy-map.json'), JSON.stringify([
+        { pattern: 'projects/*/*-design-*.md', class: 'artifact' },
+      ], null, 2));
+      writeFileSync(join(home, '.gstack', '.gitattributes'), 'placeholder\n');
+
+      // Run 1: simulate jq missing.
+      Bun.spawnSync({
+        cmd: ['/bin/bash', MIGRATION_V1_40],
+        env: { HOME: home, PATH: fakeBinDir },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(existsSync(join(home, '.gstack', '.migrations', 'v1.40.0.0.done'))).toBe(false);
+
+      // Run 2: jq now available (real PATH). Should finish the job.
+      const r2 = runMigrationV140(home);
+      expect(r2.code).toBe(0);
+      expect(existsSync(join(home, '.gstack', '.migrations', 'v1.40.0.0.done'))).toBe(true);
+
+      const privacy = JSON.parse(readFileSync(join(home, '.gstack', '.brain-privacy-map.json'), 'utf-8'));
+      expect(privacy.find((e: any) => e.pattern === 'projects/*/*-eng-review-test-plan-*.md')?.class).toBe('artifact');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(fakeBinDir, { recursive: true, force: true });
     }
   });
 });

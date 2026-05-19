@@ -34,6 +34,13 @@ NEW_PATTERNS=(
 )
 
 added_any=0
+# Set to 1 if a required step had to be skipped (e.g. jq missing for the
+# privacy-map patch). We do NOT write the done-marker in that case — so the
+# next /gstack-upgrade run will retry against an environment with jq
+# installed. See #1581: previously the done-marker was written
+# unconditionally, which silently dropped the privacy-map repair on boxes
+# without jq and federation sync kept missing eng-review test plans.
+skipped_required=0
 
 # ----- .brain-allowlist ---------------------------------------------------
 if [ -f "${ALLOWLIST}" ]; then
@@ -62,12 +69,23 @@ if [ -f "${PRIVACY}" ]; then
           added_any=1
         else
           rm -f "${PRIVACY}.tmp"
+          skipped_required=1
           echo "  [v1.40.0.0] WARN: jq failed to patch ${PRIVACY}; skipping pattern ${PATTERN}." >&2
         fi
       fi
     done
   else
-    echo "  [v1.40.0.0] WARN: jq not found; skipping privacy-map repair. Install jq and re-run gstack-upgrade, or run gstack-artifacts-init manually." >&2
+    skipped_required=1
+    echo "" >&2
+    echo "  [v1.40.0.0] *** ACTION REQUIRED ***" >&2
+    echo "  [v1.40.0.0] jq not found; cannot patch .brain-privacy-map.json." >&2
+    echo "  [v1.40.0.0] Federation sync will keep dropping /plan-eng-review test plans" >&2
+    echo "  [v1.40.0.0] until this runs. Install jq and re-run /gstack-upgrade:" >&2
+    echo "  [v1.40.0.0]   - macOS:  brew install jq" >&2
+    echo "  [v1.40.0.0]   - Debian/Ubuntu: sudo apt install jq" >&2
+    echo "  [v1.40.0.0]   - Fedora: sudo dnf install jq" >&2
+    echo "  [v1.40.0.0] (Migration done-marker NOT written — next /gstack-upgrade retries.)" >&2
+    echo "" >&2
   fi
 fi
 
@@ -82,10 +100,18 @@ if [ -f "${GITATTRS}" ]; then
   done
 fi
 
-# Mark done even if no patches needed — a fresh-init user's
+# Mark done only when nothing was skipped. A fresh-init user's
 # bin/gstack-artifacts-init now writes the pattern directly, so re-runs
-# should no-op. The touchfile keeps the migration runner from looping.
-touch "${DONE}"
+# should no-op and the marker gets written immediately. The touchfile keeps
+# the migration runner from looping on healthy installs.
+#
+# When skipped_required=1 (e.g. jq missing) we deliberately leave the
+# done-marker unwritten so the next /gstack-upgrade run retries the
+# privacy-map patch. The other files were patched on this pass and their
+# "already present" gates make re-running idempotent. See #1581.
+if [ "${skipped_required}" = "0" ]; then
+  touch "${DONE}"
+fi
 
 if [ "${added_any}" = "1" ]; then
   echo "  [v1.40.0.0] allowlist/privacy-map/gitattributes patched for /plan-eng-review test plans (idempotent)" >&2
