@@ -236,6 +236,14 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
+    // Support custom Chromium binary via GSTACK_CHROMIUM_PATH (same as launchHeaded).
+    // Falls back to standard Playwright Chromium when unset or path does not exist.
+    const headlessCloakPath = process.env.GSTACK_CHROMIUM_PATH;
+    const headlessCloakExec = headlessCloakPath && require('fs').existsSync(headlessCloakPath)
+      ? headlessCloakPath
+      : undefined;
+    if (headlessCloakExec) console.log(`[browse] Using custom Chromium: ${headlessCloakExec}`);
+
     this.browser = await chromium.launch({
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
@@ -244,6 +252,7 @@ export class BrowserManager {
       chromiumSandbox: process.platform !== 'win32',
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+      ...(headlessCloakExec ? { executablePath: headlessCloakExec } : {}),
     });
 
     // Chromium crash → exit with clear message
