@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import piGstack from '../.pi/extensions/pi-gstack/index';
 import { compileRunPlan, type WorkflowSpec } from '../lib/factory-core';
 import { FileFactoryEventStore } from '../lib/factory-event-store';
-import { FACTORY_REVIEW_WORKFLOW } from '../lib/factory-review-workflow';
+import { FACTORY_REVIEW_WORKFLOW, FACTORY_WORKFLOWS } from '../lib/factory-review-workflow';
 import { factoryRunsRoot } from '../lib/pi-runtime-adapter';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -130,6 +130,13 @@ function capturedArtifact(projectRoot: string, runId: string, idPrefix: string):
   return { id, metadata, content: readFileSync(path.join(artifactsDir, `${id}.md`), 'utf-8') };
 }
 
+function capturedArtifactCount(projectRoot: string, runId: string, idPrefix: string): number {
+  const artifactsDir = path.join(factoryRunsRoot(projectRoot), runId, 'artifacts');
+  return readdirSync(artifactsDir)
+    .filter(entry => entry.startsWith(idPrefix) && entry.endsWith('.json'))
+    .length;
+}
+
 function reviewEntryAfterDispatch(metadata: Record<string, unknown>, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const dispatchedAt = String(metadata.dispatchedAt);
   return {
@@ -214,7 +221,9 @@ describe('Pi gstack extension wiring', () => {
         expect(notifications.at(-1)?.message).toContain('Artifacts:');
         expect(notifications.at(-1)?.message).toContain('Pending external review:');
         expect(notifications.at(-1)?.message).toContain(`- factoryRunId: ${runId}`);
+        expect(notifications.at(-1)?.message).toContain('Status is inspect-only; use an explicit recovery/completion command to mutate this run.');
         expect(notifications.at(-1)?.message).toContain('Recovery hint:');
+        expect(notifications.at(-1)?.message).toContain(`Summary next action: /factory-recover-review ${runId}`);
 
         await commands.get('factory-list')!.handler('', {
           cwd: tempDir,
@@ -222,6 +231,7 @@ describe('Pi gstack extension wiring', () => {
         });
         expect(notifications.at(-1)?.message).toContain('Factory runs:');
         expect(notifications.at(-1)?.message).toContain(`${runId}: workflow=review (Structured Review), status=paused, current=diff-review`);
+        expect(notifications.at(-1)?.message).toContain(`next=/factory-recover-review ${runId} or /factory-complete-review ${runId} <summary>`);
 
         await commands.get('factory-complete-review')!.handler(`${runId} no blocking findings`, {
           cwd: tempDir,
@@ -291,7 +301,10 @@ describe('Pi gstack extension wiring', () => {
       expect(notifications.at(-1)?.message).toContain('Status: paused');
       expect(notifications.at(-1)?.message).toContain('Current phase: qa-execution');
       expect(notifications.at(-1)?.message).toContain('Pending external QA:');
+      expect(notifications.at(-1)?.message).toContain('- mode: audit-only; /factory-qa does not edit repository files or apply fixes.');
+      expect(notifications.at(-1)?.message).toContain('Status is inspect-only; use /factory-complete-qa to attach a manual QA summary.');
       expect(notifications.at(-1)?.message).toContain(`Next action: /factory-complete-qa ${runId} <summary>`);
+      expect(notifications.at(-1)?.message).toContain(`Summary next action: /factory-complete-qa ${runId} <summary>`);
 
       await commands.get('factory-complete-qa')!.handler(`${runId} no browser regressions`, {
         cwd: tempDir,
@@ -303,6 +316,112 @@ describe('Pi gstack extension wiring', () => {
       const state = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) }).readState(runId);
       expect(state.status).toBe('completed');
       expect(state.completedPhaseIds).toEqual(['qa-intake', 'qa-execution', 'qa-summary']);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('factory-status distinguishes persisted QA fix runs from audit-only QA', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-fix-status-'));
+
+    try {
+      git(tempDir, ['init']);
+      const qaFixWorkflow = FACTORY_WORKFLOWS.find(workflow => workflow.id === 'qa-fix')!;
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const plan = compileRunPlan(qaFixWorkflow, {
+        workflow: 'qa-fix',
+        goal: 'QA and fix http://localhost:8200',
+        cwd: tempDir,
+        mode: 'review',
+        policy: { allowBrowser: true, allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
+      }, 'run-qa-fix-status');
+      store.append('run-qa-fix-status', { type: 'run_started', runId: 'run-qa-fix-status', plan });
+      store.append('run-qa-fix-status', { type: 'phase_started', runId: 'run-qa-fix-status', phaseId: 'qa-execution' });
+      store.append('run-qa-fix-status', {
+        type: 'artifact_created',
+        runId: 'run-qa-fix-status',
+        artifact: {
+          id: 'qa-execution-dispatch',
+          kind: 'qa-report',
+          phaseId: 'qa-execution',
+          summary: 'Queued QA fix',
+          metadata: { factoryRunId: 'run-qa-fix-status', pendingExternalQa: true, pendingExternalWork: true, queuedSkillCommand: '/skill:gstack-qa QA and fix http://localhost:8200', dispatchedAt: '2026-01-01T00:00:00.000Z' },
+        },
+      });
+
+      await commands.get('factory-status')!.handler('run-qa-fix-status', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+
+      expect(notifications.at(-1)?.message).toContain('Workflow: qa-fix (Structured QA Fix)');
+      expect(notifications.at(-1)?.message).toContain('- mode: QA fix; safe local writes were approved for this run.');
+      expect(notifications.at(-1)?.message).not.toContain('audit-only; /factory-qa does not edit repository files');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to complete QA runs that have not reached pending capture', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-interrupted-'));
+
+    try {
+      git(tempDir, ['init']);
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const plan = compileRunPlan(FACTORY_WORKFLOWS.find(workflow => workflow.id === 'qa')!, {
+        workflow: 'qa',
+        goal: 'QA http://localhost:8200',
+        cwd: tempDir,
+        mode: 'review',
+        policy: { allowBrowser: true, allowWrites: false },
+      }, 'run-qa-interrupted');
+      store.append('run-qa-interrupted', { type: 'run_started', runId: 'run-qa-interrupted', plan });
+      store.append('run-qa-interrupted', { type: 'phase_started', runId: 'run-qa-interrupted', phaseId: 'qa-execution' });
+
+      await commands.get('factory-complete-qa')!.handler('run-qa-interrupted no regressions', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+
+      expect(notifications.at(-1)).toEqual({
+        message: 'Factory run run-qa-interrupted is not waiting for qa-execution output.',
+        level: 'warning',
+      });
+      expect(store.readState('run-qa-interrupted').status).toBe('running');
+      expect(store.readState('run-qa-interrupted').completedPhaseIds).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses duplicate manual QA completion after the first capture commits', async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-duplicate-'));
+
+    try {
+      initCommittedRepo(tempDir);
+      const { notifications, commands } = registerPiGstack();
+      const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+      await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+      const runId = notifications.at(-1)!.message.match(/Factory QA audit running: ([^ ]+)/)![1];
+
+      await commands.get('factory-complete-qa')!.handler(`${runId} first QA capture`, ctx);
+      expect(notifications.at(-1)?.message).toContain(`Factory QA completed: ${runId}`);
+      const firstCapture = capturedArtifact(tempDir, runId, 'qa-execution-captured-');
+      expect(firstCapture.content).toContain('first QA capture');
+
+      await commands.get('factory-complete-qa')!.handler(`${runId} stale second QA capture`, ctx);
+      expect(notifications.at(-1)).toEqual({
+        message: `Factory run ${runId} is not waiting for qa-execution output.`,
+        level: 'warning',
+      });
+      expect(capturedArtifact(tempDir, runId, 'qa-execution-captured-').id).toBe(firstCapture.id);
+      expect(capturedArtifact(tempDir, runId, 'qa-execution-captured-').content).toContain('first QA capture');
+      expect(capturedArtifact(tempDir, runId, 'qa-execution-captured-').content).not.toContain('stale second QA capture');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -377,6 +496,40 @@ describe('Pi gstack extension wiring', () => {
         expect(notifications.some(notification => notification.message === `Factory review auto-captured: ${runId} (4 artifact(s), status=completed).`)).toBe(true);
         expect(notifications.at(-1)?.message).toContain('Status: completed');
         expect(notifications.at(-1)?.message).toContain('diff-review-captured-');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('repeated factory-recover-review does not duplicate captured review artifacts or completions', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-recover-idempotent-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-review')!.handler('review current changes', ctx);
+        const runId = runIdFromLastNotification(notifications);
+        writeReviewLog(tempDir, gstackHome, [reviewEntryAfterDispatch(dispatchMetadata(tempDir, runId))]);
+
+        await commands.get('factory-recover-review')!.handler(runId, ctx);
+        expect(notifications.some(notification => notification.message === `Factory review auto-captured: ${runId} (4 artifact(s), status=completed).`)).toBe(true);
+        const firstCapture = capturedArtifact(tempDir, runId, 'diff-review-captured-');
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        const firstEventLog = readFileSync(path.join(factoryRunsRoot(tempDir), runId, 'events.jsonl'), 'utf-8');
+        expect(store.readState(runId).status).toBe('completed');
+        expect(capturedArtifactCount(tempDir, runId, 'diff-review-captured-')).toBe(1);
+
+        await commands.get('factory-recover-review')!.handler(runId, ctx);
+
+        expect(capturedArtifactCount(tempDir, runId, 'diff-review-captured-')).toBe(1);
+        expect(capturedArtifact(tempDir, runId, 'diff-review-captured-').id).toBe(firstCapture.id);
+        expect(readFileSync(path.join(factoryRunsRoot(tempDir), runId, 'events.jsonl'), 'utf-8')).toBe(firstEventLog);
+        expect(store.readState(runId).status).toBe('completed');
+        expect(notifications.at(-1)?.message).toContain('Status: completed');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -568,11 +721,16 @@ describe('Pi gstack extension wiring', () => {
     });
   });
 
-  test('gstack_browser prefers active project browse runtime', async () => {
+  test('gstack_browser prefers active project browse runtime when no trusted runtime is installed', async () => {
+    const oldHome = process.env.HOME;
+    const oldGstackBrowse = process.env.GSTACK_BROWSE;
     const { tools } = registerPiGstack();
     const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-project-browse-'));
+    const tempHome = mkdtempSync(path.join(tmpdir(), 'gstack-project-browse-home-'));
 
     try {
+      process.env.HOME = tempHome;
+      delete process.env.GSTACK_BROWSE;
       const browsePath = path.join(tempDir, '.pi', 'skills', 'gstack', 'browse', 'dist', 'browse');
       mkdirSync(path.dirname(browsePath), { recursive: true });
       writeFileSync(browsePath, '#!/usr/bin/env sh\necho "project browse:$1"\n');
@@ -583,7 +741,12 @@ describe('Pi gstack extension wiring', () => {
       expect((result as any).content[0].text).toBe('project browse:snapshot');
       expect((result as any).details.browseBinary).toBe(browsePath);
     } finally {
+      if (oldHome === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHome;
+      if (oldGstackBrowse === undefined) delete process.env.GSTACK_BROWSE;
+      else process.env.GSTACK_BROWSE = oldGstackBrowse;
       rmSync(tempDir, { recursive: true, force: true });
+      rmSync(tempHome, { recursive: true, force: true });
     }
   });
 
@@ -607,6 +770,11 @@ describe('Pi gstack extension wiring', () => {
         runId: 'run-untrusted-path',
         artifact: { id: 'untrusted', kind: 'review', phaseId: 'review-intake', summary: 'Untrusted path artifact', path: '/tmp/untrusted-event-path' },
       });
+      store.append('run-untrusted-path', {
+        type: 'artifact_created',
+        runId: 'run-untrusted-path',
+        artifact: { id: 'untrusted-uri', kind: 'review', phaseId: 'review-intake', summary: 'Untrusted URI artifact', uri: 'https://attacker.example/artifact' },
+      });
 
       await commands.get('factory-status')!.handler('run-untrusted-path', {
         cwd: tempDir,
@@ -614,7 +782,115 @@ describe('Pi gstack extension wiring', () => {
       });
       expect(notifications.at(-1)?.message).toContain('Factory run run-untrusted-path');
       expect(notifications.at(-1)?.message).toContain('- untrusted: (no path) — Untrusted path artifact');
+      expect(notifications.at(-1)?.message).toContain('- untrusted-uri: (no path) — Untrusted URI artifact');
       expect(notifications.at(-1)?.message).not.toContain('/tmp/untrusted-event-path');
+      expect(notifications.at(-1)?.message).not.toContain('https://attacker.example/artifact');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('factory-status labels ship workflow output as readiness-only', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-ship-status-'));
+
+    try {
+      git(tempDir, ['init']);
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const shipWorkflow = FACTORY_WORKFLOWS.find(workflow => workflow.id === 'ship')!;
+      const plan = compileRunPlan(shipWorkflow, {
+        workflow: 'ship',
+        goal: 'Verify release readiness',
+        cwd: tempDir,
+        mode: 'ship',
+        policy: { allowNetwork: true },
+      }, 'run-ship-status');
+      store.append('run-ship-status', { type: 'run_started', runId: 'run-ship-status', plan });
+
+      await commands.get('factory-status')!.handler('run-ship-status', {
+        cwd: tempDir,
+        ui: notifyInto(notifications),
+      });
+
+      expect(notifications.at(-1)?.message).toContain('Workflow: ship (Structured Ship Readiness)');
+      expect(notifications.at(-1)?.message).toContain('Ship readiness note: this workflow verifies readiness only; it does not tag, publish, push, or deploy.');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('factory-decide can reject ship-readiness gates without interactive question capability', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-ship-reject-'));
+
+    try {
+      git(tempDir, ['init']);
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const shipWorkflow = FACTORY_WORKFLOWS.find(workflow => workflow.id === 'ship')!;
+      const plan = compileRunPlan(shipWorkflow, {
+        workflow: 'ship',
+        goal: 'Verify release readiness',
+        cwd: tempDir,
+        mode: 'ship',
+        policy: { allowNetwork: true },
+      }, 'run-ship-reject-pi');
+      store.append('run-ship-reject-pi', { type: 'run_started', runId: 'run-ship-reject-pi', plan });
+      const request = store.append('run-ship-reject-pi', {
+        type: 'gate_requested',
+        runId: 'run-ship-reject-pi',
+        gate: { id: 'review-status-clean', phaseId: 'ship-readiness', title: 'Review status clean', description: 'Confirm review state.', options: ['approve', 'reject', 'cancel'], recommendation: 'reject' },
+      });
+
+      await commands.get('factory-decide')!.handler(`run-ship-reject-pi review-status-clean ${request.sequence} reject not ready`, {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: notifyInto(notifications),
+      });
+
+      expect(notifications.at(-1)?.message).toContain('Factory gate reject: review-status-clean. Run run-ship-reject-pi status=cancelled.');
+      expect(store.readState('run-ship-reject-pi').status).toBe('cancelled');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('factory-decide refuses ship-readiness approval until a ship-capable runtime exists', async () => {
+    const notifications: Notification[] = [];
+    const { commands } = registerPiGstack();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-ship-approve-'));
+
+    try {
+      git(tempDir, ['init']);
+      const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+      const shipWorkflow = FACTORY_WORKFLOWS.find(workflow => workflow.id === 'ship')!;
+      const plan = compileRunPlan(shipWorkflow, {
+        workflow: 'ship',
+        goal: 'Verify release readiness',
+        cwd: tempDir,
+        mode: 'ship',
+        policy: { allowNetwork: true },
+      }, 'run-ship-approve-pi');
+      store.append('run-ship-approve-pi', { type: 'run_started', runId: 'run-ship-approve-pi', plan });
+      const request = store.append('run-ship-approve-pi', {
+        type: 'gate_requested',
+        runId: 'run-ship-approve-pi',
+        gate: { id: 'review-status-clean', phaseId: 'ship-readiness', title: 'Review status clean', description: 'Confirm review state.', options: ['approve', 'reject', 'cancel'], recommendation: 'reject' },
+      });
+
+      await commands.get('factory-decide')!.handler(`run-ship-approve-pi review-status-clean ${request.sequence} approve looks ready`, {
+        cwd: tempDir,
+        isIdle: () => false,
+        ui: notifyInto(notifications),
+      });
+
+      expect(notifications.at(-1)).toEqual({
+        message: 'Factory run run-ship-approve-pi uses ship readiness; approving ship gates requires a ship-capable runtime, which this Pi adapter does not expose yet.',
+        level: 'warning',
+      });
+      expect(store.readState('run-ship-approve-pi').status).toBe('running');
+      expect(store.readState('run-ship-approve-pi').pendingGates.map(gate => gate.id)).toEqual(['review-status-clean']);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -654,9 +930,11 @@ describe('Pi gstack extension wiring', () => {
         cwd: tempDir,
         ui: notifyInto(notifications),
       });
+      expect(notifications.at(-1)?.message).toContain('Pending gates are listed first. Use the shown requestSequence; stale decisions are rejected.');
       expect(notifications.at(-1)?.message).toContain('approve-review: status=pending');
       expect(notifications.at(-1)?.message).toContain('requestSequence=2');
       expect(notifications.at(-1)?.message).toContain('allowed=approve|cancel');
+      expect(notifications.at(-1)?.message).toContain('next=/factory-decide run-gated-pi approve-review 2 <approve|cancel> [reason]');
 
       await commands.get('factory-decide')!.handler('run-gated-pi approve-review 2 approve looks safe', {
         cwd: tempDir,
@@ -702,6 +980,39 @@ describe('Pi gstack extension wiring', () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  test('refuses duplicate manual review completion after the first capture commits', async () => {
+    await withTempGstackEnv(async () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-review-duplicate-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-review')!.handler('review current changes', ctx);
+        const runId = runIdFromLastNotification(notifications);
+
+        await commands.get('factory-complete-review')!.handler(`${runId} first manual review`, ctx);
+        expect(notifications.at(-1)).toEqual({ message: `Factory review completed: ${runId} (4 artifact(s)).`, level: 'info' });
+        const firstCapture = capturedArtifact(tempDir, runId, 'diff-review-captured-');
+        expect(firstCapture.content).toContain('first manual review');
+
+        await commands.get('factory-complete-review')!.handler(`${runId} stale second manual review`, ctx);
+
+        expect(notifications.at(-1)).toEqual({
+          message: `Factory run ${runId} is not waiting for diff-review output.`,
+          level: 'warning',
+        });
+        expect(capturedArtifactCount(tempDir, runId, 'diff-review-captured-')).toBe(1);
+        expect(capturedArtifact(tempDir, runId, 'diff-review-captured-').id).toBe(firstCapture.id);
+        expect(capturedArtifact(tempDir, runId, 'diff-review-captured-').content).toContain('first manual review');
+        expect(capturedArtifact(tempDir, runId, 'diff-review-captured-').content).not.toContain('stale second manual review');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   test('refuses manual fallback when dispatch metadata does not match the run', async () => {

@@ -43,6 +43,19 @@ const POLICY_GATED_WORKFLOW: WorkflowSpec = {
   }],
 };
 
+const QA_PENDING_WORKFLOW: WorkflowSpec = {
+  id: 'qa-pending',
+  title: 'QA Pending',
+  description: 'Non-review pending artifact fallback.',
+  phases: [{
+    id: 'qa-execution',
+    title: 'QA Execution',
+    role: { id: 'qa', title: 'QA' },
+    objective: 'Run QA.',
+    outputs: [{ id: 'qa-report', kind: 'qa-report', description: 'QA report.' }],
+  }],
+};
+
 const GATED_WORKFLOW: WorkflowSpec = {
   id: 'gated-review',
   title: 'Gated Review',
@@ -251,6 +264,35 @@ describe('FactoryRunner', () => {
       expect(result.state.completedPhaseIds).toEqual(['review-intake']);
       expect(result.state.artifacts.map(artifact => artifact.id)).toContain('diff-review-dispatch');
       expect(store.readEvents('run-pending').map(event => event.type)).not.toContain('run_completed');
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('uses the phase expected artifact kind for non-review pending fallback artifacts', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const fakeRuntime: FactoryRuntimeCapabilities = {
+        availableCapabilities: [],
+        executePhase() {
+          return { summary: 'QA still running.', status: 'pending' };
+        },
+      };
+      const runner = new FactoryRunner({
+        workflows: [QA_PENDING_WORKFLOW],
+        eventSink: store,
+        runtime: fakeRuntime,
+        makeRunId: () => 'run-qa-pending-fallback',
+      });
+
+      const result = await runner.run({ workflow: 'qa-pending', goal: 'QA fallback kind', mode: 'review' });
+      expect(result.status).toBe('running');
+      expect(result.state.artifacts).toMatchObject([{
+        id: 'qa-execution-pending',
+        kind: 'qa-report',
+        phaseId: 'qa-execution',
+        summary: 'QA still running.',
+      }]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
@@ -654,6 +696,39 @@ describe('FactoryRunner', () => {
       expect(result.status).toBe('failed');
       expect(result.state.error?.message).toBe("Factory gate 'approve-review' has a decision without a request");
       expect(fakeRuntime.executed).toEqual([]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('uses the phase expected artifact kind for non-review continue-after-error fallback artifacts', async () => {
+    const { rootDir, store } = tempStore();
+    try {
+      const fakeRuntime: FactoryRuntimeCapabilities = {
+        availableCapabilities: [],
+        executePhase() {
+          throw new Error('QA failed');
+        },
+        onPhaseError({ phase, error }) {
+          return { action: 'continue', summary: `${phase.id} continued after ${(error as Error).message}` };
+        },
+      };
+      const runner = new FactoryRunner({
+        workflows: [QA_PENDING_WORKFLOW],
+        eventSink: store,
+        runtime: fakeRuntime,
+        makeRunId: () => 'run-qa-error-fallback',
+      });
+
+      const result = await runner.run({ workflow: 'qa-pending', goal: 'QA error fallback kind', mode: 'review' });
+      expect(result.status).toBe('completed');
+      expect(result.state.artifacts).toMatchObject([{
+        id: 'qa-execution-continued-after-error',
+        kind: 'qa-report',
+        phaseId: 'qa-execution',
+        summary: 'qa-execution continued after QA failed',
+        metadata: { continuedAfterError: true },
+      }]);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

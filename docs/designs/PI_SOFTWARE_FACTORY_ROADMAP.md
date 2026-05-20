@@ -1,10 +1,8 @@
 # Pi Software Factory Roadmap
 
-Status: living roadmap after structured factory review auto-capture.
+Status: living roadmap after factory facade, gates, QA, scheduling, ship-readiness, safety hardening, command UX polish, and web-app planning docs.
 
-This document is the chunk roadmap for future agents working on the Pi software
-factory. Read this after `PI_SOFTWARE_FACTORY_ARCHITECTURE.md` and
-`PI_FACTORY_REVIEW_WORKFLOW.md` before planning new factory work.
+This document is the chunk roadmap for future agents working on the Pi software factory. Read this after `PI_SOFTWARE_FACTORY_ARCHITECTURE.md` and `PI_FACTORY_REVIEW_WORKFLOW.md` before planning new factory work.
 
 ## Guardrails for every chunk
 
@@ -16,9 +14,9 @@ factory. Read this after `PI_SOFTWARE_FACTORY_ARCHITECTURE.md` and
   - Actions: Pi messages, shell/git, filesystem, browser, UI, package install, CI/PRs.
 - Use exact `git add` paths. Never `git add .`.
 - Do not commit generated `.pi/skills/` unless a future explicit distribution plan says otherwise.
-- Do not touch unrelated dirty files. As of this roadmap creation, `CLAUDE.md` and `package-lock.json` may be dirty for unrelated reasons.
+- Do not touch unrelated dirty files. At the time of this update, `CLAUDE.md` and `package-lock.json` may be dirty for unrelated reasons.
 - Ask before dependency/package/distribution changes.
-- Run focused tests for the chunk and the Pi/factory compatibility checks before committing.
+- Run focused tests for the chunk and Pi/factory compatibility checks before committing.
 - Use reviewer subagent for meaningful non-trivial implementation chunks, especially adapter/runtime changes.
 
 ## Current implemented baseline
@@ -32,25 +30,53 @@ The following pieces are already present:
   - generated skill aliases: `/office-hours`, `/autoplan`, `/review`, `/qa`, `/ship`;
   - `ask_user_question` custom tool;
   - `gstack_browser` custom tool;
-  - `/factory-review`, `/factory-status`, `/factory-complete-review`.
-- Pure factory core contracts/calculations in `lib/factory-core.ts`.
+  - `/factory-review`;
+  - `/factory-qa` audit/no-fix mode;
+  - `/factory-complete-review`;
+  - `/factory-complete-qa`;
+  - `/factory-recover-review`;
+  - `/factory-status` inspect-only status;
+  - `/factory-list`;
+  - `/factory-gates`;
+  - `/factory-decide <run-id> <gate-id> <request-sequence> <approve|reject|waive|cancel> [reason]`.
+- Pure factory core contracts/calculations in `lib/factory-core.ts`, including:
+  - policy merge;
+  - capability risk detection;
+  - browser-disabled blocking;
+  - command safety profiles;
+  - event reduction;
+  - workflow/phase/gate/artifact contracts.
 - Orchestrator/runner/runtime capability contracts:
-  - `lib/factory-orchestrator.ts`
-  - `lib/factory-runner.ts`
-  - `lib/factory-capabilities.ts`
+  - `lib/factory-orchestrator.ts`;
+  - `lib/factory-runner.ts`;
+  - `lib/factory-capabilities.ts`.
+- Public runtime facade in `lib/factory.ts`:
+  - `planFactoryRun()`;
+  - `createFactoryFacade()`;
+  - run/continue/status/list/artifact/gate/decision DTOs.
 - Durable event and artifact stores:
-  - `lib/factory-event-store.ts`
-  - `lib/factory-artifact-store.ts`
-- First workflow spec:
-  - `lib/factory-review-workflow.ts`
+  - `lib/factory-event-store.ts`;
+  - `lib/factory-artifact-store.ts`.
+- Workflow specs:
+  - `lib/factory-review-workflow.ts`;
+  - `lib/factory-qa-workflow.ts`;
+  - `lib/factory-ship-workflow.ts`.
 - Review artifact auto-capture helpers:
-  - `lib/factory-review-capture.ts`
+  - `lib/factory-review-capture.ts`.
+- Scheduler calculations:
+  - `lib/factory-scheduler.ts`.
+- Web-app planning artifacts:
+  - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_UX_BRIEF.md`;
+  - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_IMPLEMENTATION_PLAN.md`;
+  - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_P0_PROTOTYPE_PACKAGE.md`.
+- Factory hardening/review artifacts:
+  - `docs/designs/PI_FACTORY_TEST_COVERAGE_GAP_PASS.md`;
+  - `docs/designs/PI_FACTORY_PUBLIC_API_REVIEW.md`;
+  - `docs/designs/PI_FACTORY_COMMAND_UX_POLISH.md`.
 
 ## Completed Chunk A — automatic review artifact capture
 
-Goal: make `/factory-review <goal>` complete from the durable generated
-`/skill:gstack-review` review log instead of requiring manual
-`/factory-complete-review`, while preserving manual fallback.
+Goal: make `/factory-review <goal>` complete from the durable generated `/skill:gstack-review` review log instead of requiring manual `/factory-complete-review`, while preserving manual fallback.
 
 Implemented behavior:
 
@@ -60,10 +86,12 @@ Implemented behavior:
   - dispatched-at timestamp;
   - commit short SHA.
 - The queued `/skill:gstack-review` request includes a `factory_run_id` correlation instruction.
+- Generated review logs are expected to include top-level `factory_run_id` when present in the prompt.
 - On Pi `agent_end`, the extension attempts auto-capture for pending factory review runs.
-- `/factory-recover-review <run-id>` explicitly attempts recovery for the requested run; `/factory-status <run-id>` is inspection-only.
+- `/factory-recover-review <run-id>` explicitly attempts recovery for the requested run.
+- `/factory-status <run-id>` is inspection-only and does not auto-capture.
 - Capture source is the durable gstack review log:
-  - `$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl`
+  - `$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl`;
   - `$GSTACK_HOME` defaults to `$HOME/.gstack`.
 - Capture selection fails closed unless exactly one log entry matches:
   - `skill === "review"`;
@@ -71,270 +99,258 @@ Implemented behavior:
   - timestamp after dispatch;
   - matching commit;
   - matching `factory_run_id`.
-- Successful capture writes a review artifact, appends `phase_completed` for
-  `diff-review`, resumes the runner through `review-summary`, and records
-  `run_completed`.
-- Missing log, malformed log, missing correlation, missing commit, or ambiguous
-  matches leave the run pending.
-- `/factory-complete-review` remains a safe fallback and still requires pending
-  `diff-review` state.
+- Successful capture writes a review artifact, appends `phase_completed` for `diff-review`, resumes the runner through `review-summary`, and records `run_completed`.
+- Missing log, malformed log, missing correlation, missing commit, or ambiguous matches leave the run pending.
+- `/factory-complete-review` remains a safe fallback and still requires pending `diff-review` state.
+- Duplicate manual review completion and repeated recovery are covered by idempotency tests.
 
-Important follow-up from Chunk A:
-
-- The `factory_run_id` correlation is currently injected into the queued review
-  prompt. Chunk B should formalize this in the generated review skill's durable
-  log contract so it is not only an ad hoc prompt addendum.
-
-## Chunk B — harden structured factory review recovery and UX
-
-Recommended next chunk.
+## Completed Chunk B — harden structured factory review recovery and UX
 
 Goal: make the first factory workflow operationally robust and easy to inspect.
 
-Scope:
+Implemented behavior:
 
-1. Formalize factory correlation in the generated review-log contract.
-   - Update `review/SKILL.md.tmpl` so Step 5.8 says: if the input prompt includes
-     `factory_run_id`, include that exact value as a top-level `factory_run_id`
-     field in the `gstack-review-log` JSON.
-   - Add/adjust generation tests so this contract stays present in generated
-     review skills, including Pi output.
-   - Keep `bin/gstack-review-log` generic unless a concrete need appears.
+- Durable review correlation uses `factory_run_id`.
+- Multiple pending runs can be recovered independently when a matching correlated log exists.
+- Targeted `/factory-recover-review <run-id>` can recover one run while other runs remain pending.
+- `/factory-status <run-id>` is inspect-only.
+- `/factory-list` lists durable runs with workflow, status, phase, progress, artifacts, gates, and next action.
+- `/factory-status <run-id>` shows useful durable state:
+  - workflow;
+  - mode;
+  - goal;
+  - status;
+  - current phase;
+  - progress;
+  - completed phases;
+  - artifact ids and safe paths;
+  - pending external review/QA metadata;
+  - last updated time;
+  - recovery and next-action hints.
+- Manual fallback artifacts include provenance metadata.
+- Manual fallback and recovery paths use validated appends/idempotent pending-state checks.
 
-2. Improve multi-pending auto-capture now that `factory_run_id` exists.
-   - `agent_end` should be able to scan all pending factory review runs and
-     independently capture each run that has exactly one matching correlated log.
-   - Multiple pending runs should not block a specifically correlated match.
-   - `/factory-recover-review <run-id>` should recover that target run even when other
-     runs are pending.
-   - Still fail closed per run on no match, multiple matches, missing commit,
-     missing dispatchedAt, or missing `factory_run_id`.
+## Completed Chunk C — public factory runtime facade
 
-3. Improve status/list/artifact UX.
-   - Add `/factory-list` or equivalent if desired.
-   - Expand `/factory-status <run-id>` to show useful durable state:
-     - status;
-     - current phase;
-     - completed phases;
-     - artifact ids and paths;
-     - pending external review metadata;
-     - last updated time if available;
-     - ambiguity/no-match recovery hints.
+Goal: make the factory reusable by Pi and external SDK consumers without each caller manually wiring runner, stores, workflow lists, and adapters.
 
-4. Add provenance metadata to manual fallback artifacts.
-   - For `/factory-complete-review`, include metadata such as:
-     - `capturedFrom: "manual-fallback"`;
-     - dispatch commit;
-     - dispatchedAt;
-     - queuedSkillCommand;
-     - factoryRunId.
-   - Keep the existing requirement that the run is pending `diff-review` before
-     fallback completion.
+Implemented behavior:
 
-5. Tests to add/update.
-   - Generated review skill/template includes optional `factory_run_id` logging rule.
-   - Multiple pending runs with distinct correlated log entries capture the correct run(s).
-   - `/factory-recover-review <run-id>` can recover a target run while other runs remain pending.
-   - Missing/wrong `factory_run_id` leaves a run pending.
-   - Manual fallback artifact includes provenance metadata and still works after
-     an auto-capture ambiguity/no-match.
-   - Existing Chunk A fail-closed cases remain green.
+- `lib/factory.ts` exposes:
+  - `planFactoryRun(...)` for pure planning;
+  - `createFactoryFacade(...)`;
+  - `runFactoryWorkflow(...)`;
+  - `continueFactoryRun(...)`;
+  - `readFactoryRunStatus(...)`;
+  - `listFactoryRuns(...)`;
+  - `readFactoryArtifact(...)`;
+  - `listFactoryGates(...)`;
+  - `decideFactoryGate(...)`.
+- Public DTOs exist for run operations, status, list items, artifacts, gates, and gate decisions.
+- Pure planning remains separate from action-backed store/runtime helpers.
+- Facade tests cover external-app-style planning, start, inspect, list, continue, artifact reads, gate lists, and gate decisions.
+- Public API review is captured in `docs/designs/PI_FACTORY_PUBLIC_API_REVIEW.md`.
 
-Suggested validation:
+Important current API boundary:
 
-```bash
-bun test test/factory-review-capture.test.ts test/pi-extension.test.ts test/pi-runtime-adapter.test.ts test/factory-runner.test.ts test/factory-artifact-store.test.ts test/factory-event-store.test.ts test/factory-core.test.ts
-bun run gen:skill-docs --host pi --dry-run
-bun test test/pi-compatibility.test.ts test/gen-skill-docs.test.ts test/host-config.test.ts
-bun -e "await import('./.pi/extensions/pi-gstack/index.ts'); console.log('pi extension import ok')"
-```
+- The facade is **run-scoped**.
+- Future web/project APIs should wrap it with workspace/project DTOs rather than changing the pure run contracts prematurely.
 
-Suggested commit message:
+## Completed Chunk D — gate and resume semantics
 
-```text
-Harden factory review recovery
-```
+Goal: turn `GateSpec`, `GateRequest`, and `GateDecision` into executable workflow behavior.
 
-## Chunk C — add a public factory runtime facade
+Implemented behavior:
 
-Goal: make the factory reusable by Pi and external SDK consumers without each
-caller manually wiring runner, stores, workflow lists, and adapters.
+- Runner emits gate requests for phases requiring decisions.
+- Runs pause when fail-closed or human gates are pending.
+- Runs resume after accepted decisions are recorded.
+- Rejected/cancelled gates cancel safely.
+- Policy gates do not expose user approve/waive decisions.
+- Missing questions capability fails closed where required.
+- Gate request sequence is authoritative:
+  - `/factory-gates <run-id>` displays the current request sequence;
+  - `/factory-decide <run-id> <gate-id> <request-sequence> <approve|reject|waive|cancel> [reason]` requires it;
+  - stale decisions are rejected.
+- Reopened gates are treated as new pending gates rather than reusing stale decisions.
+- Legacy single-request decisions without `requestSequence` remain grandfathered for old persisted runs.
 
-Scope:
+## Completed Chunk E — structured QA workflow
 
-1. Add a public facade module, likely `lib/factory.ts`.
-2. Expose high-level APIs such as:
-   - `planFactoryRun(...)` for pure planning;
-   - `runFactoryWorkflow(...)` for runtime-backed execution;
-   - `continueFactoryRun(...)`;
-   - `readFactoryRunStatus(...)`;
-   - `listFactoryRuns(...)`;
-   - `readFactoryArtifact(...)`.
-3. Keep pure planning functions separate from action-backed store/runtime helpers.
-4. Define stable DTOs for status/list/artifact reads so callers do not need to
-   parse event internals.
-5. Refactor the Pi extension to use the facade where it reduces duplication.
-6. Preserve low-level classes for tests and advanced callers.
+Goal: add a second factory workflow after review, exercising browser/test capabilities without taking on release risk.
 
-Tests:
+Implemented behavior:
 
-- External-app-style usage can plan, start, inspect, and continue a review run.
-- Facade APIs preserve current Pi extension behavior.
-- Core purity remains intact.
+- `FACTORY_QA_WORKFLOW` represents audit/no-fix QA.
+- `FACTORY_QA_FIX_WORKFLOW` represents explicit write-capable QA-fix.
+- `FACTORY_WORKFLOWS` includes `review`, `qa`, `qa-fix`, and `ship`.
+- `/factory-qa <goal-or-url>` starts an audit/no-fix QA run and dispatches `/skill:gstack-qa-only`.
+- `/factory-complete-qa <run-id> <summary>` manually captures QA output for the first slice.
+- QA status surfaces pending external QA and `/factory-complete-qa` next action.
+- Browser-required QA blocks when browser policy/capability is missing.
+- QA-fix requires:
+  - explicit writes;
+  - `commandSafetyProfile: 'non-destructive-write'`;
+  - filesystem/git/test-runner/safe-command-guard capabilities.
+- Pi intentionally does **not** expose `/factory-qa-fix` until a real safe command guard can be attested by the adapter.
 
-Suggested commit message:
+Remaining QA work:
 
-```text
-Add factory runtime facade
-```
+- Add correlated durable QA log capture if/when the generated QA skill writes a machine-readable durable record.
+- Implement a real safe-command guard before exposing write-capable QA fix in Pi.
 
-## Chunk D — add gate and resume semantics
+## Completed Chunk F — subagent, parallel, and worktree scheduling policy
 
-Goal: turn `GateSpec`, `GateRequest`, and `GateDecision` from mostly data
-contracts into executable workflow behavior.
+Goal: make factory concurrency semantics real at the calculation/policy layer.
 
-Scope:
+Implemented behavior:
 
-1. Teach runner/runtime to emit gate requests for phases that require decisions.
-2. Pause runs when a fail-closed or human gate is pending.
-3. Add resume behavior after a gate decision event is recorded.
-4. Add adapter hooks for asking/deciding gates.
-5. Add Pi command support for inspecting/responding to gates, for example:
-   - `/factory-gates <run-id>`;
-   - `/factory-decide <run-id> <gate-id> <request-sequence> <approve|reject|waive|cancel> [reason]`.
-   - `/factory-gates <run-id>` displays the current request sequence for each pending gate.
-6. Make cancellation/failure semantics explicit.
+- `lib/factory-scheduler.ts` plans schedule batches for:
+  - serial phases;
+  - contiguous parallel-readonly phases;
+  - isolated-worktree phases.
+- Scheduler capabilities are declared by concurrency mode.
+- `maxParallelWriteTimelines` clamps invalid values to one write timeline.
+- Isolated-worktree phases require ownership/integration metadata.
+- Runner preflight accounts for scheduler-required capabilities on resume.
 
-Tests:
+Remaining scheduling work:
 
-- Run pauses on gate request.
-- Run resumes after accepted decision.
-- Fail-closed/default-deny behavior works when no UI/decision is available.
-- State reduction remains deterministic.
+- Integrate scheduler dispatch with real Pi SDK sessions/subagents.
+- Add isolated worktree ownership/integration execution when write-capable parallelism is approved.
 
-Suggested commit message:
+## Completed Chunk G0 — structured ship-readiness workflow
 
-```text
-Add factory gate resume flow
-```
+Goal: model ship/release readiness gates without executing release or deployment actions.
 
-## Chunk E — add structured QA workflow
+Implemented behavior:
 
-Goal: add the second factory workflow after review, exercising browser/test
-capabilities without taking on full release risk.
+- `FACTORY_SHIP_WORKFLOW` is named **Structured Ship Readiness**.
+- Description explicitly says it does not execute release or deployment actions.
+- Plan-only mode includes only intake and summary.
+- Ship mode models gates for:
+  - `review-status-clean`;
+  - `tests-passing`;
+  - `version-bump-ready`;
+  - `changelog-ready`;
+  - `ci-green`;
+  - `pr-ready`;
+  - `release-approved`;
+  - `deploy-readiness-confirmed`.
+- Workflow requires readiness capabilities such as artifact store, test runner, CI, PR, and questions.
+- Workflow does not require filesystem/git/release-action capability in G0.
+- Runner lifecycle tests drive ship-readiness gates through pause/resume/completion and cancellation without release execution.
+- Pi command output labels ship workflow status as readiness-only and says it does not tag, publish, push, or deploy.
 
-Scope:
+Remaining ship work:
 
-1. Add `FACTORY_QA_WORKFLOW` and include it in `FACTORY_WORKFLOWS`.
-2. Add opt-in `/factory-qa <goal-or-url>` command for audit/no-fix QA.
-3. Reuse existing generated `/skill:gstack-qa-only` methodology for default audit dispatch, and reserve `/skill:gstack-qa` for explicit write-capable QA-fix runs.
-4. Decide whether QA completion can use a durable log, transcript artifact, or
-   manual fallback for the first slice.
-5. Integrate `gstack_browser` where appropriate, but keep browser actions in adapters.
-6. Persist QA artifacts under the same event/artifact store model.
+- Add a public `/factory-ship` command only if the desired CLI contract is approved.
+- Add a future G1 release-action workflow separately if actual tag/publish/push/deploy execution is desired.
 
-Tests:
+## Completed hardening pass — capability honesty and command UX
 
-- QA workflow plan compiles with required capabilities.
-- `/factory-qa` starts and records pending external QA work.
-- Status/list/artifact inspection works for QA runs.
-- Browser capability absence blocks according to policy when browser phases are selected.
+Implemented safety behavior:
 
-Suggested commit message:
+- Browser-disabled policy is blocking for browser-required phases.
+- Write-capable phases require explicit writes and a non-read-only safety profile.
+- `qa-fix` disallows `release-action` at workflow/plan level.
+- Event-store reads fail closed on missing manifests, malformed logs, and uncommitted tails.
+- `appendValidated()` validates pending state under the event-store lock for manual captures and gate decisions.
+- Terminal gate decisions (`reject`/`cancel`) cancel before attempting runtime resume, so denials remain possible in headless contexts.
+- Runner fallback artifacts derive their kind from the current phase expected output instead of assuming `review`.
+- Pi status/list/gates output is more actionable and safety-honest:
+  - status is inspect-only;
+  - status suppresses untrusted event-provided artifact paths/URIs;
+  - pending QA says audit-only/no edits, while persisted `qa-fix` runs are labeled as safe-local-write runs;
+  - gates show current `requestSequence` and exact `/factory-decide` syntax;
+  - ship status says readiness-only/no deploy;
+  - ship approval decisions are rejected in Pi until a ship-capable runtime exists, while reject/cancel remains available.
 
-```text
-Add structured factory QA workflow
-```
+Related docs:
 
-## Chunk F — define subagent, parallel, and worktree scheduling
+- `docs/designs/PI_FACTORY_TEST_COVERAGE_GAP_PASS.md`
+- `docs/designs/PI_FACTORY_PUBLIC_API_REVIEW.md`
+- `docs/designs/PI_FACTORY_COMMAND_UX_POLISH.md`
 
-Goal: make factory concurrency semantics real instead of only data labels.
+## Web-app planning track — waiting for designer feedback
 
-Scope:
+The web-app planning track is documented but implementation should not start until designer feedback is incorporated and a web stack/location is approved.
 
-1. Define a scheduler abstraction for:
-   - serial phases;
-   - parallel-readonly phases;
-   - isolated-worktree phases.
-2. Enforce `maxParallelWriteTimelines`.
-3. Add ownership/integration metadata for isolated worktrees.
-4. Integrate with Pi SDK sessions or configured Pi subagent extension.
-5. Keep destructive/write actions behind explicit policy and user gates.
+Current web planning artifacts:
 
-Tests:
+- `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_UX_BRIEF.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_IMPLEMENTATION_PLAN.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_P0_PROTOTYPE_PACKAGE.md`
 
-- Readonly phases can fan out and join deterministically.
-- Write-capable phases do not run concurrently in one worktree.
-- Worktree-required phases fail closed without worktree capability.
-- Event order remains reconstructable.
+Current web defaults:
 
-Suggested commit message:
+- P0 is a mocked cockpit prototype.
+- No production web app implementation yet.
+- No dependencies or package manifests should change without approval.
+- Project/workspace concepts should wrap run-scoped factory DTOs.
+- QA audit and QA fix remain separate.
+- Ship readiness is not deployment.
 
-```text
-Add factory scheduling policy
-```
+## Current recommended next chunks
 
-## Chunk G — add structured ship/release workflow
+### Next Chunk 1 — binary/URI artifact strategy
 
-Goal: port the highest-value action-heavy workflow only after gates, facade,
-artifacts, and scheduling are strong enough.
+Goal: decide how browser evidence, screenshots, traces, and external URLs should be exposed through the factory facade and future web/API layers.
 
-Scope:
+Questions:
 
-1. Add `FACTORY_SHIP_WORKFLOW`.
-2. Model release gates for:
-   - tests;
-   - version bump;
-   - changelog;
-   - review status;
-   - CI;
-   - PR creation/update;
-   - deploy/release readiness.
-3. Add or adapt capabilities for:
-   - git write operations;
-   - test runner;
-   - CI;
-   - pull request;
-   - package/release checks.
-4. Preserve existing `/ship` generated skill behavior until the factory workflow
-   is proven.
-5. Start opt-in, likely `/factory-ship`.
+- Should binary/URI evidence remain artifact metadata only?
+- Should `readFactoryArtifact()` remain text-only?
+- Should there be a separate artifact-content API for binary/URI evidence?
+- How should artifact provenance and content type be represented without weakening `lib/factory-core.ts` purity?
 
-Tests:
+Suggested deliverable:
 
-- Plan-only mode shows expected gates/capabilities.
-- Missing write/CI/PR capabilities blocks safely.
-- Gate decisions resume correctly.
-- No production/external action runs in tests without explicit fakes.
+- `docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md`
+- Optional focused tests if a contract change is approved.
 
-Suggested commit message:
+### Next Chunk 2 — safe command guard design
 
-```text
-Add structured factory ship workflow
-```
+Goal: design and implement a real guard for non-destructive write automation before exposing write-capable QA fix in Pi.
 
-## Later work — Pi distribution/package path
+Requirements:
 
-This can happen alongside or after Chunks C-E depending on priorities.
+- Block destructive shell/git patterns by enforcement, not prompt prose.
+- Cover at minimum:
+  - `rm -rf`;
+  - `git reset --hard`;
+  - `git clean`;
+  - force pushes/tags;
+  - publish/deploy commands;
+  - credential/env dumping.
+- Decide where enforcement lives:
+  - Pi tool guard;
+  - runtime wrapper;
+  - command adapter;
+  - future SDK capability.
+- Add negative regression tests proving denial happens at runtime/tool boundary.
+
+### Next Chunk 3 — project/web wrapper API design
+
+Goal: design project/workspace DTOs around the run-scoped facade when web implementation is approved.
+
+Do this only after designer feedback and stack/location approval.
+
+### Next Chunk 4 — Pi distribution/package path
+
+Goal: design how gstack's Pi extension and generated skills are packaged for non-dev users.
 
 Open questions:
 
-- How should gstack's Pi extension be packaged for non-dev users?
 - Should generated `.pi/skills/` be built during package installation?
-- What migration/upgrade path should existing Pi installs use?
 - How should extension and generated skills be versioned together?
-
-Possible deliverables:
-
-- Package/install design doc.
-- Setup migration tests.
-- Pi package smoke test.
-- Release checklist updates.
+- What migration/upgrade path should existing Pi installs use?
 
 ## Quick orientation for future agents
 
-If asked to continue “the next chunk,” default to Chunk B unless a later chunk is
-explicitly requested or already completed. Before coding, inspect:
+If asked to continue non-design factory work, default to the current recommended next chunks above, not old Chunk B/C/D/E/F/G text.
+
+Before coding, inspect:
 
 - `docs/designs/PI_SOFTWARE_FACTORY_ARCHITECTURE.md`
 - `docs/designs/PI_FACTORY_REVIEW_WORKFLOW.md`

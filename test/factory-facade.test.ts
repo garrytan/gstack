@@ -139,6 +139,155 @@ describe('factory facade', () => {
     }
   });
 
+  test('returns stable public DTO shapes for completed run list, status, and artifact reads', async () => {
+    const rootDir = tempRoot();
+    try {
+      const facade = createFactoryFacade({
+        runsRoot: rootDir,
+        workflows: [FACTORY_REVIEW_WORKFLOW],
+        runtime: runtime(['agent-session', 'artifact-store', 'git'], rootDir),
+        makeRunId: () => 'run-dto-completed',
+      });
+
+      const result = await facade.runFactoryWorkflow({
+        workflow: 'review',
+        goal: 'Review DTO shape',
+        cwd: '/repo',
+        mode: 'review',
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
+      });
+      const status = await facade.readFactoryRunStatus('run-dto-completed');
+      expect(Object.keys(status).sort()).toEqual([
+        'artifacts',
+        'completedPhaseIds',
+        'createdAt',
+        'currentPhase',
+        'error',
+        'gates',
+        'goal',
+        'mode',
+        'pause',
+        'progress',
+        'resultSummary',
+        'risks',
+        'runId',
+        'status',
+        'updatedAt',
+        'workflowId',
+        'workflowTitle',
+      ].sort());
+      expect(status).toMatchObject({
+        runId: 'run-dto-completed',
+        workflowId: 'review',
+        workflowTitle: 'Structured Review',
+        mode: 'review',
+        goal: 'Review DTO shape',
+        status: 'completed',
+        progress: { completed: 3, total: 3 },
+        completedPhaseIds: ['review-intake', 'diff-review', 'review-summary'],
+        gates: [],
+        risks: [],
+      });
+      expect(result.run.updatedAt).toBe(status.updatedAt);
+
+      const listItem = (await facade.listFactoryRuns())[0];
+      expect(Object.keys(listItem).sort()).toEqual([
+        'artifactCount',
+        'currentPhaseId',
+        'goal',
+        'mode',
+        'pendingGateCount',
+        'runId',
+        'status',
+        'updatedAt',
+        'workflowId',
+      ].sort());
+      expect(listItem).toMatchObject({
+        runId: 'run-dto-completed',
+        workflowId: 'review',
+        mode: 'review',
+        goal: 'Review DTO shape',
+        status: 'completed',
+        artifactCount: 3,
+        pendingGateCount: 0,
+        currentPhaseId: undefined,
+      });
+
+      const artifact = await facade.readFactoryArtifact('run-dto-completed', 'diff-review-artifact');
+      expect(Object.keys(artifact).sort()).toEqual(['artifact', 'content', 'createdAt', 'runId'].sort());
+      expect(artifact.runId).toBe('run-dto-completed');
+      expect(artifact.artifact).toMatchObject({
+        id: 'diff-review-artifact',
+        kind: 'review',
+        phaseId: 'diff-review',
+        summary: 'diff-review artifact',
+      });
+      expect(artifact.artifact.path).toEndWith('diff-review-artifact.md');
+      expect(artifact.content).toBe('diff-review complete');
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns stable public DTO shape for paused gated runs', async () => {
+    const rootDir = tempRoot();
+    try {
+      const store = new FileFactoryEventStore({ rootDir });
+      const plan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Review gated DTO', mode: 'review' }, 'run-dto-gated');
+      store.append('run-dto-gated', { type: 'run_started', runId: 'run-dto-gated', plan });
+      const request = store.append('run-dto-gated', {
+        type: 'gate_requested',
+        runId: 'run-dto-gated',
+        gate: {
+          id: 'approve-review',
+          phaseId: 'review',
+          title: 'Approve review',
+          description: 'Approve running review.',
+          options: ['approve', 'cancel'],
+          recommendation: 'approve',
+        },
+      });
+      const facade = createFactoryFacade({ runsRoot: rootDir, workflows: [GATED_WORKFLOW] });
+
+      const status = await facade.readFactoryRunStatus('run-dto-gated');
+      expect(status.status).toBe('paused');
+      expect(status.pause).toEqual({ kind: 'gate', phaseId: 'review', gateIds: ['approve-review'] });
+      expect(status.progress).toEqual({ completed: 0, total: 1 });
+      expect(status.gates).toHaveLength(1);
+      expect(Object.keys(status.gates[0]).sort()).toEqual([
+        'allowedDecisions',
+        'decision',
+        'description',
+        'failClosed',
+        'id',
+        'kind',
+        'phaseId',
+        'recommendation',
+        'requestSequence',
+        'status',
+        'title',
+      ].sort());
+      expect(status.gates[0]).toEqual({
+        id: 'approve-review',
+        phaseId: 'review',
+        title: 'Approve review',
+        description: 'Approve running review.',
+        kind: 'human-decision',
+        failClosed: true,
+        status: 'pending',
+        requestSequence: request.sequence,
+        allowedDecisions: ['approve', 'cancel'],
+        recommendation: 'approve',
+        decision: undefined,
+      });
+
+      const [gate] = await facade.listFactoryGates('run-dto-gated');
+      expect(gate).toEqual(status.gates[0]);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   test('reports pending external work as a paused run and omits untrusted event paths', async () => {
     const rootDir = tempRoot();
     try {
@@ -376,6 +525,49 @@ describe('factory facade', () => {
       await expect(facade.listFactoryGates('run-unknown-gate')).rejects.toThrow(
         "Factory gate request 'missing-gate' does not match the run plan",
       );
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('terminal gate decisions cancel even when runtime cannot resume the gated phase', async () => {
+    const rootDir = tempRoot();
+    try {
+      const questionsGatedWorkflow: WorkflowSpec = {
+        id: 'questions-gated',
+        title: 'Questions Gated',
+        description: 'Gate cancellation should not require runtime resume capabilities.',
+        phases: [{
+          id: 'review',
+          title: 'Review',
+          role: { id: 'reviewer', title: 'Reviewer' },
+          objective: 'Review after approval.',
+          requiredCapabilities: ['questions'],
+          gates: [{ id: 'approve-review', title: 'Approve review', description: 'Approve running review.', kind: 'human-decision', failClosed: true }],
+          outputs: [{ id: 'review', kind: 'review', description: 'Review output.' }],
+        }],
+      };
+      const store = new FileFactoryEventStore({ rootDir });
+      const plan = compileRunPlan(questionsGatedWorkflow, { workflow: 'questions-gated', goal: 'Review gated cancellation', mode: 'review' }, 'run-terminal-without-questions');
+      store.append('run-terminal-without-questions', { type: 'run_started', runId: 'run-terminal-without-questions', plan });
+      const request = store.append('run-terminal-without-questions', {
+        type: 'gate_requested',
+        runId: 'run-terminal-without-questions',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.', options: ['approve', 'reject', 'cancel'], recommendation: 'reject' },
+      });
+      const facade = createFactoryFacade({ runsRoot: rootDir, workflows: [questionsGatedWorkflow], runtime: runtime([]) });
+
+      const cancelled = await facade.decideFactoryGate({
+        runId: 'run-terminal-without-questions',
+        gateId: 'approve-review',
+        requestSequence: request.sequence,
+        decision: 'reject',
+        reason: 'Do not run this phase.',
+      });
+
+      expect(cancelled.status).toBe('cancelled');
+      expect(cancelled.resultSummary).toContain("cancelled by gate 'approve-review' decision 'reject'");
+      expect((await facade.readFactoryRunStatus('run-terminal-without-questions')).status).toBe('cancelled');
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

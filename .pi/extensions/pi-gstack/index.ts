@@ -466,6 +466,12 @@ export default function piGstack(pi: any) {
           ctx.ui.notify(`Factory run ${normalized.runId} not found in this project.`, 'warning');
           return;
         }
+        const readOnlyFacade = createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS });
+        const beforeDecision = await readOnlyFacade.readFactoryRunStatus(normalized.runId);
+        if (beforeDecision.workflowId === 'ship' && (normalized.decision === 'approve' || normalized.decision === 'waive')) {
+          ctx.ui.notify(`Factory run ${normalized.runId} uses ship readiness; approving ship gates requires a ship-capable runtime, which this Pi adapter does not expose yet.`, 'warning');
+          return;
+        }
         const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
         const facade = createFactoryFacade({
           runsRoot,
@@ -888,13 +894,24 @@ function formatFactoryState(
 ): string {
   const lines = [
     `Factory run ${status.runId}`,
+    `Workflow: ${status.workflowId} (${status.workflowTitle})`,
+    `Mode: ${status.mode}`,
+    `Goal: ${status.goal}`,
     `Status: ${status.status}`,
     `Current phase: ${status.currentPhase?.id ?? 'none'}`,
+    `Progress: ${status.progress.completed}/${status.progress.total} phase(s) complete`,
     `Completed phases: ${status.completedPhaseIds.length > 0 ? status.completedPhaseIds.join(', ') : 'none'}`,
     `Last updated: ${status.updatedAt ?? 'unknown'}`,
+  ];
+
+  if (status.workflowId === 'ship') {
+    lines.push('Ship readiness note: this workflow verifies readiness only; it does not tag, publish, push, or deploy.');
+  }
+
+  lines.push(
     'Artifacts:',
     ...formatFactoryArtifacts(status.artifacts),
-  ];
+  );
 
   const dispatch = pendingReviewDispatchFromStatus(status);
   if (dispatch) {
@@ -904,6 +921,7 @@ function formatFactoryState(
       `- dispatch commit: ${dispatch.commit ?? 'missing'}`,
       `- dispatchedAt: ${dispatch.dispatchedAt ?? 'missing'}`,
       `- queuedSkillCommand: ${dispatch.queuedSkillCommand ?? 'missing'}`,
+      'Status is inspect-only; use an explicit recovery/completion command to mutate this run.',
       `Next action: /factory-recover-review ${status.runId} after the generated review logs Step 5.8 output, or /factory-complete-review ${status.runId} <summary> as fallback`,
       `Recovery hint: ${recoveryHint(recovery)}`,
     );
@@ -913,8 +931,12 @@ function formatFactoryState(
   if (qaDispatch) {
     lines.push(
       'Pending external QA:',
+      qaDispatch.mode === 'fix'
+        ? '- mode: QA fix; safe local writes were approved for this run. Non-destructive checks only; no push, deploy, publish, force reset, git clean, or secret/env dumping.'
+        : '- mode: audit-only; /factory-qa does not edit repository files or apply fixes.',
       `- dispatchedAt: ${qaDispatch.dispatchedAt ?? 'missing'}`,
       `- queuedSkillCommand: ${qaDispatch.queuedSkillCommand ?? 'missing'}`,
+      'Status is inspect-only; use /factory-complete-qa to attach a manual QA summary.',
       `Next action: /factory-complete-qa ${status.runId} <summary>`,
     );
   }
@@ -928,6 +950,8 @@ function formatFactoryState(
     );
   }
 
+  const nextAction = nextActionForStatus(status);
+  if (nextAction) lines.push(`Summary next action: ${nextAction}`);
   if (status.error) lines.push(`Error: ${status.error.message}`);
   return lines.join('\n');
 }
@@ -939,12 +963,23 @@ function formatFactoryRunList(runs: readonly FactoryRunStatusDto[]): string {
       const phase = run.currentPhase?.id ?? 'none';
       const updated = run.updatedAt ?? 'unknown';
       const pendingGates = run.gates.filter(gate => gate.status === 'pending').length;
-      return `- ${run.runId}: workflow=${run.workflowId} (${run.workflowTitle}), status=${run.status}, current=${phase}, completed=${run.progress.completed}, gates=${pendingGates}, artifacts=${run.artifacts.length}, updated=${updated}`;
+      const nextAction = nextActionForStatus(run) ?? 'none';
+      const readinessNote = run.workflowId === 'ship' ? ', readiness-only=true' : '';
+      return `- ${run.runId}: workflow=${run.workflowId} (${run.workflowTitle}), status=${run.status}, current=${phase}, completed=${run.progress.completed}/${run.progress.total}, gates=${pendingGates}, artifacts=${run.artifacts.length}, next=${nextAction}, updated=${updated}${readinessNote}`;
     }),
   ].join('\n');
 }
 
-function pendingQaDispatchFromStatus(status: FactoryRunStatusDto): { readonly dispatchedAt?: string; readonly queuedSkillCommand?: string } | null {
+function nextActionForStatus(status: FactoryRunStatusDto): string | null {
+  const pendingGates = status.gates.filter(gate => gate.status === 'pending');
+  if (pendingGates.length > 0) return `/factory-gates ${status.runId}`;
+  if (pendingReviewDispatchFromStatus(status)) return `/factory-recover-review ${status.runId} or /factory-complete-review ${status.runId} <summary>`;
+  if (pendingQaDispatchFromStatus(status)) return `/factory-complete-qa ${status.runId} <summary>`;
+  if (status.status === 'failed') return 'inspect error and rerun only after fixing the cause';
+  return null;
+}
+
+function pendingQaDispatchFromStatus(status: FactoryRunStatusDto): { readonly mode: 'audit' | 'fix'; readonly dispatchedAt?: string; readonly queuedSkillCommand?: string } | null {
   if (status.status !== 'paused' && status.status !== 'running') return null;
   if (status.currentPhase?.id !== 'qa-execution') return null;
   const artifact = status.artifacts.find(candidate => candidate.phaseId === 'qa-execution' && candidate.metadata && (
@@ -954,6 +989,7 @@ function pendingQaDispatchFromStatus(status: FactoryRunStatusDto): { readonly di
   const metadataRunId = typeof artifact.metadata?.factoryRunId === 'string' ? artifact.metadata.factoryRunId : undefined;
   if (metadataRunId && metadataRunId !== status.runId) return null;
   return {
+    mode: status.workflowId === 'qa-fix' ? 'fix' : 'audit',
     dispatchedAt: typeof artifact.metadata?.dispatchedAt === 'string' ? artifact.metadata.dispatchedAt : undefined,
     queuedSkillCommand: typeof artifact.metadata?.queuedSkillCommand === 'string' ? artifact.metadata.queuedSkillCommand : undefined,
   };
@@ -979,12 +1015,17 @@ function pendingReviewDispatchFromStatus(status: FactoryRunStatusDto): PendingRe
 
 function formatFactoryGates(runId: string, gates: readonly FactoryGateInfoDto[]): string {
   if (gates.length === 0) return `Factory run ${runId} has no gates.`;
+  const sortedGates = [...gates].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'));
   return [
     `Factory gates for ${runId}:`,
-    ...gates.map((gate) => [
+    'Pending gates are listed first. Use the shown requestSequence; stale decisions are rejected.',
+    ...sortedGates.map((gate) => [
       `- ${gate.id}: status=${gate.status}, phase=${gate.phaseId}, requestSequence=${gate.requestSequence ?? 'none'}`,
       `  allowed=${gate.allowedDecisions.join('|')}`,
       gate.recommendation ? `  recommendation=${gate.recommendation}` : undefined,
+      gate.status === 'pending' && gate.requestSequence !== undefined
+        ? `  next=/factory-decide ${runId} ${gate.id} ${gate.requestSequence} <${gate.allowedDecisions.join('|')}> [reason]`
+        : undefined,
       gate.decision ? `  decision=${gate.decision.value} by ${gate.decision.decidedBy}${gate.decision.reason ? ` (${gate.decision.reason})` : ''}` : undefined,
     ].filter(Boolean).join('\n')),
   ].join('\n');
@@ -993,7 +1034,7 @@ function formatFactoryGates(runId: string, gates: readonly FactoryGateInfoDto[])
 function formatFactoryArtifacts(artifacts: readonly FactoryArtifactSummaryDto[]): string[] {
   if (artifacts.length === 0) return ['- none'];
   return artifacts.map((artifact) => {
-    const location = artifact.path ?? artifact.uri ?? '(no path)';
+    const location = artifact.path ?? '(no path)';
     return `- ${artifact.id}: ${location} — ${artifact.summary}`;
   });
 }

@@ -196,7 +196,7 @@ export class FactoryRunner {
           this.eventSink.append(runId, { type: 'risk_detected', runId, risk });
         }
         if (result.status === 'pending') {
-          for (const artifact of pendingArtifactsForPhase(phase.id, result.artifacts || [], result.summary)) {
+          for (const artifact of pendingArtifactsForPhase(phase, result.artifacts || [], result.summary)) {
             this.eventSink.append(runId, { type: 'artifact_created', runId, artifact });
           }
           return {
@@ -225,7 +225,7 @@ export class FactoryRunner {
             type: 'phase_completed',
             runId,
             phaseId: phase.id,
-            artifacts: [...(decision.artifacts || [phaseErrorArtifact(phase.id, decision.summary)])],
+            artifacts: [...(decision.artifacts || [phaseErrorArtifact(phase, decision.summary)])],
           });
           continue;
         }
@@ -429,17 +429,17 @@ function hasPendingArtifactForPhase(state: FactoryRunState, phaseId: string): bo
   ));
 }
 
-function pendingArtifactsForPhase(phaseId: string, artifacts: readonly ArtifactRef[], summary: string): ArtifactRef[] {
+function pendingArtifactsForPhase(phase: FactoryRunPlan['phases'][number], artifacts: readonly ArtifactRef[], summary: string): ArtifactRef[] {
   const pending = artifacts.length > 0 ? artifacts : [{
-    id: `${phaseId}-pending`,
-    kind: 'review' as const,
-    phaseId,
+    id: `${phase.id}-pending`,
+    kind: phase.expectedArtifacts[0]?.kind ?? 'review' as const,
+    phaseId: phase.id,
     summary,
   }];
 
   return pending.map(artifact => ({
     ...artifact,
-    phaseId: artifact.phaseId ?? phaseId,
+    phaseId: artifact.phaseId ?? phase.id,
     metadata: {
       ...(artifact.metadata || {}),
       pendingExternalWork: true,
@@ -463,11 +463,11 @@ function canonicalize(value: unknown): unknown {
   }, {});
 }
 
-function phaseErrorArtifact(phaseId: string, summary: string): ArtifactRef {
+function phaseErrorArtifact(phase: FactoryRunPlan['phases'][number], summary: string): ArtifactRef {
   return {
-    id: `${phaseId}-continued-after-error`,
-    kind: 'review',
-    phaseId,
+    id: `${phase.id}-continued-after-error`,
+    kind: phase.expectedArtifacts[0]?.kind ?? 'review',
+    phaseId: phase.id,
     summary,
     metadata: { continuedAfterError: true },
   };

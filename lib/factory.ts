@@ -253,10 +253,6 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
           throw new Error(`Factory gate '${input.gateId}' does not allow decision '${input.decision}'`);
         }
       });
-      if (options.runtime) {
-        const result = await runner().continueRun(input.runId);
-        return operationResult(result, eventStore, artifactStore, workflows).run;
-      }
       if (input.decision === 'reject' || input.decision === 'cancel') {
         const current = readStatus(eventStore, artifactStore, workflows, input.runId);
         eventStore.append(input.runId, {
@@ -276,6 +272,11 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
             })),
           },
         });
+        return readStatus(eventStore, artifactStore, workflows, input.runId);
+      }
+      if (options.runtime) {
+        const result = await runner().continueRun(input.runId);
+        return operationResult(result, eventStore, artifactStore, workflows).run;
       }
       return readStatus(eventStore, artifactStore, workflows, input.runId);
     },
