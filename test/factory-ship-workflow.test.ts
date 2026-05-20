@@ -12,6 +12,8 @@ describe('FACTORY_SHIP_WORKFLOW', () => {
       mode: 'plan-only',
     }, 'run-ship-plan');
 
+    expect(FACTORY_SHIP_WORKFLOW.title).toBe('Structured Ship Readiness');
+    expect(FACTORY_SHIP_WORKFLOW.description).toContain('without executing release or deployment actions');
     expect(plan.workflow).toBe('ship');
     expect(plan.mode).toBe('plan-only');
     expect(plan.policy).toMatchObject({
@@ -50,6 +52,6 @@ describe('FACTORY_SHIP_WORKFLOW', () => {
   });
 
   test('is registered in the public factory workflow list', () => {
-    expect(FACTORY_WORKFLOWS.map(workflow => workflow.id)).toEqual(['review', 'qa', 'ship']);
+    expect(FACTORY_WORKFLOWS.map(workflow => workflow.id)).toEqual(['review', 'qa', 'qa-fix', 'ship']);
   });
 });

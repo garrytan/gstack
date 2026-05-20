@@ -23,7 +23,7 @@ describe('factory scheduler calculations', () => {
       workflow: 'scheduled-build',
       goal: 'Schedule work',
       mode: 'build',
-      policy: { allowWrites: true, maxParallelWriteTimelines: 2 },
+      policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write', maxParallelWriteTimelines: 2 },
     }, 'run-scheduled');
 
     const batches = planFactoryScheduleBatches(plan);
@@ -34,6 +34,20 @@ describe('factory scheduler calculations', () => {
       { concurrency: 'isolated-worktree', phases: ['write-a', 'write-b'] },
       { concurrency: 'isolated-worktree', phases: ['write-c'] },
     ]);
+  });
+
+  test('clamps invalid parallel write widths to one isolated worktree phase per batch', () => {
+    for (const maxParallelWriteTimelines of [0, -2]) {
+      const plan = compileRunPlan(workflow, {
+        workflow: 'scheduled-build',
+        goal: 'Schedule work',
+        mode: 'build',
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write', maxParallelWriteTimelines },
+      }, `run-scheduled-${maxParallelWriteTimelines}`);
+
+      const writeBatches = planFactoryScheduleBatches(plan).filter(batch => batch.concurrency === 'isolated-worktree');
+      expect(writeBatches.map(batch => batch.phases.map(phase => phase.id))).toEqual([['write-a'], ['write-b'], ['write-c']]);
+    }
   });
 
   test('declares scheduler capability requirements by concurrency mode', () => {

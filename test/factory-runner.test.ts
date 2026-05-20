@@ -85,7 +85,7 @@ describe('FactoryRunner', () => {
         makeRunId: () => 'run-review',
       });
 
-      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true } });
+      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } });
 
       expect(result.status).toBe('completed');
       expect(fakeRuntime.executed).toEqual(['review-intake', 'diff-review', 'review-summary']);
@@ -112,7 +112,7 @@ describe('FactoryRunner', () => {
         makeRunId: () => 'run-blocked',
       });
 
-      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true } });
+      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } });
 
       expect(result.status).toBe('blocked');
       expect(result.start.missingCapabilities).toEqual(['agent-session', 'git']);
@@ -139,7 +139,7 @@ describe('FactoryRunner', () => {
         makeRunId: () => 'run-resume',
       });
 
-      const failed = await firstRunner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true } });
+      const failed = await firstRunner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } });
       expect(failed.status).toBe('failed');
       expect(failed.state.completedPhaseIds).toEqual(['review-intake']);
 
@@ -166,7 +166,7 @@ describe('FactoryRunner', () => {
         goal: 'Build auth changes',
         cwd: '/repo',
         mode: 'build',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
       }, 'run-isolated-resume');
       const plan = {
         ...compiledPlan,
@@ -194,7 +194,7 @@ describe('FactoryRunner', () => {
         goal: 'Review auth changes',
         cwd: '/repo',
         mode: 'review',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
       }, 'run-interrupted');
       store.append('run-interrupted', { type: 'run_started', runId: 'run-interrupted', plan });
       store.append('run-interrupted', { type: 'phase_started', runId: 'run-interrupted', phaseId: 'review-intake' });
@@ -244,7 +244,7 @@ describe('FactoryRunner', () => {
         makeRunId: () => 'run-pending',
       });
 
-      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true } });
+      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } });
       expect(result.status).toBe('running');
       expect(result.state.status).toBe('running');
       expect(result.state.currentPhaseId).toBe('diff-review');
@@ -288,7 +288,7 @@ describe('FactoryRunner', () => {
         makeRunId: () => 'run-pending-resume',
       });
 
-      await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true } });
+      await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } });
       const resumed = await runner.continueRun('run-pending-resume');
       expect(resumed.status).toBe('running');
       expect(dispatches).toEqual(['review-intake', 'diff-review']);
@@ -313,7 +313,7 @@ describe('FactoryRunner', () => {
         goal: 'Review auth changes',
         cwd: '/repo',
         mode: 'review',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
         repo: { provider: 'github', owner: 'garrytan', name: 'gstack' },
         context: { ticket: 'ENG-1', nested: { attempt: 1 } },
       });
@@ -321,7 +321,7 @@ describe('FactoryRunner', () => {
       await expect(runner.continueRun('run-context', {
         workflow: 'review',
         goal: 'Review auth changes',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
       })).resolves.toMatchObject({ status: 'completed' });
 
       await expect(runner.continueRun('run-context', {
@@ -329,7 +329,7 @@ describe('FactoryRunner', () => {
         goal: 'Review auth changes',
         cwd: '/repo',
         mode: 'review',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
         repo: { provider: 'github', owner: 'garrytan', name: 'other' },
         context: { ticket: 'ENG-1', nested: { attempt: 2 } },
       })).rejects.toThrow('does not match persisted factory run');
@@ -688,7 +688,7 @@ describe('FactoryRunner', () => {
         makeRunId: () => 'run-continuous',
       });
 
-      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true } });
+      const result = await runner.run({ workflow: 'review', goal: 'Review auth changes', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } });
       expect(result.status).toBe('completed');
       expect(result.state.completedPhaseIds).toEqual(['review-intake', 'diff-review', 'review-summary']);
       expect(result.state.risks.map(risk => risk.id)).toContain('diff-review-continued-after-error');

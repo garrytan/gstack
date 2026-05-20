@@ -71,7 +71,7 @@ describe('factory-core pure calculations', () => {
       goal: 'Build notification settings',
       cwd: '/repo',
       mode: 'build',
-      policy: { allowWrites: true, allowBrowser: true, maxParallelWriteTimelines: 2 },
+      policy: { allowWrites: true, allowBrowser: true, commandSafetyProfile: 'non-destructive-write', maxParallelWriteTimelines: 2 },
     }, 'run-1');
 
     expect(plan.workflow).toBe('autoplan-build');
@@ -113,7 +113,7 @@ describe('factory-core pure calculations', () => {
       goal: 'Build notification settings',
       cwd: '/repo',
       mode: 'build',
-      policy: { allowWrites: true },
+      policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
     }, 'run-unsafe-worktree');
 
     expect(plan.requiredCapabilities).toEqual(['agent-session', 'artifact-store', 'subagent-session', 'worktree']);
@@ -137,7 +137,7 @@ describe('factory-core pure calculations', () => {
       goal: 'Build notification settings',
       cwd: '/repo',
       mode: 'build',
-      policy: { allowWrites: true, allowBrowser: true },
+      policy: { allowWrites: true, allowBrowser: true, commandSafetyProfile: 'non-destructive-write' },
     }, 'run-4');
 
     const events: FactoryEvent[] = [

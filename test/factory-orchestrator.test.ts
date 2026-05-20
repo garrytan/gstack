@@ -55,7 +55,7 @@ describe('FactoryOrchestrator', () => {
     const sink = new MemoryEventSink();
     const orchestrator = new FactoryOrchestrator({ workflows: [workflow], eventSink: sink, makeRunId: () => 'run-missing' });
 
-    const result = orchestrator.start({ workflow: 'review-flow', goal: 'Review auth', cwd: '/repo', mode: 'review', policy: { allowWrites: true } }, {
+    const result = orchestrator.start({ workflow: 'review-flow', goal: 'Review auth', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } }, {
       availableCapabilities: ['artifact-store'],
     });
 
@@ -68,7 +68,7 @@ describe('FactoryOrchestrator', () => {
     const sink = new MemoryEventSink();
     const orchestrator = new FactoryOrchestrator({ workflows: [workflow], eventSink: sink, makeRunId: () => 'run-2' });
 
-    const result = orchestrator.start({ workflow: 'review-flow', goal: 'Review auth', cwd: '/repo', mode: 'review', policy: { allowWrites: true } }, {
+    const result = orchestrator.start({ workflow: 'review-flow', goal: 'Review auth', cwd: '/repo', mode: 'review', policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' } }, {
       availableCapabilities: ['artifact-store', 'git'],
     });
 
@@ -95,7 +95,7 @@ describe('FactoryOrchestrator', () => {
     expect(sink.events).toEqual([]);
   });
 
-  test('emits non-blocking plan risks as durable events', () => {
+  test('blocks browser-capable runs when browser policy is disabled', () => {
     const browserWorkflow: WorkflowSpec = {
       ...workflow,
       phases: [{ ...workflow.phases[0], requiredCapabilities: ['browser'] }],
@@ -106,10 +106,9 @@ describe('FactoryOrchestrator', () => {
     const result = orchestrator.start({ workflow: 'review-flow', goal: 'Check UI', mode: 'review' }, {
       availableCapabilities: ['artifact-store', 'browser'],
     });
-    expect(result.blockingRisks).toEqual([]);
+    expect(result.blockingRisks.map(risk => risk.id)).toEqual(['browser-disabled']);
     expect(result.plan.risks.map(risk => risk.id)).toEqual(['browser-disabled']);
-    expect(sink.events.map(event => event.type)).toEqual(['run_started', 'risk_detected']);
-    expect(orchestrator.state('run-risk').risks.map(risk => risk.id)).toEqual(['browser-disabled']);
+    expect(sink.events).toEqual([]);
   });
 
   test('throws when state is unavailable from the event sink', () => {

@@ -61,7 +61,7 @@ Implemented behavior:
   - commit short SHA.
 - The queued `/skill:gstack-review` request includes a `factory_run_id` correlation instruction.
 - On Pi `agent_end`, the extension attempts auto-capture for pending factory review runs.
-- `/factory-status <run-id>` also attempts lazy recovery for the requested run.
+- `/factory-recover-review <run-id>` explicitly attempts recovery for the requested run; `/factory-status <run-id>` is inspection-only.
 - Capture source is the durable gstack review log:
   - `$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl`
   - `$GSTACK_HOME` defaults to `$HOME/.gstack`.
@@ -105,7 +105,7 @@ Scope:
    - `agent_end` should be able to scan all pending factory review runs and
      independently capture each run that has exactly one matching correlated log.
    - Multiple pending runs should not block a specifically correlated match.
-   - `/factory-status <run-id>` should recover that target run even when other
+   - `/factory-recover-review <run-id>` should recover that target run even when other
      runs are pending.
    - Still fail closed per run on no match, multiple matches, missing commit,
      missing dispatchedAt, or missing `factory_run_id`.
@@ -134,7 +134,7 @@ Scope:
 5. Tests to add/update.
    - Generated review skill/template includes optional `factory_run_id` logging rule.
    - Multiple pending runs with distinct correlated log entries capture the correct run(s).
-   - `/factory-status <run-id>` can recover a target run while other runs remain pending.
+   - `/factory-recover-review <run-id>` can recover a target run while other runs remain pending.
    - Missing/wrong `factory_run_id` leaves a run pending.
    - Manual fallback artifact includes provenance metadata and still works after
      an auto-capture ambiguity/no-match.
@@ -201,7 +201,8 @@ Scope:
 4. Add adapter hooks for asking/deciding gates.
 5. Add Pi command support for inspecting/responding to gates, for example:
    - `/factory-gates <run-id>`;
-   - `/factory-decide <run-id> <gate-id> <decision>`.
+   - `/factory-decide <run-id> <gate-id> <request-sequence> <approve|reject|waive|cancel> [reason]`.
+   - `/factory-gates <run-id>` displays the current request sequence for each pending gate.
 6. Make cancellation/failure semantics explicit.
 
 Tests:
@@ -225,8 +226,8 @@ capabilities without taking on full release risk.
 Scope:
 
 1. Add `FACTORY_QA_WORKFLOW` and include it in `FACTORY_WORKFLOWS`.
-2. Add opt-in `/factory-qa <goal-or-url>` command.
-3. Reuse existing generated `/skill:gstack-qa` methodology for initial dispatch.
+2. Add opt-in `/factory-qa <goal-or-url>` command for audit/no-fix QA.
+3. Reuse existing generated `/skill:gstack-qa-only` methodology for default audit dispatch, and reserve `/skill:gstack-qa` for explicit write-capable QA-fix runs.
 4. Decide whether QA completion can use a durable log, transcript artifact, or
    manual fallback for the first slice.
 5. Integrate `gstack_browser` where appropriate, but keep browser actions in adapters.
@@ -237,7 +238,7 @@ Tests:
 - QA workflow plan compiles with required capabilities.
 - `/factory-qa` starts and records pending external QA work.
 - Status/list/artifact inspection works for QA runs.
-- Browser capability absence blocks or warns according to policy.
+- Browser capability absence blocks according to policy when browser phases are selected.
 
 Suggested commit message:
 

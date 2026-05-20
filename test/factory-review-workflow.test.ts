@@ -6,7 +6,7 @@ const phaseIds = FACTORY_REVIEW_WORKFLOW.phases.map(phase => phase.id);
 
 describe('factory review workflow spec', () => {
   test('registers review as the first structured factory workflow', () => {
-    expect(FACTORY_WORKFLOWS.map(workflow => workflow.id)).toEqual(['review', 'qa', 'ship']);
+    expect(FACTORY_WORKFLOWS.map(workflow => workflow.id)).toEqual(['review', 'qa', 'qa-fix', 'ship']);
     expect(phaseIds).toEqual(['review-intake', 'diff-review', 'review-summary']);
   });
 
@@ -16,7 +16,7 @@ describe('factory review workflow spec', () => {
       goal: 'Review auth changes',
       cwd: '/repo',
       mode: 'review',
-      policy: { allowWrites: true },
+      policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
     }, 'run-review');
 
     expect(plan.requiredCapabilities).toEqual(['agent-session', 'artifact-store', 'git']);

@@ -44,12 +44,15 @@ export class FileFactoryEventStore {
     }
 
     mkdirSync(this.runDir(runId), { recursive: true });
+    const initialSnapshot = this.readEnvelopeSnapshot(runId);
 
     return this.withRunLock(runId, () => {
-      const currentSnapshot = this.readEnvelopeSnapshot(runId);
+      const lockedManifest = this.readManifest(runId);
+      const currentSnapshot = lockedManifest?.eventCount === initialSnapshot.envelopes.length
+        ? initialSnapshot
+        : this.readEnvelopeSnapshot(runId);
       const current = currentSnapshot.envelopes;
       validate(current);
-      if (currentSnapshot.hasTornTail) rewriteCommittedEvents(this.eventsPath(runId), current);
       const timestamp = this.now().toISOString();
       const envelope: FactoryEventEnvelope = {
         sequence: current.length + 1,
@@ -78,7 +81,7 @@ export class FileFactoryEventStore {
   readManifest(runId: string): FactoryRunManifest | null {
     assertSafeRunId(runId);
     const file = this.manifestPath(runId);
-    if (!existsSync(file)) return this.recoverManifestFromEventLog(runId);
+    if (!existsSync(file)) return null;
     const manifest = JSON.parse(readFileSync(file, 'utf-8')) as FactoryRunManifest;
     if (!isFactoryRunManifest(manifest, runId)) {
       throw new Error(`Factory run manifest for '${runId}' is invalid`);
@@ -116,30 +119,23 @@ export class FileFactoryEventStore {
     return join(this.runDir(runId), 'manifest.json');
   }
 
-  private readEnvelopeSnapshot(runId: string): { readonly envelopes: FactoryEventEnvelope[]; readonly hasTornTail: boolean } {
+  private readEnvelopeSnapshot(runId: string): { readonly envelopes: FactoryEventEnvelope[] } {
     assertSafeRunId(runId);
     const file = this.eventsPath(runId);
     const manifest = this.readManifest(runId);
     if (!existsSync(file)) {
       if (manifest) throw new Error(`Factory run manifest for '${runId}' exists without an event log`);
-      return { envelopes: [], hasTornTail: false };
+      return { envelopes: [] };
+    }
+    if (!manifest) {
+      throw new Error(`Factory run event log for '${runId}' exists without a manifest`);
     }
 
-    const snapshot = manifest
-      ? parseFactoryEventLogRecoveringTail(readFileSync(file, 'utf-8'), manifest.eventCount)
-      : { envelopes: parseFactoryEventLog(readFileSync(file, 'utf-8')), hasTornTail: false };
+    const snapshot = { envelopes: parseFactoryEventLogCommitted(readFileSync(file, 'utf-8'), manifest.eventCount) };
     for (const envelope of snapshot.envelopes) {
       if (envelope.event.runId !== runId) {
         throw new Error(`Factory event log for '${runId}' contains event for '${envelope.event.runId}' at sequence ${envelope.sequence}`);
       }
-    }
-    if (manifest && snapshot.envelopes.length > manifest.eventCount) {
-      this.writeManifestFile(runId, {
-        runId,
-        createdAt: manifest.createdAt,
-        updatedAt: snapshot.envelopes[snapshot.envelopes.length - 1].timestamp,
-        eventCount: snapshot.envelopes.length,
-      });
     }
     return snapshot;
   }
@@ -178,21 +174,6 @@ export class FileFactoryEventStore {
     }
   }
 
-  private recoverManifestFromEventLog(runId: string): FactoryRunManifest | null {
-    const eventsPath = this.eventsPath(runId);
-    if (!existsSync(eventsPath)) return null;
-    const envelopes = parseFactoryEventLog(readFileSync(eventsPath, 'utf-8'));
-    if (envelopes.length === 0) return null;
-    const manifest: FactoryRunManifest = {
-      runId,
-      createdAt: envelopes[0].timestamp,
-      updatedAt: envelopes[envelopes.length - 1].timestamp,
-      eventCount: envelopes.length,
-    };
-    this.writeManifestFile(runId, manifest);
-    return manifest;
-  }
-
   private writeManifest(runId: string, updatedAt: string, eventCount: number) {
     const existing = this.readManifest(runId);
     this.writeManifestFile(runId, {
@@ -212,11 +193,11 @@ export class FileFactoryEventStore {
   }
 }
 
-function parseFactoryEventLogRecoveringTail(content: string, committedCount: number): { readonly envelopes: FactoryEventEnvelope[]; readonly hasTornTail: boolean } {
+function parseFactoryEventLogCommitted(content: string, committedCount: number): FactoryEventEnvelope[] {
   const envelopes: FactoryEventEnvelope[] = [];
-  let hasTornTail = false;
   const lines = content.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
+  let index = 0;
+  for (; index < lines.length && envelopes.length < committedCount; index += 1) {
     const line = lines[index].trim();
     if (!line) continue;
 
@@ -224,21 +205,13 @@ function parseFactoryEventLogRecoveringTail(content: string, committedCount: num
     try {
       parsed = JSON.parse(line);
     } catch (error) {
-      if (envelopes.length >= committedCount) {
-        hasTornTail = true;
-        break;
-      }
       throw new Error(`Invalid factory event JSON on line ${index + 1}: ${(error as Error).message}`);
     }
 
-    const invalidEnvelope = !isFactoryEventEnvelope(parsed);
-    const invalidSequence = !invalidEnvelope && parsed.sequence !== envelopes.length + 1;
-    if (invalidEnvelope || invalidSequence) {
-      if (envelopes.length >= committedCount) {
-        hasTornTail = true;
-        break;
-      }
-      if (invalidEnvelope) throw new Error(`Invalid factory event envelope on line ${index + 1}`);
+    if (!isFactoryEventEnvelope(parsed)) {
+      throw new Error(`Invalid factory event envelope on line ${index + 1}`);
+    }
+    if (parsed.sequence !== envelopes.length + 1) {
       throw new Error(`Invalid factory event sequence on line ${index + 1}: expected ${envelopes.length + 1}, got ${parsed.sequence}`);
     }
     envelopes.push(parsed);
@@ -248,7 +221,13 @@ function parseFactoryEventLogRecoveringTail(content: string, committedCount: num
     throw new Error(`Factory event log ended before manifest eventCount ${committedCount}`);
   }
 
-  return { envelopes, hasTornTail };
+  for (; index < lines.length; index += 1) {
+    if (lines[index].trim()) {
+      throw new Error(`Factory event log contains uncommitted tail after manifest eventCount ${committedCount}`);
+    }
+  }
+
+  return envelopes;
 }
 
 export function parseFactoryEventLog(content: string, options: { readonly expectedCount?: number } = {}): FactoryEventEnvelope[] {
@@ -320,13 +299,6 @@ function isProcessAlive(pid: number): boolean {
     if (code === 'ESRCH') return false;
     return true;
   }
-}
-
-function rewriteCommittedEvents(file: string, envelopes: readonly FactoryEventEnvelope[]): void {
-  const tempPath = `${file}.${process.pid}.${Date.now()}.tmp`;
-  writeFileDurable(tempPath, envelopes.map(envelope => JSON.stringify(envelope)).join('\n') + (envelopes.length > 0 ? '\n' : ''));
-  renameSync(tempPath, file);
-  fsyncParentDirectory(file);
 }
 
 function appendFileDurable(file: string, content: string): void {
@@ -462,7 +434,8 @@ function isPolicy(input: unknown): boolean {
     && typeof input.requireHumanForDestructive === 'boolean'
     && typeof input.maxParallelWriteTimelines === 'number'
     && Number.isInteger(input.maxParallelWriteTimelines)
-    && isQuestionMode(input.defaultQuestionMode);
+    && isQuestionMode(input.defaultQuestionMode)
+    && isCommandSafetyProfile(input.commandSafetyProfile);
 }
 
 function isPlannedPhase(input: unknown): boolean {
@@ -586,6 +559,10 @@ function isQuestionMode(input: unknown): boolean {
   return ['pause', 'auto-recommend', 'fail-closed'].includes(String(input));
 }
 
+function isCommandSafetyProfile(input: unknown): boolean {
+  return ['read-only', 'non-destructive-write', 'release-action'].includes(String(input));
+}
+
 function isCapabilityName(input: unknown): boolean {
   return [
     'agent-session',
@@ -596,6 +573,7 @@ function isCapabilityName(input: unknown): boolean {
     'git',
     'pull-request',
     'questions',
+    'safe-command-guard',
     'subagent-session',
     'test-runner',
     'worktree',

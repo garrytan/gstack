@@ -31,7 +31,7 @@ import {
   selectReviewCaptureEntry,
   type PendingReviewDispatch,
 } from '../../../lib/factory-review-capture';
-import type { ArtifactRef, CapabilityName, FactoryRunState } from '../../../lib/factory-core';
+import { reduceFactoryEvents, type ArtifactRef, type CapabilityName, type FactoryRunState } from '../../../lib/factory-core';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(EXTENSION_DIR, '..', '..', '..');
@@ -153,7 +153,7 @@ export default function piGstack(pi: any) {
         // runtime only dispatches the generated review skill and writes factory
         // events, so allowWrites is the recommended bridge until git read/write
         // capabilities are split.
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' }
       });
 
       const message = result.status === 'blocked'
@@ -164,7 +164,7 @@ export default function piGstack(pi: any) {
   });
 
   pi.registerCommand('factory-qa', {
-    description: 'Start an opt-in structured, event-sourced gstack QA run.',
+    description: 'Start an opt-in structured, event-sourced gstack QA audit run without repository edits.',
     handler: async (args: string, ctx: any) => {
       const normalized = normalizeFactoryQaGoal(args);
       if (!normalized.ok) {
@@ -187,15 +187,19 @@ export default function piGstack(pi: any) {
         goal: normalized.goal,
         cwd: projectRoot,
         mode: 'review',
-        policy: { allowBrowser: true },
+        policy: { allowBrowser: true, allowWrites: false },
       });
 
       const message = result.status === 'blocked'
         ? `Factory QA blocked: missing capabilities=${result.start.missingCapabilities.join(', ') || 'none'}, blocking risks=${result.start.blockingRisks.map(risk => risk.id).join(', ') || 'none'}`
-        : `Factory QA ${result.status}: ${result.plan.runId} (${result.state.artifacts.length} artifact(s)).`;
+        : `Factory QA audit ${result.status}: ${result.plan.runId} (${result.state.artifacts.length} artifact(s)).`;
       ctx.ui.notify(message, result.status === 'completed' ? 'info' : 'warning');
     },
   });
+
+  // FACTORY_QA_FIX_WORKFLOW remains registered for runtimes that can attest a
+  // real safe-command guard. This Pi adapter does not currently control the
+  // agent's Bash tool layer, so it intentionally exposes only audit-mode QA.
 
   pi.registerCommand('factory-complete-review', {
     description: 'Capture review output for a pending structured factory review run and continue it.',
@@ -229,7 +233,7 @@ export default function piGstack(pi: any) {
           return;
         }
         const ref = artifactStore.writeText(normalized.runId, {
-          id: 'diff-review-captured',
+          id: capturedArtifactId('diff-review'),
           kind: 'review',
           phaseId: 'diff-review',
           summary: normalized.summary,
@@ -252,7 +256,12 @@ export default function piGstack(pi: any) {
           normalized.summary,
           '',
         ].join('\n'));
-        store.append(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'diff-review', artifacts: [ref] });
+        store.appendValidated(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'diff-review', artifacts: [ref] }, (current) => {
+          const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
+          if (currentState.status !== 'running' || currentState.currentPhaseId !== 'diff-review' || !pendingReviewDispatchFromState(currentState)) {
+            throw new Error(`Factory run ${normalized.runId} is not waiting for diff-review output.`);
+          }
+        });
 
         const runner = new FactoryRunner({
           workflows: FACTORY_WORKFLOWS,
@@ -299,7 +308,7 @@ export default function piGstack(pi: any) {
           return;
         }
         const ref = artifactStore.writeText(normalized.runId, {
-          id: 'qa-execution-captured',
+          id: capturedArtifactId('qa-execution'),
           kind: 'qa-report',
           phaseId: 'qa-execution',
           summary: normalized.summary,
@@ -320,7 +329,12 @@ export default function piGstack(pi: any) {
           normalized.summary,
           '',
         ].join('\n'));
-        store.append(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'qa-execution', artifacts: [ref] });
+        store.appendValidated(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'qa-execution', artifacts: [ref] }, (current) => {
+          const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
+          if (currentState.status !== 'running' || currentState.currentPhaseId !== 'qa-execution' || !pendingExternalDispatchFromState(currentState, 'qa-execution')) {
+            throw new Error(`Factory run ${normalized.runId} is not waiting for qa-execution output.`);
+          }
+        });
 
         const runner = new FactoryRunner({
           workflows: FACTORY_WORKFLOWS,
@@ -335,8 +349,35 @@ export default function piGstack(pi: any) {
     },
   });
 
+  pi.registerCommand('factory-recover-review', {
+    description: 'Explicitly recover a pending structured factory review from the durable review log.',
+    handler: async (args: string, ctx: any) => {
+      const runId = args.trim();
+      if (!runId) {
+        ctx.ui.notify('factory-recover-review requires a run id', 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      try {
+        if (!store.readManifest(runId) || !hasRunPlan(store, runId)) {
+          ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
+          return;
+        }
+        const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
+        notifyAutoCaptureResults(ctx, captures);
+        const status = await createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS }).readFactoryRunStatus(runId);
+        ctx.ui.notify(formatFactoryState(status, captures[0]), status.status === 'failed' ? 'error' : 'info');
+      } catch (error) {
+        ctx.ui.notify(`Could not recover factory review: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
   pi.registerCommand('factory-status', {
-    description: 'Show status for a structured gstack factory run in this project.',
+    description: 'Show status for a structured gstack factory run in this project without mutating it.',
     handler: async (args: string, ctx: any) => {
       const runId = args.trim();
       if (!runId) {
@@ -353,11 +394,8 @@ export default function piGstack(pi: any) {
           return;
         }
 
-        const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot, targetRunId: runId });
-        notifyAutoCaptureResults(ctx, captures);
-
         const status = await createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS }).readFactoryRunStatus(runId);
-        ctx.ui.notify(formatFactoryState(status, captures[0]), status.status === 'failed' ? 'error' : 'info');
+        ctx.ui.notify(formatFactoryState(status), status.status === 'failed' ? 'error' : 'info');
       } catch (error) {
         ctx.ui.notify(`Could not read factory run: ${(error as Error).message}`, 'error');
       }
@@ -386,7 +424,7 @@ export default function piGstack(pi: any) {
   });
 
   pi.registerCommand('factory-gates', {
-    description: 'List pending gate requests for a structured gstack factory run.',
+    description: 'List gate requests for a structured gstack factory run, with pending gates shown by status and request sequence.',
     handler: async (args: string, ctx: any) => {
       const runId = args.trim();
       if (!runId) {
@@ -581,8 +619,13 @@ async function captureReviewDispatch(options: {
   if (!pendingReviewDispatchFromState(freshState)) return { status: 'no-pending', runId: options.dispatch.runId };
 
   const artifact = reviewLogEntryToArtifact(options.dispatch.runId, selection.entry);
-  const ref = options.artifactStore.writeText(options.dispatch.runId, artifact.ref, artifact.content);
-  options.store.append(options.dispatch.runId, { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'diff-review', artifacts: [ref] });
+  const ref = options.artifactStore.writeText(options.dispatch.runId, { ...artifact.ref, id: capturedArtifactId('diff-review') }, artifact.content);
+  options.store.appendValidated(options.dispatch.runId, { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'diff-review', artifacts: [ref] }, (current) => {
+    const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
+    if (!pendingReviewDispatchFromState(currentState)) {
+      throw new Error(`Factory run ${options.dispatch.runId} is not waiting for diff-review output.`);
+    }
+  });
 
   const runner = new FactoryRunner({
     workflows: FACTORY_WORKFLOWS,
@@ -687,6 +730,10 @@ function gitShortHead(projectRoot: string): string | undefined {
   return commit.length > 0 ? commit : undefined;
 }
 
+function capturedArtifactId(phaseId: string): string {
+  return `${phaseId}-captured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function factoryReviewSkillRequest(goal: string, runId: string): string {
   return [
     goal,
@@ -698,9 +745,22 @@ function factoryReviewSkillRequest(goal: string, runId: string): string {
   ].join('\n');
 }
 
-function factoryQaSkillRequest(goal: string, runId: string): string {
+function factoryQaSkillRequest(goal: string, runId: string, options: { readonly allowFixes: boolean }): string {
+  const safety = options.allowFixes
+    ? [
+        'Factory QA fix safety contract:',
+        '- This run permits non-destructive local fixes only.',
+        '- Do not run destructive shell commands such as rm -rf, git reset --hard, git clean, force pushes, deploys, publishes, or credential/env dumps.',
+        '- Stop and ask before any release, deploy, migration, force-push, or destructive filesystem action.',
+      ]
+    : [
+        'Factory QA audit safety contract:',
+        '- This run is audit-only. Do not edit repository files or apply fixes.',
+      ];
   return [
     goal,
+    '',
+    ...safety,
     '',
     'Factory QA correlation:',
     `- factory_run_id: ${runId}`,
@@ -710,7 +770,7 @@ function factoryQaSkillRequest(goal: string, runId: string): string {
 
 function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, artifactStore: FileFactoryArtifactStore) {
   const capabilities: CapabilityName[] = isGitRepository(projectRoot)
-    ? ['agent-session', 'artifact-store', 'git']
+    ? ['agent-session', 'artifact-store', 'filesystem', 'git', 'test-runner']
     : ['agent-session', 'artifact-store'];
   if (findBrowseBinary(projectRoot)) capabilities.push('browser');
   const availableCapabilities: CapabilityName[] = ctx?.hasUI === true ? [...capabilities, 'questions'] : capabilities;
@@ -726,7 +786,7 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
       };
 
       if (phase.id === 'review-intake' || phase.id === 'qa-intake') {
-        const workflowTitle = plan.workflow === 'qa' ? 'QA' : 'Review';
+        const workflowTitle = plan.workflow === 'qa' || plan.workflow === 'qa-fix' ? 'QA' : 'Review';
         const ref = artifactStore.writeText(plan.runId, { ...artifact, kind: 'plan', summary: `${workflowTitle} goal: ${request.goal}` }, [
           `# Factory ${workflowTitle} Intake`,
           '',
@@ -773,7 +833,12 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
       }
 
       if (phase.id === 'qa-execution') {
-        const message = toPiSkillCommand('gstack-qa', factoryQaSkillRequest(request.goal, plan.runId));
+        const allowFixes = plan.workflow === 'qa-fix';
+        if (allowFixes && plan.policy.commandSafetyProfile !== 'non-destructive-write') {
+          throw new Error('factory QA fix runs require policy.commandSafetyProfile=non-destructive-write');
+        }
+        const qaSkill = allowFixes ? 'gstack-qa' : 'gstack-qa-only';
+        const message = toPiSkillCommand(qaSkill, factoryQaSkillRequest(request.goal, plan.runId, { allowFixes }));
         const dispatchedAt = new Date().toISOString();
         if (ctx.isIdle?.()) {
           pi.sendUserMessage(message);
@@ -795,13 +860,13 @@ function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, a
           '',
         ].join('\n'));
         return {
-          summary: 'Generated gstack QA skill queued from structured factory run.',
+          summary: `Generated ${allowFixes ? 'write-capable' : 'audit-only'} gstack QA skill queued from structured factory run.`,
           status: 'pending' as const,
           artifacts: [ref],
         };
       }
 
-      const workflowTitle = plan.workflow === 'qa' ? 'QA' : 'Review';
+      const workflowTitle = plan.workflow === 'qa' || plan.workflow === 'qa-fix' ? 'QA' : 'Review';
       const ref = artifactStore.writeText(plan.runId, artifact, [
         `# Factory ${workflowTitle} Summary`,
         '',
@@ -839,7 +904,27 @@ function formatFactoryState(
       `- dispatch commit: ${dispatch.commit ?? 'missing'}`,
       `- dispatchedAt: ${dispatch.dispatchedAt ?? 'missing'}`,
       `- queuedSkillCommand: ${dispatch.queuedSkillCommand ?? 'missing'}`,
+      `Next action: /factory-recover-review ${status.runId} after the generated review logs Step 5.8 output, or /factory-complete-review ${status.runId} <summary> as fallback`,
       `Recovery hint: ${recoveryHint(recovery)}`,
+    );
+  }
+
+  const qaDispatch = pendingQaDispatchFromStatus(status);
+  if (qaDispatch) {
+    lines.push(
+      'Pending external QA:',
+      `- dispatchedAt: ${qaDispatch.dispatchedAt ?? 'missing'}`,
+      `- queuedSkillCommand: ${qaDispatch.queuedSkillCommand ?? 'missing'}`,
+      `Next action: /factory-complete-qa ${status.runId} <summary>`,
+    );
+  }
+
+  const pendingGates = status.gates.filter(gate => gate.status === 'pending');
+  if (pendingGates.length > 0) {
+    lines.push(
+      'Pending gates:',
+      ...pendingGates.map(gate => `- ${gate.id}: requestSequence=${gate.requestSequence ?? 'missing'}, allowed=${gate.allowedDecisions.join('|')}`),
+      `Next action: /factory-gates ${status.runId}`,
     );
   }
 
@@ -854,9 +939,24 @@ function formatFactoryRunList(runs: readonly FactoryRunStatusDto[]): string {
       const phase = run.currentPhase?.id ?? 'none';
       const updated = run.updatedAt ?? 'unknown';
       const pendingGates = run.gates.filter(gate => gate.status === 'pending').length;
-      return `- ${run.runId}: status=${run.status}, current=${phase}, completed=${run.progress.completed}, gates=${pendingGates}, artifacts=${run.artifacts.length}, updated=${updated}`;
+      return `- ${run.runId}: workflow=${run.workflowId} (${run.workflowTitle}), status=${run.status}, current=${phase}, completed=${run.progress.completed}, gates=${pendingGates}, artifacts=${run.artifacts.length}, updated=${updated}`;
     }),
   ].join('\n');
+}
+
+function pendingQaDispatchFromStatus(status: FactoryRunStatusDto): { readonly dispatchedAt?: string; readonly queuedSkillCommand?: string } | null {
+  if (status.status !== 'paused' && status.status !== 'running') return null;
+  if (status.currentPhase?.id !== 'qa-execution') return null;
+  const artifact = status.artifacts.find(candidate => candidate.phaseId === 'qa-execution' && candidate.metadata && (
+    candidate.metadata.pendingExternalQa === true || candidate.metadata.pendingExternalWork === true
+  ));
+  if (!artifact) return null;
+  const metadataRunId = typeof artifact.metadata?.factoryRunId === 'string' ? artifact.metadata.factoryRunId : undefined;
+  if (metadataRunId && metadataRunId !== status.runId) return null;
+  return {
+    dispatchedAt: typeof artifact.metadata?.dispatchedAt === 'string' ? artifact.metadata.dispatchedAt : undefined,
+    queuedSkillCommand: typeof artifact.metadata?.queuedSkillCommand === 'string' ? artifact.metadata.queuedSkillCommand : undefined,
+  };
 }
 
 function pendingReviewDispatchFromStatus(status: FactoryRunStatusDto): PendingReviewDispatch | null {
@@ -899,7 +999,7 @@ function formatFactoryArtifacts(artifacts: readonly FactoryArtifactSummaryDto[])
 }
 
 function recoveryHint(result: AutoCaptureReviewResult | undefined): string {
-  if (!result) return 'run /factory-status again after the generated review logs Step 5.8 output, or use /factory-complete-review as fallback';
+  if (!result) return 'run /factory-recover-review after the generated review logs Step 5.8 output, or use /factory-complete-review as fallback';
   switch (result.status) {
     case 'captured':
       return 'captured from the durable review log';

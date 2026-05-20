@@ -91,11 +91,12 @@ describe('FileFactoryEventStore', () => {
 
       writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 0 })}\n`);
       writeFileSync(store.eventsPath('run-safe'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'run-safe', plan } })}\n`);
-      expect(store.append('run-safe', { type: 'run_started', runId: 'run-safe', plan }).sequence).toBe(2);
-      expect(readFileSync(store.eventsPath('run-safe'), 'utf-8').trim().split('\n')).toHaveLength(2);
+      expect(() => store.append('run-safe', { type: 'run_started', runId: 'run-safe', plan })).toThrow('contains uncommitted tail after manifest eventCount 0');
+      expect(readFileSync(store.eventsPath('run-safe'), 'utf-8').trim().split('\n')).toHaveLength(1);
 
       rmSync(store.manifestPath('run-safe'), { force: true });
-      expect(store.readEvents('run-safe')).toHaveLength(2);
+      expect(store.readManifest('run-safe')).toBeNull();
+      expect(() => store.readEvents('run-safe')).toThrow("exists without a manifest");
 
       writeFileSync(store.manifestPath('run-safe'), `${JSON.stringify({ runId: 'run-safe', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', eventCount: 1 })}\n`);
       rmSync(store.eventsPath('run-safe'), { force: true });
@@ -106,7 +107,7 @@ describe('FileFactoryEventStore', () => {
     }
   });
 
-  test('recovers a valid event-log tail when manifest eventCount lags', () => {
+  test('fails closed on a valid-looking event-log tail when manifest eventCount lags', () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-events-'));
     try {
       const store = new FileFactoryEventStore({ rootDir, now: () => new Date('2026-01-01T00:00:02.000Z') });
@@ -124,17 +125,18 @@ describe('FileFactoryEventStore', () => {
         '',
       ].join('\n'));
 
-      expect(store.readState('run-recover-tail').artifacts.map(artifact => artifact.id)).toEqual(['review-1']);
-      expect(store.readManifest('run-recover-tail')?.eventCount).toBe(2);
-      expect(store.append('run-recover-tail', { type: 'run_completed', runId: 'run-recover-tail', result: { status: 'completed', summary: 'Done', artifacts: [] } }).sequence).toBe(3);
-      expect(store.readEnvelopes('run-recover-tail').map(envelope => envelope.sequence)).toEqual([1, 2, 3]);
-      expect(store.readManifest('run-recover-tail')?.eventCount).toBe(3);
+      expect(() => store.readState('run-recover-tail')).toThrow('contains uncommitted tail after manifest eventCount 1');
+      expect(store.readManifest('run-recover-tail')?.eventCount).toBe(1);
+      expect(() => store.append('run-recover-tail', { type: 'run_completed', runId: 'run-recover-tail', result: { status: 'completed', summary: 'Done', artifacts: [] } })).toThrow(
+        'contains uncommitted tail after manifest eventCount 1',
+      );
+      expect(store.readManifest('run-recover-tail')?.eventCount).toBe(1);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
   });
 
-  test('discards torn event-log tails after the manifest count', () => {
+  test('fails closed on torn event-log tails after the manifest count', () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-events-'));
     try {
       const store = new FileFactoryEventStore({ rootDir, now: () => new Date('2026-01-01T00:00:01.000Z') });
@@ -148,10 +150,12 @@ describe('FileFactoryEventStore', () => {
       })}\n`);
       writeFileSync(store.eventsPath('run-torn-tail'), `${JSON.stringify({ sequence: 1, timestamp: '2026-01-01T00:00:00.000Z', event: { type: 'run_started', runId: 'run-torn-tail', plan } })}\n{not json`);
 
-      expect(store.readEvents('run-torn-tail')).toHaveLength(1);
-      expect(store.append('run-torn-tail', { type: 'artifact_created', runId: 'run-torn-tail', artifact: { id: 'review-1', kind: 'review', summary: 'Clean append', phaseId: 'review' } }).sequence).toBe(2);
+      expect(() => store.readEvents('run-torn-tail')).toThrow('contains uncommitted tail after manifest eventCount 1');
+      expect(() => store.append('run-torn-tail', { type: 'artifact_created', runId: 'run-torn-tail', artifact: { id: 'review-1', kind: 'review', summary: 'Clean append', phaseId: 'review' } })).toThrow(
+        'contains uncommitted tail after manifest eventCount 1',
+      );
       const raw = readFileSync(store.eventsPath('run-torn-tail'), 'utf-8');
-      expect(raw).not.toContain('{not json');
+      expect(raw).toContain('{not json');
       expect(raw.trim().split('\n')).toHaveLength(2);
     } finally {
       rmSync(rootDir, { recursive: true, force: true });

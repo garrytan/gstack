@@ -2,8 +2,8 @@ import type { WorkflowSpec } from './factory-core';
 
 export const FACTORY_SHIP_WORKFLOW: WorkflowSpec = Object.freeze({
   id: 'ship',
-  title: 'Structured Ship',
-  description: 'Plan a structured, gated ship/release workflow without executing release actions.',
+  title: 'Structured Ship Readiness',
+  description: 'Plan and verify a structured, gated ship-readiness workflow without executing release or deployment actions.',
   requiredCapabilities: ['artifact-store'],
   defaultPolicy: {
     allowWrites: false,
@@ -69,11 +69,11 @@ export const FACTORY_SHIP_WORKFLOW: WorkflowSpec = Object.freeze({
     },
     {
       id: 'ship-summary',
-      title: 'Ship Summary',
+      title: 'Ship Readiness Summary',
       role: { id: 'factory-summarizer', title: 'Factory Summarizer' },
       objective: 'Record final ship readiness state and deferred runtime actions.',
       requiredCapabilities: ['artifact-store'],
-      outputs: [{ id: 'ship-summary', kind: 'release-note', description: 'Structured ship readiness summary.' }],
+      outputs: [{ id: 'ship-summary', kind: 'release-note', description: 'Structured ship-readiness summary; no release or deployment action has been executed.' }],
       modes: ['plan-only', 'ship'],
     },
   ],

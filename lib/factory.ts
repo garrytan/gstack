@@ -231,6 +231,9 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
       if (!gateAllowsDecision(gate, input.decision, 'user')) {
         throw new Error(`Factory gate '${input.gateId}' does not allow decision '${input.decision}'`);
       }
+      if (!options.runtime && (input.decision === 'approve' || input.decision === 'waive')) {
+        throw new Error(`Factory gate '${input.gateId}' decision '${input.decision}' requires a runtime-backed facade to resume the run`);
+      }
 
       eventStore.appendValidated(input.runId, {
         type: 'gate_decision',
@@ -496,9 +499,8 @@ function gateHistories(envelopes: readonly FactoryEventEnvelope[], declared: Rea
         throw new Error(`Factory gate decision '${event.decision.gateId}' does not match the run plan`);
       }
       const history = histories.get(event.decision.gateId);
-      if (!history) {
-        histories.set(event.decision.gateId, { requestCount: 0, decision: event.decision });
-        continue;
+      if (!history?.request) {
+        throw new Error(`Factory gate decision '${event.decision.gateId}' appears before a matching gate request`);
       }
       const legacySingleRequestDecision = event.decision.requestSequence === undefined && history.requestCount === 1;
       if (!legacySingleRequestDecision && history.requestSequence !== undefined && event.decision.requestSequence !== history.requestSequence) {

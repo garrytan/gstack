@@ -66,7 +66,7 @@ describe('factory facade', () => {
       goal: 'Review auth changes',
       cwd: '/repo',
       mode: 'review',
-      policy: { allowWrites: true },
+      policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
     }, {
       workflows: [FACTORY_REVIEW_WORKFLOW],
       makeRunId: () => 'run-planned',
@@ -93,7 +93,7 @@ describe('factory facade', () => {
         goal: 'Review auth changes',
         cwd: '/repo',
         mode: 'review',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
       });
 
       expect(result.persisted).toBe(true);
@@ -175,7 +175,7 @@ describe('factory facade', () => {
         goal: 'Review auth changes',
         cwd: '/repo',
         mode: 'review',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
       });
 
       expect(result.run.status).toBe('paused');
@@ -232,7 +232,11 @@ describe('factory facade', () => {
         "Factory gate 'approve-review' request is stale",
       );
 
-      const decided = await facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'approve', reason: 'Looks safe' });
+      await expect(facade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'approve', reason: 'Looks safe' })).rejects.toThrow(
+        "decision 'approve' requires a runtime-backed facade",
+      );
+      const runtimeFacade = createFactoryFacade({ runsRoot: rootDir, workflows: [GATED_WORKFLOW], runtime: runtime(['questions'], rootDir) });
+      const decided = await runtimeFacade.decideFactoryGate({ runId: 'run-gated', gateId: 'approve-review', requestSequence: pendingGates[0].requestSequence!, decision: 'approve', reason: 'Looks safe' });
       expect(decided.gates[0]).toMatchObject({
         id: 'approve-review',
         status: 'approved',
@@ -343,7 +347,23 @@ describe('factory facade', () => {
         decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' },
       });
       await expect(facade.listFactoryGates('run-orphan-gate')).rejects.toThrow(
-        "Factory gate 'approve-review' has a decision without a request",
+        "Factory gate decision 'approve-review' appears before a matching gate request",
+      );
+
+      const decisionBeforeRequestPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Decision before request', mode: 'review' }, 'run-decision-before-request');
+      store.append('run-decision-before-request', { type: 'run_started', runId: 'run-decision-before-request', plan: decisionBeforeRequestPlan });
+      store.append('run-decision-before-request', {
+        type: 'gate_decision',
+        runId: 'run-decision-before-request',
+        decision: { gateId: 'approve-review', decision: 'approve', decidedBy: 'user' },
+      });
+      store.append('run-decision-before-request', {
+        type: 'gate_requested',
+        runId: 'run-decision-before-request',
+        gate: { id: 'approve-review', phaseId: 'review', title: 'Approve review', description: 'Approve running review.' },
+      });
+      await expect(facade.listFactoryGates('run-decision-before-request')).rejects.toThrow(
+        "Factory gate decision 'approve-review' appears before a matching gate request",
       );
 
       const unknownPlan = compileRunPlan(GATED_WORKFLOW, { workflow: 'gated-review', goal: 'Unknown gate', mode: 'review' }, 'run-unknown-gate');
@@ -376,7 +396,7 @@ describe('factory facade', () => {
         goal: 'Review auth changes',
         cwd: '/repo',
         mode: 'review',
-        policy: { allowWrites: true },
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
       });
 
       expect(result.persisted).toBe(false);

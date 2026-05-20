@@ -16,11 +16,14 @@ export type CapabilityName =
   | 'git'
   | 'pull-request'
   | 'questions'
+  | 'safe-command-guard'
   | 'subagent-session'
   | 'test-runner'
   | 'worktree';
 
 export type PhaseConcurrency = 'serial' | 'parallel-readonly' | 'isolated-worktree';
+
+export type CommandSafetyProfile = 'read-only' | 'non-destructive-write' | 'release-action';
 
 export interface PolicySpec {
   allowWrites: boolean;
@@ -29,6 +32,7 @@ export interface PolicySpec {
   requireHumanForDestructive: boolean;
   maxParallelWriteTimelines: number;
   defaultQuestionMode: 'pause' | 'auto-recommend' | 'fail-closed';
+  commandSafetyProfile: CommandSafetyProfile;
 }
 
 export const DEFAULT_FACTORY_POLICY: PolicySpec = Object.freeze({
@@ -38,6 +42,7 @@ export const DEFAULT_FACTORY_POLICY: PolicySpec = Object.freeze({
   requireHumanForDestructive: true,
   maxParallelWriteTimelines: 1,
   defaultQuestionMode: 'pause',
+  commandSafetyProfile: 'read-only',
 });
 
 export interface AgentRoleSpec {
@@ -123,6 +128,7 @@ export interface WorkflowSpec {
   phases: PhaseSpec[];
   requiredCapabilities?: CapabilityName[];
   defaultPolicy?: Partial<PolicySpec>;
+  allowedCommandSafetyProfiles?: readonly CommandSafetyProfile[];
 }
 
 export interface RepoContext {
@@ -399,12 +405,30 @@ function detectPlanRisks(input: {
     });
   }
 
+  if (writePhases.length > 0 && input.policy.allowWrites && input.policy.commandSafetyProfile === 'read-only') {
+    risks.push({
+      id: 'write-safety-profile-required',
+      severity: 'blocking',
+      message: 'The selected workflow includes write-capable phases but policy.commandSafetyProfile is read-only.',
+      recommendation: 'Choose a non-destructive-write or release-action safety profile after an explicit user decision.',
+    });
+  }
+
+  if (input.workflow.allowedCommandSafetyProfiles && !input.workflow.allowedCommandSafetyProfiles.includes(input.policy.commandSafetyProfile)) {
+    risks.push({
+      id: 'command-safety-profile-disallowed',
+      severity: 'blocking',
+      message: `The selected workflow does not allow command safety profile '${input.policy.commandSafetyProfile}'.`,
+      recommendation: `Choose one of: ${input.workflow.allowedCommandSafetyProfiles.join(', ')}.`,
+    });
+  }
+
   if (browserPhases.length > 0 && !input.policy.allowBrowser) {
     risks.push({
       id: 'browser-disabled',
-      severity: 'warning',
+      severity: 'blocking',
       message: 'The selected workflow includes browser-capable phases but policy.allowBrowser is false.',
-      recommendation: 'Enable the browser capability for QA workflows or choose a non-browser review path.',
+      recommendation: 'Enable the browser capability only after an explicit user decision or choose a non-browser review path.',
     });
   }
 
