@@ -143,9 +143,24 @@ export function appendSecureFile(
  * `mkdir -p` with owner-only directory permissions, cross-platform.
  * Replaces `fs.mkdirSync(path, { recursive: true, mode: 0o700 })` + Windows ACL.
  * Safe to call on an existing directory — re-applies the ACL idempotently.
+ *
+ * Bun-on-Windows quirk: bun's compiled-binary fs.mkdirSync sometimes throws
+ * EEXIST even with `recursive: true` when the directory already exists (Node
+ * does not). Swallow that one case so callers don't have to wrap every
+ * invocation.
  */
 export function mkdirSecure(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+  try {
+    fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+  } catch (err: any) {
+    if (err && err.code === 'EEXIST') {
+      const stat = fs.statSync(dirPath);
+      if (!stat.isDirectory()) throw err;
+      // Existing directory — fall through to re-apply ACL.
+    } else {
+      throw err;
+    }
+  }
   restrictDirectoryPermissions(dirPath);
 }
 
