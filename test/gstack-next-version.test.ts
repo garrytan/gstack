@@ -4,6 +4,9 @@
 // when the relevant CLI isn't available).
 
 import { test, expect, describe } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   parseVersion,
   fmtVersion,
@@ -11,6 +14,7 @@ import {
   cmpVersion,
   pickNextSlot,
   markActiveSiblings,
+  resolveVersionPath,
 } from "../bin/gstack-next-version";
 
 describe("parseVersion", () => {
@@ -150,6 +154,73 @@ describe("markActiveSiblings", () => {
   });
 });
 
+describe("resolveVersionPath (monorepo VERSION-path support)", () => {
+  test("CLI flag wins over everything", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-"));
+    try {
+      mkdirSync(join(dir, ".gstack"));
+      writeFileSync(join(dir, ".gstack", "version-path"), "config/VERSION\n");
+      expect(resolveVersionPath("flag/path/VERSION", dir)).toBe("flag/path/VERSION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test(".gstack/version-path config is picked up", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-"));
+    try {
+      mkdirSync(join(dir, ".gstack"));
+      writeFileSync(join(dir, ".gstack", "version-path"), "Tinas Second Brain/health-tracker/VERSION\n");
+      expect(resolveVersionPath(undefined, dir)).toBe("Tinas Second Brain/health-tracker/VERSION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("trims whitespace and ignores blank lines after the first", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-"));
+    try {
+      mkdirSync(join(dir, ".gstack"));
+      writeFileSync(join(dir, ".gstack", "version-path"), "  apps/web/VERSION  \n\n# comment-ish line\n");
+      expect(resolveVersionPath(undefined, dir)).toBe("apps/web/VERSION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("empty config file falls back to default VERSION", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-"));
+    try {
+      mkdirSync(join(dir, ".gstack"));
+      writeFileSync(join(dir, ".gstack", "version-path"), "\n");
+      expect(resolveVersionPath(undefined, dir)).toBe("VERSION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("missing config file falls back to default VERSION", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nextver-"));
+    try {
+      expect(resolveVersionPath(undefined, dir)).toBe("VERSION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("empty override string falls back to config/default", () => {
+    // Defensive: "" should NOT win over config — only a non-empty CLI arg should.
+    const dir = mkdtempSync(join(tmpdir(), "nextver-"));
+    try {
+      mkdirSync(join(dir, ".gstack"));
+      writeFileSync(join(dir, ".gstack", "version-path"), "subproj/VERSION\n");
+      expect(resolveVersionPath("", dir)).toBe("subproj/VERSION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // Integration smoke — only runs if gh is available and authenticated. Confirms
 // the CLI executes end-to-end against real APIs without crashing.
 describe("integration (smoke)", () => {
@@ -181,5 +252,27 @@ describe("integration (smoke)", () => {
     expect(Array.isArray(parsed.claimed)).toBe(true);
     expect(parsed).toHaveProperty("siblings");
     expect(parsed.siblings).toEqual([]); // --workspace-root null disabled scanning
+    expect(parsed).toHaveProperty("version_path", "VERSION"); // default when no config + no flag
   }, 30_000); // Headroom over the 4-5s wall time of the spawned process under load
+
+  test("CLI runs with --version-path and surfaces it in JSON output", async () => {
+    const proc = Bun.spawnSync([
+      "bun",
+      "run",
+      "./bin/gstack-next-version",
+      "--base",
+      "main",
+      "--bump",
+      "patch",
+      "--current-version",
+      "1.6.3.0",
+      "--workspace-root",
+      "null",
+      "--version-path",
+      "Tinas Second Brain/health-tracker/VERSION",
+    ]);
+    const out = new TextDecoder().decode(proc.stdout);
+    const parsed = JSON.parse(out);
+    expect(parsed).toHaveProperty("version_path", "Tinas Second Brain/health-tracker/VERSION");
+  }, 30_000);
 });
