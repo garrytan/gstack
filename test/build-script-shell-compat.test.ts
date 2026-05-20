@@ -28,13 +28,26 @@ describe('package.json build scripts — POSIX shell compat (D-1460)', () => {
     expect(offending).toEqual([]);
   });
 
-  test('every `> path/.version` redirect is preceded by a subshell, not a brace group', () => {
-    // The original PR #1460 target: package.json line 12 had three of these.
+  test('build script does version stamping (inline subshells or via bash helper)', () => {
+    // PR #1460 added inline `( ... ) > .version` subshells. Later, those
+    // were extracted to `scripts/stamp-versions.sh` because Bun Shell on
+    // Windows didn't handle `( ... ) > file` reliably (oven-sh/bun#11066).
+    // Either form is acceptable; what matters is (a) version stamping
+    // happens, and (b) any inline form still uses subshell, not brace group.
+    // We intentionally do a loose substring match on the helper path rather
+    // than pin the exact invocation form (`bash xxx`, `bash ./xxx`,
+    // `bash -e xxx`, etc.) -- pinning the form turns this into a formatting
+    // contract that blocks legitimate refactors. The file-existence guard
+    // catches rename/move regressions.
     const build = PKG.scripts.build ?? '';
-    const versionRedirects = [...build.matchAll(/(\([^)]*\)|\{[^}]*\})\s*>\s*\S+\/\.version/g)];
-    expect(versionRedirects.length).toBeGreaterThan(0);
-    for (const m of versionRedirects) {
+    const inlineRedirects = [...build.matchAll(/(\([^)]*\)|\{[^}]*\})\s*>\s*\S+\/\.version/g)];
+    const referencesHelper = build.includes('scripts/stamp-versions.sh');
+    expect(inlineRedirects.length > 0 || referencesHelper).toBe(true);
+    for (const m of inlineRedirects) {
       expect(m[1].startsWith('(')).toBe(true);
+    }
+    if (referencesHelper) {
+      expect(fs.existsSync(path.join(ROOT, 'scripts/stamp-versions.sh'))).toBe(true);
     }
   });
 });
