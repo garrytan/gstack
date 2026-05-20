@@ -293,23 +293,21 @@ Current web defaults:
 
 ## Current recommended next chunks
 
-### Next Chunk 1 — binary/URI artifact strategy
+### Completed strategy chunk — binary/URI artifact strategy
 
 Goal: decide how browser evidence, screenshots, traces, and external URLs should be exposed through the factory facade and future web/API layers.
 
-Questions:
+Decision captured in `docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md`:
 
-- Should binary/URI evidence remain artifact metadata only?
-- Should `readFactoryArtifact()` remain text-only?
-- Should there be a separate artifact-content API for binary/URI evidence?
-- How should artifact provenance and content type be represented without weakening `lib/factory-core.ts` purity?
+- keep `readFactoryArtifact()` text-only;
+- represent binary/URI evidence through additive content descriptors;
+- treat raw event `path`/`uri` as untrusted metadata;
+- require artifact-store/runtime provenance for trusted display or retrieval;
+- let future web/project wrappers render artifact views from descriptors, not path parsing.
 
-Suggested deliverable:
+Next implementation work should wait until the descriptor API/change is explicitly approved.
 
-- `docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md`
-- Optional focused tests if a contract change is approved.
-
-### Next Chunk 2 — safe command guard design
+### Next Chunk 1 — safe command guard design
 
 Goal: design and implement a real guard for non-destructive write automation before exposing write-capable QA fix in Pi.
 
@@ -330,13 +328,13 @@ Requirements:
   - future SDK capability.
 - Add negative regression tests proving denial happens at runtime/tool boundary.
 
-### Next Chunk 3 — project/web wrapper API design
+### Next Chunk 2 — project/web wrapper API design
 
 Goal: design project/workspace DTOs around the run-scoped facade when web implementation is approved.
 
 Do this only after designer feedback and stack/location approval.
 
-### Next Chunk 4 — Pi distribution/package path
+### Next Chunk 3 — Pi distribution/package path
 
 Goal: design how gstack's Pi extension and generated skills are packaged for non-dev users.
 
