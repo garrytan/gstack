@@ -4,6 +4,7 @@ import { ALL_COMMANDS, COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -989,6 +990,68 @@ describe('gstack-slug', () => {
     expect(slug).toMatch(/^[a-zA-Z0-9._-]+$/);
     expect(branch).toMatch(/^[a-zA-Z0-9._-]+$/);
   });
+
+  test('subdirectory inside parent git repo falls back to basename and refreshes poisoned cache', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-slug-subdir-'));
+    try {
+      const home = path.join(tmp, 'home');
+      const outer = path.join(tmp, 'workspace');
+      const child = path.join(outer, 'IoTopia');
+      fs.mkdirSync(child, { recursive: true });
+      fs.mkdirSync(path.join(home, '.gstack', 'slug-cache'), { recursive: true });
+
+      Bun.spawnSync(['git', 'init', '-q'], { cwd: outer });
+      Bun.spawnSync(['git', 'remote', 'add', 'origin', 'git@github.com:me/workspace.git'], { cwd: outer });
+
+      const cacheKey = fs.realpathSync(child).replaceAll('/', '_');
+      fs.writeFileSync(path.join(home, '.gstack', 'slug-cache', cacheKey), 'me-workspace');
+
+      const result = Bun.spawnSync([SLUG_BIN], {
+        cwd: child,
+        env: { ...process.env, HOME: home },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toContain('SLUG=IoTopia');
+      expect(fs.readFileSync(path.join(home, '.gstack', 'slug-cache', cacheKey), 'utf-8')).toBe('IoTopia');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('.gstack-slug override beats git inference and stale cache', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-slug-override-'));
+    try {
+      const home = path.join(tmp, 'home');
+      const project = path.join(tmp, 'project');
+      const nested = path.join(project, 'wp-content', 'themes', 'theme');
+      fs.mkdirSync(nested, { recursive: true });
+      fs.mkdirSync(path.join(home, '.gstack', 'slug-cache'), { recursive: true });
+      fs.writeFileSync(path.join(project, '.gstack-slug'), 'canonical-project');
+
+      Bun.spawnSync(['git', 'init', '-q'], { cwd: nested });
+      Bun.spawnSync(['git', 'remote', 'add', 'origin', 'git@github.com:org/theme.git'], { cwd: nested });
+
+      const cacheKey = fs.realpathSync(nested).replaceAll('/', '_');
+      fs.writeFileSync(path.join(home, '.gstack', 'slug-cache', cacheKey), 'org-theme');
+
+      const result = Bun.spawnSync([SLUG_BIN], {
+        cwd: nested,
+        env: { ...process.env, HOME: home },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toContain('SLUG=canonical-project');
+      expect(fs.readFileSync(path.join(home, '.gstack', 'slug-cache', cacheKey), 'utf-8')).toBe('canonical-project');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   test('eval sets variables under bash with set -euo pipefail', () => {
     const result = Bun.spawnSync(
       ['bash', '-c', 'set -euo pipefail; eval "$(./bin/gstack-slug 2>/dev/null)"; echo "SLUG=$SLUG"; echo "BRANCH=$BRANCH"'],
