@@ -307,34 +307,33 @@ Decision captured in `docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md`:
 
 Next implementation work should wait until the descriptor API/change is explicitly approved.
 
-### Next Chunk 1 — safe command guard design
+### Completed strategy chunk — safe command guard design
 
-Goal: design and implement a real guard for non-destructive write automation before exposing write-capable QA fix in Pi.
+Goal: design a real guard for non-destructive write automation before exposing write-capable QA fix in Pi.
 
-Requirements:
+Decision captured in `docs/designs/PI_FACTORY_SAFE_COMMAND_GUARD_DESIGN.md`:
 
-- Block destructive shell/git patterns by enforcement, not prompt prose.
-- Cover at minimum:
-  - `rm -rf`;
-  - `git reset --hard`;
-  - `git clean`;
-  - force pushes/tags;
-  - publish/deploy commands;
-  - credential/env dumping.
-- Decide where enforcement lives:
-  - Pi tool guard;
-  - runtime wrapper;
-  - command adapter;
-  - future SDK capability.
-- Add negative regression tests proving denial happens at runtime/tool boundary.
+- implement a pure deny-first classifier;
+- wrap action-backed command execution outside core;
+- fail closed on unknown high-risk commands and parser ambiguity;
+- require `safe-command-guard` capability attestation before `qa-fix` can run;
+- keep `/factory-qa-fix` hidden until runtime wrapper and negative tests pass.
 
-### Next Chunk 2 — project/web wrapper API design
+Next implementation work:
+
+- add `lib/factory-command-guard.ts` pure classifier and unit tests;
+- add guarded command execution to the runtime/host adapter;
+- advertise `safe-command-guard` only when all command/file-write pathways are wrapped;
+- add denial audit artifacts/events;
+- only then expose `/factory-qa-fix`.
+
+### Next Chunk 1 — project/web wrapper API design
 
 Goal: design project/workspace DTOs around the run-scoped facade when web implementation is approved.
 
 Do this only after designer feedback and stack/location approval.
 
-### Next Chunk 3 — Pi distribution/package path
+### Next Chunk 2 — Pi distribution/package path
 
 Goal: design how gstack's Pi extension and generated skills are packaged for non-dev users.
 
