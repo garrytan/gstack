@@ -5,8 +5,24 @@
  */
 
 import { describe, test } from 'bun:test';
-import { runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
+import {
+  ceoStep0Boundary,
+  runPlanSkillFloorCheck,
+  type AskUserQuestionFingerprint,
+} from './helpers/claude-pty-runner';
 import { FORCING_FLOOR_CEO } from './fixtures/forcing-finding-seeds';
+
+function pickSkipInterview(fp: AskUserQuestionFingerprint): number {
+  const skipOpt = fp.options.find((o) =>
+    /skip\s+interview|plan\s+immediately/i.test(o.label),
+  );
+  if (skipOpt) return skipOpt.index;
+  const inlineOpt = fp.options.find((o) =>
+    /describe.*inline|inline.*idea/i.test(o.label),
+  );
+  if (inlineOpt) return inlineOpt.index;
+  return 1;
+}
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
 const describeE2E = shouldRun ? describe : describe.skip;
@@ -19,6 +35,8 @@ describeE2E('/plan-ceo-review AskUserQuestion floor (gate)', () => {
         skillName: 'plan-ceo-review',
         slashCommand: '/plan-ceo-review',
         followUpPrompt: FORCING_FLOOR_CEO,
+        isLastStep0AUQ: ceoStep0Boundary,
+        firstAUQPick: pickSkipInterview,
         cwd: process.cwd(),
         timeoutMs: 600_000,
         env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

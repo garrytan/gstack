@@ -41,6 +41,13 @@ describe('Writing Style preamble section', () => {
     expect(out).toContain('EXPLAIN_LEVEL:');
   });
 
+  test('EXPLAIN_LEVEL env overrides gstack-config in generated bash', () => {
+    const out = generatePreamble(makeCtx('claude', 2));
+    expect(out).toContain('_EXPLAIN_LEVEL="${EXPLAIN_LEVEL:-$(');
+    expect(out).toContain('gstack-config get explain_level');
+    expect(out).toContain('if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi');
+  });
+
   test('tier 2+ preamble includes the compact writing-style contract', () => {
     const out = generatePreamble(makeCtx('claude', 2));
     expect(out).toMatch(/gloss.*first use|first-use.*gloss/i);

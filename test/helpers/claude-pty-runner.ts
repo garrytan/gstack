@@ -573,6 +573,55 @@ export function classifyVisible(
   return null;
 }
 
+export type PlanSkillFloorSignal =
+  | { outcome: 'auto_decided' | 'plan_ready' | 'silent_write'; summary: string }
+  | { outcome: 'permission_dialog' | 'numbered_option'; summary: string };
+
+/**
+ * Cheap, pure classifier for runPlanSkillFloorCheck's polling loop.
+ * Terminal signals intentionally beat generic numbered-list detection because
+ * Claude's native plan-ready confirmation renders as a numbered list too.
+ */
+export function classifyPlanSkillFloorSignal(visible: string): PlanSkillFloorSignal | null {
+  if (isAutoDecidedVisible(visible)) {
+    return {
+      outcome: 'auto_decided',
+      summary: 'skill auto-decided before any review-phase AskUserQuestion',
+    };
+  }
+  if (isPlanReadyVisible(visible)) {
+    return {
+      outcome: 'plan_ready',
+      summary: 'agent reached plan_ready without firing a review-phase AskUserQuestion',
+    };
+  }
+
+  const writeRe = /⏺\s*(?:Write|Edit)\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = writeRe.exec(visible)) !== null) {
+    const target = m[1] ?? '';
+    const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
+    if (!sanctioned && !isNumberedOptionListVisible(visible)) {
+      return {
+        outcome: 'silent_write',
+        summary: `Write/Edit to ${target} fired before any review-phase AskUserQuestion`,
+      };
+    }
+  }
+
+  if (!isNumberedOptionListVisible(visible)) return null;
+  if (isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))) {
+    return {
+      outcome: 'permission_dialog',
+      summary: 'permission dialog rendered; not a skill AskUserQuestion',
+    };
+  }
+  return {
+    outcome: 'numbered_option',
+    summary: 'non-permission numbered-option list rendered',
+  };
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Per-finding AskUserQuestion count primitives (used by runPlanSkillCounting).
 //
@@ -709,6 +758,27 @@ export function auqFingerprint(
   const sig = optionsSignature(opts);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (Bun as any).hash(normalized + '||' + sig).toString(16);
+}
+
+export function parseFreshAskUserQuestion(
+  visible: string,
+  seen: ReadonlySet<string>,
+  observedAtMs: number,
+  preReview: boolean,
+): AskUserQuestionFingerprint | null {
+  const options = parseNumberedOptions(visible);
+  if (options.length < 2) return null;
+  const promptSnippet = parseQuestionPrompt(visible);
+  if (promptSnippet === '') return null;
+  const fingerprintHash = auqFingerprint(promptSnippet, options);
+  if (seen.has(fingerprintHash)) return null;
+  return {
+    signature: fingerprintHash,
+    promptSnippet,
+    options,
+    observedAtMs,
+    preReview,
+  };
 }
 
 /**
@@ -1111,10 +1181,19 @@ export interface PlanSkillObservation {
    *                     "Ready to execute" confirmation
    *  - 'silent_write' — a Write/Edit landed BEFORE any prompt, to a path
    *                     outside the sanctioned plan/project directories
+   *  - 'wrote_findings_before_asking' — strict plan-write mode detected a
+   *                     .claude/plans write before any AUQ render
    *  - 'exited'       — claude process died before any of the above
    *  - 'timeout'      — none of the above within budget
    */
-  outcome: 'asked' | 'auto_decided' | 'plan_ready' | 'silent_write' | 'exited' | 'timeout';
+  outcome:
+    | 'asked'
+    | 'auto_decided'
+    | 'plan_ready'
+    | 'silent_write'
+    | 'wrote_findings_before_asking'
+    | 'exited'
+    | 'timeout';
   /** Human-readable summary. */
   summary: string;
   /** Visible terminal text since the slash command was sent (last 2KB). */
@@ -1142,7 +1221,7 @@ export interface PlanSkillObservation {
  *     plan-design-review on a no-UI branch) legitimately reach plan_ready
  *     without firing AskUserQuestion because they short-circuit.
  *
- * FAIL: 'silent_write' or 'exited' or 'timeout'.
+ * FAIL: 'silent_write', 'wrote_findings_before_asking', 'exited', or 'timeout'.
  *
  * This replaces the SDK-based runPlanModeSkillTest which never worked
  * because plan mode renders its native confirmation as TTY UI, not via
@@ -1567,11 +1646,11 @@ export async function runPlanSkillCounting(opts: {
 // reliability.
 //
 // Contract:
-//   - PASS  → outcome === 'auq_observed' (agent rendered any non-permission
-//             numbered-option list; we exit immediately and report success)
-//   - FAIL  → outcome === 'plan_ready' | 'completion_summary' | 'silent_write'
-//             (agent reached a terminal state without ever firing an AUQ —
-//             this IS the transcript bug)
+//   - PASS  → outcome === 'auq_observed' (agent rendered a review-phase
+//             numbered-option list after Step 0; we exit immediately)
+//   - FAIL  → outcome === 'plan_ready' | 'auto_decided' | 'silent_write'
+//             (agent reached a terminal/shortcut state without firing a
+//             review-phase AUQ — this IS the transcript bug)
 //   - SOFT  → outcome === 'timeout' (neither happened in budget; agent may
 //             just be slow — test should retry with a larger budget rather
 //             than treat as a hard regression)
@@ -1582,6 +1661,7 @@ export interface PlanSkillFloorObservation {
   auqObserved: boolean;
   outcome:
     | 'auq_observed'
+    | 'auto_decided'
     | 'plan_ready'
     | 'silent_write'
     | 'exited'
@@ -1594,8 +1674,9 @@ export interface PlanSkillFloorObservation {
 }
 
 /**
- * Drive a plan-* skill in plan mode and exit at the first non-permission
- * numbered-option render. See block comment above for the contract.
+ * Drive a plan-* skill in plan mode, answer Step-0 prompts, and exit at the
+ * first review-phase AskUserQuestion render. See block comment above for the
+ * contract.
  */
 export async function runPlanSkillFloorCheck(opts: {
   /** Skill name, e.g. 'plan-eng-review'. Used for diagnostic strings only. */
@@ -1604,6 +1685,12 @@ export async function runPlanSkillFloorCheck(opts: {
   slashCommand: string;
   /** Plan content sent as a follow-up message ~3s after the slash command. */
   followUpPrompt: string;
+  /** Per-skill predicate: which answered AUQ is the last Step-0 question. */
+  isLastStep0AUQ: Step0BoundaryPredicate;
+  /** Numbered option to press by default. Defaults to 1 (recommended). */
+  defaultPick?: number;
+  /** Optional override for the first AUQ observed; used for CEO scope routing. */
+  firstAUQPick?: (fp: AskUserQuestionFingerprint) => number;
   /** Working directory. Default process.cwd(). */
   cwd?: string;
   /** Total budget. Default 600000 (10 min). Tests exit early on AUQ. */
@@ -1613,6 +1700,7 @@ export async function runPlanSkillFloorCheck(opts: {
 }): Promise<PlanSkillFloorObservation> {
   const startedAt = Date.now();
   const timeoutMs = opts.timeoutMs ?? 600_000;
+  const defaultPick = opts.defaultPick ?? 1;
 
   const session = await launchClaudePty({
     permissionMode: 'plan',
@@ -1620,6 +1708,29 @@ export async function runPlanSkillFloorCheck(opts: {
     timeoutMs: timeoutMs + 60_000,
     env: opts.env,
   });
+
+  const seen = new Set<string>();
+  let boundaryFired = false;
+  let step0Count = 0;
+  let reviewCount = 0;
+  let isFirstAUQ = true;
+  let lastSig = '';
+  let reviewSince: number | null = null;
+
+  function snapshot(
+    outcome: PlanSkillFloorObservation['outcome'],
+    auqObserved: boolean,
+    summary: string,
+    visible: string,
+  ): PlanSkillFloorObservation {
+    return {
+      auqObserved,
+      outcome,
+      summary,
+      evidence: visible.slice(-3000),
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
 
   try {
     await Bun.sleep(8000); // boot grace + auto-trust handler window
@@ -1631,85 +1742,91 @@ export async function runPlanSkillFloorCheck(opts: {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       await Bun.sleep(2000);
-      const visible = session.visibleSince(since);
+      const fullVisible = session.visibleSince(since);
+      const visible = reviewSince === null ? fullVisible : session.visibleSince(reviewSince);
 
       if (session.exited()) {
-        return {
-          auqObserved: false,
-          outcome: 'exited',
-          summary: `claude exited (code=${session.exitCode()}) before any AUQ render`,
-          evidence: visible.slice(-3000),
-          elapsedMs: Date.now() - startedAt,
-        };
+        return snapshot(
+          'exited',
+          false,
+          `claude exited (code=${session.exitCode()}) before any review-phase AUQ render (step0=${step0Count}, review=${reviewCount})`,
+          fullVisible,
+        );
       }
-      if (visible.includes('Unknown command:')) {
-        return {
-          auqObserved: false,
-          outcome: 'exited',
-          summary: `claude rejected ${opts.slashCommand} as unknown command`,
-          evidence: visible.slice(-3000),
-          elapsedMs: Date.now() - startedAt,
-        };
+      if (fullVisible.includes('Unknown command:')) {
+        return snapshot(
+          'exited',
+          false,
+          `claude rejected ${opts.slashCommand} as unknown command`,
+          fullVisible,
+        );
       }
 
-      // Success: ANY non-permission numbered-option list is an AUQ render.
-      // The bug we're catching is "fired zero AUQs," so observing one is
-      // sufficient — we don't need to fingerprint or navigate past it.
+      const signal = classifyPlanSkillFloorSignal(visible);
+      if (!signal) continue;
       if (
-        isNumberedOptionListVisible(visible) &&
-        !isPermissionDialogVisible(visible.slice(-TAIL_SCAN_BYTES))
+        signal.outcome === 'auto_decided' ||
+        signal.outcome === 'plan_ready' ||
+        signal.outcome === 'silent_write'
       ) {
-        return {
-          auqObserved: true,
-          outcome: 'auq_observed',
-          summary: 'agent rendered an AskUserQuestion (floor met)',
-          evidence: visible.slice(-3000),
-          elapsedMs: Date.now() - startedAt,
-        };
+        return snapshot(
+          signal.outcome,
+          false,
+          `${signal.summary} (step0=${step0Count}, review=${reviewCount})`,
+          fullVisible,
+        );
       }
 
-      // Silent write outside sanctioned dirs is the transcript-bug shape.
-      const writeRe = /⏺\s*(?:Write|Edit)\(([^)]+)\)/g;
-      let m: RegExpExecArray | null;
-      while ((m = writeRe.exec(visible)) !== null) {
-        const target = m[1] ?? '';
-        const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
-        if (!sanctioned && !isNumberedOptionListVisible(visible)) {
-          return {
-            auqObserved: false,
-            outcome: 'silent_write',
-            summary: `Write/Edit to ${target} fired before any AskUserQuestion`,
-            evidence: visible.slice(-3000),
-            elapsedMs: Date.now() - startedAt,
-          };
-        }
+      // Permission dialog? Auto-grant with defaultPick. Only act on recent
+      // tail so stale permission scrollback does not mask later skill AUQs.
+      if (signal.outcome === 'permission_dialog') {
+        session.send(`${defaultPick}\r`);
+        await Bun.sleep(1500);
+        continue;
       }
 
-      // Reached terminal without AUQ → transcript-bug regression.
-      // Note: COMPLETION_SUMMARY_RE is intentionally NOT checked here — it
-      // matches "GSTACK REVIEW REPORT" anywhere in the buffer, including
-      // when the agent does recon by reading existing plan files (which
-      // contain that string as a generated section). The plan_ready check
-      // (claude's actual "Ready to execute" confirmation) is the reliable
-      // terminal signal for "agent finished without asking."
-      if (isPlanReadyVisible(visible)) {
-        return {
-          auqObserved: false,
-          outcome: 'plan_ready',
-          summary: 'agent reached plan_ready without firing any AskUserQuestion',
-          evidence: visible.slice(-3000),
-          elapsedMs: Date.now() - startedAt,
-        };
+      if (boundaryFired) {
+        const fp = parseFreshAskUserQuestion(visible, seen, Date.now() - startedAt, false);
+        if (!fp) continue;
+        seen.add(fp.signature);
+        reviewCount += 1;
+        return snapshot(
+          'auq_observed',
+          true,
+          `agent rendered a review-phase AskUserQuestion (floor met; step0=${step0Count}, review=${reviewCount})`,
+          fullVisible,
+        );
       }
+
+      // Before the boundary, fingerprint Step-0 AUQs so the helper can answer
+      // them and only pass after the review phase begins.
+      const fp = parseFreshAskUserQuestion(visible, seen, Date.now() - startedAt, true);
+      if (!fp) continue;
+      const sig = optionsSignature(fp.options);
+      if (sig === lastSig) continue;
+      lastSig = sig;
+      seen.add(fp.signature);
+      step0Count += 1;
+
+      const pickIdx = isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(fp) : defaultPick;
+      isFirstAUQ = false;
+      session.send(`${pickIdx}\r`);
+
+      if (opts.isLastStep0AUQ(fp)) {
+        boundaryFired = true;
+        reviewSince = session.mark();
+        lastSig = '';
+      }
+
+      await Bun.sleep(2000);
     }
 
-    return {
-      auqObserved: false,
-      outcome: 'timeout',
-      summary: `no AUQ render and no terminal outcome within ${timeoutMs}ms`,
-      evidence: session.visibleSince(since).slice(-3000),
-      elapsedMs: Date.now() - startedAt,
-    };
+    return snapshot(
+      'timeout',
+      false,
+      `no review-phase AUQ render and no terminal outcome within ${timeoutMs}ms (step0=${step0Count}, review=${reviewCount})`,
+      session.visibleSince(since),
+    );
   } finally {
     await session.close();
   }

@@ -5,7 +5,7 @@
  */
 
 import { describe, test } from 'bun:test';
-import { runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
+import { designStep0Boundary, runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
 import { FORCING_FLOOR_DESIGN } from './fixtures/forcing-finding-seeds';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
@@ -19,6 +19,7 @@ describeE2E('/plan-design-review AskUserQuestion floor (gate)', () => {
         skillName: 'plan-design-review',
         slashCommand: '/plan-design-review',
         followUpPrompt: FORCING_FLOOR_DESIGN,
+        isLastStep0AUQ: designStep0Boundary,
         cwd: process.cwd(),
         timeoutMs: 600_000,
         env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },

@@ -476,6 +476,8 @@ describe('preamble — QUESTION_TUNING injection', () => {
     };
     const out = generatePreamble(ctx);
     expect(out).toContain('QUESTION_TUNING: $_QUESTION_TUNING');
+    expect(out).toContain('_QUESTION_TUNING="${QUESTION_TUNING:-$(');
+    expect(out).toContain('if [ "$_QUESTION_TUNING" != "true" ] && [ "$_QUESTION_TUNING" != "false" ]; then _QUESTION_TUNING="false"; fi');
     expect(out).toContain('## Question Tuning');
     expect(out).toContain('gstack-question-preference --check');
     expect(out).toContain('gstack-question-log');

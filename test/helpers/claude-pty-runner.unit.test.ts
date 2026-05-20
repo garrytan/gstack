@@ -29,10 +29,12 @@ import {
   isPlanReadyVisible,
   parseNumberedOptions,
   classifyVisible,
+  classifyPlanSkillFloorSignal,
   TAIL_SCAN_BYTES,
   optionsSignature,
   parseQuestionPrompt,
   auqFingerprint,
+  parseFreshAskUserQuestion,
   COMPLETION_SUMMARY_RE,
   assertReviewReportAtBottom,
   ceoStep0Boundary,
@@ -369,6 +371,41 @@ describe('classifyVisible (runtime path through the runner classifier)', () => {
   });
 });
 
+describe('classifyPlanSkillFloorSignal', () => {
+  test('plan-ready numbered prompt is terminal, not AUQ success', () => {
+    const visible = `
+      Ready to execute the plan?
+
+      ❯ 1. Yes, proceed
+        2. No, keep planning
+    `;
+    const result = classifyPlanSkillFloorSignal(visible);
+    expect(result?.outcome).toBe('plan_ready');
+  });
+
+  test('permission numbered prompt is not treated as a skill AUQ', () => {
+    const visible = `
+      Bash command \`gstack-config get question_tuning\` requires permission to run.
+
+      ❯ 1. Yes
+        2. No
+    `;
+    const result = classifyPlanSkillFloorSignal(visible);
+    expect(result?.outcome).toBe('permission_dialog');
+  });
+
+  test('skill numbered prompt remains an AUQ candidate after terminal filters', () => {
+    const visible = `
+      Should this surfaced review finding be added to the plan?
+
+      ❯ 1. Add to plan
+        2. Defer
+    `;
+    const result = classifyPlanSkillFloorSignal(visible);
+    expect(result?.outcome).toBe('numbered_option');
+  });
+});
+
 describe('parseNumberedOptions', () => {
   test('extracts options from a clean cursor list', () => {
     const visible = `
@@ -621,6 +658,42 @@ describe('auqFingerprint', () => {
     // AUQs and re-poll instead.
     const opts = [{ index: 1, label: 'A' }];
     expect(auqFingerprint('', opts)).toBe(auqFingerprint('', opts));
+  });
+});
+
+describe('parseFreshAskUserQuestion', () => {
+  test('returns null for stale already-seen Step-0 scrollback', () => {
+    const visible = `
+      Choose the plan review mode.
+
+      ❯ 1. HOLD SCOPE
+        2. SCOPE EXPANSION
+    `;
+    const first = parseFreshAskUserQuestion(visible, new Set(), 10, true);
+    expect(first).not.toBeNull();
+    const seen = new Set<string>([first!.signature]);
+    expect(parseFreshAskUserQuestion(visible, seen, 20, false)).toBeNull();
+  });
+
+  test('returns a new fingerprint for a fresh post-boundary review AUQ', () => {
+    const step0 = `
+      Choose the plan review mode.
+
+      ❯ 1. HOLD SCOPE
+        2. SCOPE EXPANSION
+    `;
+    const first = parseFreshAskUserQuestion(step0, new Set(), 10, true)!;
+    const seen = new Set<string>([first.signature]);
+    const review = `
+      Should this uncovered test gap be added to the plan?
+
+      ❯ 1. Add to plan
+        2. Defer
+    `;
+    const next = parseFreshAskUserQuestion(review, seen, 20, false);
+    expect(next).not.toBeNull();
+    expect(next?.preReview).toBe(false);
+    expect(next?.signature).not.toBe(first.signature);
   });
 });
 

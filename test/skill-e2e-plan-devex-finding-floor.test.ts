@@ -5,7 +5,7 @@
  */
 
 import { describe, test } from 'bun:test';
-import { runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
+import { devexStep0Boundary, runPlanSkillFloorCheck } from './helpers/claude-pty-runner';
 import { FORCING_FLOOR_DEVEX } from './fixtures/forcing-finding-seeds';
 
 const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
@@ -19,6 +19,7 @@ describeE2E('/plan-devex-review AskUserQuestion floor (gate)', () => {
         skillName: 'plan-devex-review',
         slashCommand: '/plan-devex-review',
         followUpPrompt: FORCING_FLOOR_DEVEX,
+        isLastStep0AUQ: devexStep0Boundary,
         cwd: process.cwd(),
         timeoutMs: 600_000,
         env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
