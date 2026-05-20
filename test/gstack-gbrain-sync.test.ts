@@ -837,4 +837,40 @@ describe("sourceLocalPath", () => {
     });
     expect(sourceLocalPath("any-id", envWithBindir(bindir))).toBeNull();
   });
+
+  // Regression: gbrain v0.30+ wraps the list as {"sources":[...]} instead of
+  // returning a bare array. The previous implementation crashed with
+  // `list.find is not a function` on every current gbrain install, which
+  // broke `runCodeImport`'s hostname-fold migration on first sync after
+  // upgrading to gstack v1.40 + gbrain v0.30+. Both shapes must work to
+  // keep the compat window intact.
+  it("returns local_path when gbrain wraps the list as {sources: [...]} (v0.30+ shape)", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({
+          sources: [
+            { id: "other-source", local_path: "/x" },
+            { id: "target-id", local_path: "/repo/wrapped" },
+          ],
+        }),
+      },
+    });
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/wrapped");
+  });
+
+  it("returns null when the wrapped {sources: [...]} shape has no matching id", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({ sources: [{ id: "other", local_path: "/x" }] }),
+      },
+    });
+    expect(sourceLocalPath("missing-id", envWithBindir(bindir))).toBeNull();
+  });
+
+  it("treats {sources: undefined} the same as an empty list", () => {
+    makeShim(bindir, {
+      "sources list --json": { stdout: JSON.stringify({}) },
+    });
+    expect(sourceLocalPath("any-id", envWithBindir(bindir))).toBeNull();
+  });
 });
