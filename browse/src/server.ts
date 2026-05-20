@@ -583,6 +583,39 @@ async function flushBuffers() {
 // Flush every 1 second
 const flushInterval = setInterval(flushBuffers, 1000);
 
+// ─── Last-Shutdown Recording ───────────────────────────────────
+// Write a postmortem JSON before exit so the user can tell why the server
+// died. Overwritten each shutdown — most recent reason wins. Specific
+// callers (idle-timeout, parent-exit, signal handlers, browser-disconnect)
+// record their reason BEFORE calling activeShutdown; the shutdown()
+// function itself records 'shutdown-called' as a fallback so every exit
+// path leaves a trail.
+let shutdownReasonRecorded = false;
+function recordShutdownReason(reason: string, detail: Record<string, any> = {}) {
+  try {
+    const stateDir = path.dirname(config.stateFile);
+    const outPath = path.join(stateDir, 'last-shutdown.json');
+    const payload = {
+      ts: new Date().toISOString(),
+      pid: process.pid,
+      reason,
+      mode: browserManager.getConnectionMode(),
+      uptimeSeconds: Math.round(process.uptime()),
+      detail,
+    };
+    // Atomic write: two browse instances writing to the same state dir
+    // can otherwise interleave JSON bytes and leave a corrupt file.
+    // tmp-then-rename is the standard POSIX pattern.
+    const tmpPath = `${outPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+    fs.renameSync(tmpPath, outPath);
+    shutdownReasonRecorded = true;
+    console.log(`[browse] Shutdown reason recorded: ${reason}`);
+  } catch (err: any) {
+    console.warn('[browse] Failed to record shutdown reason:', err?.message);
+  }
+}
+
 // ─── Idle Timer ────────────────────────────────────────────────
 let lastActivity = Date.now();
 
@@ -598,6 +631,7 @@ const idleCheckInterval = setInterval(() => {
   if (tunnelActive) return;
   if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
     console.log(`[browse] Idle for ${IDLE_TIMEOUT_MS / 1000}s, shutting down`);
+    recordShutdownReason('idle-timeout', { idleSeconds: Math.round((Date.now() - lastActivity) / 1000) });
     activeShutdown?.();
   }
 }, 60_000);
@@ -641,6 +675,7 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
       const headed = browserManager.getConnectionMode() === 'headed';
       if (headed || tunnelActive) {
         console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+        recordShutdownReason('parent-exit', { parentPid: BROWSE_PARENT_PID, mode: headed ? 'headed' : 'tunnel' });
         activeShutdown?.();
       } else if (!parentGone) {
         parentGone = true;
@@ -678,10 +713,21 @@ function emitInspectorEvent(event: any): void {
 
 // ─── Server ────────────────────────────────────────────────────
 const browserManager = new BrowserManager();
-// When the user closes the headed browser window, run full cleanup
-// (kill sidebar-agent, save session, remove profile locks, delete state file)
-// before exiting with code 2. Exit code 2 distinguishes user-close from crashes (1).
-browserManager.onDisconnect = () => activeShutdown?.(2);
+// Exit-code semantics (passed by browser-manager.ts via classifyDisconnect
+// for the Chromium 'disconnected' paths, or unset for the headed-mode
+// page-close chain that uses the existing user-close convention):
+//   0 — clean drain (Chromium quit after last tab closed)
+//   1 — real crash (Chromium died with pages still live, preserves the
+//                   legacy FATAL exit convention)
+//   2 — user-explicit close from the page-close chain (default when no
+//       exit code is passed)
+// activeShutdown runs the same full cleanup (kill sidebar-agent, save
+// session, remove profile locks, delete state file) regardless.
+browserManager.onDisconnect = (reason?: string, exitCode?: 0 | 1 | 2) => {
+  const code = exitCode ?? 2;
+  recordShutdownReason(reason || 'browser-disconnect', { exitCode: code });
+  return activeShutdown?.(code);
+};
 let isShuttingDown = false;
 
 // Test if a port is available by binding and immediately releasing.
@@ -1164,7 +1210,10 @@ async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<R
 // fighting with gstack's. CLI path is unchanged.
 if (import.meta.main) {
   // SIGINT (Ctrl+C): user intentionally stopping → shutdown.
-  process.on('SIGINT', () => activeShutdown?.());
+  process.on('SIGINT', () => {
+    recordShutdownReason('signal', { signal: 'SIGINT' });
+    activeShutdown?.();
+  });
   // SIGTERM behavior depends on mode:
   // - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
   //   parent shell exits between tool invocations. Ignoring it keeps the server
@@ -1182,6 +1231,7 @@ if (import.meta.main) {
     const headed = browserManager.getConnectionMode() === 'headed';
     if (headed || tunnelActive) {
       console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+      recordShutdownReason('signal', { signal: 'SIGTERM', mode: headed ? 'headed' : 'tunnel' });
       activeShutdown?.();
     } else {
       console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
@@ -1312,6 +1362,16 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   async function shutdown(exitCode: number = 0) {
     if (isShuttingDown) return;
     isShuttingDown = true;
+
+    // Fallback diagnostics: if no caller recorded a reason yet (e.g. /stop,
+    // explicit $B disconnect, or a future code path we forgot to wire),
+    // log something rather than exiting silently. Specific callers
+    // (idle-timeout, parent-exit, signal handlers, browser-disconnect)
+    // record their own more-specific reason BEFORE calling activeShutdown,
+    // and recordShutdownReason overwrites by design — most recent wins.
+    if (!shutdownReasonRecorded) {
+      recordShutdownReason('shutdown-called', { exitCode });
+    }
 
     console.log('[browse] Shutting down...');
     if (ownsTerminalAgent) {

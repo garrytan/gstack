@@ -241,10 +241,32 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
     // macOS/Linux: Bun.spawn + unref works correctly
+    // Pipe server stdout/stderr to an append log so output survives after
+    // this CLI exits. Without this, proc.unref() leaves the server writing
+    // to FDs that nothing reads — every console.log/error from the
+    // detached server is lost, and post-mortem debugging is impossible.
+    const stateDir = path.dirname(config.stateFile);
+    const logPath = path.join(stateDir, 'browse-server.log');
+    let logFd: number = -1;
+    try {
+      fs.mkdirSync(stateDir, { recursive: true });
+      logFd = fs.openSync(logPath, 'a');
+      fs.writeSync(logFd, `\n=== ${new Date().toISOString()} CLI pid=${process.pid} parentPid=${parentPid} ===\n`);
+    } catch (err: any) {
+      console.warn(`[browse] Could not open server log ${logPath}: ${err?.message}`);
+    }
+    // Tee strategy: when we have a logFd, point the child's stdio at the
+    // file so output survives after this CLI exits. Otherwise fall back
+    // to 'pipe' so the startup-failure path below can still read stderr
+    // via proc.stderr.getReader().
     proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', logFd >= 0 ? logFd : 'pipe', logFd >= 0 ? logFd : 'pipe'],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
     });
+    // Stash the log path for the startup-failure path (proc.stderr is not a
+    // pipe when stdio was redirected to a file fd, so getReader() would
+    // throw — read the tail of the log file instead).
+    if (logFd >= 0) (proc as any).__logPath = logPath;
     proc.unref();
   }
 
@@ -261,8 +283,31 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   }
 
   // Server didn't start in time — try to get error details
-  if (proc?.stderr) {
-    // macOS/Linux: read stderr from the spawned process
+  const teeLogPath = (proc as any)?.__logPath as string | undefined;
+  if (teeLogPath) {
+    // stderr was redirected to a file fd (tee mode) — read the LAST 64KB
+    // of the log file for diagnostics. Avoid readFileSync on a file that
+    // can grow across many failed-startup runs (the file is opened in
+    // append mode and never rotated by this code path). proc.stderr.getReader()
+    // would also throw here because there's no pipe attached.
+    let fd: number | undefined;
+    try {
+      const stat = fs.statSync(teeLogPath);
+      const TAIL_BYTES = 64 * 1024;
+      const start = Math.max(0, stat.size - TAIL_BYTES);
+      const length = stat.size - start;
+      const buf = Buffer.alloc(length);
+      fd = fs.openSync(teeLogPath, 'r');
+      fs.readSync(fd, buf, 0, length, start);
+      const tail = buf.toString('utf-8').split('\n').slice(-30).join('\n').trim();
+      if (tail) throw new Error(`Server failed to start (last 30 lines of ${teeLogPath}):\n${tail}`);
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') throw e;
+    } finally {
+      if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    }
+  } else if (proc?.stderr && typeof proc.stderr.getReader === 'function') {
+    // macOS/Linux without tee: read stderr from the spawned process
     const reader = proc.stderr.getReader();
     const { value } = await reader.read();
     if (value) {

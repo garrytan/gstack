@@ -40,6 +40,40 @@ export function isCustomChromium(): boolean {
   return p.includes('GBrowser') || p.includes('gbrowser');
 }
 
+/**
+ * Classify a Chromium `disconnected` event as a clean drain (the user just
+ * closed the last tab, Chromium had nothing left to display) vs a real crash.
+ *
+ * Before this distinction existed, every disconnect — including the totally
+ * benign "user closed last tab" path — printed `FATAL: Chromium process
+ * crashed` and `process.exit(1)`, which killed the sidebar-agent and any
+ * in-flight PTY work. The smoking gun in the postmortem log was the pair:
+ *
+ *   [browse] Tab closed (id=N, remaining=0)
+ *   [browse] FATAL: Chromium process crashed or was killed.
+ *
+ * Same event, two stories. After: `pages.size === 0` means the disconnect
+ * is the natural consequence of the close, exit 0, no FATAL. Pages still
+ * live means real crash, exit 1 — the original behavior, preserved.
+ *
+ * Pure function on purpose: unit-testable without spinning up Chromium.
+ */
+export type DisconnectKind = 'clean-drain' | 'crash';
+export interface DisconnectClassification {
+  kind: DisconnectKind;
+  reason: string;
+  exitCode: 0 | 1;
+}
+export function classifyDisconnect(opts: {
+  pagesSize: number;
+  mode: 'launched' | 'rehead';
+}): DisconnectClassification {
+  if (opts.pagesSize === 0) {
+    return { kind: 'clean-drain', reason: `browser-empty-${opts.mode}`, exitCode: 0 };
+  }
+  return { kind: 'crash', reason: `chromium-crash-${opts.mode}`, exitCode: 1 };
+}
+
 export type { RefEntry };
 
 // Re-export TabSession for consumers
@@ -119,9 +153,17 @@ export class BrowserManager {
 
   // Called when the headed browser disconnects without intentional teardown
   // (user closed the window). Wired up by server.ts to run full cleanup
-  // (sidebar-agent, state file, profile locks) before exiting with code 2.
-  // Returns void or a Promise; rejections are caught and fall back to exit(2).
-  public onDisconnect: (() => void | Promise<void>) | null = null;
+  // (sidebar-agent, state file, profile locks) before exiting.
+  // Returns void or a Promise; rejections are caught and fall back to the
+  // passed exit code.
+  // Reason is a short tag describing why the disconnect fired; server.ts
+  // writes it into ~/.gstack/last-shutdown.json for post-mortem diagnostics.
+  // exitCode is the process exit code the caller should use after cleanup:
+  // 0 = clean drain (last tab closed, Chromium had nothing to display),
+  // 1 = real crash (Chromium died with pages still live),
+  // 2 = user-explicit close (existing convention from the page-close chain;
+  //     also the default when no exit code is specified).
+  public onDisconnect: ((reason?: string, exitCode?: 0 | 1 | 2) => void | Promise<void>) | null = null;
 
   getConnectionMode(): 'launched' | 'headed' { return this.connectionMode; }
 
@@ -246,11 +288,24 @@ export class BrowserManager {
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
     });
 
-    // Chromium crash → exit with clear message
+    // Chromium disconnect → classifyDisconnect (see top of file) splits the
+    // event into clean-drain (last tab closed, exit 0) vs real crash (exit 1).
     this.browser.on('disconnected', () => {
-      console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-      console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
-      process.exit(1);
+      const c = classifyDisconnect({ pagesSize: this.pages.size, mode: 'launched' });
+      if (c.kind === 'clean-drain') {
+        console.log('[browse] Chromium quit after last tab closed. Shutting down cleanly.');
+      } else {
+        console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
+        console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
+      }
+      try {
+        const result = this.onDisconnect?.(c.reason, c.exitCode);
+        if (result && typeof (result as Promise<void>).catch === 'function') {
+          (result as Promise<void>).catch(() => process.exit(c.exitCode));
+          return;
+        }
+      } catch {}
+      process.exit(c.exitCode);
     });
 
     const contextOptions: BrowserContextOptions = {
@@ -557,7 +612,7 @@ export class BrowserManager {
           return;
         }
         try {
-          const result = this.onDisconnect();
+          const result = this.onDisconnect('browser-disconnect');
           if (result && typeof (result as Promise<void>).catch === 'function') {
             (result as Promise<void>).catch((err) => {
               console.error('[browse] onDisconnect rejected:', err);
@@ -1336,8 +1391,20 @@ export class BrowserManager {
       if (this.browser) {
         this.browser.on('disconnected', () => {
           if (this.intentionalDisconnect) return;
-          console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-          process.exit(1);
+          const c = classifyDisconnect({ pagesSize: this.pages.size, mode: 'rehead' });
+          if (c.kind === 'clean-drain') {
+            console.log('[browse] Chromium quit after last tab closed. Shutting down cleanly.');
+          } else {
+            console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
+          }
+          try {
+            const result = this.onDisconnect?.(c.reason, c.exitCode);
+            if (result && typeof (result as Promise<void>).catch === 'function') {
+              (result as Promise<void>).catch(() => process.exit(c.exitCode));
+              return;
+            }
+          } catch {}
+          process.exit(c.exitCode);
         });
       }
 
