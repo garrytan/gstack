@@ -9,7 +9,7 @@
 # CI / container env where HOME may be unset.
 #
 # Chains:
-#   GSTACK_STATE_ROOT: GSTACK_HOME -> CLAUDE_PLUGIN_DATA -> $HOME/.gstack -> .gstack
+#   GSTACK_STATE_ROOT: GSTACK_HOME -> CLAUDE_PLUGIN_DATA (only when CLAUDE_PLUGIN_ROOT=*gstack*) -> $HOME/.gstack -> .gstack
 #   PLAN_ROOT:         GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
 #   TMP_ROOT:          TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
 #
@@ -21,7 +21,11 @@ set -u
 # State root: where gstack writes projects/, sessions/, analytics/.
 if [ -n "${GSTACK_HOME:-}" ]; then
   _state_root="$GSTACK_HOME"
-elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
+elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && echo "${CLAUDE_PLUGIN_ROOT:-}" | grep -qi "gstack"; then
+  # Guard: only trust CLAUDE_PLUGIN_DATA when CLAUDE_PLUGIN_ROOT confirms we are
+  # running as the gstack plugin. Without this, a CLAUDE_PLUGIN_DATA from another
+  # plugin (e.g. codex) that leaked into the session env via CLAUDE_ENV_FILE would
+  # be picked up, writing all gstack state into the wrong directory.
   _state_root="$CLAUDE_PLUGIN_DATA"
 elif [ -n "${HOME:-}" ]; then
   _state_root="$HOME/.gstack"

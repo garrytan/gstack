@@ -23,6 +23,7 @@ import * as Diff from 'diff';
 import { TEMP_DIR, isPathWithin } from './platform';
 import { escapeEnvelopeSentinels } from './content-security';
 import { stripLoneSurrogates } from './sanitize';
+import { guardScreenshotPath } from './screenshot-size-guard';
 
 // Roles considered "interactive" for the -i flag
 const INTERACTIVE_ROLES = new Set([
@@ -418,6 +419,7 @@ export async function handleSnapshot(
       }, boxes);
 
       await page.screenshot({ path: screenshotPath, fullPage: true });
+      await guardScreenshotPath(screenshotPath);
 
       // Always remove overlays
       await page.evaluate(() => {
@@ -538,6 +540,7 @@ export async function handleSnapshot(
       }, boxes);
 
       await page.screenshot({ path: heatmapPath, fullPage: true });
+      await guardScreenshotPath(heatmapPath);
 
       // Remove heatmap overlays
       await page.evaluate(() => {

@@ -287,13 +287,20 @@ function gbrainSupportsSourcesRename(env?: NodeJS.ProcessEnv): boolean {
  * `env` is the environment passed to the spawned `gbrain` process; defaults
  * to `process.env`. Tests inject a PATH that points at a gbrain shim so the
  * helper can be exercised without a real gbrain CLI.
+ *
+ * Shape note: `gbrain sources list --json` returns `{sources: [...]}` (v0.20+);
+ * older versions returned a flat array. Accept both for forward/backward compat
+ * (mirrors `probeSource`/`sourcePageCount` in lib/gbrain-sources.ts).
  */
 export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): string | null {
-  const list = execGbrainJson<Array<{ id: string; local_path?: string }>>(
+  const raw = execGbrainJson<unknown>(
     ["sources", "list", "--json"],
     { baseEnv: env },
   );
-  if (!list) return null;
+  if (!raw) return null;
+  const list: Array<{ id?: string; local_path?: string }> = Array.isArray(raw)
+    ? (raw as Array<{ id?: string; local_path?: string }>)
+    : ((raw as { sources?: Array<{ id?: string; local_path?: string }> }).sources ?? []);
   const found = list.find((s) => s.id === sourceId);
   return found?.local_path ?? null;
 }

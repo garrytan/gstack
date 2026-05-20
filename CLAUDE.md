@@ -236,6 +236,20 @@ Activity / Refs / Inspector as debug overlays behind the footer's
 flow, dual-token model, and threat-model boundary — silent failures
 here usually trace to not understanding the cross-component flow.
 
+**Embedder terminal-agent ownership** (v1.42.1.0+). `buildFetchHandler`
+in `browse/src/server.ts` accepts `ServerConfig.ownsTerminalAgent?:
+boolean` (default `true`). When `true`, factory shutdown runs the full
+teardown: `pkill -f terminal-agent\.ts` plus `safeUnlinkQuiet` on
+`<stateDir>/terminal-port` and `<stateDir>/terminal-internal-token`.
+Embedders (e.g. the gbrowser phoenix overlay) that pre-launch their
+own PTY server must pass `false` so their discovery files survive
+gstack teardown cycles. The flag is the third caller-owned teardown
+gate in `ServerConfig` (alongside `xvfb?` and `proxyBridge?`); polarity
+is inverted (explicit bool vs presence) and documented in the field's
+JSDoc. CLI `start()` always passes `true` explicitly — the static-grep
+test in `browse/test/server-embedder-terminal-port.test.ts` fails CI
+if a refactor drops it.
+
 **WebSocket auth uses Sec-WebSocket-Protocol, not cookies.** Browsers
 can't set `Authorization` on a WebSocket upgrade, but they CAN set
 `Sec-WebSocket-Protocol` via `new WebSocket(url, [token])`. The agent

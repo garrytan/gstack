@@ -1,5 +1,99 @@
 # TODOS
 
+## browse server: terminal-agent teardown follow-ups (filed v1.41 via /plan-eng-review)
+
+### P3: Identity-based terminal-agent kill (replace pkill regex with PID)
+
+**What:** Record the spawned terminal-agent PID at `browse/src/cli.ts:1057` and
+replace `pkill -f terminal-agent\.ts` at both `cli.ts:1047` and
+`server.ts:1281` (now inside the `if (ownsTerminalAgent)` gate) with
+`process.kill(pid, signal)` against the recorded PID.
+
+**Why:** `pkill -f terminal-agent\.ts` matches by command-line regex, so today
+it can kill ANY process whose argv contains `terminal-agent.ts` — sibling
+gstack sessions, editor processes that have the file open, a second gstack
+run on the same host. Latent footgun for the CLI path, not just embedders.
+
+**Pros:** Removes a real cross-session foot-cannon. PID-based kill is the
+correct identity primitive. Lets us tighten `pkill -f`'s broad-match warning
+in the new `ownsTerminalAgent` JSDoc to "historical" rather than "current".
+
+**Cons:** Requires threading the PID through the CLI-to-server state path
+(currently the parent server reads `terminal-port` to discover the agent; it
+would also need `terminal-agent-pid`). Touches `cli.ts`, `server.ts`, and
+`terminal-agent.ts` together — bigger surface than the v1.41 fix.
+
+**Context:** Surfaced by both Codex and Claude subagent during /autoplan
+review of the `ownsTerminalAgent` gate. Currently documented as out-of-scope
+in `browse/src/server.ts` JSDoc for `ServerConfig.ownsTerminalAgent`. The
+embedder fix (ownsTerminalAgent: false) means embedders don't hit this; CLI
+users still do.
+
+**Depends on:** None.
+
+---
+
+### P3: shutdown() reads module-level `config`, not `cfg.config` (composition gap)
+
+**What:** `browse/src/server.ts:shutdown()` reads `path.dirname(config.stateFile)`
+where `config` is the module-level value resolved at import time, not the
+`cfg.config` passed into `buildFetchHandler`. Same gap applies to
+`cleanSingletonLocks(resolveChromiumProfile())` at server.ts:1298 — should
+read `cfg.chromiumProfile`.
+
+**Why:** Embedders today happen to share state-dir resolution with the CLI
+(both go through `resolveConfig()` against the same env), so this doesn't
+bite. But if an embedder ever passes a divergent `cfg.config` (e.g., a test
+harness pointing at a temp dir), shutdown will operate on the wrong paths.
+The `ownsTerminalAgent` flag exposes the problem without fixing it.
+
+**Pros:** Closes the embedder-composition story properly. Pairs with
+`cfg.chromiumProfile` to give a single coherent "this factory teardown
+respects cfg" contract.
+
+**Cons:** Pre-existing — not a regression. Two call sites today (1285 for
+terminal files, 1298 for chromium locks). Threading `cfg.config` and
+`cfg.chromiumProfile` into the right closures is straightforward but
+broader than the v1.41 fix.
+
+**Context:** Flagged by both Codex and Claude subagent in the /plan-eng-review
+dual voices. Documented as out-of-scope in the v1.41 plan; same shape as the
+`chromiumProfile` PR-body note to the gbrowser team.
+
+**Depends on:** None.
+
+---
+
+### P3: Ownership-object refactor if a 4th caller-owned teardown gate appears
+
+**What:** Today `ServerConfig` has three caller-owned teardown gates:
+`xvfb?` (presence ⇒ don't close), `proxyBridge?` (same), and now
+`ownsTerminalAgent` (explicit boolean). If a 4th gate appears, collapse to
+`cfg.callerOwns?: Set<'terminalAgent' | 'xvfb' | 'proxyBridge' | ...>` or
+similar.
+
+**Why:** Three independent flags is below the refactor threshold — each
+field has clear, distinct semantics and the JSDoc voice is consistent. A
+fourth tips the cost balance: the per-field surface gets noisy, and
+"what does this factory own?" becomes a question you have to ask of three
+or four scattered fields instead of one explicit set.
+
+**Pros:** Single source of truth for "what gstack tears down". Trivial
+extension surface for future caller-owned resources. Easier to assert in
+tests ("the set should contain X, not Y").
+
+**Cons:** Premature today. The polarity-inversion note in the
+`ownsTerminalAgent` JSDoc only hurts a little — it's one anomaly, not a
+pattern. Refactoring now to an ownership object would touch every embedder.
+
+**Context:** Recommended by Claude subagent during /plan-ceo-review dual
+voice (autoplan). Trigger: a 4th caller-owned teardown gate in this same
+`ServerConfig` shape.
+
+**Depends on:** A 4th gate to motivate the refactor.
+
+---
+
 ## /sync-gbrain memory stage perf follow-up
 
 ### P2: Investigate `gbrain import` perf on large staging dirs

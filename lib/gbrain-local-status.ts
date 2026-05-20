@@ -51,6 +51,12 @@ export interface ClassifyOptions {
 }
 
 interface CacheEntry {
+  // Local-cache schema version, controlled by gstack. Not to be confused
+  // with `gbrain doctor --json` output schema_version (gbrain v0.25+ emits
+  // schema_version: 2). Doctor-output parsing lives in
+  // lib/gstack-memory-helpers.ts:freshDetectEngineTier and accepts both
+  // doctor-output versions. This cache stays strictly at version 1 — a
+  // future shape change here requires an explicit migration.
   schema_version: 1;
   status: LocalEngineStatus;
   cached_at: number;

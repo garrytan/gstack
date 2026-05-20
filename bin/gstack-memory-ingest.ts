@@ -194,7 +194,7 @@ Options:
   --all-history        Walk transcripts older than 90 days too.
   --sources <list>     Comma-separated subset: ${ALL_TYPES.join(",")}
   --limit <N>          Stop after N pages written (smoke testing).
-  --no-write           Skip gbrain put_page calls (still updates state file).
+  --no-write           Skip gbrain put calls (still updates state file).
                        Used by tests + dry runs without actual ingest.
   --scan-secrets       Opt-in per-file gitleaks scan during prepare. Off by
                        default; gstack-brain-sync already gates the git-push
@@ -1061,7 +1061,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
   }
 
   // Per ED2: ~25-35 min for ~11.7K transcripts = ~150ms/page synchronous
-  // (gitleaks + render + put_page + embedding). Scale linearly.
+  // (gitleaks + render + put + embedding). Scale linearly.
   const estimateMinutes = Math.max(1, Math.round((newCount + updatedCount) * 0.15 / 60));
 
   return {
@@ -1374,7 +1374,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   if (args.noWrite) {
     // --no-write: skip the gbrain import call but still record state for
     // prepared pages (treat them as ingested for dedup purposes). Matches
-    // the prior contract from --help: "Skip gbrain put_page calls (still
+    // the prior contract from --help: "Skip gbrain put calls (still
     // updates state file)".
     const nowIso = new Date().toISOString();
     for (const p of prep.prepared) {

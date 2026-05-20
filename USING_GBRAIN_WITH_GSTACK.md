@@ -82,7 +82,7 @@ By default the skill asks "Give Claude Code a typed tool surface for gbrain?" If
 claude mcp add gbrain -- gbrain serve
 ```
 
-That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, `gbrain put_page`, `gbrain get_page`, etc. show up as first-class tools in every session, not bash shell-outs.
+That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, `gbrain put`, `gbrain get`, etc. show up as first-class tools in every session, not bash shell-outs.
 
 **If `claude` is not on PATH**, the skill skips MCP registration gracefully with a manual-register hint. The CLI resolver still works from any skill that shells out to `gbrain` — MCP is an upgrade, not a prerequisite.
 
@@ -224,8 +224,8 @@ Gbrain itself ships with these that gstack wraps:
 | `gbrain migrate --to supabase --url ...` | Move a PGLite brain to Supabase (lossless, preserves source as backup) |
 | `gbrain migrate --to pglite` | Reverse migration |
 | `gbrain search "query"` | Search the brain |
-| `gbrain put_page --title "..." --tags "a,b" <<<"content"` | Write a page |
-| `gbrain get_page "<slug>"` | Fetch a page |
+| `gbrain put "<slug>" --content "<markdown-with-frontmatter>"` | Write a page (title/tags go in YAML frontmatter inside `--content`) |
+| `gbrain get "<slug>"` | Fetch a page |
 | `gbrain serve` | Start the MCP stdio server (used by `claude mcp add`) |
 
 ### Config files + state
