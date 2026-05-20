@@ -1,6 +1,6 @@
 # Pi Factory Safe Command Guard Design
 
-Status: proposed contract for enabling write-capable factory QA fix runs safely.
+Status: proposed contract for enabling write-capable factory QA fix runs safely. The pure classifier slice is implemented in `lib/factory-command-guard.ts`; runtime wrapper/attestation is still future work.
 
 ## Goal
 
@@ -247,23 +247,15 @@ git log
 git show
 git add <workspace paths>
 bun test ...
-npm test
-pnpm test
-yarn test
-bun run lint
-npm run lint
-pnpm lint
-prettier --write <workspace files>
-eslint --fix <workspace files>
 tsc --noEmit
 rg ...
 find ... (without -delete/-exec mutators)
 ```
 
-Caveat: package scripts can hide dangerous commands. For G1, allow project scripts only when:
+Caveat: package scripts can hide dangerous commands. The implemented pure G1 classifier denies package-manager scripts such as `npm run lint`, `npm test`, `pnpm typecheck`, and `yarn test` until a runtime wrapper can read the project manifest and classify the underlying script recursively. Future expansion may allow them only when:
 
 - script name is in a safe category (`test`, `lint`, `typecheck`, `format`);
-- command is read from project manifest and classified recursively if practical;
+- command is read from project manifest and classified recursively;
 - otherwise warn/deny and ask for explicit human execution.
 
 ## Runtime behavior
@@ -308,7 +300,8 @@ Add unit tests for:
 - `git push --force` and `git push` blocked for `qa-fix`;
 - publish/deploy commands blocked;
 - env/secret dumping blocked;
-- safe test/lint/status commands allowed;
+- direct safe test/status/typecheck commands allowed;
+- secret-like glob operands and backslash/Windows-style path syntax fail closed;
 - command chaining/substitution denied or classified fail-closed;
 - workspace path traversal denied.
 
@@ -348,7 +341,7 @@ Before exposing `/factory-qa-fix`:
 
 ## Recommended implementation sequence
 
-1. Add pure `lib/factory-command-guard.ts` classifier and unit tests.
+1. Add pure `lib/factory-command-guard.ts` classifier and unit tests. **Done.** Current G1 behavior denies package-manager scripts and formatter/linter write commands until recursive manifest inspection and runtime realpath/symlink checks exist; it also fails closed on backslash/Windows-style path syntax.
 2. Add a guarded command execution interface to runtime capabilities or a host adapter.
 3. Teach Pi runtime adapter to advertise `safe-command-guard` only when all command/file-write pathways are wrapped.
 4. Add denied-command audit artifact/event.

@@ -319,9 +319,13 @@ Decision captured in `docs/designs/PI_FACTORY_SAFE_COMMAND_GUARD_DESIGN.md`:
 - require `safe-command-guard` capability attestation before `qa-fix` can run;
 - keep `/factory-qa-fix` hidden until runtime wrapper and negative tests pass.
 
-Next implementation work:
+Implemented after the design pass:
 
-- add `lib/factory-command-guard.ts` pure classifier and unit tests;
+- `lib/factory-command-guard.ts` pure deny-first classifier;
+- `test/factory-command-guard.test.ts` coverage for destructive shell/git, unsafe git read flags, bulk `git add`, publish/deploy, secret/env dumping including secret globs and git `rev:path` secret reads, opaque shell syntax, workspace path boundaries, backslash path fail-closed behavior, quoted ripgrep patterns, direct safe project checks, formatter/linter write default-deny behavior, package-script default-deny behavior, and default-deny behavior.
+
+Remaining implementation work:
+
 - add guarded command execution to the runtime/host adapter;
 - advertise `safe-command-guard` only when all command/file-write pathways are wrapped;
 - add denial audit artifacts/events;
