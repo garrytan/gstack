@@ -361,7 +361,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/model-overlay.ts',
   ],
 
-  // /ios-qa device-farm — agent flow E2E. Daemon + stub StateServer + codegen
+  // /ios-qa — agent flow E2E. Daemon + stub StateServer + codegen
   // exercised end-to-end. The no-device path is gate-tier; the with-device
   // path requires GSTACK_HAS_IOS_DEVICE=1 and is periodic-tier.
   'ios-qa-e2e':       ['ios-qa/**', 'ios-fix/**', 'ios-design-review/**', 'ios-clean/**', 'ios-sync/**', 'test/skill-e2e-ios.test.ts'],

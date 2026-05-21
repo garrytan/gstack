@@ -1214,9 +1214,9 @@ The agent reads your Swift source, finds `@Observable` classes with `@Snapshotab
 
 The iOS app's `StateServer` binds loopback only (`::1` + `127.0.0.1`). The Mac daemon owns tailnet identity validation, capability tiers, and the audit trail. Remote agents NEVER see the boot token — only short-lived session tokens (1h default, 24h hard cap) minted via Tailscale identity gating.
 
-### The unlock: USB-tethered + Tailscale = DIY device farm
+### The unlock: USB-tethered + Tailscale = remote iOS QA from any agent
 
-A $500 Mac mini + an old iPhone + Tailscale free tier replaces what most teams pay BrowserStack/Sauce Labs for. Tailscale ACLs scope which identities can reach which devices at which capability tier.
+A Mac plus an iPhone you already own plus the Tailscale free tier replaces what most teams pay BrowserStack/Sauce Labs for. Any HTTP-capable agent on your tailnet can drive the iOS app once you've minted them a session token. Tailscale ACLs scope which identities can reach the Mac at which capability tier.
 
 See `ios-qa/docs/tailscale-acl-example.md` for the runnable setup.
 

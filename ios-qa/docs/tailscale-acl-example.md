@@ -2,7 +2,7 @@
 
 The Mac-side daemon binds the Tailscale interface only when you pass
 `--tailnet`. By default the daemon is local-USB-only. This doc walks through
-the steps to expose your device farm to remote agents safely.
+the steps to expose your iPhone to remote agents safely so they can run iOS QA over the tailnet.
 
 ## Threat model recap
 
@@ -97,23 +97,23 @@ restrict the tailnet ACL to limit who can even *reach* the daemon port.
 // In your tailscale admin console:
 {
   "acls": [
-    // Allow CI runner to reach the device farm Mac on port 9999 only.
+    // Allow CI runner to reach the iOS QA Mac on port 9999 only.
     {
       "action": "accept",
       "src": ["ci@example.com"],
-      "dst": ["device-farm-mac:9999"]
+      "dst": ["ios-qa-mac:9999"]
     },
     // Tagged Claude agents — observe tier only (enforced by daemon, not ACL).
     {
       "action": "accept",
       "src": ["tag:claude-readonly"],
-      "dst": ["device-farm-mac:9999"]
+      "dst": ["ios-qa-mac:9999"]
     },
     // Default deny.
     {
       "action": "drop",
       "src": ["*"],
-      "dst": ["device-farm-mac:9999"]
+      "dst": ["ios-qa-mac:9999"]
     }
   ]
 }

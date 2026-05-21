@@ -680,8 +680,12 @@ function emitInspectorEvent(event: any): void {
 const browserManager = new BrowserManager();
 // When the user closes the headed browser window, run full cleanup
 // (kill sidebar-agent, save session, remove profile locks, delete state file)
-// before exiting with code 2. Exit code 2 distinguishes user-close from crashes (1).
-browserManager.onDisconnect = () => activeShutdown?.(2);
+// before exiting. Exit code 0 means user-initiated clean quit (Cmd+Q on
+// macOS) so process supervisors like gbrowser's gbd skip the restart loop;
+// 2 means a real crash that should respawn. The fallback `?? 2` preserves
+// legacy crash semantics for any caller that invokes onDisconnect without
+// an explicit code.
+browserManager.onDisconnect = (code) => activeShutdown?.(code ?? 2);
 let isShuttingDown = false;
 
 // Test if a port is available by binding and immediately releasing.

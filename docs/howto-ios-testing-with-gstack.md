@@ -1,6 +1,6 @@
 # How to test iOS apps with GStack iOS
 
-This is the end-to-end walkthrough for the iOS device-farm capability that ships with gstack: install the canonical Swift templates into your app, connect a real iPhone over USB, and drive it from any agent (Claude Code locally, or any HTTP-capable agent over Tailscale). No simulators, no XCTest harness, no WebDriverAgent.
+This is the end-to-end walkthrough for the iOS QA capability that ships with gstack: install the canonical Swift templates into your app, connect a real iPhone over USB, and drive it from any agent (Claude Code locally, or any HTTP-capable agent over Tailscale). No simulators, no XCTest harness, no WebDriverAgent.
 
 Everything below has been verified end-to-end on a real iPhone 17 Pro Max running iOS 26.5. The same flow works on any iOS 16+ device.
 
@@ -175,6 +175,6 @@ Before you ship to TestFlight or the App Store, run `/ios-clean`. It removes the
 
 ## What this gets you
 
-You can write an agent loop in any language that speaks HTTP. Take a screenshot, ask a model what to do, send a tap. Capture state snapshots before and after to record deterministic fixtures for `/ios-fix` regression tests. Add a colleague to the allowlist and they drive your device farm from their laptop without ever touching the hardware. Plug the same daemon into CI by minting a `tag:ci` session token with mutate-tier capability and a 24-hour TTL.
+You can write an agent loop in any language that speaks HTTP. Take a screenshot, ask a model what to do, send a tap. Capture state snapshots before and after to record deterministic fixtures for `/ios-fix` regression tests. Add a colleague to the allowlist and they drive your iPhone from their laptop over Tailscale without ever touching the hardware. Plug the same daemon into CI by minting a `tag:ci` session token with mutate-tier capability and a 24-hour TTL.
 
-The whole stack is a Mac you already own, an iPhone you already own, a free Apple developer account, and gstack. No paid device-farm subscription. No simulator drift. The thing the user sees is what the agent drives.
+The whole stack is a Mac you already own, an iPhone you already own, a free Apple developer account, and gstack. No paid testing service. No simulator drift. The thing the user sees is what the agent drives.

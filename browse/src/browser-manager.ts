@@ -40,6 +40,76 @@ export function isCustomChromium(): boolean {
   return p.includes('GBrowser') || p.includes('gbrowser');
 }
 
+/**
+ * Decide whether Playwright should request Chromium's sandbox.
+ *
+ * Returns false on Windows (Bun→Node→Chromium chain breaks the sandbox,
+ * GitHub #276) and on Linux under root / CI / container (sandbox needs
+ * unprivileged user namespaces, which are missing for root and typically
+ * disabled in containers).
+ *
+ * When false, Playwright auto-adds --no-sandbox to the launch args — the
+ * desired behavior in those environments. When true, Playwright does NOT
+ * add --no-sandbox, which keeps Chromium's "unsupported command-line flag"
+ * yellow infobar from appearing on every headed launch.
+ *
+ * The headless launch path also pushes an explicit '--no-sandbox' into args
+ * when CI/CONTAINER/root is set; that push is now defensively redundant
+ * (Playwright will add it anyway when this returns false) and harmless.
+ */
+export function shouldEnableChromiumSandbox(): boolean {
+  if (process.platform === 'win32') return false;
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  return !(process.env.CI || process.env.CONTAINER || isRoot);
+}
+
+/**
+ * Resolve why the underlying Chromium ChildProcess is going away.
+ *
+ * The 'disconnected' Playwright event fires before the child process emits
+ * its own 'exit' in most cases, so .exitCode is null at that moment. Wait
+ * briefly (capped at 1s) for the exit then read .exitCode + .signalCode:
+ *
+ *   exitCode === 0 && no signal  → 'clean'  (user Cmd+Q, normal shutdown)
+ *   anything else                → 'crash'  (signal-kill, SIGSEGV, OOM, non-zero exit)
+ *
+ * Process supervisors (gbrowser's gbd HealthMonitor in cmd/gbd/health.go)
+ * read our exit code to decide whether to restart. The two callers in this
+ * file ride on top of this: a 'clean' result exits with code 0 (gbd skips
+ * restart, treats as user-intent); a 'crash' result keeps the existing
+ * per-path exit semantics (launch→1, launchHeaded→2, handoff→1) and gbd
+ * restarts on backoff.
+ */
+export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
+  const proc = browser?.process();
+  if (proc && proc.exitCode === null && proc.signalCode === null) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 1000);
+      proc.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+  return proc?.exitCode === 0 && proc?.signalCode == null ? 'clean' : 'crash';
+}
+
+/**
+ * Headless `launch()` disconnect handler. Exits 0 on clean user-quit, 1 on
+ * crash. Inlined into the launch() body via a one-line dispatch so
+ * browser-manager's flow stays grep-friendly.
+ */
+export async function handleChromiumDisconnect(browser: Browser | null): Promise<void> {
+  const cause = await resolveDisconnectCause(browser);
+  if (cause === 'clean') {
+    console.error('[browse] Chromium closed cleanly (user-initiated quit). Server exiting (0).');
+    process.exit(0);
+  }
+  console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting (1).');
+  console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
+  process.exit(1);
+}
+
 export type { RefEntry };
 
 // Re-export TabSession for consumers
@@ -121,7 +191,11 @@ export class BrowserManager {
   // (user closed the window). Wired up by server.ts to run full cleanup
   // (sidebar-agent, state file, profile locks) before exiting with code 2.
   // Returns void or a Promise; rejections are caught and fall back to exit(2).
-  public onDisconnect: (() => void | Promise<void>) | null = null;
+  // `exitCode` is the resolved process exit code from the disconnect cause:
+  // 0 on clean user-initiated quit (e.g., Cmd+Q on headed Chromium), 2 on
+  // crash/signal-kill. Callers (server.ts) forward it to their shutdown
+  // pipeline so process supervisors (gbrowser's gbd) read the right signal.
+  public onDisconnect: ((exitCode?: number) => void | Promise<void>) | null = null;
 
   getConnectionMode(): 'launched' | 'headed' { return this.connectionMode; }
 
@@ -240,17 +314,25 @@ export class BrowserManager {
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
-      // browsing user-specified URLs has marginal sandbox benefit.
-      chromiumSandbox: process.platform !== 'win32',
+      // browsing user-specified URLs has marginal sandbox benefit. Also disabled
+      // on Linux root/CI/container, where the sandbox requires unprivileged user
+      // namespaces that aren't available.
+      chromiumSandbox: shouldEnableChromiumSandbox(),
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
     });
 
-    // Chromium crash → exit with clear message
+    // Chromium disconnect → distinguish clean user-quit from crash. Both
+    // events look identical to Playwright (one 'disconnected' fires), but
+    // the underlying ChildProcess exit code separates them:
+    //   exitCode === 0  → clean quit (user Cmd+Q on macOS, normal shutdown)
+    //   exitCode !== 0  → crash, signal-kill, or OOM
+    // Process supervisors (gbrowser's gbd) consume our exit code: code 0
+    // means "user wanted this, don't restart"; non-zero means "crash, please
+    // bring me back." Without this distinction every Cmd+Q gets treated as
+    // a crash and the user-visible window keeps respawning.
     this.browser.on('disconnected', () => {
-      console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-      console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
-      process.exit(1);
+      void handleChromiumDisconnect(this.browser);
     });
 
     const contextOptions: BrowserContextOptions = {
@@ -415,6 +497,10 @@ export class BrowserManager {
 
     this.context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
+      // Match the sandbox policy used by launch() above. Without this,
+      // Playwright auto-adds --no-sandbox on every headed launch and the user
+      // sees Chromium's "unsupported command-line flag" yellow infobar.
+      chromiumSandbox: shouldEnableChromiumSandbox(),
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
@@ -542,32 +628,45 @@ export class BrowserManager {
       await this.newTab();
     }
 
-    // Browser disconnect handler — exit code 2 distinguishes from crashes (1).
-    // Calls onDisconnect() to trigger full shutdown (kill sidebar-agent, save
-    // session, clean profile locks + state file) before exit. Falls back to
-    // direct process.exit(2) if no callback is wired up, or if the callback
-    // throws/rejects — never leave the process running with a dead browser.
+    // Browser disconnect handler — distinguish user Cmd+Q from real crash.
+    // Clean exit (Chromium exit code 0) → process.exit(0) so process
+    // supervisors (gbrowser's gbd) treat it as user intent and skip the
+    // restart loop. Crash → process.exit(2) preserves the legacy headed
+    // semantics that's distinct from launch()'s code 1.
+    // Always calls onDisconnect() first to trigger full shutdown (kill
+    // sidebar-agent, save session, clean profile locks + state file) so
+    // crashes don't strand resources either.
     if (this.browser) {
       this.browser.on('disconnected', () => {
         if (this.intentionalDisconnect) return;
-        console.error('[browse] Real browser disconnected (user closed or crashed).');
-        console.error('[browse] Run `$B connect` to reconnect.');
-        if (!this.onDisconnect) {
-          process.exit(2);
-          return;
-        }
-        try {
-          const result = this.onDisconnect();
-          if (result && typeof (result as Promise<void>).catch === 'function') {
-            (result as Promise<void>).catch((err) => {
-              console.error('[browse] onDisconnect rejected:', err);
-              process.exit(2);
-            });
+        const browserRef = this.browser;
+        void (async () => {
+          const cause = await resolveDisconnectCause(browserRef);
+          const exitCode = cause === 'clean' ? 0 : 2;
+          if (cause === 'clean') {
+            console.error('[browse] Real browser closed cleanly (user-initiated quit). Server exiting (0).');
+          } else {
+            console.error('[browse] Real browser disconnected (crash or kill). Server exiting (2).');
+            console.error('[browse] Run `$B connect` to reconnect.');
           }
-        } catch (err) {
-          console.error('[browse] onDisconnect threw:', err);
-          process.exit(2);
-        }
+          if (!this.onDisconnect) {
+            process.exit(exitCode);
+            return;
+          }
+          try {
+            const result = this.onDisconnect(exitCode);
+            if (result && typeof (result as Promise<void>).catch === 'function') {
+              (result as Promise<void>).catch((err) => {
+                console.error('[browse] onDisconnect rejected:', err);
+                process.exit(exitCode);
+              });
+            }
+            // onDisconnect is responsible for exit on the success path.
+          } catch (err) {
+            console.error('[browse] onDisconnect threw:', err);
+            process.exit(exitCode);
+          }
+        })();
       });
     }
 
@@ -1303,6 +1402,10 @@ export class BrowserManager {
 
       newContext = await chromium.launchPersistentContext(userDataDir, {
         headless: false,
+        // Match the sandbox policy used by launchHeaded() / launch(). The
+        // handoff path is the headless→headed re-launch and shares the same
+        // anti-detection posture, including no spurious --no-sandbox infobar.
+        chromiumSandbox: shouldEnableChromiumSandbox(),
         args: launchArgs,
         viewport: null,
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
@@ -1332,12 +1435,14 @@ export class BrowserManager {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
       }
 
-      // Register crash handler on new browser
+      // Register disconnect handler on new browser. Same clean-vs-crash
+      // discrimination as launch() / launchHeaded() above so a user-initiated
+      // Cmd+Q after a handoff doesn't trigger gbd's restart loop.
       if (this.browser) {
+        const browserRef = this.browser;
         this.browser.on('disconnected', () => {
           if (this.intentionalDisconnect) return;
-          console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
-          process.exit(1);
+          void handleChromiumDisconnect(browserRef);
         });
       }
 
