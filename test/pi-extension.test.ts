@@ -97,6 +97,13 @@ function initCommittedRepo(projectRoot: string): string {
   return git(projectRoot, ['rev-parse', '--short', 'HEAD']);
 }
 
+function installProjectBrowseRuntime(projectRoot: string): void {
+  const browsePath = path.join(projectRoot, '.pi', 'skills', 'gstack', 'browse', 'dist', 'browse');
+  mkdirSync(path.dirname(browsePath), { recursive: true });
+  writeFileSync(browsePath, '#!/usr/bin/env sh\necho "test browse:$1"\n');
+  chmodSync(browsePath, 0o755);
+}
+
 function reviewLogPath(projectRoot: string, gstackHome: string): string {
   const slug = path.basename(projectRoot).replace(/[^a-zA-Z0-9._-]/g, '') || 'project';
   const branchResult = Bun.spawnSync(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' });
@@ -272,6 +279,7 @@ describe('Pi gstack extension wiring', () => {
 
     try {
       initCommittedRepo(tempDir);
+      installProjectBrowseRuntime(tempDir);
       const { sent, notifications, commands } = registerPiGstack();
 
       await commands.get('factory-qa')!.handler('QA http://localhost:8200', {
@@ -403,6 +411,7 @@ describe('Pi gstack extension wiring', () => {
 
     try {
       initCommittedRepo(tempDir);
+      installProjectBrowseRuntime(tempDir);
       const { notifications, commands } = registerPiGstack();
       const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
 

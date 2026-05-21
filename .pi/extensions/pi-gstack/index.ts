@@ -31,7 +31,8 @@ import {
   selectReviewCaptureEntry,
   type PendingReviewDispatch,
 } from '../../../lib/factory-review-capture';
-import { reduceFactoryEvents, type ArtifactRef, type CapabilityName, type FactoryRunState } from '../../../lib/factory-core';
+import { pendingQaDispatchFromState } from '../../../lib/factory-qa-capture';
+import { reduceFactoryEvents, type ArtifactRef, type CapabilityName } from '../../../lib/factory-core';
 import { withSafeCommandGuardCapability } from '../../../lib/factory-guarded-runtime';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
@@ -303,7 +304,7 @@ export default function piGstack(pi: any) {
           return;
         }
 
-        const dispatch = pendingExternalDispatchFromState(state, 'qa-execution');
+        const dispatch = pendingQaDispatchFromState(state);
         if (!dispatch) {
           ctx.ui.notify(`Factory run ${normalized.runId} has invalid qa-execution dispatch metadata.`, 'warning');
           return;
@@ -332,7 +333,7 @@ export default function piGstack(pi: any) {
         ].join('\n'));
         store.appendValidated(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'qa-execution', artifacts: [ref] }, (current) => {
           const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
-          if (currentState.status !== 'running' || currentState.currentPhaseId !== 'qa-execution' || !pendingExternalDispatchFromState(currentState, 'qa-execution')) {
+          if (currentState.status !== 'running' || currentState.currentPhaseId !== 'qa-execution' || !pendingQaDispatchFromState(currentState)) {
             throw new Error(`Factory run ${normalized.runId} is not waiting for qa-execution output.`);
           }
         });
@@ -1073,19 +1074,6 @@ function hasPendingQaArtifact(state: { artifacts: readonly ArtifactRef[] }): boo
   return state.artifacts.some(artifact => artifact.phaseId === 'qa-execution' && artifact.metadata && (
     artifact.metadata.pendingExternalQa === true || artifact.metadata.pendingExternalWork === true
   ));
-}
-
-function pendingExternalDispatchFromState(state: FactoryRunState, phaseId: string): { readonly dispatchedAt?: string; readonly queuedSkillCommand?: string } | null {
-  const artifact = state.artifacts.find(candidate => candidate.phaseId === phaseId && candidate.metadata && (
-    candidate.metadata.pendingExternalQa === true || candidate.metadata.pendingExternalReview === true || candidate.metadata.pendingExternalWork === true
-  ));
-  if (!artifact?.metadata) return null;
-  const metadataRunId = typeof artifact.metadata.factoryRunId === 'string' ? artifact.metadata.factoryRunId : undefined;
-  if (metadataRunId && state.runId && metadataRunId !== state.runId) return null;
-  return {
-    dispatchedAt: typeof artifact.metadata.dispatchedAt === 'string' ? artifact.metadata.dispatchedAt : undefined,
-    queuedSkillCommand: typeof artifact.metadata.queuedSkillCommand === 'string' ? artifact.metadata.queuedSkillCommand : undefined,
-  };
 }
 
 function findBrowseBinary(projectRoot: string): string | null {
