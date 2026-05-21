@@ -1580,6 +1580,35 @@ If the repo has a `TODOS.md`:
 
 ---
 
+## Phase 12: Persist QA result
+
+After Phases 10 and 11 complete, persist the final `/qa` outcome so `/factory-recover-qa`
+can correlate this run with a pending structured factory QA dispatch.
+
+Run:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-qa-log '{"skill":"qa","timestamp":"TIMESTAMP","status":"STATUS","mode":"fix","summary":"SUMMARY","target_url":"TARGET_URL","target_environment":"ENV","authenticated_as":"ACCOUNT_LABEL","passed":N,"failed":N,"issues_found":N,"must_fix":N,"scenarios":SCENARIOS_JSON,"screenshots":SCREENSHOTS_JSON,"trace_steps":TRACE_STEPS_JSON}'
+```
+
+Substitute:
+- `TIMESTAMP` = ISO 8601 datetime
+- `STATUS` = `"clean"` if no unresolved failures after Phase 9 final QA, otherwise `"issues_found"`
+- `mode` = always `"fix"` for `/qa`
+- `summary` = one-line summary including fixed/deferred counts and the baseline → final health score delta
+- `target_url` = the URL that was tested
+- `target_environment` = environment label (`"local"`, `"preview"`, `"staging"`, `"production"`, etc.). Omit the field if unknown.
+- `authenticated_as` = account label (e.g. `"test parent account"`). Never log real credentials, cookies, tokens, environment dumps, or secret values. Omit the field if unknown.
+- `passed`/`failed`/`issues_found`/`must_fix` = counts from the final QA report
+- `scenarios` = array of `{"name":"...","result":"pass|fail","severity":"must-fix|...","evidence":["screenshots/..."]}` records
+- `screenshots` = array of screenshot URIs or `{"uri":"...","caption":"..."}` records
+- `trace_steps` = array of `{"timestamp":"...","detail":"..."}` records describing the trace
+- If the input prompt includes `factory_run_id`, include that exact value as top-level `factory_run_id` in the `gstack-qa-log` JSON. This is required for `/factory-recover-qa` correlation; do not omit it when the prompt provides it. If no `factory_run_id` was provided, omit the field.
+
+If the QA run exits early before completing (no target URL, browser unavailable, manual abort), do **not** write this entry.
+
+---
+
 ## Capture Learnings
 
 If you discovered a non-obvious pattern, pitfall, or architectural insight during

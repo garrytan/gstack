@@ -31,7 +31,13 @@ import {
   selectReviewCaptureEntry,
   type PendingReviewDispatch,
 } from '../../../lib/factory-review-capture';
-import { pendingQaDispatchFromState } from '../../../lib/factory-qa-capture';
+import {
+  parseQaLogJsonl,
+  pendingQaDispatchFromState,
+  qaLogEntryToArtifact,
+  selectQaCaptureEntry,
+  type PendingQaDispatch,
+} from '../../../lib/factory-qa-capture';
 import { reduceFactoryEvents, type ArtifactRef, type CapabilityName } from '../../../lib/factory-core';
 import { withSafeCommandGuardCapability } from '../../../lib/factory-guarded-runtime';
 
@@ -107,8 +113,10 @@ export default function piGstack(pi: any) {
 
   pi.on('agent_end', async (_event: unknown, ctx: any) => {
     const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
-    const captures = await attemptAutoCaptureReview({ pi, ctx, projectRoot });
-    notifyAutoCaptureResults(ctx, captures);
+    const reviewCaptures = await attemptAutoCaptureReview({ pi, ctx, projectRoot });
+    notifyAutoCaptureResults(ctx, reviewCaptures);
+    const qaCaptures = await attemptAutoCaptureQa({ pi, ctx, projectRoot });
+    notifyAutoCaptureQaResults(ctx, qaCaptures);
   });
 
   for (const alias of PI_GSTACK_SKILL_ALIASES) {
@@ -374,6 +382,33 @@ export default function piGstack(pi: any) {
         ctx.ui.notify(formatFactoryState(status, captures[0]), status.status === 'failed' ? 'error' : 'info');
       } catch (error) {
         ctx.ui.notify(`Could not recover factory review: ${(error as Error).message}`, 'error');
+      }
+    },
+  });
+
+  pi.registerCommand('factory-recover-qa', {
+    description: 'Explicitly recover a pending structured factory QA audit from the durable QA log.',
+    handler: async (args: string, ctx: any) => {
+      const runId = args.trim();
+      if (!runId) {
+        ctx.ui.notify('factory-recover-qa requires a run id', 'error');
+        return;
+      }
+
+      const projectRoot = resolveProjectRoot(ctx?.cwd ?? process.cwd());
+      const runsRoot = factoryRunsRoot(projectRoot);
+      const store = new FileFactoryEventStore({ rootDir: runsRoot });
+      try {
+        if (!store.readManifest(runId) || !hasRunPlan(store, runId)) {
+          ctx.ui.notify(`Factory run ${runId} not found in this project.`, 'warning');
+          return;
+        }
+        const captures = await attemptAutoCaptureQa({ pi, ctx, projectRoot, targetRunId: runId });
+        notifyAutoCaptureQaResults(ctx, captures);
+        const status = await createFactoryFacade({ runsRoot, workflows: FACTORY_WORKFLOWS }).readFactoryRunStatus(runId);
+        ctx.ui.notify(formatFactoryState(status, undefined, captures[0]), status.status === 'failed' ? 'error' : 'info');
+      } catch (error) {
+        ctx.ui.notify(`Could not recover factory QA: ${(error as Error).message}`, 'error');
       }
     },
   });
@@ -649,6 +684,143 @@ async function captureReviewDispatch(options: {
   };
 }
 
+type AutoCaptureQaResult =
+  | { readonly status: 'captured'; readonly runId: string; readonly runnerStatus: string; readonly artifactCount: number }
+  | { readonly status: 'no-pending'; readonly runId?: string }
+  | { readonly status: 'no-match'; readonly runId: string; readonly message: string }
+  | { readonly status: 'ambiguous'; readonly runId: string; readonly message: string }
+  | { readonly status: 'error'; readonly runId?: string; readonly message: string };
+
+async function attemptAutoCaptureQa(options: {
+  readonly pi: any;
+  readonly ctx: any;
+  readonly projectRoot: string;
+  readonly targetRunId?: string;
+}): Promise<AutoCaptureQaResult[]> {
+  const runsRoot = factoryRunsRoot(options.projectRoot);
+  const store = new FileFactoryEventStore({ rootDir: runsRoot });
+  const artifactStore = new FileFactoryArtifactStore({ rootDir: runsRoot });
+  const dispatches = pendingQaDispatches(store, options.targetRunId);
+
+  if (dispatches.length === 0) return [{ status: 'no-pending', runId: options.targetRunId }];
+
+  const qaLog = discoverQaLogPath(options.projectRoot);
+  if (!qaLog.ok) {
+    return dispatches.map(dispatch => ({ status: 'error', runId: dispatch.runId, message: qaLog.error }));
+  }
+  if (!existsSync(qaLog.path)) {
+    return dispatches.map(dispatch => ({ status: 'no-match', runId: dispatch.runId, message: 'QA log not found yet' }));
+  }
+
+  let entries: ReturnType<typeof parseQaLogJsonl>;
+  try {
+    entries = parseQaLogJsonl(readFileSync(qaLog.path, 'utf-8'));
+  } catch (error) {
+    return dispatches.map(dispatch => ({ status: 'error', runId: dispatch.runId, message: `could not read QA log: ${(error as Error).message}` }));
+  }
+
+  const results: AutoCaptureQaResult[] = [];
+  for (const dispatch of dispatches) {
+    results.push(await captureQaDispatch({ ...options, store, artifactStore, entries, dispatch }));
+  }
+  return results;
+}
+
+async function captureQaDispatch(options: {
+  readonly pi: any;
+  readonly ctx: any;
+  readonly projectRoot: string;
+  readonly store: FileFactoryEventStore;
+  readonly artifactStore: FileFactoryArtifactStore;
+  readonly entries: ReturnType<typeof parseQaLogJsonl>;
+  readonly dispatch: PendingQaDispatch;
+}): Promise<AutoCaptureQaResult> {
+  const selection = selectQaCaptureEntry(options.entries, options.dispatch);
+  if (!selection.ok) {
+    return selection.reason === 'ambiguous'
+      ? { status: 'ambiguous', runId: options.dispatch.runId, message: 'multiple matching correlated QA log entries appeared after dispatch' }
+      : { status: 'no-match', runId: options.dispatch.runId, message: 'no matching correlated QA log entry found' };
+  }
+
+  const freshState = options.store.readState(options.dispatch.runId);
+  if (!pendingQaDispatchFromState(freshState)) return { status: 'no-pending', runId: options.dispatch.runId };
+
+  const artifact = qaLogEntryToArtifact(options.dispatch.runId, selection.entry);
+  const ref = options.artifactStore.writeText(options.dispatch.runId, { ...artifact.ref, id: capturedArtifactId('qa-execution') }, artifact.content);
+  options.store.appendValidated(options.dispatch.runId, { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'qa-execution', artifacts: [ref] }, (current) => {
+    const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
+    if (!pendingQaDispatchFromState(currentState)) {
+      throw new Error(`Factory run ${options.dispatch.runId} is not waiting for qa-execution output.`);
+    }
+  });
+
+  const runner = new FactoryRunner({
+    workflows: FACTORY_WORKFLOWS,
+    eventSink: options.store,
+    runtime: createPiReviewDispatchRuntime(options.pi, options.ctx, options.projectRoot, options.artifactStore),
+  });
+  const result = await runner.continueRun(options.dispatch.runId);
+  return {
+    status: 'captured',
+    runId: options.dispatch.runId,
+    runnerStatus: result.status,
+    artifactCount: result.state.artifacts.length,
+  };
+}
+
+function pendingQaDispatches(store: FileFactoryEventStore, targetRunId?: string): PendingQaDispatch[] {
+  const runIds = targetRunId ? [targetRunId] : store.listRunIds();
+  const dispatches: PendingQaDispatch[] = [];
+  for (const runId of runIds) {
+    try {
+      const dispatch = pendingQaDispatchFromState(store.readState(runId));
+      if (dispatch) dispatches.push(dispatch);
+    } catch (error) {
+      if (targetRunId) throw error;
+      // Ignore unrelated corrupt runs during best-effort agent_end recovery.
+    }
+  }
+  return dispatches;
+}
+
+function notifyAutoCaptureQaResults(ctx: any, results: readonly AutoCaptureQaResult[]): void {
+  if (!ctx?.ui?.notify) return;
+  for (const result of results) {
+    if (result.status === 'captured') {
+      ctx.ui.notify(`Factory QA auto-captured: ${result.runId} (${result.artifactCount} artifact(s), status=${result.runnerStatus}).`, result.runnerStatus === 'completed' ? 'info' : 'warning');
+    } else if (result.status === 'ambiguous') {
+      ctx.ui.notify(`Factory QA auto-capture skipped for ${result.runId}: ${result.message}. Use /factory-complete-qa as the fallback.`, 'warning');
+    } else if (result.status === 'error') {
+      const suffix = result.runId ? ` for ${result.runId}` : '';
+      ctx.ui.notify(`Factory QA auto-capture skipped${suffix}: ${result.message}. Use /factory-complete-qa as the fallback.`, 'warning');
+    }
+  }
+}
+
+function discoverQaLogPath(projectRoot: string): { readonly ok: true; readonly path: string } | { readonly ok: false; readonly error: string } {
+  const result = spawnSync(join(REPO_ROOT, 'bin', 'gstack-slug'), [], {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    timeout: 2_000,
+    env: minimalGstackEnv(),
+  });
+  if (result.status !== 0) {
+    return { ok: false, error: 'could not resolve gstack QA log slug' };
+  }
+
+  const assignments = parseGstackSlugAssignments(result.stdout);
+  const slug = assignments.SLUG;
+  const branch = assignments.BRANCH;
+  if (!isSafeGstackPathSegment(slug) || !isSafeGstackPathSegment(branch)) {
+    return { ok: false, error: 'gstack QA log slug or branch was unsafe' };
+  }
+
+  const home = process.env.HOME;
+  const gstackHome = process.env.GSTACK_HOME || (home ? join(home, '.gstack') : undefined);
+  if (!gstackHome) return { ok: false, error: 'HOME or GSTACK_HOME is required to locate the gstack QA log' };
+  return { ok: true, path: join(gstackHome, 'projects', slug, `${branch}-qa.jsonl`) };
+}
+
 function hasRunPlan(store: FileFactoryEventStore, runId: string): boolean {
   return findRunPlan(store.readEvents(runId)) !== null;
 }
@@ -772,7 +944,9 @@ function factoryQaSkillRequest(goal: string, runId: string, options: { readonly 
     '',
     'Factory QA correlation:',
     `- factory_run_id: ${runId}`,
-    '- Preserve this run id in any QA notes or durable output so /factory-complete-qa can correlate manual fallback artifacts.',
+    '- This is required for /factory-recover-qa auto-capture; do not omit it.',
+    '- When persisting the gstack-qa-log JSON, include this exact top-level field: "factory_run_id".',
+    '- Preserve this run id in any QA notes or durable output so /factory-complete-qa can correlate manual fallback artifacts when auto-capture is unavailable.',
   ].join('\n');
 }
 
@@ -862,7 +1036,7 @@ function createPiReviewDispatchRuntime(
         }
         const ref = artifactStore.writeText(plan.runId, {
           ...artifact,
-          summary: `Queued ${message}. QA artifact capture currently uses /factory-complete-qa manual fallback.`,
+          summary: `Queued ${message}. QA artifact capture reads the durable gstack QA log; /factory-complete-qa remains the manual fallback.`,
           metadata: { ...artifact.metadata, queuedSkillCommand: message, pendingExternalQa: true, pendingExternalWork: true, dispatchedAt },
         }, [
           '# Factory QA Dispatch',
@@ -871,7 +1045,7 @@ function createPiReviewDispatchRuntime(
           `Queued command: ${message}`,
           `Dispatched at: ${dispatchedAt}`,
           '',
-          'Status: pending QA completion capture via /factory-complete-qa.',
+          'Status: pending durable gstack QA log capture, with /factory-complete-qa as manual fallback.',
           '',
         ].join('\n'));
         return {
@@ -900,6 +1074,7 @@ function createPiReviewDispatchRuntime(
 function formatFactoryState(
   status: FactoryRunStatusDto,
   recovery?: AutoCaptureReviewResult,
+  qaRecovery?: AutoCaptureQaResult,
 ): string {
   const lines = [
     `Factory run ${status.runId}`,
@@ -943,10 +1118,12 @@ function formatFactoryState(
       qaDispatch.mode === 'fix'
         ? '- mode: QA fix; safe local writes were approved for this run. Non-destructive checks only; no push, deploy, publish, force reset, git clean, or secret/env dumping.'
         : '- mode: audit-only; /factory-qa does not edit repository files or apply fixes.',
+      `- factoryRunId: ${status.runId}`,
       `- dispatchedAt: ${qaDispatch.dispatchedAt ?? 'missing'}`,
       `- queuedSkillCommand: ${qaDispatch.queuedSkillCommand ?? 'missing'}`,
-      'Status is inspect-only; use /factory-complete-qa to attach a manual QA summary.',
-      `Next action: /factory-complete-qa ${status.runId} <summary>`,
+      'Status is inspect-only; use an explicit recovery/completion command to mutate this run.',
+      `Next action: /factory-recover-qa ${status.runId} after the generated QA logs Phase persist output, or /factory-complete-qa ${status.runId} <summary> as fallback`,
+      `Recovery hint: ${recoveryHintQa(qaRecovery)}`,
     );
   }
 
@@ -983,7 +1160,7 @@ function nextActionForStatus(status: FactoryRunStatusDto): string | null {
   const pendingGates = status.gates.filter(gate => gate.status === 'pending');
   if (pendingGates.length > 0) return `/factory-gates ${status.runId}`;
   if (pendingReviewDispatchFromStatus(status)) return `/factory-recover-review ${status.runId} or /factory-complete-review ${status.runId} <summary>`;
-  if (pendingQaDispatchFromStatus(status)) return `/factory-complete-qa ${status.runId} <summary>`;
+  if (pendingQaDispatchFromStatus(status)) return `/factory-recover-qa ${status.runId} or /factory-complete-qa ${status.runId} <summary>`;
   if (status.status === 'failed') return 'inspect error and rerun only after fixing the cause';
   return null;
 }
@@ -1061,6 +1238,22 @@ function recoveryHint(result: AutoCaptureReviewResult | undefined): string {
       return `${result.message}; verify commit, dispatchedAt, and top-level factory_run_id match this run`;
     case 'no-pending':
       return 'no pending diff-review capture remains for this run';
+  }
+}
+
+function recoveryHintQa(result: AutoCaptureQaResult | undefined): string {
+  if (!result) return 'run /factory-recover-qa after the generated QA logs its persist step, or use /factory-complete-qa as fallback';
+  switch (result.status) {
+    case 'captured':
+      return 'captured from the durable QA log';
+    case 'ambiguous':
+      return `${result.message}; use /factory-complete-qa after inspecting the log`;
+    case 'error':
+      return `${result.message}; verify the QA-log path and use /factory-complete-qa if needed`;
+    case 'no-match':
+      return `${result.message}; verify dispatchedAt, queued QA skill family, and top-level factory_run_id match this run`;
+    case 'no-pending':
+      return 'no pending qa-execution capture remains for this run';
   }
 }
 

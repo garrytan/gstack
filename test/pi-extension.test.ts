@@ -162,11 +162,59 @@ function reviewEntryAfterDispatch(metadata: Record<string, unknown>, overrides: 
   };
 }
 
+function qaLogPath(projectRoot: string, gstackHome: string): string {
+  const slug = path.basename(projectRoot).replace(/[^a-zA-Z0-9._-]/g, '') || 'project';
+  const branchResult = Bun.spawnSync(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' });
+  const rawBranch = branchResult.exitCode === 0 ? branchResult.stdout.toString().trim() : '';
+  const branch = rawBranch.replace(/[^a-zA-Z0-9._-]/g, '') || 'unknown';
+  return path.join(gstackHome, 'projects', slug, `${branch}-qa.jsonl`);
+}
+
+function writeQaLog(projectRoot: string, gstackHome: string, entries: readonly Record<string, unknown>[]): void {
+  const logPath = qaLogPath(projectRoot, gstackHome);
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  writeFileSync(logPath, `${entries.map(entry => JSON.stringify(entry)).join('\n')}\n`, 'utf-8');
+}
+
+function qaDispatchMetadata(projectRoot: string, runId: string): Record<string, unknown> {
+  const metadata = JSON.parse(readFileSync(path.join(factoryRunsRoot(projectRoot), runId, 'artifacts', 'qa-execution-dispatch.json'), 'utf-8'));
+  return metadata.ref.metadata;
+}
+
+function qaEntryAfterDispatch(metadata: Record<string, unknown>, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const dispatchedAt = String(metadata.dispatchedAt);
+  return {
+    skill: 'qa-only',
+    timestamp: new Date(Date.parse(dispatchedAt) + 1_000).toISOString(),
+    status: 'issues_found',
+    mode: 'audit',
+    summary: '1 must-fix found',
+    target_url: 'http://localhost:8200',
+    target_environment: 'local',
+    authenticated_as: 'test parent account',
+    passed: 4,
+    failed: 1,
+    must_fix: 1,
+    issues_found: 1,
+    scenarios: [
+      { name: 'Parent books a 60-min slot', result: 'fail', severity: 'must-fix', evidence: ['screenshots/issue-001-result.png'] },
+    ],
+    screenshots: [{ uri: 'screenshots/issue-001-result.png', caption: 'Booking accepts a past date (FAIL)' }],
+    trace_steps: [{ timestamp: '00:12', detail: 'Past date accepted (unexpected)' }],
+    factory_run_id: metadata.factoryRunId,
+    ...overrides,
+  };
+}
+
+function qaRunIdFromLastNotification(notifications: readonly Notification[]): string {
+  return notifications.at(-1)!.message.match(/Factory QA audit running: ([^ ]+)/)![1];
+}
+
 describe('Pi gstack extension wiring', () => {
   test('registers gstack slash aliases and forwards to generated Pi skills', async () => {
     const { sent, commands } = registerPiGstack();
 
-    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-qa', 'factory-complete-review', 'factory-complete-qa', 'factory-recover-review', 'factory-status', 'factory-list', 'factory-gates', 'factory-decide']);
+    expect([...commands.keys()]).toEqual(['office-hours', 'autoplan', 'review', 'qa', 'ship', 'factory-review', 'factory-qa', 'factory-complete-review', 'factory-complete-qa', 'factory-recover-review', 'factory-recover-qa', 'factory-status', 'factory-list', 'factory-gates', 'factory-decide']);
 
     await commands.get('review')!.handler('check this diff', {
       isIdle: () => true,
@@ -299,7 +347,7 @@ describe('Pi gstack extension wiring', () => {
       const runId = notifications.at(-1)!.message.match(/Factory QA audit running: ([^ ]+)/)![1];
       const runsDir = path.join(tempDir, '.gstack', 'factory', 'runs');
       expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'qa-intake-dispatch.md'), 'utf-8')).toContain('Factory QA Intake');
-      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'qa-execution-dispatch.md'), 'utf-8')).toContain('Status: pending QA completion capture via /factory-complete-qa.');
+      expect(readFileSync(path.join(runsDir, runId, 'artifacts', 'qa-execution-dispatch.md'), 'utf-8')).toContain('Status: pending durable gstack QA log capture, with /factory-complete-qa as manual fallback.');
 
       await commands.get('factory-status')!.handler(runId, {
         cwd: tempDir,
@@ -310,9 +358,10 @@ describe('Pi gstack extension wiring', () => {
       expect(notifications.at(-1)?.message).toContain('Current phase: qa-execution');
       expect(notifications.at(-1)?.message).toContain('Pending external QA:');
       expect(notifications.at(-1)?.message).toContain('- mode: audit-only; /factory-qa does not edit repository files or apply fixes.');
-      expect(notifications.at(-1)?.message).toContain('Status is inspect-only; use /factory-complete-qa to attach a manual QA summary.');
-      expect(notifications.at(-1)?.message).toContain(`Next action: /factory-complete-qa ${runId} <summary>`);
-      expect(notifications.at(-1)?.message).toContain(`Summary next action: /factory-complete-qa ${runId} <summary>`);
+      expect(notifications.at(-1)?.message).toContain('Status is inspect-only; use an explicit recovery/completion command to mutate this run.');
+      expect(notifications.at(-1)?.message).toContain(`Next action: /factory-recover-qa ${runId} after the generated QA logs Phase persist output, or /factory-complete-qa ${runId} <summary> as fallback`);
+      expect(notifications.at(-1)?.message).toContain(`Summary next action: /factory-recover-qa ${runId} or /factory-complete-qa ${runId} <summary>`);
+      expect(notifications.at(-1)?.message).toContain('Recovery hint:');
 
       await commands.get('factory-complete-qa')!.handler(`${runId} no browser regressions`, {
         cwd: tempDir,
@@ -724,6 +773,209 @@ describe('Pi gstack extension wiring', () => {
         expect(state.status).toBe('running');
         expect(state.currentPhaseId).toBe('diff-review');
         expect(readFileSync(path.join(factoryRunsRoot(tempDir), runId, 'events.jsonl'), 'utf-8')).not.toContain('run_completed');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('factory-recover-qa captures a pending factory QA from a durable QA log', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-recover-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        installProjectBrowseRuntime(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+        const runId = qaRunIdFromLastNotification(notifications);
+        const metadata = qaDispatchMetadata(tempDir, runId);
+        expect(metadata.factoryRunId).toBe(runId);
+        writeQaLog(tempDir, gstackHome, [qaEntryAfterDispatch(metadata)]);
+
+        await commands.get('factory-recover-qa')!.handler(runId, ctx);
+
+        expect(notifications.some(notification => notification.message === `Factory QA auto-captured: ${runId} (4 artifact(s), status=completed).`)).toBe(true);
+        expect(notifications.at(-1)?.message).toContain(`Factory run ${runId}`);
+        expect(notifications.at(-1)?.message).toContain('Status: completed');
+        const capture = capturedArtifact(tempDir, runId, 'qa-execution-captured-');
+        expect(capture.content).toContain('Captured GStack QA');
+        expect(capture.content).toContain('Browser QA audit — no code changes.');
+        expect(capture.content).toContain('Booking accepts a past date (FAIL)');
+        expect(capture.metadata.ref.metadata).toMatchObject({
+          capturedFrom: 'gstack-qa-log',
+          qaMode: 'audit',
+        });
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        expect(store.readState(runId).status).toBe('completed');
+        expect(store.readState(runId).completedPhaseIds).toEqual(['qa-intake', 'qa-execution', 'qa-summary']);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('repeated factory-recover-qa does not duplicate captured QA artifacts or completions', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-recover-idempotent-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        installProjectBrowseRuntime(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+        const runId = qaRunIdFromLastNotification(notifications);
+        writeQaLog(tempDir, gstackHome, [qaEntryAfterDispatch(qaDispatchMetadata(tempDir, runId))]);
+
+        await commands.get('factory-recover-qa')!.handler(runId, ctx);
+        expect(notifications.some(notification => notification.message === `Factory QA auto-captured: ${runId} (4 artifact(s), status=completed).`)).toBe(true);
+        const firstCapture = capturedArtifact(tempDir, runId, 'qa-execution-captured-');
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        const firstEventLog = readFileSync(path.join(factoryRunsRoot(tempDir), runId, 'events.jsonl'), 'utf-8');
+        expect(store.readState(runId).status).toBe('completed');
+        expect(capturedArtifactCount(tempDir, runId, 'qa-execution-captured-')).toBe(1);
+
+        await commands.get('factory-recover-qa')!.handler(runId, ctx);
+
+        expect(capturedArtifactCount(tempDir, runId, 'qa-execution-captured-')).toBe(1);
+        expect(capturedArtifact(tempDir, runId, 'qa-execution-captured-').id).toBe(firstCapture.id);
+        expect(readFileSync(path.join(factoryRunsRoot(tempDir), runId, 'events.jsonl'), 'utf-8')).toBe(firstEventLog);
+        expect(store.readState(runId).status).toBe('completed');
+        expect(notifications.at(-1)?.message).toContain('Status: completed');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('ambiguous multiple matching QA log entries leave the factory QA run pending', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-ambiguous-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        installProjectBrowseRuntime(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+        const runId = qaRunIdFromLastNotification(notifications);
+        const metadata = qaDispatchMetadata(tempDir, runId);
+        writeQaLog(tempDir, gstackHome, [
+          qaEntryAfterDispatch(metadata),
+          qaEntryAfterDispatch(metadata, { timestamp: new Date(Date.parse(String(metadata.dispatchedAt)) + 2_000).toISOString() }),
+        ]);
+
+        await commands.get('factory-recover-qa')!.handler(runId, ctx);
+
+        expect(notifications.some(notification => notification.message === `Factory QA auto-capture skipped for ${runId}: multiple matching correlated QA log entries appeared after dispatch. Use /factory-complete-qa as the fallback.`)).toBe(true);
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        const state = store.readState(runId);
+        expect(state.status).toBe('running');
+        expect(state.currentPhaseId).toBe('qa-execution');
+        expect(state.completedPhaseIds).toEqual(['qa-intake']);
+
+        await commands.get('factory-complete-qa')!.handler(`${runId} manually captured after ambiguity`, ctx);
+        expect(notifications.at(-1)).toEqual({ message: `Factory QA completed: ${runId} (4 artifact(s)).`, level: 'info' });
+        expect(store.readState(runId).status).toBe('completed');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('QA log with missing or wrong factory correlation leaves factory-recover-qa pending', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-no-correlation-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        installProjectBrowseRuntime(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+        const runId = qaRunIdFromLastNotification(notifications);
+        const metadata = qaDispatchMetadata(tempDir, runId);
+        writeQaLog(tempDir, gstackHome, [
+          qaEntryAfterDispatch(metadata, { factory_run_id: undefined }),
+          qaEntryAfterDispatch(metadata, { factory_run_id: 'other-run' }),
+        ]);
+
+        await commands.get('factory-recover-qa')!.handler(runId, ctx);
+
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        expect(store.readState(runId).status).toBe('running');
+        expect(store.readState(runId).currentPhaseId).toBe('qa-execution');
+        expect(capturedArtifactCount(tempDir, runId, 'qa-execution-captured-')).toBe(0);
+        expect(notifications.at(-1)?.message).toContain(`Factory run ${runId}`);
+        expect(notifications.at(-1)?.message).toContain('Status: paused');
+        expect(notifications.at(-1)?.message).toContain('Pending external QA:');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('factory-recover-qa with missing or empty run id surfaces an error and does not mutate runs', async () => {
+    await withTempGstackEnv(async () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-bad-runid-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        installProjectBrowseRuntime(tempDir);
+        const { notifications, commands } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+        const runId = qaRunIdFromLastNotification(notifications);
+
+        await commands.get('factory-recover-qa')!.handler('', ctx);
+        expect(notifications.at(-1)).toEqual({ message: 'factory-recover-qa requires a run id', level: 'error' });
+
+        await commands.get('factory-recover-qa')!.handler('missing-run', ctx);
+        expect(notifications.at(-1)).toEqual({ message: 'Factory run missing-run not found in this project.', level: 'warning' });
+
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        expect(store.readState(runId).status).toBe('running');
+        expect(store.readState(runId).currentPhaseId).toBe('qa-execution');
+        expect(capturedArtifactCount(tempDir, runId, 'qa-execution-captured-')).toBe(0);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test('factory-recover-qa never registers or exposes /factory-qa-fix', async () => {
+    const { commands } = registerPiGstack();
+    expect(commands.has('factory-recover-qa')).toBe(true);
+    expect(commands.has('factory-qa-fix')).toBe(false);
+  });
+
+  test('agent_end auto-captures a pending factory QA run alongside review auto-capture', async () => {
+    await withTempGstackEnv(async ({ gstackHome }) => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-qa-agent-end-'));
+
+      try {
+        initCommittedRepo(tempDir);
+        installProjectBrowseRuntime(tempDir);
+        const { notifications, commands, events } = registerPiGstack();
+        const ctx = { cwd: tempDir, isIdle: () => false, ui: notifyInto(notifications) };
+
+        await commands.get('factory-qa')!.handler('QA http://localhost:8200', ctx);
+        const runId = qaRunIdFromLastNotification(notifications);
+        writeQaLog(tempDir, gstackHome, [qaEntryAfterDispatch(qaDispatchMetadata(tempDir, runId))]);
+
+        await events.get('agent_end')!({}, ctx);
+
+        expect(notifications.some(notification => notification.message === `Factory QA auto-captured: ${runId} (4 artifact(s), status=completed).`)).toBe(true);
+        const store = new FileFactoryEventStore({ rootDir: factoryRunsRoot(tempDir) });
+        expect(store.readState(runId).status).toBe('completed');
+        expect(capturedArtifactCount(tempDir, runId, 'qa-execution-captured-')).toBe(1);
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
