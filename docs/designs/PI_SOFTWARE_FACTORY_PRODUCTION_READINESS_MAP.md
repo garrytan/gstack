@@ -19,15 +19,17 @@ Wave 1 moved the factory from a Pi/CLI-oriented event-sourced core with web inte
 
 The follow-on autonomous Alpha/Beta execution wave added durable project state, durable QA recovery, artifact-content integration, cockpit view models, distribution dry-run primitives, and operations/security contracts. It also confirmed that `/factory-qa-fix` must remain hidden until the host can route dispatched skill Bash/Read/Write/Edit paths through factory guard code.
 
+The next autonomous round added a production-readiness smoke runner, a static no-dependency cockpit prototype, and a host-level guard enforcement design of record. A read-only security/reviewer pass reported no blocking findings.
+
 Current readiness estimate:
 
-| Scope | Before Wave 1 | After Wave 1 | After Alpha/Beta execution wave | Meaning |
-|---|---:|---:|---:|---|
-| Internal Pi/CLI factory core | ~60–65% | ~70–75% | **~78–82%** | Review/QA/status/gates now include durable QA recovery and stronger stores, but write-capable QA fix and release actions remain blocked. |
-| Common-user web cockpit/platform | ~30–35% | ~45–50% | **~58–63%** | Durable project/catalog DTOs, artifact descriptors, and pure cockpit view models exist, but no production web app scaffold/runtime exists. |
-| Weighted overall production readiness | ~33% | ~48–52% | **~60–65%** | The platform now has Alpha/Beta data contracts and validation foundations, discounted for missing live UI/package surface and host-level guard enforcement. |
+| Scope | Before Wave 1 | After Wave 1 | After Alpha/Beta wave | After smoke/prototype/host-design round | Meaning |
+|---|---:|---:|---:|---:|---|
+| Internal Pi/CLI factory core | ~60–65% | ~70–75% | ~78–82% | **~82–85%** | Core surfaces now have a repeatable smoke runner and stronger QA recovery; write-capable QA fix and release actions remain blocked. |
+| Common-user web cockpit/platform | ~30–35% | ~45–50% | ~58–63% | **~65–70%** | A static cockpit prototype proves the common-user shape, but no production web app scaffold/runtime exists. |
+| Weighted overall production readiness | ~33% | ~48–52% | ~60–65% | **~66–70%** | Validation and product visibility improved, discounted for missing live UI/package surface and host-level guard implementation. |
 
-The branch is **not production-ready** for public users yet. It is ready for validation consolidation, optional no-dependency cockpit prototyping if approved, and host-enforced command-guard design work.
+The branch is **not production-ready** for public users yet. It is ready for smoke-runner surfacing, factory-side host-guard primitives, and a production web stack decision if the user wants to move beyond the static prototype.
 
 ## What changed in Wave 1
 
@@ -51,7 +53,7 @@ Remaining gap:
 
 - A real web stack/location has not been approved.
 - No production cockpit app exists yet.
-- Visual implementation is represented by pure view models and contracts unless a static prototype or real app scaffold is explicitly approved.
+- Visual implementation is represented by pure view models, contracts, and the no-dependency static prototype.
 
 ### API/platform readiness
 
@@ -81,7 +83,8 @@ New pieces:
 
 Remaining gap:
 
-- Dispatched Pi/Claude skill Bash/Read/Write/Edit paths are not enforceable from repository code.
+- Host-level guard enforcement is designed in `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md`, but not implemented by the host runtime.
+- Dispatched Pi/Claude skill Bash/Read/Write/Edit paths are not enforceable from repository code today.
 - Sanitized guard-decision audit seams exist, but denied-command artifacts/events are not yet emitted by live factory runs.
 - `/factory-qa-fix` remains intentionally hidden.
 - Release/deploy/publish automation remains out of scope.
@@ -98,7 +101,7 @@ New pieces:
 Remaining gap:
 
 - Generated QA skill instructions now emit durable QA logs through `bin/gstack-qa-log`, and `/factory-recover-qa` exists.
-- Future work should dogfood the emitted logs in live Pi sessions and add production-like smoke coverage.
+- Production-like smoke coverage now exercises QA parse/recover fixtures; future work should dogfood emitted logs in live Pi sessions.
 
 ### Distribution readiness
 
@@ -110,7 +113,7 @@ New doc:
 
 Remaining gap:
 
-- Distribution manifest/dry-run/stage helpers exist, but no installable Pi runtime package has been built.
+- Distribution manifest/dry-run/stage helpers exist and are exercised by the production-readiness smoke runner, but no installable Pi runtime package has been built.
 - Generated skills, extension, and runtime sidecars still need a versioned real installer/update path.
 
 ## Readiness scorecard
@@ -119,15 +122,15 @@ Scores are directional and intentionally conservative.
 
 | Area | Weight | Current score | Evidence | Biggest blocker |
 |---|---:|---:|---|---|
-| Product definition | 15% | 80% | Design import, reconciliation, P0 acceptance, cockpit specs, Beta 1 cockpit contract. | Owner approval of final P0 visual/product choices. |
-| Core factory engine | 20% | 80% | Pure core, runner, facade, gates, event/artifact/project stores, tests. | Real subagent/worktree execution and broader lifecycle hardening. |
-| Pi adapter/CLI UX | 15% | 75% | Review/QA/status/list/gates/decide/recover commands, inspect-only UX, durable QA recovery. | Safe write-capable paths not live. |
-| Project/web API layer | 15% | 70% | Durable project catalog, wrapper DTOs, artifact descriptors, cockpit view models. | No live UI consumer or hosted boundary implementation. |
-| Web cockpit surface | 15% | 55% | P0 UX brief, screen/component spec, pure view models and journey fixtures. | No approved stack/scaffold or running UI. |
-| Safety/permissions | 10% | 55% | Command classifier, guarded runtime tests, live path inventory, sanitized audit seam. | Host-level command/edit/write path attestation missing. |
-| Distribution/operations | 10% | 50% | Distribution package path design, dry-run bundle helpers, ops/security contract. | No packaged install/update/recovery implementation. |
+| Product definition | 15% | 85% | Design import, reconciliation, P0 acceptance, cockpit specs, Beta 1 contract, static prototype. | Owner approval of final P0 visual/product choices before production UI. |
+| Core factory engine | 20% | 83% | Pure core, runner, facade, gates, event/artifact/project stores, smoke runner, tests. | Real subagent/worktree execution and broader lifecycle hardening. |
+| Pi adapter/CLI UX | 15% | 78% | Review/QA/status/list/gates/decide/recover commands, inspect-only UX, durable QA recovery. | Safe write-capable paths not live. |
+| Project/web API layer | 15% | 74% | Durable project catalog, wrapper DTOs, artifact descriptors, cockpit view models, smoke fixtures. | No live production UI consumer or hosted boundary implementation. |
+| Web cockpit surface | 15% | 65% | P0 UX brief, screen/component spec, pure view models, journey fixtures, static prototype. | No approved production stack/scaffold or running app. |
+| Safety/permissions | 10% | 60% | Command classifier, guarded runtime tests, live path inventory, sanitized audit seam, host enforcement design. | Host-level command/edit/write path implementation missing. |
+| Distribution/operations | 10% | 60% | Distribution package path design, dry-run bundle helpers, ops/security contract, production smoke runner. | No packaged install/update/recovery implementation. |
 
-Weighted result: **~69% by artifact maturity**, discounted to **~60–65% production readiness** because the highest-risk missing items are runtime-connected: live web surface, host-level command-path attestation, packaged distribution, and production-like smoke automation.
+Weighted result: **~75% by artifact maturity**, discounted to **~66–70% production readiness** because the highest-risk missing items are runtime-connected: live production web surface, host-level command-path implementation, packaged distribution, and production web/runtime smoke.
 
 ## Alpha gates
 

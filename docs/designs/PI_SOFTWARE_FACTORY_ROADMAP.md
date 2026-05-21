@@ -518,25 +518,29 @@ Landed in this lane:
 - `lib/factory-production-smoke.ts` — deterministic smoke runner that exercises module load (S1), facade plan/status/list/artifact reads (S2-S5), project catalog round-trip (S6), QA log parse + recover fixture (S7-S8), guarded denial audit (S9), and distribution dry-run (S10). Web `/health` (S11) is surfaced as `deferred` per the Beta 2 contract, not stubbed green.
 - `test/factory-production-smoke.test.ts` — temp-dir-backed coverage of the runner DTO, including deterministic re-runs, the deferred-web-health invariant, and the §3.4 prohibition on deploy/publish/release/tag/push vocabulary in any check message.
 
-Remaining steps:
+Validation status:
 
-- run a reviewer/security pass across the integrated branch;
-- update `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md` with post-Alpha movement.
+- integrated factory smoke/test sweep passed;
+- read-only security/reviewer pass reported no blocking findings;
+- production-readiness movement is reflected in `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`.
 
-### Next Chunk 2 — optional no-dependency cockpit prototype or approved web stack
+### Completed prototype chunk — no-dependency cockpit P0
 
-Goal: make the common-user cockpit visible.
+Goal: make the common-user cockpit visible without choosing a production web stack.
 
-Default safe path:
+Implemented:
 
-- build a no-dependency static prototype under `docs/prototypes/` only if explicitly approved;
-- otherwise keep using `lib/factory-cockpit-view.ts` fixtures as the UI contract.
+- `docs/prototypes/factory-cockpit-p0/index.html`;
+- `docs/prototypes/factory-cockpit-p0/styles.css`;
+- `docs/prototypes/factory-cockpit-p0/README.md`.
+
+The prototype is static HTML/CSS with no JavaScript, no external assets, no dependencies, and no production runtime claims. It demonstrates Universe AI framing, Easy Mode, Hands-on 3-bay map, dashboard/resume, idea wizard, gate decision, QA evidence, guard-denial placeholder, artifact provenance, ship-readiness/handoff, and mobile-responsive states.
 
 Blocked path:
 
 - production web app scaffold remains blocked until stack/location and dependency/package changes are approved.
 
-### Next Chunk 3 — QA-fix host-enforcement solution
+### Completed design chunk — QA-fix host-enforcement solution
 
 Goal: unblock write-capable QA fix safely.
 
@@ -554,6 +558,38 @@ Recommended next steps:
 - wire the Pi adapter to the shim and add a test-only fake host so §11.3 negative tests can land — `/factory-qa-fix` stays unregistered;
 - partner with a host vendor to implement the §5 contract and OS-confine the browse subprocess per §8;
 - only then reconsider `/factory-qa-fix` exposure, gated by the §11.5 end-to-end test against the real host.
+
+### Next Chunk 1 — smoke runner surfacing and CI integration
+
+Goal: make the production-readiness smoke runner easy to invoke without changing package manifests prematurely.
+
+Recommended next steps:
+
+- add a tiny CLI wrapper or documented command for `runFactoryProductionSmoke()`;
+- consider a package script only after package-manifest changes are approved;
+- keep S11 web `/health` deferred until a real web app exists.
+
+### Next Chunk 2 — factory-side host guard primitives
+
+Goal: prepare for a future guarded host without exposing `/factory-qa-fix`.
+
+Recommended next steps:
+
+- implement `lib/factory-file-write-guard.ts` and tests for path/write policy;
+- implement guard attestation DTO/helpers;
+- add a test-only guarded host shim;
+- keep `safe-command-guard` absent from the default Pi adapter.
+
+### Next Chunk 3 — production web stack decision
+
+Goal: decide whether to move beyond the static prototype.
+
+Blocked until explicit approval:
+
+- production web app location;
+- stack/framework;
+- dependencies/package manifest changes;
+- auth/hosted workspace model.
 
 ## Quick orientation for future agents
 
