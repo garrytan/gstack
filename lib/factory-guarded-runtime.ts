@@ -1,11 +1,19 @@
+import { createHash } from 'node:crypto';
 import { evaluateFactoryCommandSafety, type FactoryCommandGuardDecision, type FactoryCommandGuardRequest } from './factory-command-guard';
 import type { CapabilityName } from './factory-core';
+
+export interface FactoryGuardedCommandDecisionObservation {
+  readonly request: FactoryCommandGuardRequest;
+  readonly decision: FactoryCommandGuardDecision;
+  readonly sanitized: SanitizedFactoryGuardDecision;
+}
 
 export interface FactoryGuardedCommandRuntimeOptions<TResult> {
   readonly executeCommand: (request: FactoryCommandGuardRequest) => Promise<TResult> | TResult;
   readonly baseCapabilities?: Iterable<CapabilityName>;
   readonly guardActive?: boolean;
   readonly evaluateCommandSafety?: (request: FactoryCommandGuardRequest) => FactoryCommandGuardDecision;
+  readonly onCommandDecision?: (observation: FactoryGuardedCommandDecisionObservation) => void | Promise<void>;
 }
 
 export interface FactoryGuardedCommandExecutionResult<TResult> {
@@ -17,6 +25,15 @@ export interface FactoryGuardedCommandRuntime<TResult> {
   readonly guardActive: boolean;
   readonly availableCapabilities: readonly CapabilityName[];
   executeCommand(request: FactoryCommandGuardRequest): Promise<FactoryGuardedCommandExecutionResult<TResult>>;
+}
+
+export interface SanitizedFactoryGuardDecision {
+  readonly allowed: boolean;
+  readonly severity: 'allow' | 'warn' | 'block';
+  readonly reason: string;
+  readonly matchedRuleId?: string;
+  readonly commandHead: string;
+  readonly commandDigest: string;
 }
 
 export class FactoryCommandGuardBlockedError extends Error {
@@ -33,26 +50,27 @@ export function createFactoryGuardedCommandRuntime<TResult>(options: FactoryGuar
   const guardActive = options.guardActive !== false;
   const evaluate = options.evaluateCommandSafety ?? evaluateFactoryCommandSafety;
   const availableCapabilities = withSafeCommandGuardCapability(options.baseCapabilities ?? [], guardActive);
+  const emit = options.onCommandDecision;
 
   return {
     guardActive,
     availableCapabilities,
     async executeCommand(request: FactoryCommandGuardRequest): Promise<FactoryGuardedCommandExecutionResult<TResult>> {
       if (!guardActive) {
-        const result = await options.executeCommand(request);
-        return {
-          decision: {
-            allowed: true,
-            severity: 'allow',
-            reason: 'Safe command guard wrapper is inactive; command passed through runtime boundary.',
-            matchedRuleId: 'guard-inactive-pass-through',
-            normalizedCommand: normalizeCommandForError(request.command),
-          },
-          result,
+        const passThroughDecision: FactoryCommandGuardDecision = {
+          allowed: true,
+          severity: 'allow',
+          reason: 'Safe command guard wrapper is inactive; command passed through runtime boundary.',
+          matchedRuleId: 'guard-inactive-pass-through',
+          normalizedCommand: normalizeCommandForError(request.command),
         };
+        await observeDecisionSafely(emit, request, passThroughDecision);
+        const result = await options.executeCommand(request);
+        return { decision: passThroughDecision, result };
       }
 
       const decision = evaluateFailClosed(evaluate, request);
+      await observeDecisionSafely(emit, request, decision);
       if (!decision.allowed) {
         throw new FactoryCommandGuardBlockedError(decision);
       }
@@ -71,6 +89,40 @@ export function withSafeCommandGuardCapability(
   if (guardActive) capabilities.add('safe-command-guard');
   else capabilities.delete('safe-command-guard');
   return Array.from(capabilities).sort();
+}
+
+export function sanitizeFactoryGuardDecisionForAudit(decision: FactoryCommandGuardDecision): SanitizedFactoryGuardDecision {
+  const normalized = decision.normalizedCommand ?? '';
+  const head = commandHeadFor(normalized);
+  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+  return {
+    allowed: decision.allowed,
+    severity: decision.severity,
+    reason: decision.reason,
+    matchedRuleId: decision.matchedRuleId,
+    commandHead: head,
+    commandDigest: digest,
+  };
+}
+
+function commandHeadFor(normalized: string): string {
+  const firstToken = normalized.split(/\s+/, 1)[0] ?? '';
+  if (!firstToken) return '';
+  const lastSegment = firstToken.split('/').at(-1) ?? firstToken;
+  return lastSegment.slice(0, 32);
+}
+
+async function observeDecisionSafely(
+  emit: FactoryGuardedCommandRuntimeOptions<unknown>['onCommandDecision'] | undefined,
+  request: FactoryCommandGuardRequest,
+  decision: FactoryCommandGuardDecision,
+): Promise<void> {
+  if (!emit) return;
+  try {
+    await emit({ request, decision, sanitized: sanitizeFactoryGuardDecisionForAudit(decision) });
+  } catch {
+    // Audit emission is best-effort; never let it change the guard outcome.
+  }
 }
 
 function evaluateFailClosed(
