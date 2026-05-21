@@ -357,3 +357,186 @@ Recommended G1 decision:
 - fail closed on unknown high-risk commands and parser ambiguity;
 - require guard attestation before `qa-fix` can run;
 - keep `/factory-qa-fix` hidden until those tests pass.
+
+## Appendix A: Live execution path inventory (A2.1)
+
+Status: written as the Alpha 2 A2.1 live attestation pass for the
+`sf/live-guard-alpha2` branch. Conclusion is that `/factory-qa-fix` MUST remain
+hidden because at least one required write path is not enforceable from
+repository code today.
+
+This appendix enumerates every path a hypothetical QA-fix agent could use to
+mutate files or run commands once Pi dispatches a `qa-fix` run, and classifies
+each as `guarded`, `guardable`, `not-enforceable-from-repo`, or `out-of-scope`.
+
+| # | Path | Where in repo | Classification | Notes |
+|---|------|---------------|----------------|-------|
+| 1 | Factory runtime command execution wrapper | `lib/factory-guarded-runtime.ts` | `guardable` (currently dormant) | Implements deny-first guard + fail-closed behavior + capability attestation. No current factory runtime adapter calls `executeCommand`; it is wiring waiting for a host that actually executes shell commands inside factory code. |
+| 2 | Pi extension review/QA dispatch runtime | `.pi/extensions/pi-gstack/index.ts` (`createPiReviewDispatchRuntime`) | `not-enforceable-from-repo` for `qa-execution`; `guarded` for everything it directly writes | Phases write artifact records via `artifactStore.writeText` and dispatch a generated skill with `pi.sendUserMessage`. The adapter itself does not execute repo-mutating shell commands — but the message it sends hands the work to Claude's host, whose tool layer is outside factory control. |
+| 3 | Generated `qa` / `qa-only` skill instructions | `qa/SKILL.md.tmpl`, `qa-only/SKILL.md.tmpl` | `not-enforceable-from-repo` | The skill frontmatter declares `allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion, WebSearch`. These resolve to the executing host (Claude Code, Pi internal Claude runtime). The repo cannot intercept Claude's Bash / Edit / Write invocations once the skill is dispatched. Prompt-prose safety contracts inside the skill are advisory, not enforced. |
+| 4 | Pi custom tool `gstack_browser` | `.pi/extensions/pi-gstack/index.ts` (`registerTool`) | `partially guarded` | `normalizePiBrowserCommandRequest` validates command + args against an allowlist; arguments are passed through `spawn` with a known browse binary path. File writes inside the browse binary (screenshots, `.gstack/browse.json`, downloaded assets) are NOT classified by `factory-command-guard`. |
+| 5 | Pi custom tool `ask_user_question` | `.pi/extensions/pi-gstack/index.ts` (`registerTool`) | `out-of-scope` | No execution surface; only collects a user answer through Pi UI. |
+| 6 | Browser sidecar (browse binary) subprocess tree | `gstack browse` (`spawn(browseBinary, ...)`) | `not-enforceable-from-repo` | The browse binary launches Playwright/Chromium, which can read/write files inside the workspace (state file, screenshot directories) and reach the network. The Pi extension constrains the entrypoint arguments only. Browse-internal command execution is not routed through `factory-command-guard`. |
+| 7 | Host Bash invocations from a dispatched skill | Claude Code / Pi Claude host | `not-enforceable-from-repo` | Once `pi.sendUserMessage('/skill:gstack-qa ...')` is queued, every shell command the agent executes goes through the host's `Bash` tool, not through `lib/factory-guarded-runtime.ts`. The factory has no in-process interception point. |
+| 8 | Host filesystem tools (`Read`, `Write`, `Edit`, `Glob`, `Grep`) from a dispatched skill | Claude Code / Pi Claude host | `not-enforceable-from-repo` | Same as #7. The host's file-write tools are not workspace-scoped from the repo's vantage; the repo can only request scoping via prose. |
+| 9 | `bin/gstack-slug` invocation inside the Pi extension | `spawnSync(join(REPO_ROOT, 'bin', 'gstack-slug'), ...)` with `minimalGstackEnv()` | `guarded` (by design) | Hard-coded path to a known repo binary, minimal env, 2s timeout, output validated by `parseGstackSlugAssignments` + `isSafeGstackPathSegment`. Cannot be redirected by attacker-supplied input. |
+| 10 | `git rev-parse --show-toplevel` / `git rev-parse --short HEAD` in Pi extension | `spawnSync('git', ...)` | `guarded` (by design) | Fixed argument vectors, no user input flows in. Used only for read-only git introspection. |
+| 11 | Filesystem operations performed directly by `lib/factory-*` modules | `lib/factory-event-store.ts`, `lib/factory-artifact-store.ts`, `lib/factory-project-store.ts`, `lib/factory-distribution.ts` | `guarded` (by design) | All writes are scoped to `runsRoot` / `.gstack/...` and reject unsafe IDs/paths via existing tests. Not part of the QA-fix mutation surface. |
+| 12 | Release / publish / deploy automation | none (intentionally absent) | `out-of-scope` | No `qa-fix`, ship, or factory code performs publish/tag/push/deploy. The pure classifier already denies these tokens; the Pi `factory-decide` handler additionally short-circuits ship approvals because no ship-capable runtime exists. |
+
+### Required capability ⇆ enforceable surface mapping
+
+`FACTORY_QA_FIX_WORKFLOW` requires:
+
+```
+agent-session, artifact-store, browser, filesystem, git, safe-command-guard, test-runner
+```
+
+| Required capability | Enforceable from repo code today? | Why |
+|---|---|---|
+| `agent-session` | No | Provided by host; factory cannot supervise host tool layer (paths #7, #8). |
+| `artifact-store` | Yes | `FileFactoryArtifactStore` scoped to `runsRoot`. |
+| `browser` | Partially | Pi tool entrypoint is allowlisted (#4) but browse-internal writes are out (#6). |
+| `filesystem` | No | Host tools (#8); no in-process interception. |
+| `git` | No | Host Bash (#7) can run arbitrary git; in-extension git is read-only (#10) but does not cover skill-side use. |
+| `safe-command-guard` | No (today) | Wrapper exists (#1) but is dormant; no live shell execution flows through it. Skill-side commands (#7) cannot be routed through it from repo code. |
+| `test-runner` | No | Same as `filesystem` — provided by host Bash. |
+
+`safe-command-guard` MUST NOT be advertised by `createPiReviewDispatchRuntime`
+in its default invocation because the wrapper is not active on any real
+execution surface. The current default (`options.safeCommandGuardActive` left
+unset, defaulting to `false`) is correct.
+
+### Exit rule (from §A2 plan, applied)
+
+> If any required write path is not enforceable, do not expose `/factory-qa-fix`.
+
+Paths #3, #7, and #8 are not enforceable from repository code. Therefore:
+
+- `/factory-qa-fix` remains UNREGISTERED in `.pi/extensions/pi-gstack/index.ts`.
+- `safe-command-guard` remains absent from the Pi adapter's
+  `availableCapabilities` by default.
+- The `FACTORY_QA_FIX_WORKFLOW` definition continues to require
+  `safe-command-guard` so any future runtime that advertises that capability
+  must have actually wrapped command execution.
+- A negative test in `test/pi-extension.test.ts` asserts that
+  `commands.has('factory-qa-fix') === false` after registration; this guard
+  remains green.
+
+### What it would take to unblock
+
+The blocker is structural: there is no in-process boundary the repo controls
+between the Pi adapter's `sendUserMessage` and the host's Bash/Edit/Write
+tools. Unblocking `/factory-qa-fix` requires one of:
+
+1. A host runtime that exposes a sub-agent execution mode whose tool layer
+   routes through a factory-owned command/file-write interceptor (i.e., the
+   factory provides the implementation of `Bash` and `Edit` for that
+   sub-agent, rather than the host providing them). At that point, the
+   adapter would construct a `FactoryGuardedCommandRuntime` from
+   `lib/factory-guarded-runtime.ts`, wire its `executeCommand` to the
+   host-provided exec hook, and pass `safeCommandGuardActive: true` to
+   `createPiReviewDispatchRuntime`.
+2. OR a process-level sandbox (container/OS-level confinement of the agent
+   session) that enforces filesystem and network policy independent of
+   prompt prose. This is explicitly out of scope for G1 per §Non-goals.
+
+Either route still needs:
+
+- guarded entrypoint for browse-internal writes (path #6) — likely by
+  constraining browse to a per-run output directory and rejecting
+  non-allowlisted browse subcommands at the binary boundary;
+- denial-artifact emission so blocked attempts produce inspectable
+  evidence (see Appendix B).
+
+### Audit posture artifacts
+
+To support the eventual integration, `lib/factory-guarded-runtime.ts` exposes
+two additive seams (see Appendix B):
+
+- a `sanitizeFactoryGuardDecisionForAudit` helper that converts a guard
+  decision into a secret-safe shape (command digest + first token + rule
+  metadata, no full command text);
+- an optional `onCommandDecision` callback on
+  `FactoryGuardedCommandRuntimeOptions` that fires for both allowed and
+  blocked decisions, intended to feed durable denial artifact emission once
+  a live wrapper is wired. The callback is best-effort: thrown errors do not
+  block or override the underlying guard outcome.
+
+Neither seam is wired into the Pi extension at this branch. They exist so
+the integration that closes the blocker above can land additively, with
+denial-evidence tests, instead of redesigning the guard surface.
+
+## Appendix B: Denial audit emission seams
+
+This appendix documents the additive seams in `lib/factory-guarded-runtime.ts`
+that future runtime adapters will use to record denial evidence without
+leaking secret values.
+
+### `sanitizeFactoryGuardDecisionForAudit(decision)`
+
+Purpose: produce a stable, secret-safe view of a `FactoryCommandGuardDecision`
+suitable for inclusion in artifact metadata or audit events.
+
+Output shape:
+
+```ts
+{
+  allowed: boolean;
+  severity: 'allow' | 'warn' | 'block';
+  reason: string;             // rule reason; no command text
+  matchedRuleId?: string;
+  commandHead: string;        // first whitespace-separated token, basename-style
+  commandDigest: string;      // sha256(normalizedCommand) hex, 16-char prefix
+}
+```
+
+Rationale:
+
+- The `normalizedCommand` field of `FactoryCommandGuardDecision` may contain
+  user-supplied or attacker-supplied content (e.g., `cat $RANDOM_VAR=secret`
+  was denied by `secret-dump`/`non-destructive-default-deny` but the value
+  itself is still in the string). Durable artifacts and run logs MUST NOT
+  include that string verbatim.
+- `commandDigest` lets two denial records be correlated without exposing
+  the command itself.
+- `commandHead` keeps a low-information identifier (e.g., `rm`, `npm`, `cat`)
+  so operators can scan a denial log meaningfully.
+
+### `FactoryGuardedCommandRuntimeOptions.onCommandDecision`
+
+Optional callback fired by `createFactoryGuardedCommandRuntime` for every
+guard decision, both allowed and blocked. Signature:
+
+```ts
+onCommandDecision?(input: {
+  request: FactoryCommandGuardRequest;
+  decision: FactoryCommandGuardDecision;
+  sanitized: SanitizedFactoryGuardDecision;
+}): void | Promise<void>;
+```
+
+Behavior contract:
+
+- Called BEFORE the executor runs for `allow` decisions, and BEFORE the
+  `FactoryCommandGuardBlockedError` is thrown for `block` decisions. The
+  callback therefore observes every decision the wrapper makes.
+- Errors thrown from the callback are swallowed; they do not change the
+  underlying guard outcome and they do not prevent execution. This is
+  intentional: audit emission must never be load-bearing for safety.
+- The callback receives the full `FactoryCommandGuardRequest` (including
+  `command`) plus the raw and sanitized decision. Implementations that
+  persist to disk MUST use `sanitized`, not `decision.normalizedCommand`,
+  for any durable record.
+- The guard remains inactive when `guardActive: false`; the callback is
+  still invoked once per `executeCommand` call with a synthetic
+  `guard-inactive-pass-through` decision so an adapter can prove which
+  commands ran without the guard.
+
+Tests in `test/factory-guarded-runtime.test.ts` cover:
+
+- callback fires on allow, block, and guard-inactive paths;
+- callback errors are swallowed (do not surface to the caller, do not change
+  the executor's exit state);
+- `sanitizeFactoryGuardDecisionForAudit` keeps `commandHead`, hashes the
+  rest, and does not return the original command string in any field.
