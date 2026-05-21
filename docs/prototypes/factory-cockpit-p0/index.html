@@ -1,0 +1,1070 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Universe AI Software Factory — Cockpit P0 Prototype (static)</title>
+<meta name="description" content="Static common-user cockpit prototype for Universe AI Software Factory. No production runtime. No deployment." />
+<meta name="robots" content="noindex" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- Prototype banner — sticky reminder that this is not a runtime app. -->
+<div class="proto-banner" role="banner">
+  <strong>Universe AI Software Factory — Cockpit P0</strong>
+  <span class="tag">Static prototype</span>
+  <span class="tag">No production runtime</span>
+  <span class="tag">No deployment</span>
+  <span class="tag">Local-only boundary</span>
+  <span class="tag">/factory-qa-fix hidden until host guard</span>
+</div>
+
+<main class="shell">
+
+  <header class="shell-head">
+    <h1>Universe AI Software Factory — cockpit P0 prototype</h1>
+    <p class="sub">
+      A static walk-through of the common-user cockpit. Each section renders one journey
+      from the Beta&nbsp;1 contract using view-model-shaped placeholder data. This is
+      documentation, not a web app — there is no build step, no router, no JavaScript.
+    </p>
+    <nav class="toc" aria-label="Prototype sections">
+      <a href="#dashboard">Dashboard</a>
+      <a href="#wizard">Idea wizard + mode picker</a>
+      <a href="#easy">Easy Mode home</a>
+      <a href="#bays">Hands-on 3-bay map</a>
+      <a href="#cockpit">Detailed cockpit</a>
+      <a href="#gate">Gate decision</a>
+      <a href="#qa">QA audit evidence</a>
+      <a href="#ship">Ship readiness</a>
+      <a href="#artifact">Artifact detail</a>
+      <a href="#mobile">Mobile artboards</a>
+      <a href="#legend">Legend &amp; provenance</a>
+      <a href="#boundary">Boundary notes</a>
+    </nav>
+  </header>
+
+  <!-- ===================================================================
+       Screen 1 — Dashboard (J1 empty + J2 active + J3 decision in one view)
+       =================================================================== -->
+  <section class="screen" id="dashboard">
+    <div class="screen-head">
+      <span class="name">Dashboard</span>
+      <span class="route">/app</span>
+      <span class="journey">J1 · J2 · J3 entry · M1</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · 1180px artboard</p>
+
+      <div class="win">
+        <div class="win-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span>universe.ai / app</span>
+          <span style="margin-left:auto" class="chip mute">Workspace: Maya's Studio</span>
+        </div>
+        <div class="safety-strip">
+          <span><strong>Local-only workspace.</strong> One user, one filesystem trust zone.</span>
+          <span class="chip accent dot">Safety baseline: read-only audit</span>
+          <span class="prov persisted">persisted</span>
+        </div>
+        <div class="win-body">
+
+          <div class="row between">
+            <div>
+              <h2 style="margin:0;font-size:22px;">Good morning, Maya</h2>
+              <div class="muted">3 projects in flight · 2 need your attention</div>
+            </div>
+            <div class="row tight">
+              <span class="btn ghost">Mode: Easy (default)</span>
+              <span class="btn primary">+ New project</span>
+            </div>
+          </div>
+
+          <!-- Decision-needed banner — top priority above everything. -->
+          <div class="decision-banner" style="margin-top:16px;">
+            <div class="row between">
+              <h2><span aria-hidden="true">⚠</span> Decisions waiting on you <span class="chip warn">2</span></h2>
+              <span class="prov contract">contract-backed</span>
+            </div>
+            <div class="row" style="margin-top:6px;">
+              <div class="decision-mini">
+                <div class="ctx">Tutor Match · Planning</div>
+                <div class="ask">Approve MVP scope</div>
+                <div class="row between">
+                  <span class="persona coach"><span class="pi">PC</span><span class="who">Product Coach</span></span>
+                  <span class="chip warn">Review →</span>
+                </div>
+              </div>
+              <div class="decision-mini">
+                <div class="ctx">Bakery POS · Fix loop</div>
+                <div class="ask">Allow safe local fixes for failing checkout test</div>
+                <div class="row between">
+                  <span class="persona builder"><span class="pi">IM</span><span class="who">Implementation</span></span>
+                  <span class="chip warn dot">safe local writes</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Resume hero — pick up where you left off. -->
+          <div class="resume-hero" style="margin-top:14px;">
+            <div style="flex:1;min-width:200px;">
+              <div class="label">Resume</div>
+              <div class="title">Tutor Match — Planning, 1 of 3 phases done</div>
+              <div class="why">Last touched 3 min ago. The Product Coach drafted an MVP scope and is waiting for your nod.</div>
+            </div>
+            <span class="btn primary">Open project →</span>
+            <span class="prov wrapper">wrapper-derived</span>
+          </div>
+
+          <!-- Project floor. -->
+          <div style="margin-top:18px;">
+            <div class="row between" style="margin-bottom:8px;">
+              <h3 style="margin:0;font-size:15px;">Your projects</h3>
+              <div class="row tight">
+                <span class="chip">Needs decision · 2</span>
+                <span class="chip mute">In progress · 1</span>
+                <span class="chip mute">Ready · 1</span>
+              </div>
+            </div>
+            <div class="project-grid">
+
+              <div class="project-card">
+                <div class="row between"><span class="name">Tutor Match</span><span class="chip warn">!</span></div>
+                <div class="rail" aria-label="9 phases">
+                  <span class="done"></span><span class="now"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <div class="muted">Phase 2 of 9 · Planning</div>
+                <span class="persona coach"><span class="pi">PC</span><span class="who">Product Coach<small>shaping MVP scope</small></span></span>
+                <div><span class="chip accent dot">Read-only audit</span></div>
+                <div class="muted">Next: <strong>Approve MVP scope</strong></div>
+                <span class="prov wrapper">wrapper-derived</span>
+              </div>
+
+              <div class="project-card">
+                <div class="row between"><span class="name">Bakery POS</span><span class="chip warn">!</span></div>
+                <div class="rail">
+                  <span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="now"></span><span></span><span></span>
+                </div>
+                <div class="muted">Phase 7 of 9 · Fix loop</div>
+                <span class="persona builder"><span class="pi">IM</span><span class="who">Implementation<small>awaiting write approval</small></span></span>
+                <div><span class="chip warn dot">Safe local fixes pending</span></div>
+                <div class="muted">Next: <strong>Approve safe local fixes</strong></div>
+                <span class="prov contract">contract-backed</span>
+              </div>
+
+              <div class="project-card">
+                <div class="row between"><span class="name">HOA Portal</span><span class="chip accent">●</span></div>
+                <div class="rail">
+                  <span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="now"></span><span></span><span></span><span></span>
+                </div>
+                <div class="muted">Phase 6 of 9 · Browser QA</div>
+                <span class="persona qa"><span class="pi">QA</span><span class="who">QA Lead<small>running 7 scenarios</small></span></span>
+                <div><span class="chip accent dot">Browser QA audit</span></div>
+                <div class="muted">Anything for you? <strong>No — running.</strong></div>
+                <span class="prov contract">contract-backed</span>
+              </div>
+
+              <div class="project-card">
+                <div class="row between"><span class="name">Wedding Site</span><span class="chip good">Ready</span></div>
+                <div class="rail">
+                  <span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="now"></span>
+                </div>
+                <div class="muted">Phase 9 of 9 · Ready for handoff</div>
+                <span class="persona release"><span class="pi">RC</span><span class="who">Release Coord.<small>checklist complete</small></span></span>
+                <div><span class="chip danger dot">Release locked</span></div>
+                <div class="muted">Next: <strong>Export handoff bundle</strong></div>
+                <span class="prov wrapper">wrapper-derived</span>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 2 — Idea wizard + mode picker
+       =================================================================== -->
+  <section class="screen" id="wizard">
+    <div class="screen-head">
+      <span class="name">New project — idea wizard</span>
+      <span class="route">/app/projects/new</span>
+      <span class="journey">J1</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · two-pane intake</p>
+
+      <div class="wizard">
+        <div class="col">
+          <h3 style="margin:0;">Tell Universe what you're building</h3>
+          <div class="muted">No blank prompt. Universe walks you through guided questions, then drafts the brief on the right.</div>
+
+          <div class="q">
+            <span class="label">1 · Who is this for?</span>
+            <span class="fake-input">Local tutors and the students looking for them</span>
+          </div>
+          <div class="q">
+            <span class="label">2 · What should it do in one line?</span>
+            <span class="fake-input">Match tutors and students nearby</span>
+          </div>
+          <div class="q">
+            <span class="label">3 · What does success look like in 30 days?</span>
+            <span class="fake-input">10 matches a week without me babysitting</span>
+          </div>
+          <div class="q">
+            <span class="label">4 · Anything we should not touch?</span>
+            <span class="fake-input empty">Optional — leave blank if no constraints yet</span>
+          </div>
+
+          <div class="muted" style="font-size:12px;">
+            You can refine any answer later. Universe will tell you what is still missing before each gate.
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="brief">
+            <h3>Idea brief preview <span class="prov wrapper">wrapper-derived</span></h3>
+            <div class="bullet"><strong>Project name:</strong> Tutor Match</div>
+            <div class="bullet"><strong>One-line goal:</strong> Match tutors and students nearby.</div>
+            <div class="bullet"><strong>Primary user:</strong> Local tutors + students.</div>
+            <div class="bullet"><strong>30-day success:</strong> ~10 matches/week, low operator load.</div>
+            <div class="bullet muted">Still needed: target geography · privacy posture · payment scope.</div>
+          </div>
+
+          <h3 style="margin:14px 0 0;">Choose how hands-on you want to be</h3>
+          <div class="muted">You can switch any time. Switching to Easy never auto-approves a pending decision.</div>
+
+          <div class="mode-picker">
+            <div class="mode-option recommended">
+              <div class="head">
+                <h3>Easy Mode</h3>
+                <span class="chip accent">Recommended for most</span>
+              </div>
+              <p class="muted" style="margin:6px 0 0;">Calm daily surface. Universe handles routine reversible work and only interrupts you when a real decision is needed.</p>
+              <ul>
+                <li>One next action at a time.</li>
+                <li>"Universe handled this" feed for reversible work.</li>
+                <li>Decision-needed banner when input is required.</li>
+              </ul>
+            </div>
+            <div class="mode-option">
+              <div class="head">
+                <h3>Hands-on Mode</h3>
+                <span class="chip mute">Switch any time</span>
+              </div>
+              <p class="muted" style="margin:6px 0 0;">See the 3-bay factory map, drill into the detailed cockpit, watch every persona's turn.</p>
+              <ul>
+                <li>Shape it · Build it · Ship it bays.</li>
+                <li>9-phase timeline with QA→Fix nested.</li>
+                <li>Persona panel, artifacts, decision queue.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 3 — Easy Mode project home
+       =================================================================== -->
+  <section class="screen" id="easy">
+    <div class="screen-head">
+      <span class="name">Easy Mode project home</span>
+      <span class="route">/app/projects/:projectId  (mode=easy)</span>
+      <span class="journey">J2 · M2</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · single-focus surface</p>
+
+      <div class="win">
+        <div class="win-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span>universe.ai / app / projects / tutor-match</span>
+          <span style="margin-left:auto" class="chip mute">Mode pill: Easy → switch to Hands-on</span>
+        </div>
+        <div class="safety-strip">
+          <span><strong>Browser QA audit — no code changes</strong> while QA Lead is gathering evidence.</span>
+          <span class="chip accent dot">Read-only audit</span>
+          <span class="prov contract">contract-backed</span>
+        </div>
+        <div class="win-body col" style="gap:14px;">
+
+          <div class="right-now">
+            <div class="row between">
+              <div>
+                <div class="label">Right now</div>
+                <h3>Designer is sketching the matching flow.</h3>
+                <div class="now-line">No input from you needed for this part.</div>
+              </div>
+              <span class="persona designer"><span class="pi">DS</span><span class="who">Designer<small>turn 3 of 5</small></span></span>
+            </div>
+            <div class="next row between">
+              <div class="muted">Next time Universe needs you: <strong>before code changes begin.</strong></div>
+              <span class="btn ghost">See the work →</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="label" style="margin-bottom:6px;">Compressed progress</div>
+            <div class="progress-strip" aria-label="9-phase compressed strip">
+              <div class="ph done">1 Idea</div>
+              <div class="ph done">2 Plan</div>
+              <div class="ph now">3 Design</div>
+              <div class="ph">4 Arch</div>
+              <div class="ph">5 Build</div>
+              <div class="ph">6 Review</div>
+              <div class="ph">7 QA</div>
+              <div class="ph">8 Fix</div>
+              <div class="ph">9 Ship</div>
+            </div>
+          </div>
+
+          <div class="card" style="background:var(--accent-soft);border-color:var(--accent);">
+            <div class="row between">
+              <div>
+                <div class="label" style="color:var(--accent-ink);">Anything for me?</div>
+                <strong>Nothing right now.</strong> Universe will ping you before any code change or approval.
+              </div>
+              <span class="prov wrapper">wrapper-derived</span>
+            </div>
+          </div>
+
+          <div class="handled-feed">
+            <h3>Universe handled this · reversible work</h3>
+            <div class="item">
+              <span class="chip good dot">Auto</span>
+              <span>Drafted MVP scope from your intake answers.</span>
+              <span class="prov contract">contract-backed</span>
+              <span class="when">12 min ago</span>
+            </div>
+            <div class="item">
+              <span class="chip good dot">Auto</span>
+              <span>Picked component layout that matches the design brief.</span>
+              <span class="prov wrapper">wrapper-derived</span>
+              <span class="when">9 min ago</span>
+            </div>
+            <div class="item">
+              <span class="chip good dot">Auto</span>
+              <span>Generated mock data for the matching screen preview.</span>
+              <span class="prov wrapper">wrapper-derived</span>
+              <span class="when">3 min ago</span>
+            </div>
+            <div class="item muted">
+              <span>+ 4 more reversible items — collapsed.</span>
+            </div>
+          </div>
+
+          <div class="muted" style="font-size:12px;">
+            Easy → Hands-on is one click. Hands-on → Easy asks first when a decision is pending.
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 4 — Hands-on 3-bay map
+       =================================================================== -->
+  <section class="screen" id="bays">
+    <div class="screen-head">
+      <span class="name">Hands-on Mode — 3-bay factory map</span>
+      <span class="route">/app/projects/:projectId  (mode=hands-on, layer=map)</span>
+      <span class="journey">J2 hands-on · M3</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · top-level bay map</p>
+
+      <div class="bay-map">
+        <div class="bay">
+          <div class="row between">
+            <h3>Shape it</h3>
+            <span class="chip good dot">Done</span>
+          </div>
+          <div class="room">Drawing Room</div>
+          <div class="crew">
+            <span class="persona coach"><span class="pi">PC</span><span class="who">Product Coach</span></span>
+            <span class="persona designer"><span class="pi">DS</span><span class="who">Designer</span></span>
+          </div>
+          <div class="outputs">Outputs: idea brief, design brief.</div>
+          <span class="prov wrapper">wrapper-derived</span>
+        </div>
+
+        <div class="bay active">
+          <div class="row between">
+            <h3>Build it</h3>
+            <span class="chip warn dot">Active · phase 5 of 9</span>
+          </div>
+          <div class="room">Workshop</div>
+          <div class="crew">
+            <span class="persona arch"><span class="pi">AR</span><span class="who">Eng. Architect</span></span>
+            <span class="persona builder"><span class="pi">IM</span><span class="who">Implementation</span></span>
+            <span class="persona reviewer"><span class="pi">CV</span><span class="who">Code Reviewer</span></span>
+          </div>
+          <div class="outputs">Outputs: implementation diff, review notes, fix-loop runs.</div>
+          <span class="prov contract">contract-backed</span>
+        </div>
+
+        <div class="bay locked">
+          <div class="row between">
+            <h3>Ship it</h3>
+            <span class="chip mute dot">Locked</span>
+          </div>
+          <div class="room">Showroom</div>
+          <div class="crew">
+            <span class="persona qa"><span class="pi">QA</span><span class="who">QA Lead</span></span>
+            <span class="persona release"><span class="pi">RC</span><span class="who">Release Coord.</span></span>
+          </div>
+          <div class="outputs">Outputs: QA evidence, handoff bundle.</div>
+          <div class="lock-why">Unlocks once code review is approved.</div>
+          <span class="prov wrapper">wrapper-derived</span>
+        </div>
+      </div>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;">
+        Bays unlock in order. The detailed cockpit is one click deeper from the active bay.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 5 — Detailed cockpit (3 columns)
+       =================================================================== -->
+  <section class="screen" id="cockpit">
+    <div class="screen-head">
+      <span class="name">Detailed cockpit</span>
+      <span class="route">/app/projects/:projectId  (mode=hands-on, layer=detailed)</span>
+      <span class="journey">J2 hands-on · M3 deeper</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · 3-column · stacks on mobile</p>
+
+      <div class="cockpit">
+
+        <div class="col-frame">
+          <div class="label" style="margin-bottom:8px;">9-phase timeline</div>
+          <div class="timeline" aria-label="Phases">
+            <div class="step done">1 · Idea <span>✓</span></div>
+            <div class="step done">2 · Plan <span>✓</span></div>
+            <div class="step done">3 · Design <span>✓</span></div>
+            <div class="step done">4 · Architecture <span>✓</span></div>
+            <div class="step active">5 · Build <span>●</span></div>
+            <div class="step upcoming">6 · Review</div>
+            <div class="step upcoming">7 · QA</div>
+            <div class="step nested upcoming">7a · Fix loop (nested)</div>
+            <div class="step upcoming">8 · Ship readiness</div>
+            <div class="step upcoming">9 · Handoff</div>
+          </div>
+        </div>
+
+        <div class="col-frame">
+          <div class="row between">
+            <strong>Build · Implementation turn 4</strong>
+            <span class="prov contract">contract-backed</span>
+          </div>
+          <div class="workspace-stream" style="margin-top:10px;">
+            <div class="turn">
+              <div class="who">Eng. Architect</div>
+              <div>Proposed file layout: <code>src/match/</code>, <code>src/match/db.ts</code>, <code>src/match/api.ts</code>. No write yet.</div>
+            </div>
+            <div class="turn">
+              <div class="who">Implementation</div>
+              <div>Drafted <code>src/match/api.ts</code> against the contract. Asking to write 3 files (124 lines).</div>
+              <div class="row tight" style="margin-top:6px;">
+                <span class="chip warn dot">safe local writes pending</span>
+                <span class="btn sm primary">Open decision →</span>
+              </div>
+            </div>
+            <div class="turn muted">
+              <div class="who">Code Reviewer</div>
+              <div>Waiting for the diff.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-frame persona-panel">
+          <div class="label" style="margin-bottom:6px;">Crew</div>
+          <div class="person-line"><span class="persona arch"><span class="pi">AR</span><span class="who">Eng. Architect</span></span><span class="chip mute">Idle</span></div>
+          <div class="person-line"><span class="persona builder"><span class="pi">IM</span><span class="who">Implementation</span></span><span class="chip warn">Asking</span></div>
+          <div class="person-line"><span class="persona reviewer"><span class="pi">CV</span><span class="who">Code Reviewer</span></span><span class="chip mute">Queued</span></div>
+
+          <div class="label" style="margin:12px 0 6px;">Latest artifact</div>
+          <div class="card">
+            <h3>Diff preview · src/match/api.ts</h3>
+            <div class="sub">124 lines added · 0 removed</div>
+            <div class="row tight" style="margin-top:6px;">
+              <span class="chip accent">Evidence</span>
+              <span class="prov contract">contract-backed</span>
+            </div>
+          </div>
+
+          <div class="label" style="margin:12px 0 6px;">Pending decision</div>
+          <div class="card" style="background:#fff8e0;border-color:var(--warn);">
+            <strong>Allow safe local writes for 3 files</strong>
+            <div class="sub">Request seq #11 · expires when newer state arrives.</div>
+            <span class="btn sm warn" style="margin-top:6px;">Review →</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 6 — Gate decision
+       =================================================================== -->
+  <section class="screen" id="gate">
+    <div class="screen-head">
+      <span class="name">Gate decision surface</span>
+      <span class="route">overlay state</span>
+      <span class="journey">J3 · M4</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · centered high-friction modal</p>
+
+      <div class="gate-modal" role="dialog" aria-label="Gate decision">
+        <div class="row between">
+          <h3>Allow safe local file writes for 3 files?</h3>
+          <span class="chip warn">Decision needed</span>
+        </div>
+        <div class="why">
+          Implementation wants to write <code>src/match/api.ts</code>, <code>src/match/db.ts</code>,
+          and <code>src/match/types.ts</code>. Nothing leaves your machine.
+        </div>
+
+        <div class="gate-cancan">
+          <div class="col-box can">
+            <span class="label">Universe will do</span>
+            <ul>
+              <li>Write 3 files under <code>src/match/</code>.</li>
+              <li>Run the existing test suite locally.</li>
+              <li>Hand the diff to Code Reviewer.</li>
+            </ul>
+          </div>
+          <div class="col-box cant">
+            <span class="label">Universe cannot</span>
+            <ul>
+              <li>Touch files outside the project root.</li>
+              <li>Run network calls, push, deploy, or publish.</li>
+              <li>Modify your shell, git config, or credentials.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="row tight">
+          <span class="chip warn dot">safe-local-fixes</span>
+          <span class="chip mute">request seq #11</span>
+          <span class="chip mute">recommendation: approve</span>
+        </div>
+
+        <div class="gate-actions">
+          <span class="btn good">Approve</span>
+          <span class="btn danger">Reject</span>
+          <span class="btn ghost">Waive (with reason)</span>
+          <span class="btn ghost">Cancel</span>
+          <span class="prov contract" style="margin-left:auto;">contract-backed</span>
+        </div>
+
+        <div class="gate-meta">
+          Request sequence is carried in the action payload. Stale sequences are rejected
+          fail-closed by the factory command/API layer — you cannot accidentally approve
+          a superseded decision.
+        </div>
+      </div>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;">
+        Mobile equivalent: full-screen card, can/can't list above the fold, sticky approve/reject at bottom (see Mobile artboards below).
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 7 — QA audit evidence + guard denial
+       =================================================================== -->
+  <section class="screen" id="qa">
+    <div class="screen-head">
+      <span class="name">QA audit evidence</span>
+      <span class="route">/app/projects/:projectId/qa</span>
+      <span class="journey">J4 · J5</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · post-run evidence matrix</p>
+
+      <div class="qa-banner">
+        <span><strong>Browser QA audit — no code changes.</strong> Universe is observing the running app and recording evidence.</span>
+        <span class="chip accent dot">browser-qa-audit</span>
+        <span class="prov contract">contract-backed</span>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
+        <div class="row between">
+          <div>
+            <div class="label">Target environment</div>
+            <strong>http://localhost:5173/ · Chromium 140</strong>
+            <div class="muted">Browser run id: <code>qa-run-2026-05-21-001</code></div>
+          </div>
+          <span class="chip mute">Read-only · no writes</span>
+        </div>
+      </div>
+
+      <table class="qa-matrix" aria-label="Scenario pass/fail matrix">
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Result</th>
+            <th>Evidence</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="pass">
+            <td>Tutor signs up</td>
+            <td><span class="chip good">Pass</span></td>
+            <td class="ev">screenshot-001.png · trace-001.json</td>
+            <td><span class="prov contract">contract-backed</span></td>
+          </tr>
+          <tr class="pass">
+            <td>Student searches by zip</td>
+            <td><span class="chip good">Pass</span></td>
+            <td class="ev">screenshot-002.png · trace-002.json</td>
+            <td><span class="prov contract">contract-backed</span></td>
+          </tr>
+          <tr class="fail">
+            <td>Match request → confirm</td>
+            <td><span class="chip danger">Fail</span></td>
+            <td class="ev">screenshot-003.png · trace-003.json · console: <em>Cannot read property 'id' of undefined</em></td>
+            <td><span class="prov contract">contract-backed</span></td>
+          </tr>
+          <tr class="pass">
+            <td>Block / report user</td>
+            <td><span class="chip good">Pass</span></td>
+            <td class="ev">screenshot-004.png</td>
+            <td><span class="prov contract">contract-backed</span></td>
+          </tr>
+          <tr>
+            <td colspan="2" class="muted"><em>Recovered durable QA log</em> · browser closed cleanly, no secrets in capture.</td>
+            <td class="ev">qa-log-2026-05-21.jsonl</td>
+            <td><span class="prov wrapper">wrapper-derived</span></td>
+          </tr>
+          <tr>
+            <td>Referenced URL (untrusted)</td>
+            <td><span class="chip mute">metadata-only</span></td>
+            <td class="ev"><code>https://example.com/match</code> — shown for context, not opened.</td>
+            <td><span class="prov mocked">mocked</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Guard denial (J5) -->
+      <div class="guard-denial">
+        <div class="row between">
+          <div>
+            <span class="label">Guard denial · J5</span>
+            <strong>Universe refused a command that wanted to leave the project root.</strong>
+          </div>
+          <span class="chip danger dot">blocked-by-policy</span>
+        </div>
+        <div style="margin-top:6px;">
+          Reason: <code>path-escape</code> · category: <code>filesystem-write</code> · profile: <code>safe-local-fixes</code>.
+          Digest head: <code>cmd:c4f7…a91</code>. Full command and any credentials are <strong>not</strong> shown — only enough to correlate.
+        </div>
+        <span class="prov contract" style="margin-top:6px;display:inline-block;">contract-backed</span>
+      </div>
+
+      <!-- /factory-qa-fix — must remain hidden until host guard attestation. -->
+      <div class="qa-banner fix-hidden" style="margin-top:12px;">
+        <span>
+          <strong>QA fix loop is a separate run.</strong>
+          The <code>/factory-qa-fix</code> control is hidden in this build — it appears only after
+          a host guard attestation confirms safe local writes are permitted.
+        </span>
+        <span class="chip mute dot">hidden</span>
+        <span class="prov mocked">mocked</span>
+      </div>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;">
+        QA audit and QA fix are different runs. Audit never edits code; fix only appears
+        after a persisted <code>qa-fix</code> run exists and the host guard says yes.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 8 — Ship readiness
+       =================================================================== -->
+  <section class="screen" id="ship">
+    <div class="screen-head">
+      <span class="name">Ship readiness · handoff</span>
+      <span class="route">ship readiness state</span>
+      <span class="journey">J6</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · checklist-first readiness</p>
+
+      <div class="handoff-box">
+        <h3>Ready for handoff</h3>
+        <div class="muted">All required checks are green. Universe has prepared a handoff bundle for you to download.</div>
+        <div class="disclaimer">
+          Ship readiness is not deployment. No tag, publish, push, or deploy happens in this workflow.
+        </div>
+      </div>
+
+      <div class="ship-checklist" style="margin-top:12px;">
+        <div class="group">
+          <h4>Quality</h4>
+          <div class="item done"><span class="mk">✓</span><span>All unit tests pass on the last commit. <span class="prov contract">contract-backed</span></span></div>
+          <div class="item done"><span class="mk">✓</span><span>Linter clean. <span class="prov contract">contract-backed</span></span></div>
+          <div class="item accepted"><span class="mk">·</span><span>Coverage 71% (accepted risk — see notes). <span class="prov wrapper">wrapper-derived</span></span></div>
+        </div>
+        <div class="group">
+          <h4>Product</h4>
+          <div class="item done"><span class="mk">✓</span><span>MVP scope approved by you (gate #6). <span class="prov contract">contract-backed</span></span></div>
+          <div class="item done"><span class="mk">✓</span><span>Design brief and screens reviewed. <span class="prov persisted">persisted</span></span></div>
+        </div>
+        <div class="group">
+          <h4>QA</h4>
+          <div class="item done"><span class="mk">✓</span><span>Browser QA audit completed; failing scenario fixed and re-verified. <span class="prov contract">contract-backed</span></span></div>
+          <div class="item done"><span class="mk">✓</span><span>Recovered durable QA log attached. <span class="prov wrapper">wrapper-derived</span></span></div>
+        </div>
+        <div class="group">
+          <h4>Release readiness (not deploy)</h4>
+          <div class="item done"><span class="mk">✓</span><span>Handoff bundle generated locally. <span class="prov contract">contract-backed</span></span></div>
+          <div class="item done"><span class="mk">✓</span><span>Release Coord. confirmed checklist. <span class="prov wrapper">wrapper-derived</span></span></div>
+          <div class="item todo"><span class="mk">!</span><span>You still need to choose a destination outside Universe (your hosting, your repo). Universe will not push.</span></div>
+        </div>
+        <div class="group">
+          <h4>Handoff</h4>
+          <div class="item done"><span class="mk">✓</span><span>Artifact index ready for export.</span></div>
+          <div class="item accepted"><span class="mk">·</span><span>Audit trail kept locally; you control export.</span></div>
+        </div>
+      </div>
+
+      <div class="row tight" style="margin-top:12px;">
+        <span class="btn good">Export handoff bundle</span>
+        <span class="btn ghost">Review accepted risks</span>
+        <span class="btn ghost">See audit trail</span>
+        <span class="chip danger dot" style="margin-left:auto;">release-action-locked</span>
+      </div>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;">
+        Completion language is <strong>"Ready for handoff"</strong>. The words "deployed",
+        "released", "published", and "shipped" are reserved for actions Universe does not perform.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 9 — Artifact detail
+       =================================================================== -->
+  <section class="screen" id="artifact">
+    <div class="screen-head">
+      <span class="name">Artifact detail</span>
+      <span class="route">/app/projects/:projectId/artifacts/:artifactId</span>
+      <span class="journey">M5</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Desktop · trusted artifact view</p>
+
+      <div class="artifact-detail">
+        <div class="main">
+          <div class="row between">
+            <h3>MVP scope · v3</h3>
+            <span class="prov contract">contract-backed</span>
+          </div>
+          <div class="summary">
+            What the Product Coach proposes as the minimum viable build for Tutor Match. Locked by gate #6.
+          </div>
+          <div class="row tight" style="margin-top:8px;">
+            <span class="chip accent">Evidence</span>
+            <span class="chip good">Approved</span>
+            <span class="chip mute">Phase · Planning</span>
+            <span class="persona coach"><span class="pi">PC</span><span class="who">Product Coach</span></span>
+          </div>
+          <pre>{
+  "name": "Tutor Match",
+  "must_have": [
+    "Tutor signup with verification",
+    "Student search by zip + subject",
+    "Request → confirm flow",
+    "Block/report"
+  ],
+  "out_of_scope": [
+    "Payments",
+    "Background checks",
+    "Mobile native apps"
+  ]
+}</pre>
+          <div class="muted" style="font-size:12px;margin-top:8px;">
+            Primary action: <strong>open-text</strong> (this artifact is a trusted local file in the project's artifact store).
+          </div>
+        </div>
+
+        <div class="side">
+          <div class="label">Why it matters</div>
+          <p style="margin:4px 0 10px;font-size:13px;">Sets the boundary for everything the Workshop bay will build. Changing it after gate #6 requires reopening the gate.</p>
+
+          <div class="label">Linked decision</div>
+          <div class="meta-row">
+            <span>Gate #6 · Approve MVP scope</span>
+            <span class="chip good">Approved</span>
+          </div>
+
+          <div class="label" style="margin-top:10px;">Evidence refs</div>
+          <div class="meta-row"><span>Idea brief v2</span><span class="prov persisted">persisted</span></div>
+          <div class="meta-row"><span>Design brief v1</span><span class="prov persisted">persisted</span></div>
+          <div class="meta-row">
+            <span>Referenced URL (untrusted)</span>
+            <span class="chip mute">metadata-only</span>
+          </div>
+
+          <div class="label" style="margin-top:10px;">Versions</div>
+          <div class="meta-row"><span>v3 (current)</span><span class="muted">today, 10:14</span></div>
+          <div class="meta-row"><span>v2</span><span class="muted">yesterday</span></div>
+          <div class="meta-row"><span>v1</span><span class="muted">2 days ago</span></div>
+        </div>
+      </div>
+
+      <div class="muted" style="font-size:12px;margin-top:10px;">
+        Untrusted event metadata (URI, path) is shown with a <strong>metadata-only</strong> chip and never
+        rendered as a trusted clickable file or link action.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Screen 10 — Mobile artboards (M1, M2, M3, M4, M5)
+       =================================================================== -->
+  <section class="screen" id="mobile">
+    <div class="screen-head">
+      <span class="name">Mobile artboards</span>
+      <span class="route">responsive · &lt;768px</span>
+      <span class="journey">M1 – M5</span>
+    </div>
+    <div class="screen-body">
+      <p class="viewport-label">Phone · 320px</p>
+      <p class="muted" style="font-size:12px;margin-top:0;">
+        These are static artboards. The desktop sections above also reflow into single-column
+        layouts at this width — try resizing your browser to see it live.
+      </p>
+
+      <div class="mobile-row">
+
+        <!-- M1 · Dashboard -->
+        <div>
+          <div class="phone" aria-label="Mobile dashboard">
+            <div class="notch">9:41 · Universe AI</div>
+            <div class="screen-in">
+              <div class="topbar"><strong>Dashboard</strong><span class="chip mute">Easy</span></div>
+              <div class="decision-banner" style="padding:8px;">
+                <strong style="color:var(--warn-ink);font-size:12px;">⚠ 2 decisions need you</strong>
+                <div class="muted" style="font-size:11px;">Tutor Match · Bakery POS</div>
+              </div>
+              <div class="resume-hero" style="padding:8px;border-radius:8px;">
+                <div>
+                  <div class="label" style="font-size:9px;">Resume</div>
+                  <strong style="font-size:12px;">Tutor Match · Planning</strong>
+                </div>
+              </div>
+              <div class="project-card" style="padding:8px;gap:4px;">
+                <div class="row between"><strong style="font-size:12px;">HOA Portal</strong><span class="chip accent">●</span></div>
+                <div class="muted" style="font-size:11px;">Browser QA · running</div>
+                <span class="chip accent dot" style="font-size:9px;">browser-qa-audit</span>
+              </div>
+              <div class="muted" style="font-size:11px;margin-top:auto;">
+                What needs me? Answered in first viewport.
+              </div>
+            </div>
+          </div>
+          <div class="phone-caption">M1 · Decisions and resume above the fold</div>
+        </div>
+
+        <!-- M2 · Easy Mode home -->
+        <div>
+          <div class="phone" aria-label="Mobile easy mode home">
+            <div class="notch">9:41 · Tutor Match</div>
+            <div class="screen-in">
+              <div class="topbar"><strong>Tutor Match</strong><span class="chip mute">Easy</span></div>
+              <div class="card" style="padding:8px;">
+                <div class="label" style="font-size:9px;">Right now</div>
+                <strong style="font-size:12px;">Designer is sketching the flow.</strong>
+              </div>
+              <div class="progress-strip" style="grid-template-columns:repeat(9,1fr);gap:2px;">
+                <div class="ph done" style="font-size:8px;padding:3px;">1</div>
+                <div class="ph done" style="font-size:8px;padding:3px;">2</div>
+                <div class="ph now" style="font-size:8px;padding:3px;">3</div>
+                <div class="ph" style="font-size:8px;padding:3px;">4</div>
+                <div class="ph" style="font-size:8px;padding:3px;">5</div>
+                <div class="ph" style="font-size:8px;padding:3px;">6</div>
+                <div class="ph" style="font-size:8px;padding:3px;">7</div>
+                <div class="ph" style="font-size:8px;padding:3px;">8</div>
+                <div class="ph" style="font-size:8px;padding:3px;">9</div>
+              </div>
+              <div class="card" style="background:var(--accent-soft);border-color:var(--accent);padding:8px;">
+                <strong style="font-size:12px;">Anything for me? Nothing right now.</strong>
+              </div>
+              <div class="muted" style="font-size:10px;">Universe handled this · 3 reversible items (collapsed)</div>
+            </div>
+          </div>
+          <div class="phone-caption">M2 · Right-now → progress → "Anything for me?"</div>
+        </div>
+
+        <!-- M3 · 3-bay stacked -->
+        <div>
+          <div class="phone" aria-label="Mobile 3-bay map">
+            <div class="notch">9:41 · Tutor Match</div>
+            <div class="screen-in">
+              <div class="topbar"><strong>3-bay map</strong><span class="chip mute">Hands-on</span></div>
+              <div class="bay" style="padding:8px;gap:4px;">
+                <div class="row between"><strong style="font-size:12px;">Shape it</strong><span class="chip good" style="font-size:9px;">Done</span></div>
+                <div class="muted" style="font-size:10px;">Drawing Room</div>
+              </div>
+              <div class="bay active" style="padding:8px;gap:4px;">
+                <div class="row between"><strong style="font-size:12px;">Build it</strong><span class="chip warn" style="font-size:9px;">Active</span></div>
+                <div class="muted" style="font-size:10px;">Workshop · phase 5 of 9</div>
+              </div>
+              <div class="bay locked" style="padding:8px;gap:4px;">
+                <div class="row between"><strong style="font-size:12px;">Ship it</strong><span class="chip mute" style="font-size:9px;">Locked</span></div>
+                <div class="muted" style="font-size:10px;">Unlocks after review.</div>
+              </div>
+            </div>
+          </div>
+          <div class="phone-caption">M3 · Bays stack vertically; one is dominant</div>
+        </div>
+
+        <!-- M4 · Gate decision full-screen -->
+        <div>
+          <div class="phone" aria-label="Mobile gate decision">
+            <div class="notch">9:41 · Bakery POS</div>
+            <div class="screen-in">
+              <div class="topbar"><strong>Decision needed</strong><span class="chip warn" style="font-size:9px;">!</span></div>
+              <strong style="font-size:13px;">Allow safe local file writes?</strong>
+              <div class="muted" style="font-size:11px;">3 files in <code>src/match/</code>. Nothing leaves your machine.</div>
+              <div class="col-box can" style="border:1px solid var(--good);border-radius:6px;padding:6px;">
+                <span class="label" style="color:var(--good-ink);font-size:9px;">Universe will</span>
+                <span style="font-size:11px;">Write 3 files · run tests locally</span>
+              </div>
+              <div class="col-box cant" style="border:1px solid var(--danger);border-radius:6px;padding:6px;">
+                <span class="label" style="color:var(--danger-ink);font-size:9px;">Universe will not</span>
+                <span style="font-size:11px;">No network · no push · no deploy</span>
+              </div>
+              <div class="sticky-bottom">
+                <span class="btn good sm" style="flex:1;justify-content:center;">Approve</span>
+                <span class="btn danger sm" style="flex:1;justify-content:center;">Reject</span>
+              </div>
+            </div>
+          </div>
+          <div class="phone-caption">M4 · Can/can't above the fold; actions sticky at bottom</div>
+        </div>
+
+        <!-- M5 · Artifact detail -->
+        <div>
+          <div class="phone" aria-label="Mobile artifact detail">
+            <div class="notch">9:41 · Tutor Match</div>
+            <div class="screen-in">
+              <div class="topbar"><strong>Artifact</strong><span class="prov contract" style="font-size:9px;">contract-backed</span></div>
+              <strong style="font-size:13px;">MVP scope · v3</strong>
+              <div class="row tight">
+                <span class="chip good" style="font-size:9px;">Approved</span>
+                <span class="chip accent" style="font-size:9px;">Evidence</span>
+              </div>
+              <div class="muted" style="font-size:11px;">Trusted local artifact · primary action <strong>open-text</strong>.</div>
+              <div class="card" style="padding:6px;font-size:10px;font-family:var(--mono);">{ "name": "Tutor Match", "must_have": [...] }</div>
+              <div class="row between" style="font-size:11px;">
+                <span>Referenced URL</span>
+                <span class="chip mute" style="font-size:9px;">metadata-only</span>
+              </div>
+            </div>
+          </div>
+          <div class="phone-caption">M5 · Provenance near title; metadata-only never trusted</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Legend & provenance
+       =================================================================== -->
+  <section class="screen" id="legend">
+    <div class="screen-head">
+      <span class="name">Legend · provenance · safety</span>
+      <span class="route">global</span>
+      <span class="journey">cross-screen</span>
+    </div>
+    <div class="screen-body">
+
+      <div class="legend-grid">
+
+        <div class="legend-block">
+          <h4>Provenance</h4>
+          <div class="legend-line"><span class="prov persisted">persisted</span><span>Project catalog record on disk.</span></div>
+          <div class="legend-line"><span class="prov contract">contract-backed</span><span>From a factory run status DTO.</span></div>
+          <div class="legend-line"><span class="prov wrapper">wrapper-derived</span><span>Computed by the project wrapper.</span></div>
+          <div class="legend-line"><span class="prov mocked">mocked</span><span>Alpha placeholder until source ships.</span></div>
+        </div>
+
+        <div class="legend-block">
+          <h4>Safety states</h4>
+          <div class="legend-line"><span class="chip accent dot">read-only-audit</span><span>Produce artifacts only.</span></div>
+          <div class="legend-line"><span class="chip accent dot">browser-qa-audit</span><span>Click UI, no code edits.</span></div>
+          <div class="legend-line"><span class="chip warn dot">safe-local-fixes</span><span>Edit project files only.</span></div>
+          <div class="legend-line"><span class="chip mute dot">network-ci-allowed</span><span>Scoped; off by default.</span></div>
+          <div class="legend-line"><span class="chip danger dot">release-action-locked</span><span>No push / publish / deploy.</span></div>
+          <div class="legend-line"><span class="chip danger dot">blocked-by-policy</span><span>Guard refused the command.</span></div>
+        </div>
+
+        <div class="legend-block">
+          <h4>Phase pills</h4>
+          <div class="legend-line"><span class="chip good">✓ Done</span><span>Phase completed.</span></div>
+          <div class="legend-line"><span class="chip warn">● Active</span><span>Current phase.</span></div>
+          <div class="legend-line"><span class="chip mute">○ Upcoming</span><span>Not yet started.</span></div>
+          <div class="legend-line"><span class="chip danger">⚠ Blocked</span><span>Waiting on you or a guard.</span></div>
+        </div>
+
+        <div class="legend-block">
+          <h4>Personas</h4>
+          <div class="legend-line"><span class="persona coach"><span class="pi">PC</span><span class="who">Product Coach</span></span><span>Idea &amp; MVP shaping.</span></div>
+          <div class="legend-line"><span class="persona designer"><span class="pi">DS</span><span class="who">Designer</span></span><span>Screens &amp; flows.</span></div>
+          <div class="legend-line"><span class="persona arch"><span class="pi">AR</span><span class="who">Eng. Architect</span></span><span>Build approach.</span></div>
+          <div class="legend-line"><span class="persona builder"><span class="pi">IM</span><span class="who">Implementation</span></span><span>Writes when approved.</span></div>
+          <div class="legend-line"><span class="persona reviewer"><span class="pi">CV</span><span class="who">Code Reviewer</span></span><span>Quality audit.</span></div>
+          <div class="legend-line"><span class="persona qa"><span class="pi">QA</span><span class="who">QA Lead</span></span><span>Browser evidence.</span></div>
+          <div class="legend-line"><span class="persona release"><span class="pi">RC</span><span class="who">Release Coord.</span></span><span>Readiness &amp; handoff.</span></div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       Boundary notes — local-only, no production, /factory-qa-fix gated.
+       =================================================================== -->
+  <section class="boundary" id="boundary" aria-label="Prototype boundaries">
+    <h3>Prototype boundaries — please read</h3>
+    <ul>
+      <li><strong>Static prototype only.</strong> No production web runtime is implied. No router, no fetcher, no JavaScript.</li>
+      <li><strong>No dependency additions.</strong> No package manifests touched. All fonts are system fonts; nothing is requested from the network.</li>
+      <li><strong>QA audit is non-mutating.</strong> The audit panel above shows evidence, never edits code. QA fix is a separate run state.</li>
+      <li><strong><code>/factory-qa-fix</code> is hidden.</strong> The fix-loop control only appears after a host guard attestation confirms safe local writes are permitted for the project. Until then it is rendered as a placeholder, never as an actionable button.</li>
+      <li><strong>Ship readiness is not deployment.</strong> The success label is "Ready for handoff". No tag, publish, push, or deploy is implied or possible from this surface.</li>
+      <li><strong>Local-only auth/workspace.</strong> One user, one filesystem trust zone, IDs scoped under the local <code>.gstack</code> directory. Hosted/multi-tenant mode is explicitly out of scope.</li>
+      <li><strong>Untrusted metadata stays metadata.</strong> Event URIs and paths render with the <em>metadata-only</em> label and never as trusted clickable actions.</li>
+    </ul>
+  </section>
+
+  <div class="foot">
+    Source contracts:
+    <code>docs/designs/PI_SOFTWARE_FACTORY_COCKPIT_BETA1_CONTRACT.md</code> ·
+    <code>docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md</code> ·
+    <code>docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md</code>.
+    View models: <code>lib/factory-cockpit-view.ts</code>. Open <code>index.html</code> directly in any browser — no build step.
+  </div>
+
+</main>
+</body>
+</html>
