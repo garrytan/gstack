@@ -11,6 +11,7 @@ Companion docs:
 - `docs/designs/PI_FACTORY_PROJECT_WORKSPACE_API.md`
 - `docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md`
 - `docs/designs/PI_FACTORY_SAFE_COMMAND_GUARD_DESIGN.md`
+- `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md`
 - `docs/designs/PI_FACTORY_DISTRIBUTION_PACKAGE_PATH.md`
 
 ## 1. Mission
@@ -343,6 +344,8 @@ No-intervention fallback:
 Purpose: make write-capable local QA fixes possible only when every execution path is guarded and auditable.
 
 Important: Alpha 2 may reveal a platform limitation. If the Pi/Claude environment cannot enforce command routing through the guard, keep `/factory-qa-fix` hidden and ship only the proof/audit pieces.
+
+A2.1 inventory confirmed this limitation. The host-side contract that would close it is captured in `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md`; A2.x work below must conform to that contract and may not expose `/factory-qa-fix` until its §11 validation passes against a real host.
 
 ### Deliverables
 

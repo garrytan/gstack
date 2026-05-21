@@ -2,6 +2,8 @@
 
 Status: proposed contract for enabling write-capable factory QA fix runs safely. The pure classifier slice is implemented in `lib/factory-command-guard.ts`; runtime wrapper/attestation is still future work.
 
+The host-side enforcement contract that pairs with this design — per-run guarded agent sessions, file-write classifier, browser sidecar output-dir constraint, capability attestation, validation, and the explicit blockers that keep `/factory-qa-fix` hidden — lives in `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md`.
+
 ## Goal
 
 Define a real runtime guard for `commandSafetyProfile: 'non-destructive-write'` so Pi can eventually expose write-capable `qa-fix` runs without relying on prompt prose alone.

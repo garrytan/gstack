@@ -544,12 +544,16 @@ Current blocker:
 
 - dispatched Pi/Claude skill Bash/Read/Write/Edit tool paths are outside repository-code enforcement, so `/factory-qa-fix` remains hidden.
 
+Design of record:
+
+- `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md` defines the host-side contract (per-run guarded agent session, file-write classifier, browser sidecar output dir, capability attestation, validation, explicit blockers). `/factory-qa-fix` remains hidden until that design is implemented and validated.
+
 Recommended next steps:
 
-- design or obtain a host runtime that routes sub-agent Bash/Edit/Write tools through factory guard code;
-- constrain browser sidecar writes to a per-run output directory;
-- persist sanitized denied-command audit artifacts;
-- only then reconsider `/factory-qa-fix` exposure.
+- implement the factory-side primitives from §10 Step 1 (`lib/factory-file-write-guard.ts`, attestation helpers, `createGuardedAgentSession` shim) — all behind the existing hidden-command gate;
+- wire the Pi adapter to the shim and add a test-only fake host so §11.3 negative tests can land — `/factory-qa-fix` stays unregistered;
+- partner with a host vendor to implement the §5 contract and OS-confine the browse subprocess per §8;
+- only then reconsider `/factory-qa-fix` exposure, gated by the §11.5 end-to-end test against the real host.
 
 ## Quick orientation for future agents
 
