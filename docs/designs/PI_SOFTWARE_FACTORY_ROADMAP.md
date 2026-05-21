@@ -292,6 +292,7 @@ Current web/product planning artifacts:
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_PARALLEL_EXECUTION_PLAN.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_ALPHA_BETA_EXECUTION_PLAN.md`
 
 Current web defaults:
 
@@ -435,6 +436,19 @@ Current production readiness estimate after Wave 1:
 - weighted overall production readiness: ~48–52%.
 
 The map defines Alpha 0/1/2 and Beta 0/1/2 gates. It explicitly says the branch is not production-ready until a real UI/package surface, durable project state, artifact descriptor integration, generated QA logs, live safe-command path attestation, distribution testing, production-like smoke checks, and security review exist.
+
+### Completed strategy chunk — Alpha/Beta autonomous execution plan
+
+Decision captured in `docs/designs/PI_SOFTWARE_FACTORY_ALPHA_BETA_EXECUTION_PLAN.md`.
+
+The plan defines:
+
+- an autonomy envelope that avoids package/dependency, production web scaffold, release/deploy, protected-file, and `/factory-qa-fix` blockers;
+- default decisions for project persistence, artifact descriptors, QA logs, command guard posture, ship-readiness language, and distribution dry-runs;
+- detailed Alpha 0/1/2 and Beta 0/1/2 deliverables;
+- validation contracts by layer;
+- next-wave parallel worktree lanes and serial integration order;
+- stop/continue rules and no-intervention fallbacks.
 
 ### Next Chunk 1 — connected web/API alpha prep
 
