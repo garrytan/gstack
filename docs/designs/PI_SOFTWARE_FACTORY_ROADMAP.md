@@ -293,6 +293,7 @@ Current web/product planning artifacts:
 - `docs/designs/PI_SOFTWARE_FACTORY_PARALLEL_EXECUTION_PLAN.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_ALPHA_BETA_EXECUTION_PLAN.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_COCKPIT_BETA1_CONTRACT.md`
 
 Current web defaults:
 
@@ -461,28 +462,90 @@ The contract defines:
 - a security review checklist for command execution, artifact rendering, external URIs, browser evidence, project/workspace path boundaries, prompt-injection surfaces, stale gate decisions, secret redaction, and ship-readiness language;
 - consolidated Beta 2 exit gates and a restated production-not-ready list.
 
-### Next Chunk 1 — connected web/API alpha prep
+### Completed implementation chunk — Alpha 1/Beta 1 cockpit data foundation
 
-Goal: prepare for a connected Universe AI cockpit without yet adding dependencies or scaffolding a production web app.
+Implemented/documented:
+
+- `lib/factory-project-store.ts` durable local project/workspace catalog;
+- `test/factory-project-store.test.ts`;
+- artifact descriptor integration into project views and facade artifact-content reads;
+- `lib/factory-cockpit-view.ts` pure screen-ready view models;
+- `test/factory-cockpit-view.test.ts`;
+- `docs/designs/PI_SOFTWARE_FACTORY_COCKPIT_BETA1_CONTRACT.md` mobile/responsive and local-vs-hosted workspace boundary contract.
+
+Current status:
+
+- Alpha 1 data/view foundation exists without a production web scaffold.
+- Beta 1 common-user journey fixtures are represented in pure view-model tests.
+- Production web stack/location remains unapproved and intentionally unchosen.
+
+### Completed implementation chunk — Alpha 0 durable QA recovery
+
+Implemented:
+
+- `bin/gstack-qa-log` durable QA JSONL writer;
+- generated QA skill instructions for top-level `factory_run_id` and structured `gstack-qa-log` entries;
+- `/factory-recover-qa <run-id>`;
+- `agent_end` QA auto-capture alongside review auto-capture;
+- tests for recovery, idempotency, ambiguity, missing/wrong correlation, and hidden `/factory-qa-fix`.
+
+### Completed implementation/design chunk — Alpha 2 guard attestation seam
+
+Implemented/documented:
+
+- live execution-path inventory in `docs/designs/PI_FACTORY_SAFE_COMMAND_GUARD_DESIGN.md`;
+- sanitized guard-decision audit helper and callback seam in `lib/factory-guarded-runtime.ts`;
+- tests proving audit callbacks cannot change guard outcomes and full command text is redacted.
+
+Decision:
+
+- `/factory-qa-fix` remains hidden because dispatched skill Bash/Read/Write/Edit tool paths are not enforceable from repository code yet.
+
+### Completed implementation chunk — Beta 0 distribution dry-run foundation
+
+Implemented:
+
+- `lib/factory-distribution.ts` manifest/dry-run/stage helpers;
+- `test/factory-distribution.test.ts`;
+- no publish/install/global side effects.
+
+### Next Chunk 1 — Alpha/Beta validation consolidation
+
+Goal: turn the newly landed Alpha/Beta foundations into a repeatable gate.
 
 Recommended next steps:
 
-- define the durable project/workspace catalog format;
-- wire artifact descriptors into project artifact view DTOs;
-- produce fixture-backed screen data matching `PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`;
-- decide whether to build a no-dependency static prototype or approve a real web stack/location.
+- add a production-readiness smoke runner or documented command set that exercises module load, facade status/list/artifact reads, project catalog read/write, QA log parse/recover fixtures, guarded denial audit, and distribution dry-run;
+- run a reviewer/security pass across the integrated branch;
+- update `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md` with post-Alpha movement.
 
-### Next Chunk 2 — live guard/QA integration
+### Next Chunk 2 — optional no-dependency cockpit prototype or approved web stack
 
-Goal: complete the execution-path work required before write-capable QA can be exposed.
+Goal: make the common-user cockpit visible.
+
+Default safe path:
+
+- build a no-dependency static prototype under `docs/prototypes/` only if explicitly approved;
+- otherwise keep using `lib/factory-cockpit-view.ts` fixtures as the UI contract.
+
+Blocked path:
+
+- production web app scaffold remains blocked until stack/location and dependency/package changes are approved.
+
+### Next Chunk 3 — QA-fix host-enforcement solution
+
+Goal: unblock write-capable QA fix safely.
+
+Current blocker:
+
+- dispatched Pi/Claude skill Bash/Read/Write/Edit tool paths are outside repository-code enforcement, so `/factory-qa-fix` remains hidden.
 
 Recommended next steps:
 
-- wrap real Pi/agent command execution with the guarded runtime;
-- attest `safe-command-guard` only when all relevant paths are wrapped;
-- add denied-command audit artifacts/events;
-- make generated QA skill emit durable QA logs;
-- add `/factory-recover-qa` only after durable logs exist.
+- design or obtain a host runtime that routes sub-agent Bash/Edit/Write tools through factory guard code;
+- constrain browser sidecar writes to a per-run output directory;
+- persist sanitized denied-command audit artifacts;
+- only then reconsider `/factory-qa-fix` exposure.
 
 ## Quick orientation for future agents
 

@@ -17,15 +17,17 @@ Last updated after:
 
 Wave 1 moved the factory from a Pi/CLI-oriented event-sourced core with web intent into a clearer **Universe AI Software Factory** platform plan with first-slice wrapper APIs and safety/runtime primitives.
 
+The follow-on autonomous Alpha/Beta execution wave added durable project state, durable QA recovery, artifact-content integration, cockpit view models, distribution dry-run primitives, and operations/security contracts. It also confirmed that `/factory-qa-fix` must remain hidden until the host can route dispatched skill Bash/Read/Write/Edit paths through factory guard code.
+
 Current readiness estimate:
 
-| Scope | Before Wave 1 | After Wave 1 | Meaning |
-|---|---:|---:|---|
-| Internal Pi/CLI factory core | ~60–65% | **~70–75%** | Enough to keep hardening review/QA/status/gates, but not yet safe for write-capable autonomous fixes or release actions. |
-| Common-user web cockpit/platform | ~30–35% | **~45–50%** | Product/design/API contracts are now much clearer, but no production web app scaffold/runtime exists. |
-| Weighted overall production readiness | ~33% | **~48–52%** | Wave 1 reached the planned ~45–55% band, mostly through product clarity and foundational APIs, not through end-user shipping surface. |
+| Scope | Before Wave 1 | After Wave 1 | After Alpha/Beta execution wave | Meaning |
+|---|---:|---:|---:|---|
+| Internal Pi/CLI factory core | ~60–65% | ~70–75% | **~78–82%** | Review/QA/status/gates now include durable QA recovery and stronger stores, but write-capable QA fix and release actions remain blocked. |
+| Common-user web cockpit/platform | ~30–35% | ~45–50% | **~58–63%** | Durable project/catalog DTOs, artifact descriptors, and pure cockpit view models exist, but no production web app scaffold/runtime exists. |
+| Weighted overall production readiness | ~33% | ~48–52% | **~60–65%** | The platform now has Alpha/Beta data contracts and validation foundations, discounted for missing live UI/package surface and host-level guard enforcement. |
 
-The branch is **not production-ready** for public users yet. It is ready for the next alpha-prep wave: durable project catalog, connected view DTOs, generated QA logs, real safe-command path wrapping, and either a no-dependency prototype or an approved web stack.
+The branch is **not production-ready** for public users yet. It is ready for validation consolidation, optional no-dependency cockpit prototyping if approved, and host-enforced command-guard design work.
 
 ## What changed in Wave 1
 
@@ -49,7 +51,7 @@ Remaining gap:
 
 - A real web stack/location has not been approved.
 - No production cockpit app exists yet.
-- Visual implementation is still a spec unless a static prototype or real app scaffold is explicitly approved.
+- Visual implementation is represented by pure view models and contracts unless a static prototype or real app scaffold is explicitly approved.
 
 ### API/platform readiness
 
@@ -63,9 +65,9 @@ New pieces:
 
 Remaining gap:
 
-- There is no durable project/workspace catalog yet.
-- Artifact descriptors are not fully wired into facade/project artifact reads.
-- Multi-run project relationships are projected from supplied inputs, not persisted as first-class records.
+- Durable local project/workspace catalog exists, but has not yet been exercised by a live UI.
+- Artifact descriptors are wired into project/facade views, but binary/bundle storage is still future work.
+- Multi-run project relationships are persisted locally, but hosted/workspace auth boundaries remain design-only.
 
 ### Runtime/safety readiness
 
@@ -79,8 +81,8 @@ New pieces:
 
 Remaining gap:
 
-- Real Pi/agent command execution paths are not fully wrapped yet.
-- No denial audit artifacts/events are emitted by live factory runs yet.
+- Dispatched Pi/Claude skill Bash/Read/Write/Edit paths are not enforceable from repository code.
+- Sanitized guard-decision audit seams exist, but denied-command artifacts/events are not yet emitted by live factory runs.
 - `/factory-qa-fix` remains intentionally hidden.
 - Release/deploy/publish automation remains out of scope.
 
@@ -95,8 +97,8 @@ New pieces:
 
 Remaining gap:
 
-- Generated QA skills still need to emit the durable QA log contract.
-- `/factory-recover-qa` should not be exposed until the generated skill writes durable machine-readable logs.
+- Generated QA skill instructions now emit durable QA logs through `bin/gstack-qa-log`, and `/factory-recover-qa` exists.
+- Future work should dogfood the emitted logs in live Pi sessions and add production-like smoke coverage.
 
 ### Distribution readiness
 
@@ -108,8 +110,8 @@ New doc:
 
 Remaining gap:
 
-- No installable Pi runtime package has been built.
-- Generated skills, extension, and runtime sidecars still need a versioned bundle and upgrade path.
+- Distribution manifest/dry-run/stage helpers exist, but no installable Pi runtime package has been built.
+- Generated skills, extension, and runtime sidecars still need a versioned real installer/update path.
 
 ## Readiness scorecard
 
@@ -117,15 +119,15 @@ Scores are directional and intentionally conservative.
 
 | Area | Weight | Current score | Evidence | Biggest blocker |
 |---|---:|---:|---|---|
-| Product definition | 15% | 75% | Design import, reconciliation, P0 acceptance, cockpit specs. | Owner approval of final P0 visual/product choices. |
-| Core factory engine | 20% | 75% | Pure core, runner, facade, gates, event/artifact stores, tests. | Real subagent/worktree execution and broader lifecycle hardening. |
-| Pi adapter/CLI UX | 15% | 65% | Review/QA/status/list/gates/decide commands, inspect-only UX. | QA durable recovery and safe write-capable paths not live. |
-| Project/web API layer | 15% | 50% | Project wrapper and artifact descriptor first slices. | Persistent project catalog and connected artifact descriptor integration. |
-| Web cockpit surface | 15% | 40% | P0 UX brief, implementation plan, screen/component spec. | No approved stack/scaffold or running UI. |
-| Safety/permissions | 10% | 45% | Command classifier + guarded runtime tests. | Live path attestation, denial audit trail, QA-fix exposure gate. |
-| Distribution/operations | 10% | 35% | Distribution package path design. | No packaged install/update/recovery story implemented. |
+| Product definition | 15% | 80% | Design import, reconciliation, P0 acceptance, cockpit specs, Beta 1 cockpit contract. | Owner approval of final P0 visual/product choices. |
+| Core factory engine | 20% | 80% | Pure core, runner, facade, gates, event/artifact/project stores, tests. | Real subagent/worktree execution and broader lifecycle hardening. |
+| Pi adapter/CLI UX | 15% | 75% | Review/QA/status/list/gates/decide/recover commands, inspect-only UX, durable QA recovery. | Safe write-capable paths not live. |
+| Project/web API layer | 15% | 70% | Durable project catalog, wrapper DTOs, artifact descriptors, cockpit view models. | No live UI consumer or hosted boundary implementation. |
+| Web cockpit surface | 15% | 55% | P0 UX brief, screen/component spec, pure view models and journey fixtures. | No approved stack/scaffold or running UI. |
+| Safety/permissions | 10% | 55% | Command classifier, guarded runtime tests, live path inventory, sanitized audit seam. | Host-level command/edit/write path attestation missing. |
+| Distribution/operations | 10% | 50% | Distribution package path design, dry-run bundle helpers, ops/security contract. | No packaged install/update/recovery implementation. |
 
-Weighted result: **~58% by artifact maturity**, discounted to **~48–52% production readiness** because the highest-risk missing items are runtime-connected: live web surface, live command-path attestation, durable project catalog, and packaged distribution.
+Weighted result: **~69% by artifact maturity**, discounted to **~60–65% production readiness** because the highest-risk missing items are runtime-connected: live web surface, host-level command-path attestation, packaged distribution, and production-like smoke automation.
 
 ## Alpha gates
 
@@ -133,11 +135,11 @@ Weighted result: **~58% by artifact maturity**, discounted to **~48–52% produc
 
 Purpose: dogfood the factory through Pi commands on trusted repos.
 
-Status: **mostly met with caveats**.
+Status: **met for trusted internal dogfooding, with caveats**.
 
 Must hold:
 
-- `/factory-review`, `/factory-qa`, `/factory-status`, `/factory-list`, `/factory-gates`, and `/factory-decide` work on local projects.
+- `/factory-review`, `/factory-qa`, `/factory-status`, `/factory-list`, `/factory-gates`, `/factory-decide`, `/factory-recover-review`, and `/factory-recover-qa` work on local projects.
 - Status views remain inspect-only.
 - QA audit remains no-edit.
 - Ship readiness remains no-deploy/no-release.
