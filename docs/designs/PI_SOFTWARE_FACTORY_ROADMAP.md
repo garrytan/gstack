@@ -450,6 +450,17 @@ The plan defines:
 - next-wave parallel worktree lanes and serial integration order;
 - stop/continue rules and no-intervention fallbacks.
 
+### Completed strategy chunk — Beta 2 operations/security contract
+
+Decision captured in `docs/designs/PI_SOFTWARE_FACTORY_BETA_OPERATIONS_SECURITY_CONTRACT.md`.
+
+The contract defines:
+
+- a production-like smoke contract covering module load, facade plan/status/list/artifact reads, project catalog read/write, QA log parse/recover fixtures, guarded denial fixtures, distribution dry-run, and a deferred web `/health` gate;
+- a backup/migration plan with `schemaVersion` markers for event store, artifact store, project catalog, durable QA log, denial artifacts, and bundle manifest, plus an atomic bundle-swap rollback rule;
+- a security review checklist for command execution, artifact rendering, external URIs, browser evidence, project/workspace path boundaries, prompt-injection surfaces, stale gate decisions, secret redaction, and ship-readiness language;
+- consolidated Beta 2 exit gates and a restated production-not-ready list.
+
 ### Next Chunk 1 — connected web/API alpha prep
 
 Goal: prepare for a connected Universe AI cockpit without yet adding dependencies or scaffolding a production web app.
