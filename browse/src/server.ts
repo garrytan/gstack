@@ -1356,8 +1356,8 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       } catch (err: any) {
         console.warn('[browse] Failed to kill terminal-agent:', err.message);
       }
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
+      safeUnlinkQuiet(path.join(path.dirname(cfg.config.stateFile), 'terminal-port'));
+      safeUnlinkQuiet(path.join(path.dirname(cfg.config.stateFile), 'terminal-internal-token'));
     }
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);
@@ -1370,8 +1370,8 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
     await cfgBrowserManager.close();
 
-    cleanSingletonLocks(resolveChromiumProfile());
-    safeUnlinkQuiet(config.stateFile);
+    cleanSingletonLocks(resolveChromiumProfile(cfg.chromiumProfile));
+    safeUnlinkQuiet(cfg.config.stateFile);
     process.exit(exitCode);
   }
 
