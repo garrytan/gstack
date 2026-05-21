@@ -366,6 +366,7 @@ describe('pooler-url', () => {
     expect(j.pooler_url).toBe(
       `postgresql://postgres.${REF}:my-real-password@aws-0-us-east-1.pooler.supabase.com:6543/postgres`
     );
+    expect(j.pool_mode).toBe('session');
     // The API's templated connection_string is NOT what we output.
     expect(j.pooler_url).not.toContain('[PASSWORD]');
   });
@@ -387,6 +388,7 @@ describe('pooler-url', () => {
     const j = JSON.parse(r.stdout);
     // Picked session entry with port 5432 (for this fixture)
     expect(j.pooler_url).toContain(':5432/postgres');
+    expect(j.pool_mode).toBe('session');
   });
 
   test('fails cleanly when pooler config is missing required fields', async () => {

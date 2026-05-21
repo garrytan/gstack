@@ -10,7 +10,8 @@
  * Asserts:
  *   1. All 9 pre-existing keys are present
  *   2. Each pre-existing key has the same primitive type/union as the bash version
- *   3. The new key (gbrain_local_status) is present and a string
+ *   3. The additive keys (gbrain_local_status, gbrain_pooler_mode) are present
+ *      with the documented types
  *   4. Output is parseable JSON
  *   5. No keys removed/renamed
  */
@@ -58,6 +59,7 @@ interface DetectShape {
   gstack_brain_git: boolean;
   gstack_artifacts_remote: string;
   gbrain_local_status: string;
+  gbrain_pooler_mode: string | null;
 }
 
 describe("bin/gstack-gbrain-detect — shape regression", () => {
@@ -75,7 +77,7 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
     }
   });
 
-  it("contains all 9 pre-existing keys + the new gbrain_local_status key", () => {
+  it("contains all 9 pre-existing keys plus the additive gbrain fields", () => {
     const tmp = mkdtempSync(join(tmpdir(), "detect-shape-"));
     try {
       const out = runDetect({
@@ -96,8 +98,9 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
       expect(parsed).toHaveProperty("gstack_brain_git");
       expect(parsed).toHaveProperty("gstack_artifacts_remote");
 
-      // 1 new key (added by this fix):
+      // Additive keys for newer detect consumers.
       expect(parsed).toHaveProperty("gbrain_local_status");
+      expect(parsed).toHaveProperty("gbrain_pooler_mode");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -130,8 +133,10 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
       expect(typeof parsed.gstack_brain_sync_mode).toBe("string");
       expect(typeof parsed.gstack_artifacts_remote).toBe("string");
 
-      // New field: string enum
+      // Additive fields
       expect(typeof parsed.gbrain_local_status).toBe("string");
+      const poolerModeType = parsed.gbrain_pooler_mode === null ? "null" : typeof parsed.gbrain_pooler_mode;
+      expect(poolerModeType === "string" || poolerModeType === "null").toBe(true);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -179,6 +184,21 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
       expect(["ok", "no-cli", "missing-config", "broken-config", "broken-db"]).toContain(
         parsed.gbrain_local_status,
       );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("gbrain_pooler_mode is null or one of the documented values", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "detect-shape-"));
+    try {
+      const out = runDetect({
+        HOME: tmp,
+        PATH: "/usr/bin:/bin",
+        GSTACK_HOME: tmp,
+      });
+      const parsed = JSON.parse(out) as DetectShape;
+      expect([null, "transaction", "session", "unknown"]).toContain(parsed.gbrain_pooler_mode);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

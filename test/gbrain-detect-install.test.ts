@@ -110,6 +110,65 @@ describe('gstack-gbrain-detect', () => {
     }
   });
 
+  test('reports gbrain_pooler_mode=transaction when setup persisted pool_mode=transaction', () => {
+    fs.mkdirSync(path.join(tmpHomeReal, '.gbrain'));
+    fs.writeFileSync(
+      path.join(tmpHomeReal, '.gbrain', 'config.json'),
+      JSON.stringify({
+        engine: 'postgres',
+        database_url: 'postgresql://postgres.ref:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres',
+        pool_mode: 'transaction',
+      })
+    );
+    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    try {
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const j = JSON.parse(r.stdout);
+      expect(j.gbrain_pooler_mode).toBe('transaction');
+    } finally {
+      fs.rmSync(emptyBin, { recursive: true, force: true });
+    }
+  });
+
+  test('reports gbrain_pooler_mode=session when the same pooled URL persists pool_mode=session', () => {
+    fs.mkdirSync(path.join(tmpHomeReal, '.gbrain'));
+    fs.writeFileSync(
+      path.join(tmpHomeReal, '.gbrain', 'config.json'),
+      JSON.stringify({
+        engine: 'postgres',
+        database_url: 'postgresql://postgres.ref:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres',
+        pool_mode: 'session',
+      })
+    );
+    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    try {
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const j = JSON.parse(r.stdout);
+      expect(j.gbrain_pooler_mode).toBe('session');
+    } finally {
+      fs.rmSync(emptyBin, { recursive: true, force: true });
+    }
+  });
+
+  test('reports gbrain_pooler_mode=unknown for pooled URLs without persisted pool_mode', () => {
+    fs.mkdirSync(path.join(tmpHomeReal, '.gbrain'));
+    fs.writeFileSync(
+      path.join(tmpHomeReal, '.gbrain', 'config.json'),
+      JSON.stringify({
+        engine: 'postgres',
+        database_url: 'postgresql://postgres.ref:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres',
+      })
+    );
+    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    try {
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const j = JSON.parse(r.stdout);
+      expect(j.gbrain_pooler_mode).toBe('unknown');
+    } finally {
+      fs.rmSync(emptyBin, { recursive: true, force: true });
+    }
+  });
+
   test('malformed config returns null engine, does not crash', () => {
     fs.mkdirSync(path.join(tmpHomeReal, '.gbrain'));
     fs.writeFileSync(path.join(tmpHomeReal, '.gbrain', 'config.json'), 'not valid json{');

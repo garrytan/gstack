@@ -339,7 +339,7 @@ cmd_pooler_url() {
   # Prefer the singular Session Pooler config when Supabase returns an
   # array (response shape can vary by project state). Fall back to the
   # first PRIMARY entry if no "session" pool_mode is present.
-  local db_user db_host db_port db_name
+  local db_user db_host db_port db_name pool_mode
   local first_or_session
   if printf '%s' "$resp" | jq -e 'type == "array"' >/dev/null 2>&1; then
     first_or_session=$(printf '%s' "$resp" | jq '[.[] | select(.pool_mode == "session")][0] // .[0]')
@@ -351,6 +351,7 @@ cmd_pooler_url() {
   db_host=$(printf '%s' "$first_or_session" | jq -r '.db_host // empty')
   db_port=$(printf '%s' "$first_or_session" | jq -r '.db_port // empty')
   db_name=$(printf '%s' "$first_or_session" | jq -r '.db_name // empty')
+  pool_mode=$(printf '%s' "$first_or_session" | jq -r '.pool_mode // empty')
 
   if [ -z "$db_user" ] || [ -z "$db_host" ] || [ -z "$db_port" ] || [ -z "$db_name" ]; then
     die "pooler-url: missing pooler config fields (db_user/db_host/db_port/db_name); re-poll or check project state"
@@ -359,7 +360,11 @@ cmd_pooler_url() {
   local url="postgresql://${db_user}:${DB_PASS}@${db_host}:${db_port}/${db_name}"
 
   if $json_mode; then
-    jq -n --arg ref "$ref" --arg pooler_url "$url" '{ref: $ref, pooler_url: $pooler_url}'
+    jq -n \
+      --arg ref "$ref" \
+      --arg pooler_url "$url" \
+      --arg pool_mode "$pool_mode" \
+      '{ref: $ref, pooler_url: $pooler_url, pool_mode: (if $pool_mode == "" then null else $pool_mode end)}'
   else
     # Non-JSON mode prints the URL; callers capturing it into a variable
     # keep it in process memory only.

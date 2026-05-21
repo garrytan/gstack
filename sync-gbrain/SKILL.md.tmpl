@@ -188,14 +188,13 @@ SLUG="_capability_check_$$"
 CAPABILITY_OK=0
 if [ -f ~/.gbrain/config.json ] && \
    gbrain --version 2>/dev/null | grep -q '^gbrain '; then
-  # GBRAIN_PREPARE=true ensures prepared statements stay enabled when
-  # connecting through a PgBouncer transaction-mode pooler (port 6543).
-  # Without it, search silently returns no results (#1435).
+  # GBRAIN_PREPARE=true keeps prepared statements enabled for pooled
+  # Supabase setups where URL-only detection cannot tell session from
+  # transaction mode. Without it, search can silently return no results.
   export GBRAIN_PREPARE=true
   if echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1; then
-    # Retry search up to 3 times with 1s delay — under transaction-mode
-    # pooling the search index may not be visible on the next connection
-    # immediately after the put.
+    # Retry search up to 3 times with 1s delay because pooled setups may
+    # not expose the search index on the very next connection after put.
     for _attempt in 1 2 3; do
       if gbrain search "ping" 2>/dev/null | grep -q "$SLUG"; then
         CAPABILITY_OK=1

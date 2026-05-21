@@ -1023,9 +1023,24 @@ INFLIGHT_REF=$(echo "$result" | jq -r .ref)
 pooler=$(~/.claude/skills/gstack/bin/gstack-gbrain-supabase-provision \
   pooler-url "$INFLIGHT_REF" --json)
 GBRAIN_DATABASE_URL=$(echo "$pooler" | jq -r .pooler_url)
+GBRAIN_POOL_MODE=$(echo "$pooler" | jq -r '.pool_mode // empty')
 export GBRAIN_DATABASE_URL
 gbrain init --non-interactive --json
-unset SUPABASE_ACCESS_TOKEN DB_PASS GBRAIN_DATABASE_URL INFLIGHT_REF
+if [ -n "$GBRAIN_POOL_MODE" ] && [ -f "$HOME/.gbrain/config.json" ]; then
+  export GBRAIN_POOL_MODE
+  python3 - <<'PY'
+import json, os
+from pathlib import Path
+
+config_path = Path(os.path.expanduser("~/.gbrain/config.json"))
+pool_mode = os.environ.get("GBRAIN_POOL_MODE")
+if pool_mode and config_path.exists():
+    config = json.loads(config_path.read_text())
+    config["pool_mode"] = pool_mode
+    config_path.write_text(json.dumps(config, indent=2) + "\n")
+PY
+fi
+unset SUPABASE_ACCESS_TOKEN DB_PASS GBRAIN_DATABASE_URL GBRAIN_POOL_MODE INFLIGHT_REF
 trap - INT TERM
 ```
 
