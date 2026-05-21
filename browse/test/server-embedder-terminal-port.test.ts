@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import {
@@ -24,11 +25,16 @@ import { resolveConfig } from '../src/config';
 // `pkill -f terminal-agent\.ts` on the developer's machine — would kill any
 // sibling gstack sessions).
 
-const stateDir = resolveConfig().stateDir;
-const PORT_FILE = path.join(stateDir, 'terminal-port');
-const TOKEN_FILE = path.join(stateDir, 'terminal-internal-token');
 const SENTINEL_PORT = 'sentinel-port-65432';
 const SENTINEL_TOKEN = 'sentinel-token-abcdef1234567890';
+
+// Per-test temp state dir. shutdown() now reads cfg.config (not module-level
+// config), so each test points the factory at its own throwaway dir — no risk
+// of clobbering a real gstack daemon's terminal-port / terminal-internal-token.
+let tmpStateDir: string;
+let tmpConfig: ReturnType<typeof resolveConfig>;
+let PORT_FILE: string;
+let TOKEN_FILE: string;
 
 function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
   const token = 'embedder-test-' + crypto.randomBytes(16).toString('hex');
@@ -36,7 +42,7 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     authToken: token,
     browsePort: 34568,
     idleTimeoutMs: 1_800_000,
-    config: resolveConfig(),
+    config: tmpConfig,
     browserManager: new BrowserManager(),
     startTime: Date.now(),
     ...overrides,
@@ -44,7 +50,7 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
 }
 
 function writeSentinels(): void {
-  fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(tmpStateDir, { recursive: true });
   fs.writeFileSync(PORT_FILE, SENTINEL_PORT);
   fs.writeFileSync(TOKEN_FILE, SENTINEL_TOKEN);
 }
@@ -95,42 +101,17 @@ function pkillCalls(calls: any[][]): any[][] {
 }
 
 describe('buildFetchHandler ownsTerminalAgent gate', () => {
-  // shutdown() reads `path.dirname(config.stateFile)` from module-level config
-  // (composition gap — see TODOS T9). So unlinks target the real state dir,
-  // not a per-test temp dir. If a real gstack daemon is running on this host,
-  // its terminal-port + terminal-internal-token live where this test writes.
-  // Save + restore real-daemon file contents around the whole suite so the
-  // test never clobbers a developer's running session.
-  let realPortBackup: string | null = null;
-  let realTokenBackup: string | null = null;
-
-  beforeAll(() => {
-    realPortBackup = readIfExists(PORT_FILE);
-    realTokenBackup = readIfExists(TOKEN_FILE);
-  });
-
-  afterAll(() => {
-    if (realPortBackup !== null) {
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(PORT_FILE, realPortBackup);
-    } else {
-      try { fs.unlinkSync(PORT_FILE); } catch {}
-    }
-    if (realTokenBackup !== null) {
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(TOKEN_FILE, realTokenBackup);
-    } else {
-      try { fs.unlinkSync(TOKEN_FILE); } catch {}
-    }
-  });
-
   beforeEach(() => {
     __resetRegistry();
     __resetShuttingDown();
-    // Clean any leftover sentinels from a prior failed run so the "preserved"
-    // assertion can't pass spuriously off a stale file.
-    try { fs.unlinkSync(PORT_FILE); } catch {}
-    try { fs.unlinkSync(TOKEN_FILE); } catch {}
+    tmpStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-embedder-'));
+    tmpConfig = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpStateDir, 'browse.json') });
+    PORT_FILE = path.join(tmpStateDir, 'terminal-port');
+    TOKEN_FILE = path.join(tmpStateDir, 'terminal-internal-token');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpStateDir, { recursive: true, force: true });
   });
 
   test('1. ownsTerminalAgent:false preserves both files and skips pkill', async () => {
@@ -170,7 +151,33 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     expect(pkillCalls(calls).length).toBe(1);
   });
 
-  test('4. CLI start() call site passes ownsTerminalAgent: true literally (static grep)', () => {
+  test('4. shutdown targets cfg.config stateDir, not a sibling session', async () => {
+    // Regression guard for the composition gap: shutdown() must clean the
+    // discovery files under the caller-passed cfg.config.stateDir, never a
+    // different daemon's state dir resolved from module-level config.
+    const siblingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sibling-'));
+    const siblingPort = path.join(siblingDir, 'terminal-port');
+    const siblingToken = path.join(siblingDir, 'terminal-internal-token');
+    fs.writeFileSync(siblingPort, SENTINEL_PORT);
+    fs.writeFileSync(siblingToken, SENTINEL_TOKEN);
+    writeSentinels(); // sentinels in tmpStateDir (the cfg.config dir)
+    try {
+      const handle = buildFetchHandler(makeMinimalConfig({ ownsTerminalAgent: true }));
+      await withStubs(async () => {
+        await runShutdown(handle);
+      });
+      // cfg.config dir cleaned...
+      expect(readIfExists(PORT_FILE)).toBeNull();
+      expect(readIfExists(TOKEN_FILE)).toBeNull();
+      // ...sibling session left untouched.
+      expect(readIfExists(siblingPort)).toBe(SENTINEL_PORT);
+      expect(readIfExists(siblingToken)).toBe(SENTINEL_TOKEN);
+    } finally {
+      fs.rmSync(siblingDir, { recursive: true, force: true });
+    }
+  });
+
+  test('5. CLI start() call site passes ownsTerminalAgent: true literally (static grep)', () => {
     // Resolves browse/src/server.ts relative to this test file so the test
     // works regardless of cwd. import.meta.url is the test file's URL.
     const serverTsPath = path.resolve(
