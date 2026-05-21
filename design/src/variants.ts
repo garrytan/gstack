@@ -58,7 +58,8 @@ export async function generateVariant(
     skipLeadingDelay = false;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    // 240s — matches generate.ts; see comment there for rationale.
+    const timeout = setTimeout(() => controller.abort(), 240_000);
 
     try {
       const response = await fetchFn("https://api.openai.com/v1/responses", {

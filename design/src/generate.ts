@@ -37,7 +37,10 @@ async function callImageGeneration(
   quality: string,
 ): Promise<{ responseId: string; imageData: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
+  // 240s: gpt-image-1 at quality:"high" size:"1536x1024" routinely takes
+  // 60-180s and can spike past 120s under provider load (observed in
+  // production). 240s gives ~2x headroom while staying under user patience.
+  const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
