@@ -905,9 +905,16 @@ Capability check (per /plan-eng-review §6):
 
 ```bash
 SLUG="_capability_check_$$"
+# Use --content flag, NOT stdin redirection. Windows Git Bash treats
+# `echo "..." | gbrain put` as writing to /dev/stdin which doesn't exist
+# the same way it does on Unix — gbrain exits with `ENOENT: /dev/stdin`
+# even when the engine is healthy. The --content flag is the canonical
+# v0.18+ interface (per the v1.42.0.0 wave that rewrote all 10 user-
+# facing put_page templates to put + --content); pass-through to stdin
+# was the legacy shape.
 if [ -f ~/.gbrain/config.json ] && \
    gbrain --version 2>/dev/null | grep -q '^gbrain ' && \
-   echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1 && \
+   gbrain put "$SLUG" --content "ping" >/dev/null 2>&1 && \
    gbrain search "ping" 2>/dev/null | grep -q "$SLUG"; then
   CAPABILITY_OK=1
 else

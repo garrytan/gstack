@@ -788,11 +788,63 @@ function runMemoryIngest(args: CliArgs): StageResult {
   };
 }
 
+/**
+ * Read `artifacts_sync_mode` from `~/.gstack/config.yaml` without shelling
+ * out to gstack-config. Direct YAML parse so Windows can read the value
+ * too — Node/Bun spawnSync can't execute a bash script as a direct child
+ * on Windows (ENOENT), which used to cause runBrainSyncPush to fall
+ * through to the broken gstack-brain-sync invocation and emit a spurious
+ * ERR row in the verdict.
+ *
+ * Returns the user's configured value if present, or "off" (the canonical
+ * default) when the config file is missing or the key isn't set. Treats
+ * any parse error as "off" — fail-closed so we don't run the push stage
+ * against an undefined config state.
+ */
+function readArtifactsSyncMode(): string {
+  const stateDir = process.env.GSTACK_HOME
+    || process.env.GSTACK_STATE_DIR
+    || join(process.env.HOME || process.env.USERPROFILE || "", ".gstack");
+  const configPath = join(stateDir, "config.yaml");
+  if (!existsSync(configPath)) return "off";
+  try {
+    const text = readFileSync(configPath, "utf-8");
+    // Tolerant grep — gstack's config.yaml is shallow (no nesting) so a
+    // line-based parse suffices and avoids pulling in a yaml dep. Match
+    // the canonical `key: value` shape; skip comments.
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const m = line.match(/^artifacts_sync_mode\s*:\s*(\S+)\s*$/);
+      if (m && m[1]) return m[1].toLowerCase();
+    }
+  } catch {
+    // Unreadable / parse error — fall through to default.
+  }
+  return "off";
+}
+
 function runBrainSyncPush(args: CliArgs): StageResult {
   const t0 = Date.now();
 
   if (args.mode === "dry-run") {
     return { name: "brain-sync", ran: false, ok: true, duration_ms: 0, summary: "would: gstack-brain-sync --discover-new --once" };
+  }
+
+  // Skip when artifacts_sync_mode is "off" — the user explicitly opted out
+  // (e.g., they're using a separate dotfile / config-sync workflow for
+  // cross-machine state). Pre-2026-05-21 this stage ran anyway and exited
+  // with `result.status === undefined` on Windows because Node/Bun spawnSync
+  // can't execute a bash script directly through ChildProcess — produced
+  // a spurious ERR row in the verdict despite a healthy install.
+  if (readArtifactsSyncMode() === "off") {
+    return {
+      name: "brain-sync",
+      ran: false,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary: "skipped (artifacts_sync_mode=off — user opt-out)",
+    };
   }
 
   const brainSyncPath = join(import.meta.dir, "gstack-brain-sync");
