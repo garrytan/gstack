@@ -22,6 +22,10 @@ import { defaultRunId } from './factory-orchestrator';
 import { FactoryRunner, findRunPlan, type FactoryRunnerResult } from './factory-runner';
 import type { FactoryRuntimeCapabilities } from './factory-capabilities';
 import { FACTORY_WORKFLOWS } from './factory-review-workflow';
+import {
+  summarizeFactoryArtifactContent,
+  type FactoryArtifactContentDescriptorDto,
+} from './factory-artifact-content';
 
 export type FactoryPublicRunStatus = 'blocked' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type FactoryPauseKind = 'gate' | 'external-work';
@@ -144,6 +148,7 @@ export interface FactoryFacade {
   readFactoryRunStatus(runId: string): Promise<FactoryRunStatusDto>;
   listFactoryRuns(options?: FactoryRunListOptions): Promise<readonly FactoryRunListItemDto[]>;
   readFactoryArtifact(runId: string, artifactId: string): Promise<FactoryArtifactDto>;
+  listFactoryArtifactContent(runId: string, artifactId: string): Promise<readonly FactoryArtifactContentDescriptorDto[]>;
   listFactoryGates(runId: string): Promise<readonly FactoryGateInfoDto[]>;
   decideFactoryGate(input: FactoryGateDecisionInput): Promise<FactoryRunStatusDto>;
 }
@@ -205,6 +210,10 @@ export function createFactoryFacade(options: FactoryFacadeOptions): FactoryFacad
         createdAt: stored.createdAt,
         content: stored.content,
       };
+    },
+
+    async listFactoryArtifactContent(runId, artifactId) {
+      return artifactContentDescriptors(eventStore, artifactStore, workflows, runId, artifactId);
     },
 
     async listFactoryGates(runId) {
@@ -402,6 +411,54 @@ function normalizedArtifactPath(artifactStore: FileFactoryArtifactStore, runId: 
   } catch {
     return undefined;
   }
+}
+
+function artifactContentDescriptors(
+  eventStore: FileFactoryEventStore,
+  artifactStore: FileFactoryArtifactStore,
+  workflows: readonly WorkflowSpec[],
+  runId: string,
+  artifactId: string,
+): readonly FactoryArtifactContentDescriptorDto[] {
+  let storedRef: ReturnType<FileFactoryArtifactStore['readText']> | undefined;
+  try {
+    storedRef = artifactStore.readText(runId, artifactId);
+  } catch {
+    storedRef = undefined;
+  }
+
+  let runStatus: FactoryRunStatusDto | undefined;
+  try {
+    runStatus = readStatus(eventStore, artifactStore, workflows, runId);
+  } catch {
+    runStatus = undefined;
+  }
+  const eventSummary = runStatus?.artifacts.find(candidate => candidate.id === artifactId);
+
+  if (!storedRef && !eventSummary) {
+    throw new Error(`Factory artifact '${artifactId}' not found for run '${runId}'`);
+  }
+
+  const artifactKind = (storedRef?.ref.kind ?? eventSummary?.kind) as ArtifactKind;
+  const createdAt = storedRef?.createdAt
+    ?? stringMetadata(storedRef?.ref.metadata, 'createdAt')
+    ?? stringMetadata(eventSummary?.metadata, 'createdAt');
+
+  const summary = summarizeFactoryArtifactContent({
+    runId,
+    artifactId,
+    artifactKind,
+    createdAt,
+    trustedStorePath: storedRef ? storedRef.ref.path : undefined,
+    trustedStoreMediaType: storedRef ? 'text/markdown' : undefined,
+    eventUri: storedRef ? undefined : eventSummary?.uri,
+  });
+  return summary.descriptors;
+}
+
+function stringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function listItemFromStatus(status: FactoryRunStatusDto): FactoryRunListItemDto {

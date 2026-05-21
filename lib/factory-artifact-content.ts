@@ -3,6 +3,19 @@ import type { ArtifactKind } from './factory-core';
 export type FactoryArtifactContentKind = 'text' | 'binary' | 'external-uri' | 'bundle';
 export type FactoryArtifactContentProvenanceSource = 'artifact-store' | 'external-system' | 'event-metadata';
 
+export type FactoryArtifactSafetyLabel =
+  | 'trusted-local'
+  | 'trusted-external'
+  | 'metadata-only'
+  | 'blocked';
+
+export type FactoryArtifactPrimaryAction =
+  | 'open-text'
+  | 'open-preview'
+  | 'download'
+  | 'open-external'
+  | 'inspect-metadata';
+
 export interface FactoryArtifactDigestDto {
   readonly algorithm: 'sha256';
   readonly value: string;
@@ -276,5 +289,165 @@ export function isAllowedFactoryArtifactSafeUri(uri: string, source: FactoryArti
 function assertNonEmptyString(value: unknown, fieldName: string): asserts value is string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`Factory artifact ${fieldName} must be a non-empty string`);
+  }
+}
+
+export interface FactoryArtifactContentSummaryDto {
+  readonly descriptors: readonly FactoryArtifactContentDescriptorDto[];
+  readonly primaryDescriptor: FactoryArtifactContentDescriptorDto;
+  readonly primaryKind: FactoryArtifactContentKind;
+  readonly safetyLabel: FactoryArtifactSafetyLabel;
+  readonly primaryAction: FactoryArtifactPrimaryAction;
+}
+
+export interface FactoryArtifactTrustedBinaryInput {
+  readonly mediaType?: string;
+  readonly fileName?: string;
+  readonly byteLength?: number;
+  readonly digest?: FactoryArtifactDigestDto;
+  readonly safeUri?: string;
+}
+
+export interface FactoryArtifactTrustedExternalInput {
+  readonly safeUri: string;
+  readonly note?: string;
+}
+
+export interface SummarizeFactoryArtifactContentInput {
+  readonly runId: string;
+  readonly artifactId: string;
+  readonly artifactKind: ArtifactKind;
+  readonly createdAt?: string;
+  // Trusted stored-text input. Set only when the artifact was attested by the
+  // artifact-store path normalization (i.e., the on-disk artifact exists).
+  readonly trustedStorePath?: string;
+  readonly trustedStoreMediaType?: string;
+  readonly trustedStoreByteLength?: number;
+  readonly trustedStoreDigest?: FactoryArtifactDigestDto;
+  // Trusted binary input. Set when the runtime/store has attested binary content.
+  readonly trustedBinary?: FactoryArtifactTrustedBinaryInput;
+  // Trusted external URI input. Set when a runtime-attested external system
+  // (e.g., CI URL) is the canonical reference.
+  readonly trustedExternalUri?: FactoryArtifactTrustedExternalInput;
+  // Optional pre-computed bundle children (caller is responsible for trust).
+  readonly bundleItems?: readonly FactoryArtifactContentDescriptorDto[];
+  // Raw event-provided uri/path. Always treated as untrusted metadata.
+  readonly eventUri?: string;
+  readonly eventPath?: string;
+}
+
+export function summarizeFactoryArtifactContent(
+  input: SummarizeFactoryArtifactContentInput,
+): FactoryArtifactContentSummaryDto {
+  const descriptors: FactoryArtifactContentDescriptorDto[] = [];
+
+  if (input.bundleItems && input.bundleItems.length > 0) {
+    descriptors.push(createFactoryBundleArtifactContentDescriptor({
+      runId: input.runId,
+      artifactId: input.artifactId,
+      artifactKind: input.artifactKind,
+      createdAt: input.createdAt,
+      provenance: {
+        source: 'artifact-store',
+        trusted: true,
+        note: 'Bundle descriptor produced from attested artifact-store children.',
+      },
+    }));
+    for (const item of input.bundleItems) descriptors.push(item);
+  } else if (input.trustedBinary) {
+    descriptors.push(createFactoryBinaryArtifactContentDescriptor({
+      runId: input.runId,
+      artifactId: input.artifactId,
+      artifactKind: input.artifactKind,
+      mediaType: input.trustedBinary.mediaType,
+      fileName: input.trustedBinary.fileName,
+      byteLength: input.trustedBinary.byteLength,
+      digest: input.trustedBinary.digest,
+      safeUri: input.trustedBinary.safeUri,
+      createdAt: input.createdAt,
+      provenance: {
+        source: 'artifact-store',
+        trusted: true,
+        note: 'Binary content attested through artifact-store provenance.',
+      },
+    }));
+  } else if (input.trustedStorePath) {
+    descriptors.push(createStoredTextArtifactContentDescriptor({
+      runId: input.runId,
+      artifactId: input.artifactId,
+      artifactKind: input.artifactKind,
+      mediaType: input.trustedStoreMediaType ?? 'text/markdown',
+      byteLength: input.trustedStoreByteLength,
+      digest: input.trustedStoreDigest,
+      createdAt: input.createdAt,
+    }));
+  } else if (input.trustedExternalUri) {
+    descriptors.push(createFactoryExternalUriArtifactContentDescriptor({
+      runId: input.runId,
+      artifactId: input.artifactId,
+      artifactKind: input.artifactKind,
+      safeUri: input.trustedExternalUri.safeUri,
+      createdAt: input.createdAt,
+      provenance: {
+        source: 'external-system',
+        trusted: true,
+        note: input.trustedExternalUri.note ?? 'External URI attested by trusted runtime.',
+      },
+    }));
+  }
+
+  if (input.eventUri || input.eventPath) {
+    descriptors.push(createUntrustedEventMetadataUriDescriptor({
+      runId: input.runId,
+      artifactId: input.artifactId,
+      artifactKind: input.artifactKind,
+      createdAt: input.createdAt,
+      note: input.eventUri
+        ? 'Event metadata uri is untrusted until attested by artifact-store or trusted external system.'
+        : 'Event metadata path is untrusted until attested by artifact-store.',
+    }));
+  }
+
+  if (descriptors.length === 0) {
+    descriptors.push(createUntrustedEventMetadataUriDescriptor({
+      runId: input.runId,
+      artifactId: input.artifactId,
+      artifactKind: input.artifactKind,
+      createdAt: input.createdAt,
+      note: 'Artifact has no trusted content; only summary metadata is available.',
+    }));
+  }
+
+  const primary = descriptors[0];
+  return {
+    descriptors,
+    primaryDescriptor: primary,
+    primaryKind: primary.kind,
+    safetyLabel: safetyLabelFromDescriptor(primary),
+    primaryAction: primaryActionFromDescriptor(primary),
+  } satisfies FactoryArtifactContentSummaryDto;
+}
+
+export function safetyLabelFromDescriptor(
+  descriptor: FactoryArtifactContentDescriptorDto,
+): FactoryArtifactSafetyLabel {
+  if (!descriptor.provenance.trusted) return 'metadata-only';
+  if (descriptor.provenance.source === 'external-system') return 'trusted-external';
+  return 'trusted-local';
+}
+
+export function primaryActionFromDescriptor(
+  descriptor: FactoryArtifactContentDescriptorDto,
+): FactoryArtifactPrimaryAction {
+  if (!descriptor.provenance.trusted) return 'inspect-metadata';
+  switch (descriptor.kind) {
+    case 'text':
+      return 'open-text';
+    case 'binary':
+      return descriptor.mediaType?.startsWith('image/') ? 'open-preview' : 'download';
+    case 'external-uri':
+      return 'open-external';
+    case 'bundle':
+      return 'open-preview';
   }
 }

@@ -13,6 +13,12 @@ import type {
   FactoryRunStatusDto,
 } from './factory';
 import { FACTORY_WORKFLOWS } from './factory-review-workflow';
+import {
+  summarizeFactoryArtifactContent,
+  type FactoryArtifactContentSummaryDto,
+  type FactoryArtifactPrimaryAction,
+  type FactoryArtifactSafetyLabel,
+} from './factory-artifact-content';
 
 export type FactoryProjectExperienceMode = 'easy' | 'hands-on';
 export type FactoryProjectCockpitLayer = 'simple' | 'detailed';
@@ -156,6 +162,9 @@ export interface FactoryProjectArtifactViewDto {
   readonly state: FactoryProjectArtifactState;
   readonly linkedGateIds: readonly string[];
   readonly artifact: FactoryArtifactSummaryDto;
+  readonly content: FactoryArtifactContentSummaryDto;
+  readonly safetyLabel: FactoryArtifactSafetyLabel;
+  readonly primaryAction: FactoryArtifactPrimaryAction;
 }
 
 export interface FactoryProjectPhaseViewDto {
@@ -721,6 +730,7 @@ function artifactViewsFromRuns(
   }
   return runs.flatMap((run) => run.run.artifacts.map((artifact) => {
     const linkedGateIds = [...(pendingByRunPhase.get(`${run.run.runId}:${artifact.phaseId ?? ''}`) ?? [])];
+    const content = contentSummaryFromArtifactSummary(run.run.runId, artifact);
     return {
       projectId: project.projectId,
       runId: run.run.runId,
@@ -729,6 +739,9 @@ function artifactViewsFromRuns(
       state: artifactStateFromSummary(run, artifact, linkedGateIds),
       linkedGateIds,
       artifact,
+      content,
+      safetyLabel: content.safetyLabel,
+      primaryAction: content.primaryAction,
     } satisfies FactoryProjectArtifactViewDto;
   })).sort((left, right) => {
     const leftPending = left.state === 'needs-review' ? 0 : left.state === 'evidence' ? 1 : 2;
@@ -755,6 +768,24 @@ function artifactTitle(artifact: FactoryArtifactSummaryDto): string {
   const fromMetadata = stringMetadata(artifact.metadata, 'displayTitle') ?? stringMetadata(artifact.metadata, 'title');
   if (fromMetadata) return fromMetadata;
   return titleCase(artifact.id);
+}
+
+function contentSummaryFromArtifactSummary(
+  runId: string,
+  artifact: FactoryArtifactSummaryDto,
+): FactoryArtifactContentSummaryDto {
+  // FactoryArtifactSummaryDto.path is only populated by the facade after the
+  // artifact-store has attested the artifact id, so it can be treated as a
+  // trusted local content reference. FactoryArtifactSummaryDto.uri remains the
+  // raw event-provided value and must always be treated as untrusted metadata.
+  return summarizeFactoryArtifactContent({
+    runId,
+    artifactId: artifact.id,
+    artifactKind: artifact.kind,
+    trustedStorePath: artifact.path,
+    eventUri: artifact.uri,
+    createdAt: stringMetadata(artifact.metadata, 'createdAt'),
+  });
 }
 
 function runLinkDto(run: ResolvedFactoryProjectRun): FactoryProjectRunLinkDto {

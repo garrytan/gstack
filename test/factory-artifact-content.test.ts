@@ -10,6 +10,9 @@ import {
   isAllowedFactoryArtifactSafeUri,
   isFactoryArtifactContentKind,
   isFactoryArtifactContentProvenanceSource,
+  primaryActionFromDescriptor,
+  safetyLabelFromDescriptor,
+  summarizeFactoryArtifactContent,
 } from '../lib/factory-artifact-content';
 
 describe('factory artifact content descriptors', () => {
@@ -160,5 +163,152 @@ describe('factory artifact content descriptors', () => {
     expect(isFactoryArtifactContentKind('unknown')).toBe(false);
     expect(isFactoryArtifactContentProvenanceSource('artifact-store')).toBe(true);
     expect(isFactoryArtifactContentProvenanceSource('unsafe')).toBe(false);
+  });
+
+  test('summarizes trusted stored text artifacts as open-text trusted-local', () => {
+    const summary = summarizeFactoryArtifactContent({
+      runId: 'run-summary-1',
+      artifactId: 'review-summary',
+      artifactKind: 'review',
+      trustedStorePath: '/tmp/factory/run-summary-1/artifacts/review-summary.md',
+      createdAt: '2026-05-21T00:00:00.000Z',
+    });
+    expect(summary.primaryKind).toBe('text');
+    expect(summary.safetyLabel).toBe('trusted-local');
+    expect(summary.primaryAction).toBe('open-text');
+    expect(summary.descriptors).toHaveLength(1);
+    expect(summary.primaryDescriptor).toMatchObject({
+      kind: 'text',
+      provenance: { source: 'artifact-store', trusted: true },
+      hasInlineText: true,
+      mediaType: 'text/markdown',
+    });
+  });
+
+  test('treats raw event uri/path as untrusted metadata-only descriptors', () => {
+    const uriOnly = summarizeFactoryArtifactContent({
+      runId: 'run-summary-2',
+      artifactId: 'qa-link',
+      artifactKind: 'qa-report',
+      eventUri: 'https://ci.example.test/raw',
+    });
+    expect(uriOnly.primaryKind).toBe('external-uri');
+    expect(uriOnly.safetyLabel).toBe('metadata-only');
+    expect(uriOnly.primaryAction).toBe('inspect-metadata');
+    expect(uriOnly.primaryDescriptor).toMatchObject({
+      provenance: { source: 'event-metadata', trusted: false },
+      safeUri: undefined,
+      hasInlineText: false,
+    });
+
+    const pathOnly = summarizeFactoryArtifactContent({
+      runId: 'run-summary-2',
+      artifactId: 'qa-path',
+      artifactKind: 'qa-report',
+      eventPath: '/tmp/untrusted',
+    });
+    expect(pathOnly.safetyLabel).toBe('metadata-only');
+    expect(pathOnly.primaryAction).toBe('inspect-metadata');
+    expect(pathOnly.primaryDescriptor.provenance.trusted).toBe(false);
+  });
+
+  test('keeps event metadata as a secondary descriptor when a trusted store path is present', () => {
+    const summary = summarizeFactoryArtifactContent({
+      runId: 'run-summary-3',
+      artifactId: 'review-summary',
+      artifactKind: 'review',
+      trustedStorePath: '/tmp/factory/run-summary-3/artifacts/review-summary.md',
+      eventUri: 'https://untrusted.example.test/raw',
+    });
+    expect(summary.primaryKind).toBe('text');
+    expect(summary.safetyLabel).toBe('trusted-local');
+    expect(summary.descriptors).toHaveLength(2);
+    expect(summary.descriptors[1].provenance.trusted).toBe(false);
+    expect(summary.descriptors[1].kind).toBe('external-uri');
+  });
+
+  test('summarizes trusted binary attestations as preview/download depending on media type', () => {
+    const image = summarizeFactoryArtifactContent({
+      runId: 'run-summary-4',
+      artifactId: 'home-screenshot',
+      artifactKind: 'screenshot',
+      trustedBinary: { mediaType: 'image/png', byteLength: 1024 },
+    });
+    expect(image.primaryKind).toBe('binary');
+    expect(image.safetyLabel).toBe('trusted-local');
+    expect(image.primaryAction).toBe('open-preview');
+
+    const trace = summarizeFactoryArtifactContent({
+      runId: 'run-summary-4',
+      artifactId: 'trace',
+      artifactKind: 'browser-trace',
+      trustedBinary: { mediaType: 'application/zip', byteLength: 4096 },
+    });
+    expect(trace.primaryAction).toBe('download');
+  });
+
+  test('summarizes trusted external uris and bundle descriptors safely', () => {
+    const external = summarizeFactoryArtifactContent({
+      runId: 'run-summary-5',
+      artifactId: 'ci-run',
+      artifactKind: 'qa-report',
+      trustedExternalUri: { safeUri: 'https://ci.example.test/runs/42' },
+    });
+    expect(external.primaryKind).toBe('external-uri');
+    expect(external.safetyLabel).toBe('trusted-external');
+    expect(external.primaryAction).toBe('open-external');
+
+    const bundle = summarizeFactoryArtifactContent({
+      runId: 'run-summary-5',
+      artifactId: 'qa-bundle',
+      artifactKind: 'browser-trace',
+      bundleItems: [
+        createStoredTextArtifactContentDescriptor({
+          runId: 'run-summary-5',
+          artifactId: 'qa-bundle',
+          artifactKind: 'qa-report',
+        }),
+        createFactoryBinaryArtifactContentDescriptor({
+          runId: 'run-summary-5',
+          artifactId: 'qa-bundle',
+          artifactKind: 'screenshot',
+          mediaType: 'image/webp',
+          provenance: { source: 'artifact-store', trusted: true },
+        }),
+      ],
+    });
+    expect(bundle.primaryKind).toBe('bundle');
+    expect(bundle.safetyLabel).toBe('trusted-local');
+    expect(bundle.primaryAction).toBe('open-preview');
+    expect(bundle.descriptors.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('falls back to metadata-only when no trusted or event reference is provided', () => {
+    const summary = summarizeFactoryArtifactContent({
+      runId: 'run-summary-6',
+      artifactId: 'orphan',
+      artifactKind: 'plan',
+    });
+    expect(summary.primaryKind).toBe('external-uri');
+    expect(summary.safetyLabel).toBe('metadata-only');
+    expect(summary.primaryAction).toBe('inspect-metadata');
+  });
+
+  test('exposes safety/action helpers for descriptors built directly', () => {
+    const stored = createStoredTextArtifactContentDescriptor({
+      runId: 'run-summary-7',
+      artifactId: 'plan',
+      artifactKind: 'plan',
+    });
+    expect(safetyLabelFromDescriptor(stored)).toBe('trusted-local');
+    expect(primaryActionFromDescriptor(stored)).toBe('open-text');
+
+    const untrusted = createUntrustedEventMetadataUriDescriptor({
+      runId: 'run-summary-7',
+      artifactId: 'plan',
+      artifactKind: 'plan',
+    });
+    expect(safetyLabelFromDescriptor(untrusted)).toBe('metadata-only');
+    expect(primaryActionFromDescriptor(untrusted)).toBe('inspect-metadata');
   });
 });

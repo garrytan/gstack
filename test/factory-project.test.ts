@@ -271,6 +271,101 @@ describe('factory project workspace wrapper', () => {
     });
   });
 
+  test('artifact views expose descriptor summaries with provenance-aware safety labels', async () => {
+    const projectFacade = facade();
+
+    const cockpit = await projectFacade.readFactoryProjectCockpit('project-review');
+    const intakeView = cockpit.artifacts.find(view => view.artifactId === 'review-intake-artifact');
+    expect(intakeView).toBeDefined();
+    // Mock artifacts have no path/uri, so the descriptor must collapse to
+    // metadata-only without escalating provenance.
+    expect(intakeView!.safetyLabel).toBe('metadata-only');
+    expect(intakeView!.primaryAction).toBe('inspect-metadata');
+    expect(intakeView!.content.primaryKind).toBe('external-uri');
+    expect(intakeView!.content.primaryDescriptor.provenance).toEqual({
+      source: 'event-metadata',
+      trusted: false,
+      note: 'Artifact has no trusted content; only summary metadata is available.',
+    });
+    expect(intakeView!.content.primaryDescriptor.safeUri).toBeUndefined();
+  });
+
+  test('trusted artifact-store path drives an open-text descriptor; raw event uri stays metadata-only', async () => {
+    const trustedStatus: FactoryRunStatusDto = {
+      ...REVIEW_STATUS,
+      runId: 'run-trusted',
+      artifacts: [
+        {
+          id: 'review-intake-artifact',
+          kind: 'plan',
+          phaseId: 'review-intake',
+          summary: 'Review intake artifact',
+          // path mirrors what FileFactoryArtifactStore returns after attestation:
+          // it appears on the summary only after the artifact store hits.
+          path: '/tmp/factory/run-trusted/artifacts/review-intake-artifact.md',
+          metadata: { createdAt: '2026-05-21T10:00:00.000Z' },
+        },
+        {
+          id: 'diff-review-artifact',
+          kind: 'review',
+          phaseId: 'diff-review',
+          summary: 'Diff review artifact',
+          uri: 'https://untrusted.example.test/raw-event-uri',
+        },
+      ],
+      gates: [],
+    };
+    const trustedProject: FactoryProjectRecord = {
+      projectId: 'project-trusted',
+      workspaceId: 'workspace-1',
+      name: 'Trusted Path Demo',
+      oneLineGoal: 'Demonstrate descriptor provenance handling',
+      primaryRunId: 'run-trusted',
+      linkedRuns: [{ runId: 'run-trusted', workflowId: 'review', relationship: 'primary' }],
+      experienceMode: 'hands-on',
+      cockpitLayer: 'detailed',
+    };
+    const facadeWithTrust = createFactoryProjectFacade({
+      factory: {
+        async readFactoryRunStatus(runId: string) {
+          if (runId === 'run-trusted') return trustedStatus;
+          throw new Error(`Unknown run '${runId}'`);
+        },
+      },
+      catalog: {
+        listWorkspaces: () => WORKSPACES,
+        listProjects: () => [trustedProject],
+        readProject: (projectId: string) => projectId === trustedProject.projectId ? trustedProject : null,
+      },
+      workflows: [FACTORY_REVIEW_WORKFLOW, FACTORY_QA_FIX_WORKFLOW, FACTORY_SHIP_WORKFLOW],
+    });
+
+    const cockpit = await facadeWithTrust.readFactoryProjectCockpit('project-trusted');
+    const trustedView = cockpit.artifacts.find(view => view.artifactId === 'review-intake-artifact');
+    expect(trustedView).toBeDefined();
+    expect(trustedView!.safetyLabel).toBe('trusted-local');
+    expect(trustedView!.primaryAction).toBe('open-text');
+    expect(trustedView!.content.primaryKind).toBe('text');
+    expect(trustedView!.content.primaryDescriptor).toMatchObject({
+      provenance: { source: 'artifact-store', trusted: true },
+      hasInlineText: true,
+      mediaType: 'text/markdown',
+    });
+    // The trusted descriptor must never include the raw event uri/path.
+    expect(trustedView!.content.primaryDescriptor.safeUri).toBeUndefined();
+
+    const untrustedView = cockpit.artifacts.find(view => view.artifactId === 'diff-review-artifact');
+    expect(untrustedView).toBeDefined();
+    expect(untrustedView!.safetyLabel).toBe('metadata-only');
+    expect(untrustedView!.primaryAction).toBe('inspect-metadata');
+    expect(untrustedView!.content.primaryDescriptor.provenance).toEqual({
+      source: 'event-metadata',
+      trusted: false,
+      note: 'Event metadata uri is untrusted until attested by artifact-store or trusted external system.',
+    });
+    expect(untrustedView!.content.primaryDescriptor.safeUri).toBeUndefined();
+  });
+
   test('ship readiness projects resolve to handoff-ready summaries and workspace resume priority stays decision-first', async () => {
     const projectFacade = facade();
 

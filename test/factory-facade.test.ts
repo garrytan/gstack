@@ -573,6 +573,97 @@ describe('factory facade', () => {
     }
   });
 
+  test('listFactoryArtifactContent returns trusted stored-text descriptors for store-attested artifacts', async () => {
+    const rootDir = tempRoot();
+    try {
+      const facade = createFactoryFacade({
+        runsRoot: rootDir,
+        workflows: [FACTORY_REVIEW_WORKFLOW],
+        runtime: runtime(['agent-session', 'artifact-store', 'git'], rootDir),
+        makeRunId: () => 'run-content-trusted',
+      });
+
+      await facade.runFactoryWorkflow({
+        workflow: 'review',
+        goal: 'Review descriptor listing',
+        cwd: '/repo',
+        mode: 'review',
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
+      });
+
+      const descriptors = await facade.listFactoryArtifactContent('run-content-trusted', 'diff-review-artifact');
+      expect(descriptors).toHaveLength(1);
+      expect(descriptors[0]).toMatchObject({
+        runId: 'run-content-trusted',
+        artifactId: 'diff-review-artifact',
+        kind: 'text',
+        provenance: { source: 'artifact-store', trusted: true },
+        hasInlineText: true,
+        mediaType: 'text/markdown',
+      });
+      expect(descriptors[0].safeUri).toBeUndefined();
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('listFactoryArtifactContent treats event-only artifacts as untrusted metadata-only descriptors and rejects unknown ids', async () => {
+    const rootDir = tempRoot();
+    try {
+      const facade = createFactoryFacade({
+        runsRoot: rootDir,
+        workflows: [FACTORY_REVIEW_WORKFLOW],
+        runtime: {
+          availableCapabilities: ['agent-session', 'artifact-store', 'git'],
+          executePhase({ phase }) {
+            if (phase.id === 'diff-review') {
+              return {
+                summary: 'External review queued.',
+                status: 'pending',
+                artifacts: [{
+                  id: 'diff-review-dispatch',
+                  kind: 'review',
+                  phaseId: 'diff-review',
+                  summary: 'External review queued.',
+                  uri: 'https://untrusted.example.test/raw',
+                  path: '/tmp/untrusted-event-path',
+                }],
+              };
+            }
+            return {
+              summary: `${phase.id} complete`,
+              artifacts: [{ id: `${phase.id}-artifact`, kind: phase.expectedArtifacts[0]?.kind ?? 'review', phaseId: phase.id, summary: `${phase.id} artifact` }],
+            };
+          },
+        },
+        makeRunId: () => 'run-content-untrusted',
+      });
+
+      await facade.runFactoryWorkflow({
+        workflow: 'review',
+        goal: 'Review descriptor listing',
+        cwd: '/repo',
+        mode: 'review',
+        policy: { allowWrites: true, commandSafetyProfile: 'non-destructive-write' },
+      });
+
+      const descriptors = await facade.listFactoryArtifactContent('run-content-untrusted', 'diff-review-dispatch');
+      expect(descriptors).toHaveLength(1);
+      expect(descriptors[0]).toMatchObject({
+        artifactId: 'diff-review-dispatch',
+        kind: 'external-uri',
+        provenance: { source: 'event-metadata', trusted: false },
+      });
+      expect(descriptors[0].safeUri).toBeUndefined();
+
+      await expect(facade.listFactoryArtifactContent('run-content-untrusted', 'missing-artifact')).rejects.toThrow(
+        "Factory artifact 'missing-artifact' not found for run 'run-content-untrusted'",
+      );
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   test('reports blocked preflight runs without persisting fake status records', async () => {
     const rootDir = tempRoot();
     try {
