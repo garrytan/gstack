@@ -87,11 +87,15 @@ export function pickFreeDisplay(
  */
 export function readPidStartTime(pid: number): string {
   if (!isProcessAlive(pid)) return '';
-  const result = Bun.spawnSync(['ps', '-p', String(pid), '-o', 'lstart='], {
-    stdout: 'pipe', stderr: 'pipe', timeout: 2000,
-  });
-  if (result.exitCode !== 0) return '';
-  return result.stdout.toString().trim();
+  try {
+    const result = Bun.spawnSync(['ps', '-p', String(pid), '-o', 'lstart='], {
+      stdout: 'pipe', stderr: 'pipe', timeout: 2000,
+    });
+    if (result.exitCode !== 0) return '';
+    return result.stdout.toString().trim();
+  } catch {
+    return '';
+  }
 }
 
 /**

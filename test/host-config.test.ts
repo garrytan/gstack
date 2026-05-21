@@ -22,6 +22,7 @@ import {
   slate,
   cursor,
   openclaw,
+  antigravity,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -30,8 +31,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -53,6 +54,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(antigravity.name).toBe('antigravity');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -374,11 +376,15 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(1);
   });
 
-  test('detect finds claude (since we are running in claude)', () => {
+  test('detect finds active hosts on PATH', () => {
     const { stdout, exitCode } = run('detect');
     expect(exitCode).toBe(0);
-    // claude binary should be on PATH in this environment
-    expect(stdout).toContain('claude');
+    const detected = stdout.split('\n').filter(Boolean);
+    const expectedHostsOnPath = ALL_HOST_CONFIGS.filter(c => {
+      const commands = [c.cliCommand, ...(c.cliAliases || [])];
+      return commands.some(cmd => Bun.which(cmd));
+    }).map(c => c.name);
+    expect(detected).toEqual(expectedHostsOnPath);
   });
 
   test('unknown command exits 1', () => {

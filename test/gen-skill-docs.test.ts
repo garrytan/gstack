@@ -225,7 +225,7 @@ describe('gen-skill-docs', () => {
     // Every skill should be FRESH
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
-      expect(output).toContain(`FRESH: ${file}`);
+      expect(output.replace(/\\/g, '/')).toContain(`FRESH: ${file}`);
     }
     expect(output).not.toContain('STALE');
   });
@@ -1747,7 +1747,7 @@ describe('Codex generation (--host codex)', () => {
     const output = result.stdout.toString();
     // Every Codex skill should be FRESH
     for (const skill of CODEX_SKILLS) {
-      expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
+      expect(output.replace(/\\/g, '/')).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
     }
     expect(output).not.toContain('STALE');
   });
@@ -2051,7 +2051,7 @@ describe('Factory generation (--host factory)', () => {
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     for (const skill of FACTORY_SKILLS) {
-      expect(output).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
+      expect(output.replace(/\\/g, '/')).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
     }
     expect(output).not.toContain('STALE');
   });
@@ -2159,9 +2159,9 @@ describe('--host all', () => {
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     // All hosts should appear in output
-    expect(output).toContain('FRESH: SKILL.md');           // claude
+    expect(output.replace(/\\/g, '/')).toContain('FRESH: SKILL.md');           // claude
     for (const hostConfig of getExternalHosts()) {
-      expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
+      expect(output.replace(/\\/g, '/')).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
     }
   });
 });
@@ -2273,16 +2273,17 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|antigravity', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|antigravity|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
+  test('auto mode detects claude, codex, kiro, opencode, and antigravity binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v agy');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill

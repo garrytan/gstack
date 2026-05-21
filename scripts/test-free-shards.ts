@@ -106,6 +106,10 @@ const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
     file: 'browse/test/findport.test.ts',
     reason: 'asserts Bun.serve.stop() is fire-and-forget — Bun behavior differs on Windows for this polyfill',
   },
+  {
+    file: 'test/migration-checkpoint-ownership.test.ts',
+    reason: 'runs POSIX shell scripts via bash and asserts symlink behavior not supported on Windows',
+  },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;

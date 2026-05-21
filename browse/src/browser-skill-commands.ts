@@ -185,7 +185,8 @@ async function handleTest(args: string[], ctx: SkillCommandContext): Promise<str
     throw new Error(`Skill "${name}" has no script.test.ts at ${testFile}`);
   }
 
-  const proc = Bun.spawn(['bun', 'test', testFile], {
+  const bunPath = process.execPath.endsWith('bun') || process.execPath.endsWith('bun.exe') ? process.execPath : 'bun';
+  const proc = Bun.spawn([bunPath, 'test', testFile], {
     cwd: skill.dir,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -372,7 +373,11 @@ export function buildSpawnEnv(opts: BuildEnvOptions): Record<string, string> {
       out[k] = v;
     }
     // Set a minimal PATH if missing.
-    if (!out.PATH) out.PATH = '/usr/local/bin:/usr/bin:/bin';
+    if (!out.PATH) {
+      out.PATH = process.platform === 'win32'
+        ? 'C:\\Windows\\system32;C:\\Windows'
+        : '/usr/local/bin:/usr/bin:/bin';
+    }
   } else {
     // Untrusted: minimal allowlist.
     for (const k of UNTRUSTED_ALLOWLIST) {
@@ -402,12 +407,16 @@ export function buildSpawnEnv(opts: BuildEnvOptions): Record<string, string> {
 }
 
 function resolveMinimalPath(): string {
-  // Prefer the directory bun lives in; fall back to standard system dirs.
-  const fallback = '/usr/local/bin:/usr/bin:/bin';
+  const isWin = process.platform === 'win32';
+  const delimiter = path.delimiter;
+  const fallback = isWin
+    ? 'C:\\Windows\\system32;C:\\Windows'
+    : '/usr/local/bin:/usr/bin:/bin';
+
   const bunPath = process.execPath;
-  if (bunPath && bunPath.includes('/bun')) {
+  if (bunPath && bunPath.toLowerCase().includes('bun')) {
     const dir = path.dirname(bunPath);
-    return `${dir}:${fallback}`;
+    return `${dir}${delimiter}${fallback}`;
   }
   return fallback;
 }

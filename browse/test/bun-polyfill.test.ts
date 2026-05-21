@@ -2,7 +2,7 @@ import { describe, test, expect, afterAll } from 'bun:test';
 import * as path from 'path';
 
 // Load the polyfill into a fresh object (don't clobber globalThis.Bun)
-const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');
+const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs').replace(/\\/g, '/');
 
 describe('bun-polyfill', () => {
   // We test the polyfill by requiring it in a subprocess under Node.js
@@ -25,7 +25,7 @@ describe('bun-polyfill', () => {
   test('Bun.spawnSync runs a command and returns stdout', () => {
     const result = Bun.spawnSync(['node', '-e', `
       require('${polyfillPath}');
-      const r = Bun.spawnSync(['echo', 'hello'], { stdout: 'pipe' });
+      const r = Bun.spawnSync([process.execPath, '-e', 'console.log("hello")'], { stdout: 'pipe' });
       console.log(r.stdout.toString().trim());
       console.log('exit:' + r.exitCode);
     `], { stdout: 'pipe', stderr: 'pipe' });
@@ -37,7 +37,7 @@ describe('bun-polyfill', () => {
   test('Bun.spawn launches a process with pid', async () => {
     const result = Bun.spawnSync(['node', '-e', `
       require('${polyfillPath}');
-      const p = Bun.spawn(['echo', 'test'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const p = Bun.spawn([process.execPath, '-e', 'console.log("test")'], { stdio: ['pipe', 'pipe', 'pipe'] });
       console.log(typeof p.pid === 'number' ? 'HAS_PID' : 'NO_PID');
       console.log(typeof p.kill === 'function' ? 'HAS_KILL' : 'NO_KILL');
       console.log(typeof p.unref === 'function' ? 'HAS_UNREF' : 'NO_UNREF');

@@ -54,9 +54,9 @@ _link_or_copy() {
       return 0
     fi
     if [ -d "$src" ]; then
-      cp -R "$src" "$dst"
+      cp -RL "$src" "$dst"
     else
-      cp -f "$src" "$dst"
+      cp -Lf "$src" "$dst"
     fi
   else
     ln -snf "$src" "$dst"
@@ -84,7 +84,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, antigravity, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -97,7 +97,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|antigravity|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -132,7 +132,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, antigravity, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -196,14 +196,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_ANTIGRAVITY=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v agy >/dev/null 2>&1 && INSTALL_ANTIGRAVITY=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_ANTIGRAVITY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -216,6 +218,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "antigravity" ]; then
+  INSTALL_ANTIGRAVITY=1
 fi
 
 migrate_direct_codex_install() {
@@ -390,6 +394,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     bun_cmd run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .antigravity/ Antigravity skill docs
+if [ "$INSTALL_ANTIGRAVITY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .antigravity/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host antigravity
   )
 fi
 
@@ -849,6 +863,102 @@ link_opencode_skill_dirs() {
   fi
 }
 
+create_antigravity_runtime_root() {
+  local gstack_dir="$1"
+  local antigravity_gstack="$2"
+  local antigravity_dir="$gstack_dir/.antigravity/skills"
+
+  if [ -L "$antigravity_gstack" ]; then
+    rm -f "$antigravity_gstack"
+  elif [ -d "$antigravity_gstack" ] && [ "$antigravity_gstack" != "$gstack_dir" ]; then
+    # Keep SKILL.md if it exists to avoid deleting the generated skill doc in staging
+    for item in "$antigravity_gstack"/* "$antigravity_gstack"/.*; do
+      basename_item="$(basename "$item")"
+      if [ "$basename_item" != "." ] && [ "$basename_item" != ".." ] && [ "$basename_item" != "SKILL.md" ]; then
+        rm -rf "$item"
+      fi
+    done
+  fi
+
+  mkdir -p "$antigravity_gstack" "$antigravity_gstack/browse" "$antigravity_gstack/design" "$antigravity_gstack/gstack-upgrade" "$antigravity_gstack/review" "$antigravity_gstack/qa" "$antigravity_gstack/plan-devex-review"
+
+  if [ -f "$antigravity_dir/gstack/SKILL.md" ] && [ "$antigravity_dir/gstack/SKILL.md" != "$antigravity_gstack/SKILL.md" ]; then
+    _link_or_copy "$antigravity_dir/gstack/SKILL.md" "$antigravity_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    _link_or_copy "$gstack_dir/bin" "$antigravity_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    _link_or_copy "$gstack_dir/browse/dist" "$antigravity_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    _link_or_copy "$gstack_dir/browse/bin" "$antigravity_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    _link_or_copy "$gstack_dir/design/dist" "$antigravity_gstack/design/dist"
+  fi
+  if [ -f "$antigravity_dir/gstack-upgrade/SKILL.md" ]; then
+    _link_or_copy "$antigravity_dir/gstack-upgrade/SKILL.md" "$antigravity_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      _link_or_copy "$gstack_dir/review/$f" "$antigravity_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    _link_or_copy "$gstack_dir/review/specialists" "$antigravity_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    _link_or_copy "$gstack_dir/qa/templates" "$antigravity_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    _link_or_copy "$gstack_dir/qa/references" "$antigravity_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
+    _link_or_copy "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$antigravity_gstack/plan-devex-review/dx-hall-of-fame.md"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _link_or_copy "$gstack_dir/ETHOS.md" "$antigravity_gstack/ETHOS.md"
+  fi
+
+  local plugin_root
+  plugin_root="$(dirname "$(dirname "$antigravity_gstack")")"
+  mkdir -p "$plugin_root"
+  echo '{"name":"gstack","description":"gstack plugin for Antigravity","disabled":false}' > "$plugin_root/plugin.json"
+}
+
+link_antigravity_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local antigravity_dir="$gstack_dir/.antigravity/skills"
+  local linked=()
+
+  if [ ! -d "$antigravity_dir" ]; then
+    echo "  Generating .antigravity/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host antigravity )
+  fi
+
+  if [ ! -d "$antigravity_dir" ]; then
+    echo "  warning: .antigravity/skills/ generation failed — run 'bun run gen:skill-docs --host antigravity' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$antigravity_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -1052,6 +1162,30 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Antigravity
+if [ "$INSTALL_ANTIGRAVITY" -eq 1 ]; then
+  LOCAL_ANTIGRAVITY_ROOT="$SOURCE_GSTACK_DIR/.antigravity"
+  LOCAL_ANTIGRAVITY_GSTACK="$LOCAL_ANTIGRAVITY_ROOT/skills/gstack"
+
+  create_antigravity_runtime_root "$SOURCE_GSTACK_DIR" "$LOCAL_ANTIGRAVITY_GSTACK"
+  link_antigravity_skill_dirs "$SOURCE_GSTACK_DIR" "$LOCAL_ANTIGRAVITY_ROOT/skills"
+
+  for dest_dir in "$HOME/.gemini/antigravity-cli/plugins/gstack" "$HOME/.gemini/antigravity-ide/plugins/gstack"; do
+    mkdir -p "$(dirname "$dest_dir")"
+    if [ -L "$dest_dir" ]; then
+      rm -f "$dest_dir"
+    elif [ -d "$dest_dir" ]; then
+      rm -rf "$dest_dir"
+    fi
+    _link_or_copy "$LOCAL_ANTIGRAVITY_ROOT" "$dest_dir"
+  done
+
+  echo "gstack ready (antigravity)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  antigravity cli plugin: $HOME/.gemini/antigravity-cli/plugins/gstack"
+  echo "  antigravity ide plugin: $HOME/.gemini/antigravity-ide/plugins/gstack"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
