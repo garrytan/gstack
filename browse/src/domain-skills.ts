@@ -33,7 +33,6 @@
  */
 
 import { promises as fs } from 'fs';
-import { open as fsOpen, constants as fsConstants } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createHash } from 'crypto';
@@ -120,30 +119,13 @@ async function ensureDir(filePath: string): Promise<void> {
 async function appendRow(filePath: string, row: DomainSkillRow): Promise<void> {
   await ensureDir(filePath);
   const line = JSON.stringify(row) + '\n';
-  return new Promise((resolve, reject) => {
-    fsOpen(filePath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_APPEND, 0o644, (err, fd) => {
-      if (err) return reject(err);
-      const buf = Buffer.from(line, 'utf8');
-      const writeAndSync = () => {
-        // Use fs.writeSync via fd to ensure single write call (atomic with O_APPEND).
-        const fsSync = require('fs');
-        try {
-          fsSync.writeSync(fd, buf, 0, buf.length);
-          fsSync.fsyncSync(fd);
-          fsSync.closeSync(fd);
-          resolve();
-        } catch (e) {
-          try {
-            fsSync.closeSync(fd);
-          } catch {
-            // Ignore close errors after a write failure — original error wins.
-          }
-          reject(e);
-        }
-      };
-      writeAndSync();
-    });
-  });
+  const fileHandle = await fs.open(filePath, 'a');
+  try {
+    await fileHandle.appendFile(line, 'utf8');
+    await fileHandle.sync();
+  } finally {
+    await fileHandle.close();
+  }
 }
 
 /**

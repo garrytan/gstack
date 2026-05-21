@@ -202,7 +202,11 @@ describe('buildSpawnEnv', () => {
   it('untrusted: PATH is minimal (no /test/bin override)', () => {
     const env = buildSpawnEnv({ trusted: false, port: 1234, skillToken: 'tok' });
     expect(env.PATH).not.toContain('/test/bin');
-    expect(env.PATH).toMatch(/\/(usr\/local\/)?bin/);
+    if (process.platform === 'win32') {
+      expect(env.PATH).toMatch(/\\(system32|bin)/i);
+    } else {
+      expect(env.PATH).toMatch(/\/(usr\/local\/)?bin/);
+    }
   });
 
   it('untrusted: injects GSTACK_PORT + GSTACK_SKILL_TOKEN', () => {

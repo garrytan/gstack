@@ -174,8 +174,7 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     // Resolves browse/src/server.ts relative to this test file so the test
     // works regardless of cwd. import.meta.url is the test file's URL.
     const serverTsPath = path.resolve(
-      new URL(import.meta.url).pathname,
-      '..',
+      import.meta.dir,
       '..',
       'src',
       'server.ts',

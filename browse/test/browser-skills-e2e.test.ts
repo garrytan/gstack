@@ -30,7 +30,7 @@ beforeAll(() => {
 describe('browser-skills E2E — bundled hackernews-frontpage', () => {
   test('defaultTierPaths resolves bundled tier to <repo>/browser-skills/', () => {
     const tiers = defaultTierPaths();
-    expect(tiers.bundled).toMatch(/\/browser-skills$/);
+    expect(tiers.bundled.replace(/\\/g, '/')).toMatch(/\/browser-skills$/);
     // Bundled tier should exist on disk (the reference skill is shipped).
     expect(require('fs').existsSync(tiers.bundled)).toBe(true);
   });

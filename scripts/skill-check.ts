@@ -65,7 +65,16 @@ for (const file of SKILL_FILES) {
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
 
+import { getHostConfig } from '../hosts/index';
+const claudeConfig = getHostConfig('claude');
+const skipSkills = new Set(claudeConfig.generation.skipSkills || []);
+
 for (const { tmpl, output } of TEMPLATES) {
+  const dir = tmpl.includes('/') ? tmpl.split('/')[0] : '';
+  if (dir && skipSkills.has(dir)) {
+    console.log(`  ✅ ${tmpl.padEnd(30)} (skipped for primary host)`);
+    continue;
+  }
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {

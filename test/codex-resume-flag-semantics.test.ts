@@ -15,8 +15,8 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 
-const codexPath = spawnSync('which', ['codex'], { encoding: 'utf-8' }).stdout.trim();
-const codexAvailable = codexPath.length > 0;
+const codexPath = Bun.which('codex');
+const codexAvailable = !!codexPath;
 
 describe.skipIf(!codexAvailable)(
   'codex exec resume — flag semantics (live CLI smoke; closes #1270 regex-only gap)',

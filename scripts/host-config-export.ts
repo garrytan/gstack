@@ -69,12 +69,9 @@ switch (command) {
     for (const config of ALL_HOST_CONFIGS) {
       const commands = [config.cliCommand, ...(config.cliAliases || [])];
       for (const cmd of commands) {
-        try {
-          execSync(`command -v ${shellEscape(cmd)}`, { stdio: 'pipe' });
+        if (Bun.which(cmd)) {
           console.log(config.name);
           break;  // Found this host, move to next
-        } catch {
-          // Binary not found, try next alias
         }
       }
     }

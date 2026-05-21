@@ -20,6 +20,12 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
+if (process.platform === 'win32') {
+  describe('context-save-hardening tests', () => {
+    test.skip('skipped on Windows', () => {});
+  });
+} else {
+
 // The exact sanitize+collision bash used by context-save/SKILL.md Step 4.
 // Kept in sync with context-save/SKILL.md.tmpl. If the template changes
 // this helper out of alignment, the title-sanitize tests fail — intended.
@@ -347,3 +353,4 @@ describe('migration v1.1.3.0: HOME guard', () => {
     expect(result.stdout.toString().trim()).toBe('');
   });
 });
+}

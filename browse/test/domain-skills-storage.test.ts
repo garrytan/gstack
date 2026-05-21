@@ -14,7 +14,16 @@ async function freshImport() {
 }
 
 beforeEach(async () => {
-  await fs.rm(TMP_HOME, { recursive: true, force: true });
+  const files = [
+    path.join(TMP_HOME, 'global-domain-skills.jsonl'),
+    path.join(TMP_HOME, 'projects', 'test-slug', 'learnings.jsonl'),
+    path.join(TMP_HOME, 'projects', 'other-slug', 'learnings.jsonl')
+  ];
+  for (const f of files) {
+    try {
+      await fs.rm(f, { force: true });
+    } catch {}
+  }
   await fs.mkdir(path.join(TMP_HOME, 'projects', 'test-slug'), { recursive: true });
 });
 
