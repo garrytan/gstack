@@ -5,7 +5,7 @@
  * - `set explain_level default` persists, `get` returns "default"
  * - `set explain_level terse` persists, `get` returns "terse"
  * - `set explain_level garbage` warns + writes "default"
- * - `get explain_level` with unset key returns empty (preamble bash defaults)
+ * - `get explain_level` with unset key returns "default" from the defaults table
  * - Annotated config header documents explain_level
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
@@ -59,9 +59,13 @@ describe('gstack-config explain_level', () => {
     expect(run('get', 'explain_level').stdout).toBe('default');
   });
 
-  test('get with unset explain_level returns empty (preamble default takes over)', () => {
-    // No prior set → no config file → empty output
-    expect(run('get', 'explain_level').stdout).toBe('');
+  test('get with unset explain_level returns default from defaults table', () => {
+    expect(run('get', 'explain_level').stdout).toBe('default');
+  });
+
+  test('list and defaults include explain_level', () => {
+    expect(run('list').stdout).toContain('explain_level:');
+    expect(run('defaults').stdout).toContain('explain_level:');
   });
 
   test('config header documents explain_level', () => {
