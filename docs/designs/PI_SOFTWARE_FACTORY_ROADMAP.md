@@ -513,9 +513,13 @@ Implemented:
 
 Goal: turn the newly landed Alpha/Beta foundations into a repeatable gate.
 
-Recommended next steps:
+Landed in this lane:
 
-- add a production-readiness smoke runner or documented command set that exercises module load, facade status/list/artifact reads, project catalog read/write, QA log parse/recover fixtures, guarded denial audit, and distribution dry-run;
+- `lib/factory-production-smoke.ts` — deterministic smoke runner that exercises module load (S1), facade plan/status/list/artifact reads (S2-S5), project catalog round-trip (S6), QA log parse + recover fixture (S7-S8), guarded denial audit (S9), and distribution dry-run (S10). Web `/health` (S11) is surfaced as `deferred` per the Beta 2 contract, not stubbed green.
+- `test/factory-production-smoke.test.ts` — temp-dir-backed coverage of the runner DTO, including deterministic re-runs, the deferred-web-health invariant, and the §3.4 prohibition on deploy/publish/release/tag/push vocabulary in any check message.
+
+Remaining steps:
+
 - run a reviewer/security pass across the integrated branch;
 - update `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md` with post-Alpha movement.
 
