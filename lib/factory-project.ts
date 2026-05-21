@@ -420,7 +420,8 @@ async function resolveProject(
   factory: Pick<FactoryFacade, 'readFactoryRunStatus'>,
   workflows: readonly WorkflowSpec[],
 ): Promise<ResolvedFactoryProject> {
-  const runs = await Promise.all(record.linkedRuns.map(link => resolveRun(link, factory, workflows)));
+  const resolved = await Promise.all(record.linkedRuns.map(link => resolveRun(link, factory, workflows)));
+  const runs = resolved.filter((run): run is ResolvedFactoryProjectRun => run !== null);
   const activeRun = selectActiveRun(runs, record.primaryRunId);
   const safety = activeRun ? safetyViewFromRun(activeRun) : safetyViewFromPolicy(undefined, undefined);
   const decisionQueue = decisionQueueFromRuns(record, runs);
@@ -447,8 +448,15 @@ async function resolveRun(
   link: FactoryProjectRunLink,
   factory: Pick<FactoryFacade, 'readFactoryRunStatus'>,
   workflows: readonly WorkflowSpec[],
-): Promise<ResolvedFactoryProjectRun> {
-  const run = await factory.readFactoryRunStatus(link.runId);
+): Promise<ResolvedFactoryProjectRun | null> {
+  let run: FactoryRunStatusDto;
+  try {
+    run = await factory.readFactoryRunStatus(link.runId);
+  } catch {
+    // Missing linked run: degrade gracefully so the project DTO still resolves
+    // for the rest of its links. The view DTOs simply omit this link.
+    return null;
+  }
   if (link.workflowId && link.workflowId !== run.workflowId) {
     throw new Error(`Factory project run '${link.runId}' expected workflow '${link.workflowId}' but facade returned '${run.workflowId}'`);
   }
