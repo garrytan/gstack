@@ -357,7 +357,9 @@ codex exec "$(cat "$CODEX_PROMPT_FILE")" -C "$_REPO_ROOT" -s read-only -c 'model
 Use a 5-minute timeout (\`timeout: 300000\`). After the command completes, read stderr:
 \`\`\`bash
 cat "$TMPERR_OH"
-rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
+rm -f "$TMPERR_OH"
+# NOTE: keep \$CODEX_PROMPT_FILE alive — the llm fallback (next step) reuses it.
+# Final cleanup of \$CODEX_PROMPT_FILE happens after the whole outside-voice chain.
 \`\`\`
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
@@ -365,9 +367,52 @@ rm -f "$TMPERR_OH" "$CODEX_PROMPT_FILE"
 - **Timeout:** "Codex timed out after 5 minutes." Fall back to Claude subagent.
 - **Empty response:** "Codex returned no response." Fall back to Claude subagent.
 
-On any Codex error, fall back to the Claude subagent below.
+On any Codex error, try the \`llm\` CLI next, then fall back to the Claude subagent.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If CODEX_NOT_AVAILABLE (or Codex errored), try \`llm\` CLI:**
+
+The \`llm\` CLI (datasette/llm) supports Grok and other non-OpenAI models — when configured, it provides genuine cross-model independence (different model family than Claude). The skill skips this step if \`outside_voice_llm_model\` is unset or the model isn't registered with \`llm\`.
+
+\`\`\`bash
+LLM_MODEL=$(~/.claude/skills/gstack/bin/gstack-config get outside_voice_llm_model 2>/dev/null)
+if [ -n "$LLM_MODEL" ] && command -v llm >/dev/null 2>&1 && llm models 2>/dev/null | grep -q "$LLM_MODEL\\$"; then
+  echo "LLM_AVAILABLE: $LLM_MODEL"
+else
+  echo "LLM_NOT_AVAILABLE"
+fi
+\`\`\`
+
+**If LLM_AVAILABLE:**
+
+Reuse the second-opinion prompt assembled for Codex (read from \`$CODEX_PROMPT_FILE\`). Invoke llm with the configured model:
+
+\`\`\`bash
+TMPERR_LLM=$(mktemp /tmp/llm-oh-err-XXXXXXXX)
+llm -m "$LLM_MODEL" "$(cat "$CODEX_PROMPT_FILE")" 2>"$TMPERR_LLM"
+\`\`\`
+
+Use a 5-minute timeout (\`timeout: 300000\`). After completion, read stderr:
+\`\`\`bash
+cat "$TMPERR_LLM" && rm -f "$TMPERR_LLM" "$CODEX_PROMPT_FILE"
+\`\`\`
+
+Present the full output verbatim:
+
+\`\`\`
+SECOND OPINION (llm, \$LLM_MODEL):
+════════════════════════════════════════════════════════════
+<full llm output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+\`\`\`
+
+**Error handling:** All errors are non-blocking — fall back to the Claude subagent.
+- Auth failure (stderr contains "key", "auth", "401", "API key"): "llm key not configured. Run \\\`llm keys set <provider>\\\` to set it up." Fall back to Claude subagent.
+- Timeout: "llm timed out after 5 minutes." Fall back to Claude subagent.
+- Empty response: "llm returned no response." Fall back to Claude subagent.
+
+On any llm error, fall back to the Claude subagent below.
+
+**If LLM_NOT_AVAILABLE (or llm errored, or both Codex and llm failed):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
@@ -387,12 +432,25 @@ SECOND OPINION (Codex):
 ════════════════════════════════════════════════════════════
 \`\`\`
 
+If llm ran:
+\`\`\`
+SECOND OPINION (llm, \$LLM_MODEL):
+════════════════════════════════════════════════════════════
+<full llm output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+\`\`\`
+
 If Claude subagent ran:
 \`\`\`
 SECOND OPINION (Claude subagent):
 ════════════════════════════════════════════════════════════
 <full subagent output, verbatim — do not truncate or summarize>
 ════════════════════════════════════════════════════════════
+\`\`\`
+
+Final cleanup (runs regardless of which path produced output):
+\`\`\`bash
+rm -f "$CODEX_PROMPT_FILE"
 \`\`\`
 
 5. **Cross-model synthesis:** After presenting the second opinion output, provide 3-5 bullet synthesis:
@@ -667,9 +725,52 @@ CODEX SAYS (plan review — outside voice):
 - Timeout: "Codex timed out after 5 minutes."
 - Empty response: "Codex returned no response."
 
-On any Codex error, fall back to the Claude adversarial subagent.
+On any Codex error, try the \`llm\` CLI next, then fall back to the Claude subagent.
 
-**If CODEX_NOT_AVAILABLE (or Codex errored):**
+**If CODEX_NOT_AVAILABLE (or Codex errored), try \`llm\` CLI:**
+
+The \`llm\` CLI (datasette/llm) supports Grok and other non-OpenAI models — when configured, it provides genuine cross-model independence (different model family than Claude). The skill skips this step if \`outside_voice_llm_model\` is unset or the model isn't registered with \`llm\`.
+
+\`\`\`bash
+LLM_MODEL=$(~/.claude/skills/gstack/bin/gstack-config get outside_voice_llm_model 2>/dev/null)
+if [ -n "$LLM_MODEL" ] && command -v llm >/dev/null 2>&1 && llm models 2>/dev/null | grep -q "$LLM_MODEL\\$"; then
+  echo "LLM_AVAILABLE: $LLM_MODEL"
+else
+  echo "LLM_NOT_AVAILABLE"
+fi
+\`\`\`
+
+**If LLM_AVAILABLE:**
+
+Reuse the plan review prompt assembled for Codex. Invoke llm with the configured model:
+
+\`\`\`bash
+TMPERR_LLM=$(mktemp /tmp/llm-planreview-XXXXXXXX)
+llm -m "$LLM_MODEL" "<prompt>" 2>"$TMPERR_LLM"
+\`\`\`
+
+Use a 5-minute timeout (\`timeout: 300000\`). After completion, read stderr:
+\`\`\`bash
+cat "$TMPERR_LLM" && rm -f "$TMPERR_LLM"
+\`\`\`
+
+Present the full output verbatim:
+
+\`\`\`
+OUTSIDE VOICE (llm, \$LLM_MODEL):
+════════════════════════════════════════════════════════════
+<full llm output, verbatim — do not truncate or summarize>
+════════════════════════════════════════════════════════════
+\`\`\`
+
+**Error handling:** All errors are non-blocking — fall back to the Claude subagent.
+- Auth failure (stderr contains "key", "auth", "401", "API key"): "llm key not configured for the model's provider. Run \\\`llm keys set <provider>\\\` to set it up."
+- Timeout: "llm timed out after 5 minutes."
+- Empty response: "llm returned no response."
+
+On any llm error, fall back to the Claude subagent below.
+
+**If LLM_NOT_AVAILABLE (or llm errored, or both Codex and llm failed):**
 
 Dispatch via the Agent tool. The subagent has fresh context — genuine independence.
 
