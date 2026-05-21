@@ -272,24 +272,58 @@ Related docs:
 - `docs/designs/PI_FACTORY_PUBLIC_API_REVIEW.md`
 - `docs/designs/PI_FACTORY_COMMAND_UX_POLISH.md`
 
-## Web-app planning track — waiting for designer feedback
+## Universe AI web/product planning track — design feedback incorporated
 
-The web-app planning track is documented but implementation should not start until designer feedback is incorporated and a web stack/location is approved.
+The external Claude Design handoff is now imported and reconciled. Product-facing naming should use **Universe AI Software Factory**: a common-user-friendly platform where users can “build anything in the universe with Universe AI,” with visible steps, artifacts, approvals, personas, and safety.
 
-Current web planning artifacts:
+Imported design source:
+
+- `docs/designs/external/universe-ai-wireframes-round-1/software-factory/README.md`
+- `docs/designs/external/universe-ai-wireframes-round-1/software-factory/project/Universe AI - Wireframes round 1.html`
+
+Current web/product planning artifacts:
 
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_UX_BRIEF.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_IMPLEMENTATION_PLAN.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_P0_PROTOTYPE_PACKAGE.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_DESIGN_BRIEF_RECONCILIATION.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_P0_PRODUCT_ACCEPTANCE.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_PARALLEL_EXECUTION_PLAN.md`
 
 Current web defaults:
 
-- P0 is a mocked cockpit prototype.
-- No production web app implementation yet.
+- Easy Mode is the common-user default.
+- Hands-on Mode exposes the 3-bay factory map and detailed cockpit.
+- The 9-phase model remains real but is nested under Shape/Build/Ship bays.
+- Simple overview is the default day-to-day project layer; detailed cockpit is one click deeper.
+- No production web app scaffold exists yet.
 - No dependencies or package manifests should change without approval.
-- Project/workspace concepts should wrap run-scoped factory DTOs.
+- Project/workspace concepts wrap run-scoped factory DTOs.
 - QA audit and QA fix remain separate.
 - Ship readiness is not deployment.
+
+## Completed parallel Wave 1 — product/API/runtime foundations
+
+A first multi-worktree parallel wave has landed.
+
+Implemented/documented:
+
+- design reconciliation and P0 acceptance criteria;
+- web cockpit P0 screen/component specs;
+- project/workspace wrapper API first slice in `lib/factory-project.ts`;
+- artifact content descriptor first slice in `lib/factory-artifact-content.ts`;
+- guarded runtime wrapper first slice in `lib/factory-guarded-runtime.ts`;
+- durable QA capture calculations in `lib/factory-qa-capture.ts`;
+- Pi distribution/package path design.
+
+Safety status after Wave 1:
+
+- `/factory-qa-fix` remains hidden.
+- Safe-command classifier and guarded runtime wrapper slices exist, but full Pi/agent command-path attestation is still not complete.
+- QA audit remains no-edit.
+- Status views remain inspect-only.
 
 ## Current recommended next chunks
 
@@ -305,7 +339,15 @@ Decision captured in `docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md`:
 - require artifact-store/runtime provenance for trusted display or retrieval;
 - let future web/project wrappers render artifact views from descriptors, not path parsing.
 
-Next implementation work should wait until the descriptor API/change is explicitly approved.
+Implemented after the strategy pass:
+
+- `lib/factory-artifact-content.ts` additive descriptor DTO/helpers;
+- `test/factory-artifact-content.test.ts` coverage for text, binary, external URI, bundle descriptors, safe URI validation, and untrusted event metadata.
+
+Remaining implementation work:
+
+- wire descriptors into facade/project wrapper reads where needed;
+- add binary storage/download only after a concrete consumer is approved.
 
 ### Completed strategy chunk — safe command guard design
 
@@ -324,28 +366,79 @@ Implemented after the design pass:
 - `lib/factory-command-guard.ts` pure deny-first classifier;
 - `test/factory-command-guard.test.ts` coverage for destructive shell/git, unsafe git read flags, bulk `git add`, publish/deploy, secret/env dumping including secret globs and git `rev:path` secret reads, opaque shell syntax, workspace path boundaries, backslash path fail-closed behavior, quoted ripgrep patterns, direct safe project checks, formatter/linter write default-deny behavior, package-script default-deny behavior, and default-deny behavior.
 
+Implemented after the design pass:
+
+- `lib/factory-guarded-runtime.ts` guarded runtime wrapper first slice;
+- `test/factory-guarded-runtime.test.ts` proves denied commands are not executed, classifier failures fail closed, allowed commands execute, and `safe-command-guard` is advertised only when wrapper is active.
+
 Remaining implementation work:
 
-- add guarded command execution to the runtime/host adapter;
-- advertise `safe-command-guard` only when all command/file-write pathways are wrapped;
+- wire guarded runtime into real Pi/agent execution paths;
+- ensure all command/file-write pathways are wrapped before advertising guard capability for live `qa-fix`;
 - add denial audit artifacts/events;
 - only then expose `/factory-qa-fix`.
 
-### Next Chunk 1 — project/web wrapper API design
+### Completed implementation/design chunk — project/workspace wrapper API
 
-Goal: design project/workspace DTOs around the run-scoped facade when web implementation is approved.
+Implemented/documented:
 
-Do this only after designer feedback and stack/location approval.
+- `docs/designs/PI_FACTORY_PROJECT_WORKSPACE_API.md`;
+- `lib/factory-project.ts` read-only project/workspace projection layer;
+- `test/factory-project.test.ts` coverage for dashboard summaries, decision-first resume priority, 3-bay progress, safe-local-fix safety summaries, and ship-readiness handoff state.
 
-### Next Chunk 2 — Pi distribution/package path
+Remaining implementation work:
 
-Goal: design how gstack's Pi extension and generated skills are packaged for non-dev users.
+- connect project wrapper to a durable project/workspace catalog;
+- integrate artifact content descriptors into project artifact views;
+- use wrapper DTOs as the future web/API contract.
 
-Open questions:
+### Completed implementation/design chunk — durable QA capture
 
-- Should generated `.pi/skills/` be built during package installation?
-- How should extension and generated skills be versioned together?
-- What migration/upgrade path should existing Pi installs use?
+Implemented:
+
+- `lib/factory-qa-capture.ts` pure parser/correlation/artifact calculations;
+- `test/factory-qa-capture.test.ts` coverage for malformed lines, correlation, ambiguity, post-dispatch matching, and browser evidence artifact rendering;
+- Pi extension manual QA completion now uses the QA dispatch extractor;
+- Pi extension tests install a hermetic project browse runtime for QA command coverage.
+
+Remaining implementation work:
+
+- generated QA skills need to write the durable machine-readable QA log;
+- add explicit `/factory-recover-qa` only after the durable QA log contract is emitted by the skill;
+- keep audit/no-fix and fix workflows separate.
+
+### Completed strategy chunk — Pi distribution/package path
+
+Decision captured in `docs/designs/PI_FACTORY_DISTRIBUTION_PACKAGE_PATH.md`.
+
+Remaining implementation work:
+
+- build a versioned Pi runtime bundle containing generated `.pi/skills`, runtime sidecars, and extension together;
+- keep source-checkout developer mode separate from packaged user mode;
+- define upgrade/migration UX before public distribution.
+
+### Next Chunk 1 — connected web/API alpha prep
+
+Goal: prepare for a connected Universe AI cockpit without yet adding dependencies or scaffolding a production web app.
+
+Recommended next steps:
+
+- define the durable project/workspace catalog format;
+- wire artifact descriptors into project artifact view DTOs;
+- produce fixture-backed screen data matching `PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`;
+- decide whether to build a no-dependency static prototype or approve a real web stack/location.
+
+### Next Chunk 2 — live guard/QA integration
+
+Goal: complete the execution-path work required before write-capable QA can be exposed.
+
+Recommended next steps:
+
+- wrap real Pi/agent command execution with the guarded runtime;
+- attest `safe-command-guard` only when all relevant paths are wrapped;
+- add denied-command audit artifacts/events;
+- make generated QA skill emit durable QA logs;
+- add `/factory-recover-qa` only after durable logs exist.
 
 ## Quick orientation for future agents
 
