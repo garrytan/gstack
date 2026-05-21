@@ -78,6 +78,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
+# ─── Learnings ────────────────────────────────────────────────────────
+# learnings_preamble_limit: 3  # How many learnings to load in preamble (every skill start)
+# learnings_skill_limit: 10    # How many learnings to load inside skill workflows
+#                              # Higher = more context for the model, more token cost.
+#                              # Recommended: 3-10 for preamble, 10-30 for skill.
+#
 # ─── Workspace-aware ship ────────────────────────────────────────────
 # workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
 #                           # Conductor worktrees when picking a VERSION slot.
@@ -105,6 +111,8 @@ lookup_default() {
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
+    learnings_preamble_limit) echo "3" ;;
+    learnings_skill_limit) echo "10" ;;
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
     *) echo "" ;;
@@ -171,6 +179,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
                gstack_contributor skip_eng_review workspace_root \
+               learnings_preamble_limit learnings_skill_limit \
                artifacts_sync_mode artifacts_sync_mode_prompted; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
@@ -187,6 +196,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push codex_reviews \
                gstack_contributor skip_eng_review workspace_root \
+               learnings_preamble_limit learnings_skill_limit \
                artifacts_sync_mode artifacts_sync_mode_prompted; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
