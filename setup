@@ -256,7 +256,13 @@ ensure_playwright_browser() {
   else
     (
       cd "$SOURCE_GSTACK_DIR"
-      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      if [ -n "$GSTACK_CHROMIUM_PATH" ]; then
+        # GSTACK_CHROMIUM_PATH set: verify that custom Chromium instead (e.g. a
+        # NixOS system binary, where Playwright's bundled Chromium can't run).
+        bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch({ executablePath: process.env.GSTACK_CHROMIUM_PATH, args: ["--no-sandbox"] }); await browser.close();'
+      else
+        bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      fi
     ) >/dev/null 2>&1
   fi
 }
