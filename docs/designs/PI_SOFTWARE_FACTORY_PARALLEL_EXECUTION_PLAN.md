@@ -91,7 +91,16 @@ docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md
 docs/designs/PI_FACTORY_SAFE_COMMAND_GUARD_DESIGN.md
 ```
 
-If the user provides an updated design brief, the design lane must reconcile it first and produce a P0 acceptance contract before web implementation begins.
+Current external design source:
+
+```text
+docs/designs/external/universe-ai-wireframes-round-1/software-factory/README.md
+docs/designs/external/universe-ai-wireframes-round-1/software-factory/project/Universe AI - Wireframes round 1.html
+```
+
+The product framing from the design source is **Universe AI Software Factory**: a common-user-friendly platform where "you can build anything in the universe with Universe AI." Design/product lanes must use this naming unless the user later changes it.
+
+If the user provides another updated design brief, the design lane must reconcile it first and produce a P0 acceptance contract before web implementation begins.
 
 ## Worktree setup
 
@@ -249,7 +258,7 @@ Read:
 - docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_P0_PROTOTYPE_PACKAGE.md
 - docs/designs/PI_SOFTWARE_FACTORY_ROADMAP.md
 - docs/designs/PI_FACTORY_ARTIFACT_CONTENT_STRATEGY.md
-- user-provided design brief
+- current external design source under `docs/designs/external/universe-ai-wireframes-round-1/`
 
 Deliver:
 1. docs/designs/PI_SOFTWARE_FACTORY_DESIGN_BRIEF_RECONCILIATION.md
