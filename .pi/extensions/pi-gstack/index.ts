@@ -32,6 +32,7 @@ import {
   type PendingReviewDispatch,
 } from '../../../lib/factory-review-capture';
 import { reduceFactoryEvents, type ArtifactRef, type CapabilityName, type FactoryRunState } from '../../../lib/factory-core';
+import { withSafeCommandGuardCapability } from '../../../lib/factory-guarded-runtime';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(EXTENSION_DIR, '..', '..', '..');
@@ -774,12 +775,19 @@ function factoryQaSkillRequest(goal: string, runId: string, options: { readonly 
   ].join('\n');
 }
 
-function createPiReviewDispatchRuntime(pi: any, ctx: any, projectRoot: string, artifactStore: FileFactoryArtifactStore) {
+function createPiReviewDispatchRuntime(
+  pi: any,
+  ctx: any,
+  projectRoot: string,
+  artifactStore: FileFactoryArtifactStore,
+  options: { safeCommandGuardActive?: boolean } = {},
+) {
   const capabilities: CapabilityName[] = isGitRepository(projectRoot)
     ? ['agent-session', 'artifact-store', 'filesystem', 'git', 'test-runner']
     : ['agent-session', 'artifact-store'];
   if (findBrowseBinary(projectRoot)) capabilities.push('browser');
-  const availableCapabilities: CapabilityName[] = ctx?.hasUI === true ? [...capabilities, 'questions'] : capabilities;
+  const baseCapabilities: CapabilityName[] = ctx?.hasUI === true ? [...capabilities, 'questions'] : capabilities;
+  const availableCapabilities = withSafeCommandGuardCapability(baseCapabilities, options.safeCommandGuardActive === true);
   return {
     availableCapabilities,
     executePhase({ phase, request, plan }: any) {
