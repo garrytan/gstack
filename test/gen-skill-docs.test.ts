@@ -1085,6 +1085,22 @@ describe('Retro plan completion section', () => {
     expect(retroSkill).toContain('plan_items_total');
     expect(retroSkill).toContain('Plan Completion This Period');
   });
+
+  test('retro SKILL.md warns on stale base or empty windows', () => {
+    expect(retroSkill).toContain('### Date/window pre-flight');
+    expect(retroSkill).toContain('RETRO_SYSTEM_DATE');
+    expect(retroSkill).toContain('RETRO_WINDOW_DAYS');
+    expect(retroSkill).toContain('ORIGIN_DEFAULT_LATEST');
+    expect(retroSkill).toContain('RETRO_WINDOW_COMMIT_COUNT');
+    expect(retroSkill).toContain('TODAY-ANCHOR WARNING');
+    expect(retroSkill).toContain('STALE-BASE WARNING');
+    expect(retroSkill).toContain('EMPTY-WINDOW WARNING');
+    expect(retroSkill).toContain('$_ORIGIN_GAP_DAYS" -gt "$_RETRO_WINDOW_DAYS');
+    expect(retroSkill).toContain('#1624 9-day-gap/7d reproducer');
+    expect(retroSkill).toContain('For `/retro compare`, run it against the current window');
+    expect(retroSkill).toContain('For `/retro global`, run it once per discovered repo');
+    expect(retroSkill).toContain('git rev-list --count origin/<default> --since="<window>"');
+  });
 });
 
 // --- Plan status footer in preamble ---

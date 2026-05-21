@@ -888,11 +888,17 @@ Check for non-git context that should be included in the retro:
 
 If `RETRO_CONTEXT_FOUND`: read `~/.gstack/retro-context.md`. This file is user-authored and may contain meeting notes, calendar events, decisions, and other context that doesn't appear in git history. Incorporate this context into the retro narrative where relevant.
 
-### Step 0.5: Stale-base + bad-today-anchor pre-flight guard
+### Date/window pre-flight
 
 The retro skill computes a window from "today" and queries `git log --since=<window> origin/<default>`. If "today" drifts (model session-context error) or the local worktree's `origin/<default>` is materially behind the actual remote, the window can return zero or near-zero commits and the retro will fabricate a coherent-looking narrative from nothing. This guard prevents silent confidently-wrong output.
 
-Run the pre-flight in this exact order. The first branch that matches wins:
+Run this dedicated pre-flight after resolving the requested window and before the main data-gathering commands. For `/retro compare`, run it against the current window before computing the prior window. For `/retro global`, run it once per discovered repo after detecting that repo's default branch and before collecting its git-log data.
+
+Resolve:
+- `<window>` to the exact `--since` value used for the current window, such as `2026-05-13T00:00:00`.
+- `<window_days>` to the numeric current-window length in days. Use `7` for the default window, `N` for `Nd`, `N * 7` for `Nw`, and `ceil(N / 24)` with a minimum of `1` for `Nh`.
+
+Run the pre-flight in this exact order. The first skip branch that matches proceeds with a disclosure; otherwise the freshness metrics must be printed:
 
 ```bash
 # Pre-check A: no remote configured?
@@ -919,31 +925,38 @@ if [ -z "$_RETRO_GUARD_VERDICT" ]; then
   fi
 fi
 
-# Pre-check D: BLOCK only when fetch succeeded AND the latest origin/<default>
-# commit predates the retro window. Today's date should be loaded from the
-# user-visible "## currentDate" tag in the session reminder; if the gap between
-# origin/<default>'s newest commit and today exceeds the window, the model's
-# "today" is almost certainly stale (or the worktree is wildly behind).
+# Pre-check D: print date/window freshness metrics when base freshness is known.
 if [ -z "$_RETRO_GUARD_VERDICT" ]; then
-  _RETRO_LATEST_ISO=$(git log -1 --format=%ci origin/<default> 2>/dev/null | awk '{print $1}')
-  if [ -n "$_RETRO_LATEST_ISO" ]; then
-    # The model computes today from the session reminder (NEVER from `date` —
-    # the system clock can be hours off in containerized harnesses).
-    # Compute window in DAYS (default 7): if today - latest-commit-date > window-days,
-    # BLOCK. If the model cannot reliably compute "today", it MUST stop here and
-    # ask the user via AskUserQuestion rather than proceeding.
-    echo "RETRO_GUARD: latest origin/<default> commit on $_RETRO_LATEST_ISO"
-    _RETRO_GUARD_VERDICT="check-gap"
+  _RETRO_SYSTEM_DATE=$(date +%Y-%m-%d)
+  _RETRO_WINDOW_DAYS="<window_days>"
+  case "$_RETRO_WINDOW_DAYS" in ''|*[!0-9]*) _RETRO_WINDOW_DAYS=7 ;; esac
+  if [ "$_RETRO_WINDOW_DAYS" -lt 1 ]; then _RETRO_WINDOW_DAYS=1; fi
+  _ORIGIN_LATEST_UNIX=$(git log origin/<default> -1 --format="%at" 2>/dev/null || echo 0)
+  _ORIGIN_LATEST_DATE=$(git log origin/<default> -1 --format="%ad" --date=short 2>/dev/null || echo unknown)
+  case "$_ORIGIN_LATEST_UNIX" in ''|*[!0-9]*) _ORIGIN_LATEST_UNIX=0 ;; esac
+  if [ "$_ORIGIN_LATEST_UNIX" -gt 0 ]; then
+    _ORIGIN_GAP_DAYS=$(( ($(date +%s) - _ORIGIN_LATEST_UNIX) / 86400 ))
+  else
+    _ORIGIN_GAP_DAYS=9999
+  fi
+  _WINDOW_COMMITS=$(git rev-list --count origin/<default> --since="<window>" 2>/dev/null || echo 0)
+  case "$_WINDOW_COMMITS" in ''|*[!0-9]*) _WINDOW_COMMITS=0 ;; esac
+  echo "RETRO_SYSTEM_DATE: $_RETRO_SYSTEM_DATE"
+  echo "RETRO_WINDOW_DAYS: $_RETRO_WINDOW_DAYS"
+  echo "ORIGIN_DEFAULT_LATEST: $_ORIGIN_LATEST_DATE (${_ORIGIN_GAP_DAYS}d before system date)"
+  echo "RETRO_WINDOW_COMMIT_COUNT: $_WINDOW_COMMITS"
+  if [ "$_ORIGIN_GAP_DAYS" -gt "$_RETRO_WINDOW_DAYS" ]; then
+    echo "STALE-BASE WARNING: latest origin/<default> commit is ${_ORIGIN_GAP_DAYS} days before the system date, which is older than the ${_RETRO_WINDOW_DAYS}d retro window. Confirm the 'today' anchor and whether origin/<default> is current before writing the retro."
+  fi
+  if [ "$_WINDOW_COMMITS" -eq 0 ]; then
+    echo "EMPTY-WINDOW WARNING: origin/<default> has zero commits in the requested retro window. Treat this as a possible wrong today/window anchor, not proof that no work happened."
   fi
 fi
 ```
 
-After running the bash block, the model evaluates `RETRO_GUARD: latest origin/<default> commit on <DATE>` against today and the window:
-
-- If the **latest-commit date is older than (today − window-days)**, BLOCK with: "Retro window is stale. Latest commit on `origin/<default>` was `<DATE>`, but the window covers `<since>` to `<today>`. This usually means either (a) today's date is wrong in this session or (b) `origin/<default>` is materially behind the remote. Confirm today's date via the session reminder; if today is correct, run `git fetch origin <default>` manually and re-run /retro." Stop the skill until the user resolves.
-- Otherwise, write: "RETRO_GUARD: latest commit `<DATE>` within window — proceeding."
-
 Skip paths (`skip-no-remote`, `skip-detached`, `warn-fetch-failed`) all proceed to Step 1 with the cited reason on a single stderr line so the retro narrative carries the disclosure ("offline run, window not freshness-verified") rather than silently misreporting.
+
+If the date you used to compute a day/week window does not match `RETRO_SYSTEM_DATE`, print `TODAY-ANCHOR WARNING`, recompute the window from `RETRO_SYSTEM_DATE`, and rerun the pre-flight. If `STALE-BASE WARNING` or `EMPTY-WINDOW WARNING` appears, call it out before any normal retro narrative. Do not produce a clean-looking "nothing happened" retro without explaining the suspect system date/window/base-branch evidence. This window-aware threshold intentionally catches the #1624 9-day-gap/7d reproducer: if the latest default-branch commit is 9 days before the system date and the current retro window is 7 days, the pre-flight must print `STALE-BASE WARNING`.
 
 ### Step 1: Gather Raw Data
 
