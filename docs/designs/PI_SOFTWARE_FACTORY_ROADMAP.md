@@ -291,6 +291,7 @@ Current web/product planning artifacts:
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_PARALLEL_EXECUTION_PLAN.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`
 
 Current web defaults:
 
@@ -317,6 +318,12 @@ Implemented/documented:
 - guarded runtime wrapper first slice in `lib/factory-guarded-runtime.ts`;
 - durable QA capture calculations in `lib/factory-qa-capture.ts`;
 - Pi distribution/package path design.
+
+Readiness status after Wave 1 is captured in `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`:
+
+- internal Pi/CLI factory core: ~70–75%;
+- common-user web cockpit/platform: ~45–50%;
+- weighted overall production readiness: ~48–52%.
 
 Safety status after Wave 1:
 
@@ -416,6 +423,18 @@ Remaining implementation work:
 - build a versioned Pi runtime bundle containing generated `.pi/skills`, runtime sidecars, and extension together;
 - keep source-checkout developer mode separate from packaged user mode;
 - define upgrade/migration UX before public distribution.
+
+### Completed strategy chunk — production readiness map
+
+Decision captured in `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`.
+
+Current production readiness estimate after Wave 1:
+
+- internal Pi/CLI factory core: ~70–75%;
+- common-user web cockpit/platform: ~45–50%;
+- weighted overall production readiness: ~48–52%.
+
+The map defines Alpha 0/1/2 and Beta 0/1/2 gates. It explicitly says the branch is not production-ready until a real UI/package surface, durable project state, artifact descriptor integration, generated QA logs, live safe-command path attestation, distribution testing, production-like smoke checks, and security review exist.
 
 ### Next Chunk 1 — connected web/API alpha prep
 
