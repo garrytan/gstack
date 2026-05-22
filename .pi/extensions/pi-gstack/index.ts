@@ -40,6 +40,12 @@ import {
 } from '../../../lib/factory-qa-capture';
 import { reduceFactoryEvents, type ArtifactRef, type CapabilityName } from '../../../lib/factory-core';
 import { withSafeCommandGuardCapability } from '../../../lib/factory-guarded-runtime';
+import {
+  createGuardedAgentSession,
+  verifyHostGuardAttestation,
+  type FactoryGuardedAgentSessionResult,
+  type FactoryGuardedAgentSessionSpec,
+} from '../../../lib/factory-host-attestation';
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(EXTENSION_DIR, '..', '..', '..');
@@ -950,6 +956,106 @@ function factoryQaSkillRequest(goal: string, runId: string, options: { readonly 
   ].join('\n');
 }
 
+type PiGuardedHostSessionFactory = (spec: FactoryGuardedAgentSessionSpec) => FactoryGuardedAgentSessionResult;
+
+interface PiGuardedHostProbeObservation {
+  readonly supported: boolean;
+  readonly safeCommandGuardActive: boolean;
+  readonly reason: string;
+  readonly browserRequested: boolean;
+}
+
+function probePiGuardedHostCapability(
+  pi: any,
+  projectRoot: string,
+  options: { readonly browserRequested: boolean },
+): boolean {
+  const createSession = resolvePiGuardedHostSessionFactory(pi);
+  const spec = buildGuardedHostProbeSpec(projectRoot, options.browserRequested);
+  let observation: PiGuardedHostProbeObservation;
+
+  try {
+    const result = createSession(spec);
+    if (!result.supported) {
+      observation = { supported: false, safeCommandGuardActive: false, reason: result.reason, browserRequested: options.browserRequested };
+      recordPiGuardedHostProbe(pi, observation);
+      return false;
+    }
+
+    const verification = verifyHostGuardAttestation(result.attestation, {
+      expectedFactoryRunId: spec.factoryRunId,
+      expectedPhaseId: spec.phaseId,
+      expectedWorkspaceRoot: spec.workspaceRoot,
+      requireBrowser: spec.browserRequested === true,
+    });
+    void result.close().catch(() => undefined);
+
+    observation = {
+      supported: true,
+      safeCommandGuardActive: verification.ok,
+      reason: verification.ok ? 'attested' : verification.reason,
+      browserRequested: options.browserRequested,
+    };
+    recordPiGuardedHostProbe(pi, observation);
+    return verification.ok;
+  } catch (error) {
+    observation = {
+      supported: false,
+      safeCommandGuardActive: false,
+      reason: `error:${(error as Error).message}`,
+      browserRequested: options.browserRequested,
+    };
+    recordPiGuardedHostProbe(pi, observation);
+    return false;
+  }
+}
+
+function resolvePiGuardedHostSessionFactory(pi: any): PiGuardedHostSessionFactory {
+  return pi?.__testFactoryGuardedHost?.createGuardedAgentSession ?? createGuardedAgentSession;
+}
+
+function buildGuardedHostProbeSpec(projectRoot: string, browserRequested: boolean): FactoryGuardedAgentSessionSpec {
+  const denyUnsupported = () => {
+    throw new Error('guarded-host capability probe hooks are not executable');
+  };
+  return {
+    factoryRunId: 'capability-probe',
+    phaseId: 'qa-execution',
+    workspaceRoot: projectRoot,
+    profile: 'non-destructive-write',
+    browserRequested,
+    browserPolicy: browserRequested ? {
+      outputDirRelativeToRun: 'browse-output',
+      allowlistedSubcommands: ['goto', 'snapshot', 'screenshot', 'console', 'wait', 'text', 'title', 'url', 'dialog', 'responsive'],
+    } : undefined,
+    hooks: {
+      executeCommand: denyUnsupported,
+      applyEdit: denyUnsupported,
+      applyWrite: denyUnsupported,
+      read: denyUnsupported,
+      glob: denyUnsupported,
+      grep: denyUnsupported,
+      onUnsupportedTool: denyUnsupported,
+    },
+  };
+}
+
+function recordPiGuardedHostProbe(pi: any, observation: PiGuardedHostProbeObservation): void {
+  try {
+    pi?.__testFactoryGuardedHostProbe?.(observation);
+  } catch {
+    // Test-only probe observation must never affect runtime capability posture.
+  }
+}
+
+function recordPiRuntimeCapabilities(pi: any, availableCapabilities: readonly CapabilityName[]): void {
+  try {
+    pi?.__testFactoryRuntimeCapabilities?.([...availableCapabilities]);
+  } catch {
+    // Test-only capability observation must never affect runtime capability posture.
+  }
+}
+
 function createPiReviewDispatchRuntime(
   pi: any,
   ctx: any,
@@ -962,7 +1068,10 @@ function createPiReviewDispatchRuntime(
     : ['agent-session', 'artifact-store'];
   if (findBrowseBinary(projectRoot)) capabilities.push('browser');
   const baseCapabilities: CapabilityName[] = ctx?.hasUI === true ? [...capabilities, 'questions'] : capabilities;
-  const availableCapabilities = withSafeCommandGuardCapability(baseCapabilities, options.safeCommandGuardActive === true);
+  const safeCommandGuardActive = options.safeCommandGuardActive === true
+    || probePiGuardedHostCapability(pi, projectRoot, { browserRequested: capabilities.includes('browser') });
+  const availableCapabilities = withSafeCommandGuardCapability(baseCapabilities, safeCommandGuardActive);
+  recordPiRuntimeCapabilities(pi, availableCapabilities);
   return {
     availableCapabilities,
     executePhase({ phase, request, plan }: any) {

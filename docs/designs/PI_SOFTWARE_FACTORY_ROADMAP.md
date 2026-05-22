@@ -599,18 +599,24 @@ Current behavior:
 - the default Pi adapter still does not advertise `safe-command-guard`;
 - no real host integration is claimed.
 
-### Next Chunk 1 — Pi adapter guarded-host negative wiring
+### Completed implementation chunk — Pi adapter guarded-host negative wiring
 
 Goal: connect the Pi adapter to the guarded-host shim without public QA-fix exposure.
 
-Recommended next steps:
+Implemented:
 
-- call the default unsupported guarded-host shim from the Pi factory runtime path;
-- add an internal test-only fake host hook for adapter tests only;
-- assert `safe-command-guard` is absent by default and `/factory-qa-fix` remains unregistered in default, fake, mismatch, expired, and unsupported cases;
-- do not expose `/factory-qa-fix`.
+- `.pi/extensions/pi-gstack/index.ts` now probes the default unsupported guarded-host shim from the Pi factory runtime capability path;
+- internal test-only guarded-host injection and probe-observation hooks let adapter tests exercise valid, mismatched, expired, and unsupported attestation postures without env/package changes;
+- `test/pi-extension.test.ts` asserts `safe-command-guard` is absent by default and `/factory-qa-fix` remains unregistered under default, fake-valid, digest-mismatch, expired, and unsupported host cases.
 
-### Next Chunk 2 — production web stack decision
+Current behavior:
+
+- `/factory-qa-fix` remains hidden;
+- default Pi runtime capability probing returns unsupported/no-host and does not advertise `safe-command-guard`;
+- fake guarded-host support is test-only and does not alter public command registration;
+- no real host integration is claimed.
+
+### Next Chunk 1 — production web stack decision
 
 Goal: decide whether to move beyond the static prototype.
 

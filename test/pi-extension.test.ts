@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import piGstack from '../.pi/extensions/pi-gstack/index';
 import { compileRunPlan, type WorkflowSpec } from '../lib/factory-core';
+import { createTestOnlyGuardedHostShim, type FactoryGuardedAgentSessionResult, type FactoryGuardedAgentSessionSpec } from '../lib/factory-host-attestation';
 import { FileFactoryEventStore } from '../lib/factory-event-store';
 import { FACTORY_REVIEW_WORKFLOW, FACTORY_WORKFLOWS } from '../lib/factory-review-workflow';
 import { factoryRunsRoot } from '../lib/pi-runtime-adapter';
@@ -26,8 +27,15 @@ const GATED_WORKFLOW: WorkflowSpec = {
 
 type CommandDefinition = { handler: (args: string, ctx: any) => Promise<void> };
 type Notification = { message: string; level: string };
+type GuardProbeObservation = { supported: boolean; safeCommandGuardActive: boolean; reason: string; browserRequested: boolean };
 
-function registerPiGstack() {
+type RegisterPiGstackOptions = {
+  readonly guardedHost?: { readonly createGuardedAgentSession: (spec: FactoryGuardedAgentSessionSpec) => FactoryGuardedAgentSessionResult };
+  readonly onGuardProbe?: (observation: GuardProbeObservation) => void;
+  readonly onRuntimeCapabilities?: (capabilities: readonly string[]) => void;
+};
+
+function registerPiGstack(options: RegisterPiGstackOptions = {}) {
   const sent: Array<{ message: string; options?: unknown }> = [];
   const notifications: Notification[] = [];
   const commands = new Map<string, CommandDefinition>();
@@ -47,6 +55,9 @@ function registerPiGstack() {
     sendUserMessage(message: string, options?: unknown) {
       sent.push({ message, options });
     },
+    __testFactoryGuardedHost: options.guardedHost,
+    __testFactoryGuardedHostProbe: options.onGuardProbe,
+    __testFactoryRuntimeCapabilities: options.onRuntimeCapabilities,
   });
 
   return { sent, notifications, commands, events, tools };
@@ -208,6 +219,39 @@ function qaEntryAfterDispatch(metadata: Record<string, unknown>, overrides: Reco
 
 function qaRunIdFromLastNotification(notifications: readonly Notification[]): string {
   return notifications.at(-1)!.message.match(/Factory QA audit running: ([^ ]+)/)![1];
+}
+
+async function runFactoryReviewForGuardProbe(options: RegisterPiGstackOptions = {}): Promise<{
+  readonly commands: Map<string, CommandDefinition>;
+  readonly observations: GuardProbeObservation[];
+  readonly runtimeCapabilities: readonly string[][];
+}> {
+  const tempDir = mkdtempSync(path.join(tmpdir(), 'gstack-factory-guard-probe-'));
+  const observations: GuardProbeObservation[] = [];
+  const runtimeCapabilities: string[][] = [];
+  try {
+    initCommittedRepo(tempDir);
+    const { commands, notifications } = registerPiGstack({
+      ...options,
+      onGuardProbe(observation) {
+        observations.push(observation);
+        options.onGuardProbe?.(observation);
+      },
+      onRuntimeCapabilities(capabilities) {
+        runtimeCapabilities.push([...capabilities]);
+        options.onRuntimeCapabilities?.(capabilities);
+      },
+    });
+    await commands.get('factory-review')!.handler('review guard probe', {
+      cwd: tempDir,
+      isIdle: () => false,
+      ui: notifyInto(notifications),
+    });
+    expect(notifications.at(-1)?.message).toMatch(/^Factory review running: review-review-guard-probe-/);
+    return { commands, observations, runtimeCapabilities };
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 describe('Pi gstack extension wiring', () => {
@@ -488,6 +532,56 @@ describe('Pi gstack extension wiring', () => {
   test('does not expose write-capable structured factory QA fix without a safe command guard', async () => {
     const { commands } = registerPiGstack();
     expect(commands.has('factory-qa-fix')).toBe(false);
+  });
+
+  test('default guarded-host shim stays unsupported and safe-command-guard is absent', async () => {
+    const { commands, observations, runtimeCapabilities } = await runFactoryReviewForGuardProbe();
+
+    expect(commands.has('factory-qa-fix')).toBe(false);
+    expect(runtimeCapabilities.at(-1)).not.toContain('safe-command-guard');
+    expect(observations.at(-1)).toMatchObject({
+      supported: false,
+      safeCommandGuardActive: false,
+      reason: 'no-host',
+      browserRequested: true,
+    });
+  });
+
+  test('test-only guarded host can attest safe-command-guard without registering factory-qa-fix', async () => {
+    const guardedHost = createTestOnlyGuardedHostShim({ hostId: 'pi-extension-test-host' });
+    const { commands, observations, runtimeCapabilities } = await runFactoryReviewForGuardProbe({ guardedHost });
+
+    expect(commands.has('factory-qa-fix')).toBe(false);
+    expect(runtimeCapabilities.at(-1)).toContain('safe-command-guard');
+    expect(observations.at(-1)).toMatchObject({
+      supported: true,
+      safeCommandGuardActive: true,
+      reason: 'attested',
+      browserRequested: true,
+    });
+  });
+
+  test('guarded-host digest mismatch, expired attestation, and unsupported host do not expose qa-fix', async () => {
+    const expiredHost = createTestOnlyGuardedHostShim({ now: () => new Date('2000-01-01T00:00:00.000Z') });
+    const tamperedHost = createTestOnlyGuardedHostShim({ tamperDigest: true });
+    const unsupportedHost = {
+      createGuardedAgentSession: () => ({ supported: false as const, reason: 'no-host' as const }),
+    };
+
+    for (const [guardedHost, expectedReason] of [
+      [tamperedHost, 'digest-mismatch'],
+      [expiredHost, 'attestation-expired'],
+      [unsupportedHost, 'no-host'],
+    ] as const) {
+      const { commands, observations, runtimeCapabilities } = await runFactoryReviewForGuardProbe({ guardedHost });
+      expect(commands.has('factory-qa-fix')).toBe(false);
+      expect(runtimeCapabilities.at(-1)).not.toContain('safe-command-guard');
+      expect(observations.at(-1)).toMatchObject({
+        safeCommandGuardActive: false,
+        reason: expectedReason,
+        browserRequested: true,
+      });
+    }
   });
 
   test('auto-captures a pending factory review from a durable review log on agent_end', async () => {
