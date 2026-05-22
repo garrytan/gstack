@@ -566,28 +566,51 @@ Current handoff is captured in `docs/designs/PI_SOFTWARE_FACTORY_NEXT_CONTEXT_HA
 
 It includes current branch/status, protected local noise, latest commits, validation commands/results, recommended next bucket, suggested fresh worktrees, and stop conditions.
 
-### Next Chunk 1 — smoke runner surfacing and CI integration
+### Completed implementation chunk — smoke runner surfacing and CI integration plan
 
 Goal: make the production-readiness smoke runner easy to invoke without changing package manifests prematurely.
 
-Recommended next steps:
+Implemented/documented:
 
-- add a tiny CLI wrapper or documented command for `runFactoryProductionSmoke()`;
-- consider a package script only after package-manifest changes are approved;
-- keep S11 web `/health` deferred until a real web app exists.
+- `bin/gstack-factory-smoke` — direct no-dependency CLI wrapper around `runFactoryProductionSmoke()`;
+- `test/factory-production-smoke-cli.test.ts` — coverage for human output, JSON output, caller-provided workdirs, help, and fail-fast argument validation;
+- `docs/designs/PI_FACTORY_SMOKE_CI_INTEGRATION_PLAN.md` — documentation-only plan for future local/CI integration without package script or workflow edits.
 
-### Next Chunk 2 — factory-side host guard primitives
+Current behavior:
+
+- direct `bin/` invocation works without package manifest edits;
+- S11 web `/health` remains `deferred`, not green;
+- the command exits nonzero only when a required non-deferred check fails.
+
+### Completed implementation chunk — factory-side host guard primitives
 
 Goal: prepare for a future guarded host without exposing `/factory-qa-fix`.
 
+Implemented:
+
+- `lib/factory-file-write-guard.ts` — pure file-write classifier for host-routed Write/Edit operations under `non-destructive-write`;
+- `test/factory-file-write-guard.test.ts` — coverage for workspace escapes, protected files/directories, secret-looking paths, hidden bootstrap dotfiles, generated output dirs, `.gstack/factory/<runId>` scoping, edit/overwrite preconditions, and default-deny allowlist behavior;
+- `lib/factory-host-attestation.ts` — host guard attestation DTOs, stable digest helper, verification helper, sanitized artifact shape, default unsupported `createGuardedAgentSession` shim, and test-only guarded host shim;
+- `test/factory-host-attestation.test.ts` — coverage for digest stability, mismatch/missing-field rejection, freshness enforcement, browser output scoping, sanitized artifacts, unsupported default shim, and verifiable test-only shim.
+
+Current behavior:
+
+- `/factory-qa-fix` remains hidden;
+- the default Pi adapter still does not advertise `safe-command-guard`;
+- no real host integration is claimed.
+
+### Next Chunk 1 — Pi adapter guarded-host negative wiring
+
+Goal: connect the Pi adapter to the guarded-host shim without public QA-fix exposure.
+
 Recommended next steps:
 
-- implement `lib/factory-file-write-guard.ts` and tests for path/write policy;
-- implement guard attestation DTO/helpers;
-- add a test-only guarded host shim;
-- keep `safe-command-guard` absent from the default Pi adapter.
+- call the default unsupported guarded-host shim from the Pi factory runtime path;
+- add an internal test-only fake host hook for adapter tests only;
+- assert `safe-command-guard` is absent by default and `/factory-qa-fix` remains unregistered in default, fake, mismatch, expired, and unsupported cases;
+- do not expose `/factory-qa-fix`.
 
-### Next Chunk 3 — production web stack decision
+### Next Chunk 2 — production web stack decision
 
 Goal: decide whether to move beyond the static prototype.
 
