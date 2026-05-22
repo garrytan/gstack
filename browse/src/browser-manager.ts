@@ -88,7 +88,22 @@ export function shouldEnableChromiumSandbox(): boolean {
  * restarts on backoff.
  */
 export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
-  const proc = browser?.process();
+  // Null browser → 'crash' (defensive default, matches existing contract
+  // pinned by the unit test "null browser returns crash").
+  if (browser === null) return 'crash';
+
+  // Persistent contexts (headed mode) expose a Browser object via
+  // BrowserContext.browser(), but Playwright doesn't surface the underlying
+  // Chromium process through it — `browser.process` is undefined on that
+  // object. Pre-fix, `browser?.process()` evaluated to `undefined()` and
+  // threw an unhandled rejection, crashing the bun process and putting gbd
+  // into a respawn loop. Without process introspection we can't distinguish
+  // "user pressed Cmd+Q or closed all tabs" from "Chromium crashed". In
+  // headed mode the user controls the lifecycle, so the right default is
+  // 'clean': exit 0, gbd does not restart, user re-launches if they want.
+  if (typeof browser.process !== 'function') return 'clean';
+
+  const proc = browser.process();
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);

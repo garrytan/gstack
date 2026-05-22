@@ -190,6 +190,20 @@ describe('resolveDisconnectCause', () => {
     const { resolveDisconnectCause } = await import('../src/browser-manager');
     expect(await resolveDisconnectCause(null)).toBe('crash');
   });
+
+  // Regression: persistent contexts in headed mode expose a Browser stub
+  // whose `.process` is undefined (not a function). Pre-fix, calling
+  // `browser?.process()` on such a value threw an unhandled rejection
+  // ("browser?.process is not a function"), crashed the bun process, and
+  // put gbd into a respawn loop on every tab close. The contract for that
+  // case is: default to 'clean' so gbd exits 0 and the user keeps lifecycle
+  // control. Live evidence in gbrowser amsterdam-v7's browse-server.log
+  // before this fix landed.
+  it('clean: browser without .process method (persistent context)', async () => {
+    const { resolveDisconnectCause } = await import('../src/browser-manager');
+    const fake = {} as never;  // truthy, no .process → would have thrown pre-fix
+    expect(await resolveDisconnectCause(fake)).toBe('clean');
+  });
 });
 
 // ─── onDisconnect exit-code propagation (regression test) ──────────
