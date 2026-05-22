@@ -9,11 +9,11 @@ export function generateAskUserFormat(_ctx: TemplateContext): string {
 
 **Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report \`BLOCKED — AskUserQuestion unavailable\`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking).
+**If no AskUserQuestion variant appears in your tool list, use the host fallback instead of blocking.** Emit the full decision brief in normal chat, end the turn, and wait for the user's reply before continuing. Do not write decisions to the plan file as a substitute, and do not silently auto-decide (only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking). This fallback exists for Codex Default-mode sessions where \`request_user_input\` is only available in Plan mode and no MCP AskUserQuestion tool is exposed.
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+Every AskUserQuestion is a decision brief and should be sent as tool_use when a supported AskUserQuestion tool is available. When no such tool is available, emit the same decision brief as normal chat and stop for the user's reply.
 
 \`\`\`
 D<N> — <one-line question title>
@@ -77,7 +77,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] You are calling the tool when available, or using the explicit no-tool chat fallback
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \\u-escaped
 `;
 }

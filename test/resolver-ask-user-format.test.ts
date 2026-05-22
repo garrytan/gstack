@@ -99,8 +99,13 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
 
   test('documents tool_use mandate (rule 11)', () => {
     expect(out).toMatch(/tool_use/);
-    // "not a question" spans a newline in the rendered text
-    expect(out).toMatch(/not a[\s\S]*question|not[\s\S]*interactive/i);
+    expect(out).toMatch(/no-tool chat fallback|normal chat/i);
+  });
+
+  test('documents Codex fallback when AskUserQuestion is unavailable', () => {
+    expect(out).toMatch(/host fallback instead of blocking/i);
+    expect(out).toMatch(/Codex Default-mode sessions/);
+    expect(out).toMatch(/request_user_input.*Plan mode/s);
   });
 
   test('includes self-check before emitting', () => {
