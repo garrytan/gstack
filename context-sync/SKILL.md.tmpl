@@ -1,0 +1,124 @@
+---
+name: context-sync
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Sync local Claude and Codex context into a Google Drive spine using gstack.
+  Inventories PC/Mac chats and working folders, writes raw copies plus
+  redacted readable indexes, and preserves conflicts instead of overwriting.
+  Use when: "sync AI context", "context sync", "Claude Codex sync",
+  "sync my chats", "AI Context Sync Spine". (gstack)
+triggers:
+  - context sync
+  - sync AI context
+  - sync my chats
+  - Claude Codex sync
+  - AI Context Sync Spine
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /context-sync - AI Context Sync Spine
+
+You are helping the user keep local Claude and Codex context synchronized
+through a Google Drive Desktop folder. This skill wraps the
+`gstack-context-sync` command.
+
+## User-invocable
+
+When the user types `/context-sync`, run this skill. Supported modes:
+
+- `/context-sync init` - create the per-device config at
+  `~/.gstack/context-sync/config.json`.
+- `/context-sync scan --dry-run` - inventory what would copy and show risk
+  skips, sensitive-pattern findings, planned copies, and estimated size.
+- `/context-sync scan --dry-run --summary` - preferred first pass for large
+  local archives; shows counts, risk summaries, and samples.
+- `/context-sync scan --dry-run --with-hashes` - slower dry-run that also
+  computes content hashes before commit.
+- `/context-sync run --commit` - copy approved raw/readable records into the
+  configured Drive spine.
+- `/context-sync status` - show config, source, Drive, and device status.
+
+Default Drive root for the user's PC is:
+
+```text
+G:\My Drive\AI Context Sync Spine
+```
+
+Macs must use their own per-device config because Google Drive Desktop mount
+paths vary.
+
+## Safety rules
+
+- Never run `run --commit` before a successful `scan --dry-run` in the same
+  conversation unless the user explicitly says they accept the dry-run output.
+- Never write back into closed Claude, Claude Code, Codex, or app database
+  files. V1 only creates a shared archive in Google Drive.
+- Do not copy credential files, auth databases, browser profiles, caches,
+  LevelDB, SQLite, key files, or obvious token/password files unless the user
+  explicitly changes the config later.
+- Redacted readable indexes are safe to inspect. Raw copies may still contain
+  sensitive text from chats, so treat the dry-run sensitive findings as a real
+  approval gate.
+- Conflicts are not resolved by picking a winner. Keep both versions labeled
+  by device, date, source, and hash.
+
+## Step 1: Pick the command
+
+If the user only says `/context-sync`, start with status:
+
+```bash
+{{BIN_DIR}}/gstack-context-sync status
+```
+
+If no config exists, run init:
+
+```bash
+{{BIN_DIR}}/gstack-context-sync init
+```
+
+If the user asks to sync now, first run:
+
+```bash
+{{BIN_DIR}}/gstack-context-sync scan --dry-run --summary
+```
+
+Summarize in plain English:
+
+- which sources exist,
+- which sources are missing,
+- how many files are planned,
+- total estimated size,
+- sensitive-pattern families found,
+- risk-skipped files or folders.
+
+## Step 2: Commit only after approval
+
+Only after the dry-run has been shown and the user approves raw copying, run:
+
+```bash
+{{BIN_DIR}}/gstack-context-sync run --commit
+```
+
+After commit, report:
+
+- manifest path,
+- copied count,
+- deduped count,
+- conflict count,
+- where the Drive spine lives,
+- the simplest way to verify the result.
+
+## Step 3: Keep the scope honest
+
+V1 syncs PC/Mac Claude and Codex archives through Google Drive Desktop. It does
+not yet sync Hermes, Paperclip/OpenClaw, Manus, Slack, Telegram, or external
+memory-system APIs. Those belong in Phase 2 after this spine is proven.

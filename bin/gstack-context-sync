@@ -1,0 +1,5 @@
+#!/usr/bin/env bun
+import { main } from '../context-sync/src/cli';
+
+const code = await main();
+process.exit(code);

@@ -64,6 +64,7 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const CLAUDE_SKIPPED_TEMPLATE_OUTPUTS = new Set(['claude/SKILL.md']);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
@@ -73,6 +74,10 @@ for (const { tmpl, output } of TEMPLATES) {
     continue;
   }
   if (!fs.existsSync(outPath)) {
+    if (CLAUDE_SKIPPED_TEMPLATE_OUTPUTS.has(output.replace(/\\/g, '/'))) {
+      console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} \u2014 intentionally not generated for Claude host`);
+      continue;
+    }
     hasErrors = true;
     console.log(`  \u274c ${output.padEnd(30)} — generated file missing! Run: bun run gen:skill-docs`);
     continue;
