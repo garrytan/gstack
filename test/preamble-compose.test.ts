@@ -33,6 +33,12 @@ function makeCtx(
 }
 
 describe('Preamble composition order', () => {
+  test('preamble exposes computed session count for downstream rules', () => {
+    const out = generatePreamble(makeCtx('claude', 1));
+    expect(out).toContain('_SESSIONS=$(find ~/.gstack/sessions');
+    expect(out).toContain('echo "SESSIONS: $_SESSIONS"');
+  });
+
   test('AskUserQuestion Format renders before Model-Specific Behavioral Patch (tier 2, claude)', () => {
     const out = generatePreamble(makeCtx('claude', 2, 'claude'));
     const formatIdx = out.indexOf('## AskUserQuestion Format');
