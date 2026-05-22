@@ -121,6 +121,7 @@ Or target a specific agent with `./setup --host <name>`:
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
 | Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
+| GitHub Copilot CLI | `--host copilot` | `~/.copilot/skills/gstack-*/` |
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
