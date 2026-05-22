@@ -294,6 +294,7 @@ Current web/product planning artifacts:
 - `docs/designs/PI_SOFTWARE_FACTORY_PRODUCTION_READINESS_MAP.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_ALPHA_BETA_EXECUTION_PLAN.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_COCKPIT_BETA1_CONTRACT.md`
+- `docs/designs/PI_SOFTWARE_FACTORY_NEXT_CONTEXT_HANDOFF.md`
 
 Current web defaults:
 
@@ -558,6 +559,12 @@ Recommended next steps:
 - wire the Pi adapter to the shim and add a test-only fake host so §11.3 negative tests can land — `/factory-qa-fix` stays unregistered;
 - partner with a host vendor to implement the §5 contract and OS-confine the browse subprocess per §8;
 - only then reconsider `/factory-qa-fix` exposure, gated by the §11.5 end-to-end test against the real host.
+
+### Handoff for next context
+
+Current handoff is captured in `docs/designs/PI_SOFTWARE_FACTORY_NEXT_CONTEXT_HANDOFF.md`.
+
+It includes current branch/status, protected local noise, latest commits, validation commands/results, recommended next bucket, suggested fresh worktrees, and stop conditions.
 
 ### Next Chunk 1 — smoke runner surfacing and CI integration
 
