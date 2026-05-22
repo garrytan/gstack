@@ -1,0 +1,128 @@
+#!/usr/bin/env bun
+// gstack-factory-smoke — run the factory production-readiness smoke checks.
+// No package script is required; invoke directly with `bin/gstack-factory-smoke`.
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { runFactoryProductionSmoke, type FactoryProductionSmokeSummary } from '../lib/factory-production-smoke';
+
+interface CliOptions {
+  readonly format: 'human' | 'json';
+  readonly workDir?: string;
+  readonly keepWorkDir: boolean;
+  readonly help: boolean;
+}
+
+function parseArgs(argv: readonly string[]): CliOptions {
+  let format: CliOptions['format'] = 'human';
+  let workDir: string | undefined;
+  let keepWorkDir = false;
+  let help = false;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--json') {
+      format = 'json';
+      continue;
+    }
+    if (arg === '--human') {
+      format = 'human';
+      continue;
+    }
+    if (arg === '--keep-work-dir') {
+      keepWorkDir = true;
+      continue;
+    }
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+      continue;
+    }
+    if (arg === '--work-dir') {
+      const value = argv[i + 1];
+      if (!value) throw new Error('--work-dir requires an absolute path');
+      workDir = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith('--work-dir=')) {
+      workDir = arg.slice('--work-dir='.length);
+      continue;
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  return { format, workDir, keepWorkDir, help };
+}
+
+function usage(): string {
+  return [
+    'Usage: bin/gstack-factory-smoke [--json] [--work-dir <absolute-path>] [--keep-work-dir]',
+    '',
+    'Runs the factory production-readiness smoke checks without package manifest edits.',
+    'Deferred checks are shown separately and do not make the command fail.',
+    '',
+    'Options:',
+    '  --json                     Print the raw smoke summary JSON.',
+    '  --human                    Print a human-readable summary (default).',
+    '  --work-dir <absolute-path>  Use a caller-owned work directory.',
+    '  --keep-work-dir            Preserve the auto-created temp directory for inspection.',
+    '  -h, --help                 Show this help.',
+  ].join('\n');
+}
+
+function formatHuman(summary: FactoryProductionSmokeSummary, workDir: string, kept: boolean): string {
+  const lines = [
+    `Factory production-readiness smoke: ${summary.status}`,
+    `Required checks: ${summary.allRequiredPassed ? 'pass' : 'fail'}`,
+    `Counts: ${summary.passCount} pass, ${summary.failCount} fail, ${summary.deferredCount} deferred`,
+  ];
+
+  if (summary.hasDeferredGates) {
+    lines.push('Deferred gates remain open and are not counted as pass.');
+  }
+  if (kept) {
+    lines.push(`Work dir: ${workDir}`);
+  }
+
+  lines.push('', 'Checks:');
+  for (const check of summary.checks) {
+    lines.push(`- ${check.id} [${check.status}] ${check.title}: ${check.summary}`);
+    if (check.status === 'deferred' && check.deferredReason) {
+      lines.push(`  Reason: ${check.deferredReason}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+async function main(): Promise<void> {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    console.log(usage());
+    return;
+  }
+
+  const autoWorkDir = options.workDir === undefined;
+  const workDir = options.workDir ?? mkdtempSync(path.join(tmpdir(), 'gstack-factory-smoke-'));
+  const shouldCleanup = autoWorkDir && !options.keepWorkDir;
+
+  try {
+    const summary = await runFactoryProductionSmoke({ workDir });
+    if (options.format === 'json') {
+      console.log(JSON.stringify(summary, null, 2));
+    } else {
+      process.stdout.write(formatHuman(summary, workDir, !shouldCleanup));
+    }
+    process.exitCode = summary.allRequiredPassed ? 0 : 1;
+  } finally {
+    if (shouldCleanup) {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+}
+
+main().catch(error => {
+  console.error(`gstack-factory-smoke: ${(error as Error).message}`);
+  process.exitCode = 1;
+});
