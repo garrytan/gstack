@@ -2,6 +2,9 @@
 
 Status: static prototype. No production runtime. No dependencies. No external assets.
 
+Active visual skin: **Direction 04 — Soft Modern Studio** from the Claude Design
+handoff in `docs/designs/external/universe-ai-four-directions/software-factory/`.
+
 ## What this is
 
 A single-page static walk-through of the common-user cockpit. It renders every
@@ -19,7 +22,7 @@ browser — no build step, no router, no JavaScript.
 ## Files
 
 - `index.html` — every screen, in one HTML document, scrollable top-to-bottom.
-- `styles.css` — design tokens, primitives, and screen-specific layout.
+- `styles.css` — design tokens, primitives, screen-specific layout, and the current `body[data-skin="soft-modern-studio"]` skin layer.
 - `README.md` — this file.
 
 ## Coverage
@@ -39,6 +42,18 @@ One section per Beta 1 journey, plus mobile artboards and a legend:
 | Artifact detail | — | M5 |
 | Mobile artboards | — | M1 – M5 |
 | Legend & provenance | cross-screen | — |
+
+## Skin model
+
+The prototype now uses a modular skin seam: semantic markup and component
+classes stay stable, while the active visual language is selected by
+`body[data-skin="soft-modern-studio"]`. The current skin implements the soft
+modern studio direction first: cream + sage + ink, rounded white cards, quiet dot
+texture, softer borders, and status color used only for meaning.
+
+Future skins should add their own `body[data-skin="..."]` token/override blocks
+instead of rewriting screen markup. This keeps Universe AI flexible enough to fit
+multiple audiences while letting P0 ship one coherent visual system first.
 
 ## Boundary labels rendered in the prototype
 
@@ -61,4 +76,5 @@ acceptance cases M1 – M5.
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md`
 - `lib/factory-cockpit-view.ts` (view-model contracts the placeholder data mimics)
-- `docs/designs/external/universe-ai-wireframes-round-1/software-factory/` (visual language)
+- `docs/designs/external/universe-ai-wireframes-round-1/software-factory/` (wireframe language)
+- `docs/designs/external/universe-ai-four-directions/software-factory/` (Soft Modern Studio direction + future skin references)

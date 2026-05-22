@@ -1,0 +1,434 @@
+/* ============================================================
+   Universe AI — Hi-fi design tokens
+   "Build anything in the universe"
+   ============================================================ */
+
+:root {
+  /* ---------- Surfaces (warm, paper-based) ---------- */
+  --u-paper:        #FBF7F0;  /* primary canvas — warm cream */
+  --u-paper-2:      #F4EEE2;  /* secondary surface */
+  --u-paper-3:      #ECE4D2;  /* tertiary / dividers area */
+  --u-card:         #FFFFFF;  /* card surface */
+  --u-veil:         rgba(15, 22, 41, 0.55); /* scrim */
+
+  /* ---------- Ink (deep navy, not pure black) ---------- */
+  --u-ink:          #0F1629;  /* primary text */
+  --u-ink-2:        #2A3550;  /* secondary text */
+  --u-ink-3:        #6B7286;  /* tertiary text / icons */
+  --u-ink-4:        #9CA0AE;  /* placeholder */
+
+  /* ---------- Brand · Cosmic Indigo (the Universe color) ---------- */
+  --u-brand:        #4B3FBB;  /* primary brand */
+  --u-brand-2:      #6E60DC;  /* lighter, for highlights */
+  --u-brand-soft:   #E8E4FB;  /* tints / surfaces */
+  --u-brand-deep:   #2D2580;  /* hover / pressed */
+
+  /* ---------- Accent · warm Amber (activity / now / energy) ---------- */
+  --u-amber:        #F0A03C;
+  --u-amber-2:      #F8C272;
+  --u-amber-soft:   #FBE9CC;
+  --u-amber-deep:   #B96E12;
+
+  /* ---------- Sage · good / done / safe ---------- */
+  --u-sage:         #3F8568;
+  --u-sage-2:       #6DAE8F;
+  --u-sage-soft:    #DCEAE0;
+  --u-sage-deep:    #225340;
+
+  /* ---------- Terracotta · warning / decision needed ---------- */
+  --u-terra:        #C75B41;
+  --u-terra-2:      #DD8770;
+  --u-terra-soft:   #F4D8CD;
+  --u-terra-deep:   #7A2C18;
+
+  /* ---------- Universe — cosmic gradient stops ---------- */
+  --u-cosmos-1:     #4B3FBB;
+  --u-cosmos-2:     #7B47C4;
+  --u-cosmos-3:     #C4548E;
+  --u-cosmos-4:     #F0A03C;
+
+  /* ---------- Type ---------- */
+  --u-serif:        'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --u-sans:         'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --u-mono:         'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --u-display:      'Instrument Serif', Georgia, serif; /* for hero headlines */
+
+  /* ---------- Radii ---------- */
+  --u-r-xs:  4px;
+  --u-r-sm:  8px;
+  --u-r-md:  12px;
+  --u-r-lg:  18px;
+  --u-r-xl:  28px;
+  --u-r-pill: 999px;
+
+  /* ---------- Shadow (warm, low-spread) ---------- */
+  --u-shadow-1:  0 1px 0 rgba(15,22,41,0.04), 0 1px 2px rgba(15,22,41,0.06);
+  --u-shadow-2:  0 2px 4px rgba(15,22,41,0.05), 0 6px 16px rgba(15,22,41,0.08);
+  --u-shadow-3:  0 8px 24px rgba(15,22,41,0.10), 0 24px 56px rgba(15,22,41,0.10);
+  --u-shadow-press: 0 0 0 1px rgba(15,22,41,0.06), 0 1px 0 rgba(255,255,255,0.6) inset;
+  --u-shadow-warm: 0 16px 40px -8px rgba(240,160,60,0.25);
+
+  /* ---------- Borders ---------- */
+  --u-line:         rgba(15, 22, 41, 0.10);
+  --u-line-2:       rgba(15, 22, 41, 0.06);
+  --u-line-strong:  rgba(15, 22, 41, 0.20);
+
+  /* ---------- Motion ---------- */
+  --u-ease:         cubic-bezier(0.2, 0.7, 0.2, 1);
+  --u-ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --u-fast:         140ms;
+  --u-base:         220ms;
+  --u-slow:         420ms;
+}
+
+/* ============================================================
+   Hi-fi artboard base
+   ============================================================ */
+.uf {
+  background: var(--u-paper);
+  color: var(--u-ink);
+  font-family: var(--u-sans);
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.uf * { box-sizing: border-box; }
+.uf img { display: block; max-width: 100%; }
+
+/* ============================================================
+   Type primitives
+   ============================================================ */
+.u-display {
+  font-family: var(--u-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 0.98;
+  font-feature-settings: 'ss01' on, 'ss02' on;
+}
+.u-display em {
+  font-style: italic;
+  color: var(--u-brand);
+}
+.u-h1 { font-family: var(--u-display); font-weight: 400; font-size: 64px; line-height: 1.0; letter-spacing: -0.025em; }
+.u-h2 { font-family: var(--u-display); font-weight: 400; font-size: 44px; line-height: 1.05; letter-spacing: -0.02em; }
+.u-h3 { font-family: var(--u-sans); font-weight: 600; font-size: 22px; line-height: 1.25; letter-spacing: -0.015em; }
+.u-h4 { font-family: var(--u-sans); font-weight: 600; font-size: 16px; line-height: 1.35; letter-spacing: -0.005em; }
+.u-body { font-family: var(--u-sans); font-weight: 400; font-size: 15px; line-height: 1.55; color: var(--u-ink-2); }
+.u-body-sm { font-family: var(--u-sans); font-weight: 400; font-size: 13px; line-height: 1.5; color: var(--u-ink-2); }
+.u-eyebrow {
+  font-family: var(--u-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--u-ink-3);
+}
+.u-mono { font-family: var(--u-mono); font-size: 12px; letter-spacing: 0; color: var(--u-ink-2); }
+.u-serif-italic { font-family: var(--u-display); font-style: italic; color: var(--u-brand); }
+
+/* ============================================================
+   Layout helpers
+   ============================================================ */
+.u-row { display: flex; flex-direction: row; }
+.u-col { display: flex; flex-direction: column; }
+.u-center { align-items: center; justify-content: center; }
+.u-between { justify-content: space-between; }
+.u-around { justify-content: space-around; }
+.u-end { justify-content: flex-end; }
+.u-items-center { align-items: center; }
+.u-items-start { align-items: flex-start; }
+.u-items-end { align-items: flex-end; }
+.u-items-stretch { align-items: stretch; }
+.u-grow { flex: 1; min-width: 0; }
+.u-shrink-0 { flex-shrink: 0; }
+.u-wrap { flex-wrap: wrap; }
+
+.u-gap-1 { gap: 4px; }
+.u-gap-2 { gap: 8px; }
+.u-gap-3 { gap: 12px; }
+.u-gap-4 { gap: 16px; }
+.u-gap-5 { gap: 24px; }
+.u-gap-6 { gap: 32px; }
+.u-gap-7 { gap: 48px; }
+
+/* ============================================================
+   Button
+   ============================================================ */
+.u-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--u-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: var(--u-r-pill);
+  border: 1px solid transparent;
+  background: var(--u-card);
+  color: var(--u-ink);
+  cursor: pointer;
+  transition: all var(--u-fast) var(--u-ease);
+  white-space: nowrap;
+  box-shadow: var(--u-shadow-press);
+}
+.u-btn:hover { transform: translateY(-0.5px); }
+.u-btn.lg { height: 52px; padding: 0 26px; font-size: 15.5px; }
+.u-btn.sm { height: 30px; padding: 0 12px; font-size: 12.5px; }
+
+/* Variants */
+.u-btn.primary { background: var(--u-ink); color: var(--u-paper); border-color: var(--u-ink); }
+.u-btn.primary:hover { background: #1a2440; }
+.u-btn.brand { background: var(--u-brand); color: #fff; border-color: var(--u-brand); box-shadow: 0 2px 0 var(--u-brand-deep), var(--u-shadow-press); }
+.u-btn.brand:hover { background: var(--u-brand-2); }
+.u-btn.ghost { background: transparent; border-color: var(--u-line-strong); box-shadow: none; }
+.u-btn.ghost:hover { background: rgba(15,22,41,0.04); }
+.u-btn.text { background: transparent; border-color: transparent; box-shadow: none; padding: 0 8px; }
+.u-btn.text:hover { background: rgba(15,22,41,0.04); }
+
+/* ============================================================
+   Card / Surface
+   ============================================================ */
+.u-card {
+  background: var(--u-card);
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-r-lg);
+  box-shadow: var(--u-shadow-1);
+}
+.u-card.flat { box-shadow: none; }
+.u-card.raised { box-shadow: var(--u-shadow-2); }
+.u-card.lifted { box-shadow: var(--u-shadow-3); }
+.u-card.tonal { background: var(--u-paper-2); border-color: var(--u-line-2); }
+.u-card.brand { background: var(--u-brand); color: #fff; border-color: var(--u-brand-deep); }
+.u-card.brand-soft { background: var(--u-brand-soft); border-color: rgba(75, 63, 187, 0.22); }
+.u-card.amber-soft { background: var(--u-amber-soft); border-color: rgba(240,160,60,0.30); }
+.u-card.sage-soft { background: var(--u-sage-soft); border-color: rgba(63, 133, 104, 0.30); }
+
+/* ============================================================
+   Pill / Chip / Tag
+   ============================================================ */
+.u-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--u-r-pill);
+  background: var(--u-paper-2);
+  border: 1px solid var(--u-line);
+  font-family: var(--u-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--u-ink-2);
+  white-space: nowrap;
+}
+.u-pill.brand { background: var(--u-brand-soft); color: var(--u-brand-deep); border-color: rgba(75,63,187,0.25); }
+.u-pill.sage  { background: var(--u-sage-soft);  color: var(--u-sage-deep);  border-color: rgba(63,133,104,0.30); }
+.u-pill.amber { background: var(--u-amber-soft); color: var(--u-amber-deep); border-color: rgba(240,160,60,0.35); }
+.u-pill.terra { background: var(--u-terra-soft); color: var(--u-terra-deep); border-color: rgba(199,91,65,0.30); }
+.u-pill.ink   { background: var(--u-ink);        color: var(--u-paper);      border-color: var(--u-ink); }
+.u-pill.dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.85; }
+.u-pill.lg { height: 32px; font-size: 13px; padding: 0 14px; }
+
+/* ============================================================
+   Divider
+   ============================================================ */
+.u-hr { height: 1px; background: var(--u-line); border: 0; }
+.u-hr-dashed { height: 0; border: 0; border-top: 1px dashed var(--u-line-strong); }
+.u-vline { width: 1px; background: var(--u-line); align-self: stretch; }
+
+/* ============================================================
+   Status dots & indicators
+   ============================================================ */
+.u-dot {
+  display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--u-ink-3);
+  flex-shrink: 0;
+}
+.u-dot.sage { background: var(--u-sage); }
+.u-dot.amber { background: var(--u-amber); }
+.u-dot.terra { background: var(--u-terra); }
+.u-dot.brand { background: var(--u-brand); }
+.u-dot.pulse {
+  position: relative;
+  box-shadow: 0 0 0 0 currentColor;
+  animation: uPulse 2.4s var(--u-ease) infinite;
+}
+@keyframes uPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(240,160,60,0.45); }
+  70%  { box-shadow: 0 0 0 14px rgba(240,160,60,0); }
+  100% { box-shadow: 0 0 0 0   rgba(240,160,60,0); }
+}
+
+/* ============================================================
+   Top bar
+   ============================================================ */
+.u-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--u-line);
+  background: var(--u-paper);
+}
+.u-topbar.glass {
+  background: rgba(251, 247, 240, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ============================================================
+   Side nav
+   ============================================================ */
+.u-sidenav {
+  width: 224px;
+  flex-shrink: 0;
+  padding: 18px 14px;
+  background: var(--u-paper);
+  border-right: 1px solid var(--u-line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.u-sidenav .item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--u-r-md);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--u-ink-2);
+  letter-spacing: -0.005em;
+}
+.u-sidenav .item:hover { background: var(--u-paper-2); color: var(--u-ink); }
+.u-sidenav .item.active { background: var(--u-card); color: var(--u-ink); box-shadow: var(--u-shadow-1); border: 1px solid var(--u-line); }
+.u-sidenav .item .badge {
+  margin-left: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px;
+  font-family: var(--u-mono); font-size: 10.5px; font-weight: 600;
+  background: var(--u-terra); color: #fff;
+}
+
+/* ============================================================
+   Decorative — cosmic accents
+   ============================================================ */
+.u-cosmic-bg {
+  background:
+    radial-gradient(120% 70% at 20% 0%, rgba(123, 71, 196, 0.10) 0%, transparent 50%),
+    radial-gradient(110% 60% at 90% 20%, rgba(240, 160, 60, 0.10) 0%, transparent 55%),
+    var(--u-paper);
+}
+.u-grain {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    radial-gradient(rgba(15,22,41,0.08) 1px, transparent 1px);
+  background-size: 3px 3px;
+  opacity: 0.20;
+  mix-blend-mode: multiply;
+}
+
+/* Star sprinkles for cosmic surfaces */
+.u-stars {
+  position: absolute; inset: 0; pointer-events: none;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   Form input (read-only display)
+   ============================================================ */
+.u-input {
+  height: 44px;
+  padding: 0 14px;
+  background: var(--u-card);
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-r-md);
+  font-family: var(--u-sans);
+  font-size: 14px;
+  color: var(--u-ink);
+}
+.u-input::placeholder { color: var(--u-ink-4); }
+.u-textarea {
+  min-height: 96px;
+  padding: 12px 14px;
+  background: var(--u-card);
+  border: 1px solid var(--u-line);
+  border-radius: var(--u-r-md);
+  font-family: var(--u-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--u-ink);
+  resize: none;
+}
+
+/* ============================================================
+   Progress bar
+   ============================================================ */
+.u-progress {
+  display: flex;
+  gap: 4px;
+  height: 8px;
+  align-items: stretch;
+}
+.u-progress .seg {
+  flex: 1;
+  border-radius: 99px;
+  background: var(--u-paper-3);
+  position: relative;
+  overflow: hidden;
+}
+.u-progress .seg.done { background: var(--u-sage); }
+.u-progress .seg.active {
+  background: linear-gradient(90deg, var(--u-amber) 0%, var(--u-amber-2) 100%);
+}
+.u-progress .seg.active::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%);
+  animation: uShimmer 2.2s linear infinite;
+}
+@keyframes uShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ============================================================
+   Persona / Avatar
+   ============================================================ */
+.u-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--u-paper-2);
+  border: 1px solid var(--u-line);
+  font-family: var(--u-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--u-ink);
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+.u-avatar.lg { width: 48px; height: 48px; font-size: 14px; }
+.u-avatar.coach    { background: #DDE6FF; color: #2A3F8C; }
+.u-avatar.reviewer { background: #FBE9CC; color: #6A4308; }
+.u-avatar.designer { background: #F0DAFA; color: #5D267E; }
+.u-avatar.arch     { background: #D6E1FF; color: #213977; }
+.u-avatar.builder  { background: #FFE0CB; color: #6E2C09; }
+.u-avatar.codereview { background: #E8E4FB; color: var(--u-brand-deep); }
+.u-avatar.qa       { background: #D7EFEE; color: #0A4E4B; }
+.u-avatar.fix      { background: #FFD8CB; color: #7A2C18; }
+.u-avatar.release  { background: var(--u-sage-soft); color: var(--u-sage-deep); }

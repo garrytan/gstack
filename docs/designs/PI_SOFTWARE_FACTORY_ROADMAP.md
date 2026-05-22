@@ -616,24 +616,25 @@ Current behavior:
 - fake guarded-host support is test-only and does not alter public command registration;
 - no real host integration is claimed.
 
-### Next Chunk 1 — P0 cockpit design-brief integration
+### Completed design/implementation chunk — P0 cockpit skin integration
 
-Goal: ingest the next cockpit design brief into the P0 screen/component specs, pure view models, and static prototype before choosing a production web stack.
+Goal: ingest the `Universe AI - Four Directions.html` Claude Design handoff and implement Direction 04, **Soft Modern Studio**, first while preserving a modular skin seam.
 
-Safe autonomous scope:
+Implemented/documented:
 
-- reconcile the brief against `PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`, `PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md`, `PI_SOFTWARE_FACTORY_COCKPIT_BETA1_CONTRACT.md`, and `docs/prototypes/factory-cockpit-p0/`;
-- update docs, fixture/view-model expectations, and static no-dependency prototype markup/CSS if the brief changes P0 findings;
-- preserve the current no-runtime/no-dependency boundary.
+- fetched and stored the design bundle under `docs/designs/external/universe-ai-four-directions/software-factory/`;
+- read the bundle README, chat transcripts, primary `Universe AI - Four Directions.html`, and `direction-studio.jsx` source;
+- updated `docs/prototypes/factory-cockpit-p0/index.html` with `body[data-skin="soft-modern-studio"]` and an explicit skin-system summary;
+- added the Soft Modern Studio CSS skin layer to `docs/prototypes/factory-cockpit-p0/styles.css` using cream/sage/ink tokens, rounded cards, soft shadows, quiet dot texture, and meaning-only status color;
+- documented the modular skin seam in the P0 screen spec, component model, Beta 1 contract, and prototype README.
 
-Blocked until explicit approval:
+Current behavior:
 
-- production web app location;
-- stack/framework;
-- dependencies/package manifest changes;
-- auth/hosted workspace model.
+- the static prototype remains no-JavaScript, no external assets, no dependencies, and not a production runtime;
+- future skins should add their own `body[data-skin="..."]` token/override blocks instead of changing screen markup;
+- production web stack/location remains unapproved.
 
-### Next Chunk 2 — production web stack decision
+### Next Chunk 1 — production web stack decision
 
 Goal: decide whether to move beyond the static prototype.
 

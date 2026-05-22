@@ -272,7 +272,8 @@ A Beta 1 candidate passes this contract when:
 - local-only boundary is clearly labeled;
 - hosted mode remains blocked until tenant/auth design exists;
 - QA audit/fix and ship-readiness/deploy boundaries are not blurred;
-- no dependency/package changes or production web scaffold are required to validate the data/view contracts.
+- no dependency/package changes or production web scaffold are required to validate the data/view contracts;
+- the P0 visual layer uses Direction 04 Soft Modern Studio first while preserving a modular `body[data-skin="..."]` seam for future Universe AI skins.
 
 Recommended checks:
 

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Universe AI Software Factory — Wireframes round 1</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Architects+Daughter&family=Patrick+Hand&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="wireframe-styles.css" />
+<style>
+  body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #f0eee9; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 50% { opacity: 0.35; } }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="screens-shared.jsx"></script>
+<script type="text/babel" src="screens-dashboard.jsx"></script>
+<script type="text/babel" src="screens-simple.jsx"></script>
+<script type="text/babel" src="screens-mode.jsx"></script>
+<script type="text/babel" src="screens-factory.jsx"></script>
+<script type="text/babel" src="screens-cockpit.jsx"></script>
+<script type="text/babel" src="screens-supporting.jsx"></script>
+<script type="text/babel" src="screens-mobile.jsx"></script>
+
+<script type="text/babel">
+const App = () => (
+  <DesignCanvas>
+    <DCSection id="intro" title="Round 1 — Universe AI Software Factory" subtitle="Mixed-fidelity wireframes · hand-drawn layouts, tidy components">
+      <DCArtboard id="intro-readme" label="Read me first" width={800} height={860}>
+        <Intro />
+      </DCArtboard>
+      <DCArtboard id="legend" label="Component legend" width={800} height={860}>
+        <Legend />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="dashboard" title="① Workspace dashboard" subtitle="Where users land. Resume must be obvious; decisions surfaced first.">
+      <DCArtboard id="dash-a" label="A · Decisions-first (safe)" width={1180} height={760}>
+        <DashA />
+      </DCArtboard>
+      <DCArtboard id="dash-b" label="B · Resume hero · Production floor" width={1180} height={760}>
+        <DashB />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="wizard" title="② New project wizard — idea shaping" subtitle="Capture intent → produce Idea Brief. Never a blank chat box.">
+      <DCArtboard id="wiz-a" label="A · Split form · live brief preview" width={1180} height={760}>
+        <WizardA />
+      </DCArtboard>
+      <DCArtboard id="wiz-b" label="B · One-question-at-a-time conversational" width={1180} height={760}>
+        <WizardB />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="mode" title="③ Easy Mode vs Hands-on Mode — the two tracks" subtitle="The first decision a new project makes. Easy = Universe drives, you sign off on the few things only you can decide. Hands-on = factory rooms exposed, you approve at every gate. Persistent top-bar toggle, flip anytime.">
+      <DCArtboard id="mode-a" label="A · The mode picker · shown once at project start" width={1180} height={840}>
+        <ModeA />
+      </DCArtboard>
+      <DCArtboard id="mode-b" label="B · Easy Mode in-flight · day-to-day" width={1280} height={800}>
+        <ModeB />
+      </DCArtboard>
+      <DCArtboard id="mode-c" label="C · Two-track comparison · same project, two journeys" width={1280} height={840}>
+        <ModeC />
+      </DCArtboard>
+      <DCArtboard id="mode-d" label="D · Toggle behavior · where it lives + flip rules" width={1280} height={760}>
+        <ModeD />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="factory" title="④ The Factory — three-bay top-level abstraction (Hands-on)" subtitle="Above everything else. 9 phases collapse to 3 named rooms with curated crews. Bays unlock in order; the curtain stays down on future ones. Playful, consumerized takes on the factory metaphor.">
+      <DCArtboard id="fac-a" label="A · Three rooms · brick building skyline" width={1280} height={840}>
+        <FactoryA />
+      </DCArtboard>
+      <DCArtboard id="fac-b" label="B · Storybook chapters · 'Shape it · Build it · Ship it'" width={1280} height={840}>
+        <FactoryB />
+      </DCArtboard>
+      <DCArtboard id="fac-c" label="C · Conveyor · your project rides through stops" width={1280} height={840}>
+        <FactoryC />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="simple" title="⑤ Simplified overview — day-to-day surface (inside a bay)" subtitle="What you see most of the time, once you've entered a bay. Hides personas and phases unless asked. The detailed cockpit is one click underneath.">
+      <DCArtboard id="simple-a" label="A · 'Right now' card · single-focus calm" width={1280} height={800}>
+        <SimpleA />
+      </DCArtboard>
+      <DCArtboard id="simple-b" label="B · Status tiles · at-a-glance dashboard" width={1280} height={800}>
+        <SimpleB />
+      </DCArtboard>
+      <DCArtboard id="simple-c" label="C · Project radio · friendly feed" width={1280} height={800}>
+        <SimpleC />
+      </DCArtboard>
+      <DCArtboard id="simple-d" label="D · Layer model · how Simple ⇄ Detailed relate" width={1280} height={800}>
+        <SimpleD />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="cockpit" title="⑥ Project factory cockpit — detailed view (4 variations)" subtitle="The wedge. Exploring panel arrangement · chat location · phase shape · persona surfacing · approval style · artifact-vs-chat-first.">
+      <DCArtboard id="cock-a" label="A · Classic 3-col · timeline rail" width={1280} height={800}>
+        <CockpitA />
+      </DCArtboard>
+      <DCArtboard id="cock-b" label="B · Artifact-stage · chat as drawer" width={1280} height={800}>
+        <CockpitB />
+      </DCArtboard>
+      <DCArtboard id="cock-c" label="C · Conveyor · stations + nested loop" width={1280} height={800}>
+        <CockpitC />
+      </DCArtboard>
+      <DCArtboard id="cock-d" label="D · Decision-stage · approval IS the screen" width={1280} height={800}>
+        <CockpitD />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="gate" title="⑦ Gate / decision surface" subtitle="Risky approvals deserve focus. Two approaches.">
+      <DCArtboard id="gate-a" label="A · Centered modal (high friction)" width={1180} height={760}>
+        <GateA />
+      </DCArtboard>
+      <DCArtboard id="gate-b" label="B · In-context split · no overlay" width={1180} height={760}>
+        <GateB />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="qa" title="⑧ QA / browser evidence" subtitle="Browser QA audit does NOT edit code — must read that way at a glance.">
+      <DCArtboard id="qa-a" label="A · Post-run matrix + screenshots" width={1180} height={760}>
+        <QAa />
+      </DCArtboard>
+      <DCArtboard id="qa-b" label="B · Live replay · scrubable timeline" width={1180} height={760}>
+        <QAb />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="ship" title="⑨ Ship readiness · NOT deployment" subtitle="Two takes; both refuse to use the word 'deploy'.">
+      <DCArtboard id="ship-a" label="A · Checklist + persistent disclaimer" width={1180} height={760}>
+        <ShipA />
+      </DCArtboard>
+      <DCArtboard id="ship-b" label="B · Handoff bundle · 'boxing up'" width={1180} height={760}>
+        <ShipB />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="mobile" title="⑩ Mobile · key sketches" subtitle="Cockpit collapses to a stack. Decisions get a sticky action bar. Resume hero scales down.">
+      <DCArtboard id="m-cockpit" label="Cockpit · phase room" width={320} height={640}>
+        <MobileCockpit />
+      </DCArtboard>
+      <DCArtboard id="m-decision" label="Decision / gate" width={320} height={640}>
+        <MobileDecision />
+      </DCArtboard>
+      <DCArtboard id="m-resume" label="Dashboard · resume hero" width={320} height={640}>
+        <MobileResume />
+      </DCArtboard>
+    </DCSection>
+  </DesignCanvas>
+);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

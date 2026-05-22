@@ -222,6 +222,20 @@ And within Hands-on Mode:
 5. **Status view is non-mutating; recovery is explicit.**
 6. **Ship-readiness never implies deploy.**
 
+## 5.1 Visual skin direction for P0
+
+P0 builds **Direction 04 — Soft Modern Studio** first, from
+`docs/designs/external/universe-ai-four-directions/software-factory/project/Universe AI - Four Directions.html`.
+The skin is intentionally calm and extensible: cream background, sage status
+accent, ink text, rounded white cards, soft shadows, and a quiet dot texture.
+
+Skin modularity is a requirement, but not a runtime feature in the static P0
+prototype. The implementation seam is `body[data-skin="soft-modern-studio"]`:
+semantic component markup stays stable, and visual systems live in replaceable
+skin token/override blocks. Future skins can target different audiences without
+reshaping the dashboard, Easy Mode, 3-bay map, gate, QA, artifact, or mobile
+contracts.
+
 ## 6. Mobile implications (P0)
 
 P0 mobile is responsive-first (not separate app), with three required states proven:

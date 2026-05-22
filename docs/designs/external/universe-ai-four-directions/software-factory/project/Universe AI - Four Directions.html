@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Universe AI — Five Directions</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Archivo+Black&family=Caveat:wght@500;600;700&family=Permanent+Marker&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #E8E5DE; }
+  * { box-sizing: border-box; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="direction-atelier.jsx"></script>
+<script type="text/babel" src="direction-operator.jsx"></script>
+<script type="text/babel" src="direction-blueprint.jsx"></script>
+<script type="text/babel" src="direction-studio.jsx"></script>
+<script type="text/babel" src="direction-bro.jsx"></script>
+
+<script type="text/babel">
+const App = () => (
+  <DesignCanvas>
+    <DCSection id="atelier" title="① ATELIER — ink on warm paper" subtitle="Off-white paper, ink black, terracotta accent. Instrument Serif moments, Inter UI, JetBrains Mono labels. My recommendation — calm everyday, gets serious at gates.">
+      <DCArtboard id="atelier-mode" label="① Mode picker" width={1380} height={1060}><AtelierMode /></DCArtboard>
+      <DCArtboard id="atelier-easy" label="② Easy Mode in-flight" width={1380} height={860}><AtelierEasy /></DCArtboard>
+      <DCArtboard id="atelier-factory" label="③ Factory · three bays" width={1380} height={920}><AtelierFactory /></DCArtboard>
+    </DCSection>
+
+    <DCSection id="operator" title="② OPERATOR — Bloomberg meets a flight deck" subtitle="Graphite ground, paper text, mono-first. Status-light color used surgically. For pros; would need a softer Easy-mode skin to onboard non-technical users.">
+      <DCArtboard id="op-mode" label="① Mode picker" width={1380} height={900}><OperatorMode /></DCArtboard>
+      <DCArtboard id="op-easy" label="② Easy Mode in-flight" width={1380} height={900}><OperatorEasy /></DCArtboard>
+      <DCArtboard id="op-factory" label="③ Factory · three bays" width={1380} height={920}><OperatorFactory /></DCArtboard>
+    </DCSection>
+
+    <DCSection id="blueprint" title="③ WORKSHOP BLUEPRINT — drafting table, not factory floor" subtitle="Drafting cream, blueprint blue, technical pen black. Construction marks, revision stamps, dimension lines. The factory metaphor made honest — best for Hands-on cockpit.">
+      <DCArtboard id="bp-mode" label="① Mode picker" width={1380} height={900}><BlueprintMode /></DCArtboard>
+      <DCArtboard id="bp-easy" label="② Easy Mode in-flight" width={1380} height={900}><BlueprintEasy /></DCArtboard>
+      <DCArtboard id="bp-factory" label="③ Factory · three bays" width={1380} height={920}><BlueprintFactory /></DCArtboard>
+    </DCSection>
+
+    <DCSection id="studio" title="④ SOFT MODERN STUDIO — the safe ship" subtitle="Cream, sage, ink. Notion/Things DNA. Generous radii, soft dot pattern, all-Inter. Low-risk, easy to extend, slightly less distinctive.">
+      <DCArtboard id="st-mode" label="① Mode picker" width={1380} height={1140}><StudioMode /></DCArtboard>
+      <DCArtboard id="st-easy" label="② Easy Mode in-flight" width={1380} height={1020}><StudioEasy /></DCArtboard>
+      <DCArtboard id="st-factory" label="③ Factory · three bays" width={1380} height={920}><StudioFactory /></DCArtboard>
+    </DCSection>
+
+    <DCSection id="bro" title="⑤ BUILD IT BRO — dorm-room, sharpie, hi-vis" subtitle="Notebook paper + post-it yellow + highlighter swipes + Archivo Black headlines + handwritten Caveat annotations. Aimed at the college builder crowd. Don’t drop out — just build it bro.">
+      <DCArtboard id="bro-mode" label="① Mode picker" width={1380} height={1280}><BroMode /></DCArtboard>
+      <DCArtboard id="bro-easy" label="② Easy Mode in-flight" width={1380} height={1160}><BroEasy /></DCArtboard>
+      <DCArtboard id="bro-factory" label="③ Factory · three rooms" width={1380} height={1060}><BroFactory /></DCArtboard>
+    </DCSection>
+  </DesignCanvas>
+);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

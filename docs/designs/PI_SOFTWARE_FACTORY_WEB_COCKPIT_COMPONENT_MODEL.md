@@ -272,3 +272,4 @@ At `<768px`:
 - No dependency additions required by component model.
 - No production runtime claims from fixture-only screens.
 - No release/deploy action exposure in P0 component states.
+- Skin-specific visual choices are modular: component markup exposes stable semantic classes, while Direction 04 Soft Modern Studio styling lives behind `body[data-skin="soft-modern-studio"]` tokens/overrides.

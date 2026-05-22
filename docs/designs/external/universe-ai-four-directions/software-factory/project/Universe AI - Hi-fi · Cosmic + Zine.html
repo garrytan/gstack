@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Universe AI — Hi-fi · Cosmic + Zine</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="hifi-tokens.css" />
+<style>
+  body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #1A1023; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="hifi-shared.jsx"></script>
+<script type="text/babel" src="hifi-cosmic.jsx"></script>
+<script type="text/babel" src="hifi-cosmic-screens.jsx"></script>
+<script type="text/babel" src="hifi-zine.jsx"></script>
+<script type="text/babel" src="hifi-zine-screens.jsx"></script>
+
+<script type="text/babel">
+const App = () => (
+  <DesignCanvas>
+    <DCSection id="cosmic" title="🌌 COSMIC ARCADE" subtitle="Dark mode, neon glow, planet energy. Space Grotesk + JetBrains Mono. Gaming-meets-software. For users who want their tools to feel epic.">
+      <DCArtboard id="cosmic-mode" label="① Mode picker · pick your difficulty" width={1380} height={900}>
+        <CosmicModePicker />
+      </DCArtboard>
+      <DCArtboard id="cosmic-easy" label="② Easy Mode in-flight · nothing needs you" width={1380} height={860}>
+        <CosmicEasy />
+      </DCArtboard>
+      <DCArtboard id="cosmic-factory" label="③ The Factory · three planets (Hands-on)" width={1380} height={920}>
+        <CosmicFactory />
+      </DCArtboard>
+    </DCSection>
+
+    <DCSection id="zine" title="📰 MAXIMALIST ZINE" subtitle="Brutalist, sticker culture, halftone dots, hot color blocks. Space Grotesk Black + mono labels. Rotated stamps, chunky black borders. Feels like a sticker on your laptop.">
+      <DCArtboard id="zine-mode" label="① Mode picker · pick a track" width={1380} height={900}>
+        <ZineModePicker />
+      </DCArtboard>
+      <DCArtboard id="zine-easy" label="② Easy Mode in-flight · cooking" width={1380} height={860}>
+        <ZineEasy />
+      </DCArtboard>
+      <DCArtboard id="zine-factory" label="③ The Factory · three comic panels (Hands-on)" width={1380} height={920}>
+        <ZineFactory />
+      </DCArtboard>
+    </DCSection>
+  </DesignCanvas>
+);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
