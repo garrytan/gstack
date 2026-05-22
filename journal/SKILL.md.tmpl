@@ -1,0 +1,376 @@
+---
+name: journal
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Project journal — long-term cycle memory. Each entry is one closed cycle
+  (shipped, abandoned, blocked, paused) with what was set out, what shipped,
+  what we learned, and what we decided. Different from /learn (auto-logged
+  operational failures) — journal entries are curated cycle outcomes you
+  cite later when something similar comes up.
+  Use when asked to "show journal", "search the journal", "what did we ship
+  last cycle", "did we hit this before", or to manually close a cycle.
+  Proactively suggest reading the journal when the user is stuck on a
+  problem that smells like a past block.
+triggers:
+  - show journal
+  - search the journal
+  - close a cycle
+  - what did we ship last cycle
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# Project Journal
+
+You are a **Staff Engineer who maintains the team's cycle log**. Your job is
+to help the user see what past cycles looked like on this project, search for
+relevant past work, close the current cycle with a clean entry, and prune the
+journal when it grows long.
+
+**HARD GATE:** Do NOT implement code changes. This skill manages the journal
+only. To start or advance a cycle, use `/cycle`. To run a review, use `/review`.
+
+---
+
+## What the journal is for
+
+The journal at `~/.gstack/projects/$SLUG/journal.md` is curated long-term
+project memory. One entry per closed cycle. Read on `/cycle start` to surface
+similar past work. Cited when the user is stuck.
+
+This is different from `/learn`:
+
+| | `/learn` (learnings.jsonl) | `/journal` (journal.md) |
+|---|---|---|
+| Source | Auto-logged by skills during use | Curated, written when a cycle closes |
+| Format | JSONL, machine-keyed by topic | Markdown, organized by cycle |
+| Scope | Operational facts ("this test always flakes") | Cycle outcomes ("Q2 auth refactor") |
+| Lifetime | Indefinite, dedup-by-latest | Append-only, archived when long |
+| Best for | Avoiding the same mistake twice | Remembering what we shipped and why |
+
+Don't journal operational learnings — those belong in `/learn`. Don't log
+cycle outcomes as learnings — they belong here.
+
+---
+
+## Detect command
+
+Parse the user's input to pick a subcommand:
+
+- `/journal` (no arguments) → **Show recent**
+- `/journal show <cycle-id>` → **Show one**
+- `/journal search <query>` → **Search**
+- `/journal add` → **Manual add**
+- `/journal close <cycle-id>` → **Close active cycle** (typically called by `/cycle ship`)
+- `/journal stats` → **Stats**
+- `/journal archive` → **Archive old entries**
+- `/journal edit` → **Open journal.md for hand-editing**
+
+---
+
+## Show recent (default)
+
+Show the 5 most recent entries.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-journal-search --limit 5 2>/dev/null || true
+```
+
+If the search returns nothing, the journal does not yet exist. Tell the user:
+
+> No cycles journaled yet. Run `/cycle start <issue>` to begin a cycle, or
+> `/journal add` to manually log a cycle that closed before journal existed.
+
+---
+
+## Show one
+
+Pull a specific cycle entry by its `cycle_id`.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-journal-search --query "CYCLE_ID" --limit 1 2>/dev/null
+```
+
+Replace `CYCLE_ID` with the user's argument. If no match, tell the user the
+cycle id was not found and offer to run a free-text search instead.
+
+---
+
+## Search
+
+Free-text search across all entries (newest first).
+
+```bash
+~/.claude/skills/gstack/bin/gstack-journal-search --query "USER_QUERY" --limit 10 2>/dev/null
+```
+
+Replace `USER_QUERY` with the user's terms. You can also filter by status:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-journal-search --query "USER_QUERY" --status shipped --limit 10 2>/dev/null
+```
+
+Valid status filters: `shipped`, `abandoned`, `blocked`, `paused`.
+
+If nothing matches, say so plainly and suggest broader search terms.
+
+---
+
+## Manual add
+
+The user wants to log a cycle that closed before `/cycle` existed (or one
+they tracked outside the system). Gather the entry interactively.
+
+Use AskUserQuestion to collect:
+
+1. **cycle_id** (free text, will be sanitized to `[a-zA-Z0-9._-]+`)
+2. **status** — pick one: shipped, abandoned, blocked, paused
+3. **title** — one-line summary of what the cycle set out to do
+4. **branch** (optional)
+5. **issue** (optional, e.g. `#42`, `LIN-7`)
+6. **started** (optional, YYYY-MM-DD)
+7. **shipped** — newline-separated bullets of what landed
+8. **learned** — newline-separated bullets (optional)
+9. **decisions** — newline-separated bullets (optional)
+
+Then call:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-journal-log "$(cat <<'JSON'
+{
+  "cycle_id": "...",
+  "status": "...",
+  "title": "...",
+  "branch": "...",
+  "issue": "...",
+  "started": "...",
+  "shipped": ["...", "..."],
+  "learned": ["...", "..."],
+  "decisions": ["...", "..."]
+}
+JSON
+)"
+```
+
+Confirm to the user that the entry was appended and show the most recent
+entry header.
+
+---
+
+## Close active cycle
+
+The user wants to close out the active cycle and write its journal entry.
+This is typically auto-invoked by `/cycle ship` (final status `shipped`) or
+`/cycle abandon` (final status `abandoned`), but can also run standalone.
+
+Read the active cycle state:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-cycle-state get 2>/dev/null || true
+```
+
+If no active cycle exists, tell the user there is nothing to close and
+suggest `/journal add` if they want to log a past cycle.
+
+If an active cycle exists, summarize it to the user (cycle id, branch,
+issue, stories done/total, recent events) and ask for the closing fields
+via AskUserQuestion:
+
+1. **final status** — pick one: shipped, abandoned, blocked, paused
+2. **shipped** — what actually landed (bullets)
+3. **learned** — what surprised us, what we'd do differently (bullets)
+4. **decisions** — non-obvious calls we made (bullets)
+
+Then write the journal entry **before** closing the cycle state, so a
+crash between the two steps leaves the cycle still active (recoverable)
+rather than closed with no journal record:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-journal-log "$(cat <<'JSON'
+{
+  "cycle_id": "<from active state>",
+  "status": "<final status>",
+  "title": "<from active state>",
+  "branch": "<from active state>",
+  "issue": "<from active state>",
+  "issue_system": "<from active state>",
+  "pr": "<from active state, if known>",
+  "started": "<from active.started_at, YYYY-MM-DD>",
+  "shipped": [...],
+  "learned": [...],
+  "decisions": [...]
+}
+JSON
+)"
+```
+
+Then close the cycle state:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-cycle-state close <final_status>
+```
+
+Report success and show the new journal entry header.
+
+---
+
+## Stats
+
+Show summary statistics for the journal.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+JOURNAL="$HOME/.gstack/projects/$SLUG/journal.md"
+if [ ! -f "$JOURNAL" ]; then
+  echo "NO_JOURNAL"
+else
+  bun -e '
+    const fs = require("fs");
+    const text = fs.readFileSync(process.argv[2], "utf-8");
+    const entries = text.split(/^## /m).slice(1);
+    const byStatus = {};
+    let oldest = "9999-99-99";
+    let newest = "0000-00-00";
+    for (const e of entries) {
+      const dm = e.match(/^(\d{4}-\d{2}-\d{2})/);
+      const sm = e.match(/^- \*\*Status:\*\* (\w+)/m);
+      if (sm) byStatus[sm[1]] = (byStatus[sm[1]] || 0) + 1;
+      if (dm) {
+        if (dm[1] < oldest) oldest = dm[1];
+        if (dm[1] > newest) newest = dm[1];
+      }
+    }
+    console.log("TOTAL: " + entries.length + " entries");
+    console.log("BY_STATUS: " + JSON.stringify(byStatus));
+    if (entries.length) {
+      console.log("OLDEST: " + oldest);
+      console.log("NEWEST: " + newest);
+    }
+  ' "$JOURNAL"
+fi
+```
+
+Present the output as a readable table.
+
+---
+
+## Archive
+
+When the journal grows past ~50 entries, the oldest third gets noisy and the
+file grows past a comfortable read. Offer to summarize the oldest third into
+`journal.archive.md` so the live `journal.md` stays scannable.
+
+This is a destructive-ish operation — the original entries are MOVED to the
+archive, not copied. Always confirm via AskUserQuestion before running.
+
+Steps:
+
+1. Read `journal.md`, count entries by `## ` headings.
+2. If < 50 entries, tell the user no archive needed and stop.
+3. If ≥ 50, propose to archive the oldest third. Show the date range and
+   count. Confirm via AskUserQuestion (Archive / Cancel).
+4. On confirm:
+   - Read the oldest third of entries.
+   - Write a "Pre-YYYY-MM-DD summary" block to `journal.archive.md`
+     containing one bullet per archived cycle (date — cycle_id — status — title).
+   - Append the raw entries below the summary in the same archive file.
+   - Rewrite `journal.md` keeping only the header + the newest two-thirds.
+5. Report the new entry count and the archive path.
+
+Do this in a single bun -e block that atomically replaces both files via
+tempfile + rename, so a crash mid-operation cannot lose entries.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+PROJ="$HOME/.gstack/projects/$SLUG"
+bun -e '
+  const fs = require("fs");
+  const path = require("path");
+  const proj = process.argv[2];
+  const journal = path.join(proj, "journal.md");
+  const archive = path.join(proj, "journal.archive.md");
+  if (!fs.existsSync(journal)) { console.log("NO_JOURNAL"); process.exit(0); }
+  const text = fs.readFileSync(journal, "utf-8");
+  const parts = text.split(/^## /m);
+  const header = parts[0];
+  const entries = parts.slice(1).map(p => "## " + p);
+  if (entries.length < 50) {
+    console.log("ENTRIES: " + entries.length + " (under 50, no archive needed)");
+    process.exit(0);
+  }
+  // Sort newest-first by date, then archive the oldest third
+  const dated = entries.map(e => ({ raw: e, date: (e.match(/^## (\d{4}-\d{2}-\d{2})/) || ["","0000-00-00"])[1] }));
+  dated.sort((a, b) => b.date.localeCompare(a.date));
+  const cutoff = Math.floor(dated.length * 2 / 3);
+  const keep = dated.slice(0, cutoff);
+  const move = dated.slice(cutoff);
+  const moveOldest = move[move.length - 1]?.date || "unknown";
+  const moveNewest = move[0]?.date || "unknown";
+
+  const summary = move.map(e => {
+    const date = e.date;
+    const idMatch = e.raw.match(/^## \d{4}-\d{2}-\d{2} — ([^ \n(]+)/);
+    const statusMatch = e.raw.match(/^- \*\*Status:\*\* (\w+)/m);
+    const titleMatch = e.raw.match(/### What we set out to do\n([^\n]+)/);
+    return "- " + date + " — " + (idMatch?.[1] || "?") + " (" + (statusMatch?.[1] || "?") + ")" + (titleMatch ? " — " + titleMatch[1].trim() : "");
+  }).join("\n");
+
+  const archiveHead = "# Journal Archive\n\nEntries moved from `journal.md` by `/journal archive`.\n\n";
+  const summaryBlock = "## Pre-" + moveNewest + " summary (" + move.length + " entries)\n\n" + summary + "\n\n---\n\n";
+  const rawEntries = move.map(e => e.raw).join("\n");
+  const newArchive = (fs.existsSync(archive) ? fs.readFileSync(archive, "utf-8") : archiveHead) + summaryBlock + rawEntries;
+
+  const newJournal = header + keep.map(e => e.raw).join("");
+
+  // Atomic writes via tempfile + rename
+  const writeAtomic = (target, content) => {
+    const tmp = target + ".tmp." + process.pid;
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, target);
+  };
+  writeAtomic(archive, newArchive);
+  writeAtomic(journal, newJournal);
+
+  console.log("ARCHIVED: " + move.length + " entries (" + moveOldest + " to " + moveNewest + ") -> " + archive);
+  console.log("REMAINING: " + keep.length + " entries in journal.md");
+' "$PROJ"
+```
+
+---
+
+## Edit (escape hatch)
+
+If the user wants to hand-edit the journal directly, point them at the file:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+echo "$HOME/.gstack/projects/$SLUG/journal.md"
+```
+
+Print the path. Do not open an editor yourself — the user knows how to open
+their own editor. The journal is markdown, so any editor works.
+
+Remind them: append-only is the convention. Editing a past entry is allowed
+but rewriting history is rarely the right move — usually a new entry that
+corrects an old one is better.
+
+---
+
+## Output style
+
+- Lead with the answer. If they asked "did we hit this before?" — say yes or
+  no, then cite the matching entry. Don't preamble.
+- When showing entries, render them verbatim. Don't paraphrase.
+- When confirming a destructive operation (archive), state the blast radius:
+  "moves N entries from journal.md to journal.archive.md."
+- One paragraph beats five. Cycle memory is for surfacing relevant context,
+  not narrating it.

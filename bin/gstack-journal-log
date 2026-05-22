@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# gstack-journal-log — append a cycle outcome entry to the project journal
+# Usage: gstack-journal-log '{"cycle_id":"2026-05-21-auth","status":"shipped","branch":"...","title":"...","shipped":["..."]}'
+#
+# Storage: ~/.gstack/projects/$SLUG/journal.md (markdown, append-only).
+#
+# Required fields:
+#   cycle_id    alphanumeric + ._- only, identifies this cycle
+#   status      one of: shipped, abandoned, blocked, paused
+#
+# Optional fields:
+#   title       one-line summary of what the cycle set out to do
+#   branch      git branch name
+#   started     ISO date or YYYY-MM-DD
+#   issue       issue identifier (e.g. "#42", "LIN-7")
+#   issue_system  github | linear | none
+#   pr          pull-request URL or "#NNN"
+#   shipped     array of strings — what landed
+#   learned     array of strings — what we learned
+#   decisions   array of strings — calls we made
+#   ts          ISO timestamp (defaults to now)
+#
+# Append-only. Multiple entries for the same cycle_id are allowed (e.g. a
+# blocked entry followed by a shipped entry on resume). To rewrite history,
+# edit journal.md by hand or run `/journal edit`.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+PROJ_DIR="$GSTACK_HOME/projects/$SLUG"
+mkdir -p "$PROJ_DIR"
+
+if [ $# -lt 1 ]; then
+  echo "gstack-journal-log: missing JSON argument" >&2
+  exit 1
+fi
+INPUT="$1"
+
+# Validate input and produce the markdown entry on stdout.
+# On validation failure, bun writes the reason to stderr and exits non-zero.
+MD=$(printf '%s' "$INPUT" | bun -e '
+const raw = await Bun.stdin.text();
+let j;
+try { j = JSON.parse(raw); } catch { process.stderr.write("gstack-journal-log: invalid JSON\n"); process.exit(1); }
+
+const ALLOWED_STATUS = ["shipped", "abandoned", "blocked", "paused"];
+if (!j.status || !ALLOWED_STATUS.includes(j.status)) {
+  process.stderr.write("gstack-journal-log: status must be one of: " + ALLOWED_STATUS.join(", ") + "\n");
+  process.exit(1);
+}
+if (!j.cycle_id || !/^[a-zA-Z0-9._-]+$/.test(j.cycle_id)) {
+  process.stderr.write("gstack-journal-log: cycle_id required (alphanumeric + ._-)\n");
+  process.exit(1);
+}
+if (j.branch && !/^[a-zA-Z0-9._\/-]+$/.test(j.branch)) {
+  process.stderr.write("gstack-journal-log: branch contains invalid characters\n");
+  process.exit(1);
+}
+if (j.issue_system && !["github","linear","none"].includes(j.issue_system)) {
+  process.stderr.write("gstack-journal-log: issue_system must be github|linear|none\n");
+  process.exit(1);
+}
+
+// Defensive: scan free-text fields for prompt-injection patterns. Journal
+// entries are read back into agent context on /cycle start, so the same
+// guard learnings use applies here.
+const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+)?previous\s+(instructions|context|rules)/i,
+  /you\s+are\s+now\s+/i,
+  /skip\s+(all\s+)?(security|review|checks)/i,
+  /override\s*[:\s]/i,
+  /\bsystem\s*:/i,
+  /\bassistant\s*:/i,
+  /do\s+not\s+(report|flag|mention)/i,
+];
+const scan = [];
+if (typeof j.title === "string") scan.push(j.title);
+for (const k of ["shipped", "learned", "decisions"]) {
+  if (Array.isArray(j[k])) for (const s of j[k]) if (typeof s === "string") scan.push(s);
+}
+for (const txt of scan) {
+  for (const pat of INJECTION_PATTERNS) {
+    if (pat.test(txt)) {
+      process.stderr.write("gstack-journal-log: instruction-like content rejected\n");
+      process.exit(1);
+    }
+  }
+}
+
+if (!j.ts) j.ts = new Date().toISOString();
+const date = j.ts.split("T")[0];
+
+const headParts = ["## " + date + " — " + j.cycle_id];
+if (j.issue || j.pr) {
+  const ref = [j.issue, j.pr].filter(Boolean).join(" → ");
+  headParts.push("(" + ref + ")");
+}
+const head = headParts.join(" ");
+
+const fields = ["- **Status:** " + j.status];
+if (j.branch) fields.push("- **Branch:** " + j.branch);
+if (j.started) fields.push("- **Started:** " + j.started);
+if (j.issue_system) fields.push("- **Issue system:** " + j.issue_system);
+
+const bullets = (arr) => Array.isArray(arr) && arr.length
+  ? arr.filter(s => typeof s === "string" && s.trim()).map(s => "- " + s.trim()).join("\n")
+  : "";
+
+let md = "\n" + head + "\n" + fields.join("\n") + "\n";
+if (j.title) md += "\n### What we set out to do\n" + j.title.trim() + "\n";
+const sh = bullets(j.shipped); if (sh) md += "\n### What shipped\n" + sh + "\n";
+const le = bullets(j.learned); if (le) md += "\n### What we learned\n" + le + "\n";
+const de = bullets(j.decisions); if (de) md += "\n### Decisions\n" + de + "\n";
+
+process.stdout.write(md);
+' 2>&1)
+
+EXIT=$?
+if [ $EXIT -ne 0 ]; then
+  printf '%s\n' "$MD" >&2
+  exit $EXIT
+fi
+
+JOURNAL="$PROJ_DIR/journal.md"
+if [ ! -f "$JOURNAL" ]; then
+  cat > "$JOURNAL" <<'HDR'
+# Project Journal
+
+Long-term cycle memory for this project. Each entry is one closed cycle:
+what we set out to do, what shipped, what we learned, what we decided.
+
+Append-only. Entries are written by `gstack-journal-log` (typically via
+`/journal add` or `/cycle ship` / `/cycle abandon`). To edit, run
+`/journal edit` or edit this file by hand.
+
+---
+HDR
+fi
+
+printf '%s' "$MD" >> "$JOURNAL"
+
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/journal.md" 2>/dev/null &

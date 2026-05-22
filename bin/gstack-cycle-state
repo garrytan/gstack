@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# gstack-cycle-state — read/write the active cycle state for /cycle
+# Usage:
+#   gstack-cycle-state is-active                 → exit 0 if a cycle is active, 1 otherwise
+#   gstack-cycle-state get [field]               → print active.json (or a top-level field)
+#   gstack-cycle-state show                      → human-friendly summary
+#   gstack-cycle-state start <json>              → create a new active cycle (fails if one exists)
+#   gstack-cycle-state set <field> <value>       → patch a top-level scalar field
+#   gstack-cycle-state event <json>              → append an event to events[]
+#   gstack-cycle-state story-add <json>          → append a story to stories[]
+#   gstack-cycle-state story-mark <id> <status>  → set a story's status (pending|in_progress|done|blocked)
+#   gstack-cycle-state close <final_status>      → move active.json to closed/<id>.json
+#   gstack-cycle-state list-closed [--limit N]   → list recent closed cycles
+#
+# Storage layout:
+#   ~/.gstack/projects/$SLUG/cycles/active.json
+#   ~/.gstack/projects/$SLUG/cycles/closed/<cycle-id>.json
+#
+# The state file is a single JSON object; this helper updates it atomically
+# via a tempfile + rename. Concurrent writes are not safe — assume a single
+# /cycle session at a time per project.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+CYCLES_DIR="$GSTACK_HOME/projects/$SLUG/cycles"
+CLOSED_DIR="$CYCLES_DIR/closed"
+ACTIVE="$CYCLES_DIR/active.json"
+mkdir -p "$CYCLES_DIR" "$CLOSED_DIR"
+
+_atomic_write() {
+  local target="$1" content="$2"
+  local tmp
+  tmp=$(mktemp "${target}.XXXXXX" 2>/dev/null) || tmp="${target}.tmp.$$"
+  printf '%s' "$content" > "$tmp"
+  mv "$tmp" "$target"
+}
+
+_require_active() {
+  if [ ! -f "$ACTIVE" ]; then
+    echo "gstack-cycle-state: no active cycle (run /cycle start first)" >&2
+    exit 1
+  fi
+}
+
+CMD="${1:-}"
+
+case "$CMD" in
+  is-active)
+    [ -f "$ACTIVE" ] && exit 0 || exit 1
+    ;;
+
+  get)
+    _require_active
+    FIELD="${2:-}"
+    if [ -z "$FIELD" ]; then
+      cat "$ACTIVE"
+    else
+      GSTACK_CS_FIELD="$FIELD" bun -e '
+        const fs = require("fs");
+        const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+        const v = j[process.env.GSTACK_CS_FIELD];
+        if (v === undefined || v === null) process.exit(1);
+        if (typeof v === "object") console.log(JSON.stringify(v));
+        else console.log(v);
+      ' "$ACTIVE"
+    fi
+    ;;
+
+  show)
+    _require_active
+    bun -e '
+      const fs = require("fs");
+      const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+      const stories = Array.isArray(j.stories) ? j.stories : [];
+      const done = stories.filter(s => s.status === "done").length;
+      const events = Array.isArray(j.events) ? j.events : [];
+      console.log("Cycle: " + j.id);
+      if (j.title) console.log("Title: " + j.title);
+      console.log("Status: " + (j.status || "active"));
+      if (j.branch) console.log("Branch: " + j.branch);
+      if (j.issue) console.log("Issue: " + j.issue + (j.issue_system ? " (" + j.issue_system + ")" : ""));
+      if (j.started_at) console.log("Started: " + j.started_at);
+      if (stories.length) console.log("Stories: " + done + "/" + stories.length + " done");
+      if (events.length) {
+        console.log("");
+        console.log("Recent events:");
+        for (const e of events.slice(-5)) {
+          const tag = e.via ? " via " + e.via : "";
+          console.log("  " + (e.ts || "").split("T")[0] + " — " + e.event + tag);
+        }
+      }
+    ' "$ACTIVE"
+    ;;
+
+  start)
+    if [ -f "$ACTIVE" ]; then
+      EXISTING_ID=$(bun -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[2],"utf-8")).id||"unknown")' "$ACTIVE" 2>/dev/null || echo unknown)
+      echo "gstack-cycle-state: a cycle is already active ($EXISTING_ID). Run /cycle ship or /cycle abandon first." >&2
+      exit 1
+    fi
+    INPUT="${2:-}"
+    if [ -z "$INPUT" ]; then echo "gstack-cycle-state start: missing JSON argument" >&2; exit 1; fi
+    VALIDATED=$(printf '%s' "$INPUT" | bun -e '
+      const raw = await Bun.stdin.text();
+      let j;
+      try { j = JSON.parse(raw); } catch { process.stderr.write("invalid JSON\n"); process.exit(1); }
+      if (!j.id || !/^[a-zA-Z0-9._-]+$/.test(j.id)) {
+        process.stderr.write("id required (alphanumeric + ._-)\n"); process.exit(1);
+      }
+      j.status = j.status || "active";
+      j.started_at = j.started_at || new Date().toISOString();
+      j.events = Array.isArray(j.events) ? j.events : [];
+      j.stories = Array.isArray(j.stories) ? j.stories : [];
+      j.events.push({ ts: j.started_at, event: "started", via: j.started_via || "manual" });
+      delete j.started_via;
+      process.stdout.write(JSON.stringify(j, null, 2));
+    ' 2>&1)
+    if [ $? -ne 0 ]; then echo "gstack-cycle-state start: $VALIDATED" >&2; exit 1; fi
+    _atomic_write "$ACTIVE" "$VALIDATED"
+    echo "STARTED $(printf '%s' "$VALIDATED" | bun -e 'console.log(JSON.parse(await Bun.stdin.text()).id)')"
+    ;;
+
+  set)
+    _require_active
+    FIELD="${2:-}"; VALUE="${3:-}"
+    if [ -z "$FIELD" ]; then echo "gstack-cycle-state set: missing field name" >&2; exit 1; fi
+    UPDATED=$(GSTACK_CS_FIELD="$FIELD" GSTACK_CS_VALUE="$VALUE" bun -e '
+      const fs = require("fs");
+      const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+      const field = process.env.GSTACK_CS_FIELD;
+      const ALLOWED = ["title", "branch", "issue", "issue_system", "status", "pr"];
+      if (!ALLOWED.includes(field)) {
+        process.stderr.write("set: field must be one of: " + ALLOWED.join(", ") + "\n"); process.exit(1);
+      }
+      j[field] = process.env.GSTACK_CS_VALUE;
+      process.stdout.write(JSON.stringify(j, null, 2));
+    ' "$ACTIVE" 2>&1)
+    if [ $? -ne 0 ]; then echo "$UPDATED" >&2; exit 1; fi
+    _atomic_write "$ACTIVE" "$UPDATED"
+    ;;
+
+  event)
+    _require_active
+    INPUT="${2:-}"
+    if [ -z "$INPUT" ]; then echo "gstack-cycle-state event: missing JSON argument" >&2; exit 1; fi
+    UPDATED=$(printf '%s' "$INPUT" | bun -e '
+      const fs = require("fs");
+      const raw = await Bun.stdin.text();
+      let ev;
+      try { ev = JSON.parse(raw); } catch { process.stderr.write("invalid JSON\n"); process.exit(1); }
+      if (!ev.event || typeof ev.event !== "string") {
+        process.stderr.write("event field required\n"); process.exit(1);
+      }
+      ev.ts = ev.ts || new Date().toISOString();
+      const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+      j.events = Array.isArray(j.events) ? j.events : [];
+      j.events.push(ev);
+      process.stdout.write(JSON.stringify(j, null, 2));
+    ' "$ACTIVE" 2>&1)
+    if [ $? -ne 0 ]; then echo "$UPDATED" >&2; exit 1; fi
+    _atomic_write "$ACTIVE" "$UPDATED"
+    ;;
+
+  story-add)
+    _require_active
+    INPUT="${2:-}"
+    if [ -z "$INPUT" ]; then echo "gstack-cycle-state story-add: missing JSON argument" >&2; exit 1; fi
+    UPDATED=$(printf '%s' "$INPUT" | bun -e '
+      const fs = require("fs");
+      const raw = await Bun.stdin.text();
+      let s;
+      try { s = JSON.parse(raw); } catch { process.stderr.write("invalid JSON\n"); process.exit(1); }
+      if (!s.id || !/^[a-zA-Z0-9._-]+$/.test(s.id)) {
+        process.stderr.write("story id required (alphanumeric + ._-)\n"); process.exit(1);
+      }
+      s.status = s.status || "pending";
+      const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+      j.stories = Array.isArray(j.stories) ? j.stories : [];
+      if (j.stories.some(x => x.id === s.id)) {
+        process.stderr.write("story " + s.id + " already exists\n"); process.exit(1);
+      }
+      j.stories.push(s);
+      process.stdout.write(JSON.stringify(j, null, 2));
+    ' "$ACTIVE" 2>&1)
+    if [ $? -ne 0 ]; then echo "$UPDATED" >&2; exit 1; fi
+    _atomic_write "$ACTIVE" "$UPDATED"
+    ;;
+
+  story-mark)
+    _require_active
+    SID="${2:-}"; SSTATUS="${3:-}"
+    if [ -z "$SID" ] || [ -z "$SSTATUS" ]; then
+      echo "gstack-cycle-state story-mark: usage: story-mark <story-id> <status>" >&2; exit 1
+    fi
+    UPDATED=$(GSTACK_CS_SID="$SID" GSTACK_CS_SSTATUS="$SSTATUS" bun -e '
+      const fs = require("fs");
+      const ALLOWED = ["pending", "in_progress", "done", "blocked"];
+      const status = process.env.GSTACK_CS_SSTATUS;
+      if (!ALLOWED.includes(status)) {
+        process.stderr.write("story-mark: status must be one of: " + ALLOWED.join(", ") + "\n"); process.exit(1);
+      }
+      const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+      j.stories = Array.isArray(j.stories) ? j.stories : [];
+      const s = j.stories.find(x => x.id === process.env.GSTACK_CS_SID);
+      if (!s) { process.stderr.write("story not found\n"); process.exit(1); }
+      s.status = status;
+      process.stdout.write(JSON.stringify(j, null, 2));
+    ' "$ACTIVE" 2>&1)
+    if [ $? -ne 0 ]; then echo "$UPDATED" >&2; exit 1; fi
+    _atomic_write "$ACTIVE" "$UPDATED"
+    ;;
+
+  close)
+    _require_active
+    FINAL_STATUS="${2:-shipped}"
+    case "$FINAL_STATUS" in
+      shipped|abandoned|blocked|paused) ;;
+      *) echo "gstack-cycle-state close: final status must be shipped|abandoned|blocked|paused" >&2; exit 1 ;;
+    esac
+    CLOSED_PATH=$(GSTACK_CS_FINAL="$FINAL_STATUS" GSTACK_CS_CLOSED_DIR="$CLOSED_DIR" bun -e '
+      const fs = require("fs");
+      const path = require("path");
+      const j = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
+      j.status = process.env.GSTACK_CS_FINAL;
+      j.closed_at = new Date().toISOString();
+      j.events = Array.isArray(j.events) ? j.events : [];
+      j.events.push({ ts: j.closed_at, event: "closed", final_status: j.status });
+      const dest = path.join(process.env.GSTACK_CS_CLOSED_DIR, j.id + ".json");
+      if (fs.existsSync(dest)) {
+        process.stderr.write("close: " + dest + " already exists\n"); process.exit(1);
+      }
+      fs.writeFileSync(dest, JSON.stringify(j, null, 2));
+      process.stdout.write(dest);
+    ' "$ACTIVE" 2>&1)
+    if [ $? -ne 0 ]; then echo "$CLOSED_PATH" >&2; exit 1; fi
+    rm -f "$ACTIVE"
+    echo "CLOSED $CLOSED_PATH"
+    ;;
+
+  list-closed)
+    LIMIT=10
+    if [ "${2:-}" = "--limit" ] && [ -n "${3:-}" ]; then LIMIT="$3"; fi
+    GSTACK_CS_LIMIT="$LIMIT" GSTACK_CS_CLOSED_DIR="$CLOSED_DIR" bun -e '
+      const fs = require("fs");
+      const path = require("path");
+      const dir = process.env.GSTACK_CS_CLOSED_DIR;
+      let files;
+      try { files = fs.readdirSync(dir).filter(f => f.endsWith(".json")); } catch { process.exit(0); }
+      const entries = files.map(f => {
+        try {
+          const j = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
+          return { id: j.id, status: j.status, closed_at: j.closed_at || "", title: j.title || "" };
+        } catch { return null; }
+      }).filter(Boolean);
+      entries.sort((a, b) => (b.closed_at || "").localeCompare(a.closed_at || ""));
+      const limit = parseInt(process.env.GSTACK_CS_LIMIT, 10);
+      for (const e of entries.slice(0, limit)) {
+        console.log((e.closed_at || "").split("T")[0] + " " + e.status.padEnd(10) + " " + e.id + (e.title ? " — " + e.title : ""));
+      }
+    '
+    ;;
+
+  ""|help|-h|--help)
+    sed -n '2,/^set -e/p' "$0" | sed 's/^# \{0,1\}//; /^set -e/d'
+    ;;
+
+  *)
+    echo "gstack-cycle-state: unknown command '$CMD' (run 'gstack-cycle-state help')" >&2
+    exit 1
+    ;;
+esac

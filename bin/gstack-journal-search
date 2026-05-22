@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# gstack-journal-search — search the project journal by query, status, or recency
+# Usage:
+#   gstack-journal-search                          → most recent 5 entries
+#   gstack-journal-search --limit 10               → most recent 10 entries
+#   gstack-journal-search --query "auth"           → entries matching "auth"
+#   gstack-journal-search --status shipped         → only shipped cycles
+#   gstack-journal-search --query "..." --headlines-only  → just the section headers
+#
+# Reads ~/.gstack/projects/$SLUG/journal.md. Parses by `## ` headings,
+# filters, and prints matching entries newest-first. Exit 0 silently when
+# the journal does not yet exist (first cycle on a project).
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+JOURNAL="$GSTACK_HOME/projects/$SLUG/journal.md"
+
+if [ ! -f "$JOURNAL" ]; then
+  exit 0
+fi
+
+QUERY=""
+STATUS=""
+LIMIT=5
+HEADLINES_ONLY=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query) QUERY="$2"; shift 2 ;;
+    --status) STATUS="$2"; shift 2 ;;
+    --limit) LIMIT="$2"; shift 2 ;;
+    --headlines-only) HEADLINES_ONLY=true; shift ;;
+    *) shift ;;
+  esac
+done
+
+GSTACK_JS_QUERY="$QUERY" GSTACK_JS_STATUS="$STATUS" GSTACK_JS_LIMIT="$LIMIT" GSTACK_JS_HEADLINES="$HEADLINES_ONLY" \
+bun -e '
+const fs = require("fs");
+const path = process.argv[2];
+const query = (process.env.GSTACK_JS_QUERY || "").toLowerCase().trim();
+const status = (process.env.GSTACK_JS_STATUS || "").toLowerCase().trim();
+const limit = parseInt(process.env.GSTACK_JS_LIMIT || "5", 10);
+const headlinesOnly = process.env.GSTACK_JS_HEADLINES === "true";
+
+let text;
+try { text = fs.readFileSync(path, "utf-8"); } catch { process.exit(0); }
+
+// Split into entries on lines starting with "## ".
+// The first chunk is the file header (before any entry), discard it.
+const parts = text.split(/^## /m);
+if (parts.length <= 1) process.exit(0);
+const entries = parts.slice(1).map(p => "## " + p.trimEnd());
+
+const parseDate = (head) => {
+  const m = head.match(/^## (\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "0000-00-00";
+};
+
+const parseStatus = (body) => {
+  const m = body.match(/^- \*\*Status:\*\* (\w+)/m);
+  return m ? m[1].toLowerCase() : "";
+};
+
+let filtered = entries
+  .map(e => ({ raw: e, date: parseDate(e.split("\n")[0]), status: parseStatus(e) }))
+  .sort((a, b) => b.date.localeCompare(a.date));
+
+if (status) filtered = filtered.filter(e => e.status === status);
+if (query) {
+  const tokens = query.split(/\s+/).filter(Boolean);
+  filtered = filtered.filter(e => {
+    const hay = e.raw.toLowerCase();
+    return tokens.some(t => hay.includes(t));
+  });
+}
+
+filtered = filtered.slice(0, limit);
+
+if (filtered.length === 0) process.exit(0);
+
+console.log("JOURNAL: " + filtered.length + " entr" + (filtered.length === 1 ? "y" : "ies") + " matched");
+console.log("");
+
+for (const e of filtered) {
+  if (headlinesOnly) {
+    console.log(e.raw.split("\n")[0]);
+  } else {
+    console.log(e.raw);
+    console.log("");
+  }
+}
+' "$JOURNAL" 2>/dev/null || exit 0
