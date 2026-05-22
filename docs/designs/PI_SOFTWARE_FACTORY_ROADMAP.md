@@ -413,8 +413,7 @@ Implemented:
 
 Remaining implementation work:
 
-- generated QA skills need to write the durable machine-readable QA log;
-- add explicit `/factory-recover-qa` only after the durable QA log contract is emitted by the skill;
+- dogfood generated QA durable log emission in live Pi sessions, beyond fixture-backed recovery tests;
 - keep audit/no-fix and fix workflows separate.
 
 ### Completed strategy chunk — Pi distribution/package path
@@ -510,7 +509,7 @@ Implemented:
 - `test/factory-distribution.test.ts`;
 - no publish/install/global side effects.
 
-### Next Chunk 1 — Alpha/Beta validation consolidation
+### Completed implementation chunk — Alpha/Beta validation consolidation
 
 Goal: turn the newly landed Alpha/Beta foundations into a repeatable gate.
 
@@ -553,12 +552,13 @@ Design of record:
 
 - `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md` defines the host-side contract (per-run guarded agent session, file-write classifier, browser sidecar output dir, capability attestation, validation, explicit blockers). `/factory-qa-fix` remains hidden until that design is implemented and validated.
 
-Recommended next steps:
+Remaining next steps:
 
-- implement the factory-side primitives from §10 Step 1 (`lib/factory-file-write-guard.ts`, attestation helpers, `createGuardedAgentSession` shim) — all behind the existing hidden-command gate;
-- wire the Pi adapter to the shim and add a test-only fake host so §11.3 negative tests can land — `/factory-qa-fix` stays unregistered;
-- partner with a host vendor to implement the §5 contract and OS-confine the browse subprocess per §8;
-- only then reconsider `/factory-qa-fix` exposure, gated by the §11.5 end-to-end test against the real host.
+- keep `/factory-qa-fix` hidden while the factory-side primitives and Pi adapter negative wiring stay test-only;
+- partner with a host vendor to implement the §5 guarded-session contract and OS-confine the browse subprocess per §8;
+- add real denial artifact/event emission once a host can route live Bash/Edit/Write/Read paths through the guard;
+- verify browse output-dir confinement and the §11.5 end-to-end test against a real host;
+- only then reconsider `/factory-qa-fix` exposure behind explicit opt-in UX and copy tests.
 
 ### Handoff for next context
 
@@ -616,7 +616,24 @@ Current behavior:
 - fake guarded-host support is test-only and does not alter public command registration;
 - no real host integration is claimed.
 
-### Next Chunk 1 — production web stack decision
+### Next Chunk 1 — P0 cockpit design-brief integration
+
+Goal: ingest the next cockpit design brief into the P0 screen/component specs, pure view models, and static prototype before choosing a production web stack.
+
+Safe autonomous scope:
+
+- reconcile the brief against `PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`, `PI_SOFTWARE_FACTORY_WEB_COCKPIT_COMPONENT_MODEL.md`, `PI_SOFTWARE_FACTORY_COCKPIT_BETA1_CONTRACT.md`, and `docs/prototypes/factory-cockpit-p0/`;
+- update docs, fixture/view-model expectations, and static no-dependency prototype markup/CSS if the brief changes P0 findings;
+- preserve the current no-runtime/no-dependency boundary.
+
+Blocked until explicit approval:
+
+- production web app location;
+- stack/framework;
+- dependencies/package manifest changes;
+- auth/hosted workspace model.
+
+### Next Chunk 2 — production web stack decision
 
 Goal: decide whether to move beyond the static prototype.
 

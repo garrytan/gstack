@@ -29,7 +29,7 @@ Current readiness estimate:
 | Common-user web cockpit/platform | ~30–35% | ~45–50% | ~58–63% | **~65–70%** | A static cockpit prototype proves the common-user shape, but no production web app scaffold/runtime exists. |
 | Weighted overall production readiness | ~33% | ~48–52% | ~60–65% | **~66–70%** | Validation and product visibility improved, discounted for missing live UI/package surface and host-level guard implementation. |
 
-The branch is **not production-ready** for public users yet. It is ready for smoke-runner surfacing, factory-side host-guard primitives, and a production web stack decision if the user wants to move beyond the static prototype.
+The branch is **not production-ready** for public users yet. Smoke-runner surfacing and factory-side host-guard primitives have landed. The next readiness movement comes from real-host guard integration, smoke-gate promotion, install/update dry-runs, P0 cockpit design-brief integration, and a production web stack decision if the user wants to move beyond the static prototype.
 
 ## What changed in Wave 1
 
@@ -191,8 +191,8 @@ Purpose: enable write-capable local fixes only after real guard enforcement exis
 
 Entry gates:
 
-- All Pi/agent shell/file-write execution paths used by QA fix are wrapped by guarded runtime.
-- `safe-command-guard` capability is advertised only when the wrapper is active for every relevant path.
+- The host satisfies the full `PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md` §5/§11/§12 contract for every QA-fix surface: Bash, Edit, Write, Read, Glob, Grep, unsupported tools, and browser output confinement.
+- `safe-command-guard` capability is advertised only when the verified host wrapper is active for every relevant path.
 - Denied commands create durable audit artifacts/events.
 - Generated QA skill emits machine-readable durable QA logs.
 - `/factory-recover-qa` exists and is idempotent after durable QA log emission is real.
@@ -262,25 +262,25 @@ Exit gates:
 Do not call the Universe AI Software Factory production-ready until all are true:
 
 1. A production web or packaged local UI exists and is approved.
-2. Durable project/workspace state exists and survives process restarts.
-3. Artifact descriptors are integrated into all user-facing artifact views.
-4. QA durable logs are emitted by the generated QA skills, not only parsed by library tests.
-5. Safe-command guard wraps live execution paths before any write-capable QA fix is exposed.
-6. `/factory-qa-fix` has explicit opt-in UX, negative tests, and denial audit artifacts.
-7. Distribution/install/update path is tested outside the source checkout.
-8. Production-like smoke checks are part of the release gate.
+2. Durable project/workspace state is connected to that UI or package surface and exercised outside isolated library tests.
+3. Artifact descriptors are integrated into every user-facing artifact view in that UI/package surface.
+4. QA durable logs are dogfooded in live Pi sessions, not only fixture-tested.
+5. Safe-command guard satisfies the full host-enforcement §5/§11/§12 contract before any write-capable QA fix is exposed, including Bash/Edit/Write/Read/Glob/Grep hooks, unsupported-tool default-deny, and browser output confinement.
+6. `/factory-qa-fix` has explicit opt-in UX, a real-host end-to-end guard test, denial audit artifacts/events, and copy tests.
+7. Distribution/install/update/rollback path is tested outside the source checkout.
+8. Production-like smoke checks are part of the release gate, not only directly invokable from `bin/gstack-factory-smoke`.
 9. Security review has passed for command execution, artifacts, browser evidence, and workspace/tenant boundaries.
 10. Ship-readiness language cannot be confused with tag/publish/push/deploy automation.
 
 ## Recommended next wave
 
-Highest-value next work:
+Highest-value next work after the completed Alpha/Beta foundations:
 
-1. Durable project/workspace catalog.
-2. Artifact descriptor integration into project/facade views.
-3. Generated QA durable log emission plus `/factory-recover-qa`.
-4. Live safe-command guard wrapping and denial audit artifacts.
-5. Approved no-dependency cockpit prototype or approved production web stack/location.
-6. Packaged Pi install/update spike.
+1. Keep `/factory-qa-fix` hidden and close the remaining host-guard validation gaps: real host integration, browser output confinement, denial artifact/event emission, and §11.5 end-to-end proof.
+2. Decide the production cockpit path: approved web stack/location or packaged local UI, plus auth/workspace boundary if hosted.
+3. Integrate the next cockpit design brief into the P0 screen/component specs, pure view models, and static prototype before selecting a production stack.
+4. Promote the smoke runner into local/CI release gates without changing package manifests or workflows until approved.
+5. Turn the dry-run distribution helpers into a tested install/update/rollback spike outside the source checkout.
+6. Run a dedicated security review over command execution, artifact rendering, browser evidence, and workspace/tenant boundaries.
 
-Keep roadmap consolidation serial after that wave, as in Wave 1.
+Keep roadmap/readiness consolidation serial after each implementation wave so future agents do not re-plan completed chunks.

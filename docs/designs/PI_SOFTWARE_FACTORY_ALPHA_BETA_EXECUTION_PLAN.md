@@ -115,11 +115,19 @@ Recommended serial/parallel shape:
 
 Purpose: make the existing Pi/CLI factory reliable enough for trusted internal dogfooding.
 
-Current status: mostly met, but still missing durable QA recovery and stronger no-overclaim runtime evidence.
+Current status: met for trusted internal dogfooding. Durable review and QA
+recovery exist, status/list/gate no-overclaim copy is covered, and
+`/factory-qa-fix` remains hidden. Remaining Alpha 0 work is live dogfooding of
+generated QA log emission in real Pi sessions rather than only fixture-backed
+tests.
 
 ### Deliverables
 
 #### A0.1 Durable QA log emission contract
+
+Status: implemented/tested in repo through `bin/gstack-qa-log`, generated QA
+instructions, `lib/factory-qa-capture.ts`, and Pi extension recovery/auto-capture
+tests. Still worth live-dogfooding in a real Pi QA session.
 
 Files likely touched:
 
@@ -152,7 +160,8 @@ bun test test/factory-qa-capture.test.ts test/pi-extension.test.ts test/factory-
 
 #### A0.2 `/factory-recover-qa` command
 
-Only after A0.1 is real.
+Status: implemented/tested in `.pi/extensions/pi-gstack/index.ts` and
+`test/pi-extension.test.ts`. It remains audit/no-fix and does not expose QA fix.
 
 Files likely touched:
 
@@ -176,6 +185,9 @@ bun test test/pi-extension.test.ts test/factory-qa-capture.test.ts
 ```
 
 #### A0.3 Alpha 0 status audit
+
+Status: implemented/tested for inspect-only QA/ship status, gate sequence
+requirements, and hidden QA-fix defaults.
 
 Files likely touched:
 
@@ -320,16 +332,19 @@ Validation:
 bun test test/factory-cockpit-view.test.ts test/factory-project.test.ts test/factory-artifact-content.test.ts
 ```
 
-#### A1.4 Optional static prototype decision
+#### A1.4 Static prototype
 
-Default autonomous action: **do not build the static prototype yet**.
+Status: implemented as a no-dependency static prototype under
+`docs/prototypes/factory-cockpit-p0/`. It remains HTML/CSS only: no JavaScript,
+no external assets, no production runtime, no framework choice, and no package
+manifest changes.
 
-Reason: earlier guardrail says static no-dependency prototype under `docs/prototypes` is allowed only with explicit approval.
+Remaining follow-up:
 
-No-intervention fallback:
-
-- produce fixture JSON and view-model tests instead;
-- update docs to say the prototype can be generated later from stable view models.
+- reconcile the user's next P0 cockpit design brief against the static prototype
+  and view-model fixtures;
+- preserve the no-runtime/no-dependency boundary until a production web stack is
+  explicitly approved.
 
 ### Alpha 1 exit criteria
 
@@ -681,31 +696,30 @@ git diff --check -- docs/designs lib test .pi/extensions/pi-gstack/index.ts
 
 Add new test files to this smoke as they land.
 
-## 7. Parallel execution lanes for the next wave
+## 7. Parallel execution lanes after the completed Alpha/Beta foundation wave
 
-Use isolated worktrees again. Suggested lanes:
+The original project-catalog, artifact-view, QA-log, guard-primitive,
+cockpit-view, distribution-dry-run, ops-smoke, and validation lanes have landed
+as repo-side foundations. Use isolated worktrees again only for independent
+follow-on work:
 
 | Lane | Worktree | Output |
 |---|---|---|
-| A | `gstack-wt-project-catalog` | Durable project/workspace catalog. |
-| B | `gstack-wt-artifact-views` | Artifact descriptor integration into project views. |
-| C | `gstack-wt-qa-logs` | Generated QA durable log emission and `/factory-recover-qa`. |
-| D | `gstack-wt-live-guard` | Live guard path inventory/wrapping/denial audit. |
-| E | `gstack-wt-cockpit-view` | Cockpit view models and fixtures. |
-| F | `gstack-wt-distribution-dryrun` | Bundle manifest/dry-run validation. |
-| G | `gstack-wt-ops-security` | Smoke/backup/security contracts. |
-| H | `gstack-wt-validation` | Read-only review across lanes. |
+| A | `gstack-wt-host-guard-real` | Real host contract integration plan/tests; no `/factory-qa-fix` exposure. |
+| B | `gstack-wt-denial-artifacts` | Denial artifact/event DTOs and fixture-backed rendering, still hidden. |
+| C | `gstack-wt-cockpit-brief` | User-provided P0 design brief reconciliation into specs/view models/static prototype. |
+| D | `gstack-wt-smoke-gate` | Local/CI smoke-gate plan and no-manifest-change invocation docs. |
+| E | `gstack-wt-distribution-install-spike` | Install/update/rollback dry-run spike outside source checkout. |
+| F | `gstack-wt-security-review` | Read-only security review over command/artifact/browser/workspace boundaries. |
 
-Integration order:
+Suggested integration order:
 
-1. Project catalog.
-2. Artifact views.
-3. QA logs/recovery.
-4. Live guard inventory/wrapping.
-5. Cockpit view models/fixtures.
-6. Distribution dry-run.
-7. Ops/security contracts.
-8. Roadmap/readiness consolidation.
+1. Roadmap/readiness consolidation for the current baseline.
+2. Host-guard negative validation and denial artifact/event DTOs.
+3. P0 cockpit design-brief reconciliation.
+4. Smoke-gate and distribution install/update dry-run spikes.
+5. Security review before any beta exposure.
+6. Production web stack/location decision only after design reconciliation.
 
 ## 8. Stop/continue rules
 
@@ -733,16 +747,20 @@ No-intervention fallback for stops:
 - land tests/docs for the safe subset;
 - proceed with independent lanes.
 
-## 9. Definition of done for the next planning-to-execution wave
+## 9. Definition of done status and next-wave gate
 
-The next wave is complete when:
+The completed foundation wave is done when:
 
-- Alpha 0 durable QA recovery is real or explicitly blocked by missing generated log emission;
+- Alpha 0 durable QA recovery is real and fixture-tested;
 - Alpha 1 data/view foundation exists without a production web scaffold;
-- Alpha 2 either proves guard attestation and keeps/exposes QA-fix accordingly, or keeps QA-fix hidden with documented unguardable paths;
+- Alpha 2 keeps QA-fix hidden with documented unguardable host paths and repo-side guard primitives;
 - Beta 0 has a dry-run bundle manifest/validator, not a publish action;
 - Beta 1 has common-user cockpit fixtures/view models and mobile/auth boundary contracts;
 - Beta 2 has smoke/backup/security contracts;
 - roadmap and readiness docs are consolidated once;
 - focused factory tests pass;
 - protected files remain untouched.
+
+The next wave is not done until real host integration, P0 design-brief
+reconciliation, smoke-gate promotion, install/update dry-runs, and security
+review are each either implemented or explicitly blocked by an approval point.

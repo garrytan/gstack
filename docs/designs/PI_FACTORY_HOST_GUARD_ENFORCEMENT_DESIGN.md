@@ -234,23 +234,26 @@ it only routes calls through it.
 
 ### 7.2 File-write policy (Edit / Write)
 
-The factory needs a thin pure helper (proposed location:
-`lib/factory-file-write-guard.ts`, new module — not implemented here; see
-§10 migration). The helper takes:
+The factory now has the thin pure helper in
+`lib/factory-file-write-guard.ts`. This is a repo-side classifier primitive,
+not live host enforcement. A conforming host must still route every Edit/Write
+operation through it before `/factory-qa-fix` can be exposed. The helper takes:
 
 ```ts
 interface FactoryFileWriteRequest {
   readonly absolutePath: string;       // host already resolved
   readonly workspaceRoot: string;
   readonly profile: 'non-destructive-write';
-  readonly context: { runId: string; phaseId: string };
+  readonly context?: { runId?: string; phaseId?: string; workflowId?: string };
   readonly intent: 'create' | 'overwrite' | 'edit-existing';
+  readonly targetExists?: boolean;
+  readonly oldContentMatched?: boolean;
+  readonly explicitReason?: string;
 }
 ```
 
-and returns a `FactoryCommandGuardDecision`-shaped decision. The classifier
-mirrors the command-guard logic with these additional deny rules specific to
-writes:
+and returns a `FactoryFileWriteDecision`. The classifier mirrors the
+command-guard logic with these additional deny rules specific to writes:
 
 1. **Outside workspace**: any path whose canonical form is not under
    `workspaceRoot` is `outside-workspace-path`.
@@ -440,42 +443,42 @@ existing `/factory-qa-fix`-hidden gate. No step exposes the command.
 
 ### Step 1 — factory-side primitives (no host changes)
 
-- Add `lib/factory-file-write-guard.ts` mirroring the command-guard structure.
-  Same shape: pure classifier, `FactoryFileWriteRequest` →
-  `FactoryFileWriteDecision`. Unit-tested for every deny rule in §7.2.
-- Add `lib/factory-host-attestation.ts` (or extend the guarded-runtime module)
-  with the attestation digest helper, `verifyHostGuardAttestation`, and the
-  sanitized attestation-artifact shape from §9.
-- Add a `FactoryGuardedAgentSessionSpec` type and the
-  `createGuardedAgentSession` adapter shim that simply returns
-  `{ supported: false, reason: 'no-host' }` for every existing host. Each
-  host can opt in by overriding the shim.
-- Tests: file-write classifier negative tests, attestation digest stability,
-  shim defaults.
+Status: complete in this repo.
 
-After Step 1 the factory has the contract surface but no host implements it.
-`/factory-qa-fix` remains hidden.
+- `lib/factory-file-write-guard.ts` mirrors the command-guard structure.
+  Same shape: pure classifier, `FactoryFileWriteRequest` →
+  `FactoryFileWriteDecision`. It is unit-tested for the deny rules in §7.2.
+- `lib/factory-host-attestation.ts` contains the attestation digest helper,
+  `verifyHostGuardAttestation`, and the sanitized attestation-artifact shape
+  from §9.
+- `FactoryGuardedAgentSessionSpec` and `createGuardedAgentSession` exist; the
+  default shim returns `{ supported: false, reason: 'no-host' }` for current
+  hosts. Each host can opt in by overriding the shim.
+- Tests cover file-write classifier negative cases, attestation digest
+  stability, sanitized artifact shape, and shim defaults.
+
+After Step 1 the factory has the contract surface but no real host implements
+it. `/factory-qa-fix` remains hidden.
 
 ### Step 2 — Pi adapter wiring (still hidden)
 
-- Teach `.pi/extensions/pi-gstack/index.ts` to call the shim. With no host
-  support, it gets `supported: false` and the existing behavior is
-  unchanged: `safeCommandGuardActive` stays `false`, `/factory-qa-fix`
-  remains unregistered.
-- Add an internal-only env knob (`FACTORY_FAKE_GUARDED_HOST=1`) that
-  installs a test-only fake host returning a valid attestation but routing
-  every hook to a deny-everything implementation. This lets integration
-  tests prove the adapter would correctly:
-  - advertise `safe-command-guard` only when the fake host returns
-    attestation;
-  - emit attestation artifacts;
-  - block `qa-fix` runs on attestation digest mismatch;
-  - still keep `/factory-qa-fix` unregistered as a public command (the env
-    knob is for tests, never end users).
-- Tests: `test/pi-extension.test.ts` adds negative cases asserting
-  `safe-command-guard` absent without the fake, present with it; assertion
-  that the public command list does not include `factory-qa-fix` even with
-  the fake enabled.
+Status: complete for negative wiring and test-only fake-host posture in this
+repo; still no public command exposure.
+
+- `.pi/extensions/pi-gstack/index.ts` calls the shim. With no host support, it
+  gets `supported: false` and the existing behavior is unchanged:
+  `safeCommandGuardActive` stays `false`, `/factory-qa-fix` remains
+  unregistered.
+- Test-only guarded-host injection and probe-observation hooks let
+  `test/pi-extension.test.ts` exercise fake-valid, digest-mismatch, expired,
+  and unsupported host cases without an end-user env knob or package changes.
+- Adapter tests assert `safe-command-guard` is absent by default, present only
+  for a verifiable test-only attestation, and `/factory-qa-fix` remains
+  unregistered in every case.
+- Adversarial sweep tests now feed publish/deploy/secret/destructive command
+  fixtures and protected file-write fixtures through the test-only guarded
+  host path and assert sanitized audit records do not contain raw commands or
+  full paths.
 
 ### Step 3 — real host integration (per-host, out of repo scope)
 
@@ -549,7 +552,7 @@ following must pass.
 `test/pi-extension.test.ts` (exists) plus:
 
 - `expect(commands.has('factory-qa-fix')).toBe(false)` remains green
-  under: default install, `FACTORY_FAKE_GUARDED_HOST=1`, attestation
+  under: default install, test-only guarded-host injection, attestation
   mismatch, attestation expired, hook returning `supported: false`.
 - adversarial command sweep: a fixture of ~50 commands derived from the
   Appendix A inventory (publish, deploy, secret dump, force push, env
@@ -559,9 +562,10 @@ following must pass.
   audit record with a sanitized digest and never the raw command text;
 - adversarial file-write sweep: fixture of ~20 paths
   (`CLAUDE.md`, `package-lock.json`, `../etc/passwd`, `~/.ssh/id_rsa`,
-  `node_modules/.bin/foo`, `dist/index.js`, `.git/HEAD`, symlink
-  pointing outside workspace, etc.) is fed through `applyWrite` and
-  every one is denied with a sanitized record.
+  `node_modules/.bin/foo`, `dist/index.js`, `.git/HEAD`, and canonical
+  outside-workspace paths representing host-resolved symlink escapes, etc.)
+  is fed through `applyWrite` and every one is denied with a sanitized
+  record.
 
 ### 11.4 User-visible copy tests
 
@@ -622,13 +626,13 @@ This list is canonical; it supersedes any other "remaining work" notes that
 might suggest a narrower bar.
 
 1. `lib/factory-file-write-guard.ts` exists with unit tests for every §7.2
-   rule. **Not done.**
+   rule. **Done repo-side.**
 2. `lib/factory-host-attestation.ts` (or the equivalent attestation helpers
    in the guarded-runtime module) exists with digest + verification tests.
-   **Not done.**
+   **Done repo-side.**
 3. The factory adapter has a `createGuardedAgentSession` shim that defaults
    to "no host support" and is wired through to capability attestation.
-   **Not done.**
+   **Done repo-side.**
 4. At least one host implements §5 and §5.2 in a way the adapter can
    verify, including OS-level confinement of the browse subprocess where
    the host can offer it. **Not done; outside repo scope.**
@@ -637,7 +641,11 @@ might suggest a narrower bar.
    that must close before §8 can be considered live. **Status: not
    verified.** A negative test asserting browse refuses to honor a write
    outside the dir must land before §8 is treated as enforced.
-6. §11.1–§11.4 pass. **Not done.**
+6. §11.1–§11.4 pass. **Partially done.** Command/file-write guard tests,
+   attestation tests, default capability-negative tests, and test-only
+   adversarial command/file-write sweeps pass. Full host hook coverage,
+   eventual QA-fix copy tests, and real denial artifact/event integration are
+   still not done.
 7. §11.5 passes against the real host. **Not done; requires §4 host.**
 8. §11.6 passes under load. **Not done.**
 9. A user-facing release note exists describing the safety posture, the
@@ -706,10 +714,12 @@ default capability advertisement, and any documentation that suggests
   capability advertisement.
 - `FACTORY_QA_FIX_WORKFLOW` continues to require `safe-command-guard` so
   any host adopting this design must actually wrap the surfaces.
-- This design is the canonical contract. Subsequent factory-side changes
-  for `qa-fix` enforcement (`lib/factory-file-write-guard.ts`, attestation
-  helpers, shim, fake host, integration tests) should implement the
-  sections above without re-deriving the contract.
+- This design is the canonical contract. Completed factory-side primitives
+  (`lib/factory-file-write-guard.ts`, attestation helpers, default shim,
+  test-only fake host, and integration tests) implement the first repo-side
+  slices. Subsequent work should close the remaining real-host, browser
+  confinement, denial artifact/event, copy-test, and load-test gaps without
+  re-deriving the contract.
 - Updates to `PI_SOFTWARE_FACTORY_ROADMAP.md` "Next Chunk 3" and the
   production-readiness map should treat this doc as the design-of-record
   for the QA-fix host-enforcement work and reference it explicitly rather
