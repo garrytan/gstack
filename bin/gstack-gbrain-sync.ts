@@ -80,6 +80,35 @@ const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
+// Per-stage timeouts. Default 35 minutes is the honest budget for a first-run
+// full sync of a ~30-page-per-second brain (~70k pages). Brains with 100k+
+// pages or slow IO need more headroom — issue #1611. The env knobs accept an
+// integer in milliseconds; non-positive or non-numeric values fall back to the
+// default with a stderr warning so a typo doesn't silently extend a stage
+// indefinitely.
+const DEFAULT_STAGE_TIMEOUT_MS = 35 * 60 * 1000;
+
+function parseTimeoutEnv(name: string): number {
+  const raw = process.env[name];
+  if (!raw) return DEFAULT_STAGE_TIMEOUT_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(
+      `[gstack-gbrain-sync] ignoring ${name}=${JSON.stringify(raw)} — expected a positive integer (milliseconds); using default ${DEFAULT_STAGE_TIMEOUT_MS} ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  return Math.floor(n);
+}
+
+export function codeStageTimeoutMs(): number {
+  return parseTimeoutEnv("GSTACK_SYNC_CODE_TIMEOUT_MS");
+}
+
+export function memoryStageTimeoutMs(): number {
+  return parseTimeoutEnv("GSTACK_SYNC_MEMORY_TIMEOUT_MS");
+}
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 
 function printUsage(): void {
@@ -100,6 +129,12 @@ Options:
 
 Stages run in order: code → memory ingest → curated git push.
 Each stage failure is non-fatal; subsequent stages still run.
+
+Environment:
+  GSTACK_SYNC_CODE_TIMEOUT_MS    Override code stage timeout (default 35 min).
+  GSTACK_SYNC_MEMORY_TIMEOUT_MS  Override memory ingest timeout (default 35 min).
+                                 Set higher (e.g. 5400000 = 90 min) when --full
+                                 import on large brains exceeds the default.
 `);
 }
 
@@ -603,7 +638,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
 
   const syncResult = spawnGbrain(syncArgs, {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 35 * 60 * 1000,
+    timeout: codeStageTimeoutMs(),
     baseEnv: gbrainEnv,
   });
 
@@ -757,7 +792,7 @@ function runMemoryIngest(args: CliArgs): StageResult {
   // internally and must see the DATABASE_URL from gbrain's own config.
   const result = spawnSync("bun", ingestArgs, {
     encoding: "utf-8",
-    timeout: 35 * 60 * 1000,
+    timeout: memoryStageTimeoutMs(),
     env: buildGbrainEnv({ announce: false }),
   });
 

@@ -1118,7 +1118,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Codex CEO voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  _CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+  _gstack_codex_timeout_wrapper 600 codex exec $_CODEX_MODEL_ARGS "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   You are a CEO/founder advisor reviewing a development plan.
   Challenge the strategic foundations: Are the premises valid or assumed? Is this the
@@ -1235,7 +1236,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Codex design voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  _CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+  _gstack_codex_timeout_wrapper 600 codex exec $_CODEX_MODEL_ARGS "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Read the plan file at <plan_path>. Evaluate this plan's
   UI/UX design decisions.
@@ -1316,7 +1318,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Codex eng voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  _CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+  _gstack_codex_timeout_wrapper 600 codex exec $_CODEX_MODEL_ARGS "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Review this plan for architectural issues, missing edge cases,
   and hidden complexity. Be adversarial.
@@ -1437,7 +1440,8 @@ Log: "Phase 3.5 skipped — no developer-facing scope detected."
   **Codex DX voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  _CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+  _gstack_codex_timeout_wrapper 600 codex exec $_CODEX_MODEL_ARGS "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Read the plan file at <plan_path>. Evaluate this plan's developer experience.
 

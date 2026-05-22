@@ -18,6 +18,8 @@ import {
   planHostnameFoldMigration,
   sourceLocalPath,
   _resetGbrainSupportsRenameCache,
+  codeStageTimeoutMs,
+  memoryStageTimeoutMs,
 } from "../bin/gstack-gbrain-sync";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
@@ -861,5 +863,82 @@ describe("sourceLocalPath", () => {
       "sources list --json": { stdout: JSON.stringify({ sources: [] }) },
     });
     expect(sourceLocalPath("missing-id", envWithBindir(bindir))).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Stage timeout overrides (issue #1611)
+//
+// `/sync-gbrain --full` on a ~100k-page brain blew past the hard-coded
+// 35-min timeout, SIGTERMed mid-import, and lost the staging checkpoint.
+// codeStageTimeoutMs / memoryStageTimeoutMs read env knobs so users with
+// slow IO or huge brains can extend the budget; bad inputs fall back to
+// the 35-min default so a typo doesn't silently disable the safety net.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("stage timeout overrides (issue #1611)", () => {
+  const DEFAULT_MS = 35 * 60 * 1000;
+  const saved: Record<string, string | undefined> = {};
+  const KEYS = ["GSTACK_SYNC_CODE_TIMEOUT_MS", "GSTACK_SYNC_MEMORY_TIMEOUT_MS"];
+
+  beforeEach(() => {
+    for (const k of KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("defaults to 35 minutes when no env knob is set", () => {
+    expect(codeStageTimeoutMs()).toBe(DEFAULT_MS);
+    expect(memoryStageTimeoutMs()).toBe(DEFAULT_MS);
+  });
+
+  it("honors GSTACK_SYNC_MEMORY_TIMEOUT_MS for memory ingest", () => {
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS = "5400000"; // 90 min
+    expect(memoryStageTimeoutMs()).toBe(5_400_000);
+    // Code stage stays on default — env knobs are independent.
+    expect(codeStageTimeoutMs()).toBe(DEFAULT_MS);
+  });
+
+  it("honors GSTACK_SYNC_CODE_TIMEOUT_MS independently", () => {
+    process.env.GSTACK_SYNC_CODE_TIMEOUT_MS = "7200000"; // 2 hr
+    expect(codeStageTimeoutMs()).toBe(7_200_000);
+    expect(memoryStageTimeoutMs()).toBe(DEFAULT_MS);
+  });
+
+  it("rejects non-numeric input and falls back to default", () => {
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS = "ninety minutes";
+    expect(memoryStageTimeoutMs()).toBe(DEFAULT_MS);
+  });
+
+  it("rejects zero / negative values and falls back to default", () => {
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS = "0";
+    expect(memoryStageTimeoutMs()).toBe(DEFAULT_MS);
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS = "-1";
+    expect(memoryStageTimeoutMs()).toBe(DEFAULT_MS);
+  });
+
+  it("floors fractional ms to an integer", () => {
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS = "1234.9";
+    expect(memoryStageTimeoutMs()).toBe(1234);
+  });
+
+  it("treats empty string as unset (falls back to default)", () => {
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS = "";
+    expect(memoryStageTimeoutMs()).toBe(DEFAULT_MS);
+  });
+
+  it("--help mentions the env knobs", () => {
+    const r = runScript(["--help"]);
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toContain("GSTACK_SYNC_MEMORY_TIMEOUT_MS");
+    expect(r.stderr).toContain("GSTACK_SYNC_CODE_TIMEOUT_MS");
   });
 });

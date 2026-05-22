@@ -166,6 +166,266 @@ describe('gstack-codex-probe: auth probe', () => {
   });
 });
 
+// --- Group 1b: Account kind classifier + default model args (issue #1628) ---
+// ChatGPT-account auth blocks gpt-5.2-codex (Codex CLI's default). The probe
+// classifies the active auth and emits `-m gpt-5.2` so the SKILL.md templates
+// can inject it before the prompt and avoid the 400.
+
+describe('gstack-codex-probe: account kind classifier (issue #1628)', () => {
+  test('CODEX_API_KEY set → apikey', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_account_kind',
+        env: { CODEX_API_KEY: 'sk-test' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('apikey');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('OPENAI_API_KEY set → apikey', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_account_kind',
+        env: { OPENAI_API_KEY: 'sk-test' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('apikey');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('only auth.json present → chatgpt', () => {
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      const r = runProbe({ snippet: '_gstack_codex_account_kind', home });
+      expect(r.stdout.trim()).toBe('chatgpt');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('whitespace-only api keys + auth.json → chatgpt (env keys ignored)', () => {
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      const r = runProbe({
+        snippet: '_gstack_codex_account_kind',
+        env: { CODEX_API_KEY: '   ', OPENAI_API_KEY: '\t\n' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('chatgpt');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('no env keys + no auth.json → none', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({ snippet: '_gstack_codex_account_kind', home });
+      expect(r.stdout.trim()).toBe('none');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('alternate $CODEX_HOME with auth.json → chatgpt', () => {
+    const home = tempHome();
+    const altCodex = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-alt-codex-'));
+    try {
+      fs.writeFileSync(path.join(altCodex, 'auth.json'), '{}');
+      const r = runProbe({
+        snippet: '_gstack_codex_account_kind',
+        env: { CODEX_HOME: altCodex },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('chatgpt');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(altCodex, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('gstack-codex-probe: default model args (issue #1628)', () => {
+  test('chatgpt account → emits "-m gpt-5.2"', () => {
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      const r = runProbe({ snippet: '_gstack_codex_default_model_args', home });
+      expect(r.stdout.trim()).toBe('-m gpt-5.2');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('api-key account → emits nothing (default model)', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_default_model_args',
+        env: { CODEX_API_KEY: 'sk-test' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('no auth at all → emits nothing (auth probe handles the error)', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({ snippet: '_gstack_codex_default_model_args', home });
+      expect(r.stdout.trim()).toBe('');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('GSTACK_CODEX_MODEL override wins even on api-key auth', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_default_model_args',
+        env: { CODEX_API_KEY: 'sk-test', GSTACK_CODEX_MODEL: 'gpt-5.1-codex-max' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('-m gpt-5.1-codex-max');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('GSTACK_CODEX_MODEL=default unset the injection on chatgpt auth', () => {
+    // Escape hatch: power user with a beta entitlement on ChatGPT can opt out
+    // of the injection without unsetting their auth.json.
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      const r = runProbe({
+        snippet: '_gstack_codex_default_model_args',
+        env: { GSTACK_CODEX_MODEL: 'default' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('empty GSTACK_CODEX_MODEL treated as unset (chatgpt still gets -m gpt-5.2)', () => {
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      const r = runProbe({
+        snippet: '_gstack_codex_default_model_args',
+        env: { GSTACK_CODEX_MODEL: '' },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('-m gpt-5.2');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('output word-splits cleanly into two argv tokens', () => {
+    // Critical invariant: callsites use `codex review $_CMA "prompt"` with
+    // unquoted expansion, relying on word-splitting to turn "-m gpt-5.2"
+    // into two argv tokens. If the helper ever printf'd "-mgpt-5.2" or
+    // similar, the codex CLI would parse it as one flag value and break.
+    const home = tempHome();
+    try {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
+      const r = runProbe({
+        snippet:
+          'set -- $(_gstack_codex_default_model_args); echo "ARGS=$#"; echo "T1=[$1]"; echo "T2=[$2]"',
+        home,
+      });
+      expect(r.stdout).toContain('ARGS=2');
+      expect(r.stdout).toContain('T1=[-m]');
+      expect(r.stdout).toContain('T2=[gpt-5.2]');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('empty output word-splits to zero tokens (no spurious arg on api-key auth)', () => {
+    const home = tempHome();
+    try {
+      const r = runProbe({
+        snippet:
+          'set -- $(_gstack_codex_default_model_args); echo "ARGS=$#"',
+        env: { CODEX_API_KEY: 'sk-test' },
+        home,
+      });
+      expect(r.stdout).toContain('ARGS=0');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- Group 1c: Template wiring guard (issue #1628) --------------------------
+// Static check: every `codex exec`/`codex review` line in the codex + autoplan
+// templates must thread $_CODEX_MODEL_ARGS so ChatGPT-account users don't
+// re-encounter the 400 if a future edit drops the variable.
+
+describe('SKILL.md.tmpl: every codex invocation threads $_CODEX_MODEL_ARGS (issue #1628)', () => {
+  const TEMPLATES = ['codex/SKILL.md.tmpl', 'autoplan/SKILL.md.tmpl'];
+
+  for (const relPath of TEMPLATES) {
+    test(`${relPath}: every \`_gstack_codex_timeout_wrapper <n> codex …\` line carries $_CODEX_MODEL_ARGS`, () => {
+      const content = fs.readFileSync(path.join(ROOT, relPath), 'utf-8');
+      const lines = content.split('\n');
+      const offending: { line: number; text: string }[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!/_gstack_codex_timeout_wrapper\s+\d+\s+codex\b/.test(line)) continue;
+        if (!line.includes('$_CODEX_MODEL_ARGS')) {
+          offending.push({ line: i + 1, text: line.trim() });
+        }
+      }
+      expect(offending).toEqual([]);
+    });
+
+    test(`${relPath}: $_CODEX_MODEL_ARGS is assigned via _gstack_codex_default_model_args just before each codex invocation`, () => {
+      const content = fs.readFileSync(path.join(ROOT, relPath), 'utf-8');
+      const lines = content.split('\n');
+      const offending: number[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!/_gstack_codex_timeout_wrapper\s+\d+\s+codex\b/.test(line)) continue;
+        // Walk back up to 5 lines to find the assignment. The template idiom
+        // is a single bash block, so the assignment is always within a few
+        // lines of the invocation.
+        let assigned = false;
+        for (let j = i - 1; j >= Math.max(0, i - 6); j--) {
+          if (lines[j].includes('_CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)')) {
+            assigned = true;
+            break;
+          }
+        }
+        if (!assigned) offending.push(i + 1);
+      }
+      expect(offending).toEqual([]);
+    });
+  }
+});
+
 // --- Group 2: Version check -------------------------------------------------
 // Stub `codex --version` by putting a fake `codex` executable on PATH.
 function tempStubCodex(versionOutput: string, bool_command_fails = false): {

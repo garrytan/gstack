@@ -947,7 +947,11 @@ _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo"
 cd "$_REPO_ROOT"
 # 330s (5.5min) is slightly longer than the Bash 300s so the shell wrapper
 # only fires if Bash's own timeout doesn't.
-_gstack_codex_timeout_wrapper 330 codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
+# $_CODEX_MODEL_ARGS forces `-m gpt-5.2` on ChatGPT-account auth so Codex's
+# default `gpt-5.2-codex` doesn't 400 against the ChatGPT entitlement filter
+# (issue #1628). On API-key auth it's empty and the default model wins.
+_CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+_gstack_codex_timeout_wrapper 330 codex review $_CODEX_MODEL_ARGS "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
 Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes." -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
@@ -987,7 +991,8 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX.txt")
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-_gstack_codex_timeout_wrapper 330 codex exec -s read-only "$(cat "$_PROMPT_FILE")" -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+_CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+_gstack_codex_timeout_wrapper 330 codex exec $_CODEX_MODEL_ARGS -s read-only "$(cat "$_PROMPT_FILE")" -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_CODEX_EXIT" = "124" ]; then
@@ -1215,7 +1220,8 @@ fi
 # Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
 # capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
 TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX.txt")}
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+_gstack_codex_timeout_wrapper 600 codex exec $_CODEX_MODEL_ARGS "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 for line in sys.stdin:
@@ -1370,7 +1376,8 @@ if [ -z "$PYTHON_CMD" ]; then
   exit 1
 fi
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+_gstack_codex_timeout_wrapper 600 codex exec $_CODEX_MODEL_ARGS "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -1424,7 +1431,8 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 cd "$_REPO_ROOT" || exit 1
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> $_CODEX_MODEL_ARGS "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 # Fix 1: same hang detection pattern as new-session block
@@ -1483,9 +1491,16 @@ The reason must engage with a specific Codex insight and compare against an alte
 
 ## Model & Reasoning
 
-**Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
-agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
+**Model:** Codex picks the default model unless one is required. Two cases inject `-m`:
+1. **ChatGPT-account auth (no `$CODEX_API_KEY` / `$OPENAI_API_KEY`):** the
+   probe injects `-m gpt-5.2` so Codex's default `gpt-5.2-codex` doesn't trip
+   OpenAI's ChatGPT-account entitlement filter and return 400 (issue #1628).
+2. **`$GSTACK_CODEX_MODEL` set:** that exact model is injected; set it to
+   `"default"` or unset it to let Codex decide.
+
+API-key users hit no injection — they're entitled to every published model.
+If the user passes their own `-m` in the slash command, thread it through;
+the last `-m` on the codex command line wins.
 
 **Reasoning effort (per-mode defaults):**
 - **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens

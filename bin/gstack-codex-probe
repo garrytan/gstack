@@ -3,10 +3,13 @@
 # Sourced from template bash blocks; never execute directly.
 #
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
-#   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
-#   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
-#   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
-#   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
+#   _gstack_codex_auth_probe         — multi-signal auth check (env + file)
+#   _gstack_codex_account_kind       — classify auth as apikey | chatgpt | none
+#   _gstack_codex_default_model_args — emit `-m <model>` when ChatGPT auth needs
+#                                       a non-default model to avoid 400s (#1628)
+#   _gstack_codex_version_check      — warn on known-bad Codex CLI versions
+#   _gstack_codex_timeout_wrapper    — gtimeout -> timeout -> unwrapped fallback
+#   _gstack_codex_log_event          — telemetry emission to ~/.gstack/analytics/
 #
 # Hygiene rules (enforced by test/codex-hardening.test.ts):
 #   - Never set -e / set -u / trap / IFS= / PATH= in this file.
@@ -31,6 +34,86 @@ _gstack_codex_auth_probe() {
   fi
   echo "AUTH_FAILED"
   return 1
+}
+
+# --- Account kind classifier ------------------------------------------------
+#
+# Echoes one of: apikey | chatgpt | none.
+#
+# apikey  → CODEX_API_KEY or OPENAI_API_KEY is set (non-empty, non-whitespace).
+#           Codex CLI bills the OpenAI Platform key and the user is entitled
+#           to every published model, including gpt-5.2-codex.
+# chatgpt → no api-key env vars, but ${CODEX_HOME:-~/.codex}/auth.json exists.
+#           Codex CLI authenticates as the user's ChatGPT account. As of
+#           March 2026 the ChatGPT entitlement set excludes gpt-5.2-codex
+#           (returns "model is not supported when using Codex with a
+#           ChatGPT account") and only includes the base gpt-5.2 family —
+#           see #1628.
+# none    → no auth signal at all; the caller should fail fast.
+
+_gstack_codex_account_kind() {
+  local _k1 _k2
+  _k1=$(printf '%s' "${CODEX_API_KEY:-}" | tr -d '[:space:]')
+  _k2=$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '[:space:]')
+  if [ -n "$_k1" ] || [ -n "$_k2" ]; then
+    echo "apikey"
+    return 0
+  fi
+  local _codex_home="${CODEX_HOME:-$HOME/.codex}"
+  if [ -f "$_codex_home/auth.json" ]; then
+    echo "chatgpt"
+    return 0
+  fi
+  echo "none"
+}
+
+# --- Default model args -----------------------------------------------------
+#
+# Echoes the codex CLI flags that should be injected before the prompt /
+# subcommand. The two callsite patterns are:
+#
+#   _CODEX_MODEL_ARGS=$(_gstack_codex_default_model_args)
+#   _gstack_codex_timeout_wrapper 330 codex review $_CODEX_MODEL_ARGS "..." ...
+#
+# Or as a `bash -c` style array:
+#
+#   read -r -a _CMA <<<"$(_gstack_codex_default_model_args)"
+#
+# Behaviour:
+#   - $GSTACK_CODEX_MODEL set → emit `-m $GSTACK_CODEX_MODEL` regardless of
+#     auth kind. Power-user override, e.g. for testing gpt-5.1-codex-max.
+#   - $GSTACK_CODEX_MODEL = "" or "default" → emit nothing (let Codex pick).
+#   - account = chatgpt → emit `-m gpt-5.2` so the Codex CLI's default
+#     gpt-5.2-codex selection doesn't trip OpenAI's ChatGPT entitlement
+#     filter and 400 the request (issue #1628).
+#   - account = apikey → emit nothing; API-key users have full entitlement.
+#   - account = none    → emit nothing; let the auth probe handle the error.
+#
+# The output is a single line containing zero or two whitespace-separated
+# tokens, suitable for unquoted interpolation in a codex command line.
+
+_gstack_codex_default_model_args() {
+  local _override="${GSTACK_CODEX_MODEL:-}"
+  case "$_override" in
+    "")
+      # Unset / empty → fall through to account-based auto-detection below.
+      ;;
+    "default")
+      # Power-user opt-out: bypass injection entirely so the Codex CLI picks
+      # its own model. Useful if/when ChatGPT-account entitlement changes and
+      # the chatgpt path stops being needed.
+      return 0
+      ;;
+    *)
+      printf -- '-m %s' "$_override"
+      return 0
+      ;;
+  esac
+  local _kind
+  _kind=$(_gstack_codex_account_kind)
+  if [ "$_kind" = "chatgpt" ]; then
+    printf -- '-m gpt-5.2'
+  fi
 }
 
 # --- Version check ----------------------------------------------------------
