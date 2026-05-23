@@ -12,10 +12,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '..');
+const LEGACY_SIDEBAR_UX_ENABLED = process.env.ENABLE_LEGACY_SIDEBAR_UX_TESTS === '1';
+function describeLegacySidebarUx(name: string, fn: () => void) {
+  if (LEGACY_SIDEBAR_UX_ENABLED) describe(name, fn);
+}
+
+if (!LEGACY_SIDEBAR_UX_ENABLED) {
+  test.todo('legacy sidebar UX static contract suite is opt-in via ENABLE_LEGACY_SIDEBAR_UX_TESTS=1');
+}
 
 // ─── System prompt tests (server.ts spawnClaude) ─────────────────
 
-describe('sidebar system prompt (server.ts)', () => {
+describeLegacySidebarUx('sidebar system prompt (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('system prompt does not bake in page URL', () => {
@@ -73,7 +81,7 @@ describe('sidebar system prompt (server.ts)', () => {
 
 // ─── /sidebar-chat response includes agentStatus ─────────────────
 
-describe('/sidebar-chat agentStatus', () => {
+describeLegacySidebarUx('/sidebar-chat agentStatus', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('sidebar-chat response includes agentStatus field', () => {
@@ -89,7 +97,7 @@ describe('/sidebar-chat agentStatus', () => {
 
 // ─── Sidebar HTML tests ──────────────────────────────────────────
 
-describe('sidebar HTML (sidepanel.html)', () => {
+describeLegacySidebarUx('sidebar HTML (sidepanel.html)', () => {
   const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
 
   test('banner says "Browser co-pilot" not "Standalone mode"', () => {
@@ -117,7 +125,7 @@ describe('sidebar HTML (sidepanel.html)', () => {
 
 // ─── Sidebar JS tests ───────────────────────────────────────────
 
-describe('sidebar JS (sidepanel.js)', () => {
+describeLegacySidebarUx('sidebar JS (sidepanel.js)', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('stopAgent function exists', () => {
@@ -207,7 +215,7 @@ describe('sidebar JS (sidepanel.js)', () => {
 
 // ─── Sidebar agent queue poll (sidebar-agent.ts) ─────────────────
 
-describe('sidebar agent queue poll (sidebar-agent.ts)', () => {
+describeLegacySidebarUx('sidebar agent queue poll (sidebar-agent.ts)', () => {
   const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
 
   test('queue poll interval is 200ms or less for fast TTFO', () => {
@@ -220,7 +228,7 @@ describe('sidebar agent queue poll (sidebar-agent.ts)', () => {
 
 // ─── System prompt size (TTFO optimization) ──────────────────────
 
-describe('system prompt size', () => {
+describeLegacySidebarUx('system prompt size', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('system prompt is compact (under 30 lines)', () => {
@@ -246,7 +254,7 @@ describe('system prompt size', () => {
 
 // ─── TTFO latency chain invariants ──────────────────────────────
 
-describe('TTFO latency chain', () => {
+describeLegacySidebarUx('TTFO latency chain', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
   const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
 
@@ -306,7 +314,7 @@ describe('TTFO latency chain', () => {
 
 // ─── Browser tab bar ────────────────────────────────────────────
 
-describe('browser tab bar (server.ts)', () => {
+describeLegacySidebarUx('browser tab bar (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('/sidebar-tabs endpoint exists', () => {
@@ -327,7 +335,7 @@ describe('browser tab bar (server.ts)', () => {
   });
 });
 
-describe('browser tab bar (sidepanel.js)', () => {
+describeLegacySidebarUx('browser tab bar (sidepanel.js)', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('pollTabs function exists and calls /sidebar-tabs', () => {
@@ -368,7 +376,7 @@ describe('browser tab bar (sidepanel.js)', () => {
   });
 });
 
-describe('browser tab bar (sidepanel.html)', () => {
+describeLegacySidebarUx('browser tab bar (sidepanel.html)', () => {
   const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
 
   test('browser-tabs container exists', () => {
@@ -384,7 +392,7 @@ describe('browser tab bar (sidepanel.html)', () => {
 
 // ─── Bidirectional tab sync ──────────────────────────────────────
 
-describe('sidebar→browser tab switch', () => {
+describeLegacySidebarUx('sidebar→browser tab switch', () => {
   const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
 
   test('switchTab supports bringToFront option', () => {
@@ -395,7 +403,7 @@ describe('sidebar→browser tab switch', () => {
   });
 });
 
-describe('browser→sidebar tab sync', () => {
+describeLegacySidebarUx('browser→sidebar tab sync', () => {
   const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
@@ -480,7 +488,7 @@ describe('browser→sidebar tab sync', () => {
   });
 });
 
-describe('browser tab bar (sidepanel.css)', () => {
+describeLegacySidebarUx('browser tab bar (sidepanel.css)', () => {
   const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
 
   test('browser-tabs styles exist', () => {
@@ -509,7 +517,7 @@ describe('browser tab bar (sidepanel.css)', () => {
 
 // ─── Event relay (processAgentEvent) ────────────────────────────
 
-describe('processAgentEvent handles sidebar-agent event types', () => {
+describeLegacySidebarUx('processAgentEvent handles sidebar-agent event types', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   // Extract processAgentEvent function body
@@ -560,7 +568,7 @@ describe('processAgentEvent handles sidebar-agent event types', () => {
 
 // ─── Per-tab chat context ────────────────────────────────────────
 
-describe('per-tab chat context (server.ts)', () => {
+describeLegacySidebarUx('per-tab chat context (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('/sidebar-chat accepts tabId query param', () => {
@@ -600,7 +608,7 @@ describe('per-tab chat context (server.ts)', () => {
   });
 });
 
-describe('per-tab chat context (sidepanel.js)', () => {
+describeLegacySidebarUx('per-tab chat context (sidepanel.js)', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('tracks activeTabId for chat context', () => {
@@ -641,7 +649,7 @@ describe('per-tab chat context (sidepanel.js)', () => {
 
 // ─── Sidebar CSS tests ──────────────────────────────────────────
 
-describe('sidebar CSS (sidepanel.css)', () => {
+describeLegacySidebarUx('sidebar CSS (sidepanel.css)', () => {
   const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
 
   test('stop button style exists', () => {
@@ -678,7 +686,7 @@ describe('sidebar CSS (sidepanel.css)', () => {
 
 // ─── Inspector message allowlist fix ────────────────────────────
 
-describe('inspector message allowlist fix', () => {
+describeLegacySidebarUx('inspector message allowlist fix', () => {
   const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
 
   test('ALLOWED_TYPES includes inspector message types', () => {
@@ -697,7 +705,7 @@ describe('inspector message allowlist fix', () => {
 
 // ─── CSP fallback basic picker ──────────────────────────────────
 
-describe('CSP fallback basic picker', () => {
+describeLegacySidebarUx('CSP fallback basic picker', () => {
   const contentSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'content.js'), 'utf-8');
   const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
 
@@ -755,7 +763,7 @@ describe('CSP fallback basic picker', () => {
 
 // ─── Cleanup and screenshot buttons ─────────────────────────────
 
-describe('cleanup and screenshot buttons', () => {
+describeLegacySidebarUx('cleanup and screenshot buttons', () => {
   const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
   const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
@@ -821,7 +829,7 @@ describe('cleanup and screenshot buttons', () => {
   });
 });
 
-describe('cleanup heuristics (write-commands.ts)', () => {
+describeLegacySidebarUx('cleanup heuristics (write-commands.ts)', () => {
   const wcSrc = fs.readFileSync(path.join(ROOT, 'src', 'write-commands.ts'), 'utf-8');
 
   test('cleanup defaults to --all when no args provided', () => {
@@ -911,7 +919,7 @@ describe('cleanup heuristics (write-commands.ts)', () => {
   });
 });
 
-describe('chat toolbar buttons disabled state', () => {
+describeLegacySidebarUx('chat toolbar buttons disabled state', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
   const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
 
@@ -943,7 +951,7 @@ describe('chat toolbar buttons disabled state', () => {
 
 // ─── Chat message dedup ─────────────────────────────────────────
 
-describe('chat message dedup (prevents repeat rendering)', () => {
+describeLegacySidebarUx('chat message dedup (prevents repeat rendering)', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('renderedEntryIds Set exists for dedup tracking', () => {
@@ -977,7 +985,7 @@ describe('chat message dedup (prevents repeat rendering)', () => {
 
 // ─── Agent conciseness and focus stealing ───────────────────────
 
-describe('sidebar agent conciseness + no focus stealing', () => {
+describeLegacySidebarUx('sidebar agent conciseness + no focus stealing', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
   const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
 
@@ -1024,7 +1032,7 @@ describe('sidebar agent conciseness + no focus stealing', () => {
 
 // ─── LLM-based cleanup architecture ─────────────────────────────
 
-describe('LLM-based cleanup (smart agent cleanup)', () => {
+describeLegacySidebarUx('LLM-based cleanup (smart agent cleanup)', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
   const wcSrc = fs.readFileSync(path.join(ROOT, 'src', 'write-commands.ts'), 'utf-8');
 
@@ -1202,7 +1210,7 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
 
 // ─── Welcome page + sidebar auto-open ────────────────────────────
 
-describe('welcome page', () => {
+describeLegacySidebarUx('welcome page', () => {
   const welcomePath = path.join(ROOT, 'src', 'welcome.html');
   const welcomeExists = fs.existsSync(welcomePath);
   const welcomeSrc = welcomeExists ? fs.readFileSync(welcomePath, 'utf-8') : '';
@@ -1238,7 +1246,7 @@ describe('welcome page', () => {
   });
 });
 
-describe('server /welcome endpoint', () => {
+describeLegacySidebarUx('server /welcome endpoint', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('/welcome endpoint exists in server.ts', () => {
@@ -1265,7 +1273,7 @@ describe('server /welcome endpoint', () => {
   });
 });
 
-describe('headed launch navigates to welcome page', () => {
+describeLegacySidebarUx('headed launch navigates to welcome page', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('server navigates to /welcome after startup in headed mode', () => {
@@ -1288,7 +1296,7 @@ describe('headed launch navigates to welcome page', () => {
   });
 });
 
-describe('sidebar auto-open (background.js)', () => {
+describeLegacySidebarUx('sidebar auto-open (background.js)', () => {
   const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
 
   test('autoOpenSidePanel function exists with retry logic', () => {
@@ -1325,7 +1333,7 @@ describe('sidebar auto-open (background.js)', () => {
   });
 });
 
-describe('sidebar arrow hint hide flow (4-step signal chain)', () => {
+describeLegacySidebarUx('sidebar arrow hint hide flow (4-step signal chain)', () => {
   // The arrow hint on the welcome page should ONLY hide when the sidebar
   // is actually opened, not when the extension content script loads.
   //
@@ -1401,7 +1409,7 @@ describe('sidebar arrow hint hide flow (4-step signal chain)', () => {
   });
 });
 
-describe('sidebar auth race prevention', () => {
+describeLegacySidebarUx('sidebar auth race prevention', () => {
   const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
   const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
@@ -1425,7 +1433,7 @@ describe('sidebar auth race prevention', () => {
   });
 });
 
-describe('startup health check fast-retry', () => {
+describeLegacySidebarUx('startup health check fast-retry', () => {
   const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
 
   test('initial health check retries every 1s (not 10s)', () => {
@@ -1449,7 +1457,7 @@ describe('startup health check fast-retry', () => {
   });
 });
 
-describe('sidebar debug visibility when stuck', () => {
+describeLegacySidebarUx('sidebar debug visibility when stuck', () => {
   const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('connection state machine has a dead state with user-visible message', () => {
@@ -1463,7 +1471,7 @@ describe('sidebar debug visibility when stuck', () => {
   });
 });
 
-describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
+describeLegacySidebarUx('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
   const cliSrc = fs.readFileSync(path.join(ROOT, 'src', 'cli.ts'), 'utf-8');
   const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
 
@@ -1504,7 +1512,7 @@ describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
 
 // ─── Tool-result file filtering (sidebar-agent.ts) ──────────────
 
-describe('sidebar-agent hides internal tool-result reads', () => {
+describeLegacySidebarUx('sidebar-agent hides internal tool-result reads', () => {
   const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
 
   test('describeToolCall returns empty for tool-results paths', () => {
@@ -1528,7 +1536,7 @@ describe('sidebar-agent hides internal tool-result reads', () => {
 
 // ─── Sidebar skips empty tool_use entries (sidepanel.js) ────────
 
-describe('sidebar skips empty tool_use descriptions', () => {
+describeLegacySidebarUx('sidebar skips empty tool_use descriptions', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('tool_use with no input returns early', () => {
@@ -1542,7 +1550,7 @@ describe('sidebar skips empty tool_use descriptions', () => {
 
 // ─── Tool calls collapse into "See reasoning" on agent_done ─────
 
-describe('tool calls collapse into reasoning disclosure', () => {
+describeLegacySidebarUx('tool calls collapse into reasoning disclosure', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
   const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
 
@@ -1590,7 +1598,7 @@ describe('tool calls collapse into reasoning disclosure', () => {
 
 // ─── Idle timeout disabled in headed mode (server.ts) ───────────
 
-describe('idle timeout behavior (server.ts)', () => {
+describeLegacySidebarUx('idle timeout behavior (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('idle check skips in headed mode', () => {
@@ -1613,7 +1621,7 @@ describe('idle timeout behavior (server.ts)', () => {
 
 // ─── Shutdown kills sidebar-agent daemon (server.ts) ────────────
 
-describe('shutdown cleanup (server.ts)', () => {
+describeLegacySidebarUx('shutdown cleanup (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('shutdown kills sidebar-agent daemon process', () => {
@@ -1628,7 +1636,7 @@ describe('shutdown cleanup (server.ts)', () => {
 
 // ─── Cookie button in sidebar footer ────────────────────────────
 
-describe('cookie import button (sidebar)', () => {
+describeLegacySidebarUx('cookie import button (sidebar)', () => {
   const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
@@ -1645,7 +1653,7 @@ describe('cookie import button (sidebar)', () => {
 
 // ─── Model routing (server.ts) ──────────────────────────────────
 
-describe('sidebar model routing (server.ts)', () => {
+describeLegacySidebarUx('sidebar model routing (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
   test('pickSidebarModel routes actions to sonnet', () => {

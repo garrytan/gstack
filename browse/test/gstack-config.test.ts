@@ -15,10 +15,12 @@ const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-config');
 let stateDir: string;
 
 function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
+  const effectiveStateDir = extraEnv.GSTACK_HOME ?? extraEnv.GSTACK_STATE_DIR ?? stateDir;
   const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
     env: {
       ...process.env,
-      GSTACK_STATE_DIR: stateDir,
+      GSTACK_HOME: effectiveStateDir,
+      GSTACK_STATE_DIR: effectiveStateDir,
       ...extraEnv,
     },
     stdout: 'pipe',
@@ -41,10 +43,10 @@ afterEach(() => {
 
 describe('gstack-config', () => {
   // ─── get ──────────────────────────────────────────────────
-  test('get on missing file returns empty, exit 0', () => {
+  test('get on missing file returns the known-key default, exit 0', () => {
     const { exitCode, stdout } = run(['get', 'auto_upgrade']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('get existing key returns value', () => {
@@ -110,10 +112,12 @@ describe('gstack-config', () => {
     expect(stdout).toContain('update_check: false');
   });
 
-  test('list on missing file returns empty, exit 0', () => {
+  test('list on missing file returns active defaults, exit 0', () => {
     const { exitCode, stdout } = run(['list']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toContain('Active values');
+    expect(stdout).toContain('auto_upgrade:');
+    expect(stdout).toContain('false (default)');
   });
 
   // ─── usage ────────────────────────────────────────────────
@@ -176,9 +180,9 @@ describe('gstack-config', () => {
   });
 
   // ─── routing_declined ──────────────────────────────────────
-  test('routing_declined defaults to empty (not set)', () => {
+  test('routing_declined defaults to false', () => {
     const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('routing_declined can be set and read', () => {

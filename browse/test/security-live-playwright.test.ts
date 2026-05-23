@@ -52,6 +52,7 @@ describe('defense-in-depth — live Playwright fixture', () => {
   beforeAll(async () => {
     testServer = startTestServer(0);
     baseUrl = testServer.url;
+    process.env.BROWSE_DISABLE_CHROMIUM_SANDBOX = '1';
     bm = new BrowserManager();
     await bm.launch();
   });

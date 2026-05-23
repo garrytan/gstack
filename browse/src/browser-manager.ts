@@ -183,9 +183,14 @@ export class BrowserManager {
     let useHeadless = true;
 
     // Docker/CI: Chromium sandbox requires unprivileged user namespaces which
-    // are typically disabled in containers. Detect container environment and
-    // add --no-sandbox automatically.
-    if (process.env.CI || process.env.CONTAINER) {
+    // are typically disabled in containers. Detect container/test environments
+    // and add --no-sandbox automatically. BROWSE_DISABLE_CHROMIUM_SANDBOX is
+    // an explicit test/ops escape hatch for hosts with AppArmor-disabled user
+    // namespaces.
+    const disableChromiumSandbox = process.env.CI
+      || process.env.CONTAINER
+      || process.env.BROWSE_DISABLE_CHROMIUM_SANDBOX === '1';
+    if (disableChromiumSandbox) {
       launchArgs.push('--no-sandbox');
     }
 
@@ -204,8 +209,9 @@ export class BrowserManager {
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
-      // browsing user-specified URLs has marginal sandbox benefit.
-      chromiumSandbox: process.platform !== 'win32',
+      // browsing user-specified URLs has marginal sandbox benefit. Also disable
+      // it when the explicit constrained-host/test escape hatch above is active.
+      chromiumSandbox: process.platform !== 'win32' && !disableChromiumSandbox,
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
     });
 

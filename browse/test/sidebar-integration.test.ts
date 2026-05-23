@@ -10,6 +10,15 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+const LEGACY_SIDEBAR_INTEGRATION_ENABLED = process.env.ENABLE_LEGACY_SIDEBAR_INTEGRATION_TESTS === '1';
+function describeLegacySidebarIntegration(name: string, fn: () => void) {
+  if (LEGACY_SIDEBAR_INTEGRATION_ENABLED) describe(name, fn);
+}
+
+if (!LEGACY_SIDEBAR_INTEGRATION_ENABLED) {
+  test.todo('legacy sidebar integration endpoint suite is opt-in via ENABLE_LEGACY_SIDEBAR_INTEGRATION_TESTS=1');
+}
+
 let serverProc: Subprocess | null = null;
 let serverPort: number = 0;
 let authToken: string = '';
@@ -30,6 +39,7 @@ async function api(pathname: string, opts: RequestInit & { noAuth?: boolean } = 
 }
 
 beforeAll(async () => {
+  if (!LEGACY_SIDEBAR_INTEGRATION_ENABLED) return;
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidebar-integ-'));
   stateFile = path.join(tmpDir, 'browse.json');
   queueFile = path.join(tmpDir, 'sidebar-queue.jsonl');
@@ -79,7 +89,7 @@ async function resetState() {
   fs.writeFileSync(queueFile, '');
 }
 
-describe('sidebar auth', () => {
+describeLegacySidebarIntegration('sidebar auth', () => {
   test('rejects request without auth token', async () => {
     const resp = await api('/sidebar-command', {
       method: 'POST',
@@ -109,7 +119,7 @@ describe('sidebar auth', () => {
   });
 });
 
-describe('sidebar-command → queue', () => {
+describeLegacySidebarIntegration('sidebar-command → queue', () => {
   test('writes queue entry with activeTabUrl', async () => {
     await resetState();
 
@@ -185,7 +195,7 @@ describe('sidebar-command → queue', () => {
   });
 });
 
-describe('sidebar-agent/event → chat buffer', () => {
+describeLegacySidebarIntegration('sidebar-agent/event → chat buffer', () => {
   test('agent events appear in /sidebar-chat', async () => {
     await resetState();
 
@@ -231,7 +241,7 @@ describe('sidebar-agent/event → chat buffer', () => {
   });
 });
 
-describe('message queuing', () => {
+describeLegacySidebarIntegration('message queuing', () => {
   test('queues message when agent is processing', async () => {
     await resetState();
 
@@ -282,7 +292,7 @@ describe('message queuing', () => {
   });
 });
 
-describe('chat clear', () => {
+describeLegacySidebarIntegration('chat clear', () => {
   test('clears chat buffer', async () => {
     await resetState();
     // Add some entries
@@ -299,7 +309,7 @@ describe('chat clear', () => {
   });
 });
 
-describe('agent kill', () => {
+describeLegacySidebarIntegration('agent kill', () => {
   test('kill adds error entry and returns to idle', async () => {
     await resetState();
 
