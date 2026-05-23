@@ -132,6 +132,22 @@ describe('factory guard denial DTOs', () => {
     expect(serialized).not.toContain('config');
   });
 
+  test('redacts npm credential file names in path denials and reasons', () => {
+    const denial = sanitizeFactoryFileWriteDenial({
+      request: writeRequest('/repo/.npmrc'),
+      decision: {
+        ...writeDecision('secret-path', '/repo/.npmrc'),
+        reason: 'Attempted write to .npmrc was denied.',
+      },
+    });
+
+    expect(denial.pathBasename).toBe('[redacted]');
+    expect(denial.reason).toBe('Guard denied by policy.');
+    const serialized = JSON.stringify(denial);
+    expect(serialized).not.toContain('/repo/.npmrc');
+    expect(serialized).not.toContain('.npmrc');
+  });
+
   test('correlation digest is deterministic for equal inputs and scoped to context', () => {
     const requestA = commandRequest('rm -rf dist', 'run-1');
     const requestB = commandRequest('rm -rf dist', 'run-1');

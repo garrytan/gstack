@@ -299,7 +299,8 @@ Reads are mostly allowed but still classified to:
 
 - deny reads of secret paths (`SECRET_PATH_RE`);
 - deny reads of `~/.ssh`, `~/.config/env-master`, `**/credentials*`,
-  `**/.env*`, `**/secrets*`, `**/id_rsa*`, `**/id_ed25519*`;
+  `**/.env*`, `**/.npmrc*`, `**/secrets*`, `**/id_rsa*`,
+  `**/id_ed25519*`;
 - deny reads that escape the workspace root via realpath, with one exception:
   reads of `/etc/os-release` and similar host metadata MAY be allow-listed,
   but only via narrow rules approved out-of-band;
@@ -449,13 +450,15 @@ Status: complete in this repo.
   Same shape: pure classifier, `FactoryFileWriteRequest` →
   `FactoryFileWriteDecision`. It is unit-tested for the deny rules in §7.2.
 - `lib/factory-host-attestation.ts` contains the attestation digest helper,
-  `verifyHostGuardAttestation`, and the sanitized attestation-artifact shape
-  from §9.
+  `verifyHostGuardAttestation`, guarded browser output/subcommand policy
+  constants and validation, and the sanitized attestation-artifact shape from
+  §9.
 - `FactoryGuardedAgentSessionSpec` and `createGuardedAgentSession` exist; the
   default shim returns `{ supported: false, reason: 'no-host' }` for current
   hosts. Each host can opt in by overriding the shim.
 - Tests cover file-write classifier negative cases, attestation digest
-  stability, sanitized artifact shape, and shim defaults.
+  stability, exact browser output-dir scoping, browser subcommand allowlist
+  policy, sanitized artifact shape, and shim defaults.
 
 After Step 1 the factory has the contract surface but no real host implements
 it. `/factory-qa-fix` remains hidden.
@@ -523,7 +526,8 @@ following must pass.
 - `test/factory-file-write-guard.test.ts` (new) covering every §7.2 rule:
   - workspace escape via realpath;
   - protected file enumeration (`CLAUDE.md`, lockfiles, `.git`, `.env*`,
-    `.gstack/**` outside the runId tree, `.pi/**`, `.agents/**`, `.claude/**`);
+    `.npmrc*`, `.gstack/**` outside the runId tree, `.pi/**`,
+    `.agents/**`, `.claude/**`);
   - hidden bootstrap dotfile denial;
   - generated dir denial (`dist`, `build`, `node_modules`, `.next`, `.turbo`);
   - symlink escape (test feeds the canonical path and asserts deny);
@@ -553,13 +557,17 @@ following must pass.
 
 - `expect(commands.has('factory-qa-fix')).toBe(false)` remains green
   under: default install, test-only guarded-host injection, attestation
-  mismatch, attestation expired, hook returning `supported: false`.
+  mismatch, attestation expired, invalid browser output directory, hook
+  returning `supported: false`.
 - adversarial command sweep: a fixture of ~50 commands derived from the
   Appendix A inventory (publish, deploy, secret dump, force push, env
   dump, shell substitution, path traversal, Windows path, attached short
   opt, `rg --pre`, etc.) is fed through the fake host's executeCommand
   hook and every one is denied; the test asserts each command produced an
   audit record with a sanitized digest and never the raw command text;
+- browser output policy sweep: invalid output-dir names, path traversal,
+  duplicate subcommands, and sidebar/long-running unsupported subcommands fail
+  closed before any test-only host can attest the session.
 - adversarial file-write sweep: fixture of ~20 paths
   (`CLAUDE.md`, `package-lock.json`, `../etc/passwd`, `~/.ssh/id_rsa`,
   `node_modules/.bin/foo`, `dist/index.js`, `.git/HEAD`, and canonical

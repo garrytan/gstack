@@ -78,7 +78,6 @@ describe('factory file write guard', () => {
       'pnpm-lock.yaml',
       'yarn.lock',
       'Cargo.lock',
-      '.npmrc',
     ]) {
       expect(guard(target), target).toMatchObject({ allowed: false, matchedRuleId: 'protected-file' });
     }
@@ -102,6 +101,7 @@ describe('factory file write guard', () => {
       'config/credentials-prod.json',
       '.ssh/id_ed25519',
       'env-master/prod.env',
+      '.npmrc.local',
     ]) {
       expect(guard(target), target).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
     }

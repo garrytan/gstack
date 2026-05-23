@@ -66,10 +66,28 @@ export interface SanitizedHostGuardAttestationArtifact {
   readonly osConfinement: HostGuardOsConfinement;
 }
 
+export const FACTORY_GUARDED_BROWSER_OUTPUT_DIR = 'browse-output';
+export const FACTORY_GUARDED_BROWSER_ALLOWED_SUBCOMMANDS = [
+  'goto',
+  'snapshot',
+  'screenshot',
+  'console',
+  'wait',
+  'text',
+  'title',
+  'url',
+  'dialog',
+  'responsive',
+] as const;
+
 export interface FactoryGuardedBrowserPolicy {
   readonly outputDirRelativeToRun: string;
   readonly allowlistedSubcommands: readonly string[];
 }
+
+export type FactoryGuardedBrowserPolicyVerification =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: 'missing-browser-policy' | 'unexpected-browser-policy' | 'invalid-browser-output-dir' | 'missing-browser-subcommands' | 'duplicate-browser-subcommand' | 'unsupported-browser-subcommand' };
 
 export interface FactoryGuardedAgentSessionSpec {
   readonly factoryRunId: string;
@@ -90,7 +108,7 @@ export interface FactoryGuardedAgentSessionSpec {
 }
 
 export type FactoryGuardedAgentSessionResult =
-  | { readonly supported: false; readonly reason: 'no-host' | 'attestation-invalid' | 'unsupported-profile' }
+  | { readonly supported: false; readonly reason: 'no-host' | 'attestation-invalid' | 'unsupported-profile' | 'browser-policy-invalid' }
   | FactoryGuardedAgentSessionHandle;
 
 export interface FactoryGuardedAgentSessionHandle {
@@ -102,6 +120,7 @@ export interface FactoryGuardedAgentSessionHandle {
 }
 
 const DEFAULT_FRESHNESS_WINDOW_MS = 10_000;
+const ALLOWED_BROWSER_SUBCOMMANDS = new Set<string>(FACTORY_GUARDED_BROWSER_ALLOWED_SUBCOMMANDS);
 const REQUIRED_BOOLEAN_FIELDS: Array<keyof HostGuardAttestationFields> = [
   'bashGuarded',
   'editGuarded',
@@ -192,6 +211,31 @@ export function verifyHostGuardAttestation(
   return { ok: true, attestation };
 }
 
+export function verifyFactoryGuardedBrowserPolicy(
+  browserRequested: boolean,
+  policy: FactoryGuardedBrowserPolicy | undefined,
+): FactoryGuardedBrowserPolicyVerification {
+  if (!browserRequested) {
+    return policy ? { ok: false, reason: 'unexpected-browser-policy' } : { ok: true };
+  }
+  if (!policy) return { ok: false, reason: 'missing-browser-policy' };
+  if (policy.outputDirRelativeToRun !== FACTORY_GUARDED_BROWSER_OUTPUT_DIR) {
+    return { ok: false, reason: 'invalid-browser-output-dir' };
+  }
+  if (policy.allowlistedSubcommands.length === 0) {
+    return { ok: false, reason: 'missing-browser-subcommands' };
+  }
+  const seen = new Set<string>();
+  for (const subcommand of policy.allowlistedSubcommands) {
+    if (seen.has(subcommand)) return { ok: false, reason: 'duplicate-browser-subcommand' };
+    seen.add(subcommand);
+    if (!ALLOWED_BROWSER_SUBCOMMANDS.has(subcommand)) {
+      return { ok: false, reason: 'unsupported-browser-subcommand' };
+    }
+  }
+  return { ok: true };
+}
+
 export function sanitizeHostGuardAttestationForArtifact(attestation: HostGuardAttestation): SanitizedHostGuardAttestationArtifact {
   const browseOutputDirRelative = attestation.browseOutputDir
     ? path.relative(normalizeAbsolutePath(attestation.workspaceRoot), normalizeAbsolutePath(attestation.browseOutputDir)).replace(/\\/g, '/')
@@ -234,9 +278,13 @@ export function createTestOnlyGuardedHostShim(options: {
       if (spec.profile !== 'non-destructive-write') {
         return { supported: false, reason: 'unsupported-profile' };
       }
+      const browserPolicyVerification = verifyFactoryGuardedBrowserPolicy(spec.browserRequested === true, spec.browserPolicy);
+      if (!browserPolicyVerification.ok) {
+        return { supported: false, reason: 'browser-policy-invalid' };
+      }
       const attestedAt = (options.now?.() ?? new Date()).toISOString();
       const browseOutputDir = spec.browserRequested
-        ? path.join(spec.workspaceRoot, '.gstack', 'factory', spec.factoryRunId, spec.browserPolicy?.outputDirRelativeToRun ?? 'browse-output')
+        ? path.join(spec.workspaceRoot, '.gstack', 'factory', spec.factoryRunId, FACTORY_GUARDED_BROWSER_OUTPUT_DIR)
         : undefined;
       const attestation = buildHostGuardAttestation({
         factoryRunId: spec.factoryRunId,
@@ -303,11 +351,11 @@ function verifyBrowseOutputDir(attestation: HostGuardAttestation): HostGuardAtte
   const workspaceRoot = normalizeAbsolutePath(attestation.workspaceRoot);
   const outputDir = normalizeAbsolutePath(attestation.browseOutputDir);
   const relative = path.relative(workspaceRoot, outputDir).replace(/\\/g, '/');
-  const requiredPrefix = `.gstack/factory/${attestation.factoryRunId}/`;
+  const requiredOutputDir = `.gstack/factory/${attestation.factoryRunId}/${FACTORY_GUARDED_BROWSER_OUTPUT_DIR}`;
   if (relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) {
     return { ok: false, reason: 'browse-output-outside-workspace' };
   }
-  if (!relative.startsWith(requiredPrefix)) {
+  if (relative !== requiredOutputDir) {
     return { ok: false, reason: 'browse-output-not-run-scoped' };
   }
   return { ok: true, attestation };

@@ -28,7 +28,7 @@ interface RuleDecision {
 }
 
 const SAFE_GIT_READ_COMMANDS = new Set(['status', 'diff', 'log', 'show', 'rev-parse']);
-const SECRET_PATH_RE = /(^|\/)(\.env(?:\.[^/]*|[*?\[]|$)|\.en[*?\[]|env-master|\.ssh|id_rsa|id_ed25519|known_hosts|credentials|secrets?)(\/|$|[*?\[])/i;
+const SECRET_PATH_RE = /(^|\/)(\.env(?:\.[^/]*|[*?\[]|$)|\.en[*?\[]|\.npmrc(?:\.[^/]*|[*?\[]|$)|env-master|\.ssh|id_rsa|id_ed25519|known_hosts|credentials|secrets?)(\/|$|[*?\[])/i;
 const SECRET_TOKEN_RE = /(api[_-]?key|access[_-]?token|auth[_-]?token|database[_-]?url|secret|password|private[_-]?key)/i;
 
 export function evaluateFactoryCommandSafety(request: FactoryCommandGuardRequest): FactoryCommandGuardDecision {

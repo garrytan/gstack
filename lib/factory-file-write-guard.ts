@@ -38,7 +38,7 @@ interface RuleDecision {
   readonly ruleId: string;
 }
 
-const SECRET_PATH_RE = /(^|\/)(\.env(?:\.[^/]*|[*?\[]|$)|\.en[*?\[]|env-master|\.ssh|id_rsa|id_ed25519|known_hosts|credentials[^/]*|secrets?[^/]*)(\/|$|[*?\[])/i;
+const SECRET_PATH_RE = /(^|\/)(\.env(?:\.[^/]*|[*?\[]|$)|\.en[*?\[]|\.npmrc(?:\.[^/]*|[*?\[]|$)|env-master|\.ssh|id_rsa|id_ed25519|known_hosts|credentials[^/]*|secrets?[^/]*)(\/|$|[*?\[])/i;
 const PROTECTED_BASENAMES = new Set([
   'CLAUDE.md',
   'package-lock.json',

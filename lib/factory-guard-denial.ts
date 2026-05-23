@@ -66,11 +66,11 @@ export interface FactoryGuardDenialArtifactDto {
   readonly denials: readonly FactoryGuardDenialPublicDto[];
 }
 
-const SECRET_PATH_RE = /(^|\/)(\.env(?:\.[^/]*|[*?\[]|$)|\.en[*?\[]|env-master|\.ssh|id_rsa|id_ed25519|known_hosts|credentials[^/]*|secrets?[^/]*)(\/|$|[*?\[])/i;
+const SECRET_PATH_RE = /(^|\/)(\.env(?:\.[^/]*|[*?\[]|$)|\.en[*?\[]|\.npmrc(?:\.[^/]*|[*?\[]|$)|env-master|\.ssh|id_rsa|id_ed25519|known_hosts|credentials[^/]*|secrets?[^/]*)(\/|$|[*?\[])/i;
 const SECRET_TOKEN_RE = /(api[_-]?key|access[_-]?token|auth[_-]?token|database[_-]?url|secret|password|private[_-]?key|credentials?|gh[_-]?token|anthropic[_-]?api[_-]?key)/i;
 const INLINE_SECRET_VALUE_RE = /(?:^|\s)[A-Za-z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL)[A-Za-z0-9_]*=[^\s]+/i;
-const INLINE_SECRET_PATH_RE = /(?:^|\s)(?:~\/|\/)[^\s]*(?:\.env|\.ssh|env-master|id_rsa|id_ed25519|credentials|secrets?)[^\s]*/i;
-const SECRET_REASON_TOKEN_RE = /(^|\s)(\.env(?:\.[^\s/]+)?|\.ssh|env-master|id_rsa|id_ed25519|credentials[^\s/]*|secrets?[^\s/]*)(\s|$|\/)/i;
+const INLINE_SECRET_PATH_RE = /(?:^|\s)(?:~\/|\/)[^\s]*(?:\.env|\.npmrc|\.ssh|env-master|id_rsa|id_ed25519|credentials|secrets?)[^\s]*/i;
+const SECRET_REASON_TOKEN_RE = /(^|\s)(\.env(?:\.[^\s/]+)?|\.npmrc(?:\.[^\s/]+)?|\.ssh|env-master|id_rsa|id_ed25519|credentials[^\s/]*|secrets?[^\s/]*)(\s|$|\/)/i;
 
 export function sanitizeFactoryCommandDenial(input: {
   readonly decision: FactoryCommandGuardDecision;

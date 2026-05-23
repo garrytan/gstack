@@ -41,6 +41,8 @@ import {
 import { reduceFactoryEvents, type ArtifactRef, type CapabilityName } from '../../../lib/factory-core';
 import { withSafeCommandGuardCapability } from '../../../lib/factory-guarded-runtime';
 import {
+  FACTORY_GUARDED_BROWSER_ALLOWED_SUBCOMMANDS,
+  FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
   createGuardedAgentSession,
   verifyHostGuardAttestation,
   type FactoryGuardedAgentSessionResult,
@@ -1025,8 +1027,8 @@ function buildGuardedHostProbeSpec(projectRoot: string, browserRequested: boolea
     profile: 'non-destructive-write',
     browserRequested,
     browserPolicy: browserRequested ? {
-      outputDirRelativeToRun: 'browse-output',
-      allowlistedSubcommands: ['goto', 'snapshot', 'screenshot', 'console', 'wait', 'text', 'title', 'url', 'dialog', 'responsive'],
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
+      allowlistedSubcommands: FACTORY_GUARDED_BROWSER_ALLOWED_SUBCOMMANDS,
     } : undefined,
     hooks: {
       executeCommand: denyUnsupported,

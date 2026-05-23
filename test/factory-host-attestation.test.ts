@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import {
+  FACTORY_GUARDED_BROWSER_ALLOWED_SUBCOMMANDS,
+  FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
   buildHostGuardAttestation,
   createGuardedAgentSession,
   createTestOnlyGuardedHostShim,
   digestHostGuardAttestation,
   sanitizeHostGuardAttestationForArtifact,
+  verifyFactoryGuardedBrowserPolicy,
   verifyHostGuardAttestation,
   type FactoryGuardedAgentSessionSpec,
   type HostGuardAttestationFields,
@@ -28,7 +31,7 @@ function fields(overrides: Partial<HostGuardAttestationFields> = {}): HostGuardA
     webGuarded: 'denied',
     unsupportedToolDefault: 'deny',
     browserGuarded: true,
-    browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'run-1', 'browse-output'),
+    browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'run-1', FACTORY_GUARDED_BROWSER_OUTPUT_DIR),
     osConfinement: 'absent',
     attestedAt: NOW.toISOString(),
     hostId: 'pi-test-host',
@@ -44,7 +47,7 @@ function spec(overrides: Partial<FactoryGuardedAgentSessionSpec> = {}): FactoryG
     profile: 'non-destructive-write',
     browserRequested: true,
     browserPolicy: {
-      outputDirRelativeToRun: 'browse-output',
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
       allowlistedSubcommands: ['goto', 'snapshot', 'screenshot'],
     },
     hooks: {
@@ -82,7 +85,7 @@ describe('factory host guard attestation', () => {
       hostId: 'pi-test-host',
       attestedAt: NOW.toISOString(),
       osConfinement: 'absent',
-      browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'run-1', 'browse-output'),
+      browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'run-1', FACTORY_GUARDED_BROWSER_OUTPUT_DIR),
       browserGuarded: true,
       unsupportedToolDefault: 'deny',
       webGuarded: 'denied',
@@ -134,7 +137,9 @@ describe('factory host guard attestation', () => {
     expect(verifyHostGuardAttestation({ ...valid, workspaceRoot: 'relative-workspace' }, { now: () => NOW })).toEqual({ ok: false, reason: 'workspace-root-not-absolute' });
     expect(verifyHostGuardAttestation({ ...valid, browseOutputDir: '.gstack/factory/run-1/browse-output' }, { now: () => NOW })).toEqual({ ok: false, reason: 'browse-output-not-absolute' });
     expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browseOutputDir: undefined })), { now: () => NOW })).toEqual({ ok: false, reason: 'missing-browse-output-dir' });
-    expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'other-run', 'browse-output') })), { now: () => NOW })).toEqual({ ok: false, reason: 'browse-output-not-run-scoped' });
+    expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'other-run', FACTORY_GUARDED_BROWSER_OUTPUT_DIR) })), { now: () => NOW })).toEqual({ ok: false, reason: 'browse-output-not-run-scoped' });
+    expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'run-1', 'other-output') })), { now: () => NOW })).toEqual({ ok: false, reason: 'browse-output-not-run-scoped' });
+    expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browseOutputDir: path.join(WORKSPACE, '.gstack', 'factory', 'run-1', FACTORY_GUARDED_BROWSER_OUTPUT_DIR, 'nested') })), { now: () => NOW })).toEqual({ ok: false, reason: 'browse-output-not-run-scoped' });
     expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browseOutputDir: '/tmp/browse-output' })), { now: () => NOW })).toEqual({ ok: false, reason: 'browse-output-outside-workspace' });
     expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browserGuarded: false, browseOutputDir: undefined })), { now: () => NOW, requireBrowser: true })).toEqual({ ok: false, reason: 'browser-not-guarded' });
     expect(verifyHostGuardAttestation(buildHostGuardAttestation(fields({ browserGuarded: false })), { now: () => NOW })).toEqual({ ok: false, reason: 'browser-output-without-browser-guard' });
@@ -149,9 +154,52 @@ describe('factory host guard attestation', () => {
       phaseId: 'qa-execution',
       hostId: 'pi-test-host',
       attestationDigest: attestation.attestationDigest,
-      browser: { browserGuarded: true, browseOutputDirRelative: '.gstack/factory/run-1/browse-output' },
+      browser: { browserGuarded: true, browseOutputDirRelative: `.gstack/factory/run-1/${FACTORY_GUARDED_BROWSER_OUTPUT_DIR}` },
     });
     expect(JSON.stringify(artifact)).not.toContain(WORKSPACE);
+  });
+
+  test('validates guarded browser policy before any browser subprocess can be attested', () => {
+    expect(verifyFactoryGuardedBrowserPolicy(true, {
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
+      allowlistedSubcommands: FACTORY_GUARDED_BROWSER_ALLOWED_SUBCOMMANDS,
+    })).toEqual({ ok: true });
+    expect(verifyFactoryGuardedBrowserPolicy(true, undefined)).toEqual({ ok: false, reason: 'missing-browser-policy' });
+    expect(verifyFactoryGuardedBrowserPolicy(false, {
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
+      allowlistedSubcommands: ['goto'],
+    })).toEqual({ ok: false, reason: 'unexpected-browser-policy' });
+    expect(verifyFactoryGuardedBrowserPolicy(true, {
+      outputDirRelativeToRun: '../browse-output',
+      allowlistedSubcommands: ['goto'],
+    })).toEqual({ ok: false, reason: 'invalid-browser-output-dir' });
+    expect(verifyFactoryGuardedBrowserPolicy(true, {
+      outputDirRelativeToRun: 'screenshots',
+      allowlistedSubcommands: ['goto'],
+    })).toEqual({ ok: false, reason: 'invalid-browser-output-dir' });
+    expect(verifyFactoryGuardedBrowserPolicy(true, {
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
+      allowlistedSubcommands: [],
+    })).toEqual({ ok: false, reason: 'missing-browser-subcommands' });
+    expect(verifyFactoryGuardedBrowserPolicy(true, {
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
+      allowlistedSubcommands: ['goto', 'goto'],
+    })).toEqual({ ok: false, reason: 'duplicate-browser-subcommand' });
+    expect(verifyFactoryGuardedBrowserPolicy(true, {
+      outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR,
+      allowlistedSubcommands: ['goto', 'connect-sidebar'],
+    })).toEqual({ ok: false, reason: 'unsupported-browser-subcommand' });
+  });
+
+  test('test-only guarded host refuses unsafe browser policies fail-closed', () => {
+    const host = createTestOnlyGuardedHostShim({ now: () => NOW, hostId: 'test-host' });
+
+    expect(host.createGuardedAgentSession(spec({
+      browserPolicy: { outputDirRelativeToRun: '../escape', allowlistedSubcommands: ['goto'] },
+    }))).toEqual({ supported: false, reason: 'browser-policy-invalid' });
+    expect(host.createGuardedAgentSession(spec({
+      browserPolicy: { outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR, allowlistedSubcommands: ['goto', 'connect-sidebar'] },
+    }))).toEqual({ supported: false, reason: 'browser-policy-invalid' });
   });
 
   test('default guarded session shim keeps existing hosts unsupported', () => {

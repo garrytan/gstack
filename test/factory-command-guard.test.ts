@@ -90,6 +90,9 @@ describe('factory command guard', () => {
     expect(guard('grep foo .env.production')).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
     expect(guard('cat .env*')).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
     expect(guard('grep foo .env*')).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
+    expect(guard('cat .npmrc')).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
+    expect(guard('git show HEAD:.npmrc')).toMatchObject({ allowed: false, matchedRuleId: 'git-secret-path' });
+    expect(guard('git diff -- .npmrc')).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
     expect(guard('rg DATABASE_URL .en*')).toMatchObject({ allowed: false, matchedRuleId: 'secret-path' });
     expect(guard('cat ~/.ssh/id_ed25519')).toMatchObject({ allowed: false, matchedRuleId: 'home-path' });
     expect(guard('rg API_KEY src')).toMatchObject({ allowed: false, matchedRuleId: 'secret-dump' });

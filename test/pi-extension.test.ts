@@ -8,7 +8,7 @@ import { compileRunPlan, type WorkflowSpec } from '../lib/factory-core';
 import { evaluateFactoryFileWriteSafety, type FactoryFileWriteDecision, type FactoryFileWriteRequest } from '../lib/factory-file-write-guard';
 import { sanitizeFactoryGuardDecisionForAudit } from '../lib/factory-guarded-runtime';
 import { sanitizeFactoryFileWriteDenial } from '../lib/factory-guard-denial';
-import { createTestOnlyGuardedHostShim, type FactoryGuardedAgentSessionHandle, type FactoryGuardedAgentSessionResult, type FactoryGuardedAgentSessionSpec } from '../lib/factory-host-attestation';
+import { FACTORY_GUARDED_BROWSER_OUTPUT_DIR, buildHostGuardAttestation, createTestOnlyGuardedHostShim, type FactoryGuardedAgentSessionHandle, type FactoryGuardedAgentSessionResult, type FactoryGuardedAgentSessionSpec } from '../lib/factory-host-attestation';
 import { FileFactoryEventStore } from '../lib/factory-event-store';
 import { FACTORY_REVIEW_WORKFLOW, FACTORY_WORKFLOWS } from '../lib/factory-review-workflow';
 import { factoryRunsRoot } from '../lib/pi-runtime-adapter';
@@ -301,7 +301,7 @@ function adversarialGuardSpec(workspaceRoot: string): FactoryGuardedAgentSession
     workspaceRoot,
     profile: 'non-destructive-write',
     browserRequested: true,
-    browserPolicy: { outputDirRelativeToRun: 'browse-output', allowlistedSubcommands: ['goto', 'screenshot'] },
+    browserPolicy: { outputDirRelativeToRun: FACTORY_GUARDED_BROWSER_OUTPUT_DIR, allowlistedSubcommands: ['goto', 'screenshot'] },
     hooks: {
       executeCommand: forbiddenHook,
       applyEdit: forbiddenHook,
@@ -345,6 +345,8 @@ const ADVERSARIAL_COMMANDS = [
   'cat ~/.ssh/id_rsa',
   'rg TOKEN ~/.config/env-master',
   'git show HEAD:.env',
+  'git show HEAD:.npmrc',
+  'git diff -- .npmrc',
   'git grep secret HEAD -- .env',
   'bash -c "echo hi"',
   'sh -c "echo hi"',
@@ -712,14 +714,45 @@ describe('Pi gstack extension wiring', () => {
     });
   });
 
-  test('guarded-host digest mismatch, expired attestation, and unsupported host do not expose qa-fix', async () => {
+  test('guarded-host invalid browser output, digest mismatch, expired attestation, and unsupported host do not expose qa-fix', async () => {
     const expiredHost = createTestOnlyGuardedHostShim({ now: () => new Date('2000-01-01T00:00:00.000Z') });
     const tamperedHost = createTestOnlyGuardedHostShim({ tamperDigest: true });
+    const invalidBrowserOutputHost = {
+      createGuardedAgentSession(spec: FactoryGuardedAgentSessionSpec): FactoryGuardedAgentSessionResult {
+        return {
+          supported: true,
+          sessionId: `invalid-browser-output-${spec.factoryRunId}`,
+          attestation: buildHostGuardAttestation({
+            factoryRunId: spec.factoryRunId,
+            phaseId: spec.phaseId,
+            workspaceRoot: spec.workspaceRoot,
+            bashGuarded: true,
+            editGuarded: true,
+            writeGuarded: true,
+            readGuarded: true,
+            globGuarded: true,
+            grepGuarded: true,
+            webGuarded: 'denied',
+            unsupportedToolDefault: 'deny',
+            browserGuarded: spec.browserRequested === true,
+            browseOutputDir: spec.browserRequested === true
+              ? path.join(spec.workspaceRoot, '.gstack', 'factory', spec.factoryRunId, 'other-output')
+              : undefined,
+            osConfinement: 'absent',
+            attestedAt: new Date().toISOString(),
+            hostId: 'invalid-browser-output-host',
+          }),
+          async dispatch() {},
+          async close() {},
+        };
+      },
+    };
     const unsupportedHost = {
       createGuardedAgentSession: () => ({ supported: false as const, reason: 'no-host' as const }),
     };
 
     for (const [guardedHost, expectedReason] of [
+      [invalidBrowserOutputHost, 'browse-output-not-run-scoped'],
       [tamperedHost, 'digest-mismatch'],
       [expiredHost, 'attestation-expired'],
       [unsupportedHost, 'no-host'],
