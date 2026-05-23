@@ -46,6 +46,35 @@ html, body {
 
 a { color: var(--accent-ink); }
 
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 20;
+  transform: translateY(-160%);
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.16);
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 3px solid var(--marker);
+  outline-offset: 2px;
+}
+
+.toc a:focus-visible,
+.btn:focus-visible,
+.skin-chip:focus-visible {
+  outline: 3px solid var(--marker);
+  outline-offset: 3px;
+  border-color: var(--accent);
+}
+
 /* =========================================================================
  * Top prototype banner — never lets a reader forget what this is.
  * ========================================================================= */
@@ -1277,6 +1306,8 @@ body[data-skin="soft-modern-studio"] .phone {
 @media (max-width: 760px) {
   .shell { padding: 12px 12px 60px; }
   .shell-head h1 { font-size: 24px; }
+  body[data-skin="soft-modern-studio"] .shell-head { padding: 20px; }
+  body[data-skin="soft-modern-studio"] .shell-head h1 { font-size: 28px; line-height: 1.06; }
   .screen-body { padding: 14px; }
   .wizard,
   .mode-picker,
@@ -1292,8 +1323,8 @@ body[data-skin="soft-modern-studio"] .phone {
     grid-template-columns: repeat(3, 1fr);
   }
   .qa-matrix th, .qa-matrix td { padding: 6px 7px; font-size: 11.5px; }
-  .skin-system { grid-template-columns: 1fr; }
-  .skin-stack { justify-content: flex-start; }
+  body[data-skin="soft-modern-studio"] .skin-system { grid-template-columns: 1fr; }
+  body[data-skin="soft-modern-studio"] .skin-stack { justify-content: flex-start; }
   .toc { gap: 6px; }
   .toc a { padding: 3px 7px; font-size: 11.5px; }
 }
