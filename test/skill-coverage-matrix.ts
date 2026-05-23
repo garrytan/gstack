@@ -117,6 +117,10 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     ],
     periodic: ['test/skill-e2e-plan-devex-finding-count.test.ts'],
   },
+  'plan-pm-review': {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: [],
+  },
   autoplan: {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-autoplan-chain.test.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts'],
