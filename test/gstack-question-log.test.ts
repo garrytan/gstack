@@ -22,7 +22,11 @@ afterEach(() => {
 });
 
 function run(payload: string): { stdout: string; stderr: string; status: number } {
-  const res = spawnSync(BIN, [payload], {
+  return runArgs([payload]);
+}
+
+function runArgs(args: string[]): { stdout: string; stderr: string; status: number } {
+  const res = spawnSync(BIN, args, {
     env: { ...process.env, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
@@ -139,6 +143,12 @@ describe('gstack-question-log — valid payloads', () => {
 });
 
 describe('gstack-question-log — rejected payloads', () => {
+  test('missing payload is rejected with a clear usage error', () => {
+    const r = runArgs([]);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('expected one JSON payload argument');
+  });
+
   test('invalid JSON is rejected', () => {
     const r = run('{not-json');
     expect(r.status).not.toBe(0);

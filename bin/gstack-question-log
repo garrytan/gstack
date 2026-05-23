@@ -31,6 +31,11 @@ eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
+if [ "$#" -ne 1 ]; then
+  echo "gstack-question-log: expected one JSON payload argument" >&2
+  exit 1
+fi
+
 INPUT="$1"
 
 # Validate and enrich from registry.
