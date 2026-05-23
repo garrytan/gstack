@@ -33,7 +33,7 @@ beforeAll(async () => {
 
   bm = new BrowserManager();
   await bm.launch();
-});
+}, 30000);
 
 afterAll(() => {
   // Force kill browser instead of graceful close (avoids hang)

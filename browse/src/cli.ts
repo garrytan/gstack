@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn as nodeSpawn } from 'child_process';
+import { spawn as nodeSpawn, spawnSync } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
@@ -21,7 +21,9 @@ import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
-const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+const DEFAULT_START_WAIT = IS_WINDOWS ? 45000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+const MAX_START_WAIT = Number.parseInt(process.env.BROWSE_START_WAIT_MS || '', 10) || DEFAULT_START_WAIT;
+let startedServerThisRun = false;
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -229,16 +231,15 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
 
   if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
-    // when the CLI exits, the server dies with it. Use Node's child_process.spawn
-    // with { detached: true } instead, which is the gold standard for Windows
-    // process independence. Credit: PR #191 by @fqueiro.
+    // when the CLI exits, the server dies with it. Use a tiny Node launcher
+    // with { detached: true }, which is the reliable Windows detach path.
     const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
-    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    spawnSync('node', ['-e', launcherCode], { stdio: 'ignore' });
   } else {
     // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
     // loop — it does NOT call setsid(), so the spawned server stays in the
@@ -265,6 +266,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   while (Date.now() - start < MAX_START_WAIT) {
     const state = readState();
     if (state && await isServerHealthy(state.port)) {
+      startedServerThisRun = true;
       return state;
     }
     await Bun.sleep(100);
@@ -384,7 +386,10 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
     const start = Date.now();
     while (Date.now() - start < MAX_START_WAIT) {
       const freshState = readState();
-      if (freshState && await isServerHealthy(freshState.port)) return freshState;
+      if (freshState && await isServerHealthy(freshState.port)) {
+        startedServerThisRun = true;
+        return freshState;
+      }
       await Bun.sleep(200);
     }
     throw new Error('Timed out waiting for another instance to start the server');
@@ -394,6 +399,7 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
     // Re-read state under lock in case another process just started the server
     const freshState = readState();
     if (freshState && await isServerHealthy(freshState.port)) {
+      startedServerThisRun = true;
       return freshState;
     }
 
@@ -405,8 +411,6 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
       console.error(`[browse] Starting server with proxy ${flags.redactedProxyUrl}${flags.headed ? ' (headed)' : ''}...`);
     } else if (flags?.headed) {
       console.error('[browse] Starting server in headed mode...');
-    } else {
-      console.error('[browse] Starting server...');
     }
     return await startServer(extraEnv);
   } finally {
@@ -469,10 +473,8 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
 
     const text = await resp.text();
-
     if (resp.ok) {
-      process.stdout.write(text);
-      if (!text.endsWith('\n')) process.stdout.write('\n');
+      await writeStdout(text);
     } else {
       // Try to parse as JSON error
       try {
@@ -489,8 +491,15 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       console.error('[browse] Command timed out after 30s');
       process.exit(1);
     }
-    // Connection error — server may have crashed
+    // `stop` intentionally tears the daemon down. On Windows/Node the socket
+    // can close before the response body reaches the CLI; treat that as a
+    // successful stop instead of triggering the generic crash-restart path.
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+      if (command === 'stop' && !(await isServerHealthy(state.port))) {
+        safeUnlinkQuiet(config.stateFile);
+        await writeStdout('Server stopped');
+        return;
+      }
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
       // Kill the old server to avoid orphaned chromium processes
@@ -511,6 +520,32 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
     throw err;
   }
+}
+
+async function writeStdout(text: string): Promise<void> {
+  const output = text.endsWith('\n') ? text : `${text}\n`;
+  fs.writeSync(1, output);
+}
+
+async function handleStopCommand(commandArgs: string[]): Promise<void> {
+  const state = readState();
+  if (!state) {
+    await writeStdout('Server not running');
+    return;
+  }
+
+  if (await isServerHealthy(state.port)) {
+    await sendCommand(state, 'stop', commandArgs);
+    return;
+  }
+
+  if (state.pid && isProcessAlive(state.pid)) {
+    await killServer(state.pid);
+    await writeStdout('Server stopped');
+  } else {
+    await writeStdout('Server not running');
+  }
+  safeUnlinkQuiet(config.stateFile);
 }
 
 // Module-level reference to the resolved global flags from main(). Used by
@@ -1220,6 +1255,15 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     process.exit(0);
   }
 
+  // stop must never auto-start a daemon. The generic command path calls
+  // ensureServer(), which is correct for normal browser commands but wrong for
+  // shutdown: `browse stop` from a clean state should be a no-op, not a
+  // start-then-stop cycle that can leave a detached Windows process behind.
+  if (command === 'stop') {
+    await handleStopCommand(commandArgs);
+    process.exit(0);
+  }
+
   // Special case: chain reads from stdin
   if (command === 'chain' && commandArgs.length === 0) {
     const stdin = await Bun.stdin.text();
@@ -1227,6 +1271,18 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   }
 
   let state = await ensureServer(globalFlags);
+
+  if (startedServerThisRun && process.env.BROWSE_SKIP_REEXEC_AFTER_START !== '1') {
+    const result = spawnSync(process.execPath, process.argv.slice(2), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
+      env: { ...process.env, BROWSE_SKIP_REEXEC_AFTER_START: '1' },
+    });
+    if (result.error) throw result.error;
+    if (result.stdout) fs.writeSync(1, result.stdout);
+    if (result.stderr) fs.writeSync(2, result.stderr);
+    process.exit(result.status ?? 1);
+  }
 
   // ─── Pair-Agent (post-server, pre-dispatch) ──────────────
   if (command === 'pair-agent') {

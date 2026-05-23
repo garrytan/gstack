@@ -668,6 +668,39 @@ create_agents_sidecar() {
   done
 }
 
+link_browse_runtime_assets() {
+  local gstack_dir="$1"
+  local runtime_root="$2"
+
+  mkdir -p "$runtime_root/browse" "$runtime_root/node_modules"
+
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    _link_or_copy "$gstack_dir/browse/dist" "$runtime_root/browse/dist"
+  fi
+  # The compiled Windows CLI still resolves browse/src/server.ts at startup
+  # before it delegates to the Node-compatible server bundle.
+  if [ -d "$gstack_dir/browse/src" ]; then
+    _link_or_copy "$gstack_dir/browse/src" "$runtime_root/browse/src"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    _link_or_copy "$gstack_dir/browse/bin" "$runtime_root/browse/bin"
+  fi
+
+  # server-node.mjs intentionally externalizes these runtime packages.
+  for dep in playwright playwright-core diff; do
+    if [ -d "$gstack_dir/node_modules/$dep" ]; then
+      _link_or_copy "$gstack_dir/node_modules/$dep" "$runtime_root/node_modules/$dep"
+    fi
+  done
+  if [ -d "$gstack_dir/node_modules/@ngrok" ]; then
+    mkdir -p "$runtime_root/node_modules/@ngrok"
+    for scoped_dep in "$gstack_dir/node_modules/@ngrok"/*; do
+      [ -e "$scoped_dep" ] || continue
+      _link_or_copy "$scoped_dep" "$runtime_root/node_modules/@ngrok/$(basename "$scoped_dep")"
+    done
+  fi
+}
+
 # ─── Helper: create a minimal ~/.codex/skills/gstack runtime root ───────────
 # Codex scans ~/.codex/skills recursively. Exposing the whole repo here causes
 # duplicate skills because source SKILL.md files and generated Codex skills are
@@ -693,12 +726,7 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
   fi
-  if [ -d "$gstack_dir/browse/dist" ]; then
-    _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
-  fi
-  if [ -d "$gstack_dir/browse/bin" ]; then
-    _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
-  fi
+  link_browse_runtime_assets "$gstack_dir" "$codex_gstack"
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
   fi

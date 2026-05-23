@@ -315,6 +315,30 @@ describe('startup error log', () => {
   });
 });
 
+describe('cli command dispatch', () => {
+  const cliSource = fs.readFileSync(path.resolve(__dirname, '../src/cli.ts'), 'utf-8');
+
+  test('handles stop before ensureServer so shutdown never auto-starts a daemon', () => {
+    const stopDispatch = cliSource.indexOf('await handleStopCommand(commandArgs)');
+    const ensureServerCall = cliSource.indexOf('let state = await ensureServer(globalFlags)');
+
+    expect(stopDispatch).toBeGreaterThan(-1);
+    expect(ensureServerCall).toBeGreaterThan(-1);
+    expect(stopDispatch).toBeLessThan(ensureServerCall);
+  });
+
+  test('cold-start re-exec preserves command stdout on stdout', () => {
+    expect(cliSource).toContain('if (result.stdout) fs.writeSync(1, result.stdout)');
+    expect(cliSource).not.toContain('IS_WINDOWS ? 2 : 1, result.stdout');
+  });
+
+  test('default headless cold-start does not print a delayed startup banner', () => {
+    expect(cliSource).not.toContain("console.error('[browse] Starting server...')");
+    expect(cliSource).toContain('Starting server in headed mode');
+    expect(cliSource).toContain('Starting server with proxy');
+  });
+});
+
 describe('resolveGstackHome', () => {
   test('honors GSTACK_HOME env var when set', () => {
     const orig = process.env.GSTACK_HOME;
@@ -367,7 +391,7 @@ describe('resolveChromiumProfile', () => {
     delete process.env.CHROMIUM_PROFILE;
     process.env.GSTACK_HOME = '/tmp/fallback-gstack';
     try {
-      expect(resolveChromiumProfile()).toBe('/tmp/fallback-gstack/chromium-profile');
+      expect(resolveChromiumProfile()).toBe(path.join('/tmp/fallback-gstack', 'chromium-profile'));
     } finally {
       if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
       if (origHome === undefined) delete process.env.GSTACK_HOME;

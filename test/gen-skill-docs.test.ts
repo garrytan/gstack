@@ -2224,6 +2224,23 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('create_agents_sidecar "$SOURCE_GSTACK_DIR"');
   });
 
+  test('Codex runtime root includes browse source and externalized Node deps', () => {
+    const buildScript = fs.readFileSync(path.join(ROOT, 'browse', 'scripts', 'build-node-server.sh'), 'utf-8');
+    const externals = [...buildScript.matchAll(/--external\s+"?([^"\\\s]+)"?/g)]
+      .map((match) => match[1])
+      .filter((dep) => dep !== 'bun:sqlite');
+    const fnStart = setupContent.indexOf('link_browse_runtime_assets()');
+    const fnEnd = setupContent.indexOf('# ─── Helper: create a minimal ~/.codex/skills/gstack runtime root', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+
+    expect(fnBody).toContain('browse/src');
+    for (const dep of externals) {
+      const root = dep.startsWith('@') ? dep.split('/')[0] : dep;
+      expect(fnBody).toContain(root);
+    }
+    expect(setupContent).toContain('link_browse_runtime_assets "$gstack_dir" "$codex_gstack"');
+  });
+
   test('link_codex_skill_dirs reads from .agents/skills/', () => {
     // The Codex link function must reference .agents/skills for generated Codex skills
     const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
