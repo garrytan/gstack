@@ -393,3 +393,14 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+
+---
+
+## Coding Guidelines (Karpathy Principles)
+
+1. **Think Before Coding** — State assumptions explicitly before implementing
+2. **Simplicity First** — Minimum code for today's problem, no speculation
+3. **Surgical Changes** — Touch only what's necessary, match existing style
+4. **Goal-Driven Execution** — Define verifiable success criteria upfront
+
+Full reference: `~/.claude/agents/karpathy-guidelines/QUICK-START.md`
