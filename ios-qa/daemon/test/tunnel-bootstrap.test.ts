@@ -4,7 +4,12 @@
 
 import { describe, test, expect } from 'bun:test';
 import { bootstrapTunnel } from '../src/tunnel-bootstrap';
-import type { SpawnImpl } from '../src/devicectl';
+import {
+  getDeviceTunnelIPv6FromDevicectl,
+  resolveTunnelIPv6,
+  startTunnelKeepalive,
+  type SpawnImpl,
+} from '../src/devicectl';
 import { writeFileSync } from 'fs';
 
 interface ScriptedCall {
@@ -142,6 +147,12 @@ describe('bootstrapTunnel', () => {
         jsonOutput: { result: { runningProcesses: [{ executable: 'file:///private/var/containers/Bundle/Application/.../com.test.app/com.test', processIdentifier: 1234 }] } },
         stdout: 'com.test',
       },
+      {
+        // devicectl device info details (devicectl-based IPv6 resolution).
+        // Return no tunnelIPAddress so we fall through to the injected resolver.
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: {} } },
+      },
     ]);
     const r = await bootstrapTunnel({
       bundleId: 'com.test',
@@ -172,6 +183,12 @@ describe('bootstrapTunnel', () => {
         argsMatch: /devicectl device info processes/,
         jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test', processIdentifier: 5678 }] } },
         stdout: '/com.test.app/',
+      },
+      {
+        // devicectl-based IPv6 resolution succeeds — returns the tunnel
+        // address directly, so the injected resolveImpl is never called.
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd99::beef' } } },
       },
       {
         argsMatch: /devicectl device copy from/,
@@ -233,6 +250,11 @@ describe('bootstrapTunnel', () => {
         // jsonOutput body contains the bundle id path, so isAppRunning() returns true.
         jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
       },
+      {
+        // devicectl device info details returns no tunnel address.
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: {} } },
+      },
     ]);
     const r = await bootstrapTunnel({
       bundleId: 'com.test',
@@ -259,6 +281,10 @@ describe('bootstrapTunnel', () => {
         jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
       },
       {
+        argsMatch: /devicectl device info details --device B/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd00::b' } } },
+      },
+      {
         argsMatch: /devicectl device copy from --device B/,
         destOutput: 'TOKEN\n',
       },
@@ -272,5 +298,134 @@ describe('bootstrapTunnel', () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.tunnel.udid).toBe('B');
+  });
+});
+
+describe('getDeviceTunnelIPv6FromDevicectl', () => {
+  test('extracts tunnelIPAddress from connectionProperties', () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl device info details --device TEST-UDID/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fde4:2827:528e::1' } } },
+      },
+    ]);
+    expect(getDeviceTunnelIPv6FromDevicectl('TEST-UDID', spawn)).toBe('fde4:2827:528e::1');
+  });
+
+  test('falls back to result.tunnel.ipAddress when connectionProperties absent', () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { tunnel: { ipAddress: 'fd00::dead:beef' } } },
+      },
+    ]);
+    expect(getDeviceTunnelIPv6FromDevicectl('UDID', spawn)).toBe('fd00::dead:beef');
+  });
+
+  test('returns null when devicectl exits non-zero', () => {
+    const spawn = makeSpawn([
+      { argsMatch: /devicectl device info details/, exitCode: 1, stderr: 'no such device' },
+    ]);
+    expect(getDeviceTunnelIPv6FromDevicectl('UDID', spawn)).toBeNull();
+  });
+
+  test('returns null when tunnelIPAddress missing or non-string', () => {
+    const spawn = makeSpawn([
+      { argsMatch: /devicectl device info details/, jsonOutput: { result: { connectionProperties: {} } } },
+    ]);
+    expect(getDeviceTunnelIPv6FromDevicectl('UDID', spawn)).toBeNull();
+  });
+});
+
+describe('resolveTunnelIPv6 fallback chain', () => {
+  test('prefers devicectl-based resolution', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd11::1' } } },
+      },
+    ]);
+    let resolveCalled = false;
+    const addr = await resolveTunnelIPv6({
+      udid: 'U',
+      deviceName: 'Test',
+      spawn,
+      resolve: async () => { resolveCalled = true; return ['fd99::99']; },
+      legacyResolve: async () => { resolveCalled = true; return ['fdAA::AA']; },
+    });
+    expect(addr).toBe('fd11::1');
+    expect(resolveCalled).toBe(false);
+  });
+
+  test('falls through to dns.lookup when devicectl yields no address', async () => {
+    const spawn = makeSpawn([
+      { argsMatch: /devicectl device info details/, jsonOutput: { result: { connectionProperties: {} } } },
+    ]);
+    let legacyCalled = false;
+    const addr = await resolveTunnelIPv6({
+      udid: 'U',
+      deviceName: 'Test',
+      spawn,
+      resolve: async () => ['fd22::2'],
+      legacyResolve: async () => { legacyCalled = true; return ['fdAA::AA']; },
+    });
+    expect(addr).toBe('fd22::2');
+    expect(legacyCalled).toBe(false);
+  });
+
+  test('falls through to legacy resolve6 when both devicectl and dns.lookup fail', async () => {
+    const spawn = makeSpawn([
+      { argsMatch: /devicectl device info details/, exitCode: 1 },
+    ]);
+    const addr = await resolveTunnelIPv6({
+      udid: 'U',
+      deviceName: 'Test',
+      spawn,
+      resolve: async () => { throw new Error('ESERVFAIL'); },
+      legacyResolve: async () => ['fd33::3'],
+    });
+    expect(addr).toBe('fd33::3');
+  });
+
+  test('returns null when all three strategies fail', async () => {
+    const spawn = makeSpawn([
+      { argsMatch: /devicectl device info details/, exitCode: 1 },
+    ]);
+    const addr = await resolveTunnelIPv6({
+      udid: 'U',
+      deviceName: 'Test',
+      spawn,
+      resolve: async () => { throw new Error('ESERVFAIL'); },
+      legacyResolve: async () => { throw new Error('ESERVFAIL'); },
+    });
+    expect(addr).toBeNull();
+  });
+});
+
+describe('startTunnelKeepalive', () => {
+  test('invokes devicectl on each interval tick', async () => {
+    const calls: string[] = [];
+    const spawn: SpawnImpl = ((cmd: string, args: string[]) => {
+      calls.push(`${cmd} ${args.slice(0, 4).join(' ')}`);
+      return makeReturn(0, '{}', '');
+    }) as SpawnImpl;
+    const ka = startTunnelKeepalive('UDID-X', { intervalMs: 20, spawn });
+    await new Promise((res) => setTimeout(res, 75));
+    ka.stop();
+    const before = calls.length;
+    // After stop, no more calls.
+    await new Promise((res) => setTimeout(res, 50));
+    expect(calls.length).toBe(before);
+    expect(before).toBeGreaterThanOrEqual(2);
+    expect(calls[0]).toContain('devicectl');
+    expect(calls[0]).toContain('device info details');
+  });
+
+  test('stop() is idempotent', () => {
+    const spawn: SpawnImpl = (() => makeReturn(0, '', '')) as SpawnImpl;
+    const ka = startTunnelKeepalive('U', { intervalMs: 1_000, spawn });
+    ka.stop();
+    ka.stop();
+    // no throw
   });
 });
