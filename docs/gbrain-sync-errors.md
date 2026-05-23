@@ -23,7 +23,7 @@ This pulls the repo into `~/.gstack/` and re-registers merge drivers.
 
 If you don't want to restore here, dismiss the hint with:
 ```bash
-gstack-config set gbrain_sync_mode_prompted true
+gstack-config set artifacts_sync_mode_prompted true
 ```
 
 ---
@@ -200,7 +200,7 @@ canonical config files from the brain repo.
 
 1. `gstack-brain-sync --status` — is mode `off`?
 2. `~/.gstack/.git` exists?
-3. `gstack-config get gbrain_sync_mode` — should be `full` or `artifacts-only`.
+3. `gstack-config get artifacts_sync_mode` — should be `full` or `artifacts-only`.
 4. The file you expect to sync — is it in the allowlist?
    `cat ~/.gstack/.brain-allowlist`
 5. Privacy class filter — if mode is `artifacts-only`, behavioral files

@@ -81,3 +81,42 @@ export const FORCING_FLOOR_DEVEX = [
   '',
   'No quickstart command, no hosted sandbox, no copy-pasteable curl example.',
 ].join('\n');
+
+/**
+ * Multi-finding batching regression seed (periodic tier).
+ *
+ * Mirrors the May 2026 transcript bug shape: 4 distinct non-trivial findings
+ * spread across plan-eng-review's standard sections (Architecture, Code
+ * Quality, Tests, Performance). Each finding is independent — there is no
+ * legitimate reason to batch them into a single AskUserQuestion.
+ *
+ * Used by test/skill-e2e-plan-eng-multi-finding-batching.test.ts to assert
+ * the agent fires >= 3 review-phase AUQs (i.e., does NOT batch them into a
+ * "## Decisions to confirm" section + ExitPlanMode). Floor of 3 (not 4) is
+ * the [N-1] tolerance from the existing finding-count band convention.
+ */
+export const FORCING_BATCHING_ENG = [
+  'Please review this plan thoroughly. As you go, write your plan-mode plan to /tmp/gstack-test-plan-eng-batching.md (use Edit/Write to that exact path).',
+  '',
+  '# Plan: Add background job retry framework',
+  '',
+  '## Architecture',
+  "We'll roll a custom exponential-backoff scheduler inline in each worker",
+  "rather than use the existing job library's built-in retry hooks. Same",
+  'shape as the library version, but we want full control over the curve.',
+  '',
+  '## Code quality',
+  'The retry envelope (compute delay, log attempt, dispatch) is duplicated',
+  'across 5 worker files with copy-pasted bodies. We will leave the',
+  'duplication for now and refactor "later."',
+  '',
+  '## Tests',
+  'The existing `processWebhookJob()` flow gets rewritten as part of this',
+  'change. No regression test for the prior at-most-once delivery guarantee',
+  'is planned.',
+  '',
+  '## Performance',
+  'On every retry we re-fetch the full job payload from the database, then',
+  'iterate the payload to recompute the dependency graph. Could cache the',
+  'graph on the first attempt; not planned.',
+].join('\n');

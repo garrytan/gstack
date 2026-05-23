@@ -153,6 +153,9 @@ describe("markActiveSiblings", () => {
 // Integration smoke — only runs if gh is available and authenticated. Confirms
 // the CLI executes end-to-end against real APIs without crashing.
 describe("integration (smoke)", () => {
+  // Bumps timeout to 30s — the test spawns a real `bun run` subprocess that
+  // does a `gh pr list` against the live GitHub API to inspect claimed slots.
+  // Network latency makes 5s tight on developer machines.
   test("CLI runs against real repo and emits parseable JSON", async () => {
     const proc = Bun.spawnSync([
       "bun",
@@ -178,5 +181,5 @@ describe("integration (smoke)", () => {
     expect(Array.isArray(parsed.claimed)).toBe(true);
     expect(parsed).toHaveProperty("siblings");
     expect(parsed.siblings).toEqual([]); // --workspace-root null disabled scanning
-  });
+  }, 30_000); // Headroom over the 4-5s wall time of the spawned process under load
 });

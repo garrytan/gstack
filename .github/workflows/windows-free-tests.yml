@@ -1,6 +1,6 @@
 name: Windows Free Tests
 
-# Curated subset of the free test suite that runs on windows-latest.
+# Curated subset of the free test suite that runs on a paid faster Windows runner.
 #
 # Codex's v1.18.0.0 review flagged that the existing evals.yml workflow uses
 # a Linux container, so a windows-latest matrix entry there isn't a drop-in.
@@ -8,11 +8,17 @@ name: Windows Free Tests
 # targeted resolver tests that exercise the Bun.which-based claude binary
 # resolution + the GSTACK_CLAUDE_BIN override path on Windows.
 #
-# What this DOES NOT do (out of scope for v1.18.0.0):
+# Runner: GitHub-hosted free `windows-latest`. The whole rest of CI runs on
+# Ubicloud (Linux), but Ubicloud doesn't ship Windows runners and we don't
+# want to flip on GitHub's org-level larger-runner billing for just this one
+# job. 4 cores, ~60s spin-up, $0. The wave-coverage tests this runs are
+# small enough that total job time stays under 2 minutes.
+#
+# What this DOES NOT do (still out of scope, tracked as follow-up):
 #   - Run the full free suite on Windows. The 24 tests that hardcode /bin/sh,
 #     spawn('sh',...), or raw /tmp/ paths are excluded by scripts/test-free-shards.ts
 #     --windows-only. They need POSIX-bound surfaces to be ported off shell
-#     primitives before they can run on Windows. Tracked as a follow-up TODO.
+#     primitives before they can run on Windows.
 #   - Run Playwright/browser-backed tests. Browse server bring-up on Windows is
 #     a separate concern (PR #1238 windows-pty-bun-pty-fix is in flight).
 
@@ -27,6 +33,8 @@ concurrency:
 
 jobs:
   windows-free-tests:
+    # Ubicloud Windows runner (same provider as the Linux evals workflow).
+    # To revert: swap to `windows-latest` (GitHub's free 4-core Windows runner).
     runs-on: windows-latest
     timeout-minutes: 15
 
@@ -91,8 +99,23 @@ jobs:
         continue-on-error: true
 
       - name: Verify new portability work on Windows
-        # 31 tests targeting the new code paths added by v1.20.0.0. These
-        # MUST pass for the release-note headline ("curated Windows lane added")
-        # to be truthful.
-        run: bun test test/gstack-paths.test.ts browse/test/claude-bin.test.ts test/test-free-shards.test.ts
+        # Tests targeting the v1.20.0.0 lane plus v1.30.0.0 fix-wave additions
+        # plus v1.36.0.0 Windows-install hardening (sanitizer + _link_or_copy
+        # helper + build-script subshells + doc/config-key drift guard).
+        # v1.30.0.0 extension covers icacls hardening (#1308), bash.exe telemetry
+        # wrap (#1306), and Bun.which-based binary resolvers (#1307). These must
+        # pass on Windows for the wave's "Windows hardening" framing to be honest.
+        run: |
+          bun test \
+            test/gstack-paths.test.ts \
+            browse/test/claude-bin.test.ts \
+            test/test-free-shards.test.ts \
+            browse/test/file-permissions.test.ts \
+            browse/test/security.test.ts \
+            browse/test/server-sanitize-surrogates.test.ts \
+            test/setup-windows-fallback.test.ts \
+            test/build-script-shell-compat.test.ts \
+            test/docs-config-keys.test.ts \
+            make-pdf/test/browseClient.test.ts \
+            make-pdf/test/pdftotext.test.ts
         shell: bash

@@ -17,11 +17,13 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
 import { handleSkillCommand } from '../src/browser-skill-commands';
 import { listBrowserSkills, defaultTierPaths } from '../src/browser-skills';
-import { initRegistry, rotateRoot } from '../src/token-registry';
+import { initRegistry, __resetRegistry } from '../src/token-registry';
 
 beforeAll(() => {
-  // Some preceding tests may have rotated the registry; ensure we have a root.
-  rotateRoot();
+  // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
+  // doesn't fire. rotateRoot would leave a UUID in rootToken and the next
+  // initRegistry call would throw.
+  __resetRegistry();
   initRegistry('e2e-root-token');
 });
 

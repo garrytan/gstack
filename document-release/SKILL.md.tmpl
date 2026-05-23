@@ -4,10 +4,12 @@ preamble-tier: 2
 version: 1.0.0
 description: |
   Post-ship documentation update. Reads all project docs, cross-references the
-  diff, updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
-  polishes CHANGELOG voice, cleans up TODOS, and optionally bumps VERSION. Use when
-  asked to "update the docs", "sync documentation", or "post-ship docs".
-  Proactively suggest after a PR is merged or code is shipped. (gstack)
+  diff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),
+  updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
+  detects architecture diagram drift, polishes CHANGELOG voice with a sell-test
+  rubric, cleans up TODOS, and optionally bumps VERSION. Surfaces documentation
+  debt in the PR body. Use when asked to "update the docs", "sync documentation",
+  or "post-ship docs". Proactively suggest after a PR is merged or code is shipped. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -88,6 +90,48 @@ find . -maxdepth 2 -name "*.md" -not -path "./.git/*" -not -path "./node_modules
    - **Infrastructure** — build system, test infrastructure, CI
 
 5. Output a brief summary: "Analyzing N files changed across M commits. Found K documentation files to review."
+
+---
+
+## Step 1.5: Coverage Map (Blast-Radius Analysis)
+
+Before touching any documentation file, build a **coverage map** of what shipped vs what's
+documented. This is inspired by the Diataxis framework (tutorial / how-to / reference / explanation)
+— but applied as an audit lens, not a generation tool.
+
+1. **Extract public surface changes from the diff.** Scan `git diff <base>...HEAD` for:
+   - New exported functions, classes, commands, CLI flags, config options, API endpoints
+   - New skills, workflows, or user-facing capabilities
+   - Renamed or removed public surface (modules, commands, features)
+   - New environment variables, feature flags, or configuration knobs
+
+2. **For each new/changed public surface item, assess documentation coverage:**
+
+```
+Coverage map:
+  [entity]         [reference?] [how-to?] [tutorial?] [explanation?]
+  /new-skill       ✅ AGENTS.md  ❌        ❌          ❌
+  --new-flag       ✅ README     ✅ README  ❌          ❌
+  FooProcessor     ❌            ❌        ❌          ❌
+```
+
+Use these definitions:
+- **Reference** — factual description of what it is, its API, its options (README tables, AGENTS.md skill lists, API docs)
+- **How-to** — task-oriented: "how to do X with this" (README examples, CONTRIBUTING workflows)
+- **Tutorial** — learning-oriented: step-by-step walkthrough for newcomers (getting started guides)
+- **Explanation** — understanding-oriented: "why this works this way" (ARCHITECTURE decisions, design rationale)
+
+3. **Output the coverage map.** Items with zero coverage are **critical gaps** — flag them for
+   Step 3. Items with reference-only coverage are **common gaps** — note them for the PR body.
+
+4. **Architecture diagram drift detection.** If ARCHITECTURE.md (or any doc) contains ASCII
+   diagrams or Mermaid blocks, extract entity names (modules, services, data flows) from the
+   diagrams. Cross-reference against the diff. Flag any diagram entities that were renamed,
+   split, removed, or moved in the code.
+
+The coverage map feeds into Steps 2-3 (what to audit and fix) and Step 9 (documentation debt
+summary in the PR body). Do NOT auto-generate missing documentation pages — flag gaps only.
+When significant gaps are found, suggest running `/document-generate` to fill them.
 
 ---
 
@@ -183,8 +227,11 @@ preserved them. This skill must NEVER do that.
 
 **If CHANGELOG was modified in this branch**, review the entry for voice:
 
-- **Sell test:** Would a user reading each bullet think "oh nice, I want to try that"? If not,
-  rewrite the wording (not the content).
+- **Sell test (Diataxis rubric):** Score each CHANGELOG entry 0-3:
+  - **1 point** — answers "What changed?" (reference: names the feature/fix)
+  - **1 point** — answers "Why should I care?" (explanation: user impact, pain removed)
+  - **1 point** — answers "How do I use it?" (how-to: command, flag, or link to docs)
+  - Entries scoring <2 need a rewrite. Entries scoring 3 are gold.
 - Lead with what the user can now **do** — not implementation details.
 - "You can now..." not "Refactored the..."
 - Flag and rewrite any entry that reads like a commit message.
@@ -312,9 +359,21 @@ glab mr view -F json 2>/dev/null | python3 -c "import sys,json; print(json.load(
 2. If the tempfile already contains a `## Documentation` section, replace that section with the
    updated content. If it does not contain one, append a `## Documentation` section at the end.
 
-3. The Documentation section should include a **doc diff preview** — for each file modified,
-   describe what specifically changed (e.g., "README.md: added /document-release to skills
-   table, updated skill count from 9 to 10").
+3. The Documentation section should include:
+
+   a. **Doc diff preview** — for each file modified, describe what specifically changed (e.g.,
+      "README.md: added /document-release to skills table, updated skill count from 9 to 10").
+
+   b. **Documentation debt** — if the coverage map from Step 1.5 found gaps, append a
+      `### Documentation Debt` subsection listing:
+      - Critical gaps: new public surface with zero documentation coverage
+      - Common gaps: features with reference-only coverage (no how-to or tutorial)
+      - Stale diagrams: architecture diagrams with entity names that drifted from the code
+      - Each item should include a one-line description of what's missing and which Diataxis
+        quadrant would fill it (e.g., "⚠️ `/new-skill` — has reference in AGENTS.md but no
+        how-to example in README")
+
+   If there are any documentation debt items, suggest adding a `docs-debt` label to the PR.
 
 4. Write the updated body back:
 
@@ -412,6 +471,20 @@ Where status is one of:
 - Already bumped — version was set by /ship
 - Skipped — file does not exist
 
+If the coverage map from Step 1.5 identified any gaps, append:
+
+```
+Documentation coverage:
+  [entity]         [reference] [how-to] [tutorial] [explanation]
+  /new-skill       ✅          ❌       ❌         ❌
+  --new-flag       ✅          ✅       ❌         ❌
+
+Diagram drift:
+  ARCHITECTURE.md: "FooProcessor" renamed to "BarProcessor" in code — diagram may be stale
+```
+
+If all coverage is complete and no diagrams drifted, output: "Coverage: all shipped features have adequate documentation."
+
 ---
 
 ## Important Rules
@@ -422,5 +495,10 @@ Where status is one of:
 - **Be explicit about what changed.** Every edit gets a one-line summary.
 - **Generic heuristics, not project-specific.** The audit checks work on any repo.
 - **Discoverability matters.** Every doc file should be reachable from README or CLAUDE.md.
+- **Coverage map informs, never generates.** The Diataxis coverage map flags gaps for the PR body
+  and future work. It does NOT auto-generate missing documentation pages or sections. When gaps
+  are found, suggest `/document-generate` as the follow-up skill.
+- **Diagram drift is advisory.** Flag stale architecture diagrams in the PR body but do not
+  auto-edit ASCII art or Mermaid blocks — they require human judgment to update correctly.
 - **Voice: friendly, user-forward, not obscure.** Write like you're explaining to a smart person
   who hasn't seen the code.

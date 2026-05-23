@@ -13,11 +13,14 @@
  *        between paragraphs, and homoglyph substitution. We add a word-token
  *        diff and a paragraph-boundary assertion on top.
  *
- * Resolution order for the pdftotext binary:
- *   1. $PDFTOTEXT_BIN env override
- *   2. `which pdftotext` on PATH
- *   3. standard Homebrew paths on macOS
- *   4. throws a friendly "install poppler" error
+ * Resolution order for the pdftotext binary (v1.24-aligned):
+ *   1. $GSTACK_PDFTOTEXT_BIN env override (preferred, matches v1.24 GSTACK_*_BIN pattern)
+ *   2. $PDFTOTEXT_BIN env override (back-compat alias)
+ *   3. PATH lookup via Bun.which('pdftotext') — handles Windows PATHEXT natively
+ *   4. standard POSIX paths (Homebrew + distro) — no Windows candidates because
+ *      Poppler scatters across Scoop / Chocolatey / oschwartz10612-poppler-windows
+ *      and guessing causes false positives. Set GSTACK_PDFTOTEXT_BIN explicitly.
+ *   5. throws a friendly "install poppler" error
  *
  * The wrapper is *optional at runtime*: production renders don't need it.
  * Only the CI gate and unit tests invoke pdftotext.
@@ -42,29 +45,52 @@ export interface PdftotextInfo {
 }
 
 /**
+ * Probe a base path for executability, honoring Windows extension suffixes.
+ * Matches browseClient.ts:findExecutable — duplicated rather than shared
+ * because the two modules already duplicate isExecutable for compile-isolation.
+ */
+export function findExecutable(base: string): string | null {
+  if (isExecutable(base)) return base;
+  if (process.platform === "win32") {
+    for (const ext of [".exe", ".cmd", ".bat"]) {
+      const withExt = base + ext;
+      if (isExecutable(withExt)) return withExt;
+    }
+  }
+  return null;
+}
+
+function resolveOverride(value: string | undefined, env: NodeJS.ProcessEnv): string | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim().replace(/^"(.*)"$/, '$1');
+  if (path.isAbsolute(trimmed)) return findExecutable(trimmed);
+  const PATH = env.PATH ?? env.Path ?? '';
+  return Bun.which(trimmed, { PATH }) ?? null;
+}
+
+/**
  * Locate pdftotext. Throws PdftotextUnavailableError if none is found.
  */
-export function resolvePdftotext(): PdftotextInfo {
-  const envOverride = process.env.PDFTOTEXT_BIN;
-  if (envOverride && isExecutable(envOverride)) {
-    return describeBinary(envOverride);
-  }
+export function resolvePdftotext(env: NodeJS.ProcessEnv = process.env): PdftotextInfo {
+  // 1 + 2: env overrides (GSTACK_PDFTOTEXT_BIN preferred, PDFTOTEXT_BIN back-compat).
+  const overrideRaw = env.GSTACK_PDFTOTEXT_BIN ?? env.PDFTOTEXT_BIN;
+  const override = resolveOverride(overrideRaw, env);
+  if (override) return describeBinary(override);
 
-  // Try PATH
-  try {
-    const which = execFileSync("which", ["pdftotext"], { encoding: "utf8" }).trim();
-    if (which && isExecutable(which)) return describeBinary(which);
-  } catch {
-    // fall through
-  }
+  // 3: PATH lookup via Bun.which — handles Windows PATHEXT natively.
+  const PATH = env.PATH ?? env.Path ?? '';
+  const onPath = Bun.which('pdftotext', { PATH });
+  if (onPath) return describeBinary(onPath);
 
-  // Common macOS Homebrew locations
-  const macCandidates = [
-    "/opt/homebrew/bin/pdftotext",     // Apple Silicon
+  // 4: POSIX-only standard locations. No Windows candidates — Poppler installs
+  // scatter across Scoop/Chocolatey/portable zips and guessing causes false
+  // positives. Windows users set GSTACK_PDFTOTEXT_BIN explicitly.
+  const posixCandidates = [
+    "/opt/homebrew/bin/pdftotext",     // Apple Silicon Homebrew
     "/usr/local/bin/pdftotext",        // Intel Mac or Linuxbrew
     "/usr/bin/pdftotext",              // distro package
   ];
-  for (const candidate of macCandidates) {
+  for (const candidate of posixCandidates) {
     if (isExecutable(candidate)) return describeBinary(candidate);
   }
 
@@ -75,12 +101,16 @@ export function resolvePdftotext(): PdftotextInfo {
     "(Runtime rendering does NOT need it. This only affects tests.)",
     "",
     "To install:",
-    "  macOS:  brew install poppler",
-    "  Ubuntu: sudo apt-get install poppler-utils",
-    "  Fedora: sudo dnf install poppler-utils",
+    "  macOS:    brew install poppler",
+    "  Ubuntu:   sudo apt-get install poppler-utils",
+    "  Fedora:   sudo dnf install poppler-utils",
+    "  Windows:  scoop install poppler  (or download from",
+    "            https://github.com/oschwartz10612/poppler-windows)",
     "",
-    "Or set PDFTOTEXT_BIN to an explicit path:",
-    "  export PDFTOTEXT_BIN=/path/to/pdftotext",
+    "Or set GSTACK_PDFTOTEXT_BIN to an explicit path:",
+    process.platform === "win32"
+      ? '  setx GSTACK_PDFTOTEXT_BIN "C:\\path\\to\\pdftotext.exe"'
+      : "  export GSTACK_PDFTOTEXT_BIN=/path/to/pdftotext",
   ].join("\n"));
 }
 

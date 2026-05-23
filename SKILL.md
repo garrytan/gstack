@@ -108,7 +108,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, fall back to writing the decision brief into the plan file as a `## Decisions to confirm` section + ExitPlanMode — never silently auto-decide. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -286,30 +286,29 @@ _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Mutually exclusive variants per /plan-eng-review §4. Empty string when gbrain
-# is not configured (zero context cost for non-gbrain users).
+# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
+# git toplevel to scope queries. Look for the pin in the worktree (not a global
+# state file) so that opening worktree B without a pin doesn't claim "indexed"
+# just because worktree A was synced. Empty string when gbrain is not
+# configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
-    _CWD_PAGES=0
-    if [ -f "$_SYNC_STATE" ]; then
-      # Flatten newlines so the regex works against pretty-printed JSON too.
-      _CWD_PAGES=$(tr -d '\n' < "$_SYNC_STATE" 2>/dev/null \
-        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \
-        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\+' | head -1)
-      _CWD_PAGES=${_CWD_PAGES:-0}
+    _GBRAIN_PIN_PATH=""
+    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
+      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
-    if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
+    if [ -n "$_GBRAIN_PIN_PATH" ]; then
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
     else
-      echo "GBrain configured but this repo isn't indexed yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this repo."
-      echo "Falls back to Grep until indexed."
+      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
+      echo "before relying on \`gbrain search\` for code questions in this worktree."
+      echo "Falls back to Grep until pinned."
     fi
   fi
 fi
@@ -475,9 +474,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 If `PROACTIVE` is `false`: do NOT proactively invoke or suggest other gstack skills during
 this session. Only run skills the user explicitly invokes. This preference persists across
@@ -507,6 +504,7 @@ quality gates that produce better results than answering inline.
 - User asks to configure deployment for the project → invoke `/setup-deploy`
 - User asks to monitor prod after shipping, post-deploy checks → invoke `/canary`
 - User asks to update docs after shipping → invoke `/document-release`
+- User asks to write docs from scratch, generate documentation, "document this feature/module" → invoke `/document-generate`
 - User asks for a weekly retro, what did we ship, "how'd we do" → invoke `/retro`
 - User asks for a second opinion, codex review → invoke `/codex`
 - User asks for safety mode, careful mode → invoke `/careful` or `/guard`
@@ -863,7 +861,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | Command | Description |
 |---------|-------------|
 | `archive [path]` | Save complete page as MHTML via CDP |
-| `download <url|@ref> [path] [--base64]` | Download URL or media element to disk using browser cookies |
+| `download <url|@ref> [path] [--base64] [--navigate]` | Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites) |
 | `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
 
 ### Interaction

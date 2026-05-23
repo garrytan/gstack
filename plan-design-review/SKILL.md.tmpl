@@ -348,7 +348,7 @@ Follow the AskUserQuestion format from the Preamble above. Additional rules for 
 * Present 2-3 options. For each: effort to specify now, risk if deferred.
 * **Map to Design Principles above.** One sentence connecting your recommendation to a specific principle.
 * Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Escape hatch (tightened):** If a section has zero findings, state "No issues, moving on" and proceed. If it has findings, use AskUserQuestion for each — a gap with an "obvious fix" is still a gap and still needs user approval before any change lands in the plan. Only skip AskUserQuestion when the fix is genuinely trivial AND there are no meaningful design alternatives. When in doubt, ask.
+* **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each gap — a gap with an "obvious fix" is still a gap and still needs user approval before any change lands in the plan.
 * **NEVER use AskUserQuestion to ask which variant the user prefers.** Always create a comparison board first (`$D compare --serve`) and open it in the browser. The board has rating controls, comments, remix/regenerate buttons, and structured feedback output. Use AskUserQuestion ONLY to notify the user the board is open and wait for them to finish — not to present variants inline and ask "which do you prefer?" That is a degraded experience.
 
 ## Required Outputs
@@ -371,6 +371,8 @@ For design debt: missing a11y, unresolved responsive behavior, deferred empty st
 * **Depends on / blocked by:** Any prerequisites.
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
+
+{{TASKS_SECTION_EMIT:design-review}}
 
 ### Completion Summary
 ```
@@ -475,3 +477,5 @@ Use AskUserQuestion to present the next step. Include only applicable options:
 * One sentence max per option.
 * After each pass, pause and wait for feedback.
 * Rate before and after each pass for scannability.
+
+{{EXIT_PLAN_MODE_GATE}}

@@ -11,11 +11,17 @@
  * auto-executes (no MCP probe). Per Finding #10: stored URL is HTTPS.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test as _test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+
+// Integration tests spawn real git/gh/glab subprocesses. The default 5s
+// per-test timeout is tight on developer machines; raise to 30s to match
+// the brain-sync.test.ts pattern. The tests stay deterministic (fake bins,
+// no network), but subprocess fork+exec under bun adds non-trivial overhead.
+const test = (name: string, fn: any) => _test(name, fn, 30000);
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const INIT_BIN = path.join(ROOT, 'bin', 'gstack-artifacts-init');

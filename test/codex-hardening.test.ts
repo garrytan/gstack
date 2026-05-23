@@ -364,3 +364,66 @@ describe('gstack-codex-probe: telemetry event emission', () => {
     }
   });
 });
+
+// ── Step 2A argv guard ─────────────────────────────────────────────────────
+// Regression test for #1428: Codex CLI >=0.130.0 rejects passing a quoted
+// prompt argument together with `--base <branch>`. Step 2A must never combine
+// the two on the same line. Asserts across both the .tmpl source and the
+// generated SKILL.md so template drift can't silently re-introduce the bug.
+
+describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', () => {
+  function extractStep2A(filePath: string): string {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const startIdx = content.indexOf('## Step 2A: Review Mode');
+    expect(startIdx).toBeGreaterThan(-1);
+    // End at next `## ` heading (skill section boundary).
+    const tail = content.slice(startIdx);
+    const nextHeading = tail.slice(2).search(/\n## /);
+    return nextHeading === -1 ? tail : tail.slice(0, nextHeading + 2);
+  }
+
+  for (const relPath of ['codex/SKILL.md.tmpl', 'codex/SKILL.md']) {
+    test(`${relPath}: no \`codex review\` line combines a quoted prompt argument with --base`, () => {
+      const section = extractStep2A(path.join(ROOT, relPath));
+      // Find all lines invoking `codex review` (any prefix wrapper allowed).
+      const lines = section.split('\n');
+      const offendingLines: string[] = [];
+      for (const line of lines) {
+        // Skip prose lines that just discuss codex review. Only inspect lines
+        // that look like an actual shell invocation (codex review followed by
+        // a non-prose token).
+        const match = line.match(/\bcodex\s+review\b(.*)$/);
+        if (!match) continue;
+        const rest = match[1];
+        // Two regression patterns:
+        //   codex review "..." --base <foo>
+        //   codex review $VAR --base <foo>
+        //   codex review -- "..." --base <foo>
+        // Acceptable: codex review --base <foo>   (bare, no prompt arg)
+        const hasBase = /--base\b/.test(rest);
+        if (!hasBase) continue;
+        // Strip --base <token> and any trailing -c/--enable flags so they
+        // don't look like positional args. Anything that remains BEFORE
+        // --base and looks like a positional is the regression.
+        const beforeBase = rest.split(/--base\b/)[0].trim();
+        // Empty (or just whitespace) before --base => bare review, safe.
+        if (beforeBase === '') continue;
+        // Allow `--` separator that introduces nothing else (rare). Anything
+        // that looks like a quoted string OR variable expansion is the bug.
+        if (/^["'$]|^--\s*["']/.test(beforeBase)) {
+          offendingLines.push(line);
+        }
+      }
+      expect(offendingLines).toEqual([]);
+    });
+
+    test(`${relPath}: Step 2A still contains at least one fix-path invocation`, () => {
+      const section = extractStep2A(path.join(ROOT, relPath));
+      // At least one of: bare `codex review --base` OR `codex exec ...` must
+      // remain. Guards against accidental deletion of both fix paths.
+      const bareReview = /codex\s+review\s+--base\b/.test(section);
+      const execRoute = /codex\s+exec\b/.test(section);
+      expect(bareReview || execRoute).toBe(true);
+    });
+  }
+});

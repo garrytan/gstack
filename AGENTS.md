@@ -47,6 +47,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/canary` | Post-deploy monitoring loop using the browse daemon. |
 | `/landing-report` | Read-only dashboard for the workspace-aware ship queue. |
 | `/document-release` | Update all docs to match what you just shipped. |
+| `/document-generate` | Generate Diataxis docs (tutorial / how-to / reference / explanation) from code. |
 | `/setup-deploy` | One-time deploy config detection (Fly.io, Render, Vercel, etc.). |
 | `/gstack-upgrade` | Update gstack to the latest version. |
 
@@ -73,6 +74,25 @@ Invoke them by name (e.g., `/office-hours`).
 | `/open-gstack-browser` | Launch the visible GStack Browser with sidebar + stealth. |
 | `/setup-browser-cookies` | Import cookies from your real browser for authenticated testing. |
 | `/pair-agent` | Pair a remote AI agent (OpenClaw, Codex, etc.) with your browser. |
+
+### iOS QA — drive real iPhones over USB or Tailscale (v1.43.0.0+)
+
+| Skill | What it does |
+|-------|-------------|
+| `/ios-qa` | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. Optionally exposes the device over Tailscale so remote agents can drive it. |
+| `/ios-fix` | Autonomous iOS bug fixer with regression snapshot capture. |
+| `/ios-design-review` | Designer's-eye QA on a real iPhone — 10-dimension Apple HIG rubric. |
+| `/ios-clean` | Convenience: strip DebugBridge + #if DEBUG wiring before a Release build. |
+| `/ios-sync` | Regenerate the iOS debug bridge against the latest upstream templates. |
+
+Companion CLIs (run on the Mac that's plugged into the device):
+
+| Command | What it does |
+|---------|-------------|
+| `gstack-ios-qa-daemon` | Mac-side broker. Loopback by default; `--tailnet` adds a Tailscale-facing listener with capability tiers and audit logging. |
+| `gstack-ios-qa-mint` | Owner-grant CLI for the tailnet allowlist (`grant`/`revoke`/`list`). |
+
+End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md).
 
 ### Safety + scoping
 

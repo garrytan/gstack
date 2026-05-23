@@ -82,7 +82,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       timeout: 360_000,
       testName: 'plan-ceo-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-ceo-review', result);
@@ -167,7 +167,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       timeout: 360_000,
       testName: 'plan-ceo-review-selective',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-ceo-review (SELECTIVE)', result);
@@ -233,13 +233,20 @@ Write your expansion proposals to ${planDir}/proposals.md with ONLY the proposal
       timeout: 360_000,
       testName: 'plan-ceo-review-expansion-energy',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-ceo-review (EXPANSION ENERGY)', result);
     recordE2E(evalCollector, '/plan-ceo-review-expansion-energy', 'Plan CEO Review Expansion Energy E2E', result, {
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
+    // Transient API failure escape hatch — see /plan-review-report for the
+    // full rationale. Same shape: error_api with 0 turns means the API call
+    // never reached the model, so nothing the test verifies could have run.
+    if (result.exitReason === 'error_api' && result.costEstimate?.turnsUsed === 0) {
+      console.warn('[transient] /plan-ceo-review-expansion-energy: error_api with 0 turns — treating as inconclusive');
+      return;
+    }
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     const proposalsPath = path.join(planDir, 'proposals.md');
@@ -333,7 +340,7 @@ Focus on architecture, code quality, tests, and performance sections.`,
       timeout: 360_000,
       testName: 'plan-eng-review',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-eng-review', result);
@@ -459,7 +466,7 @@ Write your review to ${planDir}/review-output.md`,
       timeout: 360_000,
       testName: 'plan-eng-review-artifact',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-eng-review artifact', result);
@@ -679,13 +686,25 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
       timeout: 360_000,
       testName: 'plan-review-report',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/plan-eng-review report', result);
     recordE2E(evalCollector, '/plan-review-report', 'Plan Review Report E2E', result, {
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
+
+    // Transient API failure escape hatch: when the SDK returns error_api with
+    // zero turns / zero tokens, the API call died before the model ever ran —
+    // no skill code executed, no file was written. Bun retries the test up to
+    // 3x; if every attempt hits the same API hiccup, surface a warning and
+    // treat as inconclusive rather than gating the build on Anthropic
+    // availability. Logic regressions still surface as success/error_max_turns
+    // with a missing artifact, which the downstream assertions catch.
+    if (result.exitReason === 'error_api' && result.costEstimate?.turnsUsed === 0) {
+      console.warn('[transient] /plan-review-report: error_api with 0 turns — treating as inconclusive (likely Anthropic API hiccup, see CLAUDE.md eval-blame protocol)');
+      return;
+    }
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     // Verify the review report was written to the plan file
@@ -775,8 +794,8 @@ Write your summary to ${testDir}/${testName}-summary.md`,
     expect(fs.existsSync(summaryPath)).toBe(true);
 
     const summary = fs.readFileSync(summaryPath, 'utf-8').toLowerCase();
-    // All skills should have codex availability check
-    expect(summary).toMatch(/which codex/);
+    // All skills should have codex availability check (command -v per #1197)
+    expect(summary).toMatch(/command -v codex/);
     // All skills should have fallback behavior
     expect(summary).toMatch(/fallback|subagent|unavailable|not available|skip/);
     // All skills should show it's optional/non-blocking

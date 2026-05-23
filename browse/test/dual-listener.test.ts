@@ -131,15 +131,23 @@ describe('Request handler factory', () => {
     expect(SERVER_SRC).toContain('makeFetchHandler = (surface: Surface)');
   });
 
-  test('Bun.serve local listener uses makeFetchHandler with "local" surface', () => {
-    expect(SERVER_SRC).toContain("fetch: makeFetchHandler('local')");
+  test('Bun.serve local listener uses handle.fetchLocal from buildFetchHandler', () => {
+    // v1.35.0.0: factory returns handle.fetchLocal; start() binds Bun.serve with it.
+    expect(SERVER_SRC).toContain("fetch: handle.fetchLocal");
   });
 
-  test('Tunnel listener bind uses makeFetchHandler with "tunnel" surface', () => {
-    const occurrences = SERVER_SRC.match(/makeFetchHandler\('tunnel'\)/g);
-    expect(occurrences).not.toBeNull();
-    // Must appear at least twice: once in /tunnel/start, once in BROWSE_TUNNEL=1 startup
-    expect(occurrences!.length).toBeGreaterThanOrEqual(2);
+  test('Tunnel listener bind uses handle.fetchTunnel from buildFetchHandler', () => {
+    // v1.35.0.0: factory returns handle.fetchTunnel; tunnel start sites use it
+    // (BROWSE_TUNNEL=1 startup + BROWSE_TUNNEL_LOCAL_ONLY=1 test path).
+    // The /tunnel/start handler INSIDE the factory still uses makeFetchHandler('tunnel')
+    // because it has the local helper in closure scope.
+    const tunnelOccurrences = SERVER_SRC.match(/fetch: handle\.fetchTunnel/g);
+    expect(tunnelOccurrences).not.toBeNull();
+    expect(tunnelOccurrences!.length).toBeGreaterThanOrEqual(2);
+    // The factory's internal makeFetchHandler('tunnel') still appears at least
+    // once for the /tunnel/start route's self-reference + the factory's return.
+    const internalOccurrences = SERVER_SRC.match(/makeFetchHandler\('tunnel'\)/g);
+    expect(internalOccurrences).not.toBeNull();
   });
 });
 
@@ -284,7 +292,8 @@ describe('Tunnel listener lifecycle', () => {
     );
     expect(startupBlock).toContain('Bun.serve');
     expect(startupBlock).toContain('port: 0');
-    expect(startupBlock).toContain("makeFetchHandler('tunnel')");
+    // v1.35.0.0: start() refactored to use handle.fetchTunnel from the factory.
+    expect(startupBlock).toContain('handle.fetchTunnel');
     expect(startupBlock).toContain('addr: tunnelPort');
     // Must NOT forward ngrok at the local port
     expect(startupBlock).not.toContain('addr: port,');

@@ -154,7 +154,7 @@
   function ensureXterm() {
     if (term) return;
     term = new Terminal({
-      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace',
+      fontFamily: '"JetBrains Mono", "SF Mono", Menlo, "Noto Sans Mono CJK KR", "Malgun Gothic", monospace',
       fontSize: 13,
       theme: { background: '#0a0a0a', foreground: '#e5e5e5' },
       cursorBlink: true,
@@ -196,7 +196,25 @@
     });
     ro.observe(els.mount);
 
+    // IME composition handling for Korean/CJK input (issue #1272).
+    // Suppress partial jamo during composition; only send the final
+    // composed string on compositionend. Without this, Korean IME
+    // sends fragmented input or doubles characters.
+    let composing = false;
+    const ta = term.textarea;
+    if (ta) {
+      ta.addEventListener('compositionstart', () => { composing = true; });
+      ta.addEventListener('compositionend', (e) => {
+        composing = false;
+        if (e.data && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(new TextEncoder().encode(e.data));
+        }
+      });
+    }
+
+
     term.onData((data) => {
+      if (composing) return;  // suppress partial input events during IME composition
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
       }
@@ -208,6 +226,18 @@
    * Used by the toolbar's Cleanup button and the Inspector's "Send to Code"
    * action so the user can drive claude from outside-the-keyboard surfaces.
    * Returns true if the bytes went out, false if no live session.
+   *
+   * IMPORTANT (D6): this function stays SYNCHRONOUS and SCAN-FREE. Page-
+   * derived input MUST be pre-scanned via window.gstackScanForPTYInject()
+   * before calling this. The invariant test in
+   * test/extension-pty-inject-invariant.test.ts fails the build if any
+   * extension/*.js path calls this without the preceding scan.
+   *
+   * Why not move the scan inside this function: callers already use the
+   * sync `const ok = gstackInjectToTerminal?.(text)` pattern. Making the
+   * inject async would turn `ok` into a Promise and silently break every
+   * existing call site. Pre-scanning at the caller keeps the boundary
+   * clean and the invariant testable.
    */
   window.gstackInjectToTerminal = function (text) {
     if (!text || !ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -218,6 +248,66 @@
       return false;
     }
   };
+
+  /**
+   * Scan page-derived text via the browse server's /pty-inject-scan
+   * endpoint before injecting it into the PTY. Returns:
+   *   { allow: true, verdict: "PASS" }                  → safe to inject
+   *   { allow: true, verdict: "WARN", reasons: [...] }  → caller should
+   *       prompt the user before injecting
+   *   { allow: false, verdict: "BLOCK", reasons: [...]} → drop the text;
+   *       caller should surface a banner to the user
+   *
+   * On any network / endpoint failure: returns
+   *   { allow: true, verdict: "WARN", reasons: ["scan-unreachable"] }
+   * so the caller falls back to WARN+confirm rather than silent PASS.
+   *
+   * Closes #1370.
+   */
+  window.gstackScanForPTYInject = async function (text, origin) {
+    if (!text) return { allow: false, verdict: 'BLOCK', reasons: ['empty-text'] };
+    try {
+      const resp = await fetch('http://127.0.0.1:34567/pty-inject-scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await getAuthTokenForScan()}`,
+        },
+        body: JSON.stringify({ text, origin: origin || 'extension' }),
+      });
+      if (!resp.ok) {
+        return { allow: true, verdict: 'WARN', reasons: [`scan-http-${resp.status}`] };
+      }
+      const body = await resp.json();
+      const verdict = body.verdict || 'WARN';
+      const allow = verdict !== 'BLOCK';
+      return { allow, verdict, reasons: body.reasons || [], l4: body.l4 };
+    } catch (err) {
+      return {
+        allow: true,
+        verdict: 'WARN',
+        reasons: ['scan-unreachable', err && err.message ? err.message : 'fetch-failed'],
+      };
+    }
+  };
+
+  // The auth token for /pty-inject-scan comes from the same source the
+  // sidepanel uses for /pty-session — a runtime fetch from /health (which
+  // already returns AUTH_TOKEN in headed mode per CLAUDE.md's v1.1 TODO).
+  // We don't echo the token here; this helper is a thin proxy around the
+  // existing pattern.
+  async function getAuthTokenForScan() {
+    if (window.__gstackPtyScanToken) return window.__gstackPtyScanToken;
+    try {
+      const resp = await fetch('http://127.0.0.1:34567/health');
+      const body = await resp.json();
+      const token = body.AUTH_TOKEN || body.authToken || '';
+      if (token) window.__gstackPtyScanToken = token;
+      return token;
+    } catch {
+      return '';
+    }
+  }
 
   async function connect() {
     if (state !== STATE.IDLE) return; // already connecting/live

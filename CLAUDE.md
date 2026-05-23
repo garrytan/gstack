@@ -27,25 +27,16 @@ bun run slop:diff     # slop findings in files changed on this branch only
 `test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
 use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
 
-**Where the keys live on this machine.** Conductor workspaces don't inherit the
-user's interactive shell env, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` aren't
-in the default process env. Before running any paid eval / E2E, source them from
-`~/.zshrc` (that's where Garry keeps them):
+**Env keys in Conductor workspaces.** The `GSTACK_*` env-shim (v1.39.2.0+,
+`lib/conductor-env-shim.ts`) promotes `GSTACK_ANTHROPIC_API_KEY` /
+`GSTACK_OPENAI_API_KEY` to their canonical names inside gstack's TS binaries.
+Tests run through gstack entrypoints inherit this promotion automatically.
+Don't echo the key value to stdout, logs, or shell history. When passing to a
+test's Agent SDK, do NOT pass `env: {...}` to `runAgentSdkTest` — the SDK's
+auth pipeline doesn't pick up the key the same way when env is supplied as an
+object (confirmed failure mode). Mutate `process.env.ANTHROPIC_API_KEY`
+ambiently before the call and restore in `finally`.
 
-```bash
-bash -c '
-  eval "$(grep -E "^export (ANTHROPIC_API_KEY|OPENAI_API_KEY)=" ~/.zshrc)"
-  export ANTHROPIC_API_KEY OPENAI_API_KEY
-  EVALS=1 EVALS_TIER=periodic bun test test/skill-e2e-<whatever>.test.ts
-'
-```
-
-Do not echo the key value anywhere (stdout, logs, shell history). The grep+eval
-pattern keeps it in process env only. When passing to a test's Agent SDK, do NOT
-pass `env: {...}` to `runAgentSdkTest` — the SDK's auth pipeline doesn't pick up
-the key the same way when env is supplied as an object (confirmed failure mode).
-Instead, mutate `process.env.ANTHROPIC_API_KEY` ambiently before the call and
-restore in `finally`.
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
 against the previous run.
@@ -122,7 +113,8 @@ gstack/
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
-├── document-release/ # /document-release skill (post-ship doc updates)
+├── document-release/ # /document-release skill (post-ship doc updates + Diataxis coverage map)
+├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
 ├── design-consultation/ # /design-consultation skill (design system from scratch)
 ├── design-shotgun/  # /design-shotgun skill (visual design exploration)
@@ -235,6 +227,20 @@ Activity / Refs / Inspector as debug overlays behind the footer's
 flow, dual-token model, and threat-model boundary — silent failures
 here usually trace to not understanding the cross-component flow.
 
+**Embedder terminal-agent ownership** (v1.42.1.0+). `buildFetchHandler`
+in `browse/src/server.ts` accepts `ServerConfig.ownsTerminalAgent?:
+boolean` (default `true`). When `true`, factory shutdown runs the full
+teardown: `pkill -f terminal-agent\.ts` plus `safeUnlinkQuiet` on
+`<stateDir>/terminal-port` and `<stateDir>/terminal-internal-token`.
+Embedders (e.g. the gbrowser phoenix overlay) that pre-launch their
+own PTY server must pass `false` so their discovery files survive
+gstack teardown cycles. The flag is the third caller-owned teardown
+gate in `ServerConfig` (alongside `xvfb?` and `proxyBridge?`); polarity
+is inverted (explicit bool vs presence) and documented in the field's
+JSDoc. CLI `start()` always passes `true` explicitly — the static-grep
+test in `browse/test/server-embedder-terminal-port.test.ts` fails CI
+if a refactor drops it.
+
 **WebSocket auth uses Sec-WebSocket-Protocol, not cookies.** Browsers
 can't set `Authorization` on a WebSocket upgrade, but they CAN set
 `Sec-WebSocket-Protocol` via `new WebSocket(url, [token])`. The agent
@@ -268,6 +274,31 @@ to `~/.gstack/security/attempts.jsonl` via `tunnel-denial-log.ts`. Before editin
 the module boundary (no imports from `token-registry.ts` into `sse-session-cookie.ts`)
 is load-bearing for scope isolation.
 
+**Unicode sanitization at server egress** (v1.38.0.0+). Every server egress that
+ships page-content-derived strings MUST go through `JSON.stringify(payload,
+sanitizeReplacer)` for object payloads or `sanitizeLoneSurrogates(body)` for text
+bodies. Lone UTF-16 surrogate halves from CDP page content otherwise reach the
+Anthropic API as `\uD800`-style escapes and trigger a 400. Wired at four egress
+points today: `handleCommandInternal` (HTTP + batch via a sanitizing wrapper around
+`handleCommandInternalImpl`) and both SSE producers (`/activity/stream`,
+`/inspector/events`). Post-stringify regex is a no-op — `JSON.stringify` has
+already escaped the surrogate before regex could match, so the replacer must run
+inside the encoding pipeline. Before adding a new SSE/WebSocket writer or HTTP
+response in `server.ts`, read
+[ARCHITECTURE.md](ARCHITECTURE.md#unicode-sanitization-at-server-egress-v13800).
+`browse/test/server-sanitize-surrogates.test.ts` pins the wiring with invariant
+tests, so bypasses fail CI.
+
+**Setup symlink hardening** (v1.38.0.0+). Every link site in `setup` MUST route
+through the `_link_or_copy SRC DST` helper near the `IS_WINDOWS` detection. On
+Windows without Developer Mode, plain `ln -snf` produces frozen file copies that
+don't refresh on `git pull` — silent staleness across every host adapter. The
+helper preserves `ln -snf` on Unix and switches to `cp -R` / `cp -f` on Windows.
+`test/setup-windows-fallback.test.ts` enforces a static invariant: a single raw
+`ln` call outside the helper body fails CI. Windows users get a one-line note
+from `_print_windows_copy_note_once` reminding them to re-run `./setup` after
+every `git pull`.
+
 **Sidebar security stack** (layered defense against prompt injection):
 
 | Layer | Module | Lives in |
@@ -287,8 +318,12 @@ for `server.ts`. See `~/.gstack/projects/garrytan-gstack/ceo-plans/2026-04-19-pr
 
 **Thresholds** (in `security.ts`):
 - `BLOCK: 0.85` — single-layer score that would cause BLOCK if cross-confirmed
-- `WARN: 0.60` — cross-confirm threshold. When L4 AND L4b both >= 0.60 → BLOCK
+- `WARN: 0.75` — cross-confirm threshold. When L4 AND L4b both >= 0.75 → BLOCK
 - `LOG_ONLY: 0.40` — gates transcript classifier (skip Haiku when all layers < 0.40)
+- `SOLO_CONTENT_BLOCK: 0.92` — single-layer threshold for label-less content classifiers
+  (testsavant, deberta). Intentionally higher than `BLOCK` because these layers can't
+  distinguish "this is an injection" from "this looks like phishing aimed at the user."
+  The transcript classifier keeps a separate, label-gated solo path at `BLOCK` (0.85).
 
 **Ensemble rule:** BLOCK only when the ML content classifier AND the transcript
 classifier both report >= WARN. Single-layer high confidence degrades to WARN —
@@ -447,6 +482,36 @@ any commit that:
 Even if the agent strongly believes a change improves the project, these three
 categories require explicit user approval via AskUserQuestion. No exceptions.
 No auto-merging. No "I'll just clean this up."
+
+## Checking out PRs from garrytan-agents
+
+When the user says "check out <PR link>" and the PR is from `garrytan-agents/gstack`
+(or any other fork that is NOT a collaborator on `garrytan/gstack`), do NOT just
+`gh pr checkout`. Fork PRs don't receive base-repo secrets (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, etc.), so the eval/E2E CI jobs fail with empty-env auth errors
+regardless of what's set on the base repo.
+
+**Workflow:** push the branch to `garrytan/gstack` (the base repo) and re-target
+the PR from there.
+
+Concretely, after `gh pr checkout <N>`:
+
+1. Note the original PR number and head branch name.
+2. Push the same branch to the base repo: `git push origin HEAD:<branch-name>`
+   (origin = `garrytan/gstack`, since the worktree is set up with that remote).
+3. Close the fork PR (`gh pr close <N> --comment "moving to base-repo branch for secret access"`).
+4. Open a new PR from the base-repo branch: `gh pr create --base main --head <branch-name>`.
+5. New PR's workflows will get secrets automatically.
+
+Why not fix it on the fork side? `garrytan-agents` isn't a collaborator on
+`garrytan/gstack`. Adding it as a collaborator (option A) or flipping the
+repo-wide "send secrets to fork PRs" toggle (option B) would let secrets reach
+fork PRs from anyone — broader blast radius than just moving this one branch.
+Option C (this section) keeps secret-distribution scope tight.
+
+If the user asks you to skip the move (e.g., "just leave it as a fork PR"),
+respect that — eval CI will fail with empty-env auth, but check-freshness,
+workflow-lint, and windows-tests will still pass on the fork PR.
 
 ## CHANGELOG + VERSION style
 
@@ -774,3 +839,40 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## GBrain Search Guidance (configured by /sync-gbrain)
+<!-- gstack-gbrain-search-guidance:start -->
+
+GBrain is set up and synced on this machine. The agent should prefer gbrain
+over Grep when the question is semantic or when you don't know the exact
+identifier yet.
+
+**This worktree is pinned to a worktree-scoped code source** via the
+`.gbrain-source` file in the repo root (kubectl-style context). Any
+`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, or `query`
+call from anywhere under this worktree routes to that source by default —
+no `--source` flag needed. Conductor sibling worktrees of the same repo
+each have their own pin and their own indexed pages, so semantic results
+match the actual code on disk in this worktree.
+
+Two indexed corpora available via the `gbrain` CLI:
+- This worktree's code (auto-pinned via `.gbrain-source`).
+- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
+  the existing federation pipeline).
+
+Prefer gbrain when:
+- "Where is X handled?" / semantic intent, no exact string yet:
+    `gbrain search "<terms>"` or `gbrain query "<question>"`
+- "Where is symbol Y defined?" / symbol-based code questions:
+    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+- "What calls Y?" / "What does Y depend on?":
+    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+- "What did we decide last time?" / past plans, retros, learnings:
+    `gbrain search "<terms>" --source gstack-brain-<user>`
+
+Grep is still right for known exact strings, regex, multiline patterns, and
+file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
+auto-sync across all worktrees, run `gbrain autopilot --install` once per
+machine — gbrain's daemon handles incremental refresh on a schedule.
+
+<!-- gstack-gbrain-search-guidance:end -->

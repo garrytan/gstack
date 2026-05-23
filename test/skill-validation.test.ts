@@ -1297,6 +1297,16 @@ describe('Codex skill', () => {
     expect(content).toContain('codex exec resume');
   });
 
+  test('codex/SKILL.md resume command only uses resume-supported flags', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    const match = content.match(/codex exec resume[^\n]+/);
+    expect(match).not.toBeNull();
+    const resumeCommand = match![0];
+    expect(resumeCommand).not.toContain(' -C ');
+    expect(resumeCommand).not.toContain(' -s read-only');
+    expect(resumeCommand).toContain("-c 'sandbox_mode=\"read-only\"'");
+  });
+
   test('codex/SKILL.md contains cost tracking', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('tokens used');
@@ -1315,10 +1325,14 @@ describe('Codex skill', () => {
     expect(content).toContain('gstack-review-log');
   });
 
-  test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
+  test('codex/SKILL.md uses command -v for binary discovery, not hardcoded path', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('which codex');
+    expect(content).toContain('command -v codex');
     expect(content).not.toContain('/opt/homebrew/bin/codex');
+    // Defensive: catch any future regression that reintroduces `which codex`,
+    // which fails in environments where `which` isn't on PATH (some Windows
+    // shells, BusyBox-only containers). #1197.
+    expect(content).not.toContain('which codex');
   });
 
   test('codex/SKILL.md contains error handling for missing binary and auth', () => {
@@ -1330,6 +1344,17 @@ describe('Codex skill', () => {
   test('codex/SKILL.md uses mktemp for temp files', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(content).toContain('mktemp');
+  });
+
+  test('codex JSON stream parser uses portable Python discovery', () => {
+    const files = ['codex/SKILL.md.tmpl', 'codex/SKILL.md'];
+
+    for (const rel of files) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).toContain('PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)');
+      expect(content).toContain('PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c');
+      expect(content).not.toContain('PYTHONUNBUFFERED=1 python3 -u -c');
+    }
   });
 
   test('adversarial review in /review always runs both passes', () => {
@@ -1398,6 +1423,29 @@ describe('Codex skill', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Codex');
     expect(content).toContain('codex exec');
+  });
+
+  test('codex review invocations avoid the prompt plus --base argument shape', () => {
+    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
+      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+    }
+  });
+
+  test('codex review prompts always carry the filesystem boundary (#1503/#1522 regression)', () => {
+    // Pre-#1209, the bare `codex review --base` path stripped the filesystem
+    // boundary instruction, letting Codex spend tokens reading skill files.
+    // #1209's prompt rewrite restored the boundary by routing every default
+    // call through a prompt. Pin both halves so a future refactor can't
+    // regress: (a) the boundary line must appear, (b) the call must be
+    // through `codex review "<prompt>"` not bare `codex review --base`.
+    const boundaryLine =
+      'Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/';
+    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).toContain(boundaryLine);
+    }
   });
 
   test('/review persists a review-log entry for ship readiness', () => {

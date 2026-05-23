@@ -4,10 +4,12 @@ preamble-tier: 2
 version: 1.0.0
 description: |
   Post-ship documentation update. Reads all project docs, cross-references the
-  diff, updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
-  polishes CHANGELOG voice, cleans up TODOS, and optionally bumps VERSION. Use when
-  asked to "update the docs", "sync documentation", or "post-ship docs".
-  Proactively suggest after a PR is merged or code is shipped. (gstack)
+  diff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),
+  updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
+  detects architecture diagram drift, polishes CHANGELOG voice with a sell-test
+  rubric, cleans up TODOS, and optionally bumps VERSION. Surfaces documentation
+  debt in the PR body. Use when asked to "update the docs", "sync documentation",
+  or "post-ship docs". Proactively suggest after a PR is merged or code is shipped. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -111,7 +113,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, fall back to writing the decision brief into the plan file as a `## Decisions to confirm` section + ExitPlanMode — never silently auto-decide. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -282,7 +284,7 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 **Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
-**Fallback when neither variant is callable:** in plan mode, write the decision brief into the plan file as a `## Decisions to confirm` section + ExitPlanMode (the native "Ready to execute?" surfaces it). Outside plan mode, output the brief as prose and stop. **Never silently auto-decide** — only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking.
+**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report `BLOCKED — AskUserQuestion unavailable`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
 
 ### Format
 
@@ -319,6 +321,26 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
+12. **Non-ASCII characters — write directly, never \u-escape.** When any
+    string field (question, option label, option description) contains
+    Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
+    the literal UTF-8 characters in the JSON string. **Never escape them
+    as `\uXXXX`.** Claude Code's tool parameter pipe is UTF-8 native
+    and passes characters through unchanged. Manually escaping requires
+    recalling each codepoint from training, which is unreliable for long
+    CJK strings — the model regularly emits the wrong codepoint (e.g.
+    writes `\u3103` thinking it is 管 U+7BA1, but `\u3103` is
+    actually ㄃, so the user sees `管理工具` rendered as `㄃3用箱`).
+    The trigger is long, multi-line questions with hundreds of CJK
+    characters: that is exactly when reflexive escaping kicks in and
+    exactly when miscoding is most damaging. Long ≠ escape. Keep
+    characters literal.
+
+    Wrong: `"question": "請選擇\uXXXX\uXXXX\uXXXX\uXXXX"`
+    Right: `"question": "請選擇管理工具"`
+
+    Only JSON-mandatory escapes remain allowed: `\n`, `\t`, `\"`, `\\`.
+
 ### Self-check before emitting
 
 Before calling AskUserQuestion, verify:
@@ -331,6 +353,7 @@ Before calling AskUserQuestion, verify:
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
 - [ ] You are calling the tool, not writing prose
+- [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
 
 
 ## Artifacts Sync (skill start)
@@ -348,30 +371,29 @@ _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Mutually exclusive variants per /plan-eng-review §4. Empty string when gbrain
-# is not configured (zero context cost for non-gbrain users).
+# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
+# git toplevel to scope queries. Look for the pin in the worktree (not a global
+# state file) so that opening worktree B without a pin doesn't claim "indexed"
+# just because worktree A was synced. Empty string when gbrain is not
+# configured (zero context cost for non-gbrain users).
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
 if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _SYNC_STATE="$_GSTACK_HOME/.gbrain-sync-state.json"
-    _CWD_PAGES=0
-    if [ -f "$_SYNC_STATE" ]; then
-      # Flatten newlines so the regex works against pretty-printed JSON too.
-      _CWD_PAGES=$(tr -d '\n' < "$_SYNC_STATE" 2>/dev/null \
-        | grep -o '"name": *"code"[^}]*"detail": *{[^}]*"page_count": *[0-9]*' \
-        | grep -o '"page_count": *[0-9]*' | grep -o '[0-9]\+' | head -1)
-      _CWD_PAGES=${_CWD_PAGES:-0}
+    _GBRAIN_PIN_PATH=""
+    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
+      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
-    if [ "$_CWD_PAGES" -gt 0 ] 2>/dev/null; then
+    if [ -n "$_GBRAIN_PIN_PATH" ]; then
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
     else
-      echo "GBrain configured but this repo isn't indexed yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this repo."
-      echo "Falls back to Grep until indexed."
+      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
+      echo "before relying on \`gbrain search\` for code questions in this worktree."
+      echo "Falls back to Grep until pinned."
     fi
   fi
 fi
@@ -723,9 +745,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 ## Step 0: Detect platform and base branch
 
@@ -831,6 +851,48 @@ find . -maxdepth 2 -name "*.md" -not -path "./.git/*" -not -path "./node_modules
 
 ---
 
+## Step 1.5: Coverage Map (Blast-Radius Analysis)
+
+Before touching any documentation file, build a **coverage map** of what shipped vs what's
+documented. This is inspired by the Diataxis framework (tutorial / how-to / reference / explanation)
+— but applied as an audit lens, not a generation tool.
+
+1. **Extract public surface changes from the diff.** Scan `git diff <base>...HEAD` for:
+   - New exported functions, classes, commands, CLI flags, config options, API endpoints
+   - New skills, workflows, or user-facing capabilities
+   - Renamed or removed public surface (modules, commands, features)
+   - New environment variables, feature flags, or configuration knobs
+
+2. **For each new/changed public surface item, assess documentation coverage:**
+
+```
+Coverage map:
+  [entity]         [reference?] [how-to?] [tutorial?] [explanation?]
+  /new-skill       ✅ AGENTS.md  ❌        ❌          ❌
+  --new-flag       ✅ README     ✅ README  ❌          ❌
+  FooProcessor     ❌            ❌        ❌          ❌
+```
+
+Use these definitions:
+- **Reference** — factual description of what it is, its API, its options (README tables, AGENTS.md skill lists, API docs)
+- **How-to** — task-oriented: "how to do X with this" (README examples, CONTRIBUTING workflows)
+- **Tutorial** — learning-oriented: step-by-step walkthrough for newcomers (getting started guides)
+- **Explanation** — understanding-oriented: "why this works this way" (ARCHITECTURE decisions, design rationale)
+
+3. **Output the coverage map.** Items with zero coverage are **critical gaps** — flag them for
+   Step 3. Items with reference-only coverage are **common gaps** — note them for the PR body.
+
+4. **Architecture diagram drift detection.** If ARCHITECTURE.md (or any doc) contains ASCII
+   diagrams or Mermaid blocks, extract entity names (modules, services, data flows) from the
+   diagrams. Cross-reference against the diff. Flag any diagram entities that were renamed,
+   split, removed, or moved in the code.
+
+The coverage map feeds into Steps 2-3 (what to audit and fix) and Step 9 (documentation debt
+summary in the PR body). Do NOT auto-generate missing documentation pages — flag gaps only.
+When significant gaps are found, suggest running `/document-generate` to fill them.
+
+---
+
 ## Step 2: Per-File Documentation Audit
 
 Read each documentation file and cross-reference it against the diff. Use these generic heuristics
@@ -923,8 +985,11 @@ preserved them. This skill must NEVER do that.
 
 **If CHANGELOG was modified in this branch**, review the entry for voice:
 
-- **Sell test:** Would a user reading each bullet think "oh nice, I want to try that"? If not,
-  rewrite the wording (not the content).
+- **Sell test (Diataxis rubric):** Score each CHANGELOG entry 0-3:
+  - **1 point** — answers "What changed?" (reference: names the feature/fix)
+  - **1 point** — answers "Why should I care?" (explanation: user impact, pain removed)
+  - **1 point** — answers "How do I use it?" (how-to: command, flag, or link to docs)
+  - Entries scoring <2 need a rewrite. Entries scoring 3 are gold.
 - Lead with what the user can now **do** — not implementation details.
 - "You can now..." not "Refactored the..."
 - Flag and rewrite any entry that reads like a commit message.
@@ -1052,9 +1117,21 @@ glab mr view -F json 2>/dev/null | python3 -c "import sys,json; print(json.load(
 2. If the tempfile already contains a `## Documentation` section, replace that section with the
    updated content. If it does not contain one, append a `## Documentation` section at the end.
 
-3. The Documentation section should include a **doc diff preview** — for each file modified,
-   describe what specifically changed (e.g., "README.md: added /document-release to skills
-   table, updated skill count from 9 to 10").
+3. The Documentation section should include:
+
+   a. **Doc diff preview** — for each file modified, describe what specifically changed (e.g.,
+      "README.md: added /document-release to skills table, updated skill count from 9 to 10").
+
+   b. **Documentation debt** — if the coverage map from Step 1.5 found gaps, append a
+      `### Documentation Debt` subsection listing:
+      - Critical gaps: new public surface with zero documentation coverage
+      - Common gaps: features with reference-only coverage (no how-to or tutorial)
+      - Stale diagrams: architecture diagrams with entity names that drifted from the code
+      - Each item should include a one-line description of what's missing and which Diataxis
+        quadrant would fill it (e.g., "⚠️ `/new-skill` — has reference in AGENTS.md but no
+        how-to example in README")
+
+   If there are any documentation debt items, suggest adding a `docs-debt` label to the PR.
 
 4. Write the updated body back:
 
@@ -1152,6 +1229,20 @@ Where status is one of:
 - Already bumped — version was set by /ship
 - Skipped — file does not exist
 
+If the coverage map from Step 1.5 identified any gaps, append:
+
+```
+Documentation coverage:
+  [entity]         [reference] [how-to] [tutorial] [explanation]
+  /new-skill       ✅          ❌       ❌         ❌
+  --new-flag       ✅          ✅       ❌         ❌
+
+Diagram drift:
+  ARCHITECTURE.md: "FooProcessor" renamed to "BarProcessor" in code — diagram may be stale
+```
+
+If all coverage is complete and no diagrams drifted, output: "Coverage: all shipped features have adequate documentation."
+
 ---
 
 ## Important Rules
@@ -1162,5 +1253,10 @@ Where status is one of:
 - **Be explicit about what changed.** Every edit gets a one-line summary.
 - **Generic heuristics, not project-specific.** The audit checks work on any repo.
 - **Discoverability matters.** Every doc file should be reachable from README or CLAUDE.md.
+- **Coverage map informs, never generates.** The Diataxis coverage map flags gaps for the PR body
+  and future work. It does NOT auto-generate missing documentation pages or sections. When gaps
+  are found, suggest `/document-generate` as the follow-up skill.
+- **Diagram drift is advisory.** Flag stale architecture diagrams in the PR body but do not
+  auto-edit ASCII art or Mermaid blocks — they require human judgment to update correctly.
 - **Voice: friendly, user-forward, not obscure.** Write like you're explaining to a smart person
   who hasn't seen the code.

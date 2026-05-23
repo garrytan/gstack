@@ -4,7 +4,7 @@ dist/
 browse/dist/
 design/dist/
 make-pdf/dist/
-bin/gstack-global-discover
+bin/gstack-global-discover*
 .gstack/
 .claude/skills/
 .pi/skills/
@@ -19,6 +19,7 @@ bin/gstack-global-discover
 .openclaw/
 .hermes/
 .gbrain/
+.gbrain-source
 .context/
 extension/.auth.json
 # xterm assets are vendored from npm at build time; not source-of-truth.

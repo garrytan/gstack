@@ -25,8 +25,9 @@ describe('Server auth security', () => {
   // Test 1: /health serves token conditionally (headed mode or chrome extension only)
   test('/health serves token only in headed mode or to chrome extensions', () => {
     const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
+    // v1.35.0.0: AUTH_TOKEN const was deleted; factory uses cfg-derived authToken.
     // Token must be conditional, not unconditional
-    expect(healthBlock).toContain('AUTH_TOKEN');
+    expect(healthBlock).toContain('token: authToken');
     expect(healthBlock).toContain('headed');
     expect(healthBlock).toContain('chrome-extension://');
   });
@@ -192,8 +193,10 @@ describe('Server auth security', () => {
   });
 
   // Test 10d: server passes tokenInfo to handleMetaCommand
+  // v1.35.0.0: shutdown is now factory-scoped; the call site uses shutdownFn,
+  // a thin wrapper that delegates to activeShutdown (set by buildFetchHandler).
   test('server passes tokenInfo to handleMetaCommand', () => {
-    expect(SERVER_SRC).toContain('handleMetaCommand(command, args, browserManager, shutdown, tokenInfo,');
+    expect(SERVER_SRC).toContain('handleMetaCommand(command, args, browserManager, shutdownFn, tokenInfo,');
   });
 
   // Test 10e: activity attribution includes clientId

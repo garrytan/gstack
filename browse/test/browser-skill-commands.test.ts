@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  rotateRoot, initRegistry, validateToken, listTokens,
+  initRegistry, validateToken, listTokens, __resetRegistry,
 } from '../src/token-registry';
 import {
   handleSkillCommand,
@@ -26,7 +26,9 @@ let tmpRoot: string;
 let tiers: TierPaths;
 
 beforeEach(() => {
-  rotateRoot();
+  // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
+  // doesn't fire on the immediate initRegistry call.
+  __resetRegistry();
   initRegistry('root-token-for-tests');
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-skill-cmd-test-'));
   tiers = {

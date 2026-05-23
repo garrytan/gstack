@@ -73,7 +73,7 @@ describeE2E('AskUserQuestion format compliance (gate)', () => {
     async () => {
       const session = await launchClaudePty({
         permissionMode: 'plan',
-        timeoutMs: 360_000,
+        timeoutMs: 600_000,
       });
 
       try {
@@ -91,7 +91,16 @@ describeE2E('AskUserQuestion format compliance (gate)', () => {
         // While polling, auto-grant any permission dialogs we see in the
         // recent tail (preamble side-effects: touch on a sensitive file,
         // etc) so the agent isn't blocked.
-        const budgetMs = 300_000;
+        //
+        // Budget bumped 300s → 540s in v1.32: /plan-ceo-review's preamble runs
+        // multiple bash blocks (gbrain sync probe, telemetry, learnings search,
+        // dashboard read) before reaching its mode-selection AskUserQuestion in
+        // Step 0F. On substantive branches (or under contention from concurrent
+        // tests running at max-concurrency 15), 300s sometimes wasn't enough
+        // for the model to drain Step 0 work before emitting the first AUQ.
+        // 540s sits below the suite-level 360s/9min timeout headroom and
+        // tracks the same magnitude the plan-design-with-ui test uses.
+        const budgetMs = 540_000;
         const start = Date.now();
         let captured = '';
         let askUserQuestionVisible = false;
@@ -191,6 +200,6 @@ describeE2E('AskUserQuestion format compliance (gate)', () => {
         await session.close();
       }
     },
-    420_000,
+    660_000,
   );
 });

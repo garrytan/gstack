@@ -38,7 +38,7 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 1. Run `git branch --show-current` to get the current branch.
 2. If on the base branch, output: **"Nothing to review — you're on the base branch or have no changes against it."** and stop.
-3. Run `git fetch origin <base> --quiet && git diff origin/<base> --stat` to check if there's a diff. If no diff, output the same message and stop.
+3. Run `git fetch origin <base> --quiet && DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" --stat` to check if there's a diff. If no diff, output the same message and stop.
 
 ---
 
@@ -72,7 +72,14 @@ Fetch the latest base branch to avoid false positives from stale local state:
 git fetch origin <base> --quiet
 ```
 
-Run `git diff origin/<base>` to get the full diff. This includes both committed and uncommitted changes against the latest base branch.
+Compute the merge base, then diff the working tree against that point:
+
+```bash
+DIFF_BASE=$(git merge-base origin/<base> HEAD)
+git diff "$DIFF_BASE"
+```
+
+This includes both committed and uncommitted changes while excluding commits that landed on the base branch after this branch was created.
 
 ## Step 3.4: Workspace-aware queue status (advisory)
 

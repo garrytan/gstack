@@ -158,6 +158,33 @@ there — the user then sees a plan whose review report is not at the bottom and
 (correctly) rejects it.`;
 }
 
+export function generateExitPlanModeGate(_ctx: TemplateContext): string {
+  return `## EXIT PLAN MODE GATE (BLOCKING)
+
+Before calling ExitPlanMode, run this self-check. If any item fails, do the
+missing work — do NOT call ExitPlanMode:
+
+1. Read the plan file with the Read tool (after your most recent write to it).
+2. Confirm the LAST \`## \` heading in the file is \`## GSTACK REVIEW REPORT\`.
+   In-body prose that mentions "outside voice", "codex findings", or similar
+   does NOT count — only the structured \`## GSTACK REVIEW REPORT\` section
+   satisfies this check.
+3. Confirm the report contains: a Runs / Status / Findings table, a VERDICT
+   line, and absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable.
+4. If a plan file is in context for this skill invocation: confirm
+   \`gstack-review-log\` was called and \`gstack-review-read\` was run at least
+   once. If no plan file is in context (e.g. \`/codex consult\` against a
+   diff with no plan), this check short-circuits — checks 1-3 already
+   short-circuit when no plan file exists.
+
+Failing this gate and calling ExitPlanMode anyway is a contract violation —
+the user will see a plan whose review report is missing or stale, and will
+(correctly) reject it. Self-deception failure mode to watch for: feeling
+"done" after writing review prose into the plan body. The body prose is not
+the report. The report is a separate, structured, table-bearing section that
+must be the file's terminal heading.`;
+}
+
 export function generateAntiShortcutClause(_ctx: TemplateContext): string {
   return `**Anti-shortcut clause:** The plan file is the OUTPUT of the interactive review, not a substitute for it. Writing every finding into one plan write and calling ExitPlanMode without firing AskUserQuestion is the precise failure mode of the May 2026 transcript bug — the model explored, found issues, and dumped them into a deliverable rather than walking the user through them. If you have ANY non-trivial finding in any review section, the path from finding to ExitPlanMode goes THROUGH AskUserQuestion. Zero findings in every section is the only path to ExitPlanMode that bypasses AskUserQuestion. If you find yourself wanting to write a plan with findings before asking, stop and call AskUserQuestion now — that's the bug, recognize it.`;
 }
@@ -284,7 +311,7 @@ export function generateCodexSecondOpinion(ctx: TemplateContext): string {
 **Binary check first:**
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
 Use AskUserQuestion (regardless of codex availability):
@@ -396,7 +423,7 @@ Before reviewing code quality, check: **did they build what was requested — no
    Read commit messages (\`git log origin/<base>..HEAD --oneline\`).
    **If no PR exists:** rely on commit messages and TODOS.md for stated intent — this is the common case since /review runs before /ship creates the PR.
 2. Identify the **stated intent** — what was this branch supposed to accomplish?
-3. Run \`git diff origin/<base>...HEAD --stat\` and compare the files changed against the stated intent.
+3. Run \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" --stat\` and compare the files changed against the stated intent.
 
 4. Evaluate with skepticism (incorporating plan completion results if available from an earlier step or adjacent section):
 
@@ -440,10 +467,11 @@ Every diff gets adversarial review from both Claude and Codex. LOC is not a prox
 **Detect diff size and tool availability:**
 
 \`\`\`bash
-DIFF_INS=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-DIFF_DEL=$(git diff origin/<base> --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+DIFF_BASE=$(git merge-base origin/<base> HEAD)
+DIFF_INS=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+DIFF_DEL=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 # Legacy opt-out — only gates Codex passes, Claude always runs
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
@@ -461,7 +489,7 @@ If \`OLD_CFG\` is \`disabled\`: skip Codex passes only. Claude adversarial subag
 Dispatch via the Agent tool. The subagent has fresh context — no checklist bias from the structured review. This genuine independence catches things the primary reviewer is blind to.
 
 Subagent prompt:
-"Read the diff for this branch with \`git diff origin/<base>\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\` — examples: \`Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s\` or \`Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production\`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
+"Read the diff for this branch with \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\`. Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\` — examples: \`Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s\` or \`Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production\`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
 
 Present findings under an \`ADVERSARIAL REVIEW (Claude subagent):\` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
 
@@ -476,7 +504,7 @@ If Codex is available AND \`OLD_CFG\` is NOT \`disabled\`:
 \`\`\`bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run git diff origin/<base> to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
+codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. After the command completes, read stderr:
@@ -505,7 +533,7 @@ If \`DIFF_TOTAL >= 200\` AND Codex is available AND \`OLD_CFG\` is NOT \`disable
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-codex review "${CODEX_BOUNDARY}Review the diff against the base branch." --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+codex review "${CODEX_BOUNDARY}Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes." -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the \`timeout\` shell command — it doesn't exist on macOS. Present output under \`CODEX SAYS (code review):\` header.
@@ -572,7 +600,7 @@ thorough review.
 **Check tool availability:**
 
 \`\`\`bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
 Use AskUserQuestion:
@@ -772,21 +800,47 @@ For each item, note:
 - The item text (verbatim or concise summary)
 - Its category: CODE | TEST | MIGRATION | CONFIG | DOCS`);
 
+  // ── Verification Mode (per PR #1302 — VAS-449 remediation) ──
+  sections.push(`
+### Verification Mode
+
+Before judging completion, classify HOW each item can be verified. The diff alone cannot prove every kind of work. Items outside the current repo or system are structurally invisible to \`git diff\`.
+
+- **DIFF-VERIFIABLE** — A code change in this repo would manifest in \`git diff <base>...HEAD\`. Examples: "add UserService" (file appears), "validate input X" (validation logic appears), "create users table" (migration file appears).
+- **CROSS-REPO** — Item names a file or change in a sibling repo (e.g., \`domain-hq/docs/dashboard.md\`, \`~/Development/<other-repo>/...\`). The current diff CANNOT prove this.
+- **EXTERNAL-STATE** — Item names state in an external system: Supabase config/RLS, Cloudflare DNS, Vercel env vars, OAuth provider allowlists, third-party SaaS, DNS records. The current diff CANNOT prove this.
+- **CONTENT-SHAPE** — Item requires a file to follow a specific convention. If the file is in this repo: diff-verifiable. If in another repo or system: see CROSS-REPO / EXTERNAL-STATE.
+
+**Verification dispatch:**
+
+- **DIFF-VERIFIABLE** → cross-reference against diff (next section).
+- **CROSS-REPO** → if the sibling repo is reachable on disk (try \`~/Development/<repo>/\`, \`~/code/<repo>/\`, the parent of the current repo), run \`[ -f <path> ]\` to check file existence. File exists → DONE (cite path). File missing → NOT DONE (cite path). Path unreachable → UNVERIFIABLE (cite what needs manual check).
+- **EXTERNAL-STATE** → UNVERIFIABLE. Cite the system and the specific check the user must perform.
+- **CONTENT-SHAPE in another repo** → if the file exists, run any project-detected validator (see "Validator detection" below) before falling back to UNVERIFIABLE. With a validator: pass → DONE; fail → NOT DONE (cite validator output). No validator available: classify UNVERIFIABLE and cite both the file path and the convention to confirm.
+
+**Path concreteness rule.** If a plan item names a *concrete filesystem path* (absolute, \`~/...\`, or \`<sibling-repo>/<file>\`), it MUST be classified DONE or NOT DONE based on \`[ -f <path> ]\`. UNVERIFIABLE is only valid when the path is genuinely abstract ("Cloudflare DNS", "Supabase allowlist") or the sibling root is unreachable on this machine. "I don't want to check" is not unreachable.
+
+**Validator detection.** Before falling back to UNVERIFIABLE on a CONTENT-SHAPE item, scan the target repo's \`package.json\` for any script matching \`validate-*\`, \`lint-wiki\`, \`check-docs\`, or similar. If found, invoke it with the relevant path argument (e.g., \`npm run validate-wiki -- <path>\`). For multi-target validators (e.g., \`validate-wiki --all\`), run once and reconcile per-item from the output. A passing validator promotes the item from UNVERIFIABLE to DONE; a failing one demotes to NOT DONE.
+
+**Honesty rule.** Do NOT classify an item as DONE just because related code shipped. Code that *handles* a deliverable is not the deliverable. Shipping a markdown-extraction library is not the same as shipping the markdown file. When in doubt between DONE and UNVERIFIABLE, prefer UNVERIFIABLE — better to surface a confirmation prompt than silently miss a deliverable.`);
+
   // ── Cross-reference against diff ──
   sections.push(`
 ### Cross-Reference Against Diff
 
 Run \`git diff origin/<base>...HEAD\` and \`git log origin/<base>..HEAD --oneline\` to understand what was implemented.
 
-For each extracted plan item, check the diff and classify:
+For each extracted plan item, run the verification dispatch from the previous section, then classify:
 
-- **DONE** — Clear evidence in the diff that this item was implemented. Cite the specific file(s) changed.
-- **PARTIAL** — Some work toward this item exists in the diff but it's incomplete (e.g., model created but controller missing, function exists but edge cases not handled).
-- **NOT DONE** — No evidence in the diff that this item was addressed.
+- **DONE** — Clear evidence the item shipped. Cite the specific file(s) changed in the diff for DIFF-VERIFIABLE items, or the verified path that exists for CROSS-REPO items with a reachable sibling repo.
+- **PARTIAL** — Some work toward this item exists but is incomplete (e.g., model created but controller missing, function exists but edge cases not handled).
+- **NOT DONE** — Verification ran and produced negative evidence (file missing, code absent in diff, sibling-repo file confirmed absent).
 - **CHANGED** — The item was implemented using a different approach than the plan described, but the same goal is achieved. Note the difference.
+- **UNVERIFIABLE** — The diff and any reachable sibling-repo checks cannot prove or disprove this. Always applies to EXTERNAL-STATE items and to CROSS-REPO items where the sibling repo isn't reachable. Cite the specific manual verification the user must perform (e.g., "check Cloudflare DNS shows DNS-only mode for dashboard.example.com", "confirm /docs/dashboard.md exists in domain-hq repo").
 
-**Be conservative with DONE** — require clear evidence in the diff. A file being touched is not enough; the specific functionality described must be present.
-**Be generous with CHANGED** — if the goal is met by different means, that counts as addressed.`);
+**Be conservative with DONE** — require clear evidence. A file being touched is not enough; the specific functionality described must be present.
+**Be generous with CHANGED** — if the goal is met by different means, that counts as addressed.
+**Be honest with UNVERIFIABLE** — better to surface 5 items the user must manually confirm than silently classify them DONE.`);
 
   // ── Output format ──
   sections.push(`
@@ -798,20 +852,25 @@ PLAN COMPLETION AUDIT
 Plan: {plan file path}
 
 ## Implementation Items
-  [DONE]      Create UserService — src/services/user_service.rb (+142 lines)
-  [PARTIAL]   Add validation — model validates but missing controller checks
-  [NOT DONE]  Add caching layer — no cache-related changes in diff
-  [CHANGED]   "Redis queue" → implemented with Sidekiq instead
+  [DONE]         Create UserService — src/services/user_service.rb (+142 lines)
+  [PARTIAL]      Add validation — model validates but missing controller checks
+  [NOT DONE]     Add caching layer — no cache-related changes in diff
+  [CHANGED]      "Redis queue" → implemented with Sidekiq instead
 
 ## Test Items
-  [DONE]      Unit tests for UserService — test/services/user_service_test.rb
-  [NOT DONE]  E2E test for signup flow
+  [DONE]         Unit tests for UserService — test/services/user_service_test.rb
+  [NOT DONE]    E2E test for signup flow
 
 ## Migration Items
-  [DONE]      Create users table — db/migrate/20240315_create_users.rb
+  [DONE]         Create users table — db/migrate/20240315_create_users.rb
+
+## Cross-Repo / External Items
+  [DONE]         sibling-repo has /docs/dashboard.md — verified at ~/Development/sibling-repo/docs/dashboard.md
+  [UNVERIFIABLE] Cloudflare DNS-only on api.example.com — external system, manual check required
+  [UNVERIFIABLE] Supabase auth allowlist contains user email — external system, confirm in Supabase dashboard
 
 ─────────────────────────────────
-COMPLETION: 4/7 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED
+COMPLETION: 5/9 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 ─────────────────────────────────
 \`\`\``);
 
@@ -820,21 +879,41 @@ COMPLETION: 4/7 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED
     sections.push(`
 ### Gate Logic
 
-After producing the completion checklist:
+After producing the completion checklist, evaluate in priority order:
 
-- **All DONE or CHANGED:** Pass. "Plan completion: PASS — all items addressed." Continue.
-- **Only PARTIAL items (no NOT DONE):** Continue with a note in the PR body. Not blocking.
-- **Any NOT DONE items:** Use AskUserQuestion:
-  - Show the completion checklist above
-  - "{N} items from the plan are NOT DONE. These were part of the original plan but are missing from the implementation."
-  - RECOMMENDATION: depends on item count and severity. If 1-2 minor items (docs, config), recommend B. If core functionality is missing, recommend A.
-  - Options:
-    A) Stop — implement the missing items before shipping
-    B) Ship anyway — defer these to a follow-up (will create P1 TODOs in Step 5.5)
-    C) These items were intentionally dropped — remove from scope
-  - If A: STOP. List the missing items for the user to implement.
-  - If B: Continue. For each NOT DONE item, create a P1 TODO in Step 5.5 with "Deferred from plan: {plan file path}".
-  - If C: Continue. Note in PR body: "Plan items intentionally dropped: {list}."
+1. **Any NOT DONE items** (highest priority — known missing work). Use AskUserQuestion:
+   - Show the completion checklist above
+   - "{N} items from the plan are NOT DONE. These were part of the original plan but are missing from the implementation."
+   - RECOMMENDATION: depends on item count and severity. If 1-2 minor items (docs, config), recommend B. If core functionality is missing, recommend A.
+   - Options:
+     A) Stop — implement the missing items before shipping
+     B) Ship anyway — defer these to a follow-up (will create P1 TODOs in Step 5.5)
+     C) These items were intentionally dropped — remove from scope
+   - If A: STOP. List the missing items for the user to implement.
+   - If B: Continue. For each NOT DONE item, create a P1 TODO in Step 5.5 with "Deferred from plan: {plan file path}".
+   - If C: Continue. Note in PR body: "Plan items intentionally dropped: {list}."
+
+2. **Any UNVERIFIABLE items** (silent gaps — the diff cannot prove them either way). Only fires after NOT DONE is resolved or absent.
+
+   **Per-item confirmation is mandatory.** Do NOT use a single AskUserQuestion to blanket-confirm all UNVERIFIABLE items. Blanket confirmation is the failure mode that surfaced in VAS-449 (user clicks A without opening any file). Instead:
+
+   - Loop through UNVERIFIABLE items one at a time.
+   - For each item, use AskUserQuestion with the item's *specific* manual check (e.g., "Confirm: does \`~/Development/domain-hq/docs/dashboard.md\` exist?", not "Have you checked all items?").
+   - Options per item:
+     Y) Confirmed done — cite what you verified (free-text, embedded in PR body)
+     N) Not done — block ship; treat as NOT DONE and re-enter the priority-1 gate
+     D) Intentionally dropped — note in PR body: "Plan item intentionally dropped: {item}"
+   - RECOMMENDATION per item: Y if the item is concrete and easily verified; N if it's critical-path (auth, DNS, deliverables to other repos) and the user shows hesitation.
+
+   **Exit conditions:**
+   - Any N: STOP. Surface the missing items, suggest re-running /ship after they're addressed.
+   - All Y or D: Continue. Embed \`## Plan Completion — Manual Verifications\` section in PR body listing each Y'd item with the user's free-text evidence and each D'd item with "intentionally dropped".
+
+   **Cap.** If there are more than 5 UNVERIFIABLE items, present them as a numbered list first and ask whether the user wants to (1) confirm each individually, (2) stop and reduce scope, or (3) explicitly accept blanket-confirmation with the warning that this is the VAS-449 failure shape. Default and recommended option is (1).
+
+3. **Only PARTIAL items (no NOT DONE, no UNVERIFIABLE):** Continue with a note in the PR body. Not blocking.
+
+4. **All DONE or CHANGED:** Pass. "Plan completion: PASS — all items addressed." Continue.
 
 **No plan file found:** Skip entirely. "No plan file detected — skipping plan completion audit."
 

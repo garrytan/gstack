@@ -131,9 +131,24 @@ if $DRY_RUN; then
 fi
 
 # --- install + link ---
+# On Windows MSYS/Cygwin shells, bun's postinstall scripts (notably gbrain's
+# native-bindings setup) fail to parse path arguments correctly and abort
+# `bun install` with a non-zero exit. The package itself installs fine
+# without scripts, so detect Windows and pass --ignore-scripts there. The
+# `bun link` step below is unaffected.
+IS_WINDOWS=0
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
+esac
+
 if ! $VALIDATE_ONLY; then
-  log "running bun install in $INSTALL_DIR"
-  ( cd "$INSTALL_DIR" && bun install --silent )
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    log "running bun install --ignore-scripts in $INSTALL_DIR (Windows shell detected)"
+    ( cd "$INSTALL_DIR" && bun install --silent --ignore-scripts )
+  else
+    log "running bun install in $INSTALL_DIR"
+    ( cd "$INSTALL_DIR" && bun install --silent )
+  fi
   log "running bun link in $INSTALL_DIR"
   ( cd "$INSTALL_DIR" && bun link --silent )
 fi
@@ -179,5 +194,36 @@ if [ "$actual_norm" != "$expected_norm" ]; then
 fi
 
 log "installed gbrain $actual_version from $INSTALL_DIR"
+
+# v1.40.0.0 post-install validation (T6 / codex review #19): --ignore-scripts
+# may skip artifacts gbrain needs at runtime, especially on Windows
+# MSYS/MINGW where we DID pass --ignore-scripts. `gbrain --version` above
+# already confirmed the binary runs; this second probe checks that the
+# subcommand surface is reachable (`sources` is the entry point the sync
+# stage hits first). If the probe fails, we warn but don't exit non-zero —
+# the user may still be able to use other commands.
+if ! gbrain sources --help >/dev/null 2>&1; then
+  echo "" >&2
+  echo "gstack-gbrain-install: WARNING — gbrain installed but 'gbrain sources --help' did not exit 0." >&2
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    echo "  Windows shells skip bun postinstall scripts; some gbrain features may need native build tools." >&2
+    echo "  If /sync-gbrain fails to find subcommands, install gbrain from a non-MSYS shell," >&2
+    echo "  or run: cd $INSTALL_DIR && bun install   (without --ignore-scripts)" >&2
+  else
+    echo "  This may be a transient gbrain CLI issue or a missing native dependency." >&2
+    echo "  If /sync-gbrain fails, re-run: cd $INSTALL_DIR && bun install" >&2
+  fi
+  echo "" >&2
+fi
+
 echo ""
-echo "Next: gbrain init --pglite   (or run /setup-gbrain for the full setup flow)"
+if [ -n "${VOYAGE_API_KEY:-}" ]; then
+  echo "Next: gbrain init --pglite --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024"
+  echo "      (or run /setup-gbrain for the full setup flow)"
+else
+  echo "Next: gbrain init --pglite   (or run /setup-gbrain for the full setup flow)"
+  echo ""
+  echo "Tip: set VOYAGE_API_KEY before init to use voyage-code-3 (best embedding"
+  echo "model for code retrieval on Voyage). Without it, gbrain falls back to its"
+  echo "auto-selected provider (OpenAI when OPENAI_API_KEY is set, etc.)."
+fi

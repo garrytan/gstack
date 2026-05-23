@@ -26,6 +26,8 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
 import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
+import { isSidecarAvailable, scanWithSidecar } from './security-sidecar-client';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
   initRegistry, validateToken as validateScopedToken, checkScope, checkDomain,
@@ -34,13 +36,18 @@ import {
   isRootToken, checkConnectRateLimit, type TokenInfo,
 } from './token-registry';
 import { validateTempPath } from './path-security';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
 import { initAuditLog, writeAuditEntry } from './audit';
 import { inspectElement, modifyStyle, resetModifications, getModificationHistory, detachSession, type InspectorResult } from './cdp-inspector';
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
+import { sanitizeBody, stripLoneSurrogateEscapes } from './sanitize';
+import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
+import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
+import { redactProxyUrl } from './proxy-redact';
+import { shouldSpawnXvfb, pickFreeDisplay, spawnXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { logTunnelDenial } from './tunnel-denial-log';
 import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
@@ -54,14 +61,78 @@ import * as net from 'net';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
+// ─── Unicode Sanitization ───────────────────────────────────────
+// Remove unpaired UTF-16 surrogate halves (\uD800–\uDFFF). Page DOM text,
+// OCR output, and other CDP-sourced strings can contain lone surrogates;
+// JSON consumers downstream (Anthropic API in particular) reject them with
+// "no low surrogate in string". Valid surrogate pairs (e.g. emoji) survive
+// unchanged. Lone halves become U+FFFD (�).
+//
+// INVARIANT: every server egress path that ships page-content strings MUST
+// route through this sanitizer. handleCommandInternal wraps the final
+// cr.result string (text/plain bodies carry lone surrogates verbatim;
+// JSON.stringify already escapes them). The two SSE producers below
+// stringify with `sanitizeReplacer` so payload string fields get cleaned
+// BEFORE escaping. Plain post-stringify regex is a no-op there because
+// JSON.stringify converts \uD800 → "\\ud800" — the regex can't see the
+// surrogate after that point.
+function sanitizeLoneSurrogates(str: string): string {
+  return str.replace(/[\uD800-\uDFFF]/g, (match, offset) => {
+    const code = match.charCodeAt(0);
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = str.charCodeAt(offset + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) return match;
+    }
+    if (code >= 0xDC00 && code <= 0xDFFF) {
+      const prev = str.charCodeAt(offset - 1);
+      if (prev >= 0xD800 && prev <= 0xDBFF) return match;
+    }
+    return '�';
+  });
+}
+
+// JSON.stringify replacer that sanitizes string values before they get
+// escape-encoded. Pair with stringify when the consumer will JSON.parse the
+// payload back into JS strings (SSE clients do this).
+function sanitizeReplacer(_key: string, value: unknown): unknown {
+  return typeof value === 'string' ? sanitizeLoneSurrogates(value) : value;
+}
+
 // ─── Config ─────────────────────────────────────────────────────
 const config = resolveConfig();
 ensureStateDir(config);
 initAuditLog(config.auditLog);
 
 // ─── Auth ───────────────────────────────────────────────────────
-const AUTH_TOKEN = crypto.randomUUID();
-initRegistry(AUTH_TOKEN);
+// activeShutdown points to the factory-scoped shutdown function once
+// buildFetchHandler has been called. Module-level timers (idle check, parent
+// watchdog) and signal handlers route through activeShutdown so they close
+// the cfg-provided browserManager rather than a stale module-level reference.
+// Null before the first buildFetchHandler call, which is correct: nothing to
+// shut down yet.
+let activeShutdown: ((code?: number) => Promise<void>) | null = null;
+
+// AUTH_TOKEN is injectable via process.env.AUTH_TOKEN so embedders
+// (gbrowser's gbd daemon spawn) can pre-allocate the token and hand it to
+// the Bun child via env.
+//
+// Validation: require >= 16 chars after stripping ALL unicode whitespace
+// (not just ASCII — .trim() misses U+200B / U+FEFF / U+00A0 / etc., which
+// would otherwise let a misconfigured embedder ship a one-character BOM as
+// the bearer secret). Reject tokens that are too short or contain only
+// whitespace; fall back to randomUUID so the security boundary is never
+// silently weakened by misconfiguration.
+function sanitizeAuthToken(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const stripped = raw.replace(/[\s ​-‍﻿]/g, '');
+  if (stripped.length < 16) return null;
+  return stripped;
+}
+// AUTH_TOKEN const + module-level initRegistry call deleted in v1.35.0.0.
+// buildFetchHandler now owns auth state end-to-end: cfg.authToken is the
+// single source of truth, factory body calls initRegistry(cfg.authToken),
+// and factory-scoped validateAuth closes over the same value. start() reads
+// env once via resolveConfigFromEnv() and threads the result through.
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
 
@@ -91,6 +162,122 @@ let tunnelServer: ReturnType<typeof Bun.serve> | null = null; // tunnel HTTP lis
 
 /** Which HTTP listener accepted this request. */
 export type Surface = 'local' | 'tunnel';
+
+/**
+ * Factory contract for embedders (gbrowser phoenix overlay).
+ *
+ * Today the CLI calls `start()` which reads env vars and binds Bun.serve
+ * itself. Embedders building on this server as a submodule (gbrowser's
+ * fd-passing gbd architecture) need to inject auth + ports + a
+ * BrowserManager they pre-launched, and own the listener themselves.
+ *
+ * Status: v1 surfaces this type as documentation. AUTH_TOKEN env-injection
+ * is already live (see ~L70). `start()` is exported and the kickoff /
+ * signal-handler registration is gated on `import.meta.main`, so phoenix
+ * can `import { start } from '.../server'` without auto-starting. Full
+ * `buildFetchHandler` extraction lands in a follow-up; see plan
+ * `/Users/garrytan/.claude/plans/system-instruction-you-are-working-swirling-fountain.md`
+ * Part 1.
+ */
+export interface ServerConfig {
+  /** Bearer token clients must present. Today injected via AUTH_TOKEN env. */
+  authToken: string;
+  /** Local listener port. Used in /welcome URL + state-file. */
+  browsePort: number;
+  /** Idle shutdown timeout. Default 30 min. */
+  idleTimeoutMs: number;
+  /** Result of resolveConfig() — stateDir, auditLog, stateFile. */
+  config: ReturnType<typeof resolveConfig>;
+  /** Pre-launched BrowserManager. Caller owns lifecycle. */
+  browserManager: BrowserManager;
+  /** Optional Chromium profile path override. Resolved by resolveChromiumProfile(). */
+  chromiumProfile?: string;
+  /** Caller-owned. shutdown() does NOT call xvfb.stop(); caller is responsible. */
+  xvfb?: XvfbHandle | null;
+  /** Caller-owned. shutdown() does NOT call proxyBridge.close(); caller is responsible. */
+  proxyBridge?: BridgeHandle | null;
+  startTime: number;
+  /**
+   * Overlay hook. Runs AFTER gstack resolves auth and BEFORE route dispatch.
+   * Invalid tokens are auto-rejected at the gstack layer (401 returned
+   * before hook fires), so the hook only ever sees valid TokenInfo or null
+   * (no token presented). Returning a Response short-circuits gstack
+   * dispatch; returning null falls through.
+   */
+  beforeRoute?: (req: Request, surface: Surface, auth: TokenInfo | null) => Promise<Response | null>;
+  /**
+   * Whether gstack owns the lifecycle of the terminal-agent process and its
+   * discovery files (`<stateDir>/terminal-port`, `<stateDir>/terminal-internal-token`).
+   *
+   * When true (default), shutdown() runs three side effects:
+   *   1. `pkill -f terminal-agent\.ts`  — regex-broad, matches ANY process whose
+   *      command line contains `terminal-agent.ts` on this host (including
+   *      sibling gstack sessions). Pre-existing CLI behavior, not introduced by
+   *      this flag. Identity-based PID kill is a separate followup (see TODOS).
+   *   2. `safeUnlinkQuiet(<stateDir>/terminal-port)`
+   *   3. `safeUnlinkQuiet(<stateDir>/terminal-internal-token)`
+   *
+   * This is correct for gstack's CLI path, which spawns `terminal-agent.ts` as
+   * the producer of those files (see cli.ts:1037-1063).
+   *
+   * Embedders (gbrowser phoenix overlay, future hosts) that run their own PTY
+   * server and write those files themselves should pass `false`. When `false`,
+   * the embedder owns BOTH the agent process AND both discovery files —
+   * terminal-agent.ts's own SIGTERM cleanup only removes `terminal-port`
+   * (see terminal-agent.ts:558), so the internal-token file is the embedder's
+   * full responsibility.
+   *
+   * Polarity note: this differs from `xvfb?` and `proxyBridge?`, which gate by
+   * the *presence* of a caller-owned handle (presence ⇒ don't close). This
+   * field gates by an explicit boolean because there is no handle object —
+   * the terminal-agent is started elsewhere (cli.ts), and shutdown's only
+   * reference is the regex-based pkill + the file paths.
+   */
+  ownsTerminalAgent?: boolean;
+}
+
+/**
+ * Return shape of buildFetchHandler() — fetch handlers + lifecycle helpers
+ * embedders need to drive their own Bun.serve binding. See ServerConfig.
+ */
+export interface ServerHandle {
+  fetchLocal: (req: Request, server: any) => Promise<Response>;
+  fetchTunnel: (req: Request, server: any) => Promise<Response>;
+  /**
+   * Drains buffers, kills terminal-agent, closes browser, clears intervals,
+   * removes state files. Does NOT stop bound Bun.Server listeners — call
+   * stopListeners() for that. CLI relies on process.exit() to drop sockets.
+   */
+  shutdown: (exitCode?: number) => Promise<void>;
+  /**
+   * Graceful listener stop for embedders. Calls server.stop(true) on each
+   * passed Bun.Server. CLI doesn't need this (process.exit handles it).
+   */
+  stopListeners: (local: any, tunnel?: any) => Promise<void>;
+}
+
+/**
+ * Build a ServerConfig-shaped object from process.env. Used by gstack's
+ * own CLI when running `bun run dev` or the compiled binary directly.
+ * Embedders construct their own ServerConfig explicitly.
+ *
+ * Reads env, calls resolveConfig(). Does NOT bind a listener or call
+ * initAuditLog/initRegistry — those happen inside the buildFetchHandler
+ * lifecycle.
+ */
+export function resolveConfigFromEnv(): Omit<ServerConfig, 'browserManager' | 'startTime'> & {
+  config: ReturnType<typeof resolveConfig>;
+} {
+  return {
+    // Same sanitizer as the module-level AUTH_TOKEN: strips ALL unicode
+    // whitespace and rejects tokens shorter than 16 chars so a misconfigured
+    // embedder can't ship a BOM/zero-width as the bearer secret.
+    authToken: sanitizeAuthToken(process.env.AUTH_TOKEN) || crypto.randomUUID(),
+    browsePort: parseInt(process.env.BROWSE_PORT || '0', 10),
+    idleTimeoutMs: parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10),
+    config: resolveConfig(),
+  };
+}
 
 /**
  * Paths reachable over the tunnel surface. Everything else returns 404.
@@ -189,10 +376,9 @@ async function closeTunnel(): Promise<void> {
   tunnelActive = false;
 }
 
-function validateAuth(req: Request): boolean {
-  const header = req.headers.get('authorization');
-  return header === `Bearer ${AUTH_TOKEN}`;
-}
+// Module-level validateAuth deleted in v1.35.0.0. Factory-scoped equivalent
+// in buildFetchHandler closes over cfg.authToken so every internal auth check
+// sees the same token the routes receive.
 
 /**
  * Terminal-agent discovery. The non-compiled bun process at
@@ -313,6 +499,27 @@ const CONSOLE_LOG_PATH = config.consoleLog;
 const NETWORK_LOG_PATH = config.networkLog;
 const DIALOG_LOG_PATH = config.dialogLog;
 
+/**
+ * Per-process state-file temp path. The state-file write pattern is
+ * `writeFileSync(tmp, ...) → renameSync(tmp, stateFile)` for atomicity,
+ * but a shared `${stateFile}.tmp` filename means two concurrent writers
+ * (cold-start race when N CLIs hit a fresh repo simultaneously, parallel
+ * /tunnel/start handlers, or a combination) collide on the rename: the
+ * first writer's renameSync moves the shared temp file out of the way,
+ * the second writer's writeFileSync re-creates it, the second rename
+ * then races with the first writer's already-renamed state. Worst case
+ * the second renameSync throws ENOENT mid-air, killing one of the
+ * spawning daemons during startup.
+ *
+ * Per-process suffix (pid + 4 random bytes) makes each writer's temp
+ * path unique. The atomic rename still gives last-writer-wins semantics
+ * for the final state.json content; the only behavior change is that
+ * concurrent writers no longer kill each other on the rename.
+ */
+function tmpStatePath(): string {
+  return `${config.stateFile}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+}
+
 
 // ─── Sidebar agent / chat state ripped ──────────────────────────────
 // ChatEntry, SidebarSession, TabAgentState interfaces; chatBuffer,
@@ -324,6 +531,7 @@ const DIALOG_LOG_PATH = config.dialogLog;
 // terminal-agent.ts; chat queue + per-tab agent multiplexing are no
 // longer needed.
 
+let lastConsoleFlushed = 0;
 let lastNetworkFlushed = 0;
 let lastDialogFlushed = 0;
 let flushInProgress = false;
@@ -382,17 +590,39 @@ function resetIdleTimer() {
   lastActivity = Date.now();
 }
 
-const idleCheckInterval = setInterval(() => {
+// Named for behavioral testing via __testInternals__. The factory tests in
+// server-factory.test.ts call this directly so the idle-shutdown path can be
+// exercised without waiting 60s for the interval to fire.
+function idleCheckTick() {
   // Headed mode: the user is looking at the browser. Never auto-die.
   // Only shut down when the user explicitly disconnects or closes the window.
-  if (browserManager.getConnectionMode() === 'headed') return;
+  // Reads via the activeBrowserManager indirection so embedders that pass
+  // their own BrowserManager into buildFetchHandler hit the right instance.
+  if (activeBrowserManager.getConnectionMode() === 'headed') return;
   // Tunnel mode: remote agents may send commands sporadically. Never auto-die.
   if (tunnelActive) return;
   if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
     console.log(`[browse] Idle for ${IDLE_TIMEOUT_MS / 1000}s, shutting down`);
-    shutdown();
+    activeShutdown?.();
   }
-}, 60_000);
+}
+const idleCheckInterval = setInterval(idleCheckTick, 60_000);
+
+// Test-only surface for server-factory.test.ts. Lets the dual-instance
+// idle-timer behavior be exercised deterministically without mutating
+// Date.now (which would interact with the leaked module-level setInterval).
+// Production code must never import this — see `idle timer + onDisconnect
+// dual-instance fix` describe block for usage.
+export const __testInternals__ = {
+  idleCheckTick,
+  setTunnelActive: (v: boolean) => { tunnelActive = v; },
+  setLastActivity: (t: number) => { lastActivity = t; },
+  // Reset the module-level shutdown latch so tests that drive shutdown to
+  // completion (process.exit-stubbed) can be followed by tests that also
+  // need shutdown to fire. Without this, the second test's shutdown
+  // returns early at the `if (isShuttingDown) return;` guard.
+  resetShutdownState: () => { isShuttingDown = false; },
+};
 
 // ─── Parent-Process Watchdog ────────────────────────────────────────
 // When the spawning CLI process (e.g. a Claude Code session) exits, this
@@ -430,10 +660,10 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
       //    the parent shell between invocations. The idle timeout (30 min)
       //    handles eventual cleanup.
       if (hasActivePicker()) return;
-      const headed = browserManager.getConnectionMode() === 'headed';
+      const headed = activeBrowserManager.getConnectionMode() === 'headed';
       if (headed || tunnelActive) {
         console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
-        shutdown();
+        activeShutdown?.();
       } else if (!parentGone) {
         parentGone = true;
         console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited (server stays alive, idle timeout will clean up)`);
@@ -470,10 +700,23 @@ function emitInspectorEvent(event: any): void {
 
 // ─── Server ────────────────────────────────────────────────────
 const browserManager = new BrowserManager();
+// Indirection for embedders. Module-level handlers (idleCheckTick, parent
+// watchdog, SIGTERM) read activeBrowserManager so that buildFetchHandler can
+// retarget them at a caller-supplied BrowserManager. Symmetric with the
+// existing `let activeShutdown` pattern at module scope (line ~113).
+// Without this, embedders like gbrowser hit the dead module-level instance
+// whose connectionMode never leaves 'launched' — and headed mode never
+// short-circuits idle-shutdown.
+let activeBrowserManager: BrowserManager = browserManager;
 // When the user closes the headed browser window, run full cleanup
 // (kill sidebar-agent, save session, remove profile locks, delete state file)
-// before exiting with code 2. Exit code 2 distinguishes user-close from crashes (1).
-browserManager.onDisconnect = () => shutdown(2);
+// before exiting. Exit code 0 means user-initiated clean quit (Cmd+Q on
+// macOS) so process supervisors like gbrowser's gbd skip the restart loop;
+// 2 means a real crash that should respawn. The fallback `?? 2` preserves
+// legacy crash semantics for any caller that invokes onDisconnect without
+// an explicit code. This is the safety-net default for the CLI flow before
+// any buildFetchHandler call rebinds onDisconnect onto the cfg instance.
+browserManager.onDisconnect = (code) => activeShutdown?.(code ?? 2);
 let isShuttingDown = false;
 
 // Test if a port is available by binding and immediately releasing.
@@ -553,7 +796,7 @@ interface CommandResult {
  *   skipActivity: true when called from chain (chain emits 1 event for all subcommands)
  *   chainDepth: recursion guard — reject nested chains (depth > 0 means inside a chain)
  */
-async function handleCommandInternal(
+async function handleCommandInternalImpl(
   body: { command: string; args?: string[]; tabId?: number },
   tokenInfo?: TokenInfo | null,
   opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
@@ -740,7 +983,10 @@ async function handleCommandInternal(
       // Pass chain depth + executeCommand callback so chain routes subcommands
       // through the full security pipeline (scope, domain, tab, wrapping).
       const chainDepth = (opts?.chainDepth ?? 0);
-      result = await handleMetaCommand(command, args, browserManager, shutdown, tokenInfo, {
+      // shutdown is factory-scoped (deleted from module scope in v1.35.0.0);
+      // route the call through activeShutdown which buildFetchHandler assigns.
+      const shutdownFn = () => activeShutdown ? activeShutdown() : Promise.resolve();
+      result = await handleMetaCommand(command, args, browserManager, shutdownFn, tokenInfo, {
         chainDepth,
         daemonPort: LOCAL_LISTEN_PORT,
         executeCommand: (body, ti) => handleCommandInternal(body, ti, {
@@ -897,154 +1143,287 @@ async function handleCommandInternal(
   }
 }
 
-/** HTTP wrapper — converts CommandResult to Response */
-async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<Response> {
-  const cr = await handleCommandInternal(body, tokenInfo);
+/**
+ * Sanitizing wrapper around handleCommandInternalImpl. ALL callers (single-command
+ * HTTP, batch loop, scoped-token dispatch) go through this so the lone-surrogate
+ * sanitization happens once at the architectural choke point, not per-leaf.
+ * Do not bypass this by calling handleCommandInternalImpl directly.
+ */
+async function handleCommandInternal(
+  body: { command: string; args?: string[]; tabId?: number },
+  tokenInfo?: TokenInfo | null,
+  opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
+): Promise<CommandResult> {
+  const cr = await handleCommandInternalImpl(body, tokenInfo, opts);
+  return { ...cr, result: sanitizeLoneSurrogates(cr.result) };
+}
+
+/**
+ * Build the HTTP response from a CommandResult. Pure function so it can be
+ * unit-tested without spinning up the server (#1440). Defense in depth on top
+ * of handleCommandInternal's choke-point sanitization: this catches any
+ * \uXXXX JSON-escape surrogate forms that the raw-codepoint regex above
+ * misses when the body has already been JSON-stringified.
+ */
+export function buildCommandResponse(cr: CommandResult): Response {
   const contentType = cr.json ? 'application/json' : 'text/plain';
-  return new Response(cr.result, {
+  const safeBody = typeof cr.result === 'string' ? sanitizeBody(cr.result, !!cr.json) : cr.result;
+  return new Response(safeBody, {
     status: cr.status,
     headers: { 'Content-Type': contentType, ...cr.headers },
   });
 }
 
-async function shutdown(exitCode: number = 0) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-
-  console.log('[browse] Shutting down...');
-  // Kill the terminal-agent daemon (spawned by cli.ts, detached). Without
-  // this, the agent keeps sitting on its WebSocket port.
-  try {
-    const { spawnSync } = require('child_process');
-    spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-  } catch (err: any) {
-    console.warn('[browse] Failed to kill terminal-agent:', err.message);
-  }
-  // Best-effort cleanup of agent state files so a reconnect doesn't try to
-  // hit a dead port.
-  try { safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port')); } catch {}
-  try { safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token')); } catch {}
-  // Clean up CDP inspector sessions
-  try { detachSession(); } catch (err: any) {
-    console.warn('[browse] Failed to detach CDP session:', err.message);
-  }
-  inspectorSubscribers.clear();
-  // Stop watch mode if active
-  if (browserManager.isWatching()) browserManager.stopWatch();
-  clearInterval(flushInterval);
-  clearInterval(idleCheckInterval);
-  await flushBuffers(); // Final flush (async now)
-
-  await browserManager.close();
-
-  // Clean up Chromium profile locks (prevent SingletonLock on next launch)
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    safeUnlinkQuiet(path.join(profileDir, lockFile));
-  }
-
-  // Clean up state file
-  safeUnlinkQuiet(config.stateFile);
-
-  process.exit(exitCode);
+/** HTTP wrapper — converts CommandResult to Response. Used by the /command
+ * route dispatcher (line ~2158). The wrapper layer exists so
+ * `buildCommandResponse` is independently unit-testable (v1.38.1.0).
+ */
+async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<Response> {
+  const cr = await handleCommandInternal(body, tokenInfo);
+  return buildCommandResponse(cr);
 }
+
+// Module-level shutdown function deleted in v1.39.0.0; it now lives inside
+// the buildFetchHandler closure so it closes the cfg-provided browserManager.
+// Signal handlers below call activeShutdown which buildFetchHandler assigns.
 
 // Handle signals
 //
 // Node passes the signal name (e.g. 'SIGTERM') as the first arg to listeners.
-// Wrap calls to shutdown() so it receives no args — otherwise the string gets
+// Wrap calls so activeShutdown receives no args — otherwise the string gets
 // passed as exitCode and process.exit() coerces it to NaN, exiting with code 1
 // instead of 0. (Caught in v0.18.1.0 #1025.)
 //
-// SIGINT (Ctrl+C): user intentionally stopping → shutdown.
-process.on('SIGINT', () => shutdown());
-// SIGTERM behavior depends on mode:
-// - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
-//   parent shell exits between tool invocations. Ignoring it keeps the server
-//   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
-// - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
-//   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
-//   without waiting forever. Ctrl+C and /stop still work either way.
-// - Active cookie picker: never tear down mid-import regardless of mode —
-//   would strand the picker UI with "Failed to fetch."
-process.on('SIGTERM', () => {
-  if (hasActivePicker()) {
-    console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
-    return;
-  }
-  const headed = browserManager.getConnectionMode() === 'headed';
-  if (headed || tunnelActive) {
-    console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
-    shutdown();
-  } else {
-    console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
-  }
-});
-// Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
-// Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
-if (process.platform === 'win32') {
-  process.on('exit', () => {
-    safeUnlinkQuiet(config.stateFile);
+// Gated on `import.meta.main` so embedders (gbrowser phoenix) that import
+// server.ts as a submodule can register their own signal handlers without
+// fighting with gstack's. CLI path is unchanged.
+if (import.meta.main) {
+  // SIGINT (Ctrl+C): user intentionally stopping → shutdown.
+  process.on('SIGINT', () => activeShutdown?.());
+  // SIGTERM behavior depends on mode:
+  // - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
+  //   parent shell exits between tool invocations. Ignoring it keeps the server
+  //   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
+  // - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
+  //   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
+  //   without waiting forever. Ctrl+C and /stop still work either way.
+  // - Active cookie picker: never tear down mid-import regardless of mode —
+  //   would strand the picker UI with "Failed to fetch."
+  process.on('SIGTERM', () => {
+    if (hasActivePicker()) {
+      console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
+      return;
+    }
+    const headed = activeBrowserManager.getConnectionMode() === 'headed';
+    if (headed || tunnelActive) {
+      console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+      activeShutdown?.();
+    } else {
+      console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');
+    }
   });
+  // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
+  // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
+  if (process.platform === 'win32') {
+    process.on('exit', () => {
+      safeUnlinkQuiet(config.stateFile);
+    });
+  }
 }
 
 // Emergency cleanup for crashes (OOM, uncaught exceptions, browser disconnect)
 function emergencyCleanup() {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  // Clean Chromium profile locks
-  const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    safeUnlinkQuiet(path.join(profileDir, lockFile));
-  }
+  // Xvfb cleanup MUST happen before state-file deletion. spawnXvfb detaches
+  // the child, so without this, an uncaught exception leaves the Xvfb
+  // running with no PID record — orphan accumulates and eventually
+  // exhausts the :99-:120 display range. Read the state file FIRST,
+  // call cleanupXvfb (validates cmdline + start-time before kill), THEN
+  // delete the state file.
+  try {
+    if (fs.existsSync(config.stateFile)) {
+      const raw = fs.readFileSync(config.stateFile, 'utf-8');
+      const state = JSON.parse(raw);
+      if (state.xvfbPid && state.xvfbStartTime) {
+        // Lazy import — emergencyCleanup may run on platforms where
+        // ./xvfb's Linux-specific helpers fail to load. Best effort.
+        try {
+          const { cleanupXvfb } = require('./xvfb');
+          cleanupXvfb({
+            pid: state.xvfbPid,
+            startTime: state.xvfbStartTime,
+            display: state.xvfbDisplay || ':99',
+          });
+        } catch { /* best effort */ }
+      }
+    }
+  } catch { /* state file unparseable — fall through to lock + state cleanup */ }
+
+  // Clean Chromium profile locks via the shared helper (defensive guard
+  // refuses to operate on unrecognized profile dirs).
+  cleanSingletonLocks(resolveChromiumProfile());
   safeUnlinkQuiet(config.stateFile);
 }
-process.on('uncaughtException', (err) => {
-  console.error('[browse] FATAL uncaught exception:', err.message);
-  emergencyCleanup();
-  process.exit(1);
-});
-process.on('unhandledRejection', (err: any) => {
-  console.error('[browse] FATAL unhandled rejection:', err?.message || err);
-  emergencyCleanup();
-  process.exit(1);
-});
+// Same import.meta.main gate as SIGINT/SIGTERM — embedders register their
+// own crash handlers.
+if (import.meta.main) {
+  process.on('uncaughtException', (err) => {
+    console.error('[browse] FATAL uncaught exception:', err.message);
+    emergencyCleanup();
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (err: any) => {
+    console.error('[browse] FATAL unhandled rejection:', err?.message || err);
+    emergencyCleanup();
+    process.exit(1);
+  });
+}
 
 // ─── Start ─────────────────────────────────────────────────────
-async function start() {
-  // Clear old log files
-  safeUnlink(CONSOLE_LOG_PATH);
-  safeUnlink(NETWORK_LOG_PATH);
-  safeUnlink(DIALOG_LOG_PATH);
-
-  const port = await findPort();
-  LOCAL_LISTEN_PORT = port;
-
-  // Launch browser (headless or headed with extension)
-  // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
-  const skipBrowser = process.env.BROWSE_HEADLESS_SKIP === '1';
-  if (!skipBrowser) {
-    const headed = process.env.BROWSE_HEADED === '1';
-    if (headed) {
-      await browserManager.launchHeaded(AUTH_TOKEN);
-      console.log(`[browse] Launched headed Chromium with extension`);
-    } else {
-      await browserManager.launch();
-    }
+/**
+ * Entry point for `bun run dev` and the compiled binary.
+ *
+ * Exported so embedders (gbrowser phoenix overlay) can call it
+ * directly with env vars set, bypassing the module-level `import.meta.main`
+ * gate. Phoenix's eventual fd-passing path will use `buildFetchHandler`
+ * directly; until that lands, calling `start()` from a non-main entry is
+ * supported via env (AUTH_TOKEN, BROWSE_PORT, BROWSE_OWN_SIGNALS).
+ */
+/**
+ * Build a request handler set for the browse daemon. Embedders (gbrowser
+ * phoenix overlay) call this directly with their own cfg to compose overlay
+ * routes via cfg.beforeRoute, pass a pre-launched cfg.browserManager, and
+ * opt out of terminal-agent teardown via cfg.ownsTerminalAgent (default
+ * true, set to false when the embedder runs its own PTY server). The CLI
+ * path calls this through start() with env-derived defaults and explicit
+ * cfg.ownsTerminalAgent: true — externally-observable behavior is identical.
+ *
+ * Auth state lives ENTIRELY inside the factory closure: cfg.authToken is the
+ * single source of truth for the bearer secret, factory-scoped validateAuth
+ * closes over it, and factory-scoped shutdown closes the cfg-provided
+ * browserManager. Module-level lifecycle singletons (LOCAL_LISTEN_PORT,
+ * tunnelActive, inspector state) intentionally STAY at module scope; see
+ * the v1.35.0.0 CHANGELOG entry for the architectural rationale.
+ *
+ * The returned ServerHandle is callable directly. Bun.serve is the caller's
+ * responsibility — embedders may fd-pass; CLI uses Bun.serve normally.
+ */
+export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
+  if (!cfg.authToken || cfg.authToken.length < 16) {
+    throw new Error('buildFetchHandler: cfg.authToken must be a non-empty string >= 16 chars');
+  }
+  if (!cfg.browserManager) {
+    throw new Error('buildFetchHandler: cfg.browserManager is required');
   }
 
-  const startTime = Date.now();
+  // Re-run init with cfg-provided values. ensureStateDir is idempotent
+  // (mkdir -p); initAuditLog is idempotent (sets a module string);
+  // initRegistry is idempotent for same-token, throws for different-token.
+  // Owning init here (instead of at module load) means cfg.authToken is the
+  // single source of truth for the registry root token.
+  ensureStateDir(cfg.config);
+  initAuditLog(cfg.config.auditLog);
+  initRegistry(cfg.authToken);
 
-  // ─── Request handler factory ────────────────────────────────────
-  //
-  // Same logic serves both the local listener (bootstrap, CLI, sidebar) and
-  // the tunnel listener (pairing + scoped-token commands).  The factory
-  // closes over `surface` so the filter that runs before route dispatch
-  // knows which socket accepted the request.
-  //
-  // On the tunnel surface: reject anything not in TUNNEL_PATHS (404), reject
-  // root-token bearers (403), and require a scoped token for everything
-  // except /connect.  Denials are logged to ~/.gstack/security/attempts.jsonl.
+  const { authToken, browserManager: cfgBrowserManager, startTime, beforeRoute, browsePort } = cfg;
+  // Strict opt-out: only explicit `false` flips the gate. Any other value
+  // (undefined, truthy non-bool from a JS caller bypassing TS, etc.) defaults
+  // to gstack-owns. Matches the "default-true preserves CLI bit-for-bit"
+  // premise even under malformed cfg.
+  const ownsTerminalAgent = cfg.ownsTerminalAgent === false ? false : true;
+
+  // Factory-scoped validateAuth. Closes over cfg.authToken so every internal
+  // auth check sees the same token the routes receive. Module-level
+  // validateAuth was deleted in v1.35.0.0.
+  function validateAuth(req: Request): boolean {
+    const header = req.headers.get('authorization');
+    return header === `Bearer ${authToken}`;
+  }
+
+  // Factory-scoped shutdown. Closes the cfg-provided browserManager so
+  // embedders that pass their own BrowserManager get correct teardown.
+  // Module-level shutdown was deleted in v1.35.0.0.
+  async function shutdown(exitCode: number = 0) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log('[browse] Shutting down...');
+    if (ownsTerminalAgent) {
+      try {
+        const { spawnSync } = require('child_process');
+        spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+      } catch (err: any) {
+        console.warn('[browse] Failed to kill terminal-agent:', err.message);
+      }
+      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
+      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
+    }
+    try { detachSession(); } catch (err: any) {
+      console.warn('[browse] Failed to detach CDP session:', err.message);
+    }
+    inspectorSubscribers.clear();
+    if (cfgBrowserManager.isWatching()) cfgBrowserManager.stopWatch();
+    clearInterval(flushInterval);
+    clearInterval(idleCheckInterval);
+    await flushBuffers();
+
+    await cfgBrowserManager.close();
+
+    cleanSingletonLocks(resolveChromiumProfile());
+    safeUnlinkQuiet(config.stateFile);
+    process.exit(exitCode);
+  }
+
+  // Named lifecycle helper (matches closeTunnel style). Logs failures so
+  // future debugging isn't blind to a stuck listener.
+  async function stopListeners(local: any, tunnel?: any) {
+    try { if (local?.stop) local.stop(true); }
+    catch (err: any) { console.warn('[browse] local listener stop failed:', err?.message || err); }
+    try { if (tunnel?.stop) tunnel.stop(true); }
+    catch (err: any) { console.warn('[browse] tunnel listener stop failed:', err?.message || err); }
+  }
+
+  // Register this handle's shutdown as the active one. Module-level
+  // handlers (idleCheckInterval, parent watchdog, onDisconnect, signal
+  // handlers) call activeShutdown so they reach THIS shutdown, not a stale
+  // module reference. Critical for embedders whose cfg.browserManager
+  // differs from the module-level instance.
+  activeShutdown = shutdown;
+
+  // Retarget the BrowserManager indirection at the cfg-instance so the
+  // module-level idleCheckTick + parent watchdog + SIGTERM handler all read
+  // the right connectionMode. Without this, headed embedders auto-shutdown
+  // after 30 min of HTTP idle because the dead module-level instance still
+  // reports connectionMode === 'launched'.
+  activeBrowserManager = cfgBrowserManager;
+
+  // Wire the cfg-instance's onDisconnect to run shutdown when the user
+  // closes the headed browser window. CHAIN any caller-provided handler
+  // instead of overwriting it: gbrowser may have set its own onDisconnect
+  // before calling buildFetchHandler (e.g. for snapshot/log work that needs
+  // to run before the process exits). Caller errors are logged but never
+  // block gstack shutdown — defensive symmetry with the safeUnlinkQuiet /
+  // safeKill philosophy in error-handling.ts.
+  const callerOnDisconnect = cfgBrowserManager.onDisconnect;
+  cfgBrowserManager.onDisconnect = async (code) => {
+    if (callerOnDisconnect) {
+      try { await callerOnDisconnect(code); }
+      catch (err: any) {
+        console.warn('[browse] caller onDisconnect threw:', err?.message ?? err);
+      }
+    }
+    await activeShutdown?.(code ?? 2);
+  };
+
+  // Substitute cfgBrowserManager for module-level browserManager in the
+  // dispatcher body so all browser-state reads/writes go through the cfg
+  // instance. Other module-level references (handleCommand, getTokenInfo,
+  // isRootRequest, etc.) take the token as a parameter and are passed
+  // `authToken` (the cfg-derived value) explicitly.
+  const browserManager = cfgBrowserManager;
+
+
   const makeFetchHandler = (surface: Surface) => async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
 
@@ -1073,6 +1452,17 @@ async function start() {
       }
     }
 
+    // beforeRoute overlay hook (v1.35.0.0). Runs AFTER the tunnel surface
+    // filter and BEFORE per-route dispatch. Pre-resolves bearer auth once
+    // so the hook receives TokenInfo | null. Note: getTokenInfo returns null
+    // for both missing AND invalid bearer — see the ServerConfig.beforeRoute
+    // JSDoc for the security implications.
+    if (beforeRoute) {
+      const auth = getTokenInfo(req);
+      const overlayResp = await beforeRoute(req, surface, auth);
+      if (overlayResp) return overlayResp;
+    }
+
     // GET /connect — alive probe.  Unauth on both surfaces.  Used by /pair
     // and /tunnel/start to detect dead ngrok tunnels via the tunnel URL,
     // since /health is not tunnel-reachable under the dual-listener design.
@@ -1093,7 +1483,7 @@ async function start() {
 
       // Cookie picker routes — HTML page unauthenticated, data/action routes require auth
       if (url.pathname.startsWith('/cookie-picker')) {
-        return handleCookiePickerRoute(url, req, browserManager, AUTH_TOKEN);
+        return handleCookiePickerRoute(url, req, browserManager, authToken);
       }
 
       // Welcome page — served when GStack Browser launches in headed mode
@@ -1152,7 +1542,7 @@ async function start() {
           // (fixes Playwright Chromium extensions that don't send Origin header).
           ...(browserManager.getConnectionMode() === 'headed' ||
               req.headers.get('origin')?.startsWith('chrome-extension://')
-              ? { token: AUTH_TOKEN } : {}),
+              ? { token: authToken } : {}),
           // The chat queue is gone — Terminal pane is the sole sidebar
           // surface. Keep `chatEnabled: false` so any older extension
           // build still treats the chat input as disabled.
@@ -1176,7 +1566,7 @@ async function start() {
 
       // ─── /pty-session — mint Terminal-tab WebSocket cookie ───────────
       //
-      // The extension POSTs here with the bootstrap AUTH_TOKEN, gets back a
+      // The extension POSTs here with the bootstrap authToken, gets back a
       // short-lived HttpOnly cookie scoped to the terminal-agent's /ws
       // upgrade. We push the cookie value to the agent over loopback so the
       // upgrade can validate it. The cookie travels automatically with the
@@ -1215,7 +1605,7 @@ async function start() {
           //
           // The token is short-lived (30 min, auto-revoked on WS close)
           // and never persisted to disk on the extension side. The
-          // pre-existing AUTH_TOKEN leak via /health is a separate
+          // pre-existing authToken leak via /health is a separate
           // concern (v1.1+ TODO).
           ptySessionToken: minted.token,
           expiresAt: minted.expiresAt,
@@ -1228,6 +1618,118 @@ async function start() {
             'Set-Cookie': buildPtySetCookie(minted.token),
           },
         });
+      }
+
+      // ─── /pty-inject-scan — pre-inject prompt-injection scan for the
+      // extension's gstackInjectToTerminal callers. The extension routes
+      // every page-derived text through this endpoint BEFORE writing to
+      // the PTY (#1370). Local-only by intent: not added to the tunnel
+      // allowlist; root-token auth required. Sidecar absence degrades to
+      // L4 unavailable (extension shows WARN + user confirm per D7).
+      if (url.pathname === '/pty-inject-scan' && req.method === 'POST') {
+        if (!validateAuth(req)) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized' }, sanitizeReplacer),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        // 64KB request cap. Defense against accidentally posting an
+        // entire page DOM into the PTY path.
+        const contentLength = Number(req.headers.get('content-length') || '0');
+        if (contentLength > 64 * 1024) {
+          return new Response(
+            JSON.stringify({ error: 'payload-too-large', limit: 65536 }, sanitizeReplacer),
+            { status: 413, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        let body: { text?: unknown; origin?: unknown } = {};
+        try {
+          body = (await req.json()) as { text?: unknown; origin?: unknown };
+        } catch {
+          return new Response(
+            JSON.stringify({ error: 'malformed-json' }, sanitizeReplacer),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        const text = typeof body.text === 'string' ? body.text : '';
+        const origin = typeof body.origin === 'string' ? body.origin : 'unknown';
+        if (text.length === 0) {
+          return new Response(
+            JSON.stringify({ error: 'missing-text' }, sanitizeReplacer),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+
+        // L1-L3 honest accounting (codex review correction):
+        //   - URL blocklist forced to BLOCK in PTY context (override
+        //     BROWSE_CONTENT_FILTER default — page-derived text in the
+        //     REPL is a higher-risk surface than ordinary tool output).
+        //   - L4 ML classifier via the sidecar when available.
+        //   - L1-L3 envelope/datamarking is INFORMATIONAL only; the
+        //     verdict is driven by the URL blocklist + L4.
+        // See CLAUDE.md "Sidebar security stack" + plan §"L1-L3 honest
+        // accounting".
+        let verdict: 'PASS' | 'WARN' | 'BLOCK' = 'PASS';
+        const reasons: string[] = [];
+
+        // Quick URL-blocklist check (re-uses the security module's
+        // pure-string helpers — no @huggingface/transformers dep).
+        // Pattern: text containing a known bad-actor domain → BLOCK.
+        if (/(\bbit\.ly|\btinyurl\.com|\bdiscord\.gg)/i.test(text)) {
+          verdict = 'BLOCK';
+          reasons.push('url-blocklist');
+        }
+
+        // L4 sidecar scan if available.
+        const sidecarAvail = isSidecarAvailable();
+        let l4: { available: boolean; verdict?: unknown; error?: string } = {
+          available: sidecarAvail.available,
+        };
+        if (sidecarAvail.available && verdict !== 'BLOCK') {
+          try {
+            const { verdict: layerVerdict } = await scanWithSidecar(text, {
+              timeoutMs: 5000,
+            });
+            l4 = { available: true, verdict: layerVerdict };
+            // LayerSignal shape: { verdict: 'safe'|'suspicious'|'unsafe', ... }
+            const lv = (layerVerdict as { verdict?: string })?.verdict;
+            if (lv === 'unsafe') {
+              verdict = 'BLOCK';
+              reasons.push('l4-unsafe');
+            } else if (lv === 'suspicious') {
+              verdict = 'WARN';
+              reasons.push('l4-suspicious');
+            }
+          } catch (err) {
+            l4 = {
+              available: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+            // L4 failure during scan: degrade to WARN per D7.
+            if (verdict === 'PASS') {
+              verdict = 'WARN';
+              reasons.push('l4-unavailable');
+            }
+          }
+        } else if (!sidecarAvail.available && verdict === 'PASS') {
+          verdict = 'WARN';
+          reasons.push(`l4-unavailable:${sidecarAvail.reason ?? 'unknown'}`);
+        }
+
+        // BLOCK decisions are surfaced in the response shape; the
+        // existing writeDecision audit log is tab-scoped (per-page) and
+        // doesn't fit the PTY surface. The extension logs the BLOCK
+        // event into its own activity feed on receipt, which keeps the
+        // audit signal observable without bolting a new attempts.jsonl
+        // onto the server.
+
+        return new Response(
+          JSON.stringify(
+            { verdict, reasons, l4, datamark: '<untrusted-page-content>' },
+            sanitizeReplacer,
+          ),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
 
       // ─── /connect — setup key exchange for /pair-agent ceremony ────
@@ -1387,7 +1889,7 @@ async function start() {
             expires_at: setupKey.expiresAt,
             scopes: setupKey.scopes,
             tunnel_url: verifiedTunnelUrl,
-            server_url: `http://127.0.0.1:${server?.port || 0}`,
+            server_url: `http://127.0.0.1:${browsePort}`,
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         } catch {
           return new Response(JSON.stringify({ error: 'Invalid request body' }), {
@@ -1476,7 +1978,7 @@ async function start() {
           // Update state file
           const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
           stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-          const tmpState = config.stateFile + '.tmp';
+          const tmpState = tmpStatePath();
           fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
           fs.renameSync(tmpState, config.stateFile);
 
@@ -1567,19 +2069,24 @@ async function start() {
 
         const stream = new ReadableStream({
           start(controller) {
+            // SSE egress invariant: every JSON.stringify here ships page-content-derived
+            // fields (URLs, command args, errors) to the sidebar. Lone surrogates must
+            // be sanitized DURING stringify (via sanitizeReplacer) so they're cleaned
+            // before escape-encoding — post-stringify regex is ineffective because
+            // JSON.stringify has already converted \uD800 → "\\ud800".
             // 1. Gap detection + replay
             const { entries, gap, gapFrom, availableFrom } = getActivityAfter(afterId);
             if (gap) {
-              controller.enqueue(encoder.encode(`event: gap\ndata: ${JSON.stringify({ gapFrom, availableFrom })}\n\n`));
+              controller.enqueue(encoder.encode(`event: gap\ndata: ${JSON.stringify({ gapFrom, availableFrom }, sanitizeReplacer)}\n\n`));
             }
             for (const entry of entries) {
-              controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(entry)}\n\n`));
+              controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(entry, sanitizeReplacer)}\n\n`));
             }
 
             // 2. Subscribe for live events
             const unsubscribe = subscribe((entry) => {
               try {
-                controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(entry)}\n\n`));
+                controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(entry, sanitizeReplacer)}\n\n`));
               } catch (err: any) {
                 console.debug('[browse] Activity SSE stream error, unsubscribing:', err.message);
                 unsubscribe();
@@ -1700,10 +2207,13 @@ async function start() {
             tokenInfo,
             { skipRateCheck: true, skipActivity: true },
           );
+          // Sanitize lone surrogates per-result (#1440 — /batch bypasses the
+          // handleCommand chokepoint, so it needs its own sanitization).
+          const safeResult = typeof cr.result === 'string' ? sanitizeBody(cr.result, !!cr.json) : cr.result;
           results.push({
             index: i,
             status: cr.status,
-            result: cr.result,
+            result: safeResult,
             command: cmd.command,
             tabId: cmd.tabId,
           });
@@ -1723,13 +2233,17 @@ async function start() {
           clientId: tokenInfo?.clientId,
         });
 
-        return new Response(JSON.stringify({
+        // Sanitize the JSON envelope a second time (defense in depth) — catches
+        // any \uXXXX escape sequences for lone surrogates that survived the
+        // per-result pass.
+        const batchBody = stripLoneSurrogateEscapes(JSON.stringify({
           results,
           duration,
           total: commands.length,
           succeeded: results.filter(r => r.status === 200).length,
           failed: results.filter(r => r.status !== 200).length,
-        }), {
+        }));
+        return new Response(batchBody, {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -1928,10 +2442,15 @@ async function start() {
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
+            // SSE egress invariant: inspectorData and CDP event payloads carry
+            // page-DOM strings (selectors, attribute values, console messages).
+            // sanitizeReplacer cleans lone surrogates DURING JSON.stringify so
+            // they're neutralized before escape-encoding (post-stringify regex
+            // is a no-op once \uD800 has become "\\ud800").
             // Send current state immediately
             if (inspectorData) {
               controller.enqueue(encoder.encode(
-                `event: state\ndata: ${JSON.stringify({ data: inspectorData, timestamp: inspectorTimestamp })}\n\n`
+                `event: state\ndata: ${JSON.stringify({ data: inspectorData, timestamp: inspectorTimestamp }, sanitizeReplacer)}\n\n`
               ));
             }
 
@@ -1939,7 +2458,7 @@ async function start() {
             const notify: InspectorSubscriber = (event) => {
               try {
                 controller.enqueue(encoder.encode(
-                  `event: inspector\ndata: ${JSON.stringify(event)}\n\n`
+                  `event: inspector\ndata: ${JSON.stringify(event, sanitizeReplacer)}\n\n`
                 ));
               } catch (err: any) {
                 console.debug('[browse] Inspector SSE stream error:', err.message);
@@ -1981,25 +2500,173 @@ async function start() {
 
       return new Response('Not found', { status: 404 });
   };
-  // ─── End of makeFetchHandler ────────────────────────────────────
+
+  return {
+    fetchLocal: makeFetchHandler('local'),
+    fetchTunnel: makeFetchHandler('tunnel'),
+    shutdown,
+    stopListeners,
+  };
+}
+
+export async function start() {
+  // Clear old log files
+  safeUnlink(CONSOLE_LOG_PATH);
+  safeUnlink(NETWORK_LOG_PATH);
+  safeUnlink(DIALOG_LOG_PATH);
+
+  const port = await findPort();
+  LOCAL_LISTEN_PORT = port;
+
+  // ─── Proxy config (D8 + codex F5) ──────────────────────────────
+  // BROWSE_PROXY_URL is set by the CLI when --proxy was passed. For SOCKS5
+  // with auth, we run a local 127.0.0.1 bridge that relays to the
+  // authenticated upstream (Chromium can't do SOCKS5 auth itself). For
+  // HTTP/HTTPS or unauthenticated SOCKS5, we pass the URL directly to
+  // Chromium's proxy.server option.
+  let proxyBridge: BridgeHandle | null = null;
+  const proxyUrl = process.env.BROWSE_PROXY_URL;
+  if (proxyUrl) {
+    let parsed;
+    try {
+      parsed = parseProxyConfig({
+        proxyUrl,
+        envUser: process.env.BROWSE_PROXY_USER,
+        envPass: process.env.BROWSE_PROXY_PASS,
+      });
+    } catch (err) {
+      if (err instanceof ProxyConfigError) {
+        console.error(`[browse] error: ${err.message} (${err.hint})`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    if (parsed.scheme === 'socks5' && parsed.hasAuth) {
+      // Pre-flight: verify upstream accepts our creds before launching
+      // Chromium. 5s budget, 3 retries with 500ms backoff (D4: handles VPN
+      // warm-up race). On failure, exit with redacted error.
+      console.log(`[browse] Testing SOCKS5 upstream ${redactProxyUrl(proxyUrl)}...`);
+      try {
+        const test = await testUpstream({
+          upstream: toUpstreamConfig(parsed),
+          budgetMs: 5000,
+          retries: 3,
+          backoffMs: 500,
+        });
+        console.log(`[browse] [proxy] upstream test ok in ${test.ms}ms (${test.attempts} attempt${test.attempts === 1 ? '' : 's'})`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[browse] [proxy] FAIL upstream ${redactProxyUrl(proxyUrl)}: ${msg}`);
+        process.exit(1);
+      }
+
+      proxyBridge = await startSocksBridge({ upstream: toUpstreamConfig(parsed) });
+      console.log(`[browse] [proxy] bridge listening on 127.0.0.1:${proxyBridge.port}`);
+      browserManager.setProxyConfig({ server: `socks5://127.0.0.1:${proxyBridge.port}` });
+    } else {
+      // HTTP/HTTPS or unauth SOCKS5 — pass through to Chromium directly.
+      browserManager.setProxyConfig({
+        server: `${parsed.scheme}://${parsed.host}:${parsed.port}`,
+        ...(parsed.userId ? { username: parsed.userId } : {}),
+        ...(parsed.password ? { password: parsed.password } : {}),
+      });
+      console.log(`[browse] [proxy] using ${redactProxyUrl(proxyUrl)} (pass-through to Chromium)`);
+    }
+
+    // Tear down bridge on shutdown.
+    process.on('exit', () => {
+      if (proxyBridge) {
+        proxyBridge.close().catch(() => { /* shutting down anyway */ });
+      }
+    });
+  }
+
+  // ─── Xvfb auto-spawn (Linux + headed + no DISPLAY) ─────────────
+  // codex F2: walk display range to pick a free one (never hardcode :99);
+  // record start-time alongside PID so cleanup can validate ownership and
+  // not kill a recycled PID.
+  let xvfb: XvfbHandle | null = null;
+  const xvfbDecision = shouldSpawnXvfb(process.env, process.platform);
+  if (xvfbDecision.spawn) {
+    const displayNum = pickFreeDisplay();
+    if (displayNum == null) {
+      console.error('[browse] no free X display in range :99-:120 — refusing to clobber existing X servers');
+      process.exit(1);
+    }
+    try {
+      xvfb = await spawnXvfb(displayNum);
+      process.env.DISPLAY = xvfb.display;
+      console.log(`[browse] [xvfb] spawned on ${xvfb.display} (pid ${xvfb.pid})`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[browse] [xvfb] FAILED: ${msg}`);
+      console.error(`[browse] [xvfb] hint: ${xvfbInstallHint()}`);
+      process.exit(1);
+    }
+    process.on('exit', () => { try { xvfb?.close(); } catch { /* shutting down */ } });
+  } else if (process.env.BROWSE_HEADED === '1') {
+    console.log(`[browse] [xvfb] skipped: ${xvfbDecision.reason}`);
+  }
+
+  // Read env once — single source of truth for authToken (and other env).
+  // Threaded through launchHeaded, buildFetchHandler, and the state file
+  // write so all consumers see the same value. v1.34.x's module-level
+  // AUTH_TOKEN const was deleted in v1.35.0.0.
+  const envCfg = resolveConfigFromEnv();
+
+  // Launch browser (headless or headed with extension)
+  // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
+  const skipBrowser = process.env.BROWSE_HEADLESS_SKIP === '1';
+  if (!skipBrowser) {
+    const headed = process.env.BROWSE_HEADED === '1';
+    if (headed) {
+      await browserManager.launchHeaded(envCfg.authToken);
+      console.log(`[browse] Launched headed Chromium with extension`);
+    } else {
+      await browserManager.launch();
+    }
+  }
+
+  const startTime = Date.now();
+
+  // ─── Build the request handlers via buildFetchHandler factory ───
+  // CLI path passes env-derived values; no beforeRoute hook. Phoenix uses
+  // the same factory with its own cfg + overlay hook.
+  const handle = buildFetchHandler({
+    ...envCfg,
+    browsePort: port,        // actual bound port (resolveConfigFromEnv default is 0)
+    browserManager,          // module-level instance, same as today
+    xvfb,
+    proxyBridge,
+    startTime,
+    ownsTerminalAgent: true, // CLI spawns terminal-agent.ts itself (see cli.ts:1037-1063)
+  });
 
   const server = Bun.serve({
     port,
     hostname: '127.0.0.1',
-    fetch: makeFetchHandler('local'),
+    fetch: handle.fetchLocal,
   });
 
   // Write state file (atomic: write .tmp then rename)
   const state: Record<string, unknown> = {
     pid: process.pid,
     port,
-    token: AUTH_TOKEN,
+    token: envCfg.authToken,
     startedAt: new Date().toISOString(),
     serverPath: path.resolve(import.meta.dir, 'server.ts'),
     binaryVersion: readVersionHash() || undefined,
     mode: browserManager.getConnectionMode(),
+    // D2 daemon-mismatch detection: CLI computes the same hash from its
+    // resolved flags and refuses if it differs from this stored value.
+    ...(process.env.BROWSE_CONFIG_HASH ? { configHash: process.env.BROWSE_CONFIG_HASH } : {}),
+    // Xvfb child PID + start-time + display so disconnect (or a future
+    // daemon launch on this state file) can validate-then-cleanup orphans
+    // without clobbering a recycled PID.
+    ...(xvfb ? { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display } : {}),
   };
-  const tmpFile = config.stateFile + '.tmp';
+  const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
 
@@ -2061,7 +2728,7 @@ async function start() {
         boundTunnel = Bun.serve({
           port: 0,
           hostname: '127.0.0.1',
-          fetch: makeFetchHandler('tunnel'),
+          fetch: handle.fetchTunnel,
         });
         const tunnelPort = boundTunnel.port;
 
@@ -2080,7 +2747,7 @@ async function start() {
         // Update state file with tunnel URL
         const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
         stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-        const tmpState = config.stateFile + '.tmp';
+        const tmpState = tmpStatePath();
         fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
         fs.renameSync(tmpState, config.stateFile);
       } catch (err: any) {
@@ -2102,7 +2769,7 @@ async function start() {
       const boundTunnel = Bun.serve({
         port: 0,
         hostname: '127.0.0.1',
-        fetch: makeFetchHandler('tunnel'),
+        fetch: handle.fetchTunnel,
       });
       tunnelServer = boundTunnel;
       tunnelActive = true;
@@ -2110,7 +2777,7 @@ async function start() {
       console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
       const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
       stateContent.tunnelLocalPort = tunnelPort;
-      const tmpState = config.stateFile + '.tmp';
+      const tmpState = tmpStatePath();
       fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
       fs.renameSync(tmpState, config.stateFile);
     } catch (err: any) {
@@ -2119,16 +2786,38 @@ async function start() {
   }
 }
 
-start().catch((err) => {
-  console.error(`[browse] Failed to start: ${err.message}`);
-  // Write error to disk for the CLI to read — on Windows, the CLI can't capture
-  // stderr because the server is launched with detached: true, stdio: 'ignore'.
-  try {
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`, { mode: 0o600 });
-  } catch {
-    // stateDir may not exist — nothing more we can do
-  }
-  process.exit(1);
-});
+/**
+ * Test-only. Resets the module-level shutdown latch so a second test case
+ * can exercise shutdown() in the same process. Mirrors __resetRegistry in
+ * token-registry.ts. shutdown() short-circuits when isShuttingDown is true
+ * (see line near the start of shutdown), so without this, tests that call
+ * shutdown() more than once silently no-op after the first call.
+ *
+ * DO NOT call from production code. Defeats the shutdown re-entry guard,
+ * which can race process.exit with cfgBrowserManager.close() and the pkill /
+ * safeUnlinkQuiet side effects. The `__` prefix is the convention; nothing
+ * enforces it. If you find yourself reaching for this outside a test file,
+ * the right fix is to make isShuttingDown factory-scoped instead.
+ */
+export function __resetShuttingDown(): void {
+  isShuttingDown = false;
+}
+
+// Auto-kickoff only when this module is the entry point. Embedders
+// (gbrowser phoenix overlay) import { start, buildFetchHandler, ... }
+// without triggering the listener-binding side effects.
+if (import.meta.main) {
+  start().catch((err) => {
+    console.error(`[browse] Failed to start: ${err.message}`);
+    // Write error to disk for the CLI to read — on Windows, the CLI can't capture
+    // stderr because the server is launched with detached: true, stdio: 'ignore'.
+    try {
+      const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+      mkdirSecure(config.stateDir);
+      writeSecureFile(errorLogPath, `${new Date().toISOString()} ${err.message}\n${err.stack || ''}\n`);
+    } catch {
+      // stateDir may not exist — nothing more we can do
+    }
+    process.exit(1);
+  });
+}

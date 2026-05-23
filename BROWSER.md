@@ -49,7 +49,7 @@ $B connect                       # headed Chromium + Side Panel extension
 5. [Snapshot system + ref-based selection](#snapshot-system)
 6. [Browser-skills runtime](#browser-skills-runtime)
 7. [Domain-skills (per-site agent notes)](#domain-skills)
-8. [Real-browser mode (`$B connect`)](#real-browser-mode)
+8. [Real-browser mode (`$B connect`)](#real-browser-mode) — including [`--headed` + `--proxy` + `--navigate` (v1.28.0.0)](#headed-mode--proxy--browser-native-downloads-v12800)
 9. [Side Panel + sidebar agent](#side-panel--sidebar-agent)
 10. [Pair-agent — remote agents over an ngrok tunnel](#pair-agent)
 11. [Authentication + tokens](#authentication)
@@ -544,6 +544,63 @@ and bookmarks stays untouched.
 When in real-browser mode, `/qa` and `/design-review` automatically skip
 cookie import prompts and headless workarounds — the headed browser already
 has whatever session you logged into.
+
+### Headed mode + proxy + browser-native downloads (v1.28.0.0)
+
+Three coordinated flags for sites that block headless browsers, fingerprint
+Playwright defaults, or sit behind authenticated upstream proxies:
+
+```bash
+# Visible Chromium. Auto-spawns Xvfb on Linux containers without DISPLAY.
+$B --headed goto https://example.com
+
+# SOCKS5 with auth — Chromium can't prompt for SOCKS5 creds, so $B runs a
+# local 127.0.0.1 bridge that handles the auth handshake.
+$B --proxy socks5://user:pass@residential.proxy.host:1080 goto https://example.com
+
+# HTTP/HTTPS proxy passes through to Chromium directly.
+$B --proxy http://corp-proxy:3128 goto https://example.com
+
+# Browser-native download for Content-Disposition, redirect chains, anti-bot
+# CDNs where page.request.fetch() falls over.
+$B download "https://protected.example.com/file" /tmp/file.bin --navigate
+
+# Combined.
+$B --headed --proxy socks5://user:pass@host:1080 \
+   download "https://protected.example.com/file" /tmp/file.bin --navigate
+```
+
+**Credential policy.** Pass creds via the URL (`socks5://user:pass@host`) OR
+the env vars `BROWSE_PROXY_USER` / `BROWSE_PROXY_PASS` — never both. `$B`
+refuses with a clear hint when both are set; silent override created
+"works on my machine" debugging traps.
+
+**Daemon discipline.** `--proxy` and `--headed` are daemon-startup config.
+A running daemon with config A meeting a new invocation with config B exits
+1 with a `browse disconnect` hint instead of silently restarting and dropping
+tab state, cookies, or sessions.
+
+**Stealth scope.** When `--headed` or `--proxy` are set, `$B` masks
+`navigator.webdriver` only — via Chromium's
+`--disable-blink-features=AutomationControlled` plus a small init script.
+We do NOT fake `navigator.plugins`, `navigator.languages`, or `window.chrome`
+— modern fingerprinters check those for consistency, and synthesizing fixed
+values can flag MORE bot-like, not less. ChromeDriver's `cdc_` runtime
+artifacts and the Permissions API patch are still cleaned up.
+
+**Container support.** `--headed` on Linux without `DISPLAY` walks the
+display range (`:99`, `:100`, ...) until `xdpyinfo` reports a free slot,
+then spawns Xvfb. Cleanup-on-disconnect validates the recorded PID's
+`/proc/<pid>/cmdline` matches `Xvfb` AND start-time matches before sending
+any signal — no PID-reuse footguns. Skips spawn entirely when
+`WAYLAND_DISPLAY` is set (Chromium uses Wayland natively). Standard
+Debian/Ubuntu containers work out of the box; minimal images (alpine,
+distroless) may need fonts/dbus/gtk libs for headed Chromium to render.
+
+**Failure modes.** SOCKS5 upstream rejected or unreachable — fail-fast at
+startup with a redacted error after 3 retries (5s budget). Mid-stream
+upstream drop — bridge kills the affected client connection only; no
+transport retries that could corrupt browser traffic.
 
 ---
 
@@ -1117,6 +1174,11 @@ browse/
 │   ├── cli.ts                   # Thin client — reads state, sends HTTP, prints
 │   ├── server.ts                # Bun HTTP daemon — routes commands, dual-listener
 │   ├── browser-manager.ts       # Chromium lifecycle, tabs, ref map, crash detection
+│   ├── socks-bridge.ts          # Local 127.0.0.1 SOCKS5 bridge that handles auth handshakes Chromium can't speak
+│   ├── proxy-config.ts          # --proxy URL parsing + cred resolution (URL vs env, fail-fast on both)
+│   ├── proxy-redact.ts          # Cred-redaction helper for any proxy URL surfaced to logs/errors
+│   ├── xvfb.ts                  # Xvfb auto-spawn + orphan cleanup with PID + start-time validation
+│   ├── stealth.ts               # navigator.webdriver mask + cdc_ cleanup + Permissions API patch
 │   ├── browse-client.ts         # Canonical SDK — what skills import as _lib/browse-client.ts
 │   ├── snapshot.ts              # AX tree → @e/@c refs → Locator map; -D/-a/-C handling
 │   ├── read-commands.ts         # Non-mutating: text, html, links, js, css, is, dialog, ...

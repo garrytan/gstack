@@ -6,12 +6,15 @@ import {
   revokeToken, rotateRoot, listTokens, recordCommand,
   serializeRegistry, restoreRegistry, checkConnectRateLimit,
   SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_CONTROL, SCOPE_META,
+  __resetRegistry,
 } from '../src/token-registry';
 
 describe('token-registry', () => {
   beforeEach(() => {
-    // rotateRoot clears all tokens and rate buckets, then initRegistry sets the root
-    rotateRoot();
+    // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
+    // doesn't fire on the immediate initRegistry call. rotateRoot would leave
+    // a UUID in rootToken and the guard would throw.
+    __resetRegistry();
     initRegistry('root-token-for-tests');
   });
 
@@ -27,6 +30,39 @@ describe('token-registry', () => {
       expect(info!.clientId).toBe('root');
       expect(info!.scopes).toEqual(['read', 'write', 'admin', 'meta', 'control']);
       expect(info!.rateLimit).toBe(0);
+    });
+
+    // Regression: the previous fix did a JS string-length short-circuit before
+    // crypto.timingSafeEqual, but the buffers passed in are UTF-8. A multibyte
+    // input with matching string length but mismatched byte length would slip
+    // past the check and crash inside timingSafeEqual. Auth path must return
+    // false, not error.
+    it('returns false for a multibyte token whose string length matches but UTF-8 byte length differs', () => {
+      // 'root-token-for-tests' is 20 ASCII chars (20 bytes).
+      // 'é'.repeat(20) is 20 chars but 40 UTF-8 bytes.
+      const multibyte = 'é'.repeat(20);
+      expect(multibyte.length).toBe('root-token-for-tests'.length);
+      expect(Buffer.byteLength(multibyte, 'utf8')).not.toBe(
+        Buffer.byteLength('root-token-for-tests', 'utf8'),
+      );
+      expect(() => isRootToken(multibyte)).not.toThrow();
+      expect(isRootToken(multibyte)).toBe(false);
+    });
+
+    it('returns false for a token that differs only in length (same prefix)', () => {
+      expect(isRootToken('root-token-for-tests-extra')).toBe(false);
+      expect(isRootToken('root-token-for-test')).toBe(false);
+    });
+
+    it('returns false for a same-length token that differs only in the last byte', () => {
+      const expected = 'root-token-for-tests';
+      const wrong = expected.slice(0, -1) + (expected.endsWith('x') ? 'y' : 'x');
+      expect(wrong.length).toBe(expected.length);
+      expect(isRootToken(wrong)).toBe(false);
+    });
+
+    it('returns false for the empty string even when root is set', () => {
+      expect(isRootToken('')).toBe(false);
     });
   });
 
@@ -300,8 +336,10 @@ describe('token-registry', () => {
       const state = serializeRegistry();
       expect(Object.keys(state.agents)).toHaveLength(2);
 
-      // Clear and restore
-      rotateRoot();
+      // Clear and restore. __resetRegistry instead of rotateRoot+initRegistry
+      // so the new initRegistry mismatch guard doesn't fire — rotateRoot
+      // leaves a UUID in rootToken and initRegistry('new-root') would throw.
+      __resetRegistry();
       initRegistry('new-root');
       restoreRegistry(state);
 

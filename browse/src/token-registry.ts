@@ -147,6 +147,16 @@ const tokens = new Map<string, TokenInfo>();
 let rootToken: string = '';
 
 export function initRegistry(root: string): void {
+  // Idempotent re-init: same token is a no-op so embedders can call this
+  // alongside any prior call without fighting. Different token after init
+  // means a misconfigured caller — throw clearly rather than silently
+  // invalidate every scoped token already issued.
+  if (rootToken !== '' && rootToken !== root) {
+    throw new Error(
+      'token-registry already initialized with a different token; ' +
+      'embedders must call buildFetchHandler before any registry-mutating code path'
+    );
+  }
   rootToken = root;
 }
 
@@ -155,7 +165,20 @@ export function getRootToken(): string {
 }
 
 export function isRootToken(token: string): boolean {
-  return token === rootToken;
+  // Constant-time compare so a tunnel-reachable caller who can provoke an
+  // isRootToken() call (e.g., via the 403 "root over tunnel" rejection path)
+  // can't measure byte-by-byte string-compare timing to recover the token.
+  // Compare UTF-8 byte lengths (not JS string length) before timingSafeEqual,
+  // which throws on length-mismatched buffers. A multibyte input whose JS
+  // string length matches rootToken but whose UTF-8 byte length differs must
+  // return false on the auth path, not error out.
+  if (!rootToken) return false;
+  const tokenBytes = Buffer.byteLength(token, 'utf8');
+  const rootBytes = Buffer.byteLength(rootToken, 'utf8');
+  if (tokenBytes !== rootBytes) return false;
+  const a = Buffer.from(token, 'utf8');
+  const b = Buffer.from(rootToken, 'utf8');
+  return crypto.timingSafeEqual(a, b);
 }
 
 function generateToken(prefix: string): string {
@@ -498,4 +521,14 @@ export function checkConnectRateLimit(): boolean {
 // Test-only reset.
 export function __resetConnectRateLimit(): void {
   connectAttempts = [];
+}
+
+// Test-only reset. Zeroes the registry so a subsequent initRegistry call
+// always succeeds. Mirrors __resetConnectRateLimit. Needed by tests that
+// follow the rotateRoot() pattern — rotateRoot leaves rootToken non-empty,
+// which would otherwise trip the initRegistry mismatch guard.
+export function __resetRegistry(): void {
+  rootToken = '';
+  tokens.clear();
+  rateBuckets.clear();
 }

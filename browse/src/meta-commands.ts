@@ -11,11 +11,13 @@ import { handleSkillCommand } from './browser-skill-commands';
 import { validateNavigationUrl } from './url-validation';
 import { checkScope, type TokenInfo } from './token-registry';
 import { validateOutputPath, validateReadPath, SAFE_DIRECTORIES, escapeRegExp } from './path-security';
+import { guardScreenshotBuffer, guardScreenshotPath } from './screenshot-size-guard';
 // Re-export for backward compatibility (tests import from meta-commands)
 export { validateOutputPath, escapeRegExp } from './path-security';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
@@ -135,7 +137,7 @@ function parsePdfArgs(args: string[]): ParsedPdfArgs {
   return result;
 }
 
-function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
+export function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
   // Parity with load-html --from-file (browse/src/write-commands.ts) and
   // the direct load-html <file> path: every caller-supplied file path
   // must pass validateReadPath so the safe-dirs policy can't be skirted
@@ -148,7 +150,16 @@ function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
     );
   }
   const raw = fs.readFileSync(payloadPath, 'utf8');
-  const json = JSON.parse(raw);
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`pdf: --from-file ${payloadPath} is not valid JSON (${msg}).`);
+  }
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) {
+    throw new Error(`pdf: --from-file ${payloadPath} must be a JSON object, got ${Array.isArray(json) ? 'array' : typeof json}.`);
+  }
   const out: ParsedPdfArgs = {
     output: json.output || `${TEMP_DIR}/browse-page.pdf`,
     format: json.format,
@@ -496,6 +507,10 @@ export async function handleMetaCommand(
           buffer = await page.screenshot({ clip: clipRect });
         } else {
           buffer = await page.screenshot({ fullPage: !viewportOnly });
+          // Guard the most common API-bricking case (fullPage). Element /
+          // clip captures usually stay within the cap; we still guard the
+          // path-mode below for fullPage writes.
+          ({ buffer } = await guardScreenshotBuffer(buffer));
         }
         if (buffer.length > 10 * 1024 * 1024) {
           throw new Error('Screenshot too large for --base64 (>10MB). Use disk path instead.');
@@ -516,6 +531,7 @@ export async function handleMetaCommand(
       }
 
       await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
+      if (!viewportOnly) await guardScreenshotPath(outputPath);
       return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
     }
 
@@ -566,6 +582,7 @@ export async function handleMetaCommand(
         const screenshotPath = `${prefix}-${vp.name}.png`;
         validateOutputPath(screenshotPath);
         await page.screenshot({ path: screenshotPath, fullPage: true });
+        await guardScreenshotPath(screenshotPath);
         results.push(`${vp.name} (${vp.width}x${vp.height}): ${screenshotPath}`);
       }
 
@@ -917,7 +934,7 @@ export async function handleMetaCommand(
 
       const config = resolveConfig();
       const stateDir = path.join(config.stateDir, 'browse-states');
-      fs.mkdirSync(stateDir, { recursive: true });
+      mkdirSecure(stateDir);
       const statePath = path.join(stateDir, `${name}.json`);
 
       if (action === 'save') {
@@ -929,7 +946,7 @@ export async function handleMetaCommand(
           cookies: state.cookies,
           pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
         };
-        fs.writeFileSync(statePath, JSON.stringify(saveData, null, 2), { mode: 0o600 });
+        writeSecureFile(statePath, JSON.stringify(saveData, null, 2));
         return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages)\n⚠️  Cookies stored in plaintext. Delete when no longer needed.`;
       }
 

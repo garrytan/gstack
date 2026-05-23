@@ -395,10 +395,13 @@ describe('gen-skill-docs', () => {
     // added (per /sync-gbrain plan §4). Ratcheted 35000 → 36500 in v1.27.0.0
     // when generate-brain-sync-block.ts gained the gbrain_mcp_mode probe +
     // remote-mode ARTIFACTS_SYNC status line (Path 4 of /setup-gbrain).
+    // Ratcheted 36500 → 39000 in the contributor wave when #1205 added the
+    // \\u-escape CJK rule (rule 12 + self-check item) to the AskUserQuestion
+    // preamble.
     for (const skill of reviewSkills) {
       const content = fs.readFileSync(skill.path, 'utf-8');
       const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
-      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(36_500);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(39_000);
     }
   });
 
@@ -1162,14 +1165,36 @@ describe('Retro plan completion section', () => {
 // --- Plan status footer in preamble ---
 
 describe('Plan status footer in preamble', () => {
-  test('preamble contains plan status footer', () => {
+  test('preamble contains plan status footer as neutral forward reference to EXIT PLAN MODE GATE', () => {
     // Read any skill that uses PREAMBLE
     const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Plan Status Footer');
     expect(content).toContain('GSTACK REVIEW REPORT');
-    expect(content).toContain('gstack-review-read');
     expect(content).toContain('ExitPlanMode');
-    expect(content).toContain('NO REVIEWS YET');
+    expect(content).toContain('EXIT PLAN MODE GATE');
+    // The preamble must NOT impose review-report rules on operational skills
+    // that have no review report. It's a forward reference, not enforcement.
+    expect(content).not.toContain('NO REVIEWS YET');
+  });
+});
+
+// --- make-pdf setup ordering ---
+
+describe('make-pdf setup ordering', () => {
+  test('MAKE-PDF SETUP appears before generic preamble footer sections', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'make-pdf', 'SKILL.md'), 'utf-8');
+    const preambleIdx = content.indexOf('## Preamble (run first)');
+    const setupIdx = content.indexOf('## MAKE-PDF SETUP');
+    const planModeIdx = content.indexOf('## Plan Mode Safe Operations');
+    const telemetryIdx = content.indexOf('## Telemetry (run last)');
+    const workflowIdx = content.indexOf('# make-pdf: publication-quality PDFs from markdown');
+
+    expect(preambleIdx).toBeGreaterThanOrEqual(0);
+    expect(setupIdx).toBeGreaterThan(preambleIdx);
+    expect(setupIdx).toBeLessThan(planModeIdx);
+    expect(setupIdx).toBeLessThan(telemetryIdx);
+    expect(setupIdx).toBeLessThan(workflowIdx);
+    expect(content.match(/^## MAKE-PDF SETUP/gm)?.length ?? 0).toBe(1);
   });
 });
 
@@ -2250,7 +2275,7 @@ describe('setup script validation', () => {
     expect(codexSection).toContain('create_codex_runtime_root');
     expect(codexSection).toContain('link_codex_skill_dirs');
     expect(codexSection).not.toContain('link_claude_skill_dirs');
-    expect(codexSection).not.toContain('ln -snf "$GSTACK_DIR" "$CODEX_GSTACK"');
+    expect(codexSection).not.toContain('_link_or_copy "$GSTACK_DIR" "$CODEX_GSTACK"');
   });
 
   test('Codex install prefers repo-local .agents/skills when setup runs from there', () => {
@@ -2290,7 +2315,8 @@ describe('setup script validation', () => {
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('mkdir -p "$target"');
-    expect(fnBody).toContain('ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
+    // v1.36.0.0: routes through _link_or_copy helper for Windows fallback (cp on MSYS2/Git Bash).
+    expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
   });
 
   // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
@@ -2322,7 +2348,22 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('rm -f "$target"');
   });
 
+  test('setup links root gstack skill through a thin Claude wrapper alias', () => {
+    const fnStart = setupContent.indexOf('link_claude_root_skill_alias()');
+    const fnEnd = setupContent.indexOf('# ─── Helper: remove old unprefixed Claude skill entries', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('_gstack-command');
+    expect(fnBody).toContain('_link_or_copy "$gstack_dir/SKILL.md" "$target/SKILL.md"');
+
+    const claudeSection = setupContent.slice(
+      setupContent.indexOf('# 4. Install for Claude'),
+      setupContent.indexOf('# 5. Install for Codex')
+    );
+    expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
+  });
+
   test('setup supports --host auto|claude|codex|kiro|opencode|pi', () => {
+
     expect(setupContent).toContain('--host');
     expect(setupContent).toContain('claude|codex|kiro|factory|opencode|pi|auto');
   });
@@ -2440,7 +2481,7 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('design-checklist.md');
     expect(fnBody).toContain('greptile-triage.md');
     expect(fnBody).toContain('TODOS-format.md');
-    expect(fnBody).not.toContain('ln -snf "$gstack_dir" "$codex_gstack"');
+    expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
   });
 
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
@@ -2796,6 +2837,22 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
     }
     expect(violations).toEqual([]);
   });
+
+  test('codex review commands pass diff scope through prompt, not --base', () => {
+    const checkedFiles = [
+      'codex/SKILL.md.tmpl',
+      'codex/SKILL.md',
+      'scripts/resolvers/review.ts',
+      'review/SKILL.md',
+      'ship/SKILL.md',
+    ];
+
+    for (const rel of checkedFiles) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
+      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+    }
+  });
 });
 
 // ─── Learnings + Confidence Resolver Tests ─────────────────────
@@ -3140,5 +3197,80 @@ describe('GSTACK REVIEW REPORT delete-then-append flow', () => {
     // Old contradictory bullets are gone from the source resolver.
     expect(src).not.toContain('replace it** entirely using the Edit tool');
     expect(src).not.toContain('If it was found mid-file, move it');
+  });
+});
+
+describe('LEARNINGS_SEARCH resolver: query parameter', () => {
+  // Lazy-load resolver and types after describe block to keep test file self-contained.
+  const { generateLearningsSearch } = require('../scripts/resolvers/learnings');
+  const { HOST_PATHS } = require('../scripts/resolvers/types');
+
+  const claudeCtx = {
+    skillName: 'test',
+    tmplPath: 'test/SKILL.md.tmpl',
+    host: 'claude',
+    paths: HOST_PATHS.claude,
+  };
+  const codexCtx = { ...claudeCtx, host: 'codex', paths: HOST_PATHS.codex };
+
+  test('no args → bash does not contain --query (backwards-compat)', () => {
+    const out = generateLearningsSearch(claudeCtx);
+    expect(out).not.toContain('--query');
+  });
+
+  test('claude host + query=foo bar → both cross-project and project-scoped branches contain --query', () => {
+    const out = generateLearningsSearch(claudeCtx, ['query=foo bar']);
+    // Both branches of the if/else must carry the flag.
+    const lines = out.split('\n').filter(l => l.includes('gstack-learnings-search'));
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const line of lines) {
+      expect(line).toContain('--query "foo bar"');
+    }
+  });
+
+  test('codex host + query=foo bar → codex bash variant contains --query', () => {
+    const out = generateLearningsSearch(codexCtx, ['query=foo bar']);
+    expect(out).toContain('--query "foo bar"');
+    expect(out).toContain('$GSTACK_BIN/gstack-learnings-search');
+  });
+
+  test('empty value query= → bash does not contain --query (locked semantics: falls through)', () => {
+    const claudeOut = generateLearningsSearch(claudeCtx, ['query=']);
+    expect(claudeOut).not.toContain('--query');
+    const codexOut = generateLearningsSearch(codexCtx, ['query=']);
+    expect(codexOut).not.toContain('--query');
+  });
+
+  test('shell-injection chars in query= → throws at gen-time (defense in depth)', () => {
+    for (const bad of ['$(whoami)', '`cmd`', 'a;b', 'a&b', 'a"b', 'a\\b', 'foo$x']) {
+      expect(() => generateLearningsSearch(claudeCtx, [`query=${bad}`])).toThrow(/alphanumeric/);
+    }
+  });
+});
+
+describe('EXIT PLAN MODE GATE placement', () => {
+  // Fresh skill list — do NOT reuse REVIEW_SKILLS upstream (3 entries, missing plan-devex).
+  const planSkills = ['plan-eng-review', 'plan-ceo-review', 'plan-design-review', 'plan-devex-review'];
+
+  // Strip fenced code blocks before matching headings — PLAN_FILE_REVIEW_REPORT
+  // already contains `## GSTACK REVIEW REPORT` inside a markdown example fence,
+  // and the gate text itself shows `## GSTACK REVIEW REPORT` inside a fence too.
+  const stripFences = (md: string) => md.replace(/```[\s\S]*?```/g, '');
+
+  test('gate is the terminal ## heading in every plan-* review SKILL.md', () => {
+    for (const skill of planSkills) {
+      const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      const stripped = stripFences(md);
+      const headings = [...stripped.matchAll(/^## .+$/gm)].map(m => m[0]);
+      const lastH2 = headings.at(-1);
+      expect(lastH2, `${skill}/SKILL.md last ## heading (fences stripped)`).toBe('## EXIT PLAN MODE GATE (BLOCKING)');
+      expect(md, `${skill}/SKILL.md gate body`).toContain('Failing this gate and calling ExitPlanMode anyway is a contract violation');
+    }
+  });
+
+  test('codex/SKILL.md contains gate (mid-file per D5; Step 2B/2C follow)', () => {
+    const codex = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
+    expect(codex).toContain('## EXIT PLAN MODE GATE (BLOCKING)');
+    expect(codex).toContain('Failing this gate and calling ExitPlanMode anyway is a contract violation');
   });
 });

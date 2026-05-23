@@ -144,6 +144,21 @@ Cookies are the most sensitive data gstack handles. The design:
 
 The browser registry (Comet, Chrome, Arc, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input. Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
 
+### Unicode sanitization at server egress (v1.38.0.0)
+
+Page content harvested by CDP can contain lone UTF-16 surrogate halves (orphaned high or low surrogates from broken JavaScript string handling on the page). When those reach `JSON.stringify`, Bun emits them as `\uD800`-style escape sequences that the downstream consumer's `JSON.parse` accepts, but the Anthropic API rejects with a 400 — turning a single weird page into a session-killing error. Defense is single-point, applied at every server egress that ships page-derived strings.
+
+| Egress path | Module | Sanitization point |
+|---|---|---|
+| `POST /command` (HTTP) | `browse/src/server.ts` | `handleCommandInternal` wrapper (sanitizes the result of `handleCommandInternalImpl`) |
+| `POST /command/batch` | `browse/src/server.ts` | Same wrapper — batch consumers inherit it |
+| `GET /activity/stream` (SSE) | `browse/src/server.ts` | `sanitizeReplacer` passed to `JSON.stringify` |
+| `GET /inspector/events` (SSE) | `browse/src/server.ts` | `sanitizeReplacer` passed to `JSON.stringify` |
+
+`sanitizeReplacer` is a `JSON.stringify` replacer function that cleans every string value during encoding. Post-stringify regex doesn't work here — `JSON.stringify` has already converted `\uD800` into the literal escape sequence `"\\ud800"` before the regex could match, so the replacer must run inside the encoding pipeline. The pure-string helper `sanitizeLoneSurrogates` is used directly for `text/plain` responses.
+
+**Architectural invariant.** Every new SSE/WebSocket writer or HTTP response that ships page-content-derived strings MUST go through one of two paths: `JSON.stringify(payload, sanitizeReplacer)` for object payloads, or `sanitizeLoneSurrogates(body)` for text bodies. New surfaces that bypass both will desync the system. Inline comments at both SSE producers in `server.ts` say so; `browse/test/server-sanitize-surrogates.test.ts` pins wiring with bug-repro + invariant tests (`handleCommandInternalImpl` rename, central sanitization line, replacer existence, SSE producers stringify with replacer).
+
 ### Prompt injection defense (sidebar agent)
 
 The Chrome sidebar agent has tools (Bash, Read, Glob, Grep, WebFetch) and reads hostile web pages, so it's the part of gstack most exposed to prompt injection. Defense is layered, not single-point.
@@ -156,7 +171,7 @@ The Chrome sidebar agent has tools (Bash, Read, Glob, Grep, WebFetch) and reads 
 
 4. **L5 canary token (`browse/src/security.ts`).** A random token injected into the system prompt at session start. Rolling-buffer detection across `text_delta` and `input_json_delta` streams catches the token if it shows up anywhere in Claude's output, tool arguments, URLs, or file writes. Deterministic BLOCK — if the token leaks, the attacker convinced Claude to reveal the system prompt, and the session ends.
 
-5. **L6 ensemble combiner (`combineVerdict`).** BLOCK requires agreement from two ML classifiers at >= `WARN` (0.60), not a single confident hit. This is the Stack Overflow instruction-writing false-positive mitigation. On tool-output scans, single-layer high confidence BLOCKs directly — the content wasn't user-authored, so the FP concern doesn't apply.
+5. **L6 ensemble combiner (`combineVerdict`).** BLOCK requires agreement from two ML classifiers at >= `WARN` (0.75), not a single confident hit. This is the Stack Overflow instruction-writing false-positive mitigation. On tool-output scans, single-layer high confidence BLOCKs directly — the content wasn't user-authored, so the FP concern doesn't apply.
 
 **Critical constraint:** `security-classifier.ts` runs only in the sidebar-agent process, never in the compiled browse binary. `@huggingface/transformers` v4 requires `onnxruntime-node`, which fails `dlopen` from Bun compile's temp extract directory. Only the pure-string pieces (canary inject/check, verdict combiner, attack log, status) are in `security.ts`, which is safe to import from `server.ts`.
 
