@@ -136,7 +136,11 @@ def load_privacy_map(path):
 
 allowlist_globs = load_lines(allowlist_path)
 privacy_map = load_privacy_map(privacy_path)
-skip_lines = set(load_lines(skip_path))
+# Normalize skip entries to the POSIX form queued paths use, so a backslash
+# entry in .brain-skip.txt still matches on Windows. The drain is the safety
+# boundary that actually stages files, so it must normalize identically to
+# discover_new — otherwise an explicitly-skipped file gets committed.
+skip_lines = {s.replace(os.sep, "/") for s in load_lines(skip_path)}
 
 # Read queue; collect unique file paths.
 queue_paths = set()
@@ -253,6 +257,8 @@ subcmd_once() {
 
   # Stage with git add -f (forces past .gitignore=*) explicit paths only.
   while IFS= read -r p; do
+    p="${p%$'\r'}"   # Windows: compute_paths_to_stage's python print() emits CRLF;
+                     # a trailing CR makes the pathspec match nothing (silent no-stage).
     [ -z "$p" ] && continue
     git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
   done < "$paths_file"
@@ -376,10 +382,13 @@ subcmd_discover_new() {
     exit 0
   fi
   # Walk allowlist globs; enqueue any file where mtime+size differs from cursor.
-  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" "$SCRIPT_DIR/gstack-brain-enqueue" <<'PYEOF' 2>/dev/null || true
-import sys, os, json, glob, fnmatch, subprocess, hashlib
+  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" <<'PYEOF' 2>/dev/null || true
+import sys, os, json, fnmatch
+from datetime import datetime, timezone
 
-gstack_home, allowlist_path, cursor_path, enqueue_bin = sys.argv[1:5]
+gstack_home, allowlist_path, cursor_path = sys.argv[1:4]
+queue_path = os.path.join(gstack_home, ".brain-queue.jsonl")
+skip_path = os.path.join(gstack_home, ".brain-skip.txt")
 
 def load_lines(path):
     try:
@@ -403,8 +412,12 @@ def save_cursor(path, data):
         pass
 
 allowlist = load_lines(allowlist_path)
+# Normalize skip entries to the same POSIX form as `rel` below, so a
+# backslash entry in .brain-skip.txt still matches a normalized path on Windows.
+skip = {s.replace(os.sep, "/") for s in load_lines(skip_path)}
 cursor = load_cursor(cursor_path)
 new_cursor = dict(cursor)
+to_enqueue = []
 
 # Walk all files under gstack_home, match against allowlist.
 for root, dirs, files in os.walk(gstack_home):
@@ -413,22 +426,54 @@ for root, dirs, files in os.walk(gstack_home):
         continue
     for name in files:
         full = os.path.join(root, name)
-        rel = os.path.relpath(full, gstack_home)
+        # Repo paths are POSIX-relative. os.path.relpath yields backslash
+        # separators on Windows, which never match the forward-slash allowlist
+        # globs (e.g. "projects/*/learnings.jsonl"), so discovery silently
+        # enqueued nothing under projects/ on Windows. Normalize to "/".
+        rel = os.path.relpath(full, gstack_home).replace(os.sep, "/")
         if rel.startswith(".brain-"):
             continue
-        matched = any(fnmatch.fnmatchcase(rel, pat) for pat in allowlist)
-        if not matched:
+        if not any(fnmatch.fnmatchcase(rel, pat) for pat in allowlist):
+            continue
+        if rel in skip:
             continue
         try:
             st = os.stat(full)
             key = f"{int(st.st_mtime)}:{st.st_size}"
         except OSError:
             continue
-        prev = cursor.get(rel)
-        if prev != key:
-            # Enqueue via the shim (respects sync mode + skip list).
-            subprocess.run([enqueue_bin, rel], check=False)
-            new_cursor[rel] = key
+        if cursor.get(rel) != key:
+            to_enqueue.append((rel, key))
+
+# Append to the queue directly. The previous implementation shelled out to
+# gstack-brain-enqueue once per file, but Windows Python cannot exec a
+# bash-shebang script (the spawn fails with a fork error), so discovery
+# enqueued nothing on Windows even after the path-match fix above.
+# Writing the queue line here is platform-agnostic; the drain step
+# (compute_paths_to_stage) still re-applies the skip-list + privacy filters.
+if to_enqueue:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        # One atomic append per record (O_APPEND, each line < PIPE_BUF), matching
+        # gstack-brain-enqueue's concurrency contract so a writer-shim append
+        # running in parallel can't interleave mid-record. Buffered text writes
+        # don't guarantee that. Compact separators match the shim's JSON shape.
+        fd = os.open(queue_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        try:
+            for rel, key in to_enqueue:
+                rec = json.dumps({"file": rel, "ts": ts}, separators=(",", ":"))
+                os.write(fd, (rec + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        # Queue write failed (disk full, AV file lock). Leave the cursor
+        # unadvanced so these files are retried on the next discover instead of
+        # being silently recorded as synced (which loses the change until the
+        # file next changes).
+        to_enqueue = []
+    # Advance the cursor only for records actually written.
+    for rel, key in to_enqueue:
+        new_cursor[rel] = key
 
 save_cursor(cursor_path, new_cursor)
 PYEOF
