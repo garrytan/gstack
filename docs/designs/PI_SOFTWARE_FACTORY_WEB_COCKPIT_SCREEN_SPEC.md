@@ -6,6 +6,7 @@ Grounded in:
 - `docs/designs/external/universe-ai-wireframes-round-1/software-factory/project/Universe AI - Wireframes round 1.html` (+ imported files)
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_UX_BRIEF.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_P0_PROTOTYPE_PACKAGE.md`
+- [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md)
 - `docs/designs/PI_SOFTWARE_FACTORY_DESIGN_BRIEF_RECONCILIATION.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_P0_PRODUCT_ACCEPTANCE.md`
 
@@ -267,7 +268,7 @@ P0 screen spec is satisfied if a non-technical user can, on any project state, s
 
 ## 8. Out of scope for this spec
 
-- Production web app scaffolding.
+- Production web app scaffolding. See [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md) for the approval gate.
 - Runtime integration implementation.
 - Dependency/package changes.
 - Roadmap consolidation edits.

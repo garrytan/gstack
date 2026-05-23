@@ -286,6 +286,7 @@ Current web/product planning artifacts:
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_UX_BRIEF.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_IMPLEMENTATION_PLAN.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_APP_P0_PROTOTYPE_PACKAGE.md`
+- [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md)
 - `docs/designs/PI_SOFTWARE_FACTORY_DESIGN_BRIEF_RECONCILIATION.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_P0_PRODUCT_ACCEPTANCE.md`
 - `docs/designs/PI_SOFTWARE_FACTORY_WEB_COCKPIT_SCREEN_SPEC.md`
@@ -637,6 +638,10 @@ Current behavior:
 ### Next Chunk 1 — production web stack decision
 
 Goal: decide whether to move beyond the static prototype.
+
+Decision brief of record:
+
+- [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md)
 
 Blocked until explicit approval:
 

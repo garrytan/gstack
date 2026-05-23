@@ -29,7 +29,7 @@ Current readiness estimate:
 | Common-user web cockpit/platform | ~30–35% | ~45–50% | ~58–63% | **~65–70%** | A static cockpit prototype proves the common-user shape, but no production web app scaffold/runtime exists. |
 | Weighted overall production readiness | ~33% | ~48–52% | ~60–65% | **~66–70%** | Validation and product visibility improved, discounted for missing live UI/package surface and host-level guard implementation. |
 
-The branch is **not production-ready** for public users yet. Smoke-runner surfacing and factory-side host-guard primitives have landed. The next readiness movement comes from real-host guard integration, smoke-gate promotion, install/update dry-runs, P0 cockpit design-brief integration, and a production web stack decision if the user wants to move beyond the static prototype.
+The branch is **not production-ready** for public users yet. Smoke-runner surfacing and factory-side host-guard primitives have landed. The next readiness movement comes from real-host guard integration, smoke-gate promotion, install/update dry-runs, P0 cockpit design-brief integration, and the approval-gated [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md) if the user wants to move beyond the static prototype.
 
 ## What changed in Wave 1
 
@@ -51,7 +51,7 @@ New durable decisions:
 
 Remaining gap:
 
-- A real web stack/location has not been approved.
+- A real web stack/location has not been approved; see [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md).
 - No production cockpit app exists yet.
 - Visual implementation is represented by pure view models, contracts, and the no-dependency static prototype.
 
@@ -277,7 +277,7 @@ Do not call the Universe AI Software Factory production-ready until all are true
 Highest-value next work after the completed Alpha/Beta foundations:
 
 1. Keep `/factory-qa-fix` hidden and close the remaining host-guard validation gaps: real host integration, browser output confinement, denial artifact/event emission, and §11.5 end-to-end proof.
-2. Decide the production cockpit path: approved web stack/location or packaged local UI, plus auth/workspace boundary if hosted.
+2. Decide the production cockpit path through [PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md](PI_SOFTWARE_FACTORY_WEB_STACK_DECISION_BRIEF.md): approved web stack/location or packaged local UI, plus auth/workspace boundary if hosted.
 3. Integrate the next cockpit design brief into the P0 screen/component specs, pure view models, and static prototype before selecting a production stack.
 4. Promote the smoke runner into local/CI release gates without changing package manifests or workflows until approved.
 5. Turn the dry-run distribution helpers into a tested install/update/rollback spike outside the source checkout.
