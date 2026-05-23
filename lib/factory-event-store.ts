@@ -38,11 +38,20 @@ export class FileFactoryEventStore {
     event: FactoryEvent,
     validate: (current: readonly FactoryEventEnvelope[]) => void,
   ): FactoryEventEnvelope {
-    assertSafeRunId(runId);
     if (event.runId !== runId) {
       throw new Error(`event runId '${event.runId}' does not match store runId '${runId}'`);
     }
+    return this.appendPrepared(runId, (current) => {
+      validate(current);
+      return event;
+    });
+  }
 
+  appendPrepared(
+    runId: string,
+    prepare: (current: readonly FactoryEventEnvelope[]) => FactoryEvent,
+  ): FactoryEventEnvelope {
+    assertSafeRunId(runId);
     mkdirSync(this.runDir(runId), { recursive: true });
     const initialSnapshot = this.readEnvelopeSnapshot(runId);
 
@@ -52,7 +61,10 @@ export class FileFactoryEventStore {
         ? initialSnapshot
         : this.readEnvelopeSnapshot(runId);
       const current = currentSnapshot.envelopes;
-      validate(current);
+      const event = prepare(current);
+      if (event.runId !== runId) {
+        throw new Error(`event runId '${event.runId}' does not match store runId '${runId}'`);
+      }
       const timestamp = this.now().toISOString();
       const envelope: FactoryEventEnvelope = {
         sequence: current.length + 1,

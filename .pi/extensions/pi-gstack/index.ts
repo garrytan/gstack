@@ -250,35 +250,36 @@ export default function piGstack(pi: any) {
           ctx.ui.notify(`Factory run ${normalized.runId} has invalid diff-review dispatch metadata.`, 'warning');
           return;
         }
-        const ref = artifactStore.writeText(normalized.runId, {
-          id: capturedArtifactId('diff-review'),
-          kind: 'review',
-          phaseId: 'diff-review',
-          summary: normalized.summary,
-          metadata: {
-            capturedFrom: 'manual-fallback',
-            factoryRunId: normalized.runId,
-            dispatchCommit: dispatch?.commit,
-            dispatchedAt: dispatch?.dispatchedAt,
-            queuedSkillCommand: dispatch?.queuedSkillCommand,
-          },
-        }, [
-          '# Captured Factory Review',
-          '',
-          `Run: ${normalized.runId}`,
-          'Captured from: manual fallback',
-          `Dispatch commit: ${dispatch?.commit ?? 'unknown'}`,
-          `Dispatched at: ${dispatch?.dispatchedAt ?? 'unknown'}`,
-          `Queued command: ${dispatch?.queuedSkillCommand ?? 'unknown'}`,
-          '',
-          normalized.summary,
-          '',
-        ].join('\n'));
-        store.appendValidated(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'diff-review', artifacts: [ref] }, (current) => {
+        store.appendPrepared(normalized.runId, (current) => {
           const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
           if (currentState.status !== 'running' || currentState.currentPhaseId !== 'diff-review' || !pendingReviewDispatchFromState(currentState)) {
             throw new Error(`Factory run ${normalized.runId} is not waiting for diff-review output.`);
           }
+          const ref = artifactStore.writeText(normalized.runId, {
+            id: capturedArtifactId('diff-review'),
+            kind: 'review',
+            phaseId: 'diff-review',
+            summary: normalized.summary,
+            metadata: {
+              capturedFrom: 'manual-fallback',
+              factoryRunId: normalized.runId,
+              dispatchCommit: dispatch?.commit,
+              dispatchedAt: dispatch?.dispatchedAt,
+              queuedSkillCommand: dispatch?.queuedSkillCommand,
+            },
+          }, [
+            '# Captured Factory Review',
+            '',
+            `Run: ${normalized.runId}`,
+            'Captured from: manual fallback',
+            `Dispatch commit: ${dispatch?.commit ?? 'unknown'}`,
+            `Dispatched at: ${dispatch?.dispatchedAt ?? 'unknown'}`,
+            `Queued command: ${dispatch?.queuedSkillCommand ?? 'unknown'}`,
+            '',
+            normalized.summary,
+            '',
+          ].join('\n'));
+          return { type: 'phase_completed', runId: normalized.runId, phaseId: 'diff-review', artifacts: [ref] };
         });
 
         const runner = new FactoryRunner({
@@ -325,33 +326,34 @@ export default function piGstack(pi: any) {
           ctx.ui.notify(`Factory run ${normalized.runId} has invalid qa-execution dispatch metadata.`, 'warning');
           return;
         }
-        const ref = artifactStore.writeText(normalized.runId, {
-          id: capturedArtifactId('qa-execution'),
-          kind: 'qa-report',
-          phaseId: 'qa-execution',
-          summary: normalized.summary,
-          metadata: {
-            capturedFrom: 'manual-fallback',
-            factoryRunId: normalized.runId,
-            dispatchedAt: dispatch.dispatchedAt,
-            queuedSkillCommand: dispatch.queuedSkillCommand,
-          },
-        }, [
-          '# Captured Factory QA',
-          '',
-          `Run: ${normalized.runId}`,
-          'Captured from: manual fallback',
-          `Dispatched at: ${dispatch.dispatchedAt ?? 'unknown'}`,
-          `Queued command: ${dispatch.queuedSkillCommand ?? 'unknown'}`,
-          '',
-          normalized.summary,
-          '',
-        ].join('\n'));
-        store.appendValidated(normalized.runId, { type: 'phase_completed', runId: normalized.runId, phaseId: 'qa-execution', artifacts: [ref] }, (current) => {
+        store.appendPrepared(normalized.runId, (current) => {
           const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
           if (currentState.status !== 'running' || currentState.currentPhaseId !== 'qa-execution' || !pendingQaDispatchFromState(currentState)) {
             throw new Error(`Factory run ${normalized.runId} is not waiting for qa-execution output.`);
           }
+          const ref = artifactStore.writeText(normalized.runId, {
+            id: capturedArtifactId('qa-execution'),
+            kind: 'qa-report',
+            phaseId: 'qa-execution',
+            summary: normalized.summary,
+            metadata: {
+              capturedFrom: 'manual-fallback',
+              factoryRunId: normalized.runId,
+              dispatchedAt: dispatch.dispatchedAt,
+              queuedSkillCommand: dispatch.queuedSkillCommand,
+            },
+          }, [
+            '# Captured Factory QA',
+            '',
+            `Run: ${normalized.runId}`,
+            'Captured from: manual fallback',
+            `Dispatched at: ${dispatch.dispatchedAt ?? 'unknown'}`,
+            `Queued command: ${dispatch.queuedSkillCommand ?? 'unknown'}`,
+            '',
+            normalized.summary,
+            '',
+          ].join('\n'));
+          return { type: 'phase_completed', runId: normalized.runId, phaseId: 'qa-execution', artifacts: [ref] };
         });
 
         const runner = new FactoryRunner({
@@ -670,12 +672,13 @@ async function captureReviewDispatch(options: {
   if (!pendingReviewDispatchFromState(freshState)) return { status: 'no-pending', runId: options.dispatch.runId };
 
   const artifact = reviewLogEntryToArtifact(options.dispatch.runId, selection.entry);
-  const ref = options.artifactStore.writeText(options.dispatch.runId, { ...artifact.ref, id: capturedArtifactId('diff-review') }, artifact.content);
-  options.store.appendValidated(options.dispatch.runId, { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'diff-review', artifacts: [ref] }, (current) => {
+  options.store.appendPrepared(options.dispatch.runId, (current) => {
     const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
     if (!pendingReviewDispatchFromState(currentState)) {
       throw new Error(`Factory run ${options.dispatch.runId} is not waiting for diff-review output.`);
     }
+    const ref = options.artifactStore.writeText(options.dispatch.runId, { ...artifact.ref, id: capturedArtifactId('diff-review') }, artifact.content);
+    return { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'diff-review', artifacts: [ref] };
   });
 
   const runner = new FactoryRunner({
@@ -754,12 +757,13 @@ async function captureQaDispatch(options: {
   if (!pendingQaDispatchFromState(freshState)) return { status: 'no-pending', runId: options.dispatch.runId };
 
   const artifact = qaLogEntryToArtifact(options.dispatch.runId, selection.entry);
-  const ref = options.artifactStore.writeText(options.dispatch.runId, { ...artifact.ref, id: capturedArtifactId('qa-execution') }, artifact.content);
-  options.store.appendValidated(options.dispatch.runId, { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'qa-execution', artifacts: [ref] }, (current) => {
+  options.store.appendPrepared(options.dispatch.runId, (current) => {
     const currentState = reduceFactoryEvents(current.map(envelope => envelope.event));
     if (!pendingQaDispatchFromState(currentState)) {
       throw new Error(`Factory run ${options.dispatch.runId} is not waiting for qa-execution output.`);
     }
+    const ref = options.artifactStore.writeText(options.dispatch.runId, { ...artifact.ref, id: capturedArtifactId('qa-execution') }, artifact.content);
+    return { type: 'phase_completed', runId: options.dispatch.runId, phaseId: 'qa-execution', artifacts: [ref] };
   });
 
   const runner = new FactoryRunner({

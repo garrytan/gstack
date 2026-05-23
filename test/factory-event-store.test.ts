@@ -73,6 +73,41 @@ describe('FileFactoryEventStore', () => {
     }
   });
 
+  test('appendPrepared validates against the locked snapshot before caller side effects', () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-events-'));
+    try {
+      const store = new FileFactoryEventStore({ rootDir, now: () => new Date('2026-01-01T00:00:00.000Z') });
+      const plan = compileRunPlan(workflow, { workflow: 'review-flow', goal: 'Review auth changes', mode: 'review' }, 'run-prepared');
+      const sideEffects: string[] = [];
+
+      store.append('run-prepared', { type: 'run_started', runId: 'run-prepared', plan });
+      const envelope = store.appendPrepared('run-prepared', (current) => {
+        expect(current).toHaveLength(1);
+        sideEffects.push('artifact-written-after-validation');
+        return { type: 'artifact_created', runId: 'run-prepared', artifact: { id: 'review-1', kind: 'review', summary: 'Prepared', phaseId: 'review' } };
+      });
+
+      expect(envelope.sequence).toBe(2);
+      expect(sideEffects).toEqual(['artifact-written-after-validation']);
+      expect(store.readEvents('run-prepared')).toHaveLength(2);
+
+      expect(() => store.appendPrepared('run-prepared', (current) => {
+        if (current.length !== 1) throw new Error('run is no longer pending capture');
+        sideEffects.push('stale-artifact-write');
+        return { type: 'artifact_created', runId: 'run-prepared', artifact: { id: 'stale', kind: 'review', summary: 'stale', phaseId: 'review' } };
+      })).toThrow('run is no longer pending capture');
+      expect(sideEffects).toEqual(['artifact-written-after-validation']);
+
+      expect(() => store.appendPrepared('run-prepared', () => ({
+        type: 'artifact_created',
+        runId: 'other-run',
+        artifact: { id: 'wrong-run', kind: 'review', summary: 'wrong', phaseId: 'review' },
+      }))).toThrow("does not match store runId");
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects mismatched or unsafe run ids', () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), 'factory-events-'));
     try {
