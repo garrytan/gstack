@@ -85,7 +85,8 @@ Remaining gap:
 
 - Host-level guard enforcement is designed in `docs/designs/PI_FACTORY_HOST_GUARD_ENFORCEMENT_DESIGN.md`, but not implemented by the host runtime.
 - Dispatched Pi/Claude skill Bash/Read/Write/Edit paths are not enforceable from repository code today.
-- Sanitized guard-decision audit seams exist, but denied-command artifacts/events are not yet emitted by live factory runs.
+- A sanitized denial DTO/artifact/event contract now exists (`lib/factory-guard-denial.ts`), but denied-command artifacts/events are still not emitted by live factory runs.
+- Live denial enforcement/emission remains adapter/host responsibility; repository code only provides the pure contract primitives.
 - `/factory-qa-fix` remains intentionally hidden.
 - Release/deploy/publish automation remains out of scope.
 

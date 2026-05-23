@@ -59,6 +59,10 @@ import {
   type SanitizedFactoryGuardDecision,
 } from './factory-guarded-runtime';
 import {
+  createFactoryGuardDenialArtifactDto,
+  createFactoryGuardDenialEventDto,
+} from './factory-guard-denial';
+import {
   buildDistributionManifest,
   isSafeRelativeBundlePath,
   planDistributionBundle,
@@ -618,6 +622,31 @@ async function checkGuardedDenialAudit(): Promise<CheckBody> {
     const audited = JSON.stringify(sanitized);
     if (audited.includes('-rf') || audited.includes('--force') || audited.includes('.env')) {
       throw new Error(`audit entry ${i} leaked raw command tokens: ${audited}`);
+    }
+  }
+
+  const eventDtos = audit.map((denial, i) => createFactoryGuardDenialEventDto({
+    runId: 'smoke-guard-denial-run',
+    phaseId: 'qa-execution',
+    workflowId: 'qa-fix',
+    denial,
+    occurredAt: new Date(1_700_000_000_000 + i).toISOString(),
+  }));
+  const artifactDto = createFactoryGuardDenialArtifactDto({
+    runId: 'smoke-guard-denial-run',
+    phaseId: 'qa-execution',
+    workflowId: 'qa-fix',
+    denials: audit,
+    createdAt: new Date(1_700_000_000_100).toISOString(),
+  });
+  if (artifactDto.summary.total !== denialCommands.length || artifactDto.summary.blocked !== denialCommands.length) {
+    throw new Error('guard denial artifact summary count mismatch');
+  }
+  for (let i = 0; i < eventDtos.length; i += 1) {
+    const serialized = JSON.stringify(eventDtos[i]);
+    const command = denialCommands[i] ?? '';
+    if (serialized.includes(command)) {
+      throw new Error(`guard denial event ${i} leaked raw command text`);
     }
   }
 

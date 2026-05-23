@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +7,7 @@ import { evaluateFactoryCommandSafety, type FactoryCommandGuardDecision, type Fa
 import { compileRunPlan, type WorkflowSpec } from '../lib/factory-core';
 import { evaluateFactoryFileWriteSafety, type FactoryFileWriteDecision, type FactoryFileWriteRequest } from '../lib/factory-file-write-guard';
 import { sanitizeFactoryGuardDecisionForAudit } from '../lib/factory-guarded-runtime';
+import { sanitizeFactoryFileWriteDenial } from '../lib/factory-guard-denial';
 import { createTestOnlyGuardedHostShim, type FactoryGuardedAgentSessionHandle, type FactoryGuardedAgentSessionResult, type FactoryGuardedAgentSessionSpec } from '../lib/factory-host-attestation';
 import { FileFactoryEventStore } from '../lib/factory-event-store';
 import { FACTORY_REVIEW_WORKFLOW, FACTORY_WORKFLOWS } from '../lib/factory-review-workflow';
@@ -32,14 +32,7 @@ const GATED_WORKFLOW: WorkflowSpec = {
 type CommandDefinition = { handler: (args: string, ctx: any) => Promise<void> };
 type Notification = { message: string; level: string };
 type GuardProbeObservation = { supported: boolean; safeCommandGuardActive: boolean; reason: string; browserRequested: boolean };
-type SanitizedFileWriteDecision = {
-  readonly allowed: boolean;
-  readonly severity: 'allow' | 'warn' | 'block';
-  readonly reason: string;
-  readonly matchedRuleId?: string;
-  readonly pathBasename: string;
-  readonly pathDigest: string;
-};
+type SanitizedFileWriteDecision = ReturnType<typeof sanitizeFactoryFileWriteDenial>;
 type TestGuardedAgentSessionHandle = FactoryGuardedAgentSessionHandle & {
   readonly executeCommand: (request: FactoryCommandGuardRequest) => FactoryCommandGuardDecision;
   readonly applyWrite: (request: FactoryFileWriteRequest) => FactoryFileWriteDecision;
@@ -284,28 +277,17 @@ function createAuditedTestGuardedHost(audits: {
         ...session,
         executeCommand(request: FactoryCommandGuardRequest): FactoryCommandGuardDecision {
           const decision = evaluateFactoryCommandSafety(request);
-          audits.commands.push(sanitizeFactoryGuardDecisionForAudit(decision));
+          audits.commands.push(sanitizeFactoryGuardDecisionForAudit(decision, request));
           return decision;
         },
         applyWrite(request: FactoryFileWriteRequest): FactoryFileWriteDecision {
           const decision = evaluateFactoryFileWriteSafety(request);
-          audits.fileWrites.push(sanitizeFileWriteDecisionForAudit(decision));
+          audits.fileWrites.push(sanitizeFactoryFileWriteDenial({ decision, request }));
           return decision;
         },
       };
       return handle;
     },
-  };
-}
-
-function sanitizeFileWriteDecisionForAudit(decision: FactoryFileWriteDecision): SanitizedFileWriteDecision {
-  return {
-    allowed: decision.allowed,
-    severity: decision.severity,
-    reason: decision.reason,
-    matchedRuleId: decision.matchedRuleId,
-    pathBasename: path.basename(decision.normalizedPath).slice(0, 64),
-    pathDigest: createHash('sha256').update(decision.normalizedPath).digest('hex').slice(0, 16),
   };
 }
 

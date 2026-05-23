@@ -557,7 +557,7 @@ Remaining next steps:
 
 - keep `/factory-qa-fix` hidden while the factory-side primitives and Pi adapter negative wiring stay test-only;
 - partner with a host vendor to implement the §5 guarded-session contract and OS-confine the browse subprocess per §8;
-- add real denial artifact/event emission once a host can route live Bash/Edit/Write/Read paths through the guard;
+- wire real host-emitted denial artifacts/events to the landed sanitized DTO contract once a host can route live Bash/Edit/Write/Read paths through the guard;
 - verify browse output-dir confinement and the §11.5 end-to-end test against a real host;
 - only then reconsider `/factory-qa-fix` exposure behind explicit opt-in UX and copy tests.
 
@@ -592,13 +592,15 @@ Implemented:
 - `lib/factory-file-write-guard.ts` — pure file-write classifier for host-routed Write/Edit operations under `non-destructive-write`;
 - `test/factory-file-write-guard.test.ts` — coverage for workspace escapes, protected files/directories, secret-looking paths, hidden bootstrap dotfiles, generated output dirs, `.gstack/factory/<runId>` scoping, edit/overwrite preconditions, and default-deny allowlist behavior;
 - `lib/factory-host-attestation.ts` — host guard attestation DTOs, stable digest helper, verification helper, sanitized artifact shape, default unsupported `createGuardedAgentSession` shim, and test-only guarded host shim;
-- `test/factory-host-attestation.test.ts` — coverage for digest stability, mismatch/missing-field rejection, freshness enforcement, browser output scoping, sanitized artifacts, unsupported default shim, and verifiable test-only shim.
+- `test/factory-host-attestation.test.ts` — coverage for digest stability, mismatch/missing-field rejection, freshness enforcement, browser output scoping, sanitized artifacts, unsupported default shim, and verifiable test-only shim;
+- `lib/factory-guard-denial.ts` + `test/factory-guard-denial.test.ts` — sanitized command/path denial normalization plus public denial artifact/event DTO contract for cockpit-safe rendering (digest/head/basename only; no raw command/full path/secret leakage).
 
 Current behavior:
 
 - `/factory-qa-fix` remains hidden;
 - the default Pi adapter still does not advertise `safe-command-guard`;
-- no real host integration is claimed.
+- no real host integration is claimed;
+- denial DTO/artifact contracts are repository-side primitives only; live denial enforcement/emission remains adapter/host responsibility.
 
 ### Completed implementation chunk — Pi adapter guarded-host negative wiring
 
