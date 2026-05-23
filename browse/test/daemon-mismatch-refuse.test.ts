@@ -44,7 +44,7 @@ async function startFakeHealthServer(token: string): Promise<{ port: number; clo
 async function runCli(args: string[], env: Record<string, string>, timeoutMs = 10000): Promise<{ code: number; stdout: string; stderr: string }> {
   const cliPath = path.resolve(__dirname, '../src/cli.ts');
   return new Promise((resolve) => {
-    const proc = spawn('bun', ['run', cliPath, ...args], {
+    const proc = spawn(process.execPath, ['run', cliPath, ...args], {
       timeout: timeoutMs,
       env,
     });

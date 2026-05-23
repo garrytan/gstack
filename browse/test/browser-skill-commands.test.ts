@@ -25,6 +25,16 @@ import { readBrowserSkill, type TierPaths } from '../src/browser-skills';
 let tmpRoot: string;
 let tiers: TierPaths;
 
+function restoreProcessEnv(snapshot: Record<string, string | undefined>) {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in snapshot)) delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
 beforeEach(() => {
   // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
   // doesn't fire on the immediate initRegistry call.
@@ -174,11 +184,11 @@ describe('buildSpawnEnv', () => {
     process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
     process.env.GSTACK_TOKEN = 'root-token';
     process.env.HOME = '/Users/test';
-    process.env.PATH = '/test/bin:/usr/bin';
+    process.env.PATH = `/test/bin:${origEnv.PATH ?? '/usr/local/bin:/usr/bin:/bin'}`;
     process.env.LANG = 'en_US.UTF-8';
   });
   afterEach(() => {
-    process.env = origEnv;
+    restoreProcessEnv(origEnv);
   });
 
   it('untrusted: drops $HOME and secrets', () => {
@@ -293,7 +303,7 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
       expect(parsed.gh).toBeNull();
       expect(parsed.gstack).toBeNull();
     } finally {
-      process.env = origEnv;
+      restoreProcessEnv(origEnv);
     }
   });
 
@@ -312,7 +322,7 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
       const parsed = JSON.parse(result.stdout);
       expect(parsed.home).toBe('/Users/test-user');
     } finally {
-      process.env = origEnv;
+      restoreProcessEnv(origEnv);
     }
   });
 

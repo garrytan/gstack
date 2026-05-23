@@ -65,7 +65,7 @@ describe('server fail-fast on bad SOCKS5 upstream', () => {
 
     const start = Date.now();
     const result = await new Promise<{ code: number; stdout: string; stderr: string; ms: number }>((resolve) => {
-      const proc = spawn('bun', ['run', serverPath], {
+      const proc = spawn(process.execPath, ['run', serverPath], {
         timeout: 30000,
         env,
       });

@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.44.0.0] - 2026-05-23
+
+## **Pi Software Factory now has a guarded, durable, reviewable alpha path from project intake to cockpit, QA/review capture, smoke readiness, and dry-run distribution planning.**
+
+This release turns the Universe AI Software Factory work from design notes into a tested Pi-side factory slice. Builders can create durable factory projects and runs, inspect cockpit-ready view models, capture review and QA artifacts, exercise production-readiness smoke checks, and plan distribution/install/update behavior without mutating user installs. Guard work remains intentionally contract-side until a real host enforces it.
+
+### Added
+
+- **Pi factory runtime foundation**: Added factory core, project, scheduler, orchestrator, runner, and facade modules with durable event/project/artifact stores plus Pi host/runtime adapters.
+- **Review and QA workflows**: Added structured factory review and QA workflows, artifact capture, durable recovery paths, and event-log-backed capture descriptors for cockpit consumption.
+- **Factory cockpit prototype**: Added the static P0 cockpit prototype and polished the approved Soft Modern Studio skin with scoped CSS, skip-link accessibility, focus-visible states, and mobile header tuning.
+- **Guard contracts**: Added safe command/file-write guard primitives, guarded runtime wrappers, host capability/attestation checks, sanitized guard denial DTOs, and browser output confinement contract validation.
+- **Production smoke and ship readiness**: Added the factory smoke CLI, Beta readiness smoke runner, factory ship workflow contract, and tests for Pi extension/factory workflow registration.
+- **Distribution dry runs**: Added bundle, install, and managed-update dry-run planning with fail-closed checks for unmanaged targets, missing required files, non-file entries, symlinked roots/ancestors, and stale output.
+- **Design and planning package**: Added Universe AI factory roadmap, architecture/readiness docs, host guard design, artifact content strategy, web cockpit specs, production web stack decision brief, and external design/wireframe source artifacts.
+
+### Changed
+
+- **Factory readiness posture**: Roadmap and readiness docs now distinguish repo-side guard contracts from real host-level enforcement, keeping `/factory-qa-fix` hidden until host guard support exists.
+- **Artifact durability**: Capture paths now validate pending state under the event-store run lock before writing durable artifacts, preventing stale duplicate captures from overwriting artifact files.
+- **Generated skill/runtime compatibility**: Hardened Pi generated runtime paths, setup smoke coverage, skill floor tests, and Pi compatibility audits.
+- **Browse ship gates**: Aligned `gstack-config` tests with current defaults, added a constrained-host Chromium sandbox escape hatch, and isolated stale legacy sidebar UX/endpoint suites behind explicit opt-in flags.
+
+### Fixed
+
+- **Secret-safe denial reporting**: Guard denial DTOs redact protected paths and static command reasons so secret directory names and blocked-command internals do not leak into artifacts/events.
+- **Browser guard policy drift**: Browser attestation now requires the exact `.gstack/factory/<runId>/browse-output` directory and rejects unsupported, duplicate, or missing browser subcommands.
+- **Test environment isolation**: Browser skill command tests now restore `process.env` in-place, preventing later tests from losing `PATH` and failing to spawn `bun` or `bash`.
+
+
 ## [1.43.3.0] - 2026-05-21
 
 ## **Headed Chromium embedded by external supervisors stops auto-shutting-down after 30 minutes of HTTP idle.**

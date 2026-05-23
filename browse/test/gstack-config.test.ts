@@ -11,12 +11,13 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-config');
+const BASH = existsSync('/bin/bash') ? '/bin/bash' : '/usr/bin/bash';
 
 let stateDir: string;
 
 function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
   const effectiveStateDir = extraEnv.GSTACK_HOME ?? extraEnv.GSTACK_STATE_DIR ?? stateDir;
-  const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
+  const result = Bun.spawnSync([BASH, SCRIPT, ...args], {
     env: {
       ...process.env,
       GSTACK_HOME: effectiveStateDir,

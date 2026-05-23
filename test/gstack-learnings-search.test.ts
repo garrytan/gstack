@@ -4,8 +4,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
 
+const BUN_DIR = path.dirname(process.execPath);
+
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-learnings-search');
+const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : '/usr/bin/bash';
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-search-test-'));
 const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-search-cwd-'));
@@ -15,8 +18,8 @@ const projDir = path.join(tmpHome, 'projects', slug);
 const otherProjDir = path.join(tmpHome, 'projects', 'other-project');
 
 function run(args: string[]): string {
-  return execFileSync(BIN, args, {
-    env: { ...process.env, GSTACK_HOME: tmpHome },
+  return execFileSync(BASH, [BIN, ...args], {
+    env: { ...process.env, HOME: tmpHome, GSTACK_HOME: tmpHome, PATH: `${BUN_DIR}:${process.env.PATH || ''}:/usr/local/bin:/usr/bin:/bin` },
     cwd: tmpCwd,
     encoding: 'utf-8',
   });

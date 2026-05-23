@@ -56,10 +56,11 @@ _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
-_EXPLAIN_LEVEL=$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")
+_EXPLAIN_LEVEL="${EXPLAIN_LEVEL:-$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")}"
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
 echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
-_QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+_QUESTION_TUNING="${QUESTION_TUNING:-$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")}"
+if [ "$_QUESTION_TUNING" != "true" ] && [ "$_QUESTION_TUNING" != "false" ]; then _QUESTION_TUNING="false"; fi
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
