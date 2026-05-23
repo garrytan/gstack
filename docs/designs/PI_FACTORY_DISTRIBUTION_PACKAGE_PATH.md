@@ -281,6 +281,19 @@ That matches the architecture better than trying to update:
 - some generated skills later;
 - runtime sidecars after that.
 
+### Landed dry-run spike
+
+The first repository-side spike now exists in `lib/factory-distribution.ts`:
+
+- `installPath` can be recorded separately from `bundlePath`, so a staged bundle can keep its package layout while planning writes into stable Pi install paths;
+- `planDistributionInstallUpdateDryRun(...)` reads a staged bundle root plus a managed install root and returns a pure plan only;
+- first-install dry-runs report planned creates and bytes without creating the install root;
+- update dry-runs compare the next manifest to the currently installed managed manifest and classify creates, updates, keeps, and removals;
+- unmanaged target files, required missing bundle files, non-file bundle entries, non-directory parent collisions, and non-regular install targets fail closed as conflicts;
+- missing optional bundle files are skipped without blocking the dry-run.
+
+The production-readiness smoke runner now exercises this as part of `S10-distribution-dry-run`. This is still **not** a packaged installer, updater, package manifest change, or publication path. It is the calculation/validation seam a future installer should call before any mutation.
+
 ### Migration policy
 
 The existing repo already has a migration concept under `gstack-upgrade/migrations/`.
@@ -472,10 +485,10 @@ This document does **not** recommend:
 
 ## 12. Follow-up work after this doc is accepted
 
-1. Define the exact Pi bundle staging layout and install manifest.
+1. Promote the dry-run planner into a real installer/updater only after approving the target packaged layout and mutation semantics.
 2. Decide whether public bundles are platform-specific prebuilt artifacts, source-less bundles, or both.
    - Current build behavior suggests platform-specific prebuilt bundles are the right common-user path because browse/design/make-pdf are compiled outputs.
-3. Add Pi-specific upgrade/adoption tests for packaged installs.
+3. Add Pi-specific upgrade/adoption tests for packaged installs, including source-checkout adoption and rollback markers.
 4. Decide which raw gstack skills remain visible in the first Universe AI public release.
 5. When cockpit work is approved, define how the product shell and Pi runtime bundle share a release train without coupling web rollout to source checkout semantics.
 

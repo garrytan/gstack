@@ -115,8 +115,9 @@ New doc:
 
 Remaining gap:
 
-- Distribution manifest/dry-run/stage helpers exist and are exercised by the production-readiness smoke runner, but no installable Pi runtime package has been built.
-- Generated skills, extension, and runtime sidecars still need a versioned real installer/update path.
+- Distribution manifest/dry-run/stage helpers now include a pure install/update dry-run planner with explicit `installPath` mapping, unmanaged-target conflict detection, and create/update/keep/remove summaries.
+- The production-readiness smoke runner exercises bundle validation plus first-install and managed-update dry-runs, but no installable Pi runtime package has been built.
+- Generated skills, extension, and runtime sidecars still need a versioned real installer/update path that performs mutations only after the dry-run contract passes.
 
 ## Readiness scorecard
 
@@ -130,7 +131,7 @@ Scores are directional and intentionally conservative.
 | Project/web API layer | 15% | 74% | Durable project catalog, wrapper DTOs, artifact descriptors, cockpit view models, smoke fixtures. | No live production UI consumer or hosted boundary implementation. |
 | Web cockpit surface | 15% | 65% | P0 UX brief, screen/component spec, pure view models, journey fixtures, static prototype. | No approved production stack/scaffold or running app. |
 | Safety/permissions | 10% | 60% | Command classifier, guarded runtime tests, live path inventory, sanitized audit seam, host enforcement design. | Host-level command/edit/write path implementation missing. |
-| Distribution/operations | 10% | 60% | Distribution package path design, dry-run bundle helpers, ops/security contract, production smoke runner. | No packaged install/update/recovery implementation. |
+| Distribution/operations | 10% | 63% | Distribution package path design, bundle/stage helpers, install/update dry-run planner, ops/security contract, production smoke runner. | No packaged install/update/recovery implementation. |
 
 Weighted result: **~75% by artifact maturity**, discounted to **~66–70% production readiness** because the highest-risk missing items are runtime-connected: live production web surface, host-level command-path implementation, packaged distribution, and production web/runtime smoke.
 

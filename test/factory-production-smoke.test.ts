@@ -198,17 +198,23 @@ describe('factory production smoke runner', () => {
     }
   });
 
-  test('S10 distribution dry-run reports validated files and bytes without staging anything', async () => {
+  test('S10 distribution dry-run reports validated bundle, install, and update plans without installing anything', async () => {
     const workDir = tempWorkDir();
     try {
       const summary = await runFactoryProductionSmoke({ workDir });
       const dist = findCheck(summary, 'S10-distribution-dry-run');
       expect(dist.status).toBe('pass');
-      expect(dist.summary).toContain('without staging or publishing');
-      // The dry-run output dir must NOT exist after the runner — planDistributionBundle
-      // does not create it.
+      expect(dist.summary).toContain('first install');
+      expect(dist.summary).toContain('managed update');
+      expect(dist.summary).toContain('without installing or publishing');
+      expect(dist.details.join('\n')).toContain('install dry-run: create=3');
+      expect(dist.details.join('\n')).toContain('update dry-run: create=1, update=1, keep=1, remove=1');
+      // The planned bundle output dir and first-install root must NOT exist after the runner —
+      // planDistributionBundle and planDistributionInstallUpdateDryRun do not create them.
       const outputDir = path.join(workDir, 'distribution', 'out');
+      const freshInstallRoot = path.join(workDir, 'distribution', 'fresh-install-root');
       expect(existsSync(outputDir)).toBe(false);
+      expect(existsSync(freshInstallRoot)).toBe(false);
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

@@ -66,6 +66,7 @@ import {
   buildDistributionManifest,
   isSafeRelativeBundlePath,
   planDistributionBundle,
+  planDistributionInstallUpdateDryRun,
   type DistributionManifest,
 } from './factory-distribution';
 
@@ -204,6 +205,7 @@ function checkModuleLoad(): CheckBody {
     ['createFactoryGuardedCommandRuntime', createFactoryGuardedCommandRuntime, 'function'],
     ['buildDistributionManifest', buildDistributionManifest, 'function'],
     ['planDistributionBundle', planDistributionBundle, 'function'],
+    ['planDistributionInstallUpdateDryRun', planDistributionInstallUpdateDryRun, 'function'],
     ['isSafeRelativeBundlePath', isSafeRelativeBundlePath, 'function'],
     ['FACTORY_REVIEW_WORKFLOW', FACTORY_REVIEW_WORKFLOW, 'object'],
     ['FACTORY_QA_WORKFLOW', FACTORY_QA_WORKFLOW, 'object'],
@@ -658,13 +660,19 @@ async function checkGuardedDenialAudit(): Promise<CheckBody> {
 
 function checkDistributionDryRun(workDir: string): CheckBody {
   const sourceRoot = path.join(workDir, 'distribution', 'src');
+  const bundleRoot = path.join(workDir, 'distribution', 'staged-bundle-fixture');
   const outputDir = path.join(workDir, 'distribution', 'out');
+  const freshInstallRoot = path.join(workDir, 'distribution', 'fresh-install-root');
+  const updateInstallRoot = path.join(workDir, 'distribution', 'managed-install-root');
 
-  // Plant a tiny fixture source tree. No real bundle is produced; we only
-  // exercise the dry-run plan path.
+  // Plant tiny source and staged-bundle fixture trees. No real package is
+  // installed; we only exercise the dry-run plan paths.
   plantFixtureFile(sourceRoot, '.pi/extensions/pi-gstack/index.ts', '// fixture extension\n');
   plantFixtureFile(sourceRoot, '.pi/skills/gstack-review/SKILL.md', '# fixture review skill\n');
   plantFixtureFile(sourceRoot, 'ETHOS.md', 'fixture ethos\n');
+  plantFixtureFile(bundleRoot, 'extensions/gstack/index.ts', '// fixture extension\n');
+  plantFixtureFile(bundleRoot, 'skills/gstack-review/SKILL.md', '# fixture review skill\n');
+  plantFixtureFile(bundleRoot, 'skills/gstack/ETHOS.md', 'fixture ethos\n');
 
   const manifest: DistributionManifest = buildDistributionManifest({
     bundleVersion: '0.0.0-smoke',
@@ -672,17 +680,20 @@ function checkDistributionDryRun(workDir: string): CheckBody {
     compatibility: { host: 'pi' },
     extensionFiles: [{
       sourcePath: '.pi/extensions/pi-gstack/index.ts',
-      bundlePath: '.pi/extensions/pi-gstack/index.ts',
+      bundlePath: 'extensions/gstack/index.ts',
+      installPath: 'extensions/gstack/index.ts',
       required: true,
     }],
     generatedSkillFiles: [{
       sourcePath: '.pi/skills/gstack-review/SKILL.md',
-      bundlePath: '.pi/skills/gstack-review/SKILL.md',
+      bundlePath: 'skills/gstack-review/SKILL.md',
+      installPath: 'skills/gstack-review/SKILL.md',
       required: true,
     }],
     runtimeSidecars: [{
       sourcePath: 'ETHOS.md',
-      bundlePath: 'ETHOS.md',
+      bundlePath: 'skills/gstack/ETHOS.md',
+      installPath: 'skills/gstack/ETHOS.md',
       required: true,
     }],
   });
@@ -698,14 +709,49 @@ function checkDistributionDryRun(workDir: string): CheckBody {
     throw new Error(`plan reports ${plan.totalFiles} files; expected ${manifest.files.length}`);
   }
 
+  const installPlan = planDistributionInstallUpdateDryRun(manifest, { bundleRoot, installRoot: freshInstallRoot });
+  if (!installPlan.ok || installPlan.summary.createCount !== manifest.files.length) {
+    throw new Error(`install dry-run did not plan a clean first install: ${JSON.stringify(installPlan.summary)}`);
+  }
+
+  plantFixtureFile(updateInstallRoot, 'skills/gstack-review/SKILL.md', '# fixture review skill\n');
+  plantFixtureFile(updateInstallRoot, 'skills/gstack/ETHOS.md', 'old fixture ethos\n');
+  plantFixtureFile(updateInstallRoot, 'skills/gstack-old/SKILL.md', '# old skill\n');
+  const currentManifest = buildDistributionManifest({
+    bundleVersion: '0.0.0-old-smoke',
+    builtAt: '2025-12-31T00:00:00.000Z',
+    compatibility: { host: 'pi' },
+    generatedSkillFiles: [
+      { sourcePath: '.pi/skills/gstack-review/SKILL.md', bundlePath: 'skills/gstack-review/SKILL.md', installPath: 'skills/gstack-review/SKILL.md', required: true },
+      { sourcePath: '.pi/skills/gstack-old/SKILL.md', bundlePath: 'skills/gstack-old/SKILL.md', installPath: 'skills/gstack-old/SKILL.md', required: true },
+    ],
+    runtimeSidecars: [{
+      sourcePath: 'ETHOS.md',
+      bundlePath: 'skills/gstack/ETHOS.md',
+      installPath: 'skills/gstack/ETHOS.md',
+      required: true,
+    }],
+  });
+  const updatePlan = planDistributionInstallUpdateDryRun(manifest, { bundleRoot, installRoot: updateInstallRoot, currentManifest });
+  if (!updatePlan.ok) {
+    throw new Error(`update dry-run reported conflicts: ${updatePlan.conflicts.map(c => `${c.reason}:${c.installPath}`).join(', ')}`);
+  }
+  if (updatePlan.summary.createCount !== 1 || updatePlan.summary.updateCount !== 1 || updatePlan.summary.keepCount !== 1 || updatePlan.summary.removeCount !== 1) {
+    throw new Error(`update dry-run summary mismatch: ${JSON.stringify(updatePlan.summary)}`);
+  }
+
   // Refuse unsafe relative paths up front.
   if (isSafeRelativeBundlePath('../escape.md')) {
     throw new Error('isSafeRelativeBundlePath accepted a parent-traversal path');
   }
 
   return {
-    summary: `distribution dry-run validated ${plan.totalFiles} files (${plan.totalBytes} bytes) without staging or publishing`,
-    details: plan.entries.map(entry => `${entry.category}:${entry.bundlePath} (${entry.sizeBytes} bytes)`),
+    summary: `distribution dry-run validated ${plan.totalFiles} files (${plan.totalBytes} bytes), first install, and managed update without installing or publishing`,
+    details: [
+      ...plan.entries.map(entry => `${entry.category}:${entry.bundlePath} (${entry.sizeBytes} bytes)`),
+      `install dry-run: create=${installPlan.summary.createCount}, bytes=${installPlan.summary.bytesToWrite}`,
+      `update dry-run: create=${updatePlan.summary.createCount}, update=${updatePlan.summary.updateCount}, keep=${updatePlan.summary.keepCount}, remove=${updatePlan.summary.removeCount}`,
+    ],
   };
 }
 

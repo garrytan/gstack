@@ -583,6 +583,26 @@ Current behavior:
 - S11 web `/health` remains `deferred`, not green;
 - the command exits nonzero only when a required non-deferred check fails.
 
+### Completed implementation chunk — distribution install/update dry-run spike
+
+Goal: strengthen the packaged Pi path without building a real installer, editing package manifests, or publishing anything.
+
+Implemented/documented:
+
+- `lib/factory-distribution.ts` now supports optional per-entry `installPath` values distinct from staged `bundlePath` values;
+- `planDistributionInstallUpdateDryRun(...)` produces a pure first-install/update plan from a staged bundle root, install root, next manifest, and optional current manifest;
+- dry-run plans classify create/update/keep/remove/optional-skip actions, count bytes to write, and fail closed on unmanaged targets, missing required bundle files, non-file bundle entries, non-directory parent collisions, and non-regular install targets;
+- `test/factory-distribution.test.ts` covers clean first install, managed update, missing required files, unmanaged target conflicts, optional skips, and no install-root mutation;
+- `S10-distribution-dry-run` now exercises bundle validation plus first-install and managed-update dry-runs;
+- `docs/designs/PI_FACTORY_DISTRIBUTION_PACKAGE_PATH.md` records the dry-run seam and keeps real installer/updater mutation approval-gated.
+
+Current behavior:
+
+- no package/dependency/workflow changes;
+- no install/update script is exposed;
+- no publishing or real user-home mutation happens;
+- the dry-run contract is ready for a future approved packaged installer/updater to call before any mutation.
+
 ### Completed implementation chunk — factory-side host guard primitives
 
 Goal: prepare for a future guarded host without exposing `/factory-qa-fix`.
