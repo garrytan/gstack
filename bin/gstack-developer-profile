@@ -17,6 +17,9 @@
 #   --check-mismatch    detect meaningful gaps between declared and observed.
 #   --migrate           migrate builder-profile.jsonl → developer-profile.json.
 #                       Idempotent; archives the source file on success.
+#   --log-session    append a session entry (from /office-hours) to
+#                       sessions[] and update aggregates. Required fields:
+#                       date, mode. Silent skip on invalid input.
 #
 # Profile file: ~/.gstack/developer-profile.json (unified schema — see
 # docs/designs/PLAN_TUNING_V0.md). Event file: ~/.gstack/projects/{SLUG}/
@@ -155,6 +158,65 @@ EOF
 }
 
 # -----------------------------------------------------------------------
+# Record session: append a session entry from /office-hours to sessions[]
+# and update aggregates (signals_accumulated, resources_shown, topics).
+# Fix for #1671: the writer side of the v1.0.0.0 migration. Reader and
+# writer now share the same file.
+# Silent skip on invalid input (matches gstack-timeline-log:22-26 pattern).
+# -----------------------------------------------------------------------
+do_log_session() {
+  local INPUT="${1:-}"
+  if [ -z "$INPUT" ]; then
+    return 0
+  fi
+
+  # Validate: input must be parseable JSON with required fields (date, mode).
+  if ! printf '%s' "$INPUT" | bun -e "
+    const j = JSON.parse(await Bun.stdin.text());
+    if (!j.date || !j.mode) process.exit(1);
+  " 2>/dev/null; then
+    return 0
+  fi
+
+  ensure_profile
+
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  trap 'rm -f "$TMPOUT"' EXIT
+
+  PROFILE_FILE_PATH="$PROFILE_FILE" RECORD_INPUT="$INPUT" TMPOUT_PATH="$TMPOUT" bun -e "
+    const fs = require('fs');
+    const entry = JSON.parse(process.env.RECORD_INPUT);
+    if (!entry.ts) entry.ts = new Date().toISOString();
+
+    const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_FILE_PATH, 'utf-8'));
+    profile.sessions = profile.sessions || [];
+    profile.sessions.push(entry);
+
+    profile.signals_accumulated = profile.signals_accumulated || {};
+    for (const s of (entry.signals || [])) {
+      profile.signals_accumulated[s] = (profile.signals_accumulated[s] || 0) + 1;
+    }
+
+    profile.resources_shown = profile.resources_shown || [];
+    const resSet = new Set(profile.resources_shown);
+    for (const r of (entry.resources_shown || [])) resSet.add(r);
+    profile.resources_shown = Array.from(resSet);
+
+    profile.topics = profile.topics || [];
+    const topicSet = new Set(profile.topics);
+    for (const t of (entry.topics || [])) topicSet.add(t);
+    profile.topics = Array.from(topicSet);
+
+    fs.writeFileSync(process.env.TMPOUT_PATH, JSON.stringify(profile, null, 2));
+  "
+
+  mv "$TMPOUT" "$PROFILE_FILE"
+  trap - EXIT
+  "$SCRIPT_DIR/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
+}
+
+# -----------------------------------------------------------------------
 # Read: emit legacy KEY: VALUE output for /office-hours compat.
 # -----------------------------------------------------------------------
 do_read() {
@@ -168,14 +230,19 @@ do_read() {
     else if (count >= 4) tier = 'regular';
     else if (count >= 1) tier = 'welcome_back';
 
-    const last = sessions[count - 1] || {};
-    const prev = sessions[count - 2] || {};
+    // LAST_* / CROSS_PROJECT must reflect real sessions, not resource-tracking
+    // events (the Phase 6 auto-append). Without this filter, a session's
+    // resources entry written immediately after the real session would clobber
+    // LAST_PROJECT/LAST_ASSIGNMENT/LAST_DESIGN_TITLE.
+    const realSessions = sessions.filter(e => e.mode !== 'resources');
+    const last = realSessions[realSessions.length - 1] || {};
+    const prev = realSessions[realSessions.length - 2] || {};
     const crossProject = prev.project_slug && last.project_slug
       ? prev.project_slug !== last.project_slug
       : false;
 
-    const designs = sessions.map(e => e.design_doc || '').filter(Boolean);
-    const designTitles = sessions
+    const designs = realSessions.map(e => e.design_doc || '').filter(Boolean);
+    const designTitles = realSessions
       .map(e => (e.design_doc ? (e.project_slug || 'unknown') : ''))
       .filter(Boolean);
 
@@ -441,6 +508,7 @@ case "$CMD" in
   --vibe) do_vibe ;;
   --check-mismatch) do_check_mismatch ;;
   --migrate) do_migrate ;;
+  --log-session) do_log_session "$@" ;;
   --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
   *)
     echo "gstack-developer-profile: unknown subcommand '$CMD'" >&2
