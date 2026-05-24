@@ -73,9 +73,13 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
-// Match any append/write-to-file pattern targeting builder-profile.jsonl.
+// Match any literal-path append/write pattern targeting builder-profile.jsonl.
 // Captures: `>> .../builder-profile.jsonl`, `writeFileSync(...builder-profile.jsonl...)`,
-// `> .../builder-profile.jsonl`, etc. — anything that writes new content.
+// `> .../builder-profile.jsonl`. NOTE: this only catches LITERAL-PATH writes —
+// variable-indirected writes (`FILE=...builder-profile.jsonl; echo >> "$FILE"`)
+// are not detected. The SKILL.md.tmpl assertions below pin the exact #1671
+// regression class directly; this regex is a backstop against the obvious
+// pattern, not a comprehensive variable-flow analyzer.
 const WRITE_PATTERN = /(>>?\s*["']?[^"'\s]*builder-profile\.jsonl|writeFileSync\([^)]*builder-profile\.jsonl|appendFileSync\([^)]*builder-profile\.jsonl)/;
 
 describe('#1671 invariant: no production code writes to builder-profile.jsonl', () => {
