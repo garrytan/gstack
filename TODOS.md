@@ -2,34 +2,17 @@
 
 ## browse server: terminal-agent teardown follow-ups (filed v1.41 via /plan-eng-review)
 
-### P3: Identity-based terminal-agent kill (replace pkill regex with PID)
+### ✅ DONE (v1.44.0.0): Identity-based terminal-agent kill (replace pkill regex with PID)
 
-**What:** Record the spawned terminal-agent PID at `browse/src/cli.ts:1057` and
-replace `pkill -f terminal-agent\.ts` at both `cli.ts:1047` and
-`server.ts:1281` (now inside the `if (ownsTerminalAgent)` gate) with
-`process.kill(pid, signal)` against the recorded PID.
-
-**Why:** `pkill -f terminal-agent\.ts` matches by command-line regex, so today
-it can kill ANY process whose argv contains `terminal-agent.ts` — sibling
-gstack sessions, editor processes that have the file open, a second gstack
-run on the same host. Latent footgun for the CLI path, not just embedders.
-
-**Pros:** Removes a real cross-session foot-cannon. PID-based kill is the
-correct identity primitive. Lets us tighten `pkill -f`'s broad-match warning
-in the new `ownsTerminalAgent` JSDoc to "historical" rather than "current".
-
-**Cons:** Requires threading the PID through the CLI-to-server state path
-(currently the parent server reads `terminal-port` to discover the agent; it
-would also need `terminal-agent-pid`). Touches `cli.ts`, `server.ts`, and
-`terminal-agent.ts` together — bigger surface than the v1.41 fix.
-
-**Context:** Surfaced by both Codex and Claude subagent during /autoplan
-review of the `ownsTerminalAgent` gate. Currently documented as out-of-scope
-in `browse/src/server.ts` JSDoc for `ServerConfig.ownsTerminalAgent`. The
-embedder fix (ownsTerminalAgent: false) means embedders don't hit this; CLI
-users still do.
-
-**Depends on:** None.
+**Resolved:** Bundled into the v1.44.0.0 long-lived-sidebar PR as Commit 0.
+`browse/src/terminal-agent-control.ts` is the new home for `readAgentRecord`,
+`writeAgentRecord`, `clearAgentRecord`, and `killAgentByRecord`. The agent
+writes `<stateDir>/terminal-agent-pid` (JSON `{pid, gen, startedAt}`) at boot
+and clears it on SIGTERM/SIGINT. `cli.ts` and `server.ts` both route through
+`killAgentByRecord` instead of `pkill -f terminal-agent\.ts`. The new
+`browse/test/terminal-agent-pid-identity.test.ts` is the static-grep tripwire
+that fails CI if `pkill ... terminal-agent` or `spawnSync('pkill', ...)`
+reappears in any source file.
 
 ---
 

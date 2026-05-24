@@ -33,9 +33,12 @@ describe('setup: Apple Silicon codesign', () => {
 
   test('codesign block is inside the NEEDS_BUILD=1 branch', () => {
     const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
-    // The codesign block should appear after `bun run build` and before the
-    // `if [ ! -x "$BROWSE_BIN" ]` guard that checks the build succeeded.
-    const buildIdx = content.indexOf('bun run build');
+    // The codesign block should appear after the build command and before the
+    // `if [ ! -x "$BROWSE_BIN" ]` guard that checks the build succeeded. The
+    // setup script invokes the build via `bun_cmd run build` (not literal
+    // `bun run build`) so the wrapper can route through asdf/volta/etc;
+    // matching the wrapped form keeps this test stable across that indirection.
+    const buildIdx = content.indexOf('bun_cmd run build');
     const codesignIdx = content.indexOf('codesign --remove-signature');
     const browseCheckIdx = content.indexOf('gstack setup failed: browse binary missing');
     expect(buildIdx).toBeGreaterThan(-1);

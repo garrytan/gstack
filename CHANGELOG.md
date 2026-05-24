@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.44.0.0] - 2026-05-23
+
+## **Sidebar Claude Code now survives the day.** WebSocket keepalive, transparent re-attach across network blips with scrollback intact, and a restart button that actually kills the old claude before spawning the new one. Outer supervisor opt-in so the browse server itself can crash and recover without you noticing.
+
+The sidebar's embedded `claude` PTY used to stop connecting after a while, and the Restart button only closed the client-side WebSocket without killing the running process. Closing the browser left zombie claude processes alive for minutes. None of that any more.
+
+Five compounding timeouts on the v1.43 path: PTY session token TTL was 30 minutes with no refresh, no WebSocket keepalive (NAT idle timeouts of 30-60s silently dropped connections), the server's 30-minute idle timeout didn't account for active PTY sessions, the sidebar gave up after 15 seconds on cold start, and there was no auto-reconnect after a WS close. On top of that, a `pkill -f terminal-agent\.ts` regex in the agent teardown matched sibling gstack sessions on the same host. All six fixed.
+
+### The numbers that matter
+
+Source: 13 bisect commits on this branch (`git log v1.43.3.0..HEAD --oneline`), 12 new test files, 83 new unit-tier static-grep + behavioral tests; full `bun test` suite green. Live re-attach behavior runs against `GSTACK_PTY_DETACH_WINDOW_MS=1000` so the 60s detach window verifies in <2s of CI time.
+
+| Surface | Before | After |
+|---|---|---|
+| Sidebar idle 5 min, then keystroke | Reconnect spinner, ~3s to first byte | Immediate output — WS keepalive kept the socket alive |
+| Wifi blip mid-session | "Session ended" — click Restart, lose scrollback | Silent re-attach within 8s, scrollback intact, keep typing |
+| Click Restart with claude mid-task | Old claude killed asynchronously; race window with new spawn; user must type a key to see new prompt | Server disposes old PTY synchronously, mints new lease in one transaction, eager `{type:"start"}` boots claude before the prompt renders |
+| Close sidebar / quit browser | Zombie claude lingers for 60s (detach window) | `pagehide` sendBeacon `/pty-dispose` cleans up immediately |
+| Terminal-agent dies (OOM, signal) | Sidebar shows broken connection until manual reload | 60s watchdog with PID-liveness check (no split-brain) respawns agent automatically; 3-in-60s crash-loop guard |
+| Browse server itself crashes | Headed browser orphaned, manual `$B connect` re-run | Opt-in `$B connect --supervise` keeps CLI attached, respawns server with 1s/2s/4s/8s/30s backoff, 5-in-5min guard |
+| Two `$B connect` sessions on same host | Restart in session A kills session B's terminal-agent via `pkill -f` regex match | Identity-based `process.kill(pid)` against a per-boot agent record. Static-grep test fails CI if `pkill -f terminal-agent` reappears anywhere in source |
+| PTY token leakage in logs / DevTools | Bearer token doubled as session identifier (codex outside-voice flagged it) | Stable non-secret `sessionId` separated from short-lived `attachToken`; lease lifecycle owns session liveness |
+
+### What this means for you
+
+Open the sidebar once. Use it. Close your laptop. Wake up tomorrow. Type a key. It just works. The whole "the terminal stopped working, let me reload the sidebar" reflex you've built up over the v1.40s — you don't need it any more.
+
+### Itemized changes
+
+#### Added
+
+- **Long-lived PTY connection (`browse/src/terminal-agent.ts`, `extension/sidepanel-terminal.js`)** — 25s WebSocket keepalive ping/pong cycle from both sides. NAT idle drops and Chrome MV3 panel-suspend cycles no longer silently kill the socket. Env-overridable via `GSTACK_PTY_KEEPALIVE_INTERVAL_MS`.
+- **Session lease + attachToken model (`browse/src/pty-session-lease.ts`)** — Stable non-secret `sessionId` separated from short-lived secret `attachToken`. Re-attach within the lease window refreshes a fresh `attachToken` bound to the same `sessionId`; session identity stays loggable, bearer credential stays out of logs.
+- **Scrollback replay on re-attach (`browse/src/terminal-agent.ts`)** — 1 MB frame-based ring buffer per session with ESC-boundary scan and alt-screen tracking (`CSI ?1049h/l`). On re-attach, client writes RIS (`\x1bc`) to xterm, server prepends DECSTR soft reset + optional alt-screen re-enter + ring buffer. Replay renders cleanly even mid-tool-call. Env-overridable via `GSTACK_PTY_RING_BUFFER_BYTES`.
+- **60s detach window with re-attach (`browse/src/terminal-agent.ts`)** — WS close with any code other than 4001 (intentional), 4404 (no-claude), or 1000 (clean exit) keeps the PTY alive for 60s. New WS upgrade matching the same sessionId resumes the same `claude` process. Env-overridable via `GSTACK_PTY_DETACH_WINDOW_MS`.
+- **Working Restart button (`browse/src/server.ts`, `extension/sidepanel-terminal.js`)** — `POST /pty-restart` is one transaction: dispose old session scope-to-sessionId, revoke old lease, mint fresh sessionId + lease + attachToken, return the 4-tuple. Client sends `{type:"start"}` immediately on the new WS for eager spawn — no keystroke required.
+- **Explicit dispose on sidebar close (`extension/sidepanel.js`)** — `pagehide` handler fires `navigator.sendBeacon('/pty-dispose', {sessionId, authToken})` so browser quit / panel close / extension reload disposes the session immediately. Server route accepts auth token in the body (sendBeacon-compatible — no custom headers).
+- **PID-identity terminal-agent kill (`browse/src/terminal-agent-control.ts`)** — Replaces `pkill -f terminal-agent\.ts` regex teardown. Agent writes `<stateDir>/terminal-agent-pid` (JSON `{pid, gen, startedAt}`) at boot; `cli.ts` and `server.ts` use `killAgentByRecord` instead. Static-grep tripwire test fails CI if the regex pattern returns to source.
+- **Terminal-agent watchdog (`browse/src/server.ts`)** — 60s ticker checks recorded agent PID via `process.kill(pid, 0)`. Respawns on dead PID via shared `spawnTerminalAgent` helper. 3-in-60s crash-loop guard with rolling window. Slow-but-alive agents intentionally fall through (split-brain defense). Env-overridable via `GSTACK_AGENT_WATCHDOG_TICK_MS`.
+- **Outer browse-server supervisor (`browse/src/cli.ts`)** — `$B connect --supervise` (or `BROWSE_SUPERVISE=1`) keeps the CLI attached, polls server PID every 30s, respawns on unexpected exit with 1s/2s/4s/8s/30s backoff. SIGINT/SIGTERM cleanly teardown the supervised server. Opt-in — default `$B connect` behavior unchanged for every existing caller.
+- **Patient `tryAutoConnect` (`extension/sidepanel-terminal.js`)** — Replaces the 15s give-up with indefinite 2s polling. Ascending status messages at 15s / 60s / 5min so the user knows we're still trying. Sticky-abort only on 401 (auth invalid), cleared by explicit Restart click.
+- **`/internal/healthz` route + `internalHandler<T>` helper (`browse/src/terminal-agent.ts`)** — Liveness probe used by the watchdog (returns pid/gen/sessions count, doesn't touch claude binary lookup). Helper collapses four `/internal/*` routes' bearer-auth + X-Browse-Gen check + JSON parse into one-liner calls.
+
+#### Changed
+
+- **`/pty-session` response shape (`browse/src/server.ts`)** — Now returns `{terminalPort, sessionId, attachToken, leaseExpiresAt}`. Legacy `ptySessionToken` + `expiresAt` aliases preserved for one minor release.
+- **`ServerConfig.ownsTerminalAgent` teardown** — Now runs four side effects (was three): identity-based kill via `killAgentByRecord`, plus unlinks for `terminal-port`, `terminal-internal-token`, and the new `terminal-agent-pid`. Documented in CLAUDE.md.
+
+#### Fixed
+
+- **Sibling gstack sessions killed by `pkill -f terminal-agent\.ts`** — Pre-v1.44 the teardown matched argv regex; any process whose command line contained `terminal-agent.ts` got SIGTERM'd. Closes the TODOS.md P3 item filed during v1.41 (`Identity-based terminal-agent kill`).
+- **Seven pre-existing test failures unrelated to this branch** — Three env-pollution failures (Bun's `Bun.which('bash')` returning null and `Bun.spawn(['bun', ...])` ENOENT after a sibling test mutated `process.env.PATH`), two stale-marker failures in `server-auth.test.ts` (`'Sidebar agent started'` → `'Terminal agent started'`), `setup-codesign.test.ts` looking for the unwrapped `bun run build` string (now `bun_cmd run build`), and `upgrade-migration-v1.test.ts` reading the developer's real config because it didn't override `HOME`. Fixed via a narrow global `test-setup.ts` (restores PATH only after every test) plus targeted marker + env-passing fixes.
+
+#### For contributors
+
+- **Test framework `bunfig.toml` + `test-setup.ts`** — Global afterEach restores `process.env.PATH` only. Narrow on purpose — broader snapshot/restore breaks tests that legitimately set `process.env.GSTACK_HOME` at module load (`domain-skills-storage.test.ts`).
+- **12 new test files, 83 new unit-tier tests.** Static-grep tripwires defend the load-bearing protocol contracts (close codes, lease lifecycle, watchdog identity check, supervisor crash-loop guard, ring buffer ESC boundaries) without paying for live WebSocket cycles in CI.
+- **Eng review + outside voice (codex) ran on this branch.** 17 decisions baked: 10 from the in-review architecture pass (D1-D10), 6 from codex cross-model tension resolution (T1-T6, all adopted in codex's favor — most consequential was T1, separating sessionId from auth token), and 1 from in-PR scope-up of the outer supervisor.
+
 ## [1.43.3.0] - 2026-05-21
 
 ## **Headed Chromium embedded by external supervisors stops auto-shutting-down after 30 minutes of HTTP idle.**

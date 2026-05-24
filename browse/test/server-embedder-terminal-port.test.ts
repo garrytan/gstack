@@ -14,21 +14,35 @@ import { resolveConfig } from '../src/config';
 // Tests for the v1.41+ ownsTerminalAgent flag.
 //
 // Embedders (gbrowser phoenix overlay) that run their own PTY server and write
-// terminal-port / terminal-internal-token themselves were getting those files
-// clobbered by gstack's shutdown(). The flag (default true) gates three side
-// effects: pkill -f terminal-agent\.ts, unlink terminal-port, unlink
-// terminal-internal-token. False = embedder owns them, gstack stays hands-off.
+// terminal-port / terminal-internal-token / terminal-agent-pid themselves were
+// getting those files clobbered by gstack's shutdown(). The flag (default true)
+// gates four side effects (v1.44+):
+//   1. identity-based kill of the PID in <stateDir>/terminal-agent-pid
+//   2. unlink terminal-port
+//   3. unlink terminal-internal-token
+//   4. unlink terminal-agent-pid
+// False = embedder owns them, gstack stays hands-off.
 //
-// CRITICAL: each test stubs BOTH process.exit (so shutdown's exit doesn't kill
-// the test runner) AND child_process.spawnSync (so pkill doesn't run real
-// `pkill -f terminal-agent\.ts` on the developer's machine — would kill any
-// sibling gstack sessions).
+// Pre-v1.44 used `pkill -f terminal-agent\.ts` which matched sibling gstack
+// sessions on the same host — see browse/src/terminal-agent-control.ts header.
+//
+// CRITICAL: each test stubs process.exit (so shutdown's exit doesn't kill
+// the test runner). The PID in the test agent-record is a guaranteed-dead
+// PID (1 = init / launchd — exists but cannot be killed by an unprivileged
+// process, so safeKill returns ESRCH-equivalent without affecting anything).
+// Use isProcessAlive's false branch by also testing with a PID that does
+// not exist (negative PID rejected by the OS).
 
 const stateDir = resolveConfig().stateDir;
 const PORT_FILE = path.join(stateDir, 'terminal-port');
 const TOKEN_FILE = path.join(stateDir, 'terminal-internal-token');
+const AGENT_RECORD_FILE = path.join(stateDir, 'terminal-agent-pid');
 const SENTINEL_PORT = 'sentinel-port-65432';
 const SENTINEL_TOKEN = 'sentinel-token-abcdef1234567890';
+// PID 2^31-1 is the Linux PID_MAX_LIMIT; macOS uses 99998. Either way, no
+// real process will ever hold this PID on a developer machine. isProcessAlive
+// returns false → killAgentByRecord no-ops without sending any signal.
+const SENTINEL_DEAD_PID = 2147483646;
 
 function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
   const token = 'embedder-test-' + crypto.randomBytes(16).toString('hex');
@@ -47,6 +61,10 @@ function writeSentinels(): void {
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(PORT_FILE, SENTINEL_PORT);
   fs.writeFileSync(TOKEN_FILE, SENTINEL_TOKEN);
+  fs.writeFileSync(
+    AGENT_RECORD_FILE,
+    JSON.stringify({ pid: SENTINEL_DEAD_PID, gen: 'sentinel-gen', startedAt: Date.now() }),
+  );
 }
 
 function readIfExists(p: string): string | null {
@@ -54,32 +72,40 @@ function readIfExists(p: string): string | null {
 }
 
 /**
- * Stubs process.exit + child_process.spawnSync, runs the callback, and
- * restores both regardless of throw. Returns the captured spawnSync argv
- * list so callers can assert pkill was or wasn't invoked. The callback
- * is expected to swallow the __exit:N throw from shutdown().
+ * Stubs process.exit so shutdown()'s process.exit(0) throws an __exit:N
+ * marker the test can swallow instead of killing the runner. Also stubs
+ * process.kill so an accidental kill (regression in killAgentByRecord
+ * that bypassed isProcessAlive) cannot reach a real PID on the developer
+ * machine. Returns the captured kill calls so tests can assert kill
+ * scope.
  */
 async function withStubs(
-  cb: (spawnSyncCalls: any[][]) => Promise<void>
-): Promise<any[][]> {
+  cb: (killCalls: Array<[number, NodeJS.Signals | number]>) => Promise<void>
+): Promise<Array<[number, NodeJS.Signals | number]>> {
   const origExit = process.exit;
-  const childProcess = require('child_process');
-  const origSpawnSync = childProcess.spawnSync;
-  const spawnSyncCalls: any[][] = [];
+  const origKill = process.kill;
+  const killCalls: Array<[number, NodeJS.Signals | number]> = [];
   (process as any).exit = ((code: number) => {
     throw new Error(`__exit:${code}`);
   }) as any;
-  childProcess.spawnSync = ((...args: any[]) => {
-    spawnSyncCalls.push(args);
-    return { status: 0, stdout: '', stderr: '', signal: null, pid: 0, output: [] };
+  (process as any).kill = ((pid: number, signal: NodeJS.Signals | number) => {
+    killCalls.push([pid, signal ?? 'SIGTERM']);
+    // signal 0 is a liveness probe — keep the existing 'process is dead'
+    // semantics so isProcessAlive(SENTINEL_DEAD_PID) returns false.
+    if (signal === 0) {
+      const err: any = new Error('No such process');
+      err.code = 'ESRCH';
+      throw err;
+    }
+    return true;
   }) as any;
   try {
-    await cb(spawnSyncCalls);
+    await cb(killCalls);
   } finally {
     (process as any).exit = origExit;
-    childProcess.spawnSync = origSpawnSync;
+    (process as any).kill = origKill;
   }
-  return spawnSyncCalls;
+  return killCalls;
 }
 
 async function runShutdown(handle: { shutdown: (code?: number) => Promise<void> }): Promise<void> {
@@ -90,23 +116,28 @@ async function runShutdown(handle: { shutdown: (code?: number) => Promise<void> 
   }
 }
 
-function pkillCalls(calls: any[][]): any[][] {
-  return calls.filter((call) => call[0] === 'pkill');
+// Filter out the signal=0 liveness probes; only count actual termination signals.
+function terminationCalls(
+  calls: Array<[number, NodeJS.Signals | number]>,
+): Array<[number, NodeJS.Signals | number]> {
+  return calls.filter(([, sig]) => sig !== 0);
 }
 
 describe('buildFetchHandler ownsTerminalAgent gate', () => {
   // shutdown() reads `path.dirname(config.stateFile)` from module-level config
   // (composition gap — see TODOS T9). So unlinks target the real state dir,
   // not a per-test temp dir. If a real gstack daemon is running on this host,
-  // its terminal-port + terminal-internal-token live where this test writes.
-  // Save + restore real-daemon file contents around the whole suite so the
-  // test never clobbers a developer's running session.
+  // its terminal-port + terminal-internal-token + terminal-agent-pid live
+  // where this test writes. Save + restore real-daemon file contents around
+  // the whole suite so the test never clobbers a developer's running session.
   let realPortBackup: string | null = null;
   let realTokenBackup: string | null = null;
+  let realAgentRecordBackup: string | null = null;
 
   beforeAll(() => {
     realPortBackup = readIfExists(PORT_FILE);
     realTokenBackup = readIfExists(TOKEN_FILE);
+    realAgentRecordBackup = readIfExists(AGENT_RECORD_FILE);
   });
 
   afterAll(() => {
@@ -122,6 +153,12 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     } else {
       try { fs.unlinkSync(TOKEN_FILE); } catch {}
     }
+    if (realAgentRecordBackup !== null) {
+      fs.mkdirSync(stateDir, { recursive: true });
+      fs.writeFileSync(AGENT_RECORD_FILE, realAgentRecordBackup);
+    } else {
+      try { fs.unlinkSync(AGENT_RECORD_FILE); } catch {}
+    }
   });
 
   beforeEach(() => {
@@ -131,9 +168,10 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     // assertion can't pass spuriously off a stale file.
     try { fs.unlinkSync(PORT_FILE); } catch {}
     try { fs.unlinkSync(TOKEN_FILE); } catch {}
+    try { fs.unlinkSync(AGENT_RECORD_FILE); } catch {}
   });
 
-  test('1. ownsTerminalAgent:false preserves both files and skips pkill', async () => {
+  test('1. ownsTerminalAgent:false preserves all three files and sends no signal', async () => {
     writeSentinels();
     const handle = buildFetchHandler(makeMinimalConfig({ ownsTerminalAgent: false }));
     const calls = await withStubs(async () => {
@@ -141,10 +179,11 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     });
     expect(readIfExists(PORT_FILE)).toBe(SENTINEL_PORT);
     expect(readIfExists(TOKEN_FILE)).toBe(SENTINEL_TOKEN);
-    expect(pkillCalls(calls).length).toBe(0);
+    expect(readIfExists(AGENT_RECORD_FILE)).not.toBeNull();
+    expect(terminationCalls(calls).length).toBe(0);
   });
 
-  test('2. ownsTerminalAgent:true (explicit) deletes both files and invokes pkill exactly once', async () => {
+  test('2. ownsTerminalAgent:true deletes all three files; identity-based kill probes the recorded PID', async () => {
     writeSentinels();
     const handle = buildFetchHandler(makeMinimalConfig({ ownsTerminalAgent: true }));
     const calls = await withStubs(async () => {
@@ -152,13 +191,15 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     });
     expect(readIfExists(PORT_FILE)).toBeNull();
     expect(readIfExists(TOKEN_FILE)).toBeNull();
-    const pkills = pkillCalls(calls);
-    expect(pkills.length).toBe(1);
-    // argv[1] is the args array passed to spawnSync.
-    expect(pkills[0][1]).toEqual(['-f', 'terminal-agent\\.ts']);
+    expect(readIfExists(AGENT_RECORD_FILE)).toBeNull();
+    // isProcessAlive sends signal 0; PID is the sentinel-dead PID, so the
+    // probe returns false and no SIGTERM is sent.
+    const probes = calls.filter(([pid, sig]) => pid === SENTINEL_DEAD_PID && sig === 0);
+    expect(probes.length).toBeGreaterThan(0);
+    expect(terminationCalls(calls).length).toBe(0);
   });
 
-  test('3. ownsTerminalAgent unset defaults to true (deletes + pkill)', async () => {
+  test('3. ownsTerminalAgent unset defaults to true (deletes all three; probes recorded PID)', async () => {
     writeSentinels();
     // Note: no ownsTerminalAgent in the overrides — uses the `?? true` default.
     const handle = buildFetchHandler(makeMinimalConfig());
@@ -167,7 +208,9 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     });
     expect(readIfExists(PORT_FILE)).toBeNull();
     expect(readIfExists(TOKEN_FILE)).toBeNull();
-    expect(pkillCalls(calls).length).toBe(1);
+    expect(readIfExists(AGENT_RECORD_FILE)).toBeNull();
+    const probes = calls.filter(([pid, sig]) => pid === SENTINEL_DEAD_PID && sig === 0);
+    expect(probes.length).toBeGreaterThan(0);
   });
 
   test('4. CLI start() call site passes ownsTerminalAgent: true literally (static grep)', () => {

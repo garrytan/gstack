@@ -1083,3 +1083,38 @@ chrome.runtime.onMessage.addListener((msg) => {
     }));
   }
 });
+
+// ─── v1.44 pagehide: explicit PTY dispose on sidebar close ──────────
+//
+// Codex T3 of the eng review: WS close codes alone can't distinguish
+// "intentional close" (sidebar closed, browser quit, extension reload)
+// from "transient blip" (wifi hiccup) reliably — Chrome routes the
+// former through code 1001 (going-away) and the latter through 1006
+// (abnormal), but neither is a load-bearing contract across browsers
+// and extension lifecycles.
+//
+// pagehide fires reliably for tab close, panel close, extension reload,
+// and navigation-away. We use it to fire-and-forget a /pty-dispose POST
+// so the server can synchronously dispose the PtySession instead of
+// waiting for the 60s detach window (Commit 3) to time out. Zombie
+// claude processes lingering for 60s on every browser quit was the
+// codex-flagged failure mode.
+//
+// sendBeacon is the only fetch primitive that survives a closing page —
+// it doesn't accept custom headers, which is why the server's
+// /pty-dispose route accepts the auth token in the BODY (see
+// server-pty-lease-routes.test.ts test 4).
+window.addEventListener('pagehide', () => {
+  const sessionId = window.gstackPtySession;
+  const authToken = window.gstackAuthToken;
+  const port = window.gstackServerPort;
+  if (!sessionId || !authToken || !port) return;
+  try {
+    const blob = new Blob([JSON.stringify({ sessionId, authToken })], {
+      type: 'application/json',
+    });
+    navigator.sendBeacon(`http://127.0.0.1:${port}/pty-dispose`, blob);
+  } catch {
+    // Best-effort — the 60s detach timer will catch any session we miss.
+  }
+});
