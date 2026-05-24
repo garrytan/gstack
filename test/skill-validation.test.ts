@@ -1325,10 +1325,14 @@ describe('Codex skill', () => {
     expect(content).toContain('gstack-review-log');
   });
 
-  test('codex/SKILL.md uses which for binary discovery, not hardcoded path', () => {
+  test('codex/SKILL.md uses command -v for binary discovery, not hardcoded path', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('which codex');
+    expect(content).toContain('command -v codex');
     expect(content).not.toContain('/opt/homebrew/bin/codex');
+    // Defensive: catch any future regression that reintroduces `which codex`,
+    // which fails in environments where `which` isn't on PATH (some Windows
+    // shells, BusyBox-only containers). #1197.
+    expect(content).not.toContain('which codex');
   });
 
   test('codex/SKILL.md contains error handling for missing binary and auth', () => {
@@ -1419,6 +1423,29 @@ describe('Codex skill', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Codex');
     expect(content).toContain('codex exec');
+  });
+
+  test('codex review invocations avoid the prompt plus --base argument shape', () => {
+    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
+      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+    }
+  });
+
+  test('codex review prompts always carry the filesystem boundary (#1503/#1522 regression)', () => {
+    // Pre-#1209, the bare `codex review --base` path stripped the filesystem
+    // boundary instruction, letting Codex spend tokens reading skill files.
+    // #1209's prompt rewrite restored the boundary by routing every default
+    // call through a prompt. Pin both halves so a future refactor can't
+    // regress: (a) the boundary line must appear, (b) the call must be
+    // through `codex review "<prompt>"` not bare `codex review --base`.
+    const boundaryLine =
+      'Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/';
+    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(content).toContain(boundaryLine);
+    }
   });
 
   test('/review persists a review-log entry for ship readiness', () => {

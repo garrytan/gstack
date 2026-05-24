@@ -27,25 +27,16 @@ bun run slop:diff     # slop findings in files changed on this branch only
 `test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
 use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
 
-**Where the keys live on this machine.** Conductor workspaces don't inherit the
-user's interactive shell env, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` aren't
-in the default process env. Before running any paid eval / E2E, source them from
-`~/.zshrc` (that's where Garry keeps them):
+**Env keys in Conductor workspaces.** The `GSTACK_*` env-shim (v1.39.2.0+,
+`lib/conductor-env-shim.ts`) promotes `GSTACK_ANTHROPIC_API_KEY` /
+`GSTACK_OPENAI_API_KEY` to their canonical names inside gstack's TS binaries.
+Tests run through gstack entrypoints inherit this promotion automatically.
+Don't echo the key value to stdout, logs, or shell history. When passing to a
+test's Agent SDK, do NOT pass `env: {...}` to `runAgentSdkTest` — the SDK's
+auth pipeline doesn't pick up the key the same way when env is supplied as an
+object (confirmed failure mode). Mutate `process.env.ANTHROPIC_API_KEY`
+ambiently before the call and restore in `finally`.
 
-```bash
-bash -c '
-  eval "$(grep -E "^export (ANTHROPIC_API_KEY|OPENAI_API_KEY)=" ~/.zshrc)"
-  export ANTHROPIC_API_KEY OPENAI_API_KEY
-  EVALS=1 EVALS_TIER=periodic bun test test/skill-e2e-<whatever>.test.ts
-'
-```
-
-Do not echo the key value anywhere (stdout, logs, shell history). The grep+eval
-pattern keeps it in process env only. When passing to a test's Agent SDK, do NOT
-pass `env: {...}` to `runAgentSdkTest` — the SDK's auth pipeline doesn't pick up
-the key the same way when env is supplied as an object (confirmed failure mode).
-Instead, mutate `process.env.ANTHROPIC_API_KEY` ambiently before the call and
-restore in `finally`.
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
 against the previous run.
@@ -235,6 +226,20 @@ Activity / Refs / Inspector as debug overlays behind the footer's
 `/sidebar-agent/event` endpoints are gone. The doc covers the WS auth
 flow, dual-token model, and threat-model boundary — silent failures
 here usually trace to not understanding the cross-component flow.
+
+**Embedder terminal-agent ownership** (v1.42.1.0+). `buildFetchHandler`
+in `browse/src/server.ts` accepts `ServerConfig.ownsTerminalAgent?:
+boolean` (default `true`). When `true`, factory shutdown runs the full
+teardown: `pkill -f terminal-agent\.ts` plus `safeUnlinkQuiet` on
+`<stateDir>/terminal-port` and `<stateDir>/terminal-internal-token`.
+Embedders (e.g. the gbrowser phoenix overlay) that pre-launch their
+own PTY server must pass `false` so their discovery files survive
+gstack teardown cycles. The flag is the third caller-owned teardown
+gate in `ServerConfig` (alongside `xvfb?` and `proxyBridge?`); polarity
+is inverted (explicit bool vs presence) and documented in the field's
+JSDoc. CLI `start()` always passes `true` explicitly — the static-grep
+test in `browse/test/server-embedder-terminal-port.test.ts` fails CI
+if a refactor drops it.
 
 **WebSocket auth uses Sec-WebSocket-Protocol, not cookies.** Browsers
 can't set `Authorization` on a WebSocket upgrade, but they CAN set

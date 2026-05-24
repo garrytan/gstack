@@ -410,6 +410,89 @@ describe('pooler-url', () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('DB_PASS env var is required');
   });
+
+  // --- Issue #1301: New Supabase projects' API returns transaction/6543 but
+  // the shared pooler tenant only listens on session/5432. Rewrite that
+  // single combination, leave every other shape alone. ---
+
+  test('rewrites single transaction/6543 response to session/5432 (issue #1301)', async () => {
+    mock = startMock({
+      [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
+        jsonResp({ ...POOLER_OK, pool_mode: 'transaction', db_port: 6543 }),
+    });
+    const r = await runBin(['pooler-url', REF, '--json'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+      DB_PASS: 'pw',
+      SUPABASE_API_BASE: mock.url,
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).pooler_url).toContain(':5432/postgres');
+    expect(r.stderr).toContain('rewriting');
+  });
+
+  test('leaves session/6543 alone (some regions genuinely serve session on 6543)', async () => {
+    mock = startMock({
+      [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
+        jsonResp({ ...POOLER_OK, pool_mode: 'session', db_port: 6543 }),
+    });
+    const r = await runBin(['pooler-url', REF, '--json'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+      DB_PASS: 'pw',
+      SUPABASE_API_BASE: mock.url,
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).pooler_url).toContain(':6543/postgres');
+    expect(r.stderr).not.toContain('rewriting');
+  });
+
+  test('leaves transaction/5432 alone (only the 6543 case is the known footgun)', async () => {
+    mock = startMock({
+      [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
+        jsonResp({ ...POOLER_OK, pool_mode: 'transaction', db_port: 5432 }),
+    });
+    const r = await runBin(['pooler-url', REF, '--json'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+      DB_PASS: 'pw',
+      SUPABASE_API_BASE: mock.url,
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).pooler_url).toContain(':5432/postgres');
+    expect(r.stderr).not.toContain('rewriting');
+  });
+
+  test('GSTACK_SUPABASE_TRUST_API_PORT=1 disables the rewrite', async () => {
+    mock = startMock({
+      [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
+        jsonResp({ ...POOLER_OK, pool_mode: 'transaction', db_port: 6543 }),
+    });
+    const r = await runBin(['pooler-url', REF, '--json'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+      DB_PASS: 'pw',
+      SUPABASE_API_BASE: mock.url,
+      GSTACK_SUPABASE_TRUST_API_PORT: '1',
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).pooler_url).toContain(':6543/postgres');
+    expect(r.stderr).not.toContain('rewriting');
+  });
+
+  test('array response with explicit session entry on 5432 is unaffected (existing behavior)', async () => {
+    mock = startMock({
+      [`GET /v1/projects/${REF}/config/database/pooler`]: () =>
+        jsonResp([
+          { ...POOLER_OK, pool_mode: 'transaction', db_port: 6543 },
+          { ...POOLER_OK, pool_mode: 'session', db_port: 5432 },
+        ]),
+    });
+    const r = await runBin(['pooler-url', REF, '--json'], {
+      SUPABASE_ACCESS_TOKEN: 'sbp_test',
+      DB_PASS: 'pw',
+      SUPABASE_API_BASE: mock.url,
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).pooler_url).toContain(':5432/postgres');
+    expect(r.stderr).not.toContain('rewriting');
+  });
 });
 
 describe('list-orphans (D20)', () => {

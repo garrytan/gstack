@@ -34,6 +34,11 @@ Conventions:
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
 - [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
+- [/ios-clean](ios-clean/SKILL.md): Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.
+- [/ios-design-review](ios-design-review/SKILL.md): Visual design audit for iOS apps on real hardware.
+- [/ios-fix](ios-fix/SKILL.md): Autonomous iOS bug fixer.
+- [/ios-qa](ios-qa/SKILL.md): Live-device iOS QA for SwiftUI apps.
+- [/ios-sync](ios-sync/SKILL.md): Regenerate the iOS debug bridge against the latest upstream gstack templates.
 - [/land-and-deploy](land-and-deploy/SKILL.md): Land and deploy workflow.
 - [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
 - [/learn](learn/SKILL.md): Manage project learnings.

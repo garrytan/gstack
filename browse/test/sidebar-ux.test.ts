@@ -1589,18 +1589,16 @@ describe('tool calls collapse into reasoning disclosure', () => {
 });
 
 // ─── Idle timeout disabled in headed mode (server.ts) ───────────
+//
+// The original 'idle check skips in headed mode' string-grep test was deleted
+// in v1.42.3.0 — it would have passed even with the dual-instance bug present
+// because it only grepped for "=== 'headed'" + 'return' in the same window.
+// Behavioral coverage lives in browse/test/server-factory.test.ts under the
+// 'idle timer + onDisconnect dual-instance fix' describe block, which
+// exercises the headed/headless/tunnel branches of idleCheckTick directly.
 
 describe('idle timeout behavior (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('idle check skips in headed mode', () => {
-    const idleCheck = serverSrc.slice(
-      serverSrc.indexOf('idleCheckInterval'),
-      serverSrc.indexOf('idleCheckInterval') + 300,
-    );
-    expect(idleCheck).toContain("=== 'headed'");
-    expect(idleCheck).toContain('return');
-  });
 
   test('sidebar-command resets idle timer', () => {
     const sidebarCmd = serverSrc.slice(

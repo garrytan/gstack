@@ -35,6 +35,7 @@ import {
 } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { buildGbrainEnv } from "./gbrain-exec";
 
 export type LocalEngineStatus =
   | "ok"
@@ -51,6 +52,12 @@ export interface ClassifyOptions {
 }
 
 interface CacheEntry {
+  // Local-cache schema version, controlled by gstack. Not to be confused
+  // with `gbrain doctor --json` output schema_version (gbrain v0.25+ emits
+  // schema_version: 2). Doctor-output parsing lives in
+  // lib/gstack-memory-helpers.ts:freshDetectEngineTier and accepts both
+  // doctor-output versions. This cache stays strictly at version 1 — a
+  // future shape change here requires an explicit migration.
   schema_version: 1;
   status: LocalEngineStatus;
   cached_at: number;
@@ -220,12 +227,20 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
   if (!existsSync(gbrainConfigPath())) return "missing-config";
 
   // 3. Probe gbrain sources list.
+  //
+  // Seed DATABASE_URL from ~/.gbrain/config.json (via buildGbrainEnv, the
+  // same helper the sync orchestrator uses in lib/gbrain-exec.ts). Without
+  // this, Bun autoloads a project's .env when the probe runs inside a repo
+  // that defines its own DATABASE_URL (e.g. an app DB on a different port),
+  // gbrain connects to the wrong DB, and the classifier falsely reports
+  // broken-db. This also makes the result cwd-independent, so the 60s cache
+  // can no longer propagate a poisoned negative to clean directories.
   try {
     execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
       timeout: PROBE_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
-      env: env ?? process.env,
+      env: buildGbrainEnv({ baseEnv: env ?? process.env }),
     });
     return "ok";
   } catch (err) {

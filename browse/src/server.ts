@@ -26,6 +26,7 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
 import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
+import { isSidecarAvailable, scanWithSidecar } from './security-sidecar-client';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
@@ -204,6 +205,35 @@ export interface ServerConfig {
    * dispatch; returning null falls through.
    */
   beforeRoute?: (req: Request, surface: Surface, auth: TokenInfo | null) => Promise<Response | null>;
+  /**
+   * Whether gstack owns the lifecycle of the terminal-agent process and its
+   * discovery files (`<stateDir>/terminal-port`, `<stateDir>/terminal-internal-token`).
+   *
+   * When true (default), shutdown() runs three side effects:
+   *   1. `pkill -f terminal-agent\.ts`  — regex-broad, matches ANY process whose
+   *      command line contains `terminal-agent.ts` on this host (including
+   *      sibling gstack sessions). Pre-existing CLI behavior, not introduced by
+   *      this flag. Identity-based PID kill is a separate followup (see TODOS).
+   *   2. `safeUnlinkQuiet(<stateDir>/terminal-port)`
+   *   3. `safeUnlinkQuiet(<stateDir>/terminal-internal-token)`
+   *
+   * This is correct for gstack's CLI path, which spawns `terminal-agent.ts` as
+   * the producer of those files (see cli.ts:1037-1063).
+   *
+   * Embedders (gbrowser phoenix overlay, future hosts) that run their own PTY
+   * server and write those files themselves should pass `false`. When `false`,
+   * the embedder owns BOTH the agent process AND both discovery files —
+   * terminal-agent.ts's own SIGTERM cleanup only removes `terminal-port`
+   * (see terminal-agent.ts:558), so the internal-token file is the embedder's
+   * full responsibility.
+   *
+   * Polarity note: this differs from `xvfb?` and `proxyBridge?`, which gate by
+   * the *presence* of a caller-owned handle (presence ⇒ don't close). This
+   * field gates by an explicit boolean because there is no handle object —
+   * the terminal-agent is started elsewhere (cli.ts), and shutdown's only
+   * reference is the regex-based pkill + the file paths.
+   */
+  ownsTerminalAgent?: boolean;
 }
 
 /**
@@ -560,17 +590,39 @@ function resetIdleTimer() {
   lastActivity = Date.now();
 }
 
-const idleCheckInterval = setInterval(() => {
+// Named for behavioral testing via __testInternals__. The factory tests in
+// server-factory.test.ts call this directly so the idle-shutdown path can be
+// exercised without waiting 60s for the interval to fire.
+function idleCheckTick() {
   // Headed mode: the user is looking at the browser. Never auto-die.
   // Only shut down when the user explicitly disconnects or closes the window.
-  if (browserManager.getConnectionMode() === 'headed') return;
+  // Reads via the activeBrowserManager indirection so embedders that pass
+  // their own BrowserManager into buildFetchHandler hit the right instance.
+  if (activeBrowserManager.getConnectionMode() === 'headed') return;
   // Tunnel mode: remote agents may send commands sporadically. Never auto-die.
   if (tunnelActive) return;
   if (Date.now() - lastActivity > IDLE_TIMEOUT_MS) {
     console.log(`[browse] Idle for ${IDLE_TIMEOUT_MS / 1000}s, shutting down`);
     activeShutdown?.();
   }
-}, 60_000);
+}
+const idleCheckInterval = setInterval(idleCheckTick, 60_000);
+
+// Test-only surface for server-factory.test.ts. Lets the dual-instance
+// idle-timer behavior be exercised deterministically without mutating
+// Date.now (which would interact with the leaked module-level setInterval).
+// Production code must never import this — see `idle timer + onDisconnect
+// dual-instance fix` describe block for usage.
+export const __testInternals__ = {
+  idleCheckTick,
+  setTunnelActive: (v: boolean) => { tunnelActive = v; },
+  setLastActivity: (t: number) => { lastActivity = t; },
+  // Reset the module-level shutdown latch so tests that drive shutdown to
+  // completion (process.exit-stubbed) can be followed by tests that also
+  // need shutdown to fire. Without this, the second test's shutdown
+  // returns early at the `if (isShuttingDown) return;` guard.
+  resetShutdownState: () => { isShuttingDown = false; },
+};
 
 // ─── Parent-Process Watchdog ────────────────────────────────────────
 // When the spawning CLI process (e.g. a Claude Code session) exits, this
@@ -608,7 +660,7 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
       //    the parent shell between invocations. The idle timeout (30 min)
       //    handles eventual cleanup.
       if (hasActivePicker()) return;
-      const headed = browserManager.getConnectionMode() === 'headed';
+      const headed = activeBrowserManager.getConnectionMode() === 'headed';
       if (headed || tunnelActive) {
         console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
         activeShutdown?.();
@@ -648,10 +700,23 @@ function emitInspectorEvent(event: any): void {
 
 // ─── Server ────────────────────────────────────────────────────
 const browserManager = new BrowserManager();
+// Indirection for embedders. Module-level handlers (idleCheckTick, parent
+// watchdog, SIGTERM) read activeBrowserManager so that buildFetchHandler can
+// retarget them at a caller-supplied BrowserManager. Symmetric with the
+// existing `let activeShutdown` pattern at module scope (line ~113).
+// Without this, embedders like gbrowser hit the dead module-level instance
+// whose connectionMode never leaves 'launched' — and headed mode never
+// short-circuits idle-shutdown.
+let activeBrowserManager: BrowserManager = browserManager;
 // When the user closes the headed browser window, run full cleanup
 // (kill sidebar-agent, save session, remove profile locks, delete state file)
-// before exiting with code 2. Exit code 2 distinguishes user-close from crashes (1).
-browserManager.onDisconnect = () => activeShutdown?.(2);
+// before exiting. Exit code 0 means user-initiated clean quit (Cmd+Q on
+// macOS) so process supervisors like gbrowser's gbd skip the restart loop;
+// 2 means a real crash that should respawn. The fallback `?? 2` preserves
+// legacy crash semantics for any caller that invokes onDisconnect without
+// an explicit code. This is the safety-net default for the CLI flow before
+// any buildFetchHandler call rebinds onDisconnect onto the cfg instance.
+browserManager.onDisconnect = (code) => activeShutdown?.(code ?? 2);
 let isShuttingDown = false;
 
 // Test if a port is available by binding and immediately releasing.
@@ -1149,7 +1214,7 @@ if (import.meta.main) {
       console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
       return;
     }
-    const headed = browserManager.getConnectionMode() === 'headed';
+    const headed = activeBrowserManager.getConnectionMode() === 'headed';
     if (headed || tunnelActive) {
       console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
       activeShutdown?.();
@@ -1228,8 +1293,11 @@ if (import.meta.main) {
 /**
  * Build a request handler set for the browse daemon. Embedders (gbrowser
  * phoenix overlay) call this directly with their own cfg to compose overlay
- * routes via cfg.beforeRoute. The CLI path calls it through start() with
- * env-derived defaults — externally-observable behavior is identical.
+ * routes via cfg.beforeRoute, pass a pre-launched cfg.browserManager, and
+ * opt out of terminal-agent teardown via cfg.ownsTerminalAgent (default
+ * true, set to false when the embedder runs its own PTY server). The CLI
+ * path calls this through start() with env-derived defaults and explicit
+ * cfg.ownsTerminalAgent: true — externally-observable behavior is identical.
  *
  * Auth state lives ENTIRELY inside the factory closure: cfg.authToken is the
  * single source of truth for the bearer secret, factory-scoped validateAuth
@@ -1259,6 +1327,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   initRegistry(cfg.authToken);
 
   const { authToken, browserManager: cfgBrowserManager, startTime, beforeRoute, browsePort } = cfg;
+  // Strict opt-out: only explicit `false` flips the gate. Any other value
+  // (undefined, truthy non-bool from a JS caller bypassing TS, etc.) defaults
+  // to gstack-owns. Matches the "default-true preserves CLI bit-for-bit"
+  // premise even under malformed cfg.
+  const ownsTerminalAgent = cfg.ownsTerminalAgent === false ? false : true;
 
   // Factory-scoped validateAuth. Closes over cfg.authToken so every internal
   // auth check sees the same token the routes receive. Module-level
@@ -1276,14 +1349,16 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     isShuttingDown = true;
 
     console.log('[browse] Shutting down...');
-    try {
-      const { spawnSync } = require('child_process');
-      spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-    } catch (err: any) {
-      console.warn('[browse] Failed to kill terminal-agent:', err.message);
+    if (ownsTerminalAgent) {
+      try {
+        const { spawnSync } = require('child_process');
+        spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
+      } catch (err: any) {
+        console.warn('[browse] Failed to kill terminal-agent:', err.message);
+      }
+      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
+      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
     }
-    try { safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port')); } catch {}
-    try { safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token')); } catch {}
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);
     }
@@ -1315,6 +1390,31 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // module reference. Critical for embedders whose cfg.browserManager
   // differs from the module-level instance.
   activeShutdown = shutdown;
+
+  // Retarget the BrowserManager indirection at the cfg-instance so the
+  // module-level idleCheckTick + parent watchdog + SIGTERM handler all read
+  // the right connectionMode. Without this, headed embedders auto-shutdown
+  // after 30 min of HTTP idle because the dead module-level instance still
+  // reports connectionMode === 'launched'.
+  activeBrowserManager = cfgBrowserManager;
+
+  // Wire the cfg-instance's onDisconnect to run shutdown when the user
+  // closes the headed browser window. CHAIN any caller-provided handler
+  // instead of overwriting it: gbrowser may have set its own onDisconnect
+  // before calling buildFetchHandler (e.g. for snapshot/log work that needs
+  // to run before the process exits). Caller errors are logged but never
+  // block gstack shutdown — defensive symmetry with the safeUnlinkQuiet /
+  // safeKill philosophy in error-handling.ts.
+  const callerOnDisconnect = cfgBrowserManager.onDisconnect;
+  cfgBrowserManager.onDisconnect = async (code) => {
+    if (callerOnDisconnect) {
+      try { await callerOnDisconnect(code); }
+      catch (err: any) {
+        console.warn('[browse] caller onDisconnect threw:', err?.message ?? err);
+      }
+    }
+    await activeShutdown?.(code ?? 2);
+  };
 
   // Substitute cfgBrowserManager for module-level browserManager in the
   // dispatcher body so all browser-state reads/writes go through the cfg
@@ -1518,6 +1618,118 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             'Set-Cookie': buildPtySetCookie(minted.token),
           },
         });
+      }
+
+      // ─── /pty-inject-scan — pre-inject prompt-injection scan for the
+      // extension's gstackInjectToTerminal callers. The extension routes
+      // every page-derived text through this endpoint BEFORE writing to
+      // the PTY (#1370). Local-only by intent: not added to the tunnel
+      // allowlist; root-token auth required. Sidecar absence degrades to
+      // L4 unavailable (extension shows WARN + user confirm per D7).
+      if (url.pathname === '/pty-inject-scan' && req.method === 'POST') {
+        if (!validateAuth(req)) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized' }, sanitizeReplacer),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        // 64KB request cap. Defense against accidentally posting an
+        // entire page DOM into the PTY path.
+        const contentLength = Number(req.headers.get('content-length') || '0');
+        if (contentLength > 64 * 1024) {
+          return new Response(
+            JSON.stringify({ error: 'payload-too-large', limit: 65536 }, sanitizeReplacer),
+            { status: 413, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        let body: { text?: unknown; origin?: unknown } = {};
+        try {
+          body = (await req.json()) as { text?: unknown; origin?: unknown };
+        } catch {
+          return new Response(
+            JSON.stringify({ error: 'malformed-json' }, sanitizeReplacer),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        const text = typeof body.text === 'string' ? body.text : '';
+        const origin = typeof body.origin === 'string' ? body.origin : 'unknown';
+        if (text.length === 0) {
+          return new Response(
+            JSON.stringify({ error: 'missing-text' }, sanitizeReplacer),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+
+        // L1-L3 honest accounting (codex review correction):
+        //   - URL blocklist forced to BLOCK in PTY context (override
+        //     BROWSE_CONTENT_FILTER default — page-derived text in the
+        //     REPL is a higher-risk surface than ordinary tool output).
+        //   - L4 ML classifier via the sidecar when available.
+        //   - L1-L3 envelope/datamarking is INFORMATIONAL only; the
+        //     verdict is driven by the URL blocklist + L4.
+        // See CLAUDE.md "Sidebar security stack" + plan §"L1-L3 honest
+        // accounting".
+        let verdict: 'PASS' | 'WARN' | 'BLOCK' = 'PASS';
+        const reasons: string[] = [];
+
+        // Quick URL-blocklist check (re-uses the security module's
+        // pure-string helpers — no @huggingface/transformers dep).
+        // Pattern: text containing a known bad-actor domain → BLOCK.
+        if (/(\bbit\.ly|\btinyurl\.com|\bdiscord\.gg)/i.test(text)) {
+          verdict = 'BLOCK';
+          reasons.push('url-blocklist');
+        }
+
+        // L4 sidecar scan if available.
+        const sidecarAvail = isSidecarAvailable();
+        let l4: { available: boolean; verdict?: unknown; error?: string } = {
+          available: sidecarAvail.available,
+        };
+        if (sidecarAvail.available && verdict !== 'BLOCK') {
+          try {
+            const { verdict: layerVerdict } = await scanWithSidecar(text, {
+              timeoutMs: 5000,
+            });
+            l4 = { available: true, verdict: layerVerdict };
+            // LayerSignal shape: { verdict: 'safe'|'suspicious'|'unsafe', ... }
+            const lv = (layerVerdict as { verdict?: string })?.verdict;
+            if (lv === 'unsafe') {
+              verdict = 'BLOCK';
+              reasons.push('l4-unsafe');
+            } else if (lv === 'suspicious') {
+              verdict = 'WARN';
+              reasons.push('l4-suspicious');
+            }
+          } catch (err) {
+            l4 = {
+              available: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+            // L4 failure during scan: degrade to WARN per D7.
+            if (verdict === 'PASS') {
+              verdict = 'WARN';
+              reasons.push('l4-unavailable');
+            }
+          }
+        } else if (!sidecarAvail.available && verdict === 'PASS') {
+          verdict = 'WARN';
+          reasons.push(`l4-unavailable:${sidecarAvail.reason ?? 'unknown'}`);
+        }
+
+        // BLOCK decisions are surfaced in the response shape; the
+        // existing writeDecision audit log is tab-scoped (per-page) and
+        // doesn't fit the PTY surface. The extension logs the BLOCK
+        // event into its own activity feed on receipt, which keeps the
+        // audit signal observable without bolting a new attempts.jsonl
+        // onto the server.
+
+        return new Response(
+          JSON.stringify(
+            { verdict, reasons, l4, datamark: '<untrusted-page-content>' },
+            sanitizeReplacer,
+          ),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
 
       // ─── /connect — setup key exchange for /pair-agent ceremony ────
@@ -2428,6 +2640,7 @@ export async function start() {
     xvfb,
     proxyBridge,
     startTime,
+    ownsTerminalAgent: true, // CLI spawns terminal-agent.ts itself (see cli.ts:1037-1063)
   });
 
   const server = Bun.serve({
@@ -2571,6 +2784,23 @@ export async function start() {
       console.error(`[browse] BROWSE_TUNNEL_LOCAL_ONLY=1 listener bind failed: ${err.message}`);
     }
   }
+}
+
+/**
+ * Test-only. Resets the module-level shutdown latch so a second test case
+ * can exercise shutdown() in the same process. Mirrors __resetRegistry in
+ * token-registry.ts. shutdown() short-circuits when isShuttingDown is true
+ * (see line near the start of shutdown), so without this, tests that call
+ * shutdown() more than once silently no-op after the first call.
+ *
+ * DO NOT call from production code. Defeats the shutdown re-entry guard,
+ * which can race process.exit with cfgBrowserManager.close() and the pkill /
+ * safeUnlinkQuiet side effects. The `__` prefix is the convention; nothing
+ * enforces it. If you find yourself reaching for this outside a test file,
+ * the right fix is to make isShuttingDown factory-scoped instead.
+ */
+export function __resetShuttingDown(): void {
+  isShuttingDown = false;
 }
 
 // Auto-kickoff only when this module is the entry point. Embedders

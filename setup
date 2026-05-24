@@ -261,6 +261,37 @@ ensure_playwright_browser() {
   fi
 }
 
+prepare_bun_for_windows_compile() {
+  BUN_CMD="bun"
+  BUN_CMD_WAS_COPIED=0
+  [ "$IS_WINDOWS" -eq 1 ] || return 0
+
+  local bun_path
+  bun_path="$(command -v bun 2>/dev/null || true)"
+  case "$bun_path" in
+    *[![:ascii:]]*)
+      local bun_copy_dir="$SOURCE_GSTACK_DIR/.tmp-bun-bin"
+      mkdir -p "$bun_copy_dir"
+      cp -f "$bun_path" "$bun_copy_dir/bun.exe"
+      BUN_CMD="$bun_copy_dir/bun.exe"
+      BUN_CMD_WAS_COPIED=1
+      ;;
+  esac
+}
+
+bun_cmd() {
+  "$BUN_CMD" "$@"
+}
+
+cleanup_copied_bun() {
+  if [ "${BUN_CMD_WAS_COPIED:-0}" -eq 1 ]; then
+    rm -rf "$SOURCE_GSTACK_DIR/.tmp-bun-bin"
+  fi
+}
+
+prepare_bun_for_windows_compile
+trap cleanup_copied_bun EXIT
+
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
 if [ ! -x "$BROWSE_BIN" ]; then
@@ -277,8 +308,8 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   log "Building browse binary..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run build
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run build
   )
   # Safety net: write .version if build script didn't (e.g., git not available during build)
   if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
@@ -337,8 +368,8 @@ if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   log "Generating .agents/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host codex
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host codex
   )
 fi
 
@@ -347,8 +378,8 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   log "Generating .factory/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host factory
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host factory
   )
 fi
 
@@ -357,8 +388,8 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   log "Generating .opencode/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host opencode
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host opencode
   )
 fi
 
@@ -450,6 +481,26 @@ link_claude_skill_dirs() {
     echo "  linked skills: ${linked[*]}"
     _print_windows_copy_note_once
   fi
+}
+
+# Claude Code skips the repo-shaped ~/.claude/skills/gstack directory when
+# building the user-facing slash-command list. Keep the repo path for runtime
+# assets, and add a separate thin wrapper whose frontmatter name remains
+# `gstack` so `/gstack` can autocomplete.
+link_claude_root_skill_alias() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local target="$skills_dir/_gstack-command"
+
+  [ -f "$gstack_dir/SKILL.md" ] || return 0
+  if [ -L "$target" ]; then
+    rm -f "$target"
+  fi
+  mkdir -p "$target"
+  if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
+  _link_or_copy "$gstack_dir/SKILL.md" "$target/SKILL.md"
+  echo "  linked root skill alias: gstack"
+  _print_windows_copy_note_once
 }
 
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
@@ -838,6 +889,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # reads the correct (patched) name: values for symlink naming
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
@@ -909,6 +961,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       fi
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true

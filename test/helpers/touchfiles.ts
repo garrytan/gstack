@@ -360,6 +360,19 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/agent-sdk-runner.ts',
     'scripts/resolvers/model-overlay.ts',
   ],
+
+  // /ios-qa — agent flow E2E. Daemon + stub StateServer + codegen
+  // exercised end-to-end. The no-device path is gate-tier; the with-device
+  // path requires GSTACK_HAS_IOS_DEVICE=1 and is periodic-tier.
+  'ios-qa-e2e':       ['ios-qa/**', 'ios-fix/**', 'ios-design-review/**', 'ios-clean/**', 'ios-sync/**', 'test/skill-e2e-ios.test.ts'],
+  // Swift-build invariant test — requires the Swift toolchain. Compiles the
+  // fixture SPM package + runs the XCTest suite that validates the real
+  // Swift StateServer implementation (loopback bind, boot token rotation,
+  // session lock). Periodic-tier — Swift build is heavier than TS unit tests.
+  'ios-qa-swift-build': ['ios-qa/templates/**', 'test/fixtures/ios-qa/FixtureApp/**', 'test/skill-e2e-ios-swift-build.test.ts'],
+  // Real-device path — only runs with GSTACK_HAS_IOS_DEVICE=1 + a paired
+  // iPhone. Validates the CoreDevice agent + iOS SDK toolchain. Periodic-tier.
+  'ios-qa-device':    ['ios-qa/templates/**', 'test/fixtures/ios-qa/FixtureApp/**', 'test/skill-e2e-ios-device.test.ts'],
 };
 
 /**
@@ -626,6 +639,14 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Overlay efficacy harness (SDK, paid) — periodic only
   'overlay-harness-opus-4-7-fanout-toy': 'periodic',
   'overlay-harness-opus-4-7-fanout-realistic': 'periodic',
+
+  // /ios-qa daemon + codegen — no-device path runs every PR (no hardware
+  // dependency, deterministic). with-device path requires GSTACK_HAS_IOS_DEVICE.
+  'ios-qa-e2e': 'gate',
+  // Swift toolchain only, no device required, but heavier than TS unit tests.
+  'ios-qa-swift-build': 'periodic',
+  // Requires a real connected + paired iPhone. Manual-trigger only.
+  'ios-qa-device': 'periodic',
 };
 
 /**

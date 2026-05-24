@@ -837,4 +837,29 @@ describe("sourceLocalPath", () => {
     });
     expect(sourceLocalPath("any-id", envWithBindir(bindir))).toBeNull();
   });
+
+  // gbrain v0.20+ wraps the response as `{sources: [...]}`. Older versions
+  // returned a flat array. sourceLocalPath was returning null (or crashing
+  // with `list.find is not a function` upstream) because it only handled
+  // the flat-array shape. Pin both shapes here.
+  it("handles {sources: [...]} wrapped shape (gbrain v0.20+)", () => {
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify({
+          sources: [
+            { id: "other-source", local_path: "/x" },
+            { id: "target-id", local_path: "/repo/match" },
+          ],
+        }),
+      },
+    });
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
+  });
+
+  it("returns null when the source is missing in the wrapped shape", () => {
+    makeShim(bindir, {
+      "sources list --json": { stdout: JSON.stringify({ sources: [] }) },
+    });
+    expect(sourceLocalPath("missing-id", envWithBindir(bindir))).toBeNull();
+  });
 });

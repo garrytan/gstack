@@ -683,7 +683,7 @@ function updateSendButton() {
   }
 }
 
-inspectorSendBtn.addEventListener('click', () => {
+inspectorSendBtn.addEventListener('click', async () => {
   if (!inspectorData) return;
 
   let message;
@@ -708,6 +708,20 @@ inspectorSendBtn.addEventListener('click', () => {
   // Inject into the running claude PTY so the user can ask claude to act
   // on the inspector data. Replaces the old `sidebar-command` route which
   // spawned a one-shot claude -p (sidebar-agent.ts is gone).
+  //
+  // Pre-scan via /pty-inject-scan before injection (D6, closes #1370).
+  // gstackScanForPTYInject is async; gstackInjectToTerminal stays sync.
+  const verdict = await window.gstackScanForPTYInject?.(message + '\n', 'inspector-send');
+  if (verdict?.verdict === 'BLOCK') {
+    console.warn('[gstack sidebar] Inspector send BLOCKED by /pty-inject-scan:', verdict.reasons);
+    return;
+  }
+  if (verdict?.verdict === 'WARN') {
+    const confirmed = window.confirm(
+      `Inspector send flagged as suspicious (${(verdict.reasons || []).join(', ')}). Inject anyway?`,
+    );
+    if (!confirmed) return;
+  }
   const ok = window.gstackInjectToTerminal?.(message + '\n');
   if (!ok) {
     console.warn('[gstack sidebar] Inspector send needs an active Terminal session.');
@@ -735,6 +749,26 @@ async function runCleanup(...buttons) {
     'header/masthead, headline, article body, images, byline, and date. Also',
     'unlock scrolling if the page is scroll-locked.',
   ].join('\n');
+  // Pre-scan via /pty-inject-scan before injection (D6, closes #1370).
+  // The cleanup prompt is a STATIC template (no page-derived content), so
+  // it will always PASS, but we still route it through the scan path so
+  // the invariant test in test/extension-pty-inject-invariant.test.ts
+  // confirms every call site goes through gstackScanForPTYInject first.
+  const verdict = await window.gstackScanForPTYInject?.(cleanupPrompt + '\n', 'cleanup-button');
+  if (verdict?.verdict === 'BLOCK') {
+    console.warn('[gstack sidebar] Cleanup BLOCKED by /pty-inject-scan:', verdict.reasons);
+    setTimeout(() => buttons.forEach(b => b?.classList.remove('loading')), 200);
+    return;
+  }
+  if (verdict?.verdict === 'WARN') {
+    const confirmed = window.confirm(
+      `Cleanup flagged as suspicious (${(verdict.reasons || []).join(', ')}). Inject anyway?`,
+    );
+    if (!confirmed) {
+      setTimeout(() => buttons.forEach(b => b?.classList.remove('loading')), 200);
+      return;
+    }
+  }
   const sent = window.gstackInjectToTerminal?.(cleanupPrompt + '\n');
   if (!sent) {
     console.warn('[gstack sidebar] Cleanup needs an active Terminal session.');

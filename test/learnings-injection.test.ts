@@ -29,20 +29,34 @@ describe("gstack-learnings-search injection prevention", () => {
   test("uses process.env for all user-controlled values", () => {
     const bunBlock = script.slice(script.indexOf('bun -e "'));
 
-    // Must use process.env for TYPE, QUERY, LIMIT, SLUG, CROSS_PROJECT
+    // Must use process.env for TYPE, QUERY, LIMIT.
+    // SLUG and CROSS are no longer threaded as env vars inside the bun
+    // block since PR #1619 — current vs cross-project rows are now
+    // distinguished by inline tags in the piped input (`current\t<line>`
+    // vs `cross\t<line>`), removing the need for env-var filters inside
+    // the bun block. CROSS is still set on the bash command line (it
+    // controls whether the cross-project find runs at all), but the bun
+    // block reads the tag, not the env var.
     expect(bunBlock).toContain("process.env.GSTACK_SEARCH_TYPE");
     expect(bunBlock).toContain("process.env.GSTACK_SEARCH_QUERY");
     expect(bunBlock).toContain("process.env.GSTACK_SEARCH_LIMIT");
-    expect(bunBlock).toContain("process.env.GSTACK_SEARCH_SLUG");
-    expect(bunBlock).toContain("process.env.GSTACK_SEARCH_CROSS");
   });
 
   test("env vars are set on the bun command line", () => {
-    // The env vars must be passed to bun, not just set in the shell
+    // The env vars must be passed to bun, not just set in the shell.
+    // SLUG removed by PR #1619 — see above.
     expect(script).toContain("GSTACK_SEARCH_TYPE=");
     expect(script).toContain("GSTACK_SEARCH_QUERY=");
     expect(script).toContain("GSTACK_SEARCH_LIMIT=");
-    expect(script).toContain("GSTACK_SEARCH_SLUG=");
     expect(script).toContain("GSTACK_SEARCH_CROSS=");
+  });
+
+  test("current vs cross-project rows distinguished by inline tags, not SLUG env (#1619)", () => {
+    const bunBlock = script.slice(script.indexOf('bun -e "'));
+    // The bun block must inspect the per-line tag to mark cross-project rows.
+    // The current shape emits `current\t<json>` or `cross\t<json>` from the
+    // upstream pipe (via emit_tagged_file). Inside the bun block, the script
+    // parses out the leading tag and sets a per-entry flag.
+    expect(bunBlock).toMatch(/sourceTag|tabIndex|crossProject/);
   });
 });

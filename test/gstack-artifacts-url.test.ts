@@ -67,6 +67,24 @@ describe('gstack-artifacts-url', () => {
     expect(r.stderr).toContain('unrecognized URL form');
   });
 
+  test('rejects remotes without both owner and repo path segments', () => {
+    const malformed = [
+      'https://github.com',
+      'https://github.com/owner',
+      'https://github.com/owner/',
+      'https://github.com/owner//repo',
+      'git@github.com:owner',
+      'ssh://git@github.com',
+      'ssh://git@github.com/owner',
+    ];
+
+    for (const url of malformed) {
+      const r = run(['--to', 'ssh', url]);
+      expect(r.code, url).toBe(3);
+      expect(r.stderr, url).toContain('failed to parse host/owner');
+    }
+  });
+
   test('rejects missing args with exit 2', () => {
     expect(run([]).code).toBe(2);
     expect(run(['--to']).code).toBe(2);

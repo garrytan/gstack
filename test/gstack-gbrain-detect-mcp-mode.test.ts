@@ -267,6 +267,10 @@ describe('schema regression', () => {
       'gbrain_local_status',
       'gbrain_mcp_mode',
       'gbrain_on_path',
+      // PR #1591 added gbrain_pooler_mode for PgBouncer transaction-mode
+      // detection. Keep alphabetized; downstream sync-gbrain ignores unknown
+      // keys so adding here is forward-compat.
+      'gbrain_pooler_mode',
       'gbrain_version',
       'gstack_artifacts_remote',
       'gstack_brain_git',

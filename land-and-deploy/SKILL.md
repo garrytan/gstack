@@ -1455,6 +1455,49 @@ If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged 
 
 If the merge fails with a permission error: **STOP.** "I don't have permission to merge this PR. You'll need a maintainer to merge it, or check your repo's branch protection rules."
 
+### 4a-postfail: Post-failure PR-state check
+
+**Universal invariant:** after ANY non-zero exit from `gh pr merge`, query authoritative PR state before retrying or stopping. Do NOT retry `gh pr merge`. Related: cli/cli#3442, cli/cli#13380.
+
+```bash
+gh pr view --json state,mergeCommit,mergedAt,mergedBy
+```
+
+**If `state == "MERGED"`:**
+
+The server-side merge succeeded (possibly completed before the local cleanup phase failed, or a concurrent merge landed). Tell the user: "PR is merged on GitHub." (Do NOT say "the merge succeeded" — this handles the concurrent-merge case.)
+
+Capture merge SHA:
+```bash
+gh pr view --json mergeCommit -q .mergeCommit.oid
+```
+
+Worktree cleanup — non-destructive, candidate-based:
+```bash
+git worktree list --porcelain
+```
+Identify candidates: a worktree is stale if (a) it is checked out on the base branch, AND (b) it is not the user's current main working tree, AND (c) `git status --porcelain` inside it is empty (no uncommitted work).
+
+- For each clean candidate: OFFER to remove it. Say: "There's a stale worktree at `<path>` checked out on `<branch>` with no uncommitted work. Remove it?" Remove only if user confirms (`git worktree remove <path> && git worktree prune`).
+- If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
+- Do NOT use `--force`. Do NOT remove the user's primary working tree.
+
+Record `MERGE_PATH=direct`, then continue to §4a (CI auto-deploy detection).
+
+**If `state == "OPEN"`:**
+
+Check whether auto-merge is enabled:
+```bash
+gh pr view --json autoMergeRequest -q .autoMergeRequest
+```
+
+- If non-null: auto-merge is enabled or merge queue is in use. The open state is expected — proceed to §4a's merge-queue wait path.
+- If null: genuine failure. Surface both errors — the `gh pr merge` stderr AND the current PR open state — then **STOP**.
+
+**If `state == "CLOSED"`:** PR was closed without merging. **STOP.**
+
+**Hard rule: never call `gh pr merge` a second time** after a non-zero exit. Server state is authoritative.
+
 ### 4a: Merge queue detection and messaging
 
 If `MERGE_PATH=auto` and the PR state does not immediately become `MERGED`, the PR is

@@ -187,6 +187,37 @@ describe('gstack-relink (#578)', () => {
     expect(fs.lstatSync(path.join(skillsDir, 'qa', 'SKILL.md')).isSymbolicLink()).toBe(true);
   });
 
+  test('creates a thin root alias wrapper for the /gstack slash command', () => {
+    setupMockInstall(['qa']);
+    fs.writeFileSync(
+      path.join(installDir, 'SKILL.md'),
+      '---\nname: gstack\ndescription: root\n---\n# gstack',
+    );
+
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    const aliasDir = path.join(skillsDir, '_gstack-command');
+    const aliasSkill = path.join(aliasDir, 'SKILL.md');
+    expect(fs.lstatSync(aliasDir).isDirectory()).toBe(true);
+    expect(fs.lstatSync(aliasDir).isSymbolicLink()).toBe(false);
+    expect(fs.lstatSync(aliasSkill).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(aliasSkill)).toBe(path.join(installDir, 'SKILL.md'));
+    expect(fs.readFileSync(aliasSkill, 'utf-8')).toContain('name: gstack');
+
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    expect(fs.existsSync(aliasSkill)).toBe(true);
+  });
+
   // FIRST INSTALL: --no-prefix must create ONLY flat names, zero gstack-* pollution
   test('first install --no-prefix: only flat names exist, zero gstack-* entries', () => {
     setupMockInstall(['qa', 'ship', 'review', 'plan-ceo-review', 'gstack-upgrade']);

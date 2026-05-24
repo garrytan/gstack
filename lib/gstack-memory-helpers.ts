@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, appendFileSync } from "fs";
 import { dirname, join } from "path";
-import { execSync, execFileSync } from "child_process";
+import { execFileSync } from "child_process";
 import { homedir } from "os";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -122,7 +122,11 @@ let _gitleaksAvailability: boolean | null = null;
 function gitleaksAvailable(): boolean {
   if (_gitleaksAvailability !== null) return _gitleaksAvailability;
   try {
-    execSync("command -v gitleaks", { stdio: "ignore" });
+    execFileSync("gitleaks", ["version"], {
+      env: process.env,
+      stdio: "ignore",
+      timeout: 2_000,
+    });
     _gitleaksAvailability = true;
   } catch {
     _gitleaksAvailability = false;
@@ -157,7 +161,7 @@ export function secretScanFile(path: string): SecretScanResult {
     const out = execFileSync(
       "gitleaks",
       ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", "/dev/stdout", "--exit-code", "0"],
-      { encoding: "utf-8", maxBuffer: 16 * 1024 * 1024 }
+      { encoding: "utf-8", env: process.env, maxBuffer: 16 * 1024 * 1024 }
     );
     const trimmed = out.trim();
     if (!trimmed) return { scanned: true, findings: [], scanner: "gitleaks" };

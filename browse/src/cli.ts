@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
@@ -217,8 +218,6 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   safeUnlink(config.stateFile);
   safeUnlink(path.join(config.stateDir, 'browse-startup-error.log'));
 
-  let proc: any = null;
-
   // Allow the caller to opt out of the parent-process watchdog by setting
   // BROWSE_PARENT_PID=0 in the environment. Useful for CI, non-interactive
   // shells, and short-lived Bash invocations that need the server to outlive
@@ -240,12 +239,22 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
-    // macOS/Linux: Bun.spawn + unref works correctly
-    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
+    // loop — it does NOT call setsid(), so the spawned server stays in the
+    // parent's process session. When the CLI runs inside a session-managed
+    // shell (e.g. Claude Code's per-command Bash sandbox, Conductor, CI
+    // step runners), the session leader's exit sends SIGHUP to every PID in
+    // the session, killing the bun server (and its Chromium grandchildren).
+    // Even with BROWSE_PARENT_PID=0 disabling the watchdog, SIGHUP still
+    // reaps the server. Use Node's child_process.spawn with detached:true,
+    // which calls setsid() so the server becomes its own session leader
+    // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
+    // the Windows path's rationale — same root cause, different OS API.
+    nodeSpawn('bun', ['run', SERVER_SCRIPT], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
-    });
-    proc.unref();
+    }).unref();
   }
 
   // Wait for server to become healthy.
@@ -260,27 +269,17 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     await Bun.sleep(100);
   }
 
-  // Server didn't start in time — try to get error details
-  if (proc?.stderr) {
-    // macOS/Linux: read stderr from the spawned process
-    const reader = proc.stderr.getReader();
-    const { value } = await reader.read();
-    if (value) {
-      const errText = new TextDecoder().decode(value);
-      throw new Error(`Server failed to start:\n${errText}`);
+  // Server didn't start in time — check the on-disk startup error log.
+  // Both platforms now spawn with stdio: 'ignore', so the server writes
+  // errors to disk for the CLI to read (see server.ts start().catch).
+  const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+  try {
+    const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
+    if (errorLog) {
+      throw new Error(`Server failed to start:\n${errorLog}`);
     }
-  } else {
-    // Windows: check startup error log (server writes errors to disk since
-    // stderr is unavailable due to stdio: 'ignore' for detachment)
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    try {
-      const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
-      if (errorLog) {
-        throw new Error(`Server failed to start:\n${errorLog}`);
-      }
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') throw e;
-    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') throw e;
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }

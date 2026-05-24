@@ -80,6 +80,115 @@ const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
+// Default 35-minute timeout for code-walk + memory-ingest stages. Override via
+// GSTACK_SYNC_CODE_TIMEOUT_MS / GSTACK_SYNC_MEMORY_TIMEOUT_MS. Bounds-checked
+// in resolveStageTimeoutMs below so wildly-low values don't make resume
+// useless and wildly-high values don't mask config typos. See #1611.
+const DEFAULT_STAGE_TIMEOUT_MS = 35 * 60 * 1000; // 2_100_000ms = 35min
+const MIN_STAGE_TIMEOUT_MS = 60_000;             // 1 minute floor
+const MAX_STAGE_TIMEOUT_MS = 86_400_000;         // 24 hour ceiling
+
+/**
+ * Parse a stage-timeout env value with bounds validation. Returns the bounded
+ * value or the default with a stderr warning if the env was malformed or
+ * out-of-range. Exported for the regression test.
+ */
+export function resolveStageTimeoutMs(
+  envValue: string | undefined,
+  envName: string,
+): number {
+  if (envValue === undefined || envValue === "") return DEFAULT_STAGE_TIMEOUT_MS;
+  const n = Number.parseInt(envValue, 10);
+  if (!Number.isFinite(n) || Number.isNaN(n) || n <= 0) {
+    console.warn(
+      `[sync] ${envName}="${envValue}" is not a positive integer; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  if (n < MIN_STAGE_TIMEOUT_MS) {
+    console.warn(
+      `[sync] ${envName}=${n} is below the ${MIN_STAGE_TIMEOUT_MS}ms (1min) floor; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  if (n > MAX_STAGE_TIMEOUT_MS) {
+    console.warn(
+      `[sync] ${envName}=${n} is above the ${MAX_STAGE_TIMEOUT_MS}ms (24h) ceiling; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  return n;
+}
+
+/**
+ * gbrain writes ~/.gbrain/import-checkpoint.json on every import run. If a
+ * previous /sync-gbrain hit the timeout (SIGTERM = exit 143), the checkpoint
+ * + its staging dir survive on disk. Detect both and let gbrain resume from
+ * processedIndex+1 on the next run. If the staging dir is missing/empty/
+ * unreadable, fall through to a fresh restage with a one-line warning so the
+ * user sees we noticed. See #1611 + plan D1/C1.
+ */
+interface GbrainCheckpoint {
+  dir?: string;
+  totalFiles?: number;
+  processedIndex?: number;
+  completedFiles?: number;
+  timestamp?: string;
+}
+
+export function readGbrainCheckpoint(): GbrainCheckpoint | null {
+  // Read HOME from env so tests can redirect via process.env.HOME = ...
+  // (Node/Bun's os.homedir() caches at process start and ignores later
+  // mutations.)
+  const home = process.env.HOME || homedir();
+  const cpPath = join(home, ".gbrain", "import-checkpoint.json");
+  if (!existsSync(cpPath)) return null;
+  try {
+    const raw = readFileSync(cpPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as GbrainCheckpoint;
+  } catch {
+    // Corrupt JSON — treat as no checkpoint and fall through to fresh restage.
+    return null;
+  }
+}
+
+export type ResumeVerdict =
+  | { kind: "no-checkpoint" }
+  | { kind: "resume"; stagingDir: string; processedIndex: number; totalFiles: number }
+  | { kind: "stale-staging-missing"; stagingDir: string };
+
+/**
+ * Decide whether the next memory-ingest run should resume from gbrain's
+ * checkpoint or restage from scratch.
+ *   - no checkpoint              → run a fresh ingest pass
+ *   - checkpoint + staging ok    → resume (gbrain picks up at processedIndex+1)
+ *   - checkpoint + staging gone  → warn, fall through to fresh restage
+ */
+export function decideResume(): ResumeVerdict {
+  const cp = readGbrainCheckpoint();
+  if (!cp || !cp.dir) return { kind: "no-checkpoint" };
+  const stagingDir = cp.dir;
+  if (!existsSync(stagingDir)) {
+    return { kind: "stale-staging-missing", stagingDir };
+  }
+  // Treat "non-empty" as the safe-to-resume signal. statSync on a missing
+  // file throws; we already handled missing above so this is dir-level shape.
+  try {
+    const st = statSync(stagingDir);
+    if (!st.isDirectory()) return { kind: "stale-staging-missing", stagingDir };
+  } catch {
+    return { kind: "stale-staging-missing", stagingDir };
+  }
+  return {
+    kind: "resume",
+    stagingDir,
+    processedIndex: cp.processedIndex ?? 0,
+    totalFiles: cp.totalFiles ?? 0,
+  };
+}
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 
 function printUsage(): void {
@@ -287,13 +396,20 @@ function gbrainSupportsSourcesRename(env?: NodeJS.ProcessEnv): boolean {
  * `env` is the environment passed to the spawned `gbrain` process; defaults
  * to `process.env`. Tests inject a PATH that points at a gbrain shim so the
  * helper can be exercised without a real gbrain CLI.
+ *
+ * Shape note: `gbrain sources list --json` returns `{sources: [...]}` (v0.20+);
+ * older versions returned a flat array. Accept both for forward/backward compat
+ * (mirrors `probeSource`/`sourcePageCount` in lib/gbrain-sources.ts).
  */
 export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): string | null {
-  const list = execGbrainJson<Array<{ id: string; local_path?: string }>>(
+  const raw = execGbrainJson<unknown>(
     ["sources", "list", "--json"],
     { baseEnv: env },
   );
-  if (!list) return null;
+  if (!raw) return null;
+  const list: Array<{ id?: string; local_path?: string }> = Array.isArray(raw)
+    ? (raw as Array<{ id?: string; local_path?: string }>)
+    : ((raw as { sources?: Array<{ id?: string; local_path?: string }> }).sources ?? []);
   const found = list.find((s) => s.id === sourceId);
   return found?.local_path ?? null;
 }
@@ -589,26 +705,55 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  // Step 2: Run sync or reindex.
-  const syncArgs = args.mode === "full"
-    ? ["reindex-code", "--source", sourceId, "--yes"]
-    : ["sync", "--strategy", "code", "--source", sourceId];
-
-  const syncResult = spawnGbrain(syncArgs, {
+  // Step 2: Always run the page-creating file walk first, then (for --full)
+  // a full re-embed.
+  //
+  // `gbrain reindex-code` only RE-EMBEDS pages that already exist; it never
+  // walks the filesystem. On a freshly-registered source (0 pages) a --full
+  // run that called reindex-code alone found nothing ("No code pages to
+  // reindex"), finished in ~1s, and left the code index permanently empty
+  // while still reporting OK. The page-creating walk is `sync --strategy
+  // code`, so --full must run it FIRST, then reindex-code, to honor the
+  // documented "full walk + reindex" contract for both fresh and populated
+  // sources.
+  const codeTimeoutMs = resolveStageTimeoutMs(
+    process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
+    "GSTACK_SYNC_CODE_TIMEOUT_MS",
+  );
+  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 35 * 60 * 1000,
+    timeout: codeTimeoutMs,
     baseEnv: gbrainEnv,
   });
 
-  if (syncResult.status !== 0) {
+  if (walkResult.status !== 0) {
     return {
       name: "code",
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `gbrain ${syncArgs.join(" ")} exited ${syncResult.status}`,
+      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
+  }
+
+  if (args.mode === "full") {
+    const reindexResult = spawnGbrain(["reindex-code", "--source", sourceId, "--yes"], {
+      stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
+      timeout: codeTimeoutMs,
+      baseEnv: gbrainEnv,
+    });
+
+    if (reindexResult.status !== 0) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain reindex-code --source ${sourceId} exited ${reindexResult.status}`,
+        detail: { source_id: sourceId, source_path: root, status: "failed" },
+      };
+    }
   }
 
   // Step 3: Pin this worktree's CWD to the source via .gbrain-source. Subsequent
@@ -738,6 +883,25 @@ function runMemoryIngest(args: CliArgs): StageResult {
     return skipStageForLocalStatus("memory", localStatus, t0);
   }
 
+  // Resume detection (#1611 / plan D1 + C1). If a previous run hit the
+  // timeout and gbrain left ~/.gbrain/import-checkpoint.json plus its staging
+  // dir on disk, signal the grandchild via env so it skips the prepare phase
+  // and lets `gbrain import` resume from processedIndex+1 against the same
+  // staging dir. If the staging dir is gone (disk pressure cleanup, OS
+  // reboot, user manual cleanup), warn and fall through to a fresh restage.
+  const resume = decideResume();
+  const childEnv = buildGbrainEnv({ announce: false });
+  if (resume.kind === "resume") {
+    console.error(
+      `[sync:memory] resuming from gbrain checkpoint (${resume.processedIndex}/${resume.totalFiles} files staged at ${resume.stagingDir})`,
+    );
+    childEnv.GSTACK_INGEST_RESUME_DIR = resume.stagingDir;
+  } else if (resume.kind === "stale-staging-missing") {
+    console.error(
+      `[sync:memory] previous checkpoint stale (staging dir ${resume.stagingDir} gone), restaging from scratch`,
+    );
+  }
+
   const ingestPath = join(import.meta.dir, "gstack-memory-ingest.ts");
   const ingestArgs = ["run", ingestPath];
   if (args.mode === "full") ingestArgs.push("--bulk");
@@ -748,10 +912,14 @@ function runMemoryIngest(args: CliArgs): StageResult {
   // .env.local footgun affects gstack-memory-ingest.ts too, not just the
   // direct gbrain spawns in this file). The grandchild calls gbrain import
   // internally and must see the DATABASE_URL from gbrain's own config.
+  const memoryTimeoutMs = resolveStageTimeoutMs(
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS,
+    "GSTACK_SYNC_MEMORY_TIMEOUT_MS",
+  );
   const result = spawnSync("bun", ingestArgs, {
     encoding: "utf-8",
-    timeout: 35 * 60 * 1000,
-    env: buildGbrainEnv({ announce: false }),
+    timeout: memoryTimeoutMs,
+    env: childEnv,
   });
 
   // D6: parse [memory-ingest] lines from the child's stderr. ERR-prefixed

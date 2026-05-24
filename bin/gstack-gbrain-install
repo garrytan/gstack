@@ -217,4 +217,13 @@ if ! gbrain sources --help >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "Next: gbrain init --pglite   (or run /setup-gbrain for the full setup flow)"
+if [ -n "${VOYAGE_API_KEY:-}" ]; then
+  echo "Next: gbrain init --pglite --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024"
+  echo "      (or run /setup-gbrain for the full setup flow)"
+else
+  echo "Next: gbrain init --pglite   (or run /setup-gbrain for the full setup flow)"
+  echo ""
+  echo "Tip: set VOYAGE_API_KEY before init to use voyage-code-3 (best embedding"
+  echo "model for code retrieval on Voyage). Without it, gbrain falls back to its"
+  echo "auto-selected provider (OpenAI when OPENAI_API_KEY is set, etc.)."
+fi
