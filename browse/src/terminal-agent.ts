@@ -214,10 +214,7 @@ function disposeSession(session: PtySession): void {
  * Validate a loopback /internal/* request. Returns null when the request
  * is allowed; otherwise returns the Response to send back. Centralizes
  * bearer auth + the v1.44 X-Browse-Gen generation check so adding a new
- * /internal/* route is a one-liner. The full internalHandler<T> wrapper
- * arrives in Commit 1 alongside the new routes; this is the minimal
- * shape needed to gate the existing /internal/grant + /internal/revoke
- * without copy-pasting the gen check.
+ * /internal/* route is a one-liner.
  */
 function checkInternalAuth(req: Request): Response | null {
   const auth = req.headers.get('authorization');
@@ -231,6 +228,42 @@ function checkInternalAuth(req: Request): Response | null {
   return null;
 }
 
+/**
+ * Wrap a JSON-bodied /internal/* handler with the standard bearer-auth +
+ * generation-check + json-parse + error-response boilerplate. The handler
+ * `fn` is called with the parsed body; whatever it returns is JSON-stringified
+ * into a 200 Response, or the handler can return a Response directly to
+ * customize status / headers. Throwing from `fn` collapses to a 400 "bad".
+ *
+ * Centralizing the dance kills the copy-paste pattern of bearer + gen check
+ * + req.json().then(...).catch(...) that every /internal/* route needs.
+ * New routes become a single call to internalHandler.
+ */
+async function internalHandler<T>(
+  req: Request,
+  fn: (body: any) => T | Promise<T> | Response | Promise<Response>,
+): Promise<Response> {
+  const denied = checkInternalAuth(req);
+  if (denied) return denied;
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response('bad', { status: 400 });
+  }
+  try {
+    const result = await fn(body);
+    if (result instanceof Response) return result;
+    if (result === undefined || result === null) return new Response('ok');
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch {
+    return new Response('bad', { status: 400 });
+  }
+}
+
 function buildServer() {
   return Bun.serve({
     hostname: '127.0.0.1',
@@ -242,30 +275,25 @@ function buildServer() {
 
       // /internal/grant — loopback-only handshake from parent server.
       if (url.pathname === '/internal/grant' && req.method === 'POST') {
-        const denied = checkInternalAuth(req);
-        if (denied) return denied;
-        return req.json().then((body: any) => {
+        return internalHandler(req, (body) => {
           if (typeof body?.token === 'string' && body.token.length > 16) {
             validTokens.add(body.token);
           }
-          return new Response('ok');
-        }).catch(() => new Response('bad', { status: 400 }));
+        });
       }
 
       // /internal/revoke — drop a token (called on WS close or bootstrap reload)
       if (url.pathname === '/internal/revoke' && req.method === 'POST') {
-        const denied = checkInternalAuth(req);
-        if (denied) return denied;
-        return req.json().then((body: any) => {
+        return internalHandler(req, (body) => {
           if (typeof body?.token === 'string') validTokens.delete(body.token);
-          return new Response('ok');
-        }).catch(() => new Response('bad', { status: 400 }));
+        });
       }
 
       // /internal/healthz — liveness probe used by the v1.44 watchdog.
       // Returns this agent's pid + gen + active session count without
       // touching claude binary lookup (which can fail for non-process
-      // reasons and isn't a useful liveness signal).
+      // reasons and isn't a useful liveness signal). GET — no body to parse,
+      // so it stays on the bare checkInternalAuth gate.
       if (url.pathname === '/internal/healthz' && req.method === 'GET') {
         const denied = checkInternalAuth(req);
         if (denied) return denied;
