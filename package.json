@@ -67,6 +67,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
     "@anthropic-ai/sdk": "^0.78.0",
+    "@types/bun": "^1.3.14",
     "xterm": "5",
     "xterm-addon-fit": "^0.8.0"
   }
