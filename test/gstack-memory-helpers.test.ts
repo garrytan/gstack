@@ -244,6 +244,62 @@ body
     expect(m!.context_queries[0].id).toBe("complete");
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("parses a nested filter: block on a list query", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "filtered.md");
+    writeFileSync(
+      file,
+      `---
+name: investigate
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-investigations
+      kind: list
+      filter:
+        type: timeline
+        tags_contains: "repo:{repo_slug}"
+        content_contains: "investigate"
+      sort: updated_at_desc
+      limit: 5
+      render_as: "## Prior investigations in this repo"
+    - id: recent-no-filter
+      kind: list
+      sort: created_at_desc
+      limit: 3
+      render_as: "## Recent (no filter)"
+---
+
+body
+`
+    );
+
+    const m = parseSkillManifest(file);
+    expect(m).not.toBeNull();
+    expect(m!.context_queries).toHaveLength(2);
+
+    // The filter: sub-block is parsed into a key/value map, with quotes
+    // stripped and template vars left intact for downstream substitution.
+    const filtered = m!.context_queries[0];
+    expect(filtered.id).toBe("prior-investigations");
+    expect(filtered.filter).toEqual({
+      type: "timeline",
+      tags_contains: "repo:{repo_slug}",
+      content_contains: "investigate",
+    });
+    // Sibling fields on the same item still parse alongside the filter.
+    expect(filtered.sort).toBe("updated_at_desc");
+    expect(filtered.limit).toBe(5);
+    expect(filtered.render_as).toBe("## Prior investigations in this repo");
+
+    // A list query with no filter: leaves filter undefined (no regression).
+    expect(m!.context_queries[1].id).toBe("recent-no-filter");
+    expect(m!.context_queries[1].filter).toBeUndefined();
+    expect(m!.context_queries[1].sort).toBe("created_at_desc");
+
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 // ── withErrorContext ───────────────────────────────────────────────────────
