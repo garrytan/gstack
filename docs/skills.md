@@ -561,7 +561,7 @@ Findings get action, not just listed. Obvious mechanical fixes (dead code, stale
 
 ### Completeness gaps
 
-`/review` now flags shortcut implementations where the complete version costs less than 30 minutes of CC time. If you chose the 80% solution and the 100% solution is a lake, not an ocean, the review will call it out.
+`/review` now flags shortcut implementations where the complete version costs less than 30 minutes of CC time. If you chose the 80% solution and the 100% solution is reachable without a non-engineering blocker (multi-team coordination, regulatory approval, data that needs months to accumulate), the review will call it out.
 
 ### Example
 

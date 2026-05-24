@@ -50,8 +50,8 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
-echo "LAKE_INTRO: $_LAKE_SEEN"
+_OCEAN_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "OCEAN_INTRO: $_OCEAN_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
@@ -151,7 +151,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `OCEAN_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -160,7 +160,7 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if yes. Always run `touch`.
 
-If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
+If `TEL_PROMPTED` is `no` AND `OCEAN_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
 > Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
 
@@ -275,7 +275,7 @@ If marker exists, skip.
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
-- Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
+- Do NOT run upgrade checks, telemetry prompts, routing injection, or ocean intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
@@ -636,9 +636,9 @@ Jargon list, gloss on first use if the term appears:
 - buffer overflow
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap. The old "ocean" framing — rewrites and multi-quarter migrations that were too big to attempt — no longer applies when one person + AI ships in hours what teams used to take months for. Recommend the complete thing (tests, edge cases, error paths, full rewrites when warranted). Only flag work whose blocker is non-engineering time: multi-team coordination, regulatory approval, data that needs months to accumulate.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -838,7 +838,7 @@ Read the `/office-hours` skill file at `~/.claude/skills/gstack/office-hours/SKI
 Follow its instructions from top to bottom, **skipping these sections** (already handled by the parent skill):
 - Preamble (run first)
 - AskUserQuestion Format
-- Completeness Principle — Boil the Lake
+- Completeness Principle — Boil the Ocean
 - Search Before Building
 - Contributor Mode
 - Completion Status Protocol
@@ -881,14 +881,14 @@ surfaced at a final approval gate.
 These rules auto-answer every intermediate question:
 
 1. **Choose completeness** — Ship the whole thing. Pick the approach that covers more edge cases.
-2. **Boil lakes** — Fix everything in the blast radius (files modified by this plan + direct importers). Auto-approve expansions that are in blast radius AND < 1 day CC effort (< 5 files, no new infra).
+2. **Boil oceans** — Fix everything in the blast radius (files modified by this plan + direct importers). Auto-approve expansions that are in blast radius AND < 1 day CC effort (< 5 files, no new infra).
 3. **Pragmatic** — If two options fix the same thing, pick the cleaner one. 5 seconds choosing, not 5 minutes.
 4. **DRY** — Duplicates existing functionality? Reject. Reuse what exists.
 5. **Explicit over clever** — 10-line obvious fix > 200-line abstraction. Pick what a new contributor reads in 30 seconds.
 6. **Bias toward action** — Merge > review cycles > stale deliberation. Flag concerns but don't block.
 
 **Conflict resolution (context-dependent tiebreakers):**
-- **CEO phase:** P1 (completeness) + P2 (boil lakes) dominate.
+- **CEO phase:** P1 (completeness) + P2 (boil oceans) dominate.
 - **Eng phase:** P5 (explicit) + P3 (pragmatic) dominate.
 - **Design phase:** P5 (explicit) + P1 (completeness) dominate.
 
@@ -1044,7 +1044,7 @@ Read each file using the Read tool:
 (they are already handled by /autoplan):**
 - Preamble (run first)
 - AskUserQuestion Format
-- Completeness Principle — Boil the Lake
+- Completeness Principle — Boil the Ocean
 - Search Before Building
 - Completion Status Protocol
 - Telemetry (run last)

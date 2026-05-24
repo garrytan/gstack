@@ -63,7 +63,7 @@ function setupFixture(home: string): { gstackHome: string; counts: Record<string
   writeFileSync(join(codexDir, "rollout-1.jsonl"), codexSession, "utf-8");
 
   // gstack artifacts
-  writeFileSync(join(gstackHome, "analytics", "eureka.jsonl"), '{"insight":"boil the lake"}\n', "utf-8");
+  writeFileSync(join(gstackHome, "analytics", "eureka.jsonl"), '{"insight":"boil the ocean"}\n', "utf-8");
   writeFileSync(join(gstackHome, "builder-profile.jsonl"), '{"date":"2026-05-01","mode":"startup"}\n', "utf-8");
   writeFileSync(join(gstackHome, "projects", "test-repo", "learnings.jsonl"), '{"key":"a","insight":"b","confidence":8}\n', "utf-8");
   writeFileSync(join(gstackHome, "projects", "test-repo", "timeline.jsonl"), '{"skill":"office-hours","event":"completed"}\n', "utf-8");

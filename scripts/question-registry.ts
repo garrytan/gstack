@@ -539,7 +539,7 @@ export const QUESTIONS = {
     category: 'approval',
     door_type: 'two-way',
     options: ['accept', 'skip'],
-    description: "Open the Boil-the-Lake essay in your browser? (one-time intro)",
+    description: "Open the Boil-the-Ocean essay in your browser? (one-time intro)",
   },
   'preamble-cross-project-learnings': {
     id: 'preamble-cross-project-learnings',

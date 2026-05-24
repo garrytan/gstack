@@ -42,8 +42,8 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
-echo "LAKE_INTRO: $_LAKE_SEEN"
+_OCEAN_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "OCEAN_INTRO: $_OCEAN_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
@@ -179,7 +179,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `OCEAN_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -188,7 +188,7 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if yes. Always run `touch`.
 
-If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
+If `TEL_PROMPTED` is `no` AND `OCEAN_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
 > Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
 
@@ -303,7 +303,7 @@ If marker exists, skip.
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
-- Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
+- Do NOT run upgrade checks, telemetry prompts, routing injection, or ocean intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 

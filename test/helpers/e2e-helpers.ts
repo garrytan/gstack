@@ -249,7 +249,7 @@ export async function finalizeEvalCollector(evalCollector: EvalCollector | null)
   }
 }
 
-// Pre-seed preamble state files so E2E tests don't waste turns on lake intro + telemetry prompts.
+// Pre-seed preamble state files so E2E tests don't waste turns on ocean intro + telemetry prompts.
 // These are one-time interactive prompts that burn 3-7 turns per test if not pre-seeded.
 if (evalsEnabled) {
   const gstackDir = path.join(os.homedir(), '.gstack');

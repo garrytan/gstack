@@ -815,7 +815,7 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     test(`${skill} contains Completeness Principle section`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('Completeness Principle');
-      expect(content).toContain('Boil the Lake');
+      expect(content).toContain('Boil the Ocean');
     });
   }
 

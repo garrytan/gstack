@@ -31,26 +31,34 @@ The last 10% of completeness that teams used to skip? It costs seconds now.
 
 ---
 
-## 1. Boil the Lake
+## 1. Boil the Ocean
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When
 the complete implementation costs minutes more than the shortcut — do the
 complete thing. Every time.
 
-**Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module,
-full feature implementation, all edge cases, complete error paths. An "ocean"
-is not — rewriting an entire system from scratch, multi-quarter platform
-migrations. Boil lakes. Flag oceans as out of scope.
+**The ocean is no longer unboilable.** "Boil the ocean" used to be the
+canonical warning against overscoping — too vast, too ambitious, abandon
+ship. That premise is dead. Garry's gstack has made the impossible
+achievable: one person + AI now ships in hours what teams used to call
+multi-quarter. The work that was "an ocean" in 2022 is routine in 2026.
+So we flipped the idiom on purpose. Don't shrink your scope to fit the
+old constraint. Boil the ocean. The constraint moved.
 
 **Completeness is cheap.** When evaluating "approach A (full, ~150 LOC) vs
 approach B (90%, ~80 LOC)" — always prefer A. The 70-line delta costs
 seconds with AI coding. "Ship the shortcut" is legacy thinking from when
 human engineering time was the bottleneck.
 
+**The only thing still out of scope:** work whose blocker is not engineering
+time. Coordinating ten teams. Regulatory approval. A migration that needs
+six months of customer behavior data. Flag those. Everything else — boil it.
+
 **Anti-patterns:**
 - "Choose B — it covers 90% with less code." (If A is 70 lines more, choose A.)
-- "Let's defer tests to a follow-up PR." (Tests are the cheapest lake to boil.)
+- "Let's defer tests to a follow-up PR." (Tests are the cheapest thing to ship complete.)
 - "This would take 2 weeks." (Say: "2 weeks human / ~1 hour AI-assisted.")
+- "That's boiling the ocean." (Used as a refusal? Reread this section.)
 
 Read more: https://garryslist.org/posts/boil-the-ocean
 
@@ -144,7 +152,7 @@ think it's better, state what context you might be missing, and ask. Never act.
 
 ## How They Work Together
 
-Boil the Lake says: **do the complete thing.**
+Boil the Ocean says: **do the complete thing — the constraint that made completeness expensive is gone.**
 Search Before Building says: **know what exists before you decide what to build.**
 
 Together: search first, then build the complete version of the right thing.

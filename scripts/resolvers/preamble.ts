@@ -29,7 +29,7 @@ import {
 } from './preamble/generate-completion-status';
 
 // One-time onboarding prompts
-import { generateLakeIntro } from './preamble/generate-lake-intro';
+import { generateOceanIntro } from './preamble/generate-ocean-intro';
 import { generateTelemetryPrompt } from './preamble/generate-telemetry-prompt';
 import { generateProactivePrompt } from './preamble/generate-proactive-prompt';
 import { generateRoutingInjection } from './preamble/generate-routing-injection';
@@ -65,7 +65,7 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 
 // Preamble Composition (tier → sections)
 // ─────────────────────────────────────────────
-// T1: core + upgrade + lake + telemetry + voice(trimmed) + completion
+// T1: core + upgrade + ocean + telemetry + voice(trimmed) + completion
 // T2: T1 + voice(full) + ask + completeness + context-recovery + confusion + checkpoint + context-health
 // T3: T2 + repo-mode + search
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
@@ -91,7 +91,7 @@ export function generatePreamble(ctx: TemplateContext): string {
     generatePlanModeInfo(ctx),
     generateUpgradeCheck(ctx),
     generateWritingStyleMigration(ctx),
-    generateLakeIntro(),
+    generateOceanIntro(),
     generateTelemetryPrompt(ctx),
     generateProactivePrompt(ctx),
     generateRoutingInjection(ctx),

@@ -1,7 +1,7 @@
 import type { TemplateContext } from '../types';
 
 export function generateTelemetryPrompt(ctx: TemplateContext): string {
-  return `If \`TEL_PROMPTED\` is \`no\` AND \`LAKE_INTRO\` is \`yes\`: ask telemetry once via AskUserQuestion:
+  return `If \`TEL_PROMPTED\` is \`no\` AND \`OCEAN_INTRO\` is \`yes\`: ask telemetry once via AskUserQuestion:
 
 > Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
 

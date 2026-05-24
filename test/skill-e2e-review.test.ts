@@ -56,7 +56,7 @@ describeIfSelected('Review skill E2E', ['review-sql-injection'], () => {
       prompt: `You are in a git repo on a feature branch with changes against main.
 Read review-SKILL.md for the review workflow instructions.
 Also read review-checklist.md and apply it.
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the review.
+Skip the preamble bash block, ocean intro, telemetry, and contributor mode sections — go straight to the review.
 Run /review on the current diff (git diff main...HEAD).
 Write your review findings to ${reviewDir}/review-output.md`,
       workingDirectory: reviewDir,
@@ -208,7 +208,7 @@ Read review-checklist.md for the code review checklist.
 Read review-design-checklist.md for the design review checklist.
 Run /review on the current diff (git diff main...HEAD).
 
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the review.
+Skip the preamble bash block, ocean intro, telemetry, and contributor mode sections — go straight to the review.
 
 The diff adds a landing page with CSS and HTML. Check for both code issues AND design anti-patterns.
 Write your review findings to ${designDir}/review-output.md
@@ -610,7 +610,7 @@ Parse the output and display the dashboard table. Pay attention to:
 2. The codex-plan-review entry — it should populate the Outside Voice row
 3. Since Eng Review IS clear, there should be NO gate blocking — just display the dashboard
 
-Skip the preamble, lake intro, telemetry, and all other ship steps.
+Skip the preamble, ocean intro, telemetry, and all other ship steps.
 Write the dashboard output to ${dashDir}/dashboard-output.md`,
       workingDirectory: dashDir,
       maxTurns: 12,

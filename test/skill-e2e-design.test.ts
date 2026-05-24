@@ -91,7 +91,7 @@ A civic tech data platform for government employees to access, visualize, and sh
   testConcurrentIfSelected('design-consultation-core', async () => {
     const result = await runSkillTest({
       prompt: `Read design-consultation/SKILL.md for the design consultation workflow.
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the design workflow.
+Skip the preamble bash block, ocean intro, telemetry, and contributor mode sections — go straight to the design workflow.
 
 This is a civic tech data platform called CivicPulse for government employees who need to access public data. Read the README.md for details.
 

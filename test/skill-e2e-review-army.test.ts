@@ -71,7 +71,7 @@ describeIfSelected('Review Army: Migration Safety', ['review-army-migration-safe
 Read review-SKILL.md for instructions. Also read review-checklist.md.
 The specialist checklists are in review-specialists/ (testing.md, security.md, performance.md, data-migration.md, etc.).
 
-Skip the preamble, lake intro, telemetry sections.
+Skip the preamble, ocean intro, telemetry sections.
 Run Step 4 (Critical pass) then Step 4.5 (Review Army — Specialist Dispatch).
 The base branch is main. Run gstack-diff-scope style analysis on the changed files.
 Since db/migrate/ files changed, the Data Migration specialist should activate.
@@ -138,7 +138,7 @@ describeIfSelected('Review Army: N+1 Performance', ['review-army-perf-n-plus-one
 Read review-SKILL.md for instructions. Also read review-checklist.md.
 The specialist checklists are in review-specialists/ (testing.md, performance.md, etc.).
 
-Skip the preamble, lake intro, telemetry sections.
+Skip the preamble, ocean intro, telemetry sections.
 Run Step 4 (Critical pass) then Step 4.5 (Review Army).
 The base branch is main. This is a Ruby backend file, so Performance specialist should activate.
 
@@ -314,7 +314,7 @@ end
     const result = await runSkillTest({
       prompt: `You are in a git repo with a vulnerable user controller.
 Read review-SKILL.md and review-checklist.md.
-Skip preamble, lake intro, telemetry.
+Skip preamble, ocean intro, telemetry.
 
 Run the Critical pass (Step 4) against the diff (git diff main...HEAD).
 Then compute the PR Quality Score as described in the Review Army merge step:
@@ -457,7 +457,7 @@ describeIfSelected('Review Army: Red Team', ['review-army-red-team'], () => {
   testConcurrentIfSelected('review-army-red-team', async () => {
     const result = await runSkillTest({
       prompt: `You are reviewing a large diff (300+ lines). Read review-SKILL.md.
-Skip preamble, lake intro, telemetry.
+Skip preamble, ocean intro, telemetry.
 
 The diff is large enough to activate the Red Team specialist.
 Read review-specialists/red-team.md and apply it against the diff (git diff main...HEAD).

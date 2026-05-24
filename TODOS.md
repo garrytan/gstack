@@ -539,7 +539,7 @@ reads it yet.
 ### E3 — `/plan-tune narrative` + `/plan-tune vibe`
 
 **What:** Event-anchored narrative ("You accepted 7 scope expansions, overrode
-test_failure_triage 4 times, called every PR 'boil the lake'") + one-word vibe
+test_failure_triage 4 times, called every PR 'boil the ocean'") + one-word vibe
 archetype (Cathedral Builder, Ship-It Pragmatist, Deep Craft, etc).
 scripts/archetypes.ts is ALREADY SHIPPED in v1 (8 archetypes + Polymath
 fallback). v2 work is the narrative generator + /plan-tune skill wiring.
@@ -894,7 +894,7 @@ Remaining work (XL, multi-week):
 
 **What:** Add a `generateSearchIntro()` function (like `generateLakeIntro()`) that introduces the Search Before Building principle on first use, with a link to the blog essay.
 
-**Why:** Boil the Lake has an intro flow that links to the essay and marks `.completeness-intro-seen`. Search Before Building should have the same pattern for discoverability.
+**Why:** Boil the Ocean has an intro flow that links to the essay and marks `.completeness-intro-seen`. Search Before Building should have the same pattern for discoverability.
 
 **Context:** Blocked on a blog post to link to. When the essay exists, add the intro flow with a `.search-intro-seen` marker file. Pattern: `generateLakeIntro()` at gen-skill-docs.ts:176.
 
@@ -1514,7 +1514,7 @@ Shipped in v0.8.3. Step 8.5 added to `/ship` — after creating the PR, `/ship` 
 
 **Effort:** M (human) / S (CC)
 **Priority:** P3
-**Depends on:** Boil the Lake shipped (v0.6.1)
+**Depends on:** Boil the Ocean shipped (v0.6.1)
 
 ## Safety & Observability
 

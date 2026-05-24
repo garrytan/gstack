@@ -45,7 +45,7 @@ The test server is already running at: ${testServer.url}
 Target page: ${testServer.url}/basic.html
 
 Read the file qa/SKILL.md for the QA workflow instructions.
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
+Skip the preamble bash block, ocean intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-depth QA test on ${testServer.url}/basic.html
 Do NOT use AskUserQuestion — run Quick tier directly.
@@ -115,7 +115,7 @@ describeIfSelected('QA-Only skill E2E', ['qa-only-no-fix'], () => {
 B="${browseBin}"
 
 Read the file qa-only/SKILL.md for the QA-only workflow instructions.
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
+Skip the preamble bash block, ocean intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick QA test on ${testServer.url}/qa-eval.html
 Do NOT use AskUserQuestion — run Quick tier directly.
@@ -234,7 +234,7 @@ describeIfSelected('QA Fix Loop E2E', ['qa-fix-loop'], () => {
       prompt: `You have a browse binary at ${browseBin}. Assign it to B variable like: B="${browseBin}"
 
 Read the file qa/SKILL.md for the QA workflow instructions.
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the QA workflow.
+Skip the preamble bash block, ocean intro, telemetry, and contributor mode sections — go straight to the QA workflow.
 
 Run a Quick-tier QA test on ${qaFixUrl}
 The source code for this page is at ${qaFixDir}/index.html — you can fix bugs there.

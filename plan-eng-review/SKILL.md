@@ -48,8 +48,8 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
-echo "LAKE_INTRO: $_LAKE_SEEN"
+_OCEAN_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "OCEAN_INTRO: $_OCEAN_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
@@ -149,7 +149,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `OCEAN_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -158,7 +158,7 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if yes. Always run `touch`.
 
-If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
+If `TEL_PROMPTED` is `no` AND `OCEAN_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
 > Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
 
@@ -273,7 +273,7 @@ If marker exists, skip.
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
-- Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
+- Do NOT run upgrade checks, telemetry prompts, routing injection, or ocean intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
@@ -634,9 +634,9 @@ Jargon list, gloss on first use if the term appears:
 - buffer overflow
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap. The old "ocean" framing — rewrites and multi-quarter migrations that were too big to attempt — no longer applies when one person + AI ships in hours what teams used to take months for. Recommend the complete thing (tests, edge cases, error paths, full rewrites when warranted). Only flag work whose blocker is non-engineering time: multi-team coordination, regulatory approval, data that needs months to accumulate.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -854,7 +854,7 @@ Read the `/office-hours` skill file at `~/.claude/skills/gstack/office-hours/SKI
 Follow its instructions from top to bottom, **skipping these sections** (already handled by the parent skill):
 - Preamble (run first)
 - AskUserQuestion Format
-- Completeness Principle — Boil the Lake
+- Completeness Principle — Boil the Ocean
 - Search Before Building
 - Contributor Mode
 - Completion Status Protocol
@@ -895,7 +895,7 @@ Before reviewing anything, answer these questions:
    If the plan rolls a custom solution where a built-in exists, flag it as a scope reduction opportunity. Annotate recommendations with **[Layer 1]**, **[Layer 2]**, **[Layer 3]**, or **[EUREKA]** (see preamble's Search Before Building section). If you find a eureka moment — a reason the standard approach is wrong for this case — present it as an architectural insight.
 5. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
 
-5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the lake.
+5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the ocean.
 
 6. **Distribution check:** If the plan introduces a new artifact type (CLI binary, library package, container image, mobile app), does it include the build/publish pipeline? Code without distribution is code nobody can use. Check:
    - Is there a CI/CD workflow for building and publishing the artifact?
@@ -1543,7 +1543,7 @@ At the end of the review, fill in and display this summary so the user can see a
 - Failure modes: ___ critical gaps flagged
 - Outside voice: ran (codex/claude) / skipped
 - Parallelization: ___ lanes, ___ parallel / ___ sequential
-- Lake Score: X/Y recommendations chose complete option
+- Ocean Score: X/Y recommendations chose complete option
 
 ## Retrospective learning
 Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.

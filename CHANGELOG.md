@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.45.0.0] - 2026-05-24
+
+## **The metaphor finally catches up with the capability. Boil the Lake is now Boil the Ocean.**
+
+For the last year gstack's Principle #1 has been "Boil the Lake" — a deliberate flip of the McKinsey-era warning "don't boil the ocean." The original framing was: oceans are impossible to boil (full rewrites, multi-quarter platform migrations), but lakes are achievable (a module's edge cases, complete error paths), so boil the lakes you can reach. That framing assumed engineering time was still the bottleneck. It isn't. One person + AI now ships in hours what teams took quarters for, and the work that used to be "an ocean" is routine. So we renamed the principle to match what's actually true: Boil the Ocean. The constraint moved.
+
+This isn't just a search-and-replace. ETHOS.md's section 1 is rewritten with the new framing — there's a new "**The ocean is no longer unboilable**" paragraph that explicitly credits the capability shift, plus a "**The only thing still out of scope**" callout naming what genuinely can't be compressed (multi-team coordination, regulatory approval, data that needs months of customer behavior to accumulate). The internal `LAKE_INTRO` env-var is renamed to `OCEAN_INTRO` across the four preamble resolvers and 51 generated SKILL.md files. The `Lake Score` metric in `/plan-ceo-review` and `/plan-eng-review` becomes `Ocean Score`. The `lake intro` section nickname in contributor-mode bullets becomes `ocean intro`. The autoplan decision principle "Boil lakes" becomes "Boil oceans."
+
+### The numbers that matter
+
+Source: `git diff --shortstat` against `v1.44.0.0`. The change is mechanical-looking but coordinated — one inverted metaphor, four resolver source-of-truth files, every generated skill in the catalog brought back into sync.
+
+| Metric | Before | After |
+|---|---|---|
+| Canonical phrase | "Boil the Lake" (124 occurrences) | "Boil the Ocean" (138 occurrences) |
+| Files touched | — | 79 |
+| Resolver files updated | — | 4 (`preamble-bash`, `ocean-intro`, `telemetry-prompt`, `spawned-session-check`) |
+| Internal env var | `LAKE_INTRO` / `_LAKE_SEEN` | `OCEAN_INTRO` / `_OCEAN_SEEN` |
+| Renamed function | `generateLakeIntro()` | `generateOceanIntro()` |
+| Renamed file | `scripts/resolvers/preamble/generate-lake-intro.ts` | `scripts/resolvers/preamble/generate-ocean-intro.ts` |
+| User-visible "Lake Score" metric | 4 occurrences | renamed to "Ocean Score" |
+| Marker file (preserved for backward compat) | `~/.gstack/.completeness-intro-seen` | unchanged — no re-intro for existing users |
+
+The marker file deliberately stays `~/.gstack/.completeness-intro-seen` rather than `~/.gstack/.ocean-intro-seen`. Renaming it would force every existing user to see the one-time intro again on next skill invocation. The name was always content-neutral (it describes what the intro is *about*, not the metaphor), so keeping it is the cheaper compatibility decision.
+
+### What this means for you
+
+If you've installed gstack, the next skill invocation will source the new bash block (`echo "OCEAN_INTRO: $_OCEAN_SEEN"`) and the new intro text. Nothing breaks. If you've cited "Boil the Lake" in a TODO, plan doc, or local skill — you can keep it as a synonym; the principle didn't change, only the name. If you're a community contributor, the [ETHOS.md](ETHOS.md) section 1 rewrite is the canonical reference for the why; the blog essay link at `garryslist.org/posts/boil-the-ocean` is unchanged (it always pointed there — the URL was the foreshadowing).
+
+### Itemized changes
+
+#### Changed
+- **`ETHOS.md` Principle #1 — "Boil the Lake" renamed to "Boil the Ocean"** with new framing paragraph crediting the AI-assisted capability shift. Anti-patterns list updated. Section "How They Work Together" updated.
+- **Preamble resolvers** — `generate-preamble-bash.ts`, `generate-telemetry-prompt.ts`, `generate-spawned-session-check.ts` updated; `generate-lake-intro.ts` renamed to `generate-ocean-intro.ts`, function `generateLakeIntro()` renamed to `generateOceanIntro()`.
+- **Internal env var** — `LAKE_INTRO` → `OCEAN_INTRO`, `_LAKE_SEEN` → `_OCEAN_SEEN`. Marker file path unchanged.
+- **51 generated SKILL.md files** patched to match the new resolver output.
+- **Completeness section text** in 44 generated SKILL.md files rewritten — drops the "complete lakes / flag oceans" dichotomy; replaces with a "what's still genuinely out of scope" framing.
+- **`/plan-ceo-review` and `/plan-eng-review`** — "Lake Score" metric renamed to "Ocean Score" in both `.md.tmpl` and `.md` files.
+- **`/autoplan`** — Decision principle "Boil lakes" renamed to "Boil oceans" (P2 in the 6-principle decision list).
+- **`CLAUDE.md` AI effort compression section** — updated to credit the metaphor inversion and clarify the only-still-out-of-scope class.
+- **`docs/skills.md` and `review/checklist.md`** — prose references to "a lake, not an ocean" rewritten to talk about engineering-time-bound vs non-engineering-bound work.
+- **`scripts/question-registry.ts`** — preamble approval description updated from "Boil-the-Lake essay" to "Boil-the-Ocean essay".
+
+#### Preserved (intentionally)
+- **`~/.gstack/.completeness-intro-seen` marker file** — unchanged so existing users don't re-see the intro.
+- **`garryslist.org/posts/boil-the-ocean` blog URL** — was already the original URL; preserved.
+- **Historical CHANGELOG entries** — entries describing what shipped at past releases (the v0.x "boil lakes" mentions, "Lake Score" feature debut) kept verbatim as immutable record.
+- **Test fixture string `"insight":"lake first"`** — arbitrary test data, not metaphor-related; kept.
+
+#### For contributors
+- E2E test prompts in `test/skill-e2e-*.test.ts` updated from "lake intro" to "ocean intro" to match the new section nickname.
+- Golden fixtures in `test/fixtures/golden/*.md` and `test/fixtures/golden-ship-claude.md` brought into sync with the new resolver output.
+- Comments in `scripts/resolvers/preamble.ts` and `scripts/resolvers/preamble/generate-context-health.ts` updated (`T1: core + upgrade + ocean + telemetry + ...`).
+
 ## [1.44.0.0] - 2026-05-23
 
 ## **Sidebar Claude Code now survives the day.** WebSocket keepalive, transparent re-attach across network blips with scrollback intact, and a restart button that actually kills the old claude before spawning the new one. Outer supervisor opt-in so the browse server itself can crash and recover without you noticing.
@@ -3538,7 +3592,7 @@ Source: `test/skill-e2e-plan-format.test.ts`, four cases pinned to `claude-opus-
 #### Changed
 
 - The `AskUserQuestion Format` section in the T2 preamble splits the old run-on paragraph into two ALWAYS-framed rules: step 3 "Recommend (ALWAYS)" and step 4 "Score completeness (when meaningful)". This affects every T2 skill (~15 files regenerated).
-- The `Completeness Principle — Boil the Lake` preamble section now states the coverage-vs-kind distinction explicitly, matching step 4. Without this edit the two preamble locations would disagree — which is how the regression started.
+- The `Completeness Principle — Boil the Ocean` preamble section now states the coverage-vs-kind distinction explicitly, matching step 4. Without this edit the two preamble locations would disagree — which is how the regression started.
 - Section 0C-bis (approach menu) and Section 0F (mode selection) in `plan-ceo-review/SKILL.md.tmpl` now carry short anchor lines that remind the model which question type applies. `plan-eng-review/SKILL.md.tmpl` gets an equivalent anchor inside the CRITICAL RULE section for per-issue AskUserQuestion decisions.
 
 #### For contributors
@@ -5634,7 +5688,7 @@ Thanks to @osc, @Explorer1092, @Qike-Li, @francoisaubert1, @itstimwhite, @yinanl
 
 ### Added
 
-- **ETHOS.md. gstack's builder philosophy in one document.** Four principles: The Golden Age (AI compression ratios), Boil the Lake (completeness is cheap), Search Before Building (three layers of knowledge), and Build for Yourself. This is the philosophical source of truth that every workflow skill references.
+- **ETHOS.md. gstack's builder philosophy in one document.** Four principles: The Golden Age (AI compression ratios), Boil the Ocean (completeness is cheap), Search Before Building (three layers of knowledge), and Build for Yourself. This is the philosophical source of truth that every workflow skill references.
 - **Every workflow skill now searches before recommending.** Before suggesting infrastructure patterns, concurrency approaches, or framework-specific solutions, gstack checks if the runtime has a built-in and whether the pattern is current best practice. Three layers of knowledge. tried-and-true (Layer 1), new-and-popular (Layer 2), and first-principles (Layer 3). with the most valuable insights prized above all.
 - **Eureka moments.** When first-principles reasoning reveals that conventional wisdom is wrong, gstack names it, celebrates it, and logs it. Your weekly `/retro` now surfaces these insights so you can see where your projects zigged while others zagged.
 - **`/office-hours` adds Landscape Awareness phase.** After understanding your problem through questioning but before challenging premises, gstack searches for what the world thinks. then runs a three-layer synthesis to find where conventional wisdom might be wrong for your specific case.
@@ -5892,7 +5946,7 @@ When something is broken and you don't know why, `/debug` is your systematic deb
 - `test:evals` and `test:e2e` now auto-select based on diff (was: all-or-nothing)
 - New `test:evals:all` and `test:e2e:all` scripts for explicit full runs
 
-## 0.6.1. 2026-03-17. Boil the Lake
+## 0.6.1. 2026-03-17. Boil the Ocean
 
 Every gstack skill now follows the **Completeness Principle**: always recommend the
 full implementation when AI makes the marginal cost near-zero. No more "Choose B

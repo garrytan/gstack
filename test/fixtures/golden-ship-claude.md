@@ -42,8 +42,8 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
-echo "LAKE_INTRO: $_LAKE_SEEN"
+_OCEAN_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "OCEAN_INTRO: $_OCEAN_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
@@ -103,8 +103,8 @@ of `/qa`, `/gstack-ship` instead of `/ship`). Disk paths are unaffected — alwa
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
-If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
-Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
+If `OCEAN_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
+Tell the user: "gstack follows the **Boil the Ocean** principle — always do the complete
 thing when AI makes the marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean"
 Then offer to open the essay in their default browser:
 
@@ -115,7 +115,7 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if the user says yes. Always run `touch` to mark as seen. This only happens once.
 
-If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: After the lake intro is handled,
+If `TEL_PROMPTED` is `no` AND `OCEAN_INTRO` is `yes`: After the ocean intro is handled,
 ask the user about telemetry. Use AskUserQuestion:
 
 > Help gstack get better! Community mode shares usage data (which skills you use, how long
@@ -217,7 +217,7 @@ This only happens once per project. If `HAS_ROUTING` is `yes` or `ROUTING_DECLIN
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
-- Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
+- Do NOT run upgrade checks, telemetry prompts, routing injection, or ocean intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
@@ -324,9 +324,9 @@ Assume the user hasn't looked at this window in 20 minutes and doesn't have the 
 
 Per-skill instructions may add additional formatting rules on top of this baseline.
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness near-free. Always recommend the complete option over shortcuts — the delta is minutes with CC+gstack. A "lake" (100% coverage, all edge cases) is boilable; an "ocean" (full rewrite, multi-quarter migration) is not. Boil lakes, flag oceans.
+AI makes completeness near-free. Always recommend the complete option over shortcuts — the delta is minutes with CC+gstack. The old "boil the ocean" warning assumed engineering time was the bottleneck; that's no longer true. Recommend the complete thing (100% coverage, full rewrites when warranted, all edge cases). Only flag work whose blocker is non-engineering time: multi-team coordination, regulatory approval, data that needs months to accumulate.
 
 **Effort reference** — always show both scales:
 

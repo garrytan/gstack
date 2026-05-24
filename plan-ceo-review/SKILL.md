@@ -73,8 +73,8 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
-echo "LAKE_INTRO: $_LAKE_SEEN"
+_OCEAN_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
+echo "OCEAN_INTRO: $_OCEAN_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
@@ -174,7 +174,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `OCEAN_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -183,7 +183,7 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if yes. Always run `touch`.
 
-If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
+If `TEL_PROMPTED` is `no` AND `OCEAN_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
 > Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
 
@@ -298,7 +298,7 @@ If marker exists, skip.
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
 - Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
-- Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
+- Do NOT run upgrade checks, telemetry prompts, routing injection, or ocean intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
@@ -659,9 +659,9 @@ Jargon list, gloss on first use if the term appears:
 - buffer overflow
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap. The old "ocean" framing — rewrites and multi-quarter migrations that were too big to attempt — no longer applies when one person + AI ships in hours what teams used to take months for. Recommend the complete thing (tests, edge cases, error paths, full rewrites when warranted). Only flag work whose blocker is non-engineering time: multi-team coordination, regulatory approval, data that needs months to accumulate.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -839,7 +839,7 @@ But your posture depends on what the user needs:
 * SELECTIVE EXPANSION: You are a rigorous reviewer who also has taste. Hold the current scope as your baseline — make it bulletproof. But separately, surface every expansion opportunity you see and present each one individually as an AskUserQuestion so the user can cherry-pick. Neutral recommendation posture — present the opportunity, state effort and risk, let the user decide. Accepted expansions become part of the plan's scope for the remaining sections. Rejected ones go to "NOT in scope."
 * HOLD SCOPE: You are a rigorous reviewer. The plan's scope is accepted. Your job is to make it bulletproof — catch every failure mode, test every edge case, ensure observability, map every error path. Do not silently reduce OR expand.
 * SCOPE REDUCTION: You are a surgeon. Find the minimum viable version that achieves the core outcome. Cut everything else. Be ruthless.
-* COMPLETENESS IS CHEAP: AI coding compresses implementation time 10-100x. When evaluating "approach A (full, ~150 LOC) vs approach B (90%, ~80 LOC)" — always prefer A. The 70-line delta costs seconds with CC. "Ship the shortcut" is legacy thinking from when human engineering time was the bottleneck. Boil the lake.
+* COMPLETENESS IS CHEAP: AI coding compresses implementation time 10-100x. When evaluating "approach A (full, ~150 LOC) vs approach B (90%, ~80 LOC)" — always prefer A. The 70-line delta costs seconds with CC. "Ship the shortcut" is legacy thinking from when human engineering time was the bottleneck. Boil the ocean.
 Critical rule: In ALL modes, the user is 100% in control. Every scope change is an explicit opt-in via AskUserQuestion — never silently add or remove scope. Once the user selects a mode, COMMIT to it. Do not silently drift toward a different mode. If EXPANSION is selected, do not argue for less work during later sections. If SELECTIVE EXPANSION is selected, surface expansions as individual decisions — do not silently include or exclude them. If REDUCTION is selected, do not sneak scope back in. Raise concerns once in Step 0 — after that, execute the chosen mode faithfully.
 Do NOT make any code changes. Do NOT start implementation. Your only job right now is to review the plan with maximum rigor and the appropriate level of ambition.
 
@@ -966,7 +966,7 @@ Read the `/office-hours` skill file at `~/.claude/skills/gstack/office-hours/SKI
 Follow its instructions from top to bottom, **skipping these sections** (already handled by the parent skill):
 - Preamble (run first)
 - AskUserQuestion Format
-- Completeness Principle — Boil the Lake
+- Completeness Principle — Boil the Ocean
 - Search Before Building
 - Contributor Mode
 - Completion Status Protocol
@@ -1012,7 +1012,7 @@ Read the `/office-hours` skill file at `~/.claude/skills/gstack/office-hours/SKI
 Follow its instructions from top to bottom, **skipping these sections** (already handled by the parent skill):
 - Preamble (run first)
 - AskUserQuestion Format
-- Completeness Principle — Boil the Lake
+- Completeness Principle — Boil the Ocean
 - Search Before Building
 - Contributor Mode
 - Completion Status Protocol
@@ -1915,7 +1915,7 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
   | Scope proposals      | ___ proposed, ___ accepted (EXP + SEL)      |
   | CEO plan             | written / skipped (HOLD/REDUCTION)           |
   | Outside voice        | ran (codex/claude) / skipped                 |
-  | Lake Score           | X/Y recommendations chose complete option   |
+  | Ocean Score          | X/Y recommendations chose complete option   |
   | Diagrams produced    | ___ (list types)                            |
   | Stale diagrams found | ___                                         |
   | Unresolved decisions | ___ (listed below)                          |
