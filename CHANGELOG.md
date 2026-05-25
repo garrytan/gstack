@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.45.0.0] - 2026-05-25
+
+## **Design docs travel with the project.** `/office-hours`, `/plan-ceo-review`, and `/plan-eng-review` now write to `{repo}/.gstack/designs/` instead of a machine-local `~/.gstack/` path. Run `gstack-publish` to approve the plan and get a private Gist URL — then paste that URL into `/ship Plan: <url>` from any machine.
+
+Three new binaries ship in this release: `gstack-publish` handles the approve → Gist create/edit → frontmatter write → git commit flow in one command. `gstack-frontmatter-set.py` is the cross-platform YAML field updater (no `sed -i` on macOS/Windows). `gstack-plan-list` lists plans from both old and new locations with status badges.
+
+### Added
+- `gstack-publish` — approve a design doc, publish to private GitHub Gist, write `plan_url` into frontmatter, commit and push. `--clipboard` copies the paste-ready `/ship Plan: <url>` string. Re-publish edits the existing Gist instead of creating a new one (no stale URL accumulation).
+- `gstack-frontmatter-set.py` — cross-platform Python helper for in-place frontmatter field updates. `encoding='utf-8'` on all opens (Windows cp1252 fix). Warns when a field is absent rather than silently no-oping.
+- `gstack-plan-list` — lists design and plan docs from both `.gstack/designs/` (new) and `~/.gstack/projects/` (legacy) with date, status badge, and plan_url.
+
+### Changed
+- **`/office-hours` Phase 5** — writes design docs to `{repo}/.gstack/designs/{user}-{branch}-design-{datetime}.md` when inside a git repo. Falls back to `~/.gstack/projects/{slug}/` with a warning when not in a repo. Both design doc templates now include YAML frontmatter (`source_device`, `date`, `status: DRAFT`, `plan_url`).
+- **`/plan-ceo-review`** — CEO plans write to `{repo}/.gstack/designs/` (cherry-pick #3). Design doc discovery checks new location first, then falls back to `~/.gstack/projects/`. Uses `find + sort` instead of `ls -t` for space-safe discovery.
+- **`/plan-eng-review`** — eng review test plans write to `{repo}/.gstack/designs/` (cherry-pick #3). Same discovery improvements as CEO review.
+- **`/ship` Plan File Discovery** — handles `https://` Plan: values by fetching via WebFetch or `curl -s` (T3). Content-based search now also checks `{repo}/.gstack/designs/` before falling back to `~/.gstack/projects/`.
+- **`~/.claude/CLAUDE.md` paste-ready template** — updated to show both file-path and Gist-URL formats, with an explanation of when to use each.
 ## [1.44.1.0] - 2026-05-24
 
 ## **Nine community fixes ship in one bundle.** Office-hours session counter works again, iOS QA tunnels survive macOS 26.x, Windows brain-sync stops dropping artifacts, browse server tells you whether the bind failure was a port collision or a sandbox block.
