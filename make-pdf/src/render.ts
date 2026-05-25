@@ -106,14 +106,21 @@ export function render(opts: RenderOptions): RenderResult {
       })
     : "";
 
-  const tocBlock = opts.toc
-    ? buildTocBlock(typographicHtml)
-    : "";
+  // When a TOC is requested, give the body's headings stable ids so the TOC
+  // anchors (#toc-N) and Paged.js page-number targets resolve to them. With no
+  // TOC, the body is untouched (no ids injected).
+  let bodyHtml = typographicHtml;
+  let tocBlock = "";
+  if (opts.toc) {
+    const withIds = assignTocIds(typographicHtml);
+    bodyHtml = withIds.html;
+    tocBlock = buildTocBlock(withIds.headings);
+  }
 
   // Wrap body in .chapter sections at H1 boundaries if chapter breaks are on.
   const chapterHtml = opts.noChapterBreaks
-    ? `<section class="chapter">${typographicHtml}</section>`
-    : wrapChaptersByH1(typographicHtml);
+    ? `<section class="chapter">${bodyHtml}</section>`
+    : wrapChaptersByH1(bodyHtml);
 
   const watermarkBlock = opts.watermark
     ? `<div class="watermark">${escapeHtml(opts.watermark)}</div>`
@@ -252,22 +259,20 @@ function buildCoverBlock(opts: {
 }
 
 /**
- * Scan HTML for H1/H2/H3 headings and emit a TOC placeholder.
- * Page numbers are filled in by Paged.js (when --toc is passed and Paged.js
- * polyfill is injected).
+ * Emit a TOC section from the headings collected by assignTocIds. Each entry
+ * links to the matching heading id and carries a page-number placeholder that
+ * Paged.js fills in (when --toc is passed and the Paged.js polyfill is injected).
  */
-function buildTocBlock(html: string): string {
-  const headings = extractHeadings(html);
+function buildTocBlock(headings: Array<{ id: string; level: number; text: string }>): string {
   if (headings.length === 0) return "";
 
-  const items = headings.map((h, i) => {
+  const items = headings.map((h) => {
     const level = h.level >= 2 ? "level-2" : "level-1";
-    const id = `toc-${i}`;
     return [
       `  <li class="${level}">`,
-      `    <span class="toc-title"><a href="#${id}">${escapeHtml(h.text)}</a></span>`,
+      `    <span class="toc-title"><a href="#${h.id}">${escapeHtml(h.text)}</a></span>`,
       `    <span class="toc-dots"></span>`,
-      `    <span class="toc-page" data-toc-target="${id}"></span>`,
+      `    <span class="toc-page" data-toc-target="${h.id}"></span>`,
       `  </li>`,
     ].join("\n");
   }).join("\n");
@@ -282,16 +287,34 @@ function buildTocBlock(html: string): string {
   ].join("\n");
 }
 
-function extractHeadings(html: string): Array<{ level: number; text: string }> {
-  const re = /<(h[1-3])[^>]*>([\s\S]*?)<\/\1>/gi;
-  const headings: Array<{ level: number; text: string }> = [];
-  let match;
-  while ((match = re.exec(html)) !== null) {
-    const level = parseInt(match[1].slice(1), 10);
-    const text = decodeTextEntities(stripTags(match[2]).trim());
-    if (text) headings.push({ level, text });
-  }
-  return headings;
+/**
+ * Assign stable ids to the H1-H3 headings (in document order) so the TOC's
+ * in-page anchors (#toc-N) and Paged.js page-number targets resolve to them.
+ * A heading that already declares an id keeps it, and the TOC points at that
+ * id instead of injecting a duplicate. Returns the id-annotated HTML and the
+ * heading list the TOC is built from. Empty-text headings are skipped and
+ * never consume a toc-N index, matching the prior extraction behavior.
+ */
+function assignTocIds(html: string): {
+  html: string;
+  headings: Array<{ id: string; level: number; text: string }>;
+} {
+  const headings: Array<{ id: string; level: number; text: string }> = [];
+  let i = 0;
+  const out = html.replace(
+    /<(h[1-3])\b([^>]*)>([\s\S]*?)<\/\1>/gi,
+    (full: string, tag: string, attrs: string, inner: string) => {
+      const text = decodeTextEntities(stripTags(inner).trim());
+      if (!text) return full; // skip empty headings; do not consume an index
+      const level = parseInt(tag.slice(1), 10);
+      const existing = attrs.match(/\bid\s*=\s*["']([^"']*)["']/i);
+      const id = existing ? existing[1] : `toc-${i}`;
+      headings.push({ id, level, text });
+      i++;
+      return existing ? full : `<${tag}${attrs} id="${id}">${inner}</${tag}>`;
+    },
+  );
+  return { html: out, headings };
 }
 
 /**
