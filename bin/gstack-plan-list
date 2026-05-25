@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# gstack-plan-list — List gstack design and plan docs from all known locations.
+#
+# Cherry-pick #4: Searches both old (~/.gstack/projects/) and new (.gstack/designs/)
+# locations so you can find plans regardless of which version of gstack wrote them.
+#
+# Output: sorted list with project, date, status, and plan_url (if set)
+# Status badge: [DRAFT] or [APPROVED]
+#
+# Usage:
+#   gstack-plan-list              List plans for current repo (or all if not in repo)
+#   gstack-plan-list --all        List plans from all projects
+
+set -euo pipefail
+
+ALL_PROJECTS=0
+[ "${1:-}" = "--all" ] && ALL_PROJECTS=1
+
+# ── Collect plan files ──────────────────────────────────────────────────────
+FILES=()
+
+# 1. New location: {repo}/.gstack/designs/ (created by gstack v1.44+)
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$REPO_TOP" ] && [ -d "$REPO_TOP/.gstack/designs" ]; then
+  # T2: find + sort instead of ls -t (handles spaces in filenames)
+  while IFS= read -r -d '' f; do
+    FILES+=("$f")
+  done < <(find "$REPO_TOP/.gstack/designs" -maxdepth 1 -name '*.md' -print0 2>/dev/null \
+           | xargs -0 -I{} stat --format="%Y {}" {} 2>/dev/null \
+           | sort -rn | awk '{print $2}' | tr '\n' '\0' 2>/dev/null || true)
+  # Fallback for macOS (stat -f differs from GNU stat)
+  if [ "${#FILES[@]}" -eq 0 ]; then
+    while IFS= read -r f; do
+      [ -f "$f" ] && FILES+=("$f")
+    done < <(find "$REPO_TOP/.gstack/designs" -maxdepth 1 -name '*.md' 2>/dev/null | sort -r)
+  fi
+fi
+
+# 2. Old location: ~/.gstack/projects/{slug}/{user}-*-design-*.md
+if [ "$ALL_PROJECTS" -eq 1 ]; then
+  # Search all projects
+  while IFS= read -r f; do
+    [ -f "$f" ] && FILES+=("$f")
+  done < <(find "$HOME/.gstack/projects" -maxdepth 3 -name '*-design-*.md' 2>/dev/null | sort -r)
+  # Also include CEO and eng plans
+  while IFS= read -r f; do
+    [ -f "$f" ] && FILES+=("$f")
+  done < <(find "$HOME/.gstack/projects" -maxdepth 4 \
+            \( -name '*-ceo-*.md' -o -name '*-eng-*.md' \) 2>/dev/null | sort -r)
+else
+  # Current project only
+  eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+  SLUG="${SLUG:-$(basename "${REPO_TOP:-$PWD}")}"
+  PROJ_DIR="$HOME/.gstack/projects/$SLUG"
+  if [ -d "$PROJ_DIR" ]; then
+    while IFS= read -r f; do
+      [ -f "$f" ] && FILES+=("$f")
+    done < <(find "$PROJ_DIR" -maxdepth 2 -name '*.md' 2>/dev/null | sort -r)
+  fi
+fi
+
+if [ "${#FILES[@]}" -eq 0 ]; then
+  echo "No design docs found."
+  echo ""
+  echo "Searched:"
+  [ -n "$REPO_TOP" ] && echo "  $REPO_TOP/.gstack/designs/"
+  echo "  ~/.gstack/projects/"
+  exit 0
+fi
+
+# ── Format and display ──────────────────────────────────────────────────────
+printf "%-12s  %-10s  %-8s  %s\n" "Date" "Project" "Status" "Path / plan_url"
+printf "%-12s  %-10s  %-8s  %s\n" "────────────" "──────────" "────────" "───────────────────────────────"
+
+for f in "${FILES[@]}"; do
+  # Extract status from frontmatter (YAML: "status: APPROVED" or plain "Status: DRAFT")
+  STATUS=$(grep -m1 -i '^status:' "$f" 2>/dev/null | awk '{print $2}' | tr -d '\r' || echo "UNKNOWN")
+  [ -z "$STATUS" ] && STATUS="UNKNOWN"
+
+  case "$(echo "$STATUS" | tr '[:lower:]' '[:upper:]')" in
+    APPROVED) BADGE="[APPROVED]" ;;
+    DRAFT)    BADGE="[DRAFT]   " ;;
+    ACTIVE)   BADGE="[ACTIVE]  " ;;
+    *)        BADGE="[${STATUS:0:6}]  " ;;
+  esac
+
+  # Extract plan_url if set
+  PLAN_URL=$(grep -m1 '^plan_url:' "$f" 2>/dev/null | awk '{print $2}' | tr -d '\r' || echo "")
+  [ "$PLAN_URL" = "(populated" ] && PLAN_URL=""
+
+  # Extract date from filename or frontmatter
+  DOC_DATE=$(grep -m1 '^date:' "$f" 2>/dev/null | awk '{print $2}' | tr -d '\r' || echo "")
+  if [ -z "$DOC_DATE" ]; then
+    DOC_DATE=$(basename "$f" | grep -oE '[0-9]{8}' | head -1 | sed 's/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)/\1-\2-\3/' || echo "")
+  fi
+  [ -z "$DOC_DATE" ] && DOC_DATE="unknown"
+
+  # Project name: parent dir of .gstack/designs, or slug segment of ~/.gstack/projects/slug/
+  PROJ=$(echo "$f" | sed 's|.*/\.gstack/designs/.*||;s|.*\.gstack/projects/\([^/]*\)/.*|\1|' || echo "")
+  if [ -z "$PROJ" ]; then
+    PROJ=$(basename "$(dirname "$f")")
+  fi
+  [ ${#PROJ} -gt 10 ] && PROJ="${PROJ:0:9}…"
+
+  DISPLAY_PATH="$f"
+  [ -n "$PLAN_URL" ] && DISPLAY_PATH="$PLAN_URL"
+
+  printf "%-12s  %-10s  %-8s  %s\n" "$DOC_DATE" "$PROJ" "$BADGE" "$DISPLAY_PATH"
+done
+
+echo ""
+echo "To publish a draft: gstack-publish [<path>]"
+echo "To list all projects: gstack-plan-list --all"

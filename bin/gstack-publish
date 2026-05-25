@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# gstack-publish — Approve and publish a gstack design doc to a private GitHub Gist.
+#
+# Usage:
+#   gstack-publish [<file>]           Publish latest .gstack/designs/*.md (or specified file)
+#   gstack-publish --clipboard        Also copy paste-ready /ship invocation to clipboard
+#
+# What it does:
+#   1. Finds the latest design doc in .gstack/designs/ (or uses the path argument)
+#   2. Sets status: DRAFT -> APPROVED in frontmatter
+#   3. Creates a secret GitHub Gist (or edits existing if plan_url already set — cherry-pick #1)
+#   4. Writes the raw URL back into plan_url frontmatter
+#   5. Commits and pushes the updated doc (git sync step, not separate manual action)
+#   6. Prints the URL and /ship handoff prompt
+#   7. If --clipboard: copies paste-ready string to clipboard (cherry-pick #2)
+#
+# Validated bugs (from The Assignment — do NOT reintroduce):
+#   - gh gist create does NOT accept --private; secret is the default (omit the flag)
+#   - gh gist create outputs status lines to stdout before the URL; grep 'https://' to extract
+
+set -euo pipefail
+
+CLIPBOARD=0
+FILE_ARG=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --clipboard) CLIPBOARD=1 ;;
+    -*) echo "Unknown flag: $arg" >&2; exit 1 ;;
+    *)  FILE_ARG="$arg" ;;
+  esac
+done
+
+# ── 1. Find the design doc ──────────────────────────────────────────────────
+# T2: Use find + sort instead of ls -t (avoids space-in-filename bugs and
+# silent failure on empty directory).
+if [ -n "$FILE_ARG" ]; then
+  FILE="$FILE_ARG"
+else
+  REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [ -n "$REPO_TOP" ] && [ -d "$REPO_TOP/.gstack/designs" ]; then
+    # Newest file by modification time, handles filenames with spaces safely
+    FILE=$(find "$REPO_TOP/.gstack/designs" -maxdepth 1 -name '*.md' -print0 2>/dev/null \
+           | xargs -0 ls -t 2>/dev/null | head -1)
+  fi
+  if [ -z "${FILE:-}" ]; then
+    echo "ERROR: No design doc found in .gstack/designs/ — pass a file path explicitly." >&2
+    echo "       Usage: gstack-publish [<path-to-design-doc.md>]" >&2
+    exit 1
+  fi
+fi
+
+[ -f "$FILE" ] || { echo "ERROR: File not found: $FILE" >&2; exit 1; }
+
+FILENAME=$(basename "$FILE")
+echo "Publishing: $FILE"
+
+# ── 2. Approve: DRAFT → APPROVED ───────────────────────────────────────────
+python3 ~/.claude/skills/gstack/bin/gstack-frontmatter-set.py "$FILE" status APPROVED
+
+# ── 3. Create or edit Gist (cherry-pick #1: edit existing rather than create new) ──
+EXISTING_URL=$(grep '^plan_url:' "$FILE" 2>/dev/null | awk '{print $2}' || true)
+# Strip trailing whitespace / carriage returns (Windows files)
+EXISTING_URL=$(printf '%s' "$EXISTING_URL" | tr -d '\r' | xargs 2>/dev/null || echo "")
+
+if [ -n "$EXISTING_URL" ] && [ "$EXISTING_URL" != "(populated" ]; then
+  # Re-publish: extract Gist ID from existing raw URL and update the file content
+  # Raw URL: https://gist.githubusercontent.com/{user}/{gist_id}/raw/{filename}
+  GIST_ID=$(echo "$EXISTING_URL" | awk -F'/' '{print $5}')
+  if [ -z "$GIST_ID" ]; then
+    echo "ERROR: Could not extract Gist ID from plan_url: $EXISTING_URL" >&2
+    echo "       Delete the plan_url line from frontmatter to force a fresh publish." >&2
+    exit 1
+  fi
+  echo "Updating existing Gist: $GIST_ID"
+  # T6: use Python to build well-formed JSON payload (handles special chars in markdown)
+  GIST_STDERR=$(mktemp)
+  python3 - "$FILE" "$FILENAME" "$GIST_ID" 2>"$GIST_STDERR" <<'PYEOF'
+import sys, json, subprocess, os
+file_path = sys.argv[1]
+filename  = sys.argv[2]
+gist_id   = sys.argv[3]
+content = open(file_path, encoding='utf-8').read()
+payload = json.dumps({"files": {filename: {"content": content}}})
+result = subprocess.run(
+    ["gh", "api", f"/gists/{gist_id}", "--method", "PATCH", "--input", "-"],
+    input=payload.encode("utf-8"),
+    capture_output=True,
+)
+if result.returncode != 0:
+    print(result.stderr.decode("utf-8", errors="replace"), file=sys.stderr)
+    sys.exit(1)
+PYEOF
+  EXIT_CODE=$?
+  if [ -s "$GIST_STDERR" ]; then
+    echo "gh api error:" >&2
+    cat "$GIST_STDERR" >&2
+  fi
+  rm -f "$GIST_STDERR"
+  [ "$EXIT_CODE" -eq 0 ] || exit "$EXIT_CODE"
+  # plan_url stays the same (raw URL always points to latest revision — intentional)
+  RAW_URL="$EXISTING_URL"
+  HTML_URL=$(echo "$EXISTING_URL" | sed 's|gist.githubusercontent.com/\([^/]*\)/\([^/]*\)/raw/.*|gist.github.com/\1/\2|')
+  echo "Gist updated: $HTML_URL"
+else
+  # First publish: create a new secret Gist
+  # NOTE: --private flag does NOT exist in gh CLI; secret is the default. Omit it.
+  # T6: Capture stderr; grep stdout for the URL (gh prints status lines before the URL)
+  GIST_STDERR=$(mktemp)
+  GIST_STDOUT=$(mktemp)
+  gh gist create "$FILE" \
+    --desc "gstack plan: $(basename "$(git rev-parse --show-toplevel 2>/dev/null || echo unknown)") $(date +%Y%m%d-%H%M%S)" \
+    >"$GIST_STDOUT" 2>"$GIST_STDERR" || {
+    echo "ERROR: gh gist create failed:" >&2
+    cat "$GIST_STDERR" >&2
+    rm -f "$GIST_STDERR" "$GIST_STDOUT"
+    exit 1
+  }
+  # gh gist create prints status lines before the URL — grep to extract cleanly
+  HTML_URL=$(grep 'https://' "$GIST_STDOUT" | head -1 | tr -d '\r')
+  rm -f "$GIST_STDERR" "$GIST_STDOUT"
+  if [ -z "$HTML_URL" ]; then
+    echo "ERROR: gh gist create returned no URL. Is gh authenticated?" >&2
+    exit 1
+  fi
+
+  # Derive raw URL — always resolves to latest revision (intentional, not pinned)
+  # Format: https://gist.githubusercontent.com/{user}/{gist_id}/raw/{filename}
+  GIST_ID=$(basename "$HTML_URL")
+  GH_LOGIN=$(gh api user --jq .login 2>/dev/null || gh api /user --jq .login 2>/dev/null)
+  RAW_URL="https://gist.githubusercontent.com/${GH_LOGIN}/${GIST_ID}/raw/${FILENAME}"
+  echo "Gist created: $HTML_URL"
+
+  # ── 4. Write raw URL into frontmatter plan_url field ──────────────────────
+  python3 ~/.claude/skills/gstack/bin/gstack-frontmatter-set.py "$FILE" plan_url "$RAW_URL"
+fi
+
+# ── 5. Commit and push (the sync step — not a separate manual action) ──────
+git add "$FILE"
+git commit -m "plan: publish $(basename "$FILE")"
+if ! git push 2>&1; then
+  echo ""
+  echo "WARNING: git push failed (branch protection? no upstream? not in git repo?)."
+  echo "The Gist is published and the URL is valid, but the updated frontmatter is"
+  echo "NOT on the remote yet. Run 'git push' manually to complete the cross-device sync."
+  echo "Alternatively, share the URL directly — it works regardless of git state."
+fi
+
+# ── 6. Print result ──────────────────────────────────────────────────────────
+SHIP_PROMPT="/ship
+
+Plan: $RAW_URL
+"
+
+echo ""
+echo "Plan published: $RAW_URL"
+echo ""
+echo "Paste-ready /ship handoff:"
+echo "──────────────────────────────────────────────────────"
+echo "$SHIP_PROMPT"
+echo "──────────────────────────────────────────────────────"
+echo ""
+echo "Codex invocation (inline interpolation — validated in The Assignment):"
+echo "  codex exec \"\$(curl -s '$RAW_URL')\""
+
+# ── 7. Clipboard (cherry-pick #2) ─────────────────────────────────────────
+if [ "$CLIPBOARD" -eq 1 ]; then
+  # Detect OS for clipboard command (T: CEO Risk 4 — $OSTYPE unreliable in non-interactive shells)
+  _OS=$(uname -s 2>/dev/null || echo "Unknown")
+  case "$_OS" in
+    Darwin*)
+      echo "$SHIP_PROMPT" | pbcopy && echo "Copied to clipboard (pbcopy)."
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT*)
+      echo "$SHIP_PROMPT" | clip.exe && echo "Copied to clipboard (clip.exe)."
+      ;;
+    Linux*)
+      if command -v xclip >/dev/null 2>&1; then
+        echo "$SHIP_PROMPT" | xclip -selection clipboard && echo "Copied to clipboard (xclip)."
+      elif command -v xsel >/dev/null 2>&1; then
+        echo "$SHIP_PROMPT" | xsel --clipboard --input && echo "Copied to clipboard (xsel)."
+      elif command -v clip.exe >/dev/null 2>&1; then
+        # WSL environment
+        echo "$SHIP_PROMPT" | clip.exe && echo "Copied to clipboard (clip.exe via WSL)."
+      else
+        echo "WARNING: --clipboard requested but no clipboard tool found." >&2
+        echo "         Install xclip or xsel (Linux) and retry." >&2
+      fi
+      ;;
+    *)
+      echo "WARNING: --clipboard not supported on this OS ($OS)." >&2
+      ;;
+  esac
+fi
