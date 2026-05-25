@@ -11,6 +11,8 @@ Conventions:
 ## Skills
 
 - [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
+- [/autoship](autoship/SKILL.md): End-to-end ship: chains /ship → /babysit-pr → /land-and-deploy in one autonomous run.
+- [/babysit-pr](babysit-pr/SKILL.md): Take a PR from "open" to "merged" hands-off.
 - [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
 - [/browse](browse/SKILL.md): Fast headless browser for QA testing and site dogfooding.

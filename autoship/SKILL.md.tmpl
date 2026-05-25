@@ -1,0 +1,246 @@
+---
+name: autoship
+preamble-tier: 4
+version: 1.0.0
+description: |
+  End-to-end ship: chains /ship → /babysit-pr → /land-and-deploy in one
+  autonomous run. Pre-push CI gate + local codex review + push + PR + bot
+  review iteration + merge + deploy + canary monitoring, all from a single
+  invocation. Use when: "autoship", "ship it all the way", "ship and land",
+  "send it to prod", "ship without me babysitting". The user said autoship,
+  which means do the whole pipeline — do NOT ask for intermediate approvals.
+  (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Agent
+  - AskUserQuestion
+  - WebSearch
+sensitive: true
+triggers:
+  - autoship
+  - ship and land
+  - ship it all the way
+  - send it to prod
+  - ship without babysitting
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# Autoship: full pipeline from feature branch to monitored production
+
+You are running `/autoship`. This is a **non-interactive, fully autonomous**
+orchestrator. The user said autoship, meaning: take this feature branch all
+the way from "ready" to "merged, deployed, and verified healthy in production"
+without intermediate approval steps. Run straight through. Output the PR URL,
+deploy URL, and final health status at the end.
+
+`/autoship` is a thin orchestrator. It does not duplicate logic from the
+underlying skills — it invokes them in sequence and handles the handoff. The
+heavy lifting lives in:
+
+```
+/ship             → CI gate, codex review, push, PR creation
+/babysit-pr       → bot-review iteration (cubic + codex-connector) loop
+/land-and-deploy  → merge, wait for CI, deploy, verify prod, canary
+```
+
+If any one of these is updated, `/autoship` inherits the change for free.
+
+## When to use `/autoship` vs the individual skills
+
+Use `/autoship` when:
+- The feature is complete and reviewed (or the user has decided it does not
+  need a manual review pass).
+- You want it in production today, monitored.
+- You are willing to be paged only on true blockers (genuine architectural
+  questions, merge conflicts, deploy failures).
+
+Use the individual skills (`/ship`, `/babysit-pr`, `/land-and-deploy`) when:
+- You want to inspect the PR before letting the bots iterate (run `/ship` only).
+- The PR is already open and you only need the bot loop (`/babysit-pr`).
+- The PR is already approved and you just need to land it (`/land-and-deploy`).
+
+## Read first
+
+- The README and CLAUDE.md of the current repo — every project has different
+  ship hygiene rules. `/ship` and `/land-and-deploy` already enforce theirs;
+  `/autoship` does not bypass them.
+- `~/.claude/skills/gstack/ship/SKILL.md` — the source of truth for the gate
+  list that runs before push. If you are surprised by a `/ship` failure here,
+  read that, not this.
+
+## Stop conditions
+
+`/autoship` stops the autonomous run **only** when:
+
+1. **`/ship` fails its own gates.** Tests fail, pre-landing review surfaces an
+   ASK item, codex review fails, plan completion audit fails, or any other
+   `/ship` stop condition. Surface the failure, hand control back to the user.
+2. **`/babysit-pr` escalates a true blocker.** Architectural disagreement,
+   ambiguous requirement, scope-expanding fix needed. Surface the specific
+   decision required.
+3. **`/land-and-deploy` blocks on user judgment.** Merge conflicts, deploy
+   failure that needs revert decision, prod verification fails.
+4. **No feature branch.** If `git branch --show-current` returns the base
+   branch or the default branch, abort with the same message `/ship` uses.
+
+`/autoship` does NOT stop for:
+- Bot findings within the normal `/babysit-pr` iteration loop. That skill
+  handles them autonomously.
+- CI flakes that resolve on retry. `/land-and-deploy` already handles its own
+  retry logic.
+- "Want me to merge now?" / "Want me to deploy now?" prompts. The user said
+  autoship; do not ask.
+
+## Phase 1: Verify autoship preconditions
+
+```bash
+git rev-parse --abbrev-ref HEAD
+git status --short
+```
+
+- If on base branch (`main` / `master` / repo default) — STOP. Same message
+  `/ship` uses: "You're on the base branch. Autoship from a feature branch."
+- If working tree is dirty with unstaged changes — proceed. `/ship` will
+  include them in its commit; that is normal autoship behavior.
+- If there are tracked but unpushed commits from a prior `/ship` run — that is
+  also fine. `/ship`'s idempotency handles it.
+
+## Phase 2: Invoke `/ship`
+
+Invoke `/ship` via the Skill tool. This handles:
+
+- Base-branch merge
+- Test framework bootstrap + run
+- Coverage audit
+- Plan completion audit
+- Eval suites (if relevant)
+- VERSION + CHANGELOG
+- Commit
+- Pre-landing review (including the local codex review gate)
+- Adversarial review
+- Push
+- PR creation with full body (test plan, coverage, plan completion, review
+  dashboard, etc.)
+
+When `/ship` returns, you will have a PR URL.
+
+- **If `/ship` failed any gate:** STOP. Report what `/ship` reported. Do not
+  attempt to bypass.
+- **If `/ship` succeeded:** capture the PR number from its output. Continue
+  to Phase 3.
+
+Do not duplicate any of `/ship`'s steps here. If something is missing from the
+pipeline (e.g., a new pre-push gate), add it to `/ship`, not to `/autoship`.
+
+## Phase 3: Invoke `/babysit-pr`
+
+Pass the PR number from Phase 2. `/babysit-pr` handles:
+
+- Poll cubic + codex-connector bot reviews on the current HEAD SHA
+- Triage findings (valid bug / valid out of scope / false positive / dup)
+- Apply root-cause fixes
+- Reply + resolve each thread (mandatory per workflow rule)
+- Re-push and re-poll until both bots are clean OR a stop condition fires
+- Schedule wakeups for monitoring (bot re-reviews are not harness-tracked)
+
+When `/babysit-pr` returns, the PR is either clean (both bots happy) or an
+escalation has been raised.
+
+- **If `/babysit-pr` escalated:** STOP. Report the specific blocker.
+- **If `/babysit-pr` is clean:** continue to Phase 4. Note the round count
+  and final state for the closing summary.
+
+`/babysit-pr` is opinionated about which bots it watches (cubic +
+`chatgpt-codex-connector`). If the repo uses different bots, configure
+`/babysit-pr` itself — do not branch here.
+
+## Phase 4: Invoke `/land-and-deploy`
+
+`/land-and-deploy` handles:
+
+- PR state validation (open, not draft, no merge conflicts, mergeable)
+- Final CI watch (`gh pr checks --watch`)
+- Merge (squash + delete branch by default)
+- Wait for deploy pipeline to complete
+- Prod health verification (single-pass)
+- Suggest `/canary` for extended monitoring
+
+When `/land-and-deploy` returns, the PR is merged and deployed.
+
+- **If `/land-and-deploy` failed:** STOP. Surface the deploy failure or
+  revert prompt.
+- **If `/land-and-deploy` succeeded:** continue to Phase 5.
+
+## Phase 5: Optional canary
+
+If the repo has `/canary` configured (browse daemon, baseline URL, etc.) and
+the deploy was a meaningful change (not a docs-only PR), invoke `/canary`
+against the production URL. This watches for ~10 minutes for console errors,
+performance regressions, and visual anomalies.
+
+If `/canary` is not configured or the change is docs-only, skip with a note
+in the closing summary.
+
+## Phase 6: Closing summary
+
+Output, in order:
+1. PR URL.
+2. Final PR review state: rounds iterated in `/babysit-pr`, threads resolved.
+3. Deploy URL + deploy duration.
+4. Prod health: pass/fail of the single-pass verification.
+5. Canary result if run; otherwise note skipped + why.
+6. Anything `/autoship` surfaced that needs human follow-up (e.g., a P3 nit
+   the bots flagged that you chose not to fix, a flaky CI step worth
+   investigating, a known-broken gate that came up).
+
+Format the summary as a checklist with green checkmarks (✓) and the relevant
+URLs. Brief — five lines, not a wall of text.
+
+## What `/autoship` does NOT do
+
+- Run the implementation. The feature has to be implemented before you can
+  autoship it.
+- Replace your eng/CEO/design reviews. Those are upstream of `/ship`; if you
+  want them, run `/plan-eng-review` / `/plan-ceo-review` / `/plan-design-review`
+  before autoship.
+- Override a failing gate. If `/ship`'s codex review or coverage audit fails,
+  `/autoship` stops — it does not bypass.
+- Resolve merge conflicts. Same as `/babysit-pr` and `/land-and-deploy`.
+- Decide between revert and roll-forward when a deploy fails. That is always
+  a user decision.
+
+## Routing
+
+Invoke `/autoship` when the user asks any of:
+
+- "autoship this"
+- "autoship" (standalone, on a feature branch)
+- "ship it all the way to prod"
+- "ship and land"
+- "send it"
+- "ship without me babysitting"
+- "ship it and let me know when it's deployed"
+- "full ship"
+
+For sub-flows, route to the individual skills directly:
+- "create the PR" / "push it" → `/ship`
+- "watch the PR and resolve the bot comments" → `/babysit-pr`
+- "merge and deploy" / "land it" → `/land-and-deploy`
+- "monitor production after this deploy" → `/canary`
+
+## Why this skill exists
+
+Remote iteration loops (push → wait for cubic+codex → babysit → fix →
+re-push → wait again → merge → wait for deploy → verify) consumed minutes of
+real wall time per ship. `/autoship` collapses that into a single autonomous
+run with the user free to do other work. The user opts into the autonomy
+with a single invocation; intermediate findings are surfaced only when they
+genuinely require human judgment.

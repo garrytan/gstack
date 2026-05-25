@@ -1,0 +1,269 @@
+---
+name: babysit-pr
+preamble-tier: 4
+version: 1.0.0
+description: |
+  Take a PR from "open" to "merged" hands-off. Polls automated bot reviews
+  (cubic, codex-connector, greptile, coderabbit — whichever the repo uses),
+  fixes findings at the root cause, replies + resolves each thread, re-pushes,
+  and repeats until the bots are clean. Then hands off to /land-and-deploy.
+  Creates the PR via /ship if one does not exist. Fills the gap between /ship
+  (creates the PR) and /land-and-deploy (merges + deploys).
+  Use when: "babysit this PR", "watch the PR and resolve bot comments",
+  "iterate on cubic/codex until clean", "drive this PR to merge". (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Agent
+  - AskUserQuestion
+sensitive: true
+triggers:
+  - babysit pr
+  - babysit this pr
+  - watch the pr
+  - iterate on bot reviews
+  - drive this pr to merge
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# Babysit PR
+
+Drive a pull request from open to merge-ready by autonomously iterating on
+PR-review bots. This is the missing middle of the ship pipeline:
+
+```
+/ship             → creates the PR
+/babysit-pr       → THIS SKILL: bot-review iteration loop
+/land-and-deploy  → merge + deploy + canary
+```
+
+Distinct from `/review` and `/codex` — those are _your own_ review passes
+against the local diff. This skill monitors and responds to the **automated
+PR-review bots** that comment on the open PR. The skill auto-detects which
+bots are configured for the repo on first run.
+
+## Read first
+
+- The repo's `CLAUDE.md` / `AGENTS.md` / contributor guide — every project
+  has different ship hygiene rules. Every fix this skill commits must still
+  pass them.
+- The repo's PR-review bot configuration (typically `.github/` workflows or
+  app-level installation). This determines which bots are in play.
+
+## Mission
+
+Get the PR to a clean state on every configured bot with the **minimum
+correct diff**, then hand off. Every commit this skill makes is a root-cause
+fix or a reasoned reply — never a patch to silence a bot.
+
+This is an **autonomous loop**. Do not ask the user to approve each round.
+Fix, reply, resolve, re-push, re-poll. Escalate only true blockers (see
+Stop Conditions).
+
+## Supported bots
+
+Auto-detect on first run by listing PR checks and review authors:
+
+| Bot                                | Check name pattern                | Review-author login                          |
+| ---------------------------------- | --------------------------------- | -------------------------------------------- |
+| **cubic** (cubic.dev)              | `cubic · AI code reviewer`        | `cubic-dev-ai`                               |
+| **codex-connector** (OpenAI Codex) | (no check; reaction-based 👀/👍) | `chatgpt-codex-connector`                    |
+| **greptile**                       | `Greptile`                        | `greptileai`                                 |
+| **coderabbit**                     | `CodeRabbit`                      | `coderabbitai`                               |
+
+If a configured bot is not in this list, treat any **review-author bot**
+(`bot` suffix on login, or installed GitHub App) that posts review threads
+the same way. The pattern is generic: poll → wait for finish → triage threads
+→ fix/reply/resolve → re-push.
+
+## Phase 1: Locate or create the PR
+
+```bash
+gh pr view --json number,state,isDraft,baseRefName,headRefName,mergeable,url
+```
+
+- **PR exists, open, not draft** → record the number, go to Phase 2.
+- **PR exists but is a draft** → mark it ready (`gh pr ready`) so the bots
+  review it, then go to Phase 2.
+- **No PR** → invoke `/ship` via the Skill tool to create it. That handles
+  VERSION, CHANGELOG, preflight, PR body. When `/ship` returns, re-run the
+  command above.
+- **`mergeable: CONFLICTING`** → STOP. Tell the user to rebase/resolve; this
+  skill does not resolve merge conflicts.
+
+If `git branch --show-current` returns the base branch, STOP — there is no
+feature branch to babysit.
+
+## Phase 2: Wait for the review round
+
+Both classes of bot re-review on every push. Know the signals:
+
+```bash
+# Bot checks (cubic, greptile, coderabbit produce checks; codex does not)
+gh pr checks <N> | grep -iE 'cubic|codex|greptile|coderabbit|pending|fail'
+
+# Reviews + threads, scoped to current HEAD SHA
+gh api graphql -f query='
+query($owner:String!,$repo:String!,$n:Int!){
+  repository(owner:$owner,name:$repo){ pullRequest(number:$n){
+    reviewThreads(first:60){ nodes{ id isResolved isOutdated path line
+      comments(first:10){ nodes{ author{login} body createdAt } } } }
+    reviews(last:10){ nodes{ author{login} state body createdAt } }
+  }}}' -f owner=<owner> -f repo=<repo> -F n=<N>
+```
+
+Wait for **every configured bot** to finish reviewing the current HEAD SHA.
+
+Codex reviews name the commit they reviewed (`**Reviewed commit:** \`<sha>\``)
+— confirm it matches HEAD before trusting the result. A codex review of an
+older SHA is stale; wait for the re-review.
+
+**Codex signal:** 👀 reaction on its review = in progress. 👍 reaction with
+no new threads = clean. New review threads = findings.
+
+**Monitoring is not harness-tracked.** Bot re-reviews land minutes after a
+push with no notification. After every push (Phase 4), schedule a wakeup
+(~5–10 min, plus a longer backstop) to re-enter Phase 2 — do not leave it to
+the user to re-prompt.
+
+Typical timing: cubic ~2–3 min, codex ~2–5 min, greptile ~1–3 min,
+coderabbit ~1–3 min, CI ~5–10 min depending on project.
+
+## Phase 3: Triage the threads
+
+Gather every **unresolved** thread from the current HEAD's reviews. Classify
+each — do not blindly "fix all":
+
+- **Valid bug** → fix it at the root cause (Phase 4). Most bots tag severity
+  (`P1`/`P2`/`P3` or `critical`/`major`/`minor`). Treat P1/critical as
+  must-fix.
+- **Valid but out of scope** → reply explaining why it is deferred, link a
+  follow-up if one exists, resolve. Do not expand the PR's scope to chase
+  it.
+- **False positive / wrong** → reply with the concrete reason it does not
+  apply, resolve. Disagreeing with a bot is fine when you can show why.
+- **Same root cause across multiple threads** → fix once; reply on each
+  thread pointing at the shared fix.
+
+Apply the project's quality bar: root-cause fixes only, no patches that mask
+the bug, minimum diff, no over-engineering. Read the project's quality-gate
+docs (commonly `.claude/rules/` or `docs/policies/`) if they exist.
+
+## Phase 4: Fix → verify → commit → push
+
+For the threads you are fixing:
+
+1. Implement the root-cause fix.
+2. Verify locally with the project's verification gate. Common patterns:
+   - `make build && make test && make format`
+   - `pnpm verify` / `pnpm test` / `cargo test`
+   - The pre-push hook (Husky / lefthook / direct) — let it run.
+3. Format touched files in the project's idiom (`gofmt -w` for Go,
+   `pnpm format` for TS, `cargo fmt` for Rust, etc.) before committing.
+4. Commit. Use the project's commit-author and trailer conventions (read
+   `git log` for tone; check `.claude/rules/git-workflow.md` or
+   `CONTRIBUTING.md` for trailers).
+5. Push the branch. If the repo has a `make push-preflight` or equivalent
+   gate (see `Makefile` / `package.json`), run it first.
+
+Do not push speculative fixes you have not verified.
+
+## Phase 5: Reply + resolve every thread you touched
+
+This is mandatory in most professional repos and a hard rule in many. For
+each addressed thread:
+
+```bash
+# reply
+gh api graphql -f query='mutation($threadId:ID!,$body:String!){
+  addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId,body:$body}){comment{id}}}' \
+  -f threadId="$THREAD_ID" -f body="Fixed in $SHA: <what changed + why>. <any deviation from the suggestion>"
+
+# resolve
+gh api graphql -f query='mutation($threadId:ID!){
+  resolveReviewThread(input:{threadId:$threadId}){thread{isResolved}}}' \
+  -f threadId="$THREAD_ID"
+```
+
+Reply body: one to three sentences — what changed, the commit SHA, and if
+you went a different way than the bot suggested, say so. Never reply just
+"fixed". Resolve threads you replied to with a reasoned decline, too.
+
+## Phase 6: Re-poll
+
+The push in Phase 4 triggers a fresh bot round. Schedule the wakeup, then
+return to Phase 2 for the new HEAD SHA.
+
+## Stop conditions
+
+End the loop when **any** of these is true:
+
+- **Clean** — every configured bot is happy on the current HEAD SHA, all
+  threads resolved. Go to Phase 7.
+- **Diminishing returns** — after 2–3 rounds, the only remaining findings
+  are P3 nits or theoretical edge cases. Do not chase them as must-fix.
+  Reply with your reasoning, resolve, treat the PR as clean.
+- **True blocker** — a finding exposes an architectural disagreement, an
+  ambiguous requirement, or a fix that would expand scope materially. STOP
+  and escalate to the user with the specific decision needed. This is the
+  only case that interrupts the autonomous loop.
+- **CI red for a non-bot reason** — failing tests/build unrelated to a bot
+  thread. STOP; this is not a review-iteration problem.
+
+Spec/docs-only PRs: bots rarely block these — if all configured bots pass
+with no threads on the first round, skip straight to Phase 7.
+
+## Phase 7: Hand off to `/land-and-deploy`
+
+Once clean, do not bare-merge. Hand off to `/land-and-deploy` via the Skill
+tool, passing the PR number and a one-line summary: rounds iterated, threads
+resolved, final dual-bot state.
+
+If `/autoship` invoked this skill, control returns to `/autoship` which will
+invoke `/land-and-deploy` itself.
+
+## What this skill does NOT do
+
+- Author the initial implementation — that is the work before `/ship`.
+- Resolve merge conflicts — escalate to the user.
+- Merge, deploy, or canary — that is `/land-and-deploy`.
+- Respond to human reviewer comments — reply factually, but escalate
+  judgment calls; do not auto-resolve a human's thread.
+- Override a failing CI gate — red CI for a non-review reason stops the
+  loop.
+
+## Completion gate
+
+Before declaring DONE:
+
+- [ ] PR exists, open, not draft, no merge conflicts.
+- [ ] Every bot thread on the latest SHA is resolved — fixed, or declined
+      with a reasoned reply.
+- [ ] Every fix verified with the project's verification gate and pushed
+      through the pre-push gate.
+- [ ] Every touched thread has a reply naming the commit SHA + what changed.
+- [ ] Every configured bot is green on the current HEAD SHA.
+- [ ] Handed off to `/land-and-deploy` (or returned control to `/autoship`),
+      or escalated a specific blocker.
+
+## Routing
+
+When the user asks any of:
+
+- "babysit this PR" / "babysit PR #N"
+- "watch the PR and resolve the bot comments"
+- "open a PR and merge it when the bots are happy"
+- "iterate on cubic/codex/greptile until it's clean"
+- "drive this PR to merge"
+
+…invoke this skill. For your own pre-landing review use `/review`; for an
+independent diff review use `/codex`; for the merge + deploy itself use
+`/land-and-deploy`; for the full pipeline (creates the PR + babysits + lands)
+use `/autoship`.
