@@ -312,6 +312,19 @@ function repoRoot(): string | null {
   }
 }
 
+function readPinnedCodeSourceId(repoPath: string): string | null {
+  const pinPath = join(repoPath, ".gbrain-source");
+  try {
+    if (!existsSync(pinPath) || !statSync(pinPath).isFile()) return null;
+    const sourceId = readFileSync(pinPath, "utf-8").trim();
+    if (!sourceId) return null;
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(sourceId)) return null;
+    return sourceId;
+  } catch {
+    return null;
+  }
+}
+
 function originUrl(): string | null {
   try {
     const out = execSync("git remote get-url origin", { encoding: "utf-8", timeout: 2000 });
@@ -413,8 +426,7 @@ export function derivePathOnlyHashLegacyId(repoPath: string): string {
  * `sources` parent help mentions a `rename` subcommand but the CLI doesn't
  * accept the `<old> <new>` form (or vice versa). Cached for the lifetime
  * of the process. As of gbrain 0.35.0.0 this command does not exist, so the
- * function returns false and the migration path falls back to register-new
- * + sync-OK + remove-old.
+ * migration keeps the existing same-path source as canonical.
  */
 let _gbrainSupportsRenameCache: boolean | null = null;
 export function _resetGbrainSupportsRenameCache(): void {
@@ -467,7 +479,7 @@ export type HostnameFoldMigration =
   | { kind: "none"; reason: "ids-match" | "no-legacy-source" }
   | { kind: "skipped-path-drift"; oldId: string; oldPath: string; currentPath: string }
   | { kind: "renamed"; oldId: string; newId: string }
-  | { kind: "pending-cleanup"; oldId: string };
+  | { kind: "kept-existing"; oldId: string; reason: "rename-unavailable" | "rename-failed" };
 
 /**
  * Decide how to migrate from the pre-#1468 path-only-hash source id to the
@@ -481,10 +493,10 @@ export type HostnameFoldMigration =
  *      rename or remove anything; the new source is registered alongside.
  *   4. Otherwise: feature-check `gbrain sources rename`. If supported and the
  *      rename call exits 0 → renamed, pages preserved.
- *   5. Else: pending-cleanup. Caller registers + syncs new source first; only
- *      after sync succeeds with a non-zero page count does it remove the old.
- *      This avoids a data-loss window where the old source is gone before the
- *      new one is verifiably populated.
+ *   5. Else: keep the existing same-path source as canonical. gbrain rejects a
+ *      second source for the same local_path, so attempting register-new would
+ *      fail and create no safer migration path. The caller will sync + attach
+ *      the old id, preserving pages and avoiding duplicate sources.
  */
 export function planHostnameFoldMigration(
   currentRoot: string,
@@ -512,9 +524,9 @@ export function planHostnameFoldMigration(
     if (r.status === 0) {
       return { kind: "renamed", oldId: legacyPathHashId, newId: newSourceId };
     }
-    // Rename failed at runtime — fall through to cleanup path.
+    return { kind: "kept-existing", oldId: legacyPathHashId, reason: "rename-failed" };
   }
-  return { kind: "pending-cleanup", oldId: legacyPathHashId };
+  return { kind: "kept-existing", oldId: legacyPathHashId, reason: "rename-unavailable" };
 }
 
 export interface GuardedRemoveResult {
@@ -750,7 +762,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
   }
 
-  const sourceId = deriveCodeSourceId(root);
+  const derivedSourceId = deriveCodeSourceId(root);
+  const pinnedSourceId = readPinnedCodeSourceId(root);
+  let sourceId = pinnedSourceId ?? derivedSourceId;
 
   // dry-run preview always shows the would-do steps, regardless of local
   // engine state. Useful for "what would /sync-gbrain do" without probing
@@ -799,14 +813,38 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     if (rm.removed) legacyRemoved = true;
   }
 
-  // Step 0b: Hostname-fold migration (#1414).
+  // Step 0b: Honor this worktree's source pin when it still points at the
+  // current repo. The pin is the durable source of truth for reopened Codex
+  // sessions and sibling worktrees.
+  let usingPinnedSource = false;
+  if (pinnedSourceId) {
+    const pinnedPath = sourceLocalPath(pinnedSourceId, gbrainEnv);
+    if (pinnedPath === root) {
+      sourceId = pinnedSourceId;
+      usingPinnedSource = true;
+      if (!args.quiet) {
+        console.error(`[sync:code] using pinned source ${sourceId} for ${root}`);
+      }
+    } else {
+      sourceId = derivedSourceId;
+      if (!args.quiet) {
+        const reason = pinnedPath === null ? "source not found" : `points at ${pinnedPath}`;
+        console.error(`[sync:code] ignoring stale .gbrain-source ${pinnedSourceId}: ${reason}`);
+      }
+    }
+  }
+
+  // Step 0c: Hostname-fold migration (#1414).
   // Before #1468 the source id hashed only the absolute repo path. After the
   // hostname fold, every existing user has a legacy id that no longer matches
   // what deriveCodeSourceId produces. Try rename-in-place first (preserves
-  // pages); fall back to register-new → sync-OK → remove-old. Path-drift
-  // (user moved the repo, etc.) skips migration with a warning.
+  // pages); if rename is unavailable, keep the existing same-path source as
+  // canonical and attach it to this worktree. Path-drift (user moved the repo,
+  // etc.) skips migration with a warning.
   const pathOnlyHashLegacyId = derivePathOnlyHashLegacyId(root);
-  const migration = planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
+  const migration = usingPinnedSource
+    ? ({ kind: "none", reason: "ids-match" } as const)
+    : planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
   if (migration.kind === "skipped-path-drift" && !args.quiet) {
     console.error(
       `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
@@ -815,6 +853,11 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     );
   } else if (migration.kind === "renamed" && !args.quiet) {
     console.error(`[sync:code] hostname-fold migration: renamed ${migration.oldId} → ${migration.newId} (pages preserved)`);
+  } else if (migration.kind === "kept-existing") {
+    sourceId = migration.oldId;
+    if (!args.quiet) {
+      console.error(`[sync:code] hostname-fold migration: keeping existing source ${sourceId} for ${root} (${migration.reason}; pages preserved)`);
+    }
   }
 
   // Step 1: Ensure source registered (idempotent). Single source of truth in lib —
@@ -924,24 +967,10 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   });
   const pageCount = sourcePageCount(sourceId, gbrainEnv);
 
-  // Step 4: Deferred hostname-fold cleanup.
-  // Only remove the pre-#1468 path-only-hash source NOW that the new source
-  // has registered + synced + has pages. Removing before sync would create a
-  // data-loss window if sync failed; removing without a page-count check would
-  // wipe pages when sync silently no-op'd. This is the codex-review-flagged
-  // safety: register → sync → verify → THEN delete.
-  let hostnameLegacyRemoved = false;
-  if (migration.kind === "pending-cleanup" && pageCount !== null && pageCount > 0) {
-    hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
-    if (hostnameLegacyRemoved && !args.quiet) {
-      console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
-    }
-  }
-
   const legacyParts: string[] = [];
   if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
   if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
-  if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
+  if (migration.kind === "kept-existing") legacyParts.push(`kept existing ${migration.oldId}`);
   const legacyNote = legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
   const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
 

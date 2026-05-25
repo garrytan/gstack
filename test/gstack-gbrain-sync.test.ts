@@ -709,7 +709,7 @@ describe("planHostnameFoldMigration", () => {
     expect(result).toEqual({ kind: "renamed", oldId: "legacy-id", newId: "new-id" });
   });
 
-  it("returns pending-cleanup when rename is unsupported (current gbrain 0.35.0.0)", () => {
+  it("keeps the existing same-path source when rename is unsupported", () => {
     makeShim(bindir, {
       "sources list --json": {
         stdout: JSON.stringify([{ id: "legacy-id", local_path: "/repo/here" }]),
@@ -717,10 +717,10 @@ describe("planHostnameFoldMigration", () => {
       // No `sources rename --help` match → shim falls into the catch-all and exits 1.
     });
     const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
-    expect(result).toEqual({ kind: "pending-cleanup", oldId: "legacy-id" });
+    expect(result).toEqual({ kind: "kept-existing", oldId: "legacy-id", reason: "rename-unavailable" });
   });
 
-  it("returns pending-cleanup when rename is supported but the rename call itself fails", () => {
+  it("keeps the existing same-path source when rename itself fails", () => {
     makeShim(bindir, {
       "sources list --json": {
         stdout: JSON.stringify([{ id: "legacy-id", local_path: "/repo/here" }]),
@@ -731,7 +731,7 @@ describe("planHostnameFoldMigration", () => {
       "sources rename legacy-id new-id": { exit: 1, stderr: "rename failed: db locked" },
     });
     const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
-    expect(result).toEqual({ kind: "pending-cleanup", oldId: "legacy-id" });
+    expect(result).toEqual({ kind: "kept-existing", oldId: "legacy-id", reason: "rename-failed" });
   });
 });
 
