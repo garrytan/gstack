@@ -19,6 +19,13 @@ export interface SourceState {
   registered_path?: string;
 }
 
+export interface RegisteredGbrainSource {
+  id?: string;
+  local_path?: string;
+  page_count?: number;
+  federated?: boolean;
+}
+
 export interface EnsureResult {
   /** True if registration state changed (added or re-registered). False on no-op. */
   changed: boolean;
@@ -40,15 +47,30 @@ export interface EnsureOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/**
- * Probe the registration state of a source by id.
- *
- * Errors:
- *   - "gbrain CLI not on PATH" (exit 127) — caller should treat as absent + skip stage.
- *   - "gbrain DB connection failed" — caller should treat as absent + skip stage.
- *   - JSON parse error — propagate via withErrorContext caller.
- */
-export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
+export interface FindSourceByLocalPathOptions {
+  /** Optional env override for spawned `gbrain` calls. */
+  env?: NodeJS.ProcessEnv;
+  /** Prefer sources whose id starts with this prefix; falls back to any matching path. */
+  preferredIdPrefix?: string;
+}
+
+function parseSourcesList(stdout: string): RegisteredGbrainSource[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (err) {
+    throw new Error(`gbrain sources list returned non-JSON output: ${(err as Error).message}`);
+  }
+
+  const sources = Array.isArray(parsed)
+    ? parsed
+    : ((parsed as { sources?: unknown }).sources ?? []);
+
+  if (!Array.isArray(sources)) return [];
+  return sources as RegisteredGbrainSource[];
+}
+
+export function listRegisteredSources(env?: NodeJS.ProcessEnv): RegisteredGbrainSource[] {
   let stdout: string;
   try {
     stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
@@ -69,14 +91,34 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
     throw err;
   }
 
-  let parsed: { sources?: Array<{ id?: string; local_path?: string }> };
-  try {
-    parsed = JSON.parse(stdout);
-  } catch (err) {
-    throw new Error(`gbrain sources list returned non-JSON output: ${(err as Error).message}`);
+  return parseSourcesList(stdout);
+}
+
+export function findSourceByLocalPath(
+  path: string,
+  options: FindSourceByLocalPathOptions = {}
+): RegisteredGbrainSource | null {
+  const matches = listRegisteredSources(options.env).filter((source) => source.local_path === path);
+  if (matches.length === 0) return null;
+
+  if (options.preferredIdPrefix) {
+    const preferred = matches.find((source) => source.id?.startsWith(options.preferredIdPrefix));
+    if (preferred) return preferred;
   }
 
-  const sources = parsed.sources || [];
+  return matches[0] ?? null;
+}
+
+/**
+ * Probe the registration state of a source by id.
+ *
+ * Errors:
+ *   - "gbrain CLI not on PATH" (exit 127) — caller should treat as absent + skip stage.
+ *   - "gbrain DB connection failed" — caller should treat as absent + skip stage.
+ *   - JSON parse error — propagate via withErrorContext caller.
+ */
+export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
+  const sources = listRegisteredSources(env);
   const match = sources.find((s) => s.id === id);
   if (!match) return { status: "absent" };
   return {
@@ -160,21 +202,8 @@ export async function ensureSourceRegistered(
  * variant selection.
  */
 export function sourcePageCount(id: string, env?: NodeJS.ProcessEnv): number | null {
-  let stdout: string;
   try {
-    stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
-      encoding: "utf-8",
-      timeout: 30_000,
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
-    });
-  } catch {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(stdout) as { sources?: Array<{ id?: string; page_count?: number }> };
-    const match = (parsed.sources || []).find((s) => s.id === id);
+    const match = listRegisteredSources(env).find((s) => s.id === id);
     if (!match) return null;
     if (typeof match.page_count !== "number") return null;
     return match.page_count;

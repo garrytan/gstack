@@ -37,7 +37,7 @@ import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, findSourceByLocalPath, sourcePageCount } from "../lib/gbrain-sources";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson } from "../lib/gbrain-exec";
 
@@ -416,7 +416,7 @@ export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): stri
 
 /** Result of `planHostnameFoldMigration` — informs `runCodeImport` of next steps. */
 export type HostnameFoldMigration =
-  | { kind: "none"; reason: "ids-match" | "no-legacy-source" }
+  | { kind: "none"; reason: "ids-match" | "no-legacy-source" | "same-path-source-reused" }
   | { kind: "skipped-path-drift"; oldId: string; oldPath: string; currentPath: string }
   | { kind: "renamed"; oldId: string; newId: string }
   | { kind: "pending-cleanup"; oldId: string };
@@ -620,7 +620,8 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
   }
 
-  const sourceId = deriveCodeSourceId(root);
+  const preferredSourceId = deriveCodeSourceId(root);
+  let sourceId = preferredSourceId;
 
   // dry-run preview always shows the would-do steps, regardless of local
   // engine state. Useful for "what would /sync-gbrain do" without probing
@@ -631,8 +632,8 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
-      detail: { source_id: sourceId, source_path: root, status: "skipped" },
+      summary: `would: gbrain sources add ${preferredSourceId} --path ${root} --federated; gbrain sync --strategy code --source ${preferredSourceId}; gbrain sources attach ${preferredSourceId}`,
+      detail: { source_id: preferredSourceId, source_path: root, status: "skipped" },
     };
   }
 
@@ -658,9 +659,40 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // inside Next.js / Prisma / Rails projects with their own .env.local
   // (codex review #7 — bug fix is wider than #1508 as filed).
   const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
+
+  // gbrain now rejects overlapping local paths. If this worktree was already
+  // registered under an older but exact same path-keyed id, reuse it instead
+  // of trying to add the new preferred id and failing with an overlap error.
+  let reusedExistingSourceId: string | null = null;
+  try {
+    const samePathSource = findSourceByLocalPath(root, {
+      env: gbrainEnv,
+      preferredIdPrefix: "gstack-code-",
+    });
+    if (samePathSource?.id && samePathSource.id !== preferredSourceId) {
+      sourceId = samePathSource.id;
+      reusedExistingSourceId = samePathSource.id;
+      if (!args.quiet) {
+        console.error(
+          `[sync:code] reusing existing source ${sourceId} for ${root} `
+          + `(preferred id ${preferredSourceId} overlaps the same path)`,
+        );
+      }
+    }
+  } catch (err) {
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `source path lookup failed: ${(err as Error).message}`,
+      detail: { source_id: preferredSourceId, source_path: root, status: "failed" },
+    };
+  }
+
   const legacyId = deriveLegacyCodeSourceId(root);
   let legacyRemoved = false;
-  if (legacyId !== sourceId) {
+  if (!reusedExistingSourceId && legacyId !== sourceId) {
     const rm = spawnGbrain(["sources", "remove", legacyId, "--confirm-destructive"], {
       timeout: 30_000,
       baseEnv: gbrainEnv,
@@ -677,7 +709,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // pages); fall back to register-new → sync-OK → remove-old. Path-drift
   // (user moved the repo, etc.) skips migration with a warning.
   const pathOnlyHashLegacyId = derivePathOnlyHashLegacyId(root);
-  const migration = planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
+  const migration: HostnameFoldMigration = reusedExistingSourceId
+    ? { kind: "none", reason: "same-path-source-reused" }
+    : planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
   if (migration.kind === "skipped-path-drift" && !args.quiet) {
     console.error(
       `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
@@ -787,6 +821,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   }
 
   const legacyParts: string[] = [];
+  if (reusedExistingSourceId) legacyParts.push(`reused existing ${reusedExistingSourceId} for preferred ${preferredSourceId}`);
   if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
   if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
   if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
