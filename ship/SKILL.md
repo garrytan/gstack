@@ -1579,6 +1579,8 @@ Repo: {owner/repo}
 > ### Plan File Discovery
 
 1. **Conversation context (primary):** Check if there is an active plan file in this conversation. The host agent's system messages include plan file paths when in plan mode. If found, use it directly — this is the most reliable signal.
+   - **If the Plan: value starts with `https://`** (a Gist URL from `gstack-publish`): fetch the plan content using `WebFetch` (preferred for in-context use) or `curl -s {url}` via Bash. Use the returned markdown as the plan content — do NOT attempt to read it as a local file path.
+   - **If the Plan: value is a local path:** read the file directly. Check both new repo-local paths (`{repo}/.gstack/designs/*.md`) and legacy paths (`~/.gstack/projects/{slug}/*.md`).
 
 2. **Content-based search (fallback):** If no plan file is referenced in conversation context, search by content:
 
@@ -1586,15 +1588,17 @@ Repo: {owner/repo}
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-')
 REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 # Compute project slug for ~/.gstack/projects/ lookup
 _PLAN_SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-' | tr -cd 'a-zA-Z0-9._-') || true
 _PLAN_SLUG="${_PLAN_SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
-# Search common plan file locations (project designs first, then personal/local)
-for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
+# Search new repo-local location first (cherry-pick #3), then legacy locations
+for PLAN_DIR in "${REPO_TOP:+$REPO_TOP/.gstack/designs}" "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOME/.codex/plans" ".gstack/plans"; do
+  [ -n "$PLAN_DIR" ] || continue
   [ -d "$PLAN_DIR" ] || continue
-  PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | head -1)
-  [ -z "$PLAN" ] && PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$REPO" 2>/dev/null | head -1)
-  [ -z "$PLAN" ] && PLAN=$(find "$PLAN_DIR" -name '*.md' -mmin -1440 -maxdepth 1 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+  PLAN=$(find "$PLAN_DIR" -maxdepth 1 -name '*.md' 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | sort -r | head -1)
+  [ -z "$PLAN" ] && PLAN=$(find "$PLAN_DIR" -maxdepth 1 -name '*.md' 2>/dev/null | xargs grep -l "$REPO" 2>/dev/null | sort -r | head -1)
+  [ -z "$PLAN" ] && PLAN=$(find "$PLAN_DIR" -name '*.md' -mmin -1440 -maxdepth 1 2>/dev/null | sort -r | head -1)
   [ -n "$PLAN" ] && break
 done
 [ -n "$PLAN" ] && echo "PLAN_FILE: $PLAN" || echo "NO_PLAN_FILE"
@@ -1605,6 +1609,7 @@ done
 **Error handling:**
 - No plan file found → skip with "No plan file detected — skipping."
 - Plan file found but unreadable (permissions, encoding) → skip with "Plan file found but unreadable — skipping."
+- Plan URL fetch failed (network error, bad URL) → skip with "Plan URL unreachable — skipping plan completion audit."
 
 ### Actionable Item Extraction
 
