@@ -974,6 +974,54 @@ Final severity bucket per commit:
 | **SIBLING** | OPEN issues but no PR; or merged-recently with overlap |
 | **CLEAN** | No hits, or only old closed issues |
 
+## Step 4.4: Second-opinion review via codex (CLEAN commits only)
+
+For each commit bucketed CLEAN (i.e. not duplicating upstream work),
+run an independent second-opinion code review BEFORE the PR is opened.
+Catches bugs the author missed without spending reviewer attention
+upstream.
+
+The skill assumes `codex` CLI is on PATH (OpenAI's official CLI;
+`brew install codex` on macOS). If absent, emit a soft warning + skip
+this step — don't block. Different model family from Claude gives
+genuine independent signal.
+
+```bash
+if command -v codex >/dev/null 2>&1; then
+  for sha in $CLEAN_COMMIT_SHAS; do
+    diff=$(git show "$sha" --stat --pretty=format:"%s")
+    subject=$(git log -1 --format=%s "$sha")
+    codex review "Review commit ${sha:0:8} '${subject}' for correctness,
+      edge cases, and CONTRIBUTING.md compliance. Focus on: regression
+      risk on adjacent code paths, missing tests, hash/version-bump
+      invariants if touching cache keys, ordering bugs if touching
+      conditionals or dispatchers. Flag P0/P1/P2 issues with file:line."
+  done
+else
+  echo "[pr-prep] codex CLI not found — skipping second-opinion review.
+   Install via 'brew install codex' or pin a fork-specific reviewer in
+   your skill config."
+fi
+```
+
+Surface findings in the report under each commit as a `Codex P{N}`
+line. P0/P1 findings escalate the commit's severity to OVERLAP at
+minimum (don't file as CLEAN until addressed). P2 findings stay
+CLEAN — author decides whether to fix-before-file or note-in-PR-body.
+
+Real-world example (2026-05-26 motivating case):
+- PR #1427 (synopsis doc truncate) → codex P2: env-overridable cap
+  not folded into `computeCorpusGeneration` hash. Different caps
+  produce same `corpus_generation` → cache invalidation breaks.
+  Fixed pre-merge, pushed as follow-up commit, comment posted to PR.
+- PR #1428 (models doctor args[0]) → codex P2: `--help` regressed
+  into running network probes. Reorder ternary so `hasHelp` checked
+  first. Fixed pre-merge.
+
+Both findings were structural, not stylistic. Author missed them
+during own write-up. Net cost avoided: 2 review-cycle ping-pongs
+upstream + a follow-up fix PR per finding.
+
 ## Step 4.5: Surface CONTRIBUTING.md pre-push gates per commit
 
 For each commit that survives audit (CLEAN / OVERLAP / SIBLING — not
