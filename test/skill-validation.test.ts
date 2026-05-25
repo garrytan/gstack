@@ -1899,6 +1899,65 @@ describe('no compiled binaries in git', () => {
 // Terminal-pane invariants are covered by browse/test/sidebar-tabs.test.ts
 // and browse/test/terminal-agent.test.ts.
 
+// Issue #1656 (regression of #785): tilde inside double quotes is literal —
+// bash only expands `~` when unquoted at the start of a word. SKILL.md files
+// that assign a tilde-prefixed bin path inside double quotes, or `-x`-test it
+// in quotes, silently break because the exec sees `~/...` verbatim. The
+// surrounding `2>/dev/null || true` swallows the ENOENT and the brain-sync
+// preamble becomes a no-op. Lock the generator output so the pattern cannot
+// reappear under any resolver edit.
+describe('SKILL.md: no literal tilde in quoted assignments or -x tests (issue #1656)', () => {
+  function listGeneratedSkillFiles(): string[] {
+    const out: string[] = [];
+    const rootSkill = path.join(ROOT, 'SKILL.md');
+    if (fs.existsSync(rootSkill)) out.push(rootSkill);
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const candidate = path.join(ROOT, entry.name, 'SKILL.md');
+      if (fs.existsSync(candidate)) out.push(candidate);
+    }
+    return out;
+  }
+
+  test('no SKILL.md contains `="~/` (tilde literal inside quoted assignment)', () => {
+    const offenders: Array<{ file: string; line: number; text: string }> = [];
+    for (const file of listGeneratedSkillFiles()) {
+      const lines = fs.readFileSync(file, 'utf-8').split('\n');
+      lines.forEach((line, idx) => {
+        if (/="~\//.test(line)) {
+          offenders.push({ file: path.relative(ROOT, file), line: idx + 1, text: line.trim() });
+        }
+      });
+    }
+    if (offenders.length > 0) {
+      const sample = offenders.slice(0, 5).map(o => `${o.file}:${o.line}: ${o.text}`).join('\n');
+      throw new Error(
+        `Found ${offenders.length} tilde-literal-in-quoted-assignment site(s) in generated SKILL.md files (issue #1656). Use $HOME/ instead of ~/ in any double-quoted bash assignment. Sample:\n${sample}`,
+      );
+    }
+    expect(offenders.length).toBe(0);
+  });
+
+  test('no SKILL.md contains `[ -x "~/` (tilde literal inside quoted -x test)', () => {
+    const offenders: Array<{ file: string; line: number; text: string }> = [];
+    for (const file of listGeneratedSkillFiles()) {
+      const lines = fs.readFileSync(file, 'utf-8').split('\n');
+      lines.forEach((line, idx) => {
+        if (/\[\s+-x\s+"~\//.test(line)) {
+          offenders.push({ file: path.relative(ROOT, file), line: idx + 1, text: line.trim() });
+        }
+      });
+    }
+    if (offenders.length > 0) {
+      const sample = offenders.slice(0, 5).map(o => `${o.file}:${o.line}: ${o.text}`).join('\n');
+      throw new Error(
+        `Found ${offenders.length} \`[ -x "~/...\` site(s) in generated SKILL.md (issue #1656). The quoted tilde never expands, so the -x test always returns false and the gated block becomes dead code. Use $HOME instead. Sample:\n${sample}`,
+      );
+    }
+    expect(offenders.length).toBe(0);
+  });
+});
+
 // ─── Browser-skills validation ──────────────────────────────────
 //
 // Browser-skills are bundled in <gstack-root>/browser-skills/<name>/. Each

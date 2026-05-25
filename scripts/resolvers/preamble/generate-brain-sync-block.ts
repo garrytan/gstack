@@ -31,6 +31,16 @@ import type { TemplateContext } from '../types';
 
 export function generateBrainSyncBlock(ctx: TemplateContext): string {
   const isBrainHost = ctx.host === 'gbrain' || ctx.host === 'hermes';
+  // Issue #1656: tilde inside double quotes is literal — bash only expands `~`
+  // when unquoted at the start of a word. The brain-sync block assigns these
+  // bin paths to shell vars (`_BRAIN_SYNC_BIN="..."`) and then invokes them
+  // through the quoted expansion, so a leading `~` reaches exec(2) verbatim
+  // and ENOENTs are swallowed by the surrounding `|| true`. Rewrite the leading
+  // `~/` to `$HOME/`, which IS expanded inside double quotes, and keep
+  // env-var-host bin dirs (`$GSTACK_BIN`) untouched.
+  const binDir = ctx.paths.binDir.startsWith('~/')
+    ? `$HOME/${ctx.paths.binDir.slice(2)}`
+    : ctx.paths.binDir;
   return `## Artifacts Sync (skill start)
 
 \`\`\`bash
@@ -42,8 +52,8 @@ if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
 else
   _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 fi
-_BRAIN_SYNC_BIN="${ctx.paths.binDir}/gstack-brain-sync"
-_BRAIN_CONFIG_BIN="${ctx.paths.binDir}/gstack-config"
+_BRAIN_SYNC_BIN="${binDir}/gstack-brain-sync"
+_BRAIN_CONFIG_BIN="${binDir}/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
 # Per-worktree pin: post-spike redesign uses kubectl-style \`.gbrain-source\` in the
@@ -152,8 +162,8 @@ If A/B and \`~/.gstack/.git\` is missing, ask whether to run \`gstack-artifacts-
 At skill END before telemetry:
 
 \`\`\`bash
-"${ctx.paths.binDir}/gstack-brain-sync" --discover-new 2>/dev/null || true
-"${ctx.paths.binDir}/gstack-brain-sync" --once 2>/dev/null || true
+"${binDir}/gstack-brain-sync" --discover-new 2>/dev/null || true
+"${binDir}/gstack-brain-sync" --once 2>/dev/null || true
 \`\`\`
 `;
 }
