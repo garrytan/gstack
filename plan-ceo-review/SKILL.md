@@ -913,8 +913,16 @@ Then read CLAUDE.md, TODOS.md, and any existing architecture docs.
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
-DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
-[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+# Check new repo-local location first (cherry-pick #3: .gstack/designs/)
+DESIGN=""
+if [ -n "$REPO_TOP" ] && [ -d "$REPO_TOP/.gstack/designs" ]; then
+  DESIGN=$(find "$REPO_TOP/.gstack/designs" -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+  [ -z "$DESIGN" ] && DESIGN=$(find "$REPO_TOP/.gstack/designs" -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
+fi
+# Fall back to legacy location
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
 If a design doc exists (from `/office-hours`), read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design.
@@ -984,8 +992,14 @@ After /office-hours completes, re-run the design doc check:
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
-DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
-[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+DESIGN=""
+if [ -n "$REPO_TOP" ] && [ -d "$REPO_TOP/.gstack/designs" ]; then
+  DESIGN=$(find "$REPO_TOP/.gstack/designs" -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+  [ -z "$DESIGN" ] && DESIGN=$(find "$REPO_TOP/.gstack/designs" -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
+fi
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
 
@@ -1201,17 +1215,27 @@ Both are outcome-framed. Only one makes the user feel the cathedral. Lead with t
 After the opt-in/cherry-pick ceremony, write the plan to disk so the vision and decisions survive beyond this conversation. Only run this step for EXPANSION and SELECTIVE EXPANSION modes.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG/ceo-plans
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+# Cherry-pick #3: CEO plans write to repo-local .gstack/designs/ for cross-device portability
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$REPO_TOP" ]; then
+  CEO_PLANS_DIR="$REPO_TOP/.gstack/designs"
+  mkdir -p "$CEO_PLANS_DIR"
+else
+  CEO_PLANS_DIR="$HOME/.gstack/projects/$SLUG/ceo-plans"
+  mkdir -p "$CEO_PLANS_DIR"
+  echo "WARNING: Not inside a git repo — CEO plan written to ~/.gstack/projects/ and will not sync automatically."
+fi
 ```
 
-Before writing, check for existing CEO plans in the ceo-plans/ directory. If any are >30 days old or their branch has been merged/deleted, offer to archive them:
+Before writing, check for existing CEO plans in the designs directory. If any are >30 days old or their branch has been merged/deleted, offer to archive them:
 
 ```bash
-mkdir -p ~/.gstack/projects/$SLUG/ceo-plans/archive
-# For each stale plan: mv ~/.gstack/projects/$SLUG/ceo-plans/{old-plan}.md ~/.gstack/projects/$SLUG/ceo-plans/archive/
+mkdir -p "$CEO_PLANS_DIR/archive"
+# For each stale plan: mv "$CEO_PLANS_DIR/{old-plan}.md" "$CEO_PLANS_DIR/archive/"
 ```
 
-Write to `~/.gstack/projects/$SLUG/ceo-plans/{date}-{feature-slug}.md` using this format:
+Write to `$CEO_PLANS_DIR/{date}-{feature-slug}-ceo.md` using this format:
 
 ```markdown
 ---

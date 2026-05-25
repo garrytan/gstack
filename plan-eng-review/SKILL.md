@@ -817,8 +817,16 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
-DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
-[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+# Check new repo-local location first (cherry-pick #3: .gstack/designs/)
+DESIGN=""
+if [ -n "$REPO_TOP" ] && [ -d "$REPO_TOP/.gstack/designs" ]; then
+  DESIGN=$(find "$REPO_TOP/.gstack/designs" -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+  [ -z "$DESIGN" ] && DESIGN=$(find "$REPO_TOP/.gstack/designs" -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
+fi
+# Fall back to legacy location
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
 If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
@@ -872,8 +880,14 @@ After /office-hours completes, re-run the design doc check:
 setopt +o nomatch 2>/dev/null || true  # zsh compat
 SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
-DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
-[ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+DESIGN=""
+if [ -n "$REPO_TOP" ] && [ -d "$REPO_TOP/.gstack/designs" ]; then
+  DESIGN=$(find "$REPO_TOP/.gstack/designs" -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+  [ -z "$DESIGN" ] && DESIGN=$(find "$REPO_TOP/.gstack/designs" -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
+fi
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name "*-$BRANCH-design-*.md" 2>/dev/null | sort -r | head -1)
+[ -z "$DESIGN" ] && DESIGN=$(find ~/.gstack/projects/$SLUG -maxdepth 1 -name '*-design-*.md' 2>/dev/null | sort -r | head -1)
 [ -n "$DESIGN" ] && echo "Design doc found: $DESIGN" || echo "No design doc found"
 ```
 
@@ -1197,12 +1211,23 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
+# Cherry-pick #3: eng plans write to repo-local .gstack/designs/ for cross-device portability
+REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -n "$REPO_TOP" ]; then
+  ENG_DESIGNS_DIR="$REPO_TOP/.gstack/designs"
+  mkdir -p "$ENG_DESIGNS_DIR"
+  ENG_TEST_PLAN="$ENG_DESIGNS_DIR/$USER-$BRANCH-eng-review-test-plan-$DATETIME.md"
+else
+  mkdir -p ~/.gstack/projects/$SLUG
+  ENG_TEST_PLAN="$HOME/.gstack/projects/$SLUG/$USER-$BRANCH-eng-review-test-plan-$DATETIME.md"
+  echo "WARNING: Not inside a git repo — test plan written to ~/.gstack/projects/ and will not sync automatically."
+fi
 ```
 
-Write to `~/.gstack/projects/{slug}/{user}-{branch}-eng-review-test-plan-{datetime}.md`:
+Write to `$ENG_TEST_PLAN`:
 
 ```markdown
 # Test Plan
