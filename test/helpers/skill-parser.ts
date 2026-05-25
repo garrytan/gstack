@@ -14,6 +14,7 @@ import { ALL_COMMANDS } from '../../browse/src/commands';
 import { parseSnapshotArgs } from '../../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 
 /** CLI-only commands: valid $B invocations that are handled by the CLI, not the server */
 const CLI_COMMANDS = new Set([
@@ -32,6 +33,18 @@ export interface ValidationResult {
   invalid: BrowseCommand[];
   snapshotFlagErrors: Array<{ command: BrowseCommand; error: string }>;
   warnings: string[];
+}
+
+export interface BashBlock {
+  file: string;
+  line: number;
+  content: string;
+}
+
+export interface BashSyntaxError {
+  file: string;
+  line: number;
+  message: string;
 }
 
 /**
@@ -97,6 +110,74 @@ export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
   }
 
   return commands;
+}
+
+/**
+ * Extract bash/sh fenced code blocks from a markdown file.
+ */
+export function extractBashBlocks(markdownPath: string): BashBlock[] {
+  const content = fs.readFileSync(markdownPath, 'utf-8');
+  const blocks: BashBlock[] = [];
+  const fencePattern = /```(?:bash|sh)\s*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = fencePattern.exec(content)) !== null) {
+    blocks.push({
+      file: markdownPath,
+      line: content.slice(0, match.index).split('\n').length,
+      content: match[1],
+    });
+  }
+
+  return blocks;
+}
+
+/**
+ * Template/example bash snippets often contain placeholders such as <url>.
+ * Skip those so bash -n only validates snippets intended to be runnable as-is.
+ */
+export function isConcreteBashBlock(content: string): boolean {
+  return !/<[^>\n]+>|\{\{|\.\.\./.test(content);
+}
+
+/**
+ * Validate concrete bash/sh fenced code blocks with bash -n.
+ */
+export function validateBashSyntax(markdownPaths: string[]): BashSyntaxError[] {
+  const errors: BashSyntaxError[] = [];
+
+  for (const markdownPath of markdownPaths) {
+    const blocks = extractBashBlocks(markdownPath).filter(block => isConcreteBashBlock(block.content));
+    if (blocks.length === 0) continue;
+
+    // Fast path: one bash parser process per markdown file. On failure, fall back
+    // to per-block checks so the reported line points at the offending fence.
+    const combined = blocks
+      .map(block => `\n# ${markdownPath}:${block.line}\n${block.content}`)
+      .join('\n');
+    const aggregate = spawnSync('bash', ['-n'], {
+      input: combined,
+      encoding: 'utf-8',
+    });
+    if (aggregate.status === 0) continue;
+
+    for (const block of blocks) {
+      const result = spawnSync('bash', ['-n'], {
+        input: block.content,
+        encoding: 'utf-8',
+      });
+
+      if (result.status !== 0) {
+        errors.push({
+          file: markdownPath,
+          line: block.line,
+          message: (result.stderr || result.stdout || 'bash -n failed').trim(),
+        });
+      }
+    }
+  }
+
+  return errors;
 }
 
 /**

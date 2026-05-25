@@ -1,11 +1,31 @@
 import { describe, test, expect } from 'bun:test';
-import { validateSkill, extractRemoteSlugPatterns, extractWeightsFromTable } from './helpers/skill-parser';
+import { validateSkill, extractRemoteSlugPatterns, extractWeightsFromTable, validateBashSyntax } from './helpers/skill-parser';
 import { ALL_COMMANDS, COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+
+function collectSkillMarkdown(root: string): string[] {
+  const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'build', '.claude']);
+  const results: string[] = [];
+
+  function visit(dir: string) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!ignoredDirs.has(entry.name)) visit(path.join(dir, entry.name));
+        continue;
+      }
+      if (entry.isFile() && (entry.name === 'SKILL.md' || entry.name === 'SKILL.md.tmpl')) {
+        results.push(path.join(dir, entry.name));
+      }
+    }
+  }
+
+  visit(root);
+  return results;
+}
 
 describe('SKILL.md command validation', () => {
   test('all $B commands in SKILL.md are valid browse commands', () => {
@@ -205,6 +225,15 @@ describe('Usage string consistency', () => {
 });
 
 describe('Generated SKILL.md freshness', () => {
+  test('concrete bash snippets in SKILL.md files parse with bash -n', () => {
+    const errors = validateBashSyntax(collectSkillMarkdown(ROOT)).map(err => ({
+      file: path.relative(ROOT, err.file),
+      line: err.line,
+      message: err.message,
+    }));
+    expect(errors).toEqual([]);
+  });
+
   test('no unresolved {{placeholders}} in generated SKILL.md', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     const unresolved = content.match(/\{\{\w+\}\}/g);
