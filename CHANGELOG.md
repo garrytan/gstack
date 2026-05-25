@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.43.4.0] - 2026-05-24
+
+## **Returning `/office-hours` users now skip the introduction-tier closing pitch on their second visit.**
+## **The v1.0.0.0 writer/reader split is closed: sessions now flow through `gstack-developer-profile --log-session`, which writes to the same file the reader reads.**
+
+The bug: `office-hours/SKILL.md.tmpl` was writing session entries to `~/.gstack/builder-profile.jsonl` (the legacy path), while the v1.0.0.0 migration had moved the read path to `~/.gstack/developer-profile.json`. The reader saw `sessions: []` every time, reported `SESSION_COUNT: 0` and `TIER: introduction`, and the welcome_back tier (designed specifically to skip the closing pitch for returning users) was unreachable. Every fresh-`$HOME` user has been stuck on this since 2026-04-18.
+
+The fix: a new `--log-session` subcommand on `bin/gstack-developer-profile` that read-modify-writes the existing `sessions[]` array. Naming matches the `gstack-*-log` family verb. Atomic mktemp+mv write. Validates input (silent skip on invalid JSON or missing required fields, matching `gstack-timeline-log:22-26`). Aggregates `signals_accumulated`, `resources_shown`, and `topics` inline. Calls `gstack-brain-enqueue` after write, mirroring `gstack-timeline-log:40`.
+
+A latent bug surfaced and also fixed: `do_read` now filters `mode:"resources"` entries when picking `LAST_PROJECT` / `LAST_ASSIGNMENT` / `LAST_DESIGN_TITLE` / `CROSS_PROJECT`. The Phase 6 resources auto-append runs after the real session in the same `/office-hours` invocation; without the filter, the resources entry would have clobbered real-session state for the user's next visit. This bug was masked by the broken writer (no writes were landing) and activated by this fix.
+
+### Itemized changes
+
+### Added
+- `bin/gstack-developer-profile --log-session '<json>'` — appends a session entry to `developer-profile.json`'s `sessions[]` array, with validation and aggregate updates. Joins the `gstack-*-log` family naming convention.
+- `test/static-no-legacy-writes.test.ts` — static-grep invariant walking every skill dir to prevent future writers from regressing onto the legacy file.
+- `test/gstack-developer-profile.test.ts` — +8 tests covering the regression (read-write-read promotes to welcome_back), aggregation (signals, resources_shown, topics dedup), validation (silent skip on invalid input), `ts` injection/preservation, and the `do_read` mode filter.
+
+### Fixed
+- `/office-hours` returning users no longer get pitched as first-timers on every visit. The welcome_back tier is now reachable for the first time since v1.0.0.0.
+- `do_read` no longer picks `LAST_PROJECT` / `LAST_ASSIGNMENT` / `LAST_DESIGN_TITLE` from a Phase 6 resources auto-append entry.
+- `office-hours/SKILL.md.tmpl` writer call sites (lines 490 + 893) now use the new subcommand. Regenerated `office-hours/SKILL.md`.
+
+### Affected users
+Stranded entries in `~/.gstack/builder-profile.jsonl` from the broken-writer period are not recovered automatically by this PR, by design. On the next `/office-hours` run, the first new session counts toward the welcome_back tier; past data stays in the legacy file (still readable by other tools during deprecation). Most pre-existing users have only a handful of stranded sessions.
+
+### For contributors
+See `docs/designs/FIX_1671_PROFILE_MIGRATION.md` for the full design including what's intentionally NOT in this fix (no reconcile path, no schema bump, no mkdir-locks — each justified against codebase patterns). Related but separate PRs: #1671 RC2 (autoplan timeline rollup), #1671 RC3 (cross-identity scope opt-in). Unblocks issue #1139's proposed fix #3 (suppress repeated YC apply suggestion via prior-session detection).
+
 ## [1.43.3.0] - 2026-05-21
 
 ## **Headed Chromium embedded by external supervisors stops auto-shutting-down after 30 minutes of HTTP idle.**
