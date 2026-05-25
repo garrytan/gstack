@@ -35,8 +35,8 @@
  *
  * V1.5 NOTE: When `gbrain put_file` ships in the gbrain CLI (cross-repo P0 TODO),
  * transcripts will route to Supabase Storage instead of the page-write path.
- * Until then, all content rides `gbrain put <slug>` (stdin, YAML frontmatter for
- * title/type/tags); gbrain's native dedup keys on session_id.
+ * Until then, all content rides `gbrain import <dir>` with YAML frontmatter for
+ * title/type/tags; gbrain's native dedup keys on session_id.
  */
 
 import {
@@ -54,7 +54,7 @@ import {
   rmSync,
 } from "fs";
 import { join, basename, dirname } from "path";
-import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
+import { execFileSync, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
@@ -62,7 +62,6 @@ import {
   canonicalizeRemote,
   secretScanFile,
   detectEngineTier,
-  withErrorContext,
 } from "../lib/gstack-memory-helpers";
 import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
 
@@ -194,7 +193,7 @@ Options:
   --all-history        Walk transcripts older than 90 days too.
   --sources <list>     Comma-separated subset: ${ALL_TYPES.join(",")}
   --limit <N>          Stop after N pages written (smoke testing).
-  --no-write           Skip gbrain put calls (still updates state file).
+  --no-write           Skip gbrain write calls (still updates state file).
                        Used by tests + dry runs without actual ingest.
   --scan-secrets       Opt-in per-file gitleaks scan during prepare. Off by
                        default; gstack-brain-sync already gates the git-push
@@ -683,11 +682,19 @@ function resolveGitRemote(cwd: string): string {
 }
 
 function repoSlug(remote: string): string {
-  if (!remote) return "_unattributed";
+  if (!remote) return "unattributed";
   // github.com/foo/bar → foo-bar
   const parts = remote.split("/");
-  if (parts.length >= 3) return `${parts[parts.length - 2]}-${parts[parts.length - 1]}`;
-  return remote.replace(/\//g, "-");
+  if (parts.length >= 3) return slugSegment(`${parts[parts.length - 2]}-${parts[parts.length - 1]}`);
+  return slugSegment(remote.replace(/\//g, "-"));
+}
+
+function slugSegment(raw: string, fallback = "untitled"): string {
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || fallback;
 }
 
 function dateOnly(ts: string | undefined): string {
@@ -722,7 +729,7 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     `agent: ${session.agent}`,
     `session_id: ${session.session_id}`,
     `cwd: ${session.cwd || ""}`,
-    `git_remote: ${remote || "_unattributed"}`,
+    `git_remote: ${remote || "unattributed"}`,
     `start_time: ${session.start_time || ""}`,
     `end_time: ${session.end_time || ""}`,
     `message_count: ${session.message_count}`,
@@ -743,7 +750,7 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     source_path: path,
     session_id: session.session_id,
     cwd: session.cwd,
-    git_remote: remote,
+    git_remote: remote || "unattributed",
     start_time: session.start_time,
     end_time: session.end_time,
     partial: session.partial,
@@ -758,12 +765,12 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   const raw = readFileSync(path, "utf-8");
 
   // Extract repo slug from path: ~/.gstack/projects/<slug>/...
-  let slug_repo = "_unattributed";
+  let slug_repo = "unattributed";
   const m = path.match(/\/\.gstack\/projects\/([^/]+)\//);
-  if (m) slug_repo = m[1];
+  if (m) slug_repo = slugSegment(m[1], "unattributed");
 
   const date = new Date(stats.mtimeMs).toISOString().slice(0, 10);
-  const baseName = basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md");
+  const baseName = slugSegment(basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md"));
 
   const slug = `${type}s/${slug_repo}/${date}-${baseName}`;
   const title = `${type} — ${slug_repo} — ${date} — ${baseName}`;
@@ -1156,7 +1163,7 @@ function preparePages(
           continue;
         }
         page = buildTranscriptPage(path, session);
-        if (!args.includeUnattributed && page.git_remote === "_unattributed") {
+        if (!args.includeUnattributed && page.git_remote === "unattributed") {
           skippedUnattributed++;
           continue;
         }
@@ -1413,7 +1420,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   if (args.noWrite) {
     // --no-write: skip the gbrain import call but still record state for
     // prepared pages (treat them as ingested for dedup purposes). Matches
-    // the prior contract from --help: "Skip gbrain put calls (still
+    // the prior contract from --help: "Skip gbrain write calls (still
     // updates state file)".
     const nowIso = new Date().toISOString();
     for (const p of prep.prepared) {

@@ -26,10 +26,11 @@ function makeTestHome(): string {
   return mkdtempSync(join(tmpdir(), "gstack-gbrain-sync-"));
 }
 
-function runScript(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+function runScript(args: string[], env: Record<string, string> = {}, cwd?: string): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", [SCRIPT, ...args], {
     encoding: "utf-8",
     timeout: 60000,
+    cwd,
     env: { ...process.env, ...env },
   });
   return {
@@ -107,18 +108,37 @@ describe("gstack-gbrain-sync CLI", () => {
   });
 
   it("dry-run derives a stable source id from the canonical git remote", () => {
-    // The source id pattern is `gstack-code-<canonicalized-remote>`. For this
-    // repo (github.com/garrytan/gstack), the slug should appear in the dry-run
-    // preview line. We don't pin the exact slug — just verify the prefix +
-    // that the preview command would target a source with id gstack-code-*.
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    const match = r.stdout.match(/gbrain sources add (gstack-code-[a-z0-9-]+)/);
+    expect(match).not.toBeNull();
+    const sourceId = match?.[1] || "";
+    expect(sourceId.length).toBeLessThanOrEqual(32);
+    expect(sourceId).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(r.stdout).toContain(`gbrain sync --strategy code --source ${sourceId}`);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("dry-run source id stays valid for long remotes", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = join(home, "repo-with-long-remote");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    spawnSync("git", ["init", "-q"], { cwd: repo });
+    spawnSync("git", ["remote", "add", "origin", "https://github.com/example-owner/extremely-long-repository-name-for-gbrain-source-ids.git"], { cwd: repo });
+
+    const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome }, repo);
+    expect(r.exitCode).toBe(0);
+    const match = r.stdout.match(/gbrain sources add (gstack-code-[a-z0-9-]+)/);
+    expect(match).not.toBeNull();
+    const sourceId = match?.[1] || "";
+    expect(sourceId.length).toBeLessThanOrEqual(32);
+    expect(sourceId).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     rmSync(home, { recursive: true, force: true });
   });
 

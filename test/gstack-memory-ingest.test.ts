@@ -156,6 +156,25 @@ describe("gstack-memory-ingest CLI", () => {
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("--sources must include at least one of");
   });
+
+  it("normalizes artifact slugs before staging for gbrain import", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(join(gstackHome, "projects", "Argo-nix"), { recursive: true });
+    writeFileSync(join(gstackHome, "projects", "Argo-nix", "learnings.jsonl"), '{"key":"a","insight":"b"}\n');
+    const { binDir, stagingListFile } = installFakeGbrain(home);
+
+    const r = runScript(["--bulk", "--quiet", "--sources", "learning"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.exitCode).toBe(0);
+    const stagedList = readFileSync(stagingListFile, "utf-8");
+    expect(stagedList).toMatch(/^\.\/learnings\/argo-nix\/.+-learnings\.md$/m);
+    expect(stagedList).not.toContain("Argo-nix");
+    rmSync(home, { recursive: true, force: true });
+  });
 });
 
 // ── State file behavior ────────────────────────────────────────────────────
@@ -464,7 +483,7 @@ describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)",
     expect(argDump).toMatch(/json=1/);
 
     // D1 regression: staged file lives in a slug-shaped subdirectory tree
-    // ("transcripts/claude-code/_unattributed/..."), not flat at the staging
+    // ("transcripts/claude-code/unattributed/..."), not flat at the staging
     // dir root. If writeStaged ever regresses to flat layout, this fails.
     const stagedList = readFileSync(stagingListFile, "utf-8");
     expect(stagedList).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
