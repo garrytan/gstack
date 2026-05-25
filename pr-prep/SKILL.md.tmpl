@@ -63,7 +63,34 @@ recommended action.
 3. Resolve the upstream repo via `gh repo view --json nameWithOwner -q .nameWithOwner`.
    Default uses `origin`; override via `--repo owner/name`.
 
-4. Sanity-check: at least 1 commit in `$BASE_BRANCH..HEAD`. If zero,
+4. **Read the upstream `CONTRIBUTING.md` (if present)** and surface its
+   pre-push gates + test requirements so the agent knows what must
+   pass BEFORE filing. Cache to `/tmp/pr-prep-contributing.md` for
+   the rest of the run.
+
+   ```bash
+   gh api "repos/$REPO/contents/CONTRIBUTING.md" --jq .content 2>/dev/null \
+     | base64 -d > /tmp/pr-prep-contributing.md || \
+     gh api "repos/$REPO/contents/contributing.md" --jq .content 2>/dev/null \
+     | base64 -d > /tmp/pr-prep-contributing.md || \
+     echo "" > /tmp/pr-prep-contributing.md
+   ```
+
+   Extract + echo at this step (no need to dump the whole file in the
+   final report — the agent uses it inline when writing PR bodies):
+   - Required pre-push commands (e.g. `bun run verify`, `npm test`,
+     `cargo test`). Look for "before pushing", "pre-push", "verify",
+     "must pass", "required" headings.
+   - Test layout conventions (where do unit / e2e / regression tests
+     belong). Look for "Writing tests", "test structure" sections.
+   - Branch naming / commit message conventions. Look for "branch
+     name", "commit format", "conventional commits".
+   - Welcomed PR areas (if listed). Skips contributions that conflict
+     with the repo's roadmap.
+   - Banned patterns (e.g. "never add to allowlist", "no new mocks",
+     "no breaking changes"). Treat as hard gates.
+
+5. Sanity-check: at least 1 commit in `$BASE_BRANCH..HEAD`. If zero,
    abort with "no commits to audit; you're already on $BASE_BRANCH".
 
 ```bash
@@ -134,6 +161,25 @@ Final severity bucket per commit:
 | **OVERLAP** | Any OPEN PR/issue with score ≥0.3, or ≥3 OPEN issues |
 | **SIBLING** | OPEN issues but no PR; or merged-recently with overlap |
 | **CLEAN** | No hits, or only old closed issues |
+
+## Step 4.5: Surface CONTRIBUTING.md pre-push gates per commit
+
+For each commit that survives audit (CLEAN / OVERLAP / SIBLING — not
+EXACT_DUP), check whether the changed files trigger any
+CONTRIBUTING.md-stated test path. Example: a commit touching
+`src/core/search/*` should run the eval-replay loop per the gbrain
+CONTRIBUTING.md "Trigger paths" section.
+
+Annotate each CLEAN/OVERLAP/SIBLING row with:
+
+```
+  Pre-push gate: bun run verify  (from CONTRIBUTING.md)
+  Trigger paths matched: none  (no retrieval / no special test required)
+  Tests added in commit: yes / no / not required
+```
+
+If `Tests added: no` AND `not required` is unclear, surface as a
+soft warning in the report but don't block — let the human decide.
 
 ## Step 5: Render report
 
