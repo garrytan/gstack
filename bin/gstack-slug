@@ -49,9 +49,25 @@ fi
 #    Markers: .git can be a directory (normal repo) or a file (worktree /
 #    submodule pointer). Everything else is a file at the directory's top
 #    level.
+#    Two tiers of markers:
+#    - STRONG markers (canonical version-control / language project files):
+#      .git, .project.yaml, package.json, pyproject.toml, Cargo.toml, Gemfile,
+#      go.mod. These signal "this directory is a real project of its own."
+#    - WEAK markers (content-only project signals): README.md, README, LICENSE.
+#      These catch content folders (markdown bundles, asset collections, AJ's
+#      loadout-style folders) that have no programming-language project files
+#      but ARE the user's project root.
+#    Rule: outermost STRONG marker wins. If no strong marker exists anywhere on
+#    the chain, outermost WEAK marker wins. This means a vendored sub-repo
+#    (e.g. `loadout/starter-pack/.git`) correctly keeps its own slug even when
+#    a weak-marker parent (`loadout/README.md`) is higher up — the sub-repo IS
+#    its own project. But a deploy-artifact-only subdir (`loadout/site/.vercel`)
+#    correctly folds into the content-project parent (`loadout/README.md`),
+#    because `.vercel` is not a marker at all.
 _outermost_project_root() {
   local dir="$1"
-  local outermost=""
+  local outermost_strong=""
+  local outermost_weak=""
   while [[ -n "$dir" && "$dir" != "/" ]]; do
     if [[ -e "$dir/.git" \
        || -f "$dir/.project.yaml" \
@@ -60,11 +76,22 @@ _outermost_project_root() {
        || -f "$dir/Cargo.toml" \
        || -f "$dir/Gemfile" \
        || -f "$dir/go.mod" ]]; then
-      outermost="$dir"
+      outermost_strong="$dir"
+    elif [[ -f "$dir/README.md" \
+         || -f "$dir/README" \
+         || -f "$dir/README.rst" \
+         || -f "$dir/LICENSE" \
+         || -f "$dir/LICENSE.md" ]]; then
+      outermost_weak="$dir"
     fi
     dir=$(dirname "$dir")
   done
-  printf '%s' "$outermost"
+  # Strong markers win over weak; either wins over nothing.
+  if [[ -n "$outermost_strong" ]]; then
+    printf '%s' "$outermost_strong"
+  else
+    printf '%s' "$outermost_weak"
+  fi
 }
 
 # Only compute the project root if we don't already have a slug (env override

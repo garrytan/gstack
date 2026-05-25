@@ -226,6 +226,55 @@ describe('gstack-slug — outermost project-root resolution', () => {
     expect(result.stdout).toMatch(/^SLUG=[a-zA-Z0-9._-]+\nBRANCH=[a-zA-Z0-9._-]+\n$/);
   });
 
+  // Weak-marker case: content-only project folder (README.md, no .git, no package.json).
+  // This is the AJ-loadout shape: a folder of markdown content with a README at
+  // the root and a deploy-artifact-only subdir. Without README as a marker, the
+  // walk-up would find nothing and fall back to pwd basename = subdir name.
+  test('weak marker: README.md at root, .vercel-only subdir — slug = ROOT basename (loadout repro)', () => {
+    const projectRoot = path.join(projectsRoot, 'loadout');
+    const siteSubdir = path.join(projectRoot, 'site');
+    fs.mkdirSync(siteSubdir, { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'README.md'), '# loadout\n');
+    fs.mkdirSync(path.join(siteSubdir, '.vercel'), { recursive: true });
+    fs.writeFileSync(path.join(siteSubdir, '.vercel', 'project.json'), '{}\n');
+
+    const result = runSlug(siteSubdir, tmpHome);
+    expect(result.status).toBe(0);
+    const { slug } = parseSlug(result.stdout);
+    expect(slug).toBe('loadout');
+  });
+
+  // Two-tier markers: a vendored sub-repo with its own .git keeps its own slug
+  // even when a weak-marker (README) parent is higher up. Strong beats weak.
+  test('two-tier: vendored sub-repo with .git wins over parent README (strong > weak)', () => {
+    const projectRoot = path.join(projectsRoot, 'loadout');
+    const subRepo = path.join(projectRoot, 'starter-pack');
+    fs.mkdirSync(subRepo, { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'README.md'), '# loadout\n');
+    fs.mkdirSync(path.join(subRepo, '.git'), { recursive: true });
+
+    const result = runSlug(subRepo, tmpHome);
+    expect(result.status).toBe(0);
+    const { slug } = parseSlug(result.stdout);
+    expect(slug).toBe('starter-pack');
+  });
+
+  // Two-tier markers: weak marker still wins when no strong marker exists
+  // anywhere on the chain. Confirms loadout/site/.vercel → loadout case.
+  test('two-tier: weak marker chain falls back correctly when no strong marker exists', () => {
+    const projectRoot = path.join(projectsRoot, 'loadout');
+    const subdir = path.join(projectRoot, 'docs');
+    fs.mkdirSync(subdir, { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'README.md'), '# loadout\n');
+    fs.writeFileSync(path.join(subdir, 'README.md'), '# docs\n');
+
+    const result = runSlug(subdir, tmpHome);
+    expect(result.status).toBe(0);
+    const { slug } = parseSlug(result.stdout);
+    // Outermost weak wins → loadout, not docs.
+    expect(slug).toBe('loadout');
+  });
+
   // Edge case: GSTACK_PROJECT_SLUG env override wins over walk-up (documented escape hatch).
   test('GSTACK_PROJECT_SLUG env override beats every other resolution path', () => {
     const projectRoot = path.join(projectsRoot, 'loadout');
