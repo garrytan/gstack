@@ -440,15 +440,9 @@ verification: **[docs/OPENCLAW.md](docs/OPENCLAW.md#publishing-to-clawhub)**.
 
 ## Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
-
-1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
-
-Or copy the binaries directly:
-- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
-- `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+After making changes, deploy to the active skill at `~/.claude/skills/gstack/` (fetch +
+reset to `origin/main` + `bun run build`, or copy the `dist/` binaries directly). Steps:
+**[CONTRIBUTING.md](CONTRIBUTING.md#deploying-changes-to-the-active-skill)**.
 
 ## Skill routing
 
