@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.46.1.0] - 2026-05-26
+
+## **CLAUDE.md sheds 46% of its always-loaded weight. Reference detail moves to docs that load on demand.**
+
+Every Claude Code session in the gstack repo used to load an 882-line, ~12K-token CLAUDE.md before doing anything. Most of that was deep reference: the full CHANGELOG style bible, sidebar and PTY internals already written down in ARCHITECTURE.md, slop-scan judgment-call essays, a 70-line directory tree, and three niche contributor workflows. This release moves that reference into the docs where it belongs and leaves CLAUDE.md as a tight set of always-on rules plus pointers. The file drops to 500 lines (~6.6K tokens) with not one invariant lost. Every section header, every "before editing X read Y" tripwire, the CI-test names, and the gbrain managed-block markers stay put.
+
+Nothing you run changes. The detail did not disappear, it relocated. CHANGELOG rules live in `docs/CHANGELOG_STYLE.md` (the `/ship` skill still carries the operational checklist), browser internals consolidated into `ARCHITECTURE.md`, slop-scan guidance into `docs/SLOP_SCAN.md`, and the fork-PR, ClawHub, and active-skill-deploy workflows moved to `CONTRIBUTING.md` and `docs/OPENCLAW.md`. CLAUDE.md points to each, so an agent still knows when to go read it.
+
+### The numbers that matter
+
+Source: `wc -l CLAUDE.md` before and after, plus `git diff origin/main...HEAD --stat`.
+
+| Metric                         | Before | After | Δ     |
+|--------------------------------|--------|-------|-------|
+| CLAUDE.md lines                | 882    | 500   | -43%  |
+| CLAUDE.md tokens (~chars/4)    | ~12.2K | ~6.6K | -46%  |
+| Section bodies relocated       | 0      | 7     | +7    |
+| Invariants or tripwires lost   | n/a    | 0     | none  |
+
+That ~5.6K tokens comes off the top of every session and every subagent spawn in this repo. It was paid on every turn; now it is smaller.
+
+### What this means for gstack contributors
+
+Sessions start lighter, and the always-on rules are easier to scan because they are no longer buried under reference prose. When you need the detail, it is one pointer away in a doc that gbrain already indexes. Editing browser or sidebar code? Read `ARCHITECTURE.md`. Writing a CHANGELOG entry? Read `docs/CHANGELOG_STYLE.md`.
+
+### Itemized changes
+
+#### Added
+- `docs/CHANGELOG_STYLE.md`: the full versioning and CHANGELOG style guide (release-summary format, branch-scoping rules, voice).
+- `docs/SLOP_SCAN.md`: the slop-scan fix-vs-leave judgment guide plus score history.
+
+#### Changed
+- `CLAUDE.md` trimmed from 882 to 500 lines. Each moved section left behind a header, its trigger condition, and a pointer to the new home.
+- `ARCHITECTURE.md`: new "Sidebar & PTY lifecycle" section covering WebSocket `Sec-WebSocket-Protocol` auth, `ownsTerminalAgent` teardown, cross-pane PTY injection, and the `/health` token rule.
+- `CONTRIBUTING.md`: added the fork-PR secret-access workflow and the active-skill deploy steps.
+- `docs/OPENCLAW.md`: added the ClawHub publishing commands next to the native methodology skills they ship.
+
 ## [1.45.0.0] - 2026-05-25
 
 ## **Design boards now live 24 hours, not 10 minutes. One daemon hosts every board, one tab survives the whole day.**
