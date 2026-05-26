@@ -7,7 +7,9 @@
  *   gstack-model-benchmark <skill-or-prompt-file> [options]
  *
  * Options:
- *   --models claude,gpt,gemini   Comma-separated provider list (default: claude)
+ *   --models claude,gpt,gemini,ollama
+ *                                Comma-separated provider list (default: claude).
+ *                                Valid: claude, gpt, gemini, ollama (local).
  *   --prompt "<text>"            Inline prompt instead of a file
  *   --workdir <path>             Working dir passed to each CLI (default: cwd)
  *   --timeout-ms <n>             Per-provider timeout (default: 300000)
@@ -28,15 +30,20 @@ import '../lib/conductor-env-shim';
 import * as fs from 'fs';
 import * as path from 'path';
 import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../test/helpers/benchmark-runner';
+import type { Family } from '../test/helpers/providers/types';
 import { ClaudeAdapter } from '../test/helpers/providers/claude';
 import { GptAdapter } from '../test/helpers/providers/gpt';
 import { GeminiAdapter } from '../test/helpers/providers/gemini';
+import { OllamaAdapter } from '../test/helpers/providers/ollama';
 
 const ADAPTER_FACTORIES = {
   claude: () => new ClaudeAdapter(),
   gpt: () => new GptAdapter(),
   gemini: () => new GeminiAdapter(),
+  ollama: () => new OllamaAdapter(),
 };
+
+const VALID_PROVIDERS: Family[] = ['claude', 'gpt', 'gemini', 'ollama'];
 
 type OutputFormat = 'table' | 'json' | 'markdown';
 
@@ -76,13 +83,13 @@ function positionalArgs(args: string[]): string[] {
   return positional;
 }
 
-function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
+function parseProviders(s: string | undefined): Family[] {
   if (!s) return ['claude'];
-  const seen = new Set<'claude' | 'gpt' | 'gemini'>();
+  const seen = new Set<Family>();
   for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
-    if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
+    if ((VALID_PROVIDERS as string[]).includes(p)) seen.add(p as Family);
     else {
-      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
+      console.error(`WARN: unknown provider '${p}' — skipping. Valid: ${VALID_PROVIDERS.join(', ')}.`);
     }
   }
   return seen.size ? Array.from(seen) : ['claude'];
@@ -149,7 +156,7 @@ async function main(): Promise<void> {
 
 async function dryRunReport(opts: {
   prompt: string;
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  providers: Family[];
   workdir: string;
   timeoutMs: number;
   output: OutputFormat;

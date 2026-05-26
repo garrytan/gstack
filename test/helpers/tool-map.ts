@@ -26,7 +26,7 @@ export type ToolName =
   | 'WebSearch'
   | 'WebFetch';
 
-export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<ToolName, boolean>> = {
+export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini' | 'ollama', Record<ToolName, boolean>> = {
   claude: {
     Read: true,
     Write: true,
@@ -67,6 +67,22 @@ export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<Tool
     WebSearch: true,
     WebFetch: false,
   },
+  ollama: {
+    // Ollama's /api/generate is pure text completion — zero agentic surface.
+    // /api/chat with tools[] could expose tool-calling but the adapter
+    // currently targets /api/generate for simplicity and predictability.
+    // Benchmarks scoped to any tool will record `unsupported_tool` and skip.
+    Read: false,
+    Write: false,
+    Edit: false,
+    Bash: false,
+    Agent: false,
+    Glob: false,
+    Grep: false,
+    AskUserQuestion: false,
+    WebSearch: false,
+    WebFetch: false,
+  },
 };
 
 /**
@@ -74,7 +90,7 @@ export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<Tool
  * Empty array means full compatibility.
  */
 export function missingTools(
-  provider: 'claude' | 'gpt' | 'gemini',
+  provider: 'claude' | 'gpt' | 'gemini' | 'ollama',
   requiredTools: ToolName[]
 ): ToolName[] {
   const map = TOOL_COMPATIBILITY[provider];

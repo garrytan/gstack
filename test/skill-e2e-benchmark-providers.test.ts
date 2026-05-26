@@ -22,6 +22,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ClaudeAdapter } from './helpers/providers/claude';
 import { GptAdapter } from './helpers/providers/gpt';
 import { GeminiAdapter } from './helpers/providers/gemini';
+import { OllamaAdapter } from './helpers/providers/ollama';
 import { runBenchmark } from './helpers/benchmark-runner';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -39,6 +40,7 @@ const PROMPT = 'Reply with exactly this text and nothing else: ok';
 const claude = new ClaudeAdapter();
 const gpt = new GptAdapter();
 const gemini = new GeminiAdapter();
+const ollama = new OllamaAdapter();
 
 // Use a temp working directory so provider CLIs can't accidentally touch the repo.
 // Created in beforeAll / cleaned in afterAll so concurrent CI runs don't leak.
@@ -77,6 +79,15 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(check).toHaveProperty('ok');
     if (!check.ok) {
       expect(typeof check.reason).toBe('string');
+    }
+  });
+
+  test('ollama: available() returns structured ok/reason', async () => {
+    const check = await ollama.available();
+    expect(check).toHaveProperty('ok');
+    if (!check.ok) {
+      expect(typeof check.reason).toBe('string');
+      expect(check.reason!.length).toBeGreaterThan(0);
     }
   });
 
@@ -144,6 +155,28 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(typeof result.modelUsed).toBe('string');
   }, 150_000);
 
+  test('ollama: trivial prompt produces parseable output', async () => {
+    const check = await ollama.available();
+    if (!check.ok) {
+      process.stderr.write(`\nollama live smoke: SKIPPED — ${check.reason}\n`);
+      return;
+    }
+    const result = await ollama.run({ prompt: PROMPT, workdir, timeoutMs: 120_000 });
+    if (result.error) {
+      throw new Error(`ollama errored: ${result.error.code} — ${result.error.reason}`);
+    }
+    // Local inference — model+quantization quality varies, so don't grep for "ok".
+    // Assert structural correctness: text output, parseable tokens, valid duration.
+    expect(typeof result.output).toBe('string');
+    expect(result.tokens.input).toBeGreaterThan(0);
+    expect(result.tokens.output).toBeGreaterThan(0);
+    expect(result.durationMs).toBeGreaterThan(0);
+    expect(typeof result.modelUsed).toBe('string');
+    expect(result.modelUsed.length).toBeGreaterThan(0);
+    // Local inference has zero per-token cost.
+    expect(ollama.estimateCost(result.tokens, result.modelUsed)).toBe(0);
+  }, 150_000);
+
   test('timeout error surfaces as error.code=timeout (no exception)', async () => {
     // Use whatever adapter is available first — all three should share timeout semantics.
     const adapter = (await claude.available()).ok ? claude
@@ -164,18 +197,18 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
   }, 30_000);
 
   test('runBenchmark: Promise.allSettled means one unavailable provider does not block others', async () => {
-    // Use the full runner with all three providers — whichever are unauthed should
+    // Use the full runner with all four providers — whichever are unauthed should
     // return entries with available=false and not crash the batch.
     const report = await runBenchmark({
       prompt: PROMPT,
       workdir,
-      providers: ['claude', 'gpt', 'gemini'],
+      providers: ['claude', 'gpt', 'gemini', 'ollama'],
       timeoutMs: 120_000,
       skipUnavailable: false,
     });
-    expect(report.entries).toHaveLength(3);
+    expect(report.entries).toHaveLength(4);
     for (const e of report.entries) {
-      expect(['claude', 'gpt', 'gemini']).toContain(e.family);
+      expect(['claude', 'gpt', 'gemini', 'ollama']).toContain(e.family);
       if (e.available) {
         expect(e.result).toBeDefined();
       } else {

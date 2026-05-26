@@ -7,26 +7,27 @@
  * one. Per-provider auth/timeout/rate-limit errors don't abort the batch.
  */
 
-import type { ProviderAdapter, RunOpts, RunResult } from './providers/types';
+import type { ProviderAdapter, RunOpts, RunResult, Family } from './providers/types';
 import { ClaudeAdapter } from './providers/claude';
 import { GptAdapter } from './providers/gpt';
 import { GeminiAdapter } from './providers/gemini';
+import { OllamaAdapter } from './providers/ollama';
 
 export interface BenchmarkInput {
   prompt: string;
   workdir: string;
   timeoutMs?: number;
-  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini']). */
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini', 'ollama']). */
+  providers: Family[];
   /** Optional per-provider model overrides. */
-  models?: Partial<Record<'claude' | 'gpt' | 'gemini', string>>;
+  models?: Partial<Record<Family, string>>;
   /** If true, skip providers whose available() returns !ok. If false, include them with error. */
   skipUnavailable?: boolean;
 }
 
 export interface BenchmarkEntry {
   provider: string;
-  family: 'claude' | 'gpt' | 'gemini';
+  family: Family;
   available: boolean;
   unavailable_reason?: string;
   result?: RunResult;
@@ -44,10 +45,11 @@ export interface BenchmarkReport {
   entries: BenchmarkEntry[];
 }
 
-const ADAPTERS: Record<'claude' | 'gpt' | 'gemini', () => ProviderAdapter> = {
+const ADAPTERS: Record<Family, () => ProviderAdapter> = {
   claude: () => new ClaudeAdapter(),
   gpt: () => new GptAdapter(),
   gemini: () => new GeminiAdapter(),
+  ollama: () => new OllamaAdapter(),
 };
 
 export async function runBenchmark(input: BenchmarkInput): Promise<BenchmarkReport> {
