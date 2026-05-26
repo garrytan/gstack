@@ -21,6 +21,7 @@ import { mintForCaller } from './auth-mint';
 import { classifyRoute, proxyToDevice, type DeviceTunnel } from './proxy';
 import { writeAudit, writeAttempt, sanitizeReplacer } from './audit';
 import { bootstrapTunnel } from './tunnel-bootstrap';
+import { startTunnelKeepalive } from './devicectl';
 import type { Capability } from './types';
 
 interface DaemonOptions {
@@ -402,6 +403,12 @@ if (import.meta.main) {
   // Default tunnelProvider: when GSTACK_IOS_TARGET_UDID (or a default with
   // any connected paired device) is set, bootstrap a real CoreDevice tunnel.
   // Otherwise return null (proxy will return 503 device_not_connected).
+  //
+  // After a successful bootstrap we spawn a periodic devicectl `info details`
+  // call to keep the CoreDevice tunnel session alive — Xcode 26's CoreDevice
+  // only holds the tunnel up while a devicectl command is in-flight, so
+  // without a poke every few seconds the IPv6 becomes unroutable.
+  let keepalive: { stop: () => void } | null = null;
   const realTunnelProvider = async () => {
     const result = await bootstrapTunnel({
       udid: targetUDID,
@@ -411,8 +418,17 @@ if (import.meta.main) {
       process.stderr.write(`bootstrap error: ${result.error}${result.detail ? ' — ' + result.detail : ''}\n`);
       return null;
     }
+    if (keepalive) keepalive.stop();
+    keepalive = startTunnelKeepalive(result.tunnel.udid);
     return result.tunnel;
   };
+
+  const shutdown = () => {
+    if (keepalive) { keepalive.stop(); keepalive = null; }
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('exit', shutdown);
 
   startDaemon({
     loopbackPort: port,

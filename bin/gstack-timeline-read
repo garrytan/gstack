@@ -29,11 +29,13 @@ if [ ! -f "$TIMELINE_FILE" ]; then
   exit 0
 fi
 
-cat "$TIMELINE_FILE" 2>/dev/null | bun -e "
+cat "$TIMELINE_FILE" 2>/dev/null | GSTACK_TIMELINE_SINCE="$SINCE" GSTACK_TIMELINE_BRANCH="$BRANCH" GSTACK_TIMELINE_LIMIT="$LIMIT" bun -e "
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
-const since = '${SINCE}';
-const branch = '${BRANCH}';
-const limit = ${LIMIT};
+const since = process.env.GSTACK_TIMELINE_SINCE || '';
+const branch = process.env.GSTACK_TIMELINE_BRANCH || '';
+const limitRaw = process.env.GSTACK_TIMELINE_LIMIT || '20';
+const parsedLimit = Number.parseInt(limitRaw, 10);
+const limit = Number.isSafeInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
 
 let sinceMs = 0;
 if (since) {

@@ -1,5 +1,53 @@
 # TODOS
 
+## design daemon: follow-ups (filed v1.45.0.0 via /ship review army)
+
+### ✅ DONE (v1.45.0.0): Tighten daemon test coverage
+
+**Resolved in commit `6b037c55` (same PR):** All 5 test gaps filled before
+landing. Per-file totals after: serve 16, daemon 34, daemon-discovery 23,
+feedback-roundtrip-daemon 4 = 77 (+10 from initial ship). Specifically:
+- Idle-shutdown actually fires (spawn-based, daemon process observed exiting,
+  state file removed).
+- Bare GET polling doesn't reset idle (hammers `/api/progress` in background,
+  daemon still idles out).
+- Idle-with-active-boards extends, then force-shuts after MAX_EXTENSIONS
+  (with `DESIGN_DAEMON_EXTENSION_MS=1500` + `MAX_EXTENSIONS=2`).
+- Concurrent `ensureDaemon()` race converges on one daemon (lock wins).
+- Stale-lock reclaim (dead PID succeeds, alive unrelated PID refuses).
+- Malformed-JSON + non-object + array-body + missing-html negatives for
+  `POST /api/boards` and `POST /boards/<id>/api/reload`.
+
+### P3: Minor maintainability nits from /ship review
+
+- `design/src/cli.ts` and `design/src/serve.ts` both have a small `openBrowser`
+  helper with identical darwin/linux/else branches. Extract a shared
+  `design/src/open-browser.ts`.
+- `design/src/daemon-client.ts:320` (`AbortSignal.timeout(2000)`) and `:357`
+  (`delay(50)`) use bare numeric literals while sibling timeouts are named
+  constants. Promote to `SHUTDOWN_POST_TIMEOUT_MS` and `ALIVE_POLL_INTERVAL_MS`.
+- `design/src/daemon-state.ts:21` `serverPath` field is written
+  (`daemon.ts:541`) but never read by production code. Either remove or
+  document the forensic intent.
+
+### P3: Daemon scope deferred from v1.45.0.0 plan
+
+Originally listed in the plan's "TODOs surfaced for later" section:
+
+- Per-daemon scoped auth tokens (only relevant once a tunnel/share use case appears).
+- Optional persistent board history on disk in
+  `~/.gstack/projects/$SLUG/designs/history/` so submitted boards survive
+  daemon restarts.
+- Windows spawn branch lifted from browse (V1 daemon is macOS + Linux;
+  Windows users fall back to legacy `--no-daemon` per-process server).
+- `$D board list` / `$D board stop <id>` per-board ops CLI (V1 has only
+  `$D daemon status` / `stop`).
+- Cross-worktree daemon attach (conductor sibling worktrees of the same
+  repo currently each spawn their own daemon — matches browse; revisit
+  if it causes friction).
+
+---
+
 ## browse server: terminal-agent teardown follow-ups (filed v1.41 via /plan-eng-review)
 
 ### ✅ DONE (v1.44.0.0): Identity-based terminal-agent kill (replace pkill regex with PID)
