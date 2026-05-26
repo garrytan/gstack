@@ -88,6 +88,20 @@ function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini
   return seen.size ? Array.from(seen) : ['claude'];
 }
 
+function parsePositiveIntegerFlag(name: string, def: string): number {
+  const raw = arg(name, def);
+  if (!raw || !/^\+?[1-9]\d*$/.test(raw)) {
+    console.error(`${name} requires a positive integer`);
+    process.exit(1);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    console.error(`${name} requires a positive integer`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
 function resolvePrompt(positional: string | undefined): string {
   const inline = arg('--prompt');
   if (inline) return inline;
@@ -107,7 +121,7 @@ async function main(): Promise<void> {
   const prompt = resolvePrompt(positional);
   const providers = parseProviders(arg('--models'));
   const workdir = arg('--workdir', process.cwd())!;
-  const timeoutMs = parseInt(arg('--timeout-ms', '300000')!, 10);
+  const timeoutMs = parsePositiveIntegerFlag('--timeout-ms', '300000');
   const output = (arg('--output', 'table') as OutputFormat);
   const skipUnavailable = flag('--skip-unavailable');
   const doJudge = flag('--judge');
