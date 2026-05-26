@@ -43,6 +43,8 @@ _cleanup_skill_entry() {
     rm -f "$entry"
   elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
     rm -rf "$entry"
+  elif [ -d "$entry" ] && [ -f "$entry/SKILL.md" ] && [ "$(find "$entry" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = "1" ]; then
+    rm -rf "$entry"
   fi
 }
 
@@ -65,34 +67,40 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   # Skip non-skill directories
   case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
+  skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+  [ -z "$skill_name" ] && skill_name="$skill"
 
   if [ "$PREFIX" = "true" ]; then
     # Don't double-prefix directories already named gstack-*
-    case "$skill" in
-      gstack-*) link_name="$skill" ;;
-      *)        link_name="gstack-$skill" ;;
+    case "$skill_name" in
+      gstack-*) link_name="$skill_name" ;;
+      *)        link_name="gstack-$skill_name" ;;
     esac
     # Remove old flat entry if it exists (and isn't the same as the new link)
-    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill"
+    [ "$link_name" != "$skill_name" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill_name"
   else
-    link_name="$skill"
+    link_name="$skill_name"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
-    case "$skill" in
+    case "$skill_name" in
       gstack-*) ;; # Already the real name, no old prefixed link to clean
-      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" ;;
+      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill_name" ;;
     esac
   fi
   target="$SKILLS_DIR/$link_name"
   # Upgrade old directory symlinks to real directories
   [ -L "$target" ] && rm -f "$target"
-  # Create real directory with symlinked SKILL.md (absolute path)
+  # Create real directory. Flat names can symlink the source SKILL.md.
+  # Prefixed names get a projected SKILL.md with rewritten frontmatter so
+  # prefix mode does not dirty the source checkout.
   mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  rm -f "$target/SKILL.md"
+  if [ "$link_name" != "$skill_name" ]; then
+    sed "1,/^---$/s/^name:[[:space:]]*${skill_name}[[:space:]]*$/name: ${link_name}/" "$INSTALL_DIR/$skill/SKILL.md" > "$target/SKILL.md"
+  else
+    ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  fi
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
-
-# Patch SKILL.md name: fields to match prefix setting
-"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
 
 if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"

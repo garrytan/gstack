@@ -36,6 +36,12 @@ function run(cmd: string, env: Record<string, string> = {}, expectFail = false):
   }
 }
 
+function readSkillName(skillDir: string): string | null {
+  const content = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8');
+  const match = content.match(/^name:\s*(.+)$/m);
+  return match ? match[1].trim() : null;
+}
+
 // Create a mock gstack install directory with skill subdirs
 function setupMockInstall(skills: string[]): void {
   installDir = path.join(tmpDir, 'gstack-install');
@@ -143,8 +149,10 @@ describe('gstack-relink (#578)', () => {
     }
   });
 
-  // Same invariant for prefixed mode
-  test('prefixed skills are real directories with SKILL.md symlinks, not dir symlinks', () => {
+  // Same directory invariant for prefixed mode. The SKILL.md itself is a
+  // projection copy so its frontmatter can use the prefixed name without
+  // mutating the source checkout.
+  test('prefixed skills are real directories with projected SKILL.md files', () => {
     setupMockInstall(['qa', 'ship']);
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -159,7 +167,8 @@ describe('gstack-relink (#578)', () => {
       const skillMdPath = path.join(skillPath, 'SKILL.md');
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
-      expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(true);
+      expect(fs.lstatSync(skillMdPath).isSymbolicLink()).toBe(false);
+      expect(readSkillName(skillPath)).toBe(skill);
     }
   });
 
@@ -470,15 +479,8 @@ describe('upgrade migrations', () => {
   });
 });
 
-describe('gstack-patch-names (#620/#578)', () => {
-  // Helper to read name: from SKILL.md frontmatter
-  function readSkillName(skillDir: string): string | null {
-    const content = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8');
-    const match = content.match(/^name:\s*(.+)$/m);
-    return match ? match[1].trim() : null;
-  }
-
-  test('prefix=true patches name: field in SKILL.md', () => {
+describe('gstack prefix projection (#620/#578)', () => {
+  test('prefix=true projects prefixed names without mutating source SKILL.md', () => {
     setupMockInstall(['qa', 'ship', 'review']);
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -488,13 +490,17 @@ describe('gstack-patch-names (#620/#578)', () => {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    // Verify name: field is patched with gstack- prefix
-    expect(readSkillName(path.join(installDir, 'qa'))).toBe('gstack-qa');
-    expect(readSkillName(path.join(installDir, 'ship'))).toBe('gstack-ship');
-    expect(readSkillName(path.join(installDir, 'review'))).toBe('gstack-review');
+    // Source names stay canonical.
+    expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(installDir, 'ship'))).toBe('ship');
+    expect(readSkillName(path.join(installDir, 'review'))).toBe('review');
+    // Runtime projections expose the prefixed names.
+    expect(readSkillName(path.join(skillsDir, 'gstack-qa'))).toBe('gstack-qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-ship'))).toBe('gstack-ship');
+    expect(readSkillName(path.join(skillsDir, 'gstack-review'))).toBe('gstack-review');
   });
 
-  test('prefix=false restores name: field in SKILL.md', () => {
+  test('prefix=false restores flat runtime entries without source mutation', () => {
     setupMockInstall(['qa', 'ship']);
     // First, prefix them
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
@@ -505,7 +511,8 @@ describe('gstack-patch-names (#620/#578)', () => {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    expect(readSkillName(path.join(installDir, 'qa'))).toBe('gstack-qa');
+    expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-qa'))).toBe('gstack-qa');
     // Now switch to flat mode
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
       GSTACK_INSTALL_DIR: installDir,
@@ -515,9 +522,11 @@ describe('gstack-patch-names (#620/#578)', () => {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    // Verify name: field is restored to unprefixed
+    // Verify source stayed unprefixed and runtime entries are flat.
     expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
     expect(readSkillName(path.join(installDir, 'ship'))).toBe('ship');
+    expect(readSkillName(path.join(skillsDir, 'qa'))).toBe('qa');
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(false);
   });
 
   test('gstack-upgrade name: not double-prefixed', () => {
@@ -532,8 +541,9 @@ describe('gstack-patch-names (#620/#578)', () => {
     });
     // gstack-upgrade should keep its name, NOT become gstack-gstack-upgrade
     expect(readSkillName(path.join(installDir, 'gstack-upgrade'))).toBe('gstack-upgrade');
-    // Regular skill should be prefixed
-    expect(readSkillName(path.join(installDir, 'qa'))).toBe('gstack-qa');
+    // Regular source skill stays canonical; runtime projection is prefixed.
+    expect(readSkillName(path.join(installDir, 'qa'))).toBe('qa');
+    expect(readSkillName(path.join(skillsDir, 'gstack-qa'))).toBe('gstack-qa');
   });
 
   test('SKILL.md without frontmatter is a no-op', () => {

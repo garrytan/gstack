@@ -2233,14 +2233,17 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
-    // Claude links should be real directories with absolute SKILL.md symlinks
-    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
+  test('link_claude_skill_dirs creates real directories with clean SKILL.md projections', () => {
+    // Claude links should be real directories to ensure Claude Code discovers
+    // them as top-level skills. Flat entries symlink SKILL.md; prefixed
+    // entries use projected SKILL.md files so source skill files stay clean.
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('mkdir -p "$target"');
-    // v1.36.0.0: routes through _link_or_copy helper for Windows fallback (cp on MSYS2/Git Bash).
+    expect(fnBody).toContain('if [ "$link_name" != "$skill_name" ]');
+    expect(fnBody).toContain('name: ${link_name}');
+    // v1.36.0.0: flat entries route through _link_or_copy helper for Windows fallback.
     expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
   });
 

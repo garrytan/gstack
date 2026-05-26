@@ -468,12 +468,17 @@ link_claude_skill_dirs() {
       if [ -L "$target" ]; then
         rm -f "$target"
       fi
-      # Create real directory with symlinked SKILL.md (absolute path)
+      # Create real directory. Flat names can symlink the source SKILL.md.
+      # Prefixed names get a projected SKILL.md with rewritten frontmatter so
+      # prefix mode does not dirty the source checkout.
       # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
       mkdir -p "$target"
-      # Validate target isn't a symlink before creating the link
-      if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      rm -f "$target/SKILL.md"
+      if [ "$link_name" != "$skill_name" ]; then
+        sed "1,/^---$/s/^name:[[:space:]]*${skill_name}[[:space:]]*$/name: ${link_name}/" "$gstack_dir/$dir_name/SKILL.md" > "$target/SKILL.md"
+      else
+        _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      fi
       linked+=("$link_name")
     fi
   done
@@ -535,6 +540,10 @@ cleanup_old_claude_symlinks() {
             removed+=("$skill_name")
             ;;
         esac
+      # Remove one-file projected runtime directories from the opposite mode.
+      elif [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ] && [ "$(find "$old_target" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = "1" ]; then
+        rm -rf "$old_target"
+        removed+=("$skill_name")
       # Windows install pattern: real dir with real-file SKILL.md (no symlink
       # available, so we can't readlink to verify provenance). The outer loop
       # iterates known gstack skill names from "$gstack_dir"/*, so a name match
@@ -583,6 +592,10 @@ cleanup_prefixed_claude_symlinks() {
             removed+=("gstack-$skill_name")
             ;;
         esac
+      # Remove one-file projected runtime directories from prefix mode.
+      elif [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ] && [ "$(find "$prefixed_target" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = "1" ]; then
+        rm -rf "$prefixed_target"
+        removed+=("gstack-$skill_name")
       # Windows install pattern: real dir with real-file SKILL.md. Same
       # reasoning as cleanup_old_claude_symlinks — directory name match plus
       # IS_WINDOWS is safe during a mode flip.
@@ -885,14 +898,11 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     else
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
-    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
-    # reads the correct (patched) name: values for symlink naming
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    # Self-healing: re-run gstack-relink to ensure name: fields and directory
-    # names are consistent with the config. This catches cases where an interrupted
-    # setup, stale git state, or gen:skill-docs left name: fields out of sync.
+    # Self-healing: re-run gstack-relink to ensure directory names are
+    # consistent with the config. This catches interrupted setup or stale
+    # runtime projection state without mutating source skill files.
     GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
     if [ -x "$GSTACK_RELINK" ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
@@ -959,7 +969,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       else
         cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       fi
-      "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
