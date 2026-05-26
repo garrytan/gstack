@@ -1,7 +1,7 @@
 /**
  * Browser-skills Phase 2a — gate-tier E2E for /scrape and /skillify.
  *
- * Five scenarios cover the productivity loop and the contracts locked
+ * Six scenarios cover the productivity loop and the contracts locked
  * during the v1.19.0.0 plan review:
  *
  *   D1 — /skillify provenance guard (scenario 4)
@@ -21,8 +21,12 @@
  *      /scrape refuses with the D1 message; nothing on disk.
  *   5. skillify-approval-reject — /scrape then /skillify but reject in
  *      the approval gate; temp dir is removed, nothing at final path.
+ *   6. scrape-evidence-gate — /scrape against a fixture missing a
+ *      requested field; the Step 5 evidence gate must stop the agent from
+ *      emitting fabricated/partial data as a successful result.
  *
- * All five run gate-tier (~$0.50–$1.50 each, ~$5 total per CI).
+ * Scenarios 1-5 run gate-tier (~$0.50–$1.50 each, ~$5 total per CI);
+ * scenario 6 runs periodic-tier (its assertion rests on model judgment).
  * Set EVALS=1 to enable. Set EVALS_MODEL to override (default sonnet-4-6).
  */
 
@@ -177,6 +181,7 @@ const PROTOTYPE_FIXTURE_HTML = `<!doctype html>
 describeIfSelected('Browser-skills Phase 2a E2E (/scrape + /skillify)', [
   'scrape-match-path',
   'scrape-prototype-path',
+  'scrape-evidence-gate',
   'skillify-happy-path',
   'skillify-provenance-refusal',
   'skillify-approval-reject',
@@ -459,4 +464,54 @@ Use HOME=${workDir}. Do NOT commit the skill.`,
     expect(stagingLeftovers.length).toBe(0);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
   }, 420_000);
+
+  // ── 6. /scrape evidence gate: unbackable checkpoint blocks success ────
+  testConcurrentIfSelected('scrape-evidence-gate', async () => {
+    const { workDir, gstackHome } = setupSkillifyWorkdir('evidence', ['scrape']);
+
+    // Fixture has titles + scores but NO price data. The intent asks for
+    // prices, so the "prices" checkpoint cannot be backed by the page — the
+    // Step 5 gate must stop the agent from emitting fabricated/null prices.
+    const fixturePath = path.join(workDir, 'fixture.html');
+    fs.writeFileSync(fixturePath, PROTOTYPE_FIXTURE_HTML);
+    const fileUrl = `file://${fixturePath}`;
+
+    const result = await runSkillTest({
+      prompt: `Run /scrape product names and PRICES from ${fileUrl}.
+Invoke /scrape via the Skill tool and follow its phases, including the
+Step 5 evidence gate (decompose the intent into checkpoints and back each
+with evidence from the page). Drive the page with $B, then report your
+result. Do NOT use AskUserQuestion.`,
+      workingDirectory: workDir,
+      env: { GSTACK_HOME: gstackHome },
+      maxTurns: 18,
+      allowedTools: ['Skill', 'Bash', 'Read'],
+      timeout: 180_000,
+      testName: 'scrape-evidence-gate',
+      runId,
+    });
+
+    logCost('scrape-evidence-gate', result);
+
+    const cmds = bashCommands(result);
+    const wentToFixture = cmds.some(c => c.includes(fileUrl));
+    const fetchedHtml = cmds.some(c => /\bgoto\b|\bhtml\b|\btext\b/.test(c));
+    const surface = fullSurface(result);
+    // The gate must hold: the page has no prices, so the agent must surface
+    // that the price checkpoint is unbackable rather than emit fabricated or
+    // null prices as a finished result. Assert it acknowledged the gap.
+    const flaggedMissingPrice = /price/i.test(surface)
+      && /(no price|not (present|found|available)|isn'?t (present|available)|missing|unavailable|absent|couldn'?t find|could not find|cannot find|n\/a)/i.test(surface);
+    const exitOk = ['success', 'error_max_turns'].includes(result.exitReason);
+
+    recordE2E(evalCollector, 'scrape evidence gate blocks unbackable checkpoint', 'Phase 2a E2E', result, {
+      passed: exitOk && wentToFixture && fetchedHtml && flaggedMissingPrice,
+    });
+
+    expect(exitOk).toBe(true);
+    expect(wentToFixture).toBe(true);
+    expect(fetchedHtml).toBe(true);
+    expect(flaggedMissingPrice).toBe(true);
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
+  }, 240_000);
 });

@@ -311,6 +311,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'scrape-prototype-path': [
     'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
   ],
+  'scrape-evidence-gate': [
+    'scrape/**', 'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
+  ],
   'skillify-happy-path': [
     'skillify/**', 'scrape/**', 'browse/src/browser-skill-write.ts',
     'browse/src/browser-skills.ts', 'browse/src/browser-skill-commands.ts',
@@ -616,6 +619,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Browser-skills Phase 2a — gate (D1/D3 contracts must not silently break)
   'scrape-match-path': 'gate',
   'scrape-prototype-path': 'gate',
+  // Evidence gate asserts on model judgment (unbackable checkpoint) — periodic.
+  'scrape-evidence-gate': 'periodic',
   'skillify-happy-path': 'gate',
   'skillify-provenance-refusal': 'gate',
   'skillify-approval-reject': 'gate',
