@@ -3,10 +3,15 @@ name: gstack
 preamble-tier: 1
 version: 1.1.0
 description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate pages, interact with
-  elements, verify state, diff before/after, take annotated screenshots, test responsive
-  layouts, forms, uploads, dialogs, and capture bug evidence. Use when asked to open or
-  test a site, verify a deployment, dogfood a user flow, or file a bug with screenshots. (gstack)
+  Virtual AI engineering team for Claude Code — ~30 slash commands covering the full product
+  lifecycle. Use for: ideation (/office-hours, /plan-ceo-review), planning (/autoplan,
+  /plan-eng-review, /plan-design-review), design (/design-consultation, /design-shotgun,
+  /design-html, /design-review), code review (/review, /devex-review), security audit
+  (/cso — OWASP + STRIDE), QA and browser automation (/qa, /qa-only, /browse, /connect-chrome),
+  release (/ship, /land-and-deploy, /canary, /benchmark, /document-release), retros (/retro),
+  investigation and learning (/investigate, /learn, /careful, /guard, /freeze). Invoke whenever
+  the user wants to start, plan, design, build, review, secure, test, ship, or reflect on a
+  project — not just for browser testing. (gstack)
 allowed-tools:
   - Bash
   - Read
