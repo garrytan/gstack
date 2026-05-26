@@ -178,7 +178,7 @@ describe('gen-skill-docs', () => {
   });
 
   test(`every Codex SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
-    const agentsDir = path.join(ROOT, '.agents', 'skills');
+    const agentsDir = path.join(process.env.HOME || '', '.codex', 'skills', 'gstack');
     if (!fs.existsSync(agentsDir)) return; // skip if not generated
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
@@ -192,7 +192,7 @@ describe('gen-skill-docs', () => {
 
   test('every Codex SKILL.md description stays under 900-char warning threshold', () => {
     const WARN_THRESHOLD = 900;
-    const agentsDir = path.join(ROOT, '.agents', 'skills');
+    const agentsDir = path.join(process.env.HOME || '', '.codex', 'skills', 'gstack');
     if (!fs.existsSync(agentsDir)) return;
     const violations: string[] = [];
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
@@ -1205,7 +1205,7 @@ describe('DESIGN_SKETCH resolver', () => {
 
 describe('CODEX_SECOND_OPINION resolver', () => {
   const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
-  const codexContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+  const codexContent = fs.readFileSync(path.join(process.env.HOME || '', '.codex', 'skills', 'gstack', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
 
   test('Phase 3.5 section appears in office-hours SKILL.md', () => {
     expect(content).toContain('Phase 3.5: Cross-Model Second Opinion');
@@ -1604,7 +1604,7 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
 // ─── Codex Generation Tests ─────────────────────────────────
 
 describe('Codex generation (--host codex)', () => {
-  const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
+  const AGENTS_DIR = path.join(process.env.HOME || '', '.codex', 'skills', 'gstack');
 
   // .agents/ is gitignored (v0.11.2.0) — generate on demand for tests
   Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
@@ -1617,7 +1617,7 @@ describe('Codex generation (--host codex)', () => {
   const CODEX_SKILLS = (() => {
     const skills: Array<{ dir: string; codexName: string }> = [];
     const isSymlinkLoop = (codexName: string): boolean => {
-      const agentSkillDir = path.join(ROOT, '.agents', 'skills', codexName);
+      const agentSkillDir = path.join(process.env.HOME || '', '.codex', 'skills', 'gstack', codexName);
       try {
         return fs.realpathSync(agentSkillDir) === fs.realpathSync(ROOT);
       } catch { return false; }
@@ -1745,9 +1745,9 @@ describe('Codex generation (--host codex)', () => {
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // Every Codex skill should be FRESH
+    // Every Codex skill should be FRESH (output path is HOME-relative via globalRoot)
     for (const skill of CODEX_SKILLS) {
-      expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
+      expect(output).toContain(`FRESH: .codex/skills/gstack/${skill.codexName}/SKILL.md`);
     }
     expect(output).not.toContain('STALE');
   });
@@ -1929,7 +1929,7 @@ describe('Codex generation (--host codex)', () => {
 // ─── Factory generation tests ────────────────────────────────
 
 describe('Factory generation (--host factory)', () => {
-  const FACTORY_DIR = path.join(ROOT, '.factory', 'skills');
+  const FACTORY_DIR = path.join(process.env.HOME || '', '.factory', 'skills', 'gstack');
 
   // Generate Factory output for tests
   Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'factory'], {
@@ -2051,7 +2051,7 @@ describe('Factory generation (--host factory)', () => {
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     for (const skill of FACTORY_SKILLS) {
-      expect(output).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
+      expect(output).toContain(`FRESH: .factory/skills/gstack/${skill.factoryName}/SKILL.md`);
     }
     expect(output).not.toContain('STALE');
   });
@@ -2071,7 +2071,7 @@ import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
 describe('Parameterized host smoke tests', () => {
   for (const hostConfig of getExternalHosts()) {
     describe(`${hostConfig.displayName} (--host ${hostConfig.name})`, () => {
-      const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
+      const hostDir = path.join(process.env.HOME || '', hostConfig.globalRoot);
 
       test('generates output that exists on disk', () => {
         // Generated dir should exist (created by earlier bun run gen:skill-docs --host all)
@@ -2158,10 +2158,10 @@ describe('--host all', () => {
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // All hosts should appear in output
+    // All hosts should appear in output (external hosts use HOME-relative globalRoot paths)
     expect(output).toContain('FRESH: SKILL.md');           // claude
     for (const hostConfig of getExternalHosts()) {
-      expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
+      expect(output).toContain(`FRESH: ${hostConfig.globalRoot}/`);
     }
   });
 });
@@ -2973,13 +2973,12 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
   });
 
   test('vestigial handshake is absent from non-Claude host outputs when present on disk', () => {
-    // Non-Claude hosts render to hostSubdirs (.agents/, .openclaw/, etc). The
-    // plan-mode-info resolver has no host-scoping — all hosts get the new
-    // section, none get the old handshake. Scan all candidate host dirs.
-    const hostDirs = ['.agents', '.openclaw', '.opencode', '.factory', '.hermes', '.kiro', '.cursor', '.slate'];
+    // Non-Claude hosts render to HOME/globalRoot (e.g., ~/.hermes/skills/gstack/).
+    // Scan each external host's globalRoot for generated SKILL.md files.
+    const HOME = process.env.HOME || '';
     let checked = 0;
-    for (const host of hostDirs) {
-      const skillsRoot = path.join(ROOT, host, 'skills');
+    for (const hostConfig of getExternalHosts()) {
+      const skillsRoot = path.join(HOME, hostConfig.globalRoot);
       if (!fs.existsSync(skillsRoot)) continue;
       const entries = fs.readdirSync(skillsRoot, { withFileTypes: true });
       for (const entry of entries) {
@@ -2987,7 +2986,7 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
         const skillMd = path.join(skillsRoot, entry.name, 'SKILL.md');
         if (!fs.existsSync(skillMd)) continue;
         const content = fs.readFileSync(skillMd, 'utf-8');
-        expect(content, `handshake marker in ${host}/skills/${entry.name}/SKILL.md`).not.toContain(HANDSHAKE_MARKER);
+        expect(content, `handshake marker in ${hostConfig.globalRoot}/${entry.name}/SKILL.md`).not.toContain(HANDSHAKE_MARKER);
         checked++;
       }
     }

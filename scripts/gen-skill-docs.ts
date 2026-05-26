@@ -349,7 +349,7 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
+  const outputDir = path.join(process.env.HOME || '', hostConfig.globalRoot, name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
@@ -517,7 +517,10 @@ for (const currentHost of hostsToRun) {
       }
 
       const { outputPath, content, symlinkLoop } = processTemplate(tmplPath, currentHost);
-      const relOutput = path.relative(ROOT, outputPath);
+      const HOME = process.env.HOME || '';
+      const relOutput = outputPath.startsWith(ROOT)
+        ? path.relative(ROOT, outputPath)
+        : path.relative(HOME, outputPath);
 
       if (symlinkLoop) {
         console.log(`SKIPPED (symlink loop): ${relOutput}`);
