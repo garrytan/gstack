@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as net from 'net';
 import * as path from 'path';
+import { __testInternals__ } from '../src/server';
 
 const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');
 
@@ -28,6 +29,47 @@ function getFreePort(): Promise<number> {
 }
 
 describe('findPort / isPortAvailable', () => {
+  test('explicit BROWSE_PORT diagnostic distinguishes bind denial from occupied port', () => {
+    const blocked = __testInternals__.formatExplicitPortUnavailableError(34567, {
+      available: false,
+      code: 'EPERM',
+      message: 'operation not permitted',
+    }).message;
+
+    expect(blocked).toContain('Cannot bind BROWSE_PORT=34567');
+    expect(blocked).toContain('localhost port binding is blocked');
+    expect(blocked).toContain('not that the port is occupied');
+
+    const occupied = __testInternals__.formatExplicitPortUnavailableError(34567, {
+      available: false,
+      code: 'EADDRINUSE',
+      message: 'address already in use',
+    }).message;
+
+    expect(occupied).toBe('[browse] Port 34567 (from BROWSE_PORT env) is in use');
+  });
+
+  test('random port diagnostic calls out sandbox-style bind denial', () => {
+    const message = __testInternals__.formatRandomPortUnavailableError([
+      { port: 11001, result: { available: false, code: 'EADDRINUSE', message: 'address already in use' } },
+      { port: 12002, result: { available: false, code: 'EPERM', message: 'operation not permitted' } },
+    ]).message;
+
+    expect(message).toContain('Cannot bind localhost ports after 2 attempts');
+    expect(message).toContain('Last error: 12002 (EPERM: operation not permitted)');
+    expect(message).toContain('not that every sampled port is occupied');
+    expect(message).toContain('set BROWSE_PORT to an approved port');
+  });
+
+  test('random port diagnostic preserves old busy-port meaning when all attempts are occupied', () => {
+    const message = __testInternals__.formatRandomPortUnavailableError([
+      { port: 11001, result: { available: false, code: 'EADDRINUSE', message: 'address already in use' } },
+      { port: 12002, result: { available: false, code: 'EADDRINUSE', message: 'address already in use' } },
+    ]).message;
+
+    expect(message).toContain('No available port after 5 attempts');
+    expect(message).toContain('every sampled port was already in use');
+  });
 
   test('isPortAvailable returns true for a free port', async () => {
     // Use the same isPortAvailable logic from server.ts

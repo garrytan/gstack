@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubicloud-standard-8, macos-latest]
         # Windows is tolerant-mode — Xpdf / Poppler-Windows extraction
         # differs enough from the Linux/macOS baseline that the strict
         # exact-diff gate is unreliable. Enable once the normalized
@@ -48,7 +48,7 @@ jobs:
         run: brew install poppler
 
       - name: Install poppler-utils (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubicloud-standard-8'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Install Playwright Chromium

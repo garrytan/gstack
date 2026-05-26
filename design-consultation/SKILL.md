@@ -786,9 +786,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 # /design-consultation: Your Design System, Built Together
 
@@ -1096,7 +1094,7 @@ If user chooses B, skip this step and continue.
 
 **Check Codex availability:**
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
 **If Codex is available**, launch both voices simultaneously:
@@ -1313,8 +1311,12 @@ This command generates the board HTML, starts an HTTP server on a random port,
 and opens it in the user's default browser. **Run it in the background** with `&`
 because the server needs to stay running while the user interacts with the board.
 
-Parse the port from stderr output: `SERVE_STARTED: port=XXXXX`. You need this
-for the board URL and for reloading during regeneration cycles.
+Parse the board URL from stderr output. Default daemon path:
+`BOARD_URL: http://127.0.0.1:N/boards/<id>/` (already includes the per-board
+path; use this for the AskUserQuestion URL AND as the base for the reload
+endpoint). Legacy `--no-daemon` path emits `SERVE_STARTED: port=XXXXX` and
+serves a single board at `/`, with reload at `/api/reload` — only relevant
+when an external caller explicitly passes `--no-daemon`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 
@@ -1322,10 +1324,13 @@ After the board is serving, use AskUserQuestion to wait for the user. Include th
 board URL so they can click it if they lost the browser tab:
 
 "I've opened a comparison board with the design variants:
-http://127.0.0.1:<PORT>/ — Rate them, leave comments, remix
+<BOARD_URL> — Rate them, leave comments, remix
 elements you like, and click Submit when you're done. Let me know when you've
 submitted your feedback (or paste your preferences here). If you clicked
 Regenerate or Remix on the board, tell me and I'll generate new variants."
+
+Substitute `<BOARD_URL>` with the URL parsed from stderr (the daemon path
+emits `BOARD_URL: http://127.0.0.1:N/boards/<id>/`).
 
 **Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
 board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
@@ -1370,8 +1375,13 @@ the approved variant.
 2. If `regenerateAction` is `"remix"`, read `remixSpec` (e.g. `{"layout":"A","colors":"B"}`)
 3. Generate new variants with `$D iterate` or `$D variants` using updated brief
 4. Create new board: `$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"`
-5. Reload the board in the user's browser (same tab):
-   `curl -s -X POST http://127.0.0.1:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
+5. Reload the board in the user's browser (same tab) — the URL is per-board
+   under daemon mode, so use `<BOARD_URL>` (from the `BOARD_URL:` stderr
+   line) as the base:
+   `curl -s -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
+   Under `--no-daemon` the reload endpoint is `/api/reload` at the legacy
+   port; this path only matters if the caller explicitly opted out of the
+   daemon.
 6. The board auto-refreshes. **AskUserQuestion again** with the same board URL to
    wait for the next round of feedback. Repeat until `feedback.json` appears.
 

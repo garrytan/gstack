@@ -1,56 +1,133 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+/**
+ * Tests for $D OpenAI auth source reporting (#1278, closes #1248).
+ *
+ * Verifies that resolveApiKey + requireApiKey:
+ *   - prefer ~/.gstack/openai.json over OPENAI_API_KEY
+ *   - report when the env-var key matches a cwd .env / .env.local
+ *   - never echo the key itself to stderr (only the source label)
+ */
 
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import {
-  buildMissingProviderMessage,
-  resolveImageProvider,
-  sanitizeProviderError,
+  describeApiKeySource,
+  requireApiKey,
+  resolveApiKey,
+  resolveApiKeyInfo,
+  saveApiKey,
 } from "../src/auth";
 
-function tempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "gstack-design-auth-"));
-}
+let tmpDir: string;
+let tmpHome: string;
+let originalHome: string | undefined;
+let originalKey: string | undefined;
+let originalNodeEnv: string | undefined;
+let originalCwd: string;
 
-const originalEnv = { ...process.env };
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-design-auth-"));
+  tmpHome = path.join(tmpDir, "home");
+  fs.mkdirSync(tmpHome, { recursive: true });
 
-afterEach(() => {
-  process.env = { ...originalEnv };
+  originalHome = process.env.HOME;
+  originalKey = process.env.OPENAI_API_KEY;
+  originalNodeEnv = process.env.NODE_ENV;
+  originalCwd = process.cwd();
+
+  process.env.HOME = tmpHome;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.NODE_ENV;
+  process.chdir(tmpDir);
 });
 
-describe("design image provider auth", () => {
-  test("auto prefers Codex OAuth when ChatGPT login is available", () => {
-    expect(resolveImageProvider("auto", { openAIKey: false, codexChatGPT: true }).kind).toBe("codex");
-    expect(resolveImageProvider(undefined, { openAIKey: false, codexChatGPT: true }).kind).toBe("codex");
+afterEach(() => {
+  process.chdir(originalCwd);
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = originalKey;
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalNodeEnv;
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe("resolveApiKeyInfo", () => {
+  test("uses ~/.gstack/openai.json before OPENAI_API_KEY", () => {
+    saveApiKey("sk-config");
+    process.env.OPENAI_API_KEY = "sk-env";
+
+    const resolution = resolveApiKeyInfo();
+
+    expect(resolution?.key).toBe("sk-config");
+    expect(resolution?.source).toBe("config");
+    expect(describeApiKeySource(resolution!)).toBe("~/.gstack/openai.json");
+    expect(resolveApiKey()).toBe("sk-config");
   });
 
-  test("explicit openai still preserves API-key based generation", () => {
-    const provider = resolveImageProvider("openai", { openAIKey: true, codexChatGPT: true }, "sk-test");
-    expect(provider.kind).toBe("openai");
+  test("uses OPENAI_API_KEY when no config file exists", () => {
+    process.env.OPENAI_API_KEY = "sk-env";
+
+    const resolution = resolveApiKeyInfo();
+
+    expect(resolution?.key).toBe("sk-env");
+    expect(resolution?.source).toBe("env");
+    expect(resolution?.envFile).toBeUndefined();
+    expect(describeApiKeySource(resolution!)).toBe("OPENAI_API_KEY environment variable");
   });
 
-  test("auto falls back to OpenAI API key when Codex OAuth is unavailable", () => {
-    const provider = resolveImageProvider("auto", { openAIKey: true, codexChatGPT: false }, "sk-test");
-    expect(provider.kind).toBe("openai");
+  test("reports when OPENAI_API_KEY matches current-directory .env", () => {
+    fs.writeFileSync(path.join(tmpDir, ".env"), "OPENAI_API_KEY=sk-project\n");
+    process.env.OPENAI_API_KEY = "sk-project";
+
+    const resolution = resolveApiKeyInfo();
+
+    expect(resolution?.key).toBe("sk-project");
+    expect(resolution?.envFile).toBe(".env");
+    expect(describeApiKeySource(resolution!)).toBe("OPENAI_API_KEY environment variable (matches .env in current directory)");
+    expect(resolution?.warning).toContain("may bill that project's OpenAI account");
   });
 
-  test("explicit codex fails with actionable login guidance when unavailable", () => {
-    expect(() => resolveImageProvider("codex", { openAIKey: true, codexChatGPT: false })).toThrow(/codex login/i);
+  test("detects quoted and exported env-file values", () => {
+    fs.writeFileSync(path.join(tmpDir, ".env.local"), "export OPENAI_API_KEY=\"sk-local\"\n");
+    process.env.OPENAI_API_KEY = "sk-local";
+
+    const resolution = resolveApiKeyInfo();
+
+    expect(resolution?.envFile).toBe(".env.local");
+    expect(resolution?.warning).toContain(".env.local");
   });
 
-  test("missing credentials message mentions Codex OAuth and API key fallback", () => {
-    const message = buildMissingProviderMessage();
-    expect(message).toContain("codex login");
-    expect(message).toContain("OPENAI_API_KEY");
-    expect(message).toContain("~/.gstack/openai.json");
-  });
+  test("does not claim env-file source when values differ", () => {
+    fs.writeFileSync(path.join(tmpDir, ".env"), "OPENAI_API_KEY=sk-other\n");
+    process.env.OPENAI_API_KEY = "sk-shell";
 
-  test("provider error sanitizer redacts bearer tokens and API-key shaped values", () => {
-    const err = sanitizeProviderError("Authorization: Bearer sk-real-secret OPENAI_API_KEY=sk-another-secret access_token=abc.def.ghi");
-    expect(err).not.toContain("sk-real-secret");
-    expect(err).not.toContain("sk-another-secret");
-    expect(err).not.toContain("abc.def.ghi");
-    expect(err).toContain("[REDACTED]");
+    const resolution = resolveApiKeyInfo();
+
+    expect(resolution?.key).toBe("sk-shell");
+    expect(resolution?.envFile).toBeUndefined();
+    expect(resolution?.warning).toBeUndefined();
+  });
+});
+
+describe("requireApiKey", () => {
+  test("prints source disclosure without leaking the key", () => {
+    process.env.OPENAI_API_KEY = "sk-secret-value";
+    const messages: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      messages.push(args.map(String).join(" "));
+    };
+
+    try {
+      expect(requireApiKey()).toBe("sk-secret-value");
+    } finally {
+      console.error = originalError;
+    }
+
+    const stderr = messages.join("\n");
+    expect(stderr).toContain("Using OpenAI key from OPENAI_API_KEY environment variable.");
+    expect(stderr).not.toContain("sk-secret-value");
   });
 });

@@ -1,0 +1,96 @@
+name: Windows Setup E2E
+
+# End-to-end fresh-install gate for Windows. Runs `./setup` on a clean
+# windows-latest checkout and asserts the build completes, binaries
+# resolve via find-browse, and the gstack-paths state root resolves
+# cleanly. Catches Bun shell-parser regressions in package.json's build
+# chain (#1538, #1537, #1530, #1457, #1561) before they reach users.
+#
+# Separate from windows-free-tests.yml because that one runs a curated
+# unit-test subset; this one exercises the install path itself.
+#
+# Runner: GitHub-hosted free windows-latest. ~3-5 min total.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - 'scripts/build.sh'
+      - 'scripts/write-version-files.sh'
+      - 'setup'
+      - 'browse/src/cli.ts'
+      - 'browse/src/find-browse.ts'
+      - 'bin/gstack-paths'
+      - '.github/workflows/windows-setup-e2e.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: windows-setup-e2e-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-setup:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "windows-setup-e2e@gstack.test"
+          git config --global user.name "Windows Setup E2E"
+          git config --global init.defaultBranch main
+        shell: bash
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        shell: bash
+
+      - name: Run bun run build (the previously-broken path)
+        # This is the regression gate. Bun's Windows shell parser rejected
+        # multiple constructs the old inline build chain used; the wave
+        # moved the build to scripts/build.sh. If this step fails on
+        # Windows, the build chain regressed.
+        run: bun run build
+        shell: bash
+        env:
+          GSTACK_SKIP_PLAYWRIGHT: '1'
+
+      - name: Verify binaries exist (with .exe extension on Windows)
+        run: |
+          set -e
+          test -f browse/dist/browse.exe || test -f browse/dist/browse || (echo "MISSING: browse" && exit 1)
+          test -f browse/dist/find-browse.exe || test -f browse/dist/find-browse || (echo "MISSING: find-browse" && exit 1)
+          test -f design/dist/design.exe || test -f design/dist/design || (echo "MISSING: design" && exit 1)
+          test -f bin/gstack-global-discover.exe || test -f bin/gstack-global-discover || (echo "MISSING: gstack-global-discover" && exit 1)
+          echo "All binaries present"
+        shell: bash
+
+      - name: Verify find-browse resolves to the .exe variant
+        run: |
+          set -e
+          OUT=$(bun browse/src/find-browse.ts 2>&1) || true
+          echo "find-browse output: $OUT"
+          # On Windows, find-browse should successfully resolve to a binary,
+          # whether or not it has the .exe extension on disk. Empty output
+          # or "not found" means the .exe extension resolver regressed.
+          echo "$OUT" | grep -qE '(browse\.exe|browse)$' || (echo "find-browse failed to resolve binary on Windows" && exit 1)
+        shell: bash
+
+      - name: Verify gstack-paths state root resolves
+        run: |
+          set -e
+          eval "$(bash bin/gstack-paths)"
+          test -n "$GSTACK_STATE_ROOT" || (echo "GSTACK_STATE_ROOT empty" && exit 1)
+          test -n "$PLAN_ROOT" || (echo "PLAN_ROOT empty" && exit 1)
+          test -n "$TMP_ROOT" || (echo "TMP_ROOT empty" && exit 1)
+          echo "GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT"
+          echo "PLAN_ROOT=$PLAN_ROOT"
+          echo "TMP_ROOT=$TMP_ROOT"
+        shell: bash

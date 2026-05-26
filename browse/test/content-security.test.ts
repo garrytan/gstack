@@ -584,7 +584,17 @@ describe('Envelope sentinel escape', () => {
   test('scoped snapshot branch applies escapeEnvelopeSentinels to untrusted lines', () => {
     const branchStart = SNAPSHOT_SRC.indexOf('splitForScoped');
     expect(branchStart).toBeGreaterThan(-1);
-    const branchEnd = SNAPSHOT_SRC.indexOf("return output.join('\\n');", branchStart);
+    // Match either the original return (pre-#1440) or the surrogate-sanitized
+    // form (post-#1440) — both end the scoped branch.
+    const candidates = [
+      "return output.join('\\n');",
+      "return stripLoneSurrogates(output.join('\\n'));",
+    ];
+    let branchEnd = -1;
+    for (const c of candidates) {
+      const idx = SNAPSHOT_SRC.indexOf(c, branchStart);
+      if (idx > branchStart) { branchEnd = idx; break; }
+    }
     expect(branchEnd).toBeGreaterThan(branchStart);
     const branch = SNAPSHOT_SRC.slice(branchStart, branchEnd);
     // The escape helper must be invoked on the untrusted lines, and

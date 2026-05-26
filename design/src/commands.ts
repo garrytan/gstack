@@ -36,8 +36,8 @@ export const COMMANDS = new Map<string, {
   }],
   ["compare", {
     description: "Generate HTML comparison board for user review",
-    usage: "compare --images /path/*.png --output /path/board.html [--serve]",
-    flags: ["--images", "--output", "--serve", "--timeout"],
+    usage: "compare --images /path/*.png --output /path/board.html [--serve [--no-daemon] [--title \"...\"]]",
+    flags: ["--images", "--output", "--serve", "--no-daemon", "--title", "--timeout"],
   }],
   ["diff", {
     description: "Visual diff between two mockups",
@@ -71,8 +71,13 @@ export const COMMANDS = new Map<string, {
   }],
   ["serve", {
     description: "Serve comparison board over HTTP and collect user feedback",
-    usage: "serve --html /path/board.html [--timeout 600]",
-    flags: ["--html", "--timeout"],
+    usage: "serve --html /path/board.html [--no-daemon] [--title \"...\"] [--timeout 600]",
+    flags: ["--html", "--no-daemon", "--title", "--timeout"],
+  }],
+  ["daemon", {
+    description: "Manage the persistent design board daemon (sub-commands: status, stop)",
+    usage: "daemon status | daemon stop [--force]",
+    flags: ["--force"],
   }],
   ["setup", {
     description: "Guided API key setup + smoke test",

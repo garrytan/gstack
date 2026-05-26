@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -95,6 +95,47 @@ describe("secretScanFile", () => {
       expect(result.findings).toEqual([]);
     }
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("probes the gitleaks executable directly before scanning", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const binDir = join(dir, "bin");
+    const log = join(dir, "gitleaks-calls.log");
+    const file = join(dir, "clean.txt");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(file, "no secrets here\n");
+    writeFileSync(
+      join(binDir, "gitleaks"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+if [ "$1" = "version" ]; then
+  exit 0
+fi
+if [ "$1" = "detect" ]; then
+  echo '[]'
+  exit 0
+fi
+exit 2
+`,
+      "utf-8",
+    );
+    chmodSync(join(binDir, "gitleaks"), 0o755);
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath || ""}`;
+    try {
+      _resetGitleaksAvailabilityCache();
+      const result = secretScanFile(file);
+      expect(result.scanner).toBe("gitleaks");
+      expect(result.findings).toEqual([]);
+      const calls = readFileSync(log, "utf-8").trim().split("\n");
+      expect(calls[0]).toBe("version");
+      expect(calls[1]).toContain("detect --no-git --source");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -272,17 +313,36 @@ describe("withErrorContext", () => {
 
 describe("detectEngineTier", () => {
   let savedHome: string | undefined;
+  let savedGbrainHome: string | undefined;
+  let savedRealHome: string | undefined;
+  let savedPath: string | undefined;
   let testHome: string;
+  let testGbrainHome: string;
 
   beforeEach(() => {
     savedHome = process.env.GSTACK_HOME;
+    savedGbrainHome = process.env.GBRAIN_HOME;
+    savedRealHome = process.env.HOME;
+    savedPath = process.env.PATH;
     testHome = mkdtempSync(join(tmpdir(), "gstack-test-engine-"));
+    testGbrainHome = mkdtempSync(join(tmpdir(), "gstack-test-gbrain-"));
     process.env.GSTACK_HOME = testHome;
+    process.env.GBRAIN_HOME = testGbrainHome;
+    // Isolate HOME too — even though gbrainConfigPath() prefers GBRAIN_HOME
+    // when set, defense-in-depth against future code reading ~/.gbrain
+    // directly. See #1415 codex review finding #6.
+    process.env.HOME = testHome;
   });
 
   afterAll(() => {
     if (savedHome === undefined) delete process.env.GSTACK_HOME;
     else process.env.GSTACK_HOME = savedHome;
+    if (savedGbrainHome === undefined) delete process.env.GBRAIN_HOME;
+    else process.env.GBRAIN_HOME = savedGbrainHome;
+    if (savedRealHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedRealHome;
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
   });
 
   it("returns a valid EngineDetect shape (engine, detected_at, schema_version)", () => {
@@ -306,5 +366,57 @@ describe("detectEngineTier", () => {
     const first = detectEngineTier();
     const second = detectEngineTier();
     expect(second.detected_at).toBe(first.detected_at);
+  });
+
+  it("falls back to GBRAIN_HOME/config.json when gbrain doctor omits engine (schema_version:2 case)", () => {
+    // Regression test for #1415: gbrain >=0.25 doctor output dropped the
+    // top-level `engine` field. The detect path must fall back to config.json.
+    // We force the doctor call to fail (PATH stripped of gbrain) and write a
+    // synthetic config to GBRAIN_HOME so the fallback path is deterministic.
+    process.env.PATH = "/nonexistent-no-gbrain-here";
+    writeFileSync(
+      join(testGbrainHome, "config.json"),
+      JSON.stringify({ engine: "postgres", database_url: "postgresql://test/example" }),
+      "utf-8"
+    );
+    const result = detectEngineTier();
+    expect(result.engine).toBe("supabase");
+  });
+
+  it("parses schema_version:2 doctor JSON via the exec path (regression for #1418)", () => {
+    // Stronger pin than the PATH-stripped fallback above: install a fake
+    // gbrain shim that successfully exits with status 1 (health_score < 100,
+    // mirroring real-world Supabase brains) and emits the v2 doctor JSON
+    // shape — schema_version: 2, status: "warnings", no top-level `engine`.
+    // The parser must still produce a usable EngineDetect by falling back
+    // to GBRAIN_HOME/config.json when `engine` is absent from doctor output.
+    const binDir = mkdtempSync(join(tmpdir(), "gstack-gbrain-shim-"));
+    const shim = join(binDir, "gbrain");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+if [ "$1" = "doctor" ]; then
+  cat <<'JSON'
+{"schema_version":2,"status":"warnings","health_score":90,"checks":[{"name":"resolver_health","status":"ok","message":"42 skills"}]}
+JSON
+  exit 1
+fi
+if [ "$1" = "--version" ]; then
+  echo "gbrain 0.35.0.0"
+  exit 0
+fi
+exit 0
+`,
+      { mode: 0o755 }
+    );
+    process.env.PATH = `${binDir}:${process.env.PATH || ""}`;
+    writeFileSync(
+      join(testGbrainHome, "config.json"),
+      JSON.stringify({ engine: "pglite" }),
+      "utf-8"
+    );
+    const result = detectEngineTier();
+    expect(result.engine).toBe("pglite");
+    rmSync(binDir, { recursive: true, force: true });
   });
 });

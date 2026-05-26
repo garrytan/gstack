@@ -4,9 +4,8 @@
 
 import fs from "fs";
 import path from "path";
-import { ImageProviderOption, requireImageProvider } from "./auth";
+import { requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
-import { callImageGeneration } from "./image-provider";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
 
@@ -18,7 +17,6 @@ export interface GenerateOptions {
   retry?: number;
   size?: string;
   quality?: string;
-  backend?: ImageProviderOption;
 }
 
 export interface GenerateResult {
@@ -29,10 +27,76 @@ export interface GenerateResult {
 }
 
 /**
+ * Call OpenAI Responses API with image_generation tool.
+ * Returns the response ID and base64 image data.
+ */
+async function callImageGeneration(
+  apiKey: string,
+  prompt: string,
+  size: string,
+  quality: string,
+): Promise<{ responseId: string; imageData: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 240_000);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        input: prompt,
+        tools: [{
+          type: "image_generation",
+          model: "gpt-image-2",
+          size,
+          quality,
+        }],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      if (response.status === 403 && error.includes("organization must be verified")) {
+        throw new Error(
+          "OpenAI organization verification required.\n"
+          + "Go to https://platform.openai.com/settings/organization to verify.\n"
+          + "After verification, wait up to 15 minutes for access to propagate.",
+        );
+      }
+      throw new Error(`API error (${response.status}): ${error.slice(0, 200)}`);
+    }
+
+    const data = await response.json() as any;
+
+    const imageItem = data.output?.find((item: any) =>
+      item.type === "image_generation_call"
+    );
+
+    if (!imageItem?.result) {
+      throw new Error(
+        `No image data in response. Output types: ${data.output?.map((o: any) => o.type).join(", ") || "none"}`
+      );
+    }
+
+    return {
+      responseId: data.id,
+      imageData: imageItem.result,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Generate a single mockup from a brief.
  */
 export async function generate(options: GenerateOptions): Promise<GenerateResult> {
-  const provider = await requireImageProvider(options.backend);
+  const apiKey = requireApiKey();
 
   // Parse the brief
   const prompt = options.briefFile
@@ -52,19 +116,14 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
 
     // Generate the image
     const startTime = Date.now();
-    const result = await callImageGeneration(provider, prompt, size, quality, options.output);
-    const responseId = result.responseId;
-    let imageBuffer: Buffer;
-    if (result.imageData) {
-      imageBuffer = Buffer.from(result.imageData, "base64");
-      const outputDir = path.dirname(options.output);
-      fs.mkdirSync(outputDir, { recursive: true });
-      fs.writeFileSync(options.output, imageBuffer);
-    } else {
-      imageBuffer = fs.readFileSync(options.output);
-    }
-
+    const { responseId, imageData } = await callImageGeneration(apiKey, prompt, size, quality);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    // Write to disk
+    const outputDir = path.dirname(options.output);
+    fs.mkdirSync(outputDir, { recursive: true });
+    const imageBuffer = Buffer.from(imageData, "base64");
+    fs.writeFileSync(options.output, imageBuffer);
 
     // Create session
     const session = createSession(responseId, prompt, options.output);

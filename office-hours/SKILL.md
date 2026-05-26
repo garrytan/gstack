@@ -795,9 +795,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 ## SETUP (run this check BEFORE any browse command)
 
@@ -1221,7 +1219,7 @@ Use AskUserQuestion to confirm. If the user disagrees with a premise, revise und
 **Binary check first:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
 Use AskUserQuestion (regardless of codex availability):
@@ -1416,8 +1414,11 @@ If the JSON contains `"regenerated": true`:
 1. Read `regenerateAction` (or `remixSpec` for remix requests)
 2. Generate new variants with `$D iterate` or `$D variants` using updated brief
 3. Create new board with `$D compare`
-4. POST the new HTML to the running server via `curl -X POST http://localhost:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
-   (parse the port from stderr: look for `SERVE_STARTED: port=XXXXX`)
+4. POST the new HTML to the running board. Parse the board URL from stderr
+   (`BOARD_URL: http://127.0.0.1:N/boards/<id>/` — the daemon path) or fall
+   back to the legacy port (`SERVE_STARTED: port=N` — only emitted under
+   `--no-daemon`, hits `/api/reload` root). Daemon path:
+   `curl -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
 5. Board auto-refreshes in the same tab
 
 If `"regenerated": false`: proceed with the approved variant.
@@ -1493,7 +1494,7 @@ The screenshot file at `/tmp/gstack-sketch.png` can be referenced by downstream 
 After the wireframe is approved, offer outside design perspectives:
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
 If Codex is available, use AskUserQuestion:
@@ -1539,12 +1540,9 @@ Count the signals. You'll use this count in Phase 6 to determine which tier of c
 ### Builder Profile Append
 
 After counting signals, append a session entry to the builder profile. This is the single
-source of truth for all closing state (tier, resource dedup, journey tracking).
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-mkdir -p "$GSTACK_STATE_ROOT"
-```
+source of truth for all closing state (tier, resource dedup, journey tracking). The
+`gstack-developer-profile --log-session` binary handles its own directory creation
+and writes via atomic mktemp+mv to `~/.gstack/developer-profile.json`.
 
 Append one JSON line with these fields (substitute actual values from this session):
 - `date`: current ISO 8601 timestamp
@@ -1558,12 +1556,12 @@ Append one JSON line with these fields (substitute actual values from this sessi
 - `topics`: array of 2-3 topic keywords that describe what this session was about
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-echo '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}' >> "$GSTACK_STATE_ROOT/builder-profile.jsonl"
+~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}' 2>/dev/null || true
 ```
 
-This entry is append-only. The `resources_shown` field will be updated via a second append
-after resource selection in Phase 6 Beat 3.5.
+The session entry is appended to `developer-profile.json`'s `sessions[]` array. A second
+session entry with `mode: "resources"` is appended via `--log-session` after resource
+selection in Phase 6 Beat 3.5.
 
 ---
 
@@ -2020,8 +2018,8 @@ PAUL GRAHAM ESSAYS:
 1. Log the selected resource URLs to the builder profile (single source of truth).
 Append a resource-tracking entry:
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-echo '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' >> "$GSTACK_STATE_ROOT/builder-profile.jsonl"
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || true)"
+~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' 2>/dev/null || true
 ```
 
 2. Log the selection to analytics:

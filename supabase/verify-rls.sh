@@ -30,7 +30,12 @@ check() {
   TOTAL=$(( TOTAL + 1 ))
 
   local resp_file
-  resp_file="$(mktemp 2>/dev/null || echo "/tmp/verify-rls-$$-$TOTAL")"
+  # Use mktemp strictly. Don't fall back to a predictable $$-based path —
+  # that's a race/overwrite footgun on shared machines.
+  resp_file="$(mktemp "${TMPDIR:-/tmp}/verify-rls-XXXXXX")" || {
+    echo "verify-rls: mktemp failed, aborting" >&2
+    return 1
+  }
 
   local http_code
   if [ "$method" = "GET" ]; then

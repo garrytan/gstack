@@ -147,6 +147,16 @@ const tokens = new Map<string, TokenInfo>();
 let rootToken: string = '';
 
 export function initRegistry(root: string): void {
+  // Idempotent re-init: same token is a no-op so embedders can call this
+  // alongside any prior call without fighting. Different token after init
+  // means a misconfigured caller — throw clearly rather than silently
+  // invalidate every scoped token already issued.
+  if (rootToken !== '' && rootToken !== root) {
+    throw new Error(
+      'token-registry already initialized with a different token; ' +
+      'embedders must call buildFetchHandler before any registry-mutating code path'
+    );
+  }
   rootToken = root;
 }
 
@@ -511,4 +521,14 @@ export function checkConnectRateLimit(): boolean {
 // Test-only reset.
 export function __resetConnectRateLimit(): void {
   connectAttempts = [];
+}
+
+// Test-only reset. Zeroes the registry so a subsequent initRegistry call
+// always succeeds. Mirrors __resetConnectRateLimit. Needed by tests that
+// follow the rotateRoot() pattern — rotateRoot leaves rootToken non-empty,
+// which would otherwise trip the initRegistry mismatch guard.
+export function __resetRegistry(): void {
+  rootToken = '';
+  tokens.clear();
+  rateBuckets.clear();
 }

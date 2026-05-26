@@ -28,8 +28,11 @@ afterEach(() => {
 });
 
 function run(...args: string[]): { stdout: string; stderr: string; status: number } {
+  // gstack-config precedence is `${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}`,
+  // so GSTACK_HOME from the developer's parent env wins over the test's
+  // GSTACK_STATE_DIR. Override both to isolate from the real ~/.gstack.
   const res = spawnSync(BIN_CONFIG, args, {
-    env: { ...process.env, GSTACK_STATE_DIR: tmpHome },
+    env: { ...process.env, GSTACK_STATE_DIR: tmpHome, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
   });
@@ -59,9 +62,13 @@ describe('gstack-config explain_level', () => {
     expect(run('get', 'explain_level').stdout).toBe('default');
   });
 
-  test('get with unset explain_level returns empty (preamble default takes over)', () => {
-    // No prior set → no config file → empty output
-    expect(run('get', 'explain_level').stdout).toBe('');
+  test('get with unset explain_level returns the documented default', () => {
+    // gstack-config returns the documented default ("default") when the
+    // key is absent from config.yaml — see bin/gstack-config:103. Earlier
+    // versions of this test expected "" (preamble shell substitution),
+    // but the script ships defaults inline so callers always get a
+    // usable value without bash fallback gymnastics.
+    expect(run('get', 'explain_level').stdout).toBe('default');
   });
 
   test('config header documents explain_level', () => {

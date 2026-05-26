@@ -32,11 +32,14 @@
 import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
 import { join, dirname } from "path";
 import { execSync, spawnSync } from "child_process";
-import { homedir } from "os";
+import { homedir, hostname } from "os";
 import { createHash } from "crypto";
 
+import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
 import { ensureSourceRegistered, sourcePageCount } from "../lib/gbrain-sources";
+import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
+import { buildGbrainEnv, spawnGbrain, execGbrainJson } from "../lib/gbrain-exec";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -76,6 +79,115 @@ const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
 const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
+
+// Default 35-minute timeout for code-walk + memory-ingest stages. Override via
+// GSTACK_SYNC_CODE_TIMEOUT_MS / GSTACK_SYNC_MEMORY_TIMEOUT_MS. Bounds-checked
+// in resolveStageTimeoutMs below so wildly-low values don't make resume
+// useless and wildly-high values don't mask config typos. See #1611.
+const DEFAULT_STAGE_TIMEOUT_MS = 35 * 60 * 1000; // 2_100_000ms = 35min
+const MIN_STAGE_TIMEOUT_MS = 60_000;             // 1 minute floor
+const MAX_STAGE_TIMEOUT_MS = 86_400_000;         // 24 hour ceiling
+
+/**
+ * Parse a stage-timeout env value with bounds validation. Returns the bounded
+ * value or the default with a stderr warning if the env was malformed or
+ * out-of-range. Exported for the regression test.
+ */
+export function resolveStageTimeoutMs(
+  envValue: string | undefined,
+  envName: string,
+): number {
+  if (envValue === undefined || envValue === "") return DEFAULT_STAGE_TIMEOUT_MS;
+  const n = Number.parseInt(envValue, 10);
+  if (!Number.isFinite(n) || Number.isNaN(n) || n <= 0) {
+    console.warn(
+      `[sync] ${envName}="${envValue}" is not a positive integer; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  if (n < MIN_STAGE_TIMEOUT_MS) {
+    console.warn(
+      `[sync] ${envName}=${n} is below the ${MIN_STAGE_TIMEOUT_MS}ms (1min) floor; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  if (n > MAX_STAGE_TIMEOUT_MS) {
+    console.warn(
+      `[sync] ${envName}=${n} is above the ${MAX_STAGE_TIMEOUT_MS}ms (24h) ceiling; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  return n;
+}
+
+/**
+ * gbrain writes ~/.gbrain/import-checkpoint.json on every import run. If a
+ * previous /sync-gbrain hit the timeout (SIGTERM = exit 143), the checkpoint
+ * + its staging dir survive on disk. Detect both and let gbrain resume from
+ * processedIndex+1 on the next run. If the staging dir is missing/empty/
+ * unreadable, fall through to a fresh restage with a one-line warning so the
+ * user sees we noticed. See #1611 + plan D1/C1.
+ */
+interface GbrainCheckpoint {
+  dir?: string;
+  totalFiles?: number;
+  processedIndex?: number;
+  completedFiles?: number;
+  timestamp?: string;
+}
+
+export function readGbrainCheckpoint(): GbrainCheckpoint | null {
+  // Read HOME from env so tests can redirect via process.env.HOME = ...
+  // (Node/Bun's os.homedir() caches at process start and ignores later
+  // mutations.)
+  const home = process.env.HOME || homedir();
+  const cpPath = join(home, ".gbrain", "import-checkpoint.json");
+  if (!existsSync(cpPath)) return null;
+  try {
+    const raw = readFileSync(cpPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as GbrainCheckpoint;
+  } catch {
+    // Corrupt JSON — treat as no checkpoint and fall through to fresh restage.
+    return null;
+  }
+}
+
+export type ResumeVerdict =
+  | { kind: "no-checkpoint" }
+  | { kind: "resume"; stagingDir: string; processedIndex: number; totalFiles: number }
+  | { kind: "stale-staging-missing"; stagingDir: string };
+
+/**
+ * Decide whether the next memory-ingest run should resume from gbrain's
+ * checkpoint or restage from scratch.
+ *   - no checkpoint              → run a fresh ingest pass
+ *   - checkpoint + staging ok    → resume (gbrain picks up at processedIndex+1)
+ *   - checkpoint + staging gone  → warn, fall through to fresh restage
+ */
+export function decideResume(): ResumeVerdict {
+  const cp = readGbrainCheckpoint();
+  if (!cp || !cp.dir) return { kind: "no-checkpoint" };
+  const stagingDir = cp.dir;
+  if (!existsSync(stagingDir)) {
+    return { kind: "stale-staging-missing", stagingDir };
+  }
+  // Treat "non-empty" as the safe-to-resume signal. statSync on a missing
+  // file throws; we already handled missing above so this is dir-level shape.
+  try {
+    const st = statSync(stagingDir);
+    if (!st.isDirectory()) return { kind: "stale-staging-missing", stagingDir };
+  } catch {
+    return { kind: "stale-staging-missing", stagingDir };
+  }
+  return {
+    kind: "resume",
+    stagingDir,
+    processedIndex: cp.processedIndex ?? 0,
+    totalFiles: cp.totalFiles ?? 0,
+  };
+}
 
 // ── CLI ────────────────────────────────────────────────────────────────────
 
@@ -159,30 +271,42 @@ function originUrl(): string | null {
 }
 
 /**
- * Derive a worktree-aware source id for the cwd code corpus.
+ * Derive a host- and worktree-aware source id for the cwd code corpus.
  *
- * Pattern: `gstack-code-<slug>-<pathhash8>` where slug comes from origin
- * (org/repo) and pathhash8 is the first 8 hex chars of sha1(absolute repo
- * path). The pathhash8 is what makes Conductor worktrees of the same repo
- * coexist as separate sources in the same gbrain DB instead of stomping on
- * each other.
+ * Pattern: `gstack-code-<slug>-<hostpathhash8>` where slug comes from origin
+ * (org/repo) and hostpathhash8 is the first 8 hex chars of
+ * sha1(`${hostname}::${absolute repo path}`). Folding hostname into the hash
+ * keeps Conductor worktrees of the same repo as distinct sources on one host
+ * AND keeps two machines that share an absolute layout (e.g. chezmoi-managed
+ * home dirs against a federated brain) from colliding on each other.
  *
  * Falls back to the repo basename when there is no origin (local repo).
+ *
+ * `GSTACK_HOSTNAME` env override is honored for deterministic tests; in
+ * production paths it is unset and `os.hostname()` is used.
  *
  * gbrain enforces source ids to be 1-32 lowercase alnum chars with
  * optional interior hyphens. `constrainSourceId` handles the 32-char cap
  * with a hashed-tail fallback when the combined slug exceeds budget.
  */
 function deriveCodeSourceId(repoPath: string): string {
-  const pathHash = createHash("sha1").update(repoPath).digest("hex").slice(0, 8);
+  const host = process.env.GSTACK_HOSTNAME || hostname();
+  const hostPathHash = createHash("sha1").update(`${host}::${repoPath}`).digest("hex").slice(0, 8);
   const remote = canonicalizeRemote(originUrl());
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
     const slugSource = segs.slice(-2).join("-");
-    return constrainSourceId("gstack-code", `${slugSource}-${pathHash}`);
+    const fullId = constrainSourceId("gstack-code", `${slugSource}-${hostPathHash}`);
+    // If the org+repo+hostpathhash fits cleanly (suffix preserved), use it.
+    if (fullId.endsWith(`-${hostPathHash}`)) return fullId;
+    // Otherwise drop the org prefix and retry with just repo+hostpathhash so
+    // the repo name stays readable. If that still doesn't fit,
+    // constrainSourceId falls back to a deterministic hash-only form.
+    const repoOnly = segs[segs.length - 1] || "repo";
+    return constrainSourceId("gstack-code", `${repoOnly}-${hostPathHash}`);
   }
   const base = repoPath.split("/").pop() || "repo";
-  return constrainSourceId("gstack-code", `${base}-${pathHash}`);
+  return constrainSourceId("gstack-code", `${base}-${hostPathHash}`);
 }
 
 /**
@@ -207,9 +331,168 @@ function deriveLegacyCodeSourceId(repoPath: string): string {
 }
 
 /**
+ * Pre-#1468 path-only-hash source id, kept for hostname-fold migration only.
+ *
+ * Before the hostname fold, `deriveCodeSourceId` hashed only the absolute
+ * repo path: `gstack-code-<slug>-<sha1(path).slice(0,8)>`. After #1468 the
+ * hash key is `${hostname}::${path}`, so every existing user's brain has a
+ * legacy id that no longer matches what `deriveCodeSourceId` produces. We
+ * detect this form once, attempt rename-in-place if the gbrain CLI supports
+ * `sources rename`, and otherwise clean up after the new source successfully
+ * syncs. Distinct from `deriveLegacyCodeSourceId` (pre-pathhash v1.x form);
+ * both probes run.
+ */
+export function derivePathOnlyHashLegacyId(repoPath: string): string {
+  const pathHash = createHash("sha1").update(repoPath).digest("hex").slice(0, 8);
+  const remote = canonicalizeRemote(originUrl());
+  if (remote) {
+    const segs = remote.split("/").filter(Boolean);
+    const slugSource = segs.slice(-2).join("-");
+    return constrainSourceId("gstack-code", `${slugSource}-${pathHash}`);
+  }
+  const base = repoPath.split("/").pop() || "repo";
+  return constrainSourceId("gstack-code", `${base}-${pathHash}`);
+}
+
+/**
+ * Feature-check whether the installed gbrain CLI ships `sources rename <old> <new>`.
+ *
+ * Per the v1.40.0.0 design review: probing `gbrain sources rename --help` and
+ * matching for the exact argument shape catches the case where gbrain's
+ * `sources` parent help mentions a `rename` subcommand but the CLI doesn't
+ * accept the `<old> <new>` form (or vice versa). Cached for the lifetime
+ * of the process. As of gbrain 0.35.0.0 this command does not exist, so the
+ * function returns false and the migration path falls back to register-new
+ * + sync-OK + remove-old.
+ */
+let _gbrainSupportsRenameCache: boolean | null = null;
+export function _resetGbrainSupportsRenameCache(): void {
+  _gbrainSupportsRenameCache = null;
+}
+function gbrainSupportsSourcesRename(env?: NodeJS.ProcessEnv): boolean {
+  if (_gbrainSupportsRenameCache !== null) return _gbrainSupportsRenameCache;
+  try {
+    const r = spawnGbrain(["sources", "rename", "--help"], {
+      timeout: 5_000,
+      baseEnv: env,
+    });
+    const out = `${r.stdout || ""}\n${r.stderr || ""}`;
+    // Match the exact argument shape: `rename <old> <new>` (with literal
+    // angle brackets in usage strings) or `rename OLD NEW`.
+    const exact = /sources\s+rename\s+<old>\s+<new>/i.test(out)
+      || /sources\s+rename\s+OLD\s+NEW/.test(out)
+      || /sources\s+rename\s+<oldId>\s+<newId>/i.test(out);
+    _gbrainSupportsRenameCache = exact && r.status === 0;
+  } catch {
+    _gbrainSupportsRenameCache = false;
+  }
+  return _gbrainSupportsRenameCache;
+}
+
+/**
+ * Look up a source's `local_path` from `gbrain sources list --json`.
+ * Returns null when the source is absent or the listing fails.
+ *
+ * `env` is the environment passed to the spawned `gbrain` process; defaults
+ * to `process.env`. Tests inject a PATH that points at a gbrain shim so the
+ * helper can be exercised without a real gbrain CLI.
+ *
+ * Shape note: `gbrain sources list --json` returns `{sources: [...]}` (v0.20+);
+ * older versions returned a flat array. Accept both for forward/backward compat
+ * (mirrors `probeSource`/`sourcePageCount` in lib/gbrain-sources.ts).
+ */
+export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): string | null {
+  const raw = execGbrainJson<unknown>(
+    ["sources", "list", "--json"],
+    { baseEnv: env },
+  );
+  if (!raw) return null;
+  const list: Array<{ id?: string; local_path?: string }> = Array.isArray(raw)
+    ? (raw as Array<{ id?: string; local_path?: string }>)
+    : ((raw as { sources?: Array<{ id?: string; local_path?: string }> }).sources ?? []);
+  const found = list.find((s) => s.id === sourceId);
+  return found?.local_path ?? null;
+}
+
+/** Result of `planHostnameFoldMigration` — informs `runCodeImport` of next steps. */
+export type HostnameFoldMigration =
+  | { kind: "none"; reason: "ids-match" | "no-legacy-source" }
+  | { kind: "skipped-path-drift"; oldId: string; oldPath: string; currentPath: string }
+  | { kind: "renamed"; oldId: string; newId: string }
+  | { kind: "pending-cleanup"; oldId: string };
+
+/**
+ * Decide how to migrate from the pre-#1468 path-only-hash source id to the
+ * new hostname-fold id.
+ *
+ * Order:
+ *   1. If old == new → no-op.
+ *   2. Look up old source's local_path. Absent → no legacy source to migrate.
+ *   3. local_path != currentRoot → user moved the repo or two machines share a
+ *      hash slot. Skip migration; let the user clean up manually. We will NOT
+ *      rename or remove anything; the new source is registered alongside.
+ *   4. Otherwise: feature-check `gbrain sources rename`. If supported and the
+ *      rename call exits 0 → renamed, pages preserved.
+ *   5. Else: pending-cleanup. Caller registers + syncs new source first; only
+ *      after sync succeeds with a non-zero page count does it remove the old.
+ *      This avoids a data-loss window where the old source is gone before the
+ *      new one is verifiably populated.
+ */
+export function planHostnameFoldMigration(
+  currentRoot: string,
+  newSourceId: string,
+  legacyPathHashId: string,
+  env?: NodeJS.ProcessEnv,
+): HostnameFoldMigration {
+  if (legacyPathHashId === newSourceId) {
+    return { kind: "none", reason: "ids-match" };
+  }
+  const oldPath = sourceLocalPath(legacyPathHashId, env);
+  if (oldPath === null) {
+    return { kind: "none", reason: "no-legacy-source" };
+  }
+  if (oldPath !== currentRoot) {
+    return {
+      kind: "skipped-path-drift",
+      oldId: legacyPathHashId,
+      oldPath,
+      currentPath: currentRoot,
+    };
+  }
+  if (gbrainSupportsSourcesRename(env)) {
+    const r = spawnGbrain(["sources", "rename", legacyPathHashId, newSourceId], { baseEnv: env });
+    if (r.status === 0) {
+      return { kind: "renamed", oldId: legacyPathHashId, newId: newSourceId };
+    }
+    // Rename failed at runtime — fall through to cleanup path.
+  }
+  return { kind: "pending-cleanup", oldId: legacyPathHashId };
+}
+
+/**
+ * Remove an orphaned source. Called only after new-source sync verifies pages
+ * exist, so the old source is provably redundant before deletion.
+ *
+ * Flag note: existing call sites used `--confirm-destructive` here and
+ * `--yes` in `lib/gbrain-sources.ts` — gbrain 0.35.0.0 accepts neither
+ * deterministically (the subcommand surface help is generic). We pass
+ * `--confirm-destructive` to match the existing call site convention; the
+ * flag-helper centralization in commit 4 (lib/gbrain-exec.ts) will resolve
+ * the inconsistency across the codebase.
+ */
+export function removeOrphanedSource(oldId: string, env?: NodeJS.ProcessEnv): boolean {
+  const r = spawnGbrain(["sources", "remove", oldId, "--confirm-destructive"], { baseEnv: env });
+  return r.status === 0;
+}
+
+/**
  * Build a gbrain-valid source id (1-32 lowercase alnum + interior hyphens). Sanitizes
  * `raw`, prefixes with `prefix`, and falls back to a hashed-tail form when total length
  * would exceed 32 chars.
+ *
+ * Truncation cuts on hyphen boundaries (whole-word units) from the right, never
+ * mid-word. Inputs like "drummerms-av-sow-wiz-skill-270c0001" produce
+ * "${prefix}-270c0001-<hash>", not "${prefix}-kill-270c0001-<hash>".
  */
 function constrainSourceId(prefix: string, raw: string): string {
   const MAX = 32;
@@ -228,17 +511,21 @@ function constrainSourceId(prefix: string, raw: string): string {
   // Total budget: prefix + "-" + tail + "-" + hash
   const tailBudget = MAX - prefix.length - 2 - hash.length;
   if (tailBudget < 1) return `${prefix}-${hash}`;
-  const tail = slug.slice(-tailBudget).replace(/^-+|-+$/g, "");
-  return tail ? `${prefix}-${tail}-${hash}` : `${prefix}-${hash}`;
-}
-
-function gbrainAvailable(): boolean {
-  try {
-    execSync("command -v gbrain", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
+  // Cut on hyphen boundaries instead of mid-word. Walk tokens from the right,
+  // accumulating until adding the next token would exceed tailBudget. This
+  // preserves readable suffixes (pathhash, repo name) and avoids embarrassing
+  // mid-word artifacts like "skill" → "kill".
+  const tokens = slug.split("-").filter(Boolean);
+  const kept: string[] = [];
+  let len = 0;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const add = kept.length === 0 ? tokens[i].length : tokens[i].length + 1;
+    if (len + add > tailBudget) break;
+    kept.unshift(tokens[i]);
+    len += add;
   }
+  const tail = kept.join("-");
+  return tail ? `${prefix}-${tail}-${hash}` : `${prefix}-${hash}`;
 }
 
 // ── Lock file (D1) ─────────────────────────────────────────────────────────
@@ -290,18 +577,54 @@ function releaseLock(): void {
 
 // ── Stage runners ──────────────────────────────────────────────────────────
 
+/**
+ * Build a SKIP result for the code/memory stage when the local engine is
+ * not in 'ok' state (per plan D12). Surface the status verbatim so the
+ * verdict block tells the user exactly what's wrong without re-probing.
+ *
+ * Reasons mapped to user-actionable summaries:
+ *   no-cli         → "gbrain CLI not on PATH; install via /setup-gbrain"
+ *   missing-config → "no local engine; run /setup-gbrain to add local PGLite"
+ *   broken-config  → "config file at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5"
+ *   broken-db      → "config points at unreachable DB; see /setup-gbrain Step 1.5"
+ */
+function skipStageForLocalStatus(
+  stage: "code" | "memory",
+  status: LocalEngineStatus,
+  t0: number,
+): StageResult {
+  const reasons: Record<Exclude<LocalEngineStatus, "ok">, string> = {
+    "no-cli": "gbrain CLI not on PATH; install via /setup-gbrain",
+    "missing-config":
+      "no local engine; run /setup-gbrain to add local PGLite for code search",
+    "broken-config":
+      "config at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5",
+    "broken-db":
+      "config points at unreachable DB; see /setup-gbrain Step 1.5",
+  };
+  const reason = reasons[status as Exclude<LocalEngineStatus, "ok">];
+  return {
+    name: stage,
+    ran: false,
+    ok: true, // SKIP (per D12) — not a stage failure, just an unsatisfied prerequisite
+    duration_ms: Date.now() - t0,
+    summary: `skipped — local engine ${status} — ${reason}`,
+  };
+}
+
+
 async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const t0 = Date.now();
   const root = repoRoot();
   if (!root) {
     return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
   }
-  if (!gbrainAvailable()) {
-    return { name: "code", ran: false, ok: false, duration_ms: 0, summary: "skipped (gbrain CLI not in PATH)" };
-  }
 
   const sourceId = deriveCodeSourceId(root);
 
+  // dry-run preview always shows the would-do steps, regardless of local
+  // engine state. Useful for "what would /sync-gbrain do" without probing
+  // the engine.
   if (args.mode === "dry-run") {
     return {
       name: "code",
@@ -313,31 +636,63 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  // Step 0: Best-effort cleanup of pre-pathhash legacy source.
+  // Split-engine pre-flight (per plan D12): when local engine is not ok, SKIP
+  // code stage cleanly. Brain-sync stage still runs because it doesn't depend
+  // on local engine. The /sync-gbrain Step 1.5 pre-flight surfaces the user
+  // remediation message; this skip just keeps the orchestrator from crashing
+  // when the local DB is dead. Skipped on --dry-run (above) since dry-run
+  // never actually probes anything.
+  const localStatus = localEngineStatus({ noCache: false });
+  if (localStatus !== "ok") {
+    return skipStageForLocalStatus("code", localStatus, t0);
+  }
+
+  // Step 0a: Best-effort cleanup of pre-pathhash legacy source (v1.x form).
   // Earlier /sync-gbrain versions registered `gstack-code-<slug>` (no path
   // suffix). On a multi-worktree repo, those collapsed onto a single id
   // with last-sync-wins. Federated search would return stale duplicate
   // hits forever if we left the orphan in place. Remove the legacy id once
   // here so users don't accumulate orphans.
   // Failure is non-fatal — we still register the new id below.
+  // gbrainEnv seeds DATABASE_URL from gbrain's config so this stage works
+  // inside Next.js / Prisma / Rails projects with their own .env.local
+  // (codex review #7 — bug fix is wider than #1508 as filed).
+  const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
   const legacyId = deriveLegacyCodeSourceId(root);
   let legacyRemoved = false;
   if (legacyId !== sourceId) {
-    const rm = spawnSync("gbrain", ["sources", "remove", legacyId, "--confirm-destructive"], {
-      encoding: "utf-8",
+    const rm = spawnGbrain(["sources", "remove", legacyId, "--confirm-destructive"], {
       timeout: 30_000,
-      stdio: ["ignore", "pipe", "pipe"],
+      baseEnv: gbrainEnv,
     });
     // Treat absent-source as success (clean state). gbrain emits "not found" on
     // missing id; treat any non-zero exit without "not found" as a soft fail.
     if (rm.status === 0) legacyRemoved = true;
   }
 
+  // Step 0b: Hostname-fold migration (#1414).
+  // Before #1468 the source id hashed only the absolute repo path. After the
+  // hostname fold, every existing user has a legacy id that no longer matches
+  // what deriveCodeSourceId produces. Try rename-in-place first (preserves
+  // pages); fall back to register-new → sync-OK → remove-old. Path-drift
+  // (user moved the repo, etc.) skips migration with a warning.
+  const pathOnlyHashLegacyId = derivePathOnlyHashLegacyId(root);
+  const migration = planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
+  if (migration.kind === "skipped-path-drift" && !args.quiet) {
+    console.error(
+      `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
+      + `points at ${migration.oldPath}, current repo is ${migration.currentPath}. `
+      + `Clean up manually with: gbrain sources remove ${migration.oldId} --confirm-destructive`,
+    );
+  } else if (migration.kind === "renamed" && !args.quiet) {
+    console.error(`[sync:code] hostname-fold migration: renamed ${migration.oldId} → ${migration.newId} (pages preserved)`);
+  }
+
   // Step 1: Ensure source registered (idempotent). Single source of truth in lib —
   // no synchronous duplicate here (per /codex review #12).
   let registered = false;
   try {
-    const result = await ensureSourceRegistered(sourceId, root, { federated: true });
+    const result = await ensureSourceRegistered(sourceId, root, { federated: true, env: gbrainEnv });
     registered = result.changed;
   } catch (err) {
     return {
@@ -350,25 +705,55 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  // Step 2: Run sync or reindex.
-  const syncArgs = args.mode === "full"
-    ? ["reindex-code", "--source", sourceId, "--yes"]
-    : ["sync", "--strategy", "code", "--source", sourceId];
-
-  const syncResult = spawnSync("gbrain", syncArgs, {
+  // Step 2: Always run the page-creating file walk first, then (for --full)
+  // a full re-embed.
+  //
+  // `gbrain reindex-code` only RE-EMBEDS pages that already exist; it never
+  // walks the filesystem. On a freshly-registered source (0 pages) a --full
+  // run that called reindex-code alone found nothing ("No code pages to
+  // reindex"), finished in ~1s, and left the code index permanently empty
+  // while still reporting OK. The page-creating walk is `sync --strategy
+  // code`, so --full must run it FIRST, then reindex-code, to honor the
+  // documented "full walk + reindex" contract for both fresh and populated
+  // sources.
+  const codeTimeoutMs = resolveStageTimeoutMs(
+    process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
+    "GSTACK_SYNC_CODE_TIMEOUT_MS",
+  );
+  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 35 * 60 * 1000,
+    timeout: codeTimeoutMs,
+    baseEnv: gbrainEnv,
   });
 
-  if (syncResult.status !== 0) {
+  if (walkResult.status !== 0) {
     return {
       name: "code",
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `gbrain ${syncArgs.join(" ")} exited ${syncResult.status}`,
+      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
+  }
+
+  if (args.mode === "full") {
+    const reindexResult = spawnGbrain(["reindex-code", "--source", sourceId, "--yes"], {
+      stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
+      timeout: codeTimeoutMs,
+      baseEnv: gbrainEnv,
+    });
+
+    if (reindexResult.status !== 0) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain reindex-code --source ${sourceId} exited ${reindexResult.status}`,
+        detail: { source_id: sourceId, source_path: root, status: "failed" },
+      };
+    }
   }
 
   // Step 3: Pin this worktree's CWD to the source via .gbrain-source. Subsequent
@@ -380,14 +765,32 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // the wrong/default source. Treat it as a stage failure (ok=false) so the
   // verdict block surfaces ERR and the user knows to retry rather than
   // trusting stale results.
-  const attach = spawnSync("gbrain", ["sources", "attach", sourceId], {
-    encoding: "utf-8",
+  const attach = spawnGbrain(["sources", "attach", sourceId], {
     timeout: 10_000,
     cwd: root,
-    stdio: ["ignore", "pipe", "pipe"],
+    baseEnv: gbrainEnv,
   });
-  const pageCount = sourcePageCount(sourceId);
-  const legacyNote = legacyRemoved ? `, removed legacy ${legacyId}` : "";
+  const pageCount = sourcePageCount(sourceId, gbrainEnv);
+
+  // Step 4: Deferred hostname-fold cleanup.
+  // Only remove the pre-#1468 path-only-hash source NOW that the new source
+  // has registered + synced + has pages. Removing before sync would create a
+  // data-loss window if sync failed; removing without a page-count check would
+  // wipe pages when sync silently no-op'd. This is the codex-review-flagged
+  // safety: register → sync → verify → THEN delete.
+  let hostnameLegacyRemoved = false;
+  if (migration.kind === "pending-cleanup" && pageCount !== null && pageCount > 0) {
+    hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
+    if (hostnameLegacyRemoved && !args.quiet) {
+      console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
+    }
+  }
+
+  const legacyParts: string[] = [];
+  if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
+  if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
+  if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
+  const legacyNote = legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
   const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
 
   if (attach.status !== 0) {
@@ -408,6 +811,13 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
+  // v1.29.0.0 changelog promised the per-worktree pin would be ignored in the
+  // consuming repo, but the change actually only added .gbrain-source to
+  // gstack's own .gitignore. Without the consumer-side entry, the pin gets
+  // committed and breaks the per-worktree promise: Conductor sibling worktrees
+  // step on each other's pin every time anyone commits (#1384).
+  ensureGbrainSourceGitignored(root);
+
   return {
     name: "code",
     ran: true,
@@ -424,11 +834,72 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   };
 }
 
+/**
+ * Ensure `.gbrain-source` is listed in the consumer repo's `.gitignore`.
+ *
+ * Idempotent: only appends when the entry is not already present (matched on
+ * trimmed lines so a leading/trailing whitespace difference doesn't add a
+ * second copy). Wraps writes in try/catch so a read-only checkout or weird
+ * perms logs a warning and lets the rest of the sync continue.
+ */
+export function ensureGbrainSourceGitignored(root: string): void {
+  const gitignorePath = join(root, ".gitignore");
+  try {
+    let existing = "";
+    try {
+      existing = readFileSync(gitignorePath, "utf-8");
+    } catch {
+      // No .gitignore yet — we'll create it.
+    }
+    const alreadyIgnored = existing
+      .split("\n")
+      .some((line) => line.trim() === ".gbrain-source");
+    if (alreadyIgnored) {
+      return;
+    }
+    const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    writeFileSync(gitignorePath, existing + sep + ".gbrain-source\n");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[sync:code] could not add .gbrain-source to ${gitignorePath}: ${msg}`,
+    );
+  }
+}
+
 function runMemoryIngest(args: CliArgs): StageResult {
   const t0 = Date.now();
 
   if (args.mode === "dry-run") {
     return { name: "memory", ran: false, ok: true, duration_ms: 0, summary: "would: gstack-memory-ingest --probe" };
+  }
+
+  // Split-engine pre-flight (per plan D12). gstack-memory-ingest shells out
+  // to `gbrain import` which targets the LOCAL engine. When that engine is
+  // not ok, SKIP cleanly so brain-sync (the only stage that doesn't depend
+  // on local engine) still runs.
+  const localStatus = localEngineStatus({ noCache: false });
+  if (localStatus !== "ok") {
+    return skipStageForLocalStatus("memory", localStatus, t0);
+  }
+
+  // Resume detection (#1611 / plan D1 + C1). If a previous run hit the
+  // timeout and gbrain left ~/.gbrain/import-checkpoint.json plus its staging
+  // dir on disk, signal the grandchild via env so it skips the prepare phase
+  // and lets `gbrain import` resume from processedIndex+1 against the same
+  // staging dir. If the staging dir is gone (disk pressure cleanup, OS
+  // reboot, user manual cleanup), warn and fall through to a fresh restage.
+  const resume = decideResume();
+  const childEnv = buildGbrainEnv({ announce: false });
+  if (resume.kind === "resume") {
+    console.error(
+      `[sync:memory] resuming from gbrain checkpoint (${resume.processedIndex}/${resume.totalFiles} files staged at ${resume.stagingDir})`,
+    );
+    childEnv.GSTACK_INGEST_RESUME_DIR = resume.stagingDir;
+  } else if (resume.kind === "stale-staging-missing") {
+    console.error(
+      `[sync:memory] previous checkpoint stale (staging dir ${resume.stagingDir} gone), restaging from scratch`,
+    );
   }
 
   const ingestPath = join(import.meta.dir, "gstack-memory-ingest.ts");
@@ -437,9 +908,18 @@ function runMemoryIngest(args: CliArgs): StageResult {
   else ingestArgs.push("--incremental");
   if (args.quiet) ingestArgs.push("--quiet");
 
+  // Thread the seeded env into the bun grandchild (codex review #7 — the
+  // .env.local footgun affects gstack-memory-ingest.ts too, not just the
+  // direct gbrain spawns in this file). The grandchild calls gbrain import
+  // internally and must see the DATABASE_URL from gbrain's own config.
+  const memoryTimeoutMs = resolveStageTimeoutMs(
+    process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS,
+    "GSTACK_SYNC_MEMORY_TIMEOUT_MS",
+  );
   const result = spawnSync("bun", ingestArgs, {
     encoding: "utf-8",
-    timeout: 35 * 60 * 1000,
+    timeout: memoryTimeoutMs,
+    env: childEnv,
   });
 
   // D6: parse [memory-ingest] lines from the child's stderr. ERR-prefixed
@@ -614,8 +1094,10 @@ async function main(): Promise<void> {
   process.exit(exitCode);
 }
 
-main().catch((err) => {
-  console.error(`gstack-gbrain-sync fatal: ${err instanceof Error ? err.message : String(err)}`);
-  releaseLock();
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`gstack-gbrain-sync fatal: ${err instanceof Error ? err.message : String(err)}`);
+    releaseLock();
+    process.exit(1);
+  });
+}

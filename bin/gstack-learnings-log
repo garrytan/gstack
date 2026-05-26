@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # gstack-learnings-log — append a learning to the project learnings file
 # Usage: gstack-learnings-log '{"skill":"review","type":"pitfall","key":"n-plus-one","insight":"...","confidence":8,"source":"observed"}'
+# Valid types: pattern, pitfall, preference, architecture, tool, operational, investigation
 #
 # Append-only storage. Duplicates (same key+type) are resolved at read time
 # by gstack-learnings-search ("latest winner" per key+type).
@@ -19,7 +20,7 @@ let j;
 try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
 
 // Field validation: type must be from allowed list
-const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational'];
+const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational', 'investigation'];
 if (!j.type || !ALLOWED_TYPES.includes(j.type)) {
   process.stderr.write('gstack-learnings-log: invalid type \"' + (j.type || '') + '\", must be one of: ' + ALLOWED_TYPES.join(', ') + '\n');
   process.exit(1);

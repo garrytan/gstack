@@ -264,6 +264,8 @@ Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 
 
 4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
 
+{{TASKS_SECTION_EMIT:eng-review}}
+
 ### Completion summary
 At the end of the review, fill in and display this summary so the user can see all findings at a glance:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
@@ -338,3 +340,5 @@ Use AskUserQuestion with only the applicable options:
 
 ## Unresolved decisions
 If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+
+{{EXIT_PLAN_MODE_GATE}}

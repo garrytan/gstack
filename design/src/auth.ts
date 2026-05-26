@@ -1,38 +1,82 @@
 /**
- * Auth and provider resolution for gstack design image generation.
+ * Auth resolution for OpenAI API access.
  *
- * Resolution order for `auto`:
- * 1. Codex CLI ChatGPT OAuth (`codex login`) when available
- * 2. OpenAI API key from ~/.gstack/openai.json or OPENAI_API_KEY
- * 3. Guided failure message with both setup paths
+ * Resolution order:
+ * 1. ~/.gstack/openai.json → { "api_key": "sk-..." }
+ * 2. OPENAI_API_KEY environment variable
+ * 3. null (caller handles guided setup or fallback)
+ *
+ * When OPENAI_API_KEY is in use AND its value matches an OPENAI_API_KEY entry
+ * in the current directory's .env / .env.<NODE_ENV> / .env.local, we disclose
+ * the source on stderr before the run. Catches the silent-billing surface
+ * reported in #1248: design generation inside someone else's project would
+ * silently bill their OpenAI account if their .env was loaded into the shell.
  */
 
-import * as fs from "fs";
-import * as path from "path";
+import fs from "fs";
+import path from "path";
 
-const CONFIG_PATH = path.join(process.env.HOME || "~", ".gstack", "openai.json");
+type ApiKeySource = "config" | "env";
 
-export type ImageProviderKind = "codex" | "openai";
-export type ImageProviderOption = "auto" | ImageProviderKind | undefined;
-
-export interface CredentialStatus {
-  openAIKey: boolean;
-  codexChatGPT: boolean;
+export interface ApiKeyResolution {
+  key: string;
+  source: ApiKeySource;
+  envFile?: string;
+  warning?: string;
 }
 
-export interface ImageProvider {
-  kind: ImageProviderKind;
-  apiKey?: string;
+function configPath(): string {
+  return path.join(process.env.HOME || "~", ".gstack", "openai.json");
 }
 
-export function resolveApiKey(): string | null {
+function readEnvValue(filePath: string, key: string): string | null {
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.*)\\s*$`));
+    if (!match) continue;
+
+    let value = match[1].trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    return value;
+  }
+
+  return null;
+}
+
+function matchingCwdEnvFile(key: string, value: string): string | null {
+  const candidates = [".env"];
+  const nodeEnv = process.env.NODE_ENV;
+  if (nodeEnv) candidates.push(`.env.${nodeEnv}`);
+  candidates.push(".env.local");
+
+  for (const fileName of candidates) {
+    const fileValue = readEnvValue(path.join(process.cwd(), fileName), key);
+    if (fileValue === value) return fileName;
+  }
+
+  return null;
+}
+
+export function resolveApiKeyInfo(): ApiKeyResolution | null {
   // 1. Check ~/.gstack/openai.json
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const content = fs.readFileSync(CONFIG_PATH, "utf-8");
+    const authPath = configPath();
+    if (fs.existsSync(authPath)) {
+      const content = fs.readFileSync(authPath, "utf-8");
       const config = JSON.parse(content);
       if (config.api_key && typeof config.api_key === "string") {
-        return config.api_key;
+        return { key: config.api_key, source: "config" };
       }
     }
   } catch {
@@ -41,103 +85,52 @@ export function resolveApiKey(): string | null {
 
   // 2. Check environment variable
   if (process.env.OPENAI_API_KEY) {
-    return process.env.OPENAI_API_KEY;
+    const envFile = matchingCwdEnvFile("OPENAI_API_KEY", process.env.OPENAI_API_KEY);
+    const warning = envFile
+      ? `Warning: OPENAI_API_KEY matches ${envFile} in the current directory. Design generation may bill that project's OpenAI account. Run $D setup to store a gstack-specific key in ~/.gstack/openai.json.`
+      : undefined;
+    return { key: process.env.OPENAI_API_KEY, source: "env", envFile: envFile ?? undefined, warning };
   }
 
   return null;
+}
+
+export function resolveApiKey(): string | null {
+  return resolveApiKeyInfo()?.key ?? null;
+}
+
+export function describeApiKeySource(resolution: ApiKeyResolution): string {
+  if (resolution.source === "config") return "~/.gstack/openai.json";
+  if (resolution.envFile) return `OPENAI_API_KEY environment variable (matches ${resolution.envFile} in current directory)`;
+  return "OPENAI_API_KEY environment variable";
 }
 
 /**
  * Save an API key to ~/.gstack/openai.json with 0600 permissions.
  */
 export function saveApiKey(key: string): void {
-  const dir = path.dirname(CONFIG_PATH);
+  const dir = path.dirname(configPath());
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify({ api_key: key }, null, 2));
-  fs.chmodSync(CONFIG_PATH, 0o600);
-}
-
-export function sanitizeProviderError(message: string): string {
-  return message
-    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [REDACTED]")
-    .replace(/(OPENAI_API_KEY|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token)[=:]\s*[^\s,;]+/gi, "$1=[REDACTED]")
-    .replace(/sk-[A-Za-z0-9_\-]+/g, "[REDACTED]")
-    .replace(/eyJ[A-Za-z0-9._\-]+/g, "[REDACTED]");
-}
-
-export function buildMissingProviderMessage(): string {
-  return [
-    "No image-generation auth found.",
-    "",
-    "Preferred: run `codex login` and sign in with ChatGPT. gstack design will use Codex OAuth automatically.",
-    "Fallback: run `$D setup`, save ~/.gstack/openai.json: { \"api_key\": \"sk-...\" }, or set OPENAI_API_KEY.",
-    "",
-    "Use `--backend codex` to require Codex OAuth, or `--backend openai` to require an OpenAI API key.",
-  ].join("\n");
-}
-
-export function resolveImageProvider(option: ImageProviderOption, status: CredentialStatus, apiKey = resolveApiKey()): ImageProvider {
-  const requested = option ?? "auto";
-  if (!["auto", "codex", "openai"].includes(requested)) {
-    throw new Error("--backend must be one of: auto, codex, openai");
-  }
-
-  if (requested === "codex") {
-    if (status.codexChatGPT) return { kind: "codex" };
-    throw new Error("No Codex ChatGPT subscription auth found. Run `codex login` before using `gstack design --backend codex`.");
-  }
-
-  if (requested === "openai") {
-    if (status.openAIKey && apiKey) return { kind: "openai", apiKey };
-    throw new Error("No OpenAI API key found. Run `$D setup`, save ~/.gstack/openai.json, or set OPENAI_API_KEY.");
-  }
-
-  if (status.codexChatGPT) return { kind: "codex" };
-  if (status.openAIKey && apiKey) return { kind: "openai", apiKey };
-  throw new Error(buildMissingProviderMessage());
-}
-
-export async function commandReportsChatGPTLogin(): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(["codex", "login", "status"], { stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => proc.kill("SIGTERM"), 5_000);
-    try {
-      await proc.exited;
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      return `${stdout}\n${stderr}`.includes("Logged in using ChatGPT");
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    return false;
-  }
-}
-
-export async function getCredentialStatus(): Promise<CredentialStatus> {
-  return {
-    openAIKey: !!resolveApiKey(),
-    codexChatGPT: await commandReportsChatGPTLogin(),
-  };
-}
-
-export async function requireImageProvider(option?: ImageProviderOption): Promise<ImageProvider> {
-  try {
-    return resolveImageProvider(option, await getCredentialStatus());
-  } catch (err: any) {
-    console.error(sanitizeProviderError(err.message || String(err)));
-    process.exit(1);
-  }
+  fs.writeFileSync(configPath(), JSON.stringify({ api_key: key }, null, 2));
+  fs.chmodSync(configPath(), 0o600);
 }
 
 /**
- * Backward-compatible API-key helper for older callers.
+ * Get API key or exit with setup instructions.
  */
 export function requireApiKey(): string {
-  const key = resolveApiKey();
-  if (!key) {
-    console.error(buildMissingProviderMessage());
+  const resolution = resolveApiKeyInfo();
+  if (!resolution) {
+    console.error("No OpenAI API key found.");
+    console.error("");
+    console.error("Run: $D setup");
+    console.error("  or save to ~/.gstack/openai.json: { \"api_key\": \"sk-...\" }");
+    console.error("  or set OPENAI_API_KEY environment variable");
+    console.error("");
+    console.error("Get a key at: https://platform.openai.com/api-keys");
     process.exit(1);
   }
-  return key;
+  console.error(`Using OpenAI key from ${describeApiKeySource(resolution)}.`);
+  if (resolution.warning) console.error(resolution.warning);
+  return resolution.key;
 }

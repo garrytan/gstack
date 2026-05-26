@@ -766,9 +766,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 ## Step 0: Detect platform and base branch
 
@@ -1587,7 +1585,7 @@ thorough review.
 **Check tool availability:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
 Use AskUserQuestion:
@@ -1840,6 +1838,78 @@ DX IMPLEMENTATION CHECKLIST
 [ ] Community channel exists and is monitored
 ```
 
+## Implementation Tasks
+
+Before closing this review, synthesize the findings above into a flat list of
+build-actionable tasks. Each task derives from a specific finding — no padding.
+Emit the markdown section AND write a JSONL artifact that `/autoplan` can
+aggregate across phases.
+
+### Markdown section (always emit)
+
+```markdown
+## Implementation Tasks
+Synthesized from this review's findings. Each task derives from a specific
+finding above. Run with Claude Code or Codex; checkbox as you ship.
+
+- [ ] **T1 (P1, human: ~2h / CC: ~15min)** — <component> — <imperative title>
+  - Surfaced by: <section name> — <specific finding text or line reference>
+  - Files: <paths to touch>
+  - Verify: <test command or manual check>
+- [ ] **T2 (P2, human: ~30min / CC: ~5min)** — ...
+```
+
+Rules:
+- P1 blocks ship; P2 should land same branch; P3 is a follow-up TODO.
+- If a finding produced no actionable task, do not invent one.
+- If a section had zero findings, emit `_No new tasks from <section>._`
+- Effort uses the AI-compression table from CLAUDE.md.
+
+### JSONL artifact (always write, even if zero tasks)
+
+`/autoplan` reads this file to aggregate across phases. Build each line with
+`jq -nc` so titles and source findings containing quotes, newlines, or
+backslashes serialize cleanly — never use hand-rolled `echo` / `printf`.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+TASKS_DIR="${HOME}/.gstack/projects/${SLUG:-unknown}"
+mkdir -p "$TASKS_DIR"
+TASKS_FILE="$TASKS_DIR/tasks-devex-review-$(date +%Y%m%d-%H%M%S).jsonl"
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+# Repeat ONE jq invocation per task identified during this review.
+# Substitute the placeholders inline with shell variables you set per task:
+#   TASK_ID (T1, T2, ...), PRIORITY (P1/P2/P3), COMPONENT, TITLE,
+#   SOURCE_FINDING, EFFORT_HUMAN, EFFORT_CC, FILES_JSON (a JSON array literal
+#   like '["browse/src/sanitize.ts","browse/src/server.ts"]').
+jq -nc \
+  --arg phase 'devex-review' \
+  --arg run_id "$RUN_ID" \
+  --arg branch "$BRANCH" \
+  --arg commit "$COMMIT" \
+  --arg id "$TASK_ID" \
+  --arg priority "$PRIORITY" \
+  --arg component "$COMPONENT" \
+  --arg effort_human "$EFFORT_HUMAN" \
+  --arg effort_cc "$EFFORT_CC" \
+  --arg title "$TITLE" \
+  --arg source_finding "$SOURCE_FINDING" \
+  --argjson files "$FILES_JSON" \
+  '{phase:$phase, run_id:$run_id, branch:$branch, commit:$commit, id:$id, priority:$priority, component:$component, files:$files, effort_human:$effort_human, effort_cc:$effort_cc, title:$title, source_finding:$source_finding}' \
+  >> "$TASKS_FILE"
+```
+
+If `jq` is not installed, fall back to skipping the JSONL write and warn
+the user to install jq for autoplan aggregation. Never hand-roll JSONL.
+
+If zero tasks were identified in this review, still touch the JSONL file
+(`: > "$TASKS_FILE"`) so the aggregator sees that the phase produced output
+this run (an empty file means "ran, no findings" — distinct from "didn't run").
+
+
 ### Unresolved Decisions
 If any AskUserQuestion goes unanswered, note here. Never silently default.
 
@@ -2047,3 +2117,28 @@ Outside voice| Recommended      | Recommended        | Skip
 * One sentence max per option.
 * After each pass, pause and wait for feedback before moving on.
 * Rate before and after each pass for scannability.
+
+## EXIT PLAN MODE GATE (BLOCKING)
+
+Before calling ExitPlanMode, run this self-check. If any item fails, do the
+missing work — do NOT call ExitPlanMode:
+
+1. Read the plan file with the Read tool (after your most recent write to it).
+2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.
+   In-body prose that mentions "outside voice", "codex findings", or similar
+   does NOT count — only the structured `## GSTACK REVIEW REPORT` section
+   satisfies this check.
+3. Confirm the report contains: a Runs / Status / Findings table, a VERDICT
+   line, and absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable.
+4. If a plan file is in context for this skill invocation: confirm
+   `gstack-review-log` was called and `gstack-review-read` was run at least
+   once. If no plan file is in context (e.g. `/codex consult` against a
+   diff with no plan), this check short-circuits — checks 1-3 already
+   short-circuit when no plan file exists.
+
+Failing this gate and calling ExitPlanMode anyway is a contract violation —
+the user will see a plan whose review report is missing or stale, and will
+(correctly) reject it. Self-deception failure mode to watch for: feeling
+"done" after writing review prose into the plan body. The body prose is not
+the report. The report is a separate, structured, table-bearing section that
+must be the file's terminal heading.

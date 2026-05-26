@@ -11,11 +11,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
+import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -217,8 +219,6 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   safeUnlink(config.stateFile);
   safeUnlink(path.join(config.stateDir, 'browse-startup-error.log'));
 
-  let proc: any = null;
-
   // Allow the caller to opt out of the parent-process watchdog by setting
   // BROWSE_PARENT_PID=0 in the environment. Useful for CI, non-interactive
   // shells, and short-lived Bash invocations that need the server to outlive
@@ -240,12 +240,22 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
-    // macOS/Linux: Bun.spawn + unref works correctly
-    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
+    // loop — it does NOT call setsid(), so the spawned server stays in the
+    // parent's process session. When the CLI runs inside a session-managed
+    // shell (e.g. Claude Code's per-command Bash sandbox, Conductor, CI
+    // step runners), the session leader's exit sends SIGHUP to every PID in
+    // the session, killing the bun server (and its Chromium grandchildren).
+    // Even with BROWSE_PARENT_PID=0 disabling the watchdog, SIGHUP still
+    // reaps the server. Use Node's child_process.spawn with detached:true,
+    // which calls setsid() so the server becomes its own session leader
+    // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
+    // the Windows path's rationale — same root cause, different OS API.
+    nodeSpawn('bun', ['run', SERVER_SCRIPT], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
-    });
-    proc.unref();
+    }).unref();
   }
 
   // Wait for server to become healthy.
@@ -260,27 +270,17 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     await Bun.sleep(100);
   }
 
-  // Server didn't start in time — try to get error details
-  if (proc?.stderr) {
-    // macOS/Linux: read stderr from the spawned process
-    const reader = proc.stderr.getReader();
-    const { value } = await reader.read();
-    if (value) {
-      const errText = new TextDecoder().decode(value);
-      throw new Error(`Server failed to start:\n${errText}`);
+  // Server didn't start in time — check the on-disk startup error log.
+  // Both platforms now spawn with stdio: 'ignore', so the server writes
+  // errors to disk for the CLI to read (see server.ts start().catch).
+  const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+  try {
+    const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
+    if (errorLog) {
+      throw new Error(`Server failed to start:\n${errorLog}`);
     }
-  } else {
-    // Windows: check startup error log (server writes errors to disk since
-    // stderr is unavailable due to stdio: 'ignore' for detachment)
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    try {
-      const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
-      if (errorLog) {
-        throw new Error(`Server failed to start:\n${errorLog}`);
-      }
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') throw e;
-    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') throw e;
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
@@ -1033,32 +1033,18 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       // claude -p subprocesses to multiplex.
 
       // Auto-start terminal agent (non-compiled bun process). Owns the PTY
-      // WebSocket for the sidebar Terminal pane.
-      let termAgentScript = path.resolve(__dirname, 'terminal-agent.ts');
-      if (!fs.existsSync(termAgentScript)) {
-        termAgentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'terminal-agent.ts');
-      }
+      // WebSocket for the sidebar Terminal pane. Routes through the shared
+      // spawnTerminalAgent helper so the CLI cold-start path and the
+      // server.ts watchdog respawn path share one implementation. The
+      // helper handles prior-PID cleanup, script lookup, and env wiring.
       try {
-        if (fs.existsSync(termAgentScript)) {
-          // Kill old terminal-agents so a stale port file can't trick the
-          // server into routing /pty-session at a dead listener.
-          try {
-            const { spawnSync } = require('child_process');
-            spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-          } catch (err: any) {
-            if (err?.code !== 'ENOENT') throw err;
-          }
-          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
-            cwd: config.projectDir,
-            env: {
-              ...process.env,
-              BROWSE_STATE_FILE: config.stateFile,
-              BROWSE_SERVER_PORT: String(newState.port),
-            },
-            stdio: ['ignore', 'ignore', 'ignore'],
-          });
-          termProc.unref();
-          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
+        const newPid = spawnTerminalAgent({
+          stateFile: config.stateFile,
+          serverPort: newState.port,
+          cwd: config.projectDir,
+        });
+        if (newPid) {
+          console.log(`[browse] Terminal agent started (PID: ${newPid})`);
         }
       } catch (err: any) {
         // Non-fatal: chat still works without the terminal agent.
@@ -1067,6 +1053,96 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
       process.exit(1);
+    }
+
+    // ─── Outer Supervisor (v1.44+, opt-in) ──────────────────────────
+    //
+    // Default: fire-and-forget (CLI exits, server runs detached). This is
+    // the contract every existing call site relies on, including Claude
+    // Code's Bash tool which expects `$B connect` to return promptly.
+    //
+    // Opt-in via `--supervise` flag or BROWSE_SUPERVISE=1 env: the CLI
+    // stays attached, polls the spawned server's PID every 30s, and
+    // respawns it through the same headed-mode startServer path on
+    // unexpected exit. Crash-loop guard: 5 respawns inside 5 min →
+    // give up and exit 1 with a clear error. SIGINT / SIGTERM cleanly
+    // tear down the supervised server before exit.
+    //
+    // Out of scope for v1.44 minimum: routing the Chromium-disconnect
+    // exit-code-1 path back through this supervisor. The terminal-agent
+    // watchdog (T5) already covers the highest-frequency restart case;
+    // Chromium-crash-respawn is documented as a follow-up so the
+    // supervisor stays a tight, testable primitive.
+    const superviseRequested = commandArgs.includes('--supervise')
+      || process.env.BROWSE_SUPERVISE === '1';
+    if (!superviseRequested) {
+      process.exit(0);
+    }
+    console.log('[browse] Supervisor mode: monitoring server. Ctrl-C to stop.');
+    let supervisorExiting = false;
+    const teardownAndExit = (signal: string) => {
+      if (supervisorExiting) return;
+      supervisorExiting = true;
+      console.log(`\n[browse] ${signal} received — stopping server.`);
+      const state = readState();
+      if (state?.pid && isProcessAlive(state.pid)) {
+        safeKill(state.pid, 'SIGTERM');
+      }
+      process.exit(0);
+    };
+    process.on('SIGINT', () => teardownAndExit('SIGINT'));
+    process.on('SIGTERM', () => teardownAndExit('SIGTERM'));
+
+    const SUPERVISOR_TICK_MS = parseInt(
+      process.env.GSTACK_SUPERVISOR_TICK_MS || '30000',
+      10,
+    );
+    const SUPERVISOR_GUARD_WINDOW_MS = 5 * 60_000;
+    const SUPERVISOR_GUARD_MAX = 5;
+    const SUPERVISOR_BACKOFF_MS = (process.env.GSTACK_SUPERVISOR_BACKOFF || '1000,2000,4000,8000,30000')
+      .split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n));
+    const respawns: number[] = [];
+
+    while (!supervisorExiting) {
+      await new Promise(resolve => setTimeout(resolve, SUPERVISOR_TICK_MS));
+      if (supervisorExiting) break;
+      const state = readState();
+      if (state?.pid && isProcessAlive(state.pid)) continue;
+      // Server died. Prune rolling window and check guard.
+      const now = Date.now();
+      while (respawns.length && now - respawns[0] > SUPERVISOR_GUARD_WINDOW_MS) {
+        respawns.shift();
+      }
+      if (respawns.length >= SUPERVISOR_GUARD_MAX) {
+        console.error(
+          `[browse] Supervisor: ${SUPERVISOR_GUARD_MAX} crashes in ${SUPERVISOR_GUARD_WINDOW_MS / 1000}s — giving up.`,
+        );
+        process.exit(1);
+      }
+      const attempt = respawns.length;
+      respawns.push(now);
+      const backoff = SUPERVISOR_BACKOFF_MS[Math.min(attempt, SUPERVISOR_BACKOFF_MS.length - 1)] ?? 30_000;
+      console.warn(`[browse] Supervisor: server PID gone — respawning in ${backoff}ms (attempt ${attempt + 1}/${SUPERVISOR_GUARD_MAX})...`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      if (supervisorExiting) break;
+      try {
+        const respawned = await startServer(serverEnv);
+        console.log(`[browse] Supervisor: server respawned (PID ${respawned.pid}, port ${respawned.port}).`);
+        // Re-spawn the terminal-agent too; same env wiring as the initial connect.
+        try {
+          spawnTerminalAgent({
+            stateFile: config.stateFile,
+            serverPort: respawned.port,
+            cwd: config.projectDir,
+          });
+        } catch (err: any) {
+          console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);
+        }
+      } catch (err: any) {
+        console.error(`[browse] Supervisor: server respawn failed: ${err?.message || err}`);
+        // Let the next tick try again — the crash-loop guard already
+        // bounded the retries via the rolling window.
+      }
     }
     process.exit(0);
   }

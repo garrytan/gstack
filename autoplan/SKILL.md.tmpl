@@ -769,6 +769,8 @@ noting which items are incomplete. Do not loop indefinitely.
 
 ## Phase 4: Final Approval Gate
 
+{{TASKS_SECTION_AGGREGATE}}
+
 **STOP here and present the final state to the user.**
 
 Present as a message, then use AskUserQuestion:
@@ -819,6 +821,10 @@ I recommend [X] — [principle]. But [Y] is also viable:
 
 ### Deferred to TODOS.md
 [Items auto-deferred with reasons]
+
+### Implementation Tasks (aggregated across phases)
+[Substitute the contents of $AGGREGATED_TASKS computed above. If empty:
+"_No per-phase task lists found in $TASKS_DIR for branch $BRANCH._"]
 ```
 
 **Cognitive load management:**

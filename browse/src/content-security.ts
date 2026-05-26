@@ -12,6 +12,7 @@
 
 import { randomBytes } from 'crypto';
 import type { Page, Frame } from 'playwright';
+import { stripLoneSurrogates } from './sanitize';
 
 // ─── Datamarking (Layer 1) ──────────────────────────────────────
 
@@ -167,7 +168,7 @@ export async function markHiddenElements(page: Page | Frame): Promise<string[]> 
  * Uses clone + remove approach: clones body, removes marked elements, returns innerText.
  */
 export async function getCleanTextWithStripping(page: Page | Frame): Promise<string> {
-  return page.evaluate(() => {
+  const raw = await page.evaluate(() => {
     const body = document.body;
     if (!body) return '';
     const clone = body.cloneNode(true) as HTMLElement;
@@ -181,6 +182,7 @@ export async function getCleanTextWithStripping(page: Page | Frame): Promise<str
       .filter(line => line.length > 0)
       .join('\n');
   });
+  return stripLoneSurrogates(raw);
 }
 
 /**

@@ -30,6 +30,47 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
 esac
 
+# ─── Symlink-or-copy helper ───────────────────────────────────
+# On macOS/Linux: create a symlink (existing behavior).
+# On Windows without Developer Mode (MSYS2/Git Bash): plain ln -snf silently
+# creates a frozen file copy that doesn't refresh after `git pull`. We use
+# explicit `cp -R` / `cp -f` so the user gets a real copy and the staleness
+# is reportable (re-run ./setup after pull). Auto-detects file vs dir.
+#
+# INVARIANT: every symlink in this script MUST route through this helper.
+# A raw ln call here will be caught by test/setup-windows-fallback.test.ts
+# (the static-invariant assertion D7).
+_link_or_copy() {
+  local src="$1"
+  local dst="$2"
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    rm -rf "$dst"
+    # Unix `ln -snf` accepts a name-only or relative-path source even when the
+    # target doesn't resolve from CWD (e.g. the connect-chrome alias points at
+    # the sibling-relative "gstack/open-gstack-browser"). On Windows the
+    # equivalent semantics don't exist — we'd need a real source on disk to
+    # copy. Skip the alias quietly rather than aborting setup under `set -e`.
+    if [ ! -e "$src" ]; then
+      return 0
+    fi
+    if [ -d "$src" ]; then
+      cp -R "$src" "$dst"
+    else
+      cp -f "$src" "$dst"
+    fi
+  else
+    ln -snf "$src" "$dst"
+  fi
+}
+
+_WINDOWS_COPY_NOTE_PRINTED=0
+_print_windows_copy_note_once() {
+  if [ "$IS_WINDOWS" -eq 1 ] && [ "$_WINDOWS_COPY_NOTE_PRINTED" -eq 0 ]; then
+    echo "  note: Windows install uses file copies (no Developer Mode required). Re-run ./setup after every 'git pull' to refresh skill files."
+    _WINDOWS_COPY_NOTE_PRINTED=1
+  fi
+}
+
 # ─── Quiet mode helper ────────────────────────────────────────
 QUIET=0
 log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
@@ -220,6 +261,37 @@ ensure_playwright_browser() {
   fi
 }
 
+prepare_bun_for_windows_compile() {
+  BUN_CMD="bun"
+  BUN_CMD_WAS_COPIED=0
+  [ "$IS_WINDOWS" -eq 1 ] || return 0
+
+  local bun_path
+  bun_path="$(command -v bun 2>/dev/null || true)"
+  case "$bun_path" in
+    *[![:ascii:]]*)
+      local bun_copy_dir="$SOURCE_GSTACK_DIR/.tmp-bun-bin"
+      mkdir -p "$bun_copy_dir"
+      cp -f "$bun_path" "$bun_copy_dir/bun.exe"
+      BUN_CMD="$bun_copy_dir/bun.exe"
+      BUN_CMD_WAS_COPIED=1
+      ;;
+  esac
+}
+
+bun_cmd() {
+  "$BUN_CMD" "$@"
+}
+
+cleanup_copied_bun() {
+  if [ "${BUN_CMD_WAS_COPIED:-0}" -eq 1 ]; then
+    rm -rf "$SOURCE_GSTACK_DIR/.tmp-bun-bin"
+  fi
+}
+
+prepare_bun_for_windows_compile
+trap cleanup_copied_bun EXIT
+
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
 if [ ! -x "$BROWSE_BIN" ]; then
@@ -236,8 +308,8 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   log "Building browse binary..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run build
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run build
   )
   # Safety net: write .version if build script didn't (e.g., git not available during build)
   if [ ! -f "$SOURCE_GSTACK_DIR/browse/dist/.version" ]; then
@@ -296,8 +368,8 @@ if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   log "Generating .agents/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host codex
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host codex
   )
 fi
 
@@ -306,8 +378,8 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   log "Generating .factory/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host factory
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host factory
   )
 fi
 
@@ -316,8 +388,8 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   log "Generating .opencode/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bun install --frozen-lockfile 2>/dev/null || bun install
-    bun run gen:skill-docs --host opencode
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host opencode
   )
 fi
 
@@ -401,13 +473,34 @@ link_claude_skill_dirs() {
       mkdir -p "$target"
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      ln -snf "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
       linked+=("$link_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
     echo "  linked skills: ${linked[*]}"
+    _print_windows_copy_note_once
   fi
+}
+
+# Claude Code skips the repo-shaped ~/.claude/skills/gstack directory when
+# building the user-facing slash-command list. Keep the repo path for runtime
+# assets, and add a separate thin wrapper whose frontmatter name remains
+# `gstack` so `/gstack` can autocomplete.
+link_claude_root_skill_alias() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local target="$skills_dir/_gstack-command"
+
+  [ -f "$gstack_dir/SKILL.md" ] || return 0
+  if [ -L "$target" ]; then
+    rm -f "$target"
+  fi
+  mkdir -p "$target"
+  if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
+  _link_or_copy "$gstack_dir/SKILL.md" "$target/SKILL.md"
+  echo "  linked root skill alias: gstack"
+  _print_windows_copy_note_once
 }
 
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
@@ -442,6 +535,13 @@ cleanup_old_claude_symlinks() {
             removed+=("$skill_name")
             ;;
         esac
+      # Windows install pattern: real dir with real-file SKILL.md (no symlink
+      # available, so we can't readlink to verify provenance). The outer loop
+      # iterates known gstack skill names from "$gstack_dir"/*, so a name match
+      # plus IS_WINDOWS is safe to treat as gstack-managed during a mode flip.
+      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
+        rm -rf "$old_target"
+        removed+=("$skill_name")
       fi
     fi
   done
@@ -483,6 +583,12 @@ cleanup_prefixed_claude_symlinks() {
             removed+=("gstack-$skill_name")
             ;;
         esac
+      # Windows install pattern: real dir with real-file SKILL.md. Same
+      # reasoning as cleanup_old_claude_symlinks — directory name match plus
+      # IS_WINDOWS is safe during a mode flip.
+      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
+        rm -rf "$prefixed_target"
+        removed+=("gstack-$skill_name")
       fi
     fi
   done
@@ -520,7 +626,7 @@ link_codex_skill_dirs() {
       target="$skills_dir/$skill_name"
       # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
+        _link_or_copy "$skill_dir" "$target"
         linked+=("$skill_name")
       fi
     fi
@@ -545,7 +651,7 @@ create_agents_sidecar() {
     local dst="$agents_gstack/$asset"
     if [ -d "$src" ] || [ -f "$src" ]; then
       if [ -L "$dst" ] || [ ! -e "$dst" ]; then
-        ln -snf "$src" "$dst"
+        _link_or_copy "$src" "$dst"
       fi
     fi
   done
@@ -556,7 +662,7 @@ create_agents_sidecar() {
     local dst="$agents_gstack/$file"
     if [ -f "$src" ]; then
       if [ -L "$dst" ] || [ ! -e "$dst" ]; then
-        ln -snf "$src" "$dst"
+        _link_or_copy "$src" "$dst"
       fi
     fi
   done
@@ -582,29 +688,29 @@ create_codex_runtime_root() {
   mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
-    ln -snf "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
+    _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$codex_gstack/bin"
+    _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
+    _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+    _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
+    _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
   fi
   # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$codex_gstack/review/$f"
+      _link_or_copy "$gstack_dir/review/$f" "$codex_gstack/review/$f"
     fi
   done
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
   fi
 }
 
@@ -622,27 +728,27 @@ create_factory_runtime_root() {
   mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
 
   if [ -f "$factory_dir/gstack/SKILL.md" ]; then
-    ln -snf "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
+    _link_or_copy "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$factory_gstack/bin"
+    _link_or_copy "$gstack_dir/bin" "$factory_gstack/bin"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
+    _link_or_copy "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
+    _link_or_copy "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
   fi
   if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
+    _link_or_copy "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$factory_gstack/review/$f"
+      _link_or_copy "$gstack_dir/review/$f" "$factory_gstack/review/$f"
     fi
   done
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
   fi
 }
 
@@ -660,42 +766,42 @@ create_opencode_runtime_root() {
   mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
-    ln -snf "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
+    _link_or_copy "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$opencode_gstack/bin"
+    _link_or_copy "$gstack_dir/bin" "$opencode_gstack/bin"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
+    _link_or_copy "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$opencode_gstack/browse/bin"
+    _link_or_copy "$gstack_dir/browse/bin" "$opencode_gstack/browse/bin"
   fi
   if [ -d "$gstack_dir/design/dist" ]; then
-    ln -snf "$gstack_dir/design/dist" "$opencode_gstack/design/dist"
+    _link_or_copy "$gstack_dir/design/dist" "$opencode_gstack/design/dist"
   fi
   if [ -f "$opencode_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
+    _link_or_copy "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$opencode_gstack/review/$f"
+      _link_or_copy "$gstack_dir/review/$f" "$opencode_gstack/review/$f"
     fi
   done
   if [ -d "$gstack_dir/review/specialists" ]; then
-    ln -snf "$gstack_dir/review/specialists" "$opencode_gstack/review/specialists"
+    _link_or_copy "$gstack_dir/review/specialists" "$opencode_gstack/review/specialists"
   fi
   if [ -d "$gstack_dir/qa/templates" ]; then
-    ln -snf "$gstack_dir/qa/templates" "$opencode_gstack/qa/templates"
+    _link_or_copy "$gstack_dir/qa/templates" "$opencode_gstack/qa/templates"
   fi
   if [ -d "$gstack_dir/qa/references" ]; then
-    ln -snf "$gstack_dir/qa/references" "$opencode_gstack/qa/references"
+    _link_or_copy "$gstack_dir/qa/references" "$opencode_gstack/qa/references"
   fi
   if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
-    ln -snf "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$opencode_gstack/plan-devex-review/dx-hall-of-fame.md"
+    _link_or_copy "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$opencode_gstack/plan-devex-review/dx-hall-of-fame.md"
   fi
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
   fi
 }
 
@@ -721,7 +827,7 @@ link_factory_skill_dirs() {
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
+        _link_or_copy "$skill_dir" "$target"
         linked+=("$skill_name")
       fi
     fi
@@ -753,7 +859,7 @@ link_opencode_skill_dirs() {
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
+        _link_or_copy "$skill_dir" "$target"
         linked+=("$skill_name")
       fi
     fi
@@ -783,6 +889,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # reads the correct (patched) name: values for symlink naming
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
@@ -796,7 +903,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
     fi
     if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+      _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
     fi
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
@@ -842,7 +949,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       log "  browse: $BROWSE_BIN"
     else
       mkdir -p "$CLAUDE_SKILLS_DIR"
-      ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
+      _link_or_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
       log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
       INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
       INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
@@ -854,6 +961,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       fi
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
@@ -863,7 +971,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
         _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
       fi
       if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-        ln -snf "gstack/open-gstack-browser" "$_OGB_LINK"
+        _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
       fi
       log "gstack ready (claude)."
       log "  browse: $BROWSE_BIN"
@@ -903,21 +1011,21 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   # Remove old whole-dir symlink from previous installs
   [ -L "$KIRO_GSTACK" ] && rm -f "$KIRO_GSTACK"
   mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
-  ln -snf "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
-  ln -snf "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
-  ln -snf "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
+  _link_or_copy "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
+  _link_or_copy "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
+  _link_or_copy "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
-    ln -snf "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
+    _link_or_copy "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
   fi
   # gstack-upgrade skill
   if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$AGENTS_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
+    _link_or_copy "$AGENTS_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
   fi
   # Review runtime assets (individual files, not whole dir)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
-      ln -snf "$SOURCE_GSTACK_DIR/review/$f" "$KIRO_GSTACK/review/$f"
+      _link_or_copy "$SOURCE_GSTACK_DIR/review/$f" "$KIRO_GSTACK/review/$f"
     fi
   done
 

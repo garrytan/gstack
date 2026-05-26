@@ -37,18 +37,22 @@ Any non-zero exit code from gbrain commands should be treated as a transient fai
 }
 
 export function generateGBrainSaveResults(ctx: TemplateContext): string {
+  // gbrain v0.18+ renamed `put_page` → `put <slug>` and moved --title/--tags
+  // into YAML frontmatter inside --content. These templates render into
+  // SKILL.md files as user-facing instructions; using the old subcommand
+  // ships broken copy-paste to every gstack user.
   const skillSaveMap: Record<string, string> = {
-    'office-hours': 'Save the design document as a brain page:\n```bash\ngbrain put_page --title "Office Hours: <project name>" --tags "design-doc,<project-slug>" <<\'EOF\'\n<design doc content in markdown>\nEOF\n```',
-    'investigate': 'Save the root cause analysis as a brain page:\n```bash\ngbrain put_page --title "Investigation: <issue summary>" --tags "investigation,<affected-files>" <<\'EOF\'\n<investigation findings in markdown>\nEOF\n```',
-    'plan-ceo-review': 'Save the CEO plan as a brain page:\n```bash\ngbrain put_page --title "CEO Plan: <feature name>" --tags "ceo-plan,<feature-slug>" <<\'EOF\'\n<scope decisions and vision in markdown>\nEOF\n```',
-    'retro': 'Save the retrospective as a brain page:\n```bash\ngbrain put_page --title "Retro: <date range>" --tags "retro,<date>" <<\'EOF\'\n<retro output in markdown>\nEOF\n```',
-    'plan-eng-review': 'Save the architecture decisions as a brain page:\n```bash\ngbrain put_page --title "Eng Review: <feature name>" --tags "eng-review,<feature-slug>" <<\'EOF\'\n<review findings and decisions in markdown>\nEOF\n```',
-    'ship': 'Save the release notes as a brain page:\n```bash\ngbrain put_page --title "Release: <version>" --tags "release,<version>" <<\'EOF\'\n<changelog entry and deploy details in markdown>\nEOF\n```',
-    'cso': 'Save the security audit as a brain page:\n```bash\ngbrain put_page --title "Security Audit: <date>" --tags "security-audit,<date>" <<\'EOF\'\n<findings and remediation status in markdown>\nEOF\n```',
-    'design-consultation': 'Save the design system as a brain page:\n```bash\ngbrain put_page --title "Design System: <project name>" --tags "design-system,<project-slug>" <<\'EOF\'\n<design decisions in markdown>\nEOF\n```',
+    'office-hours': 'Save the design document as a brain page:\n```bash\ngbrain put "office-hours/<project-slug>" --content "$(cat <<\'EOF\'\n---\ntitle: "Office Hours: <project name>"\ntags: [design-doc, <project-slug>]\n---\n<design doc content in markdown>\nEOF\n)"\n```',
+    'investigate': 'Save the root cause analysis as a brain page:\n```bash\ngbrain put "investigations/<issue-slug>" --content "$(cat <<\'EOF\'\n---\ntitle: "Investigation: <issue summary>"\ntags: [investigation, <affected-files>]\n---\n<investigation findings in markdown>\nEOF\n)"\n```',
+    'plan-ceo-review': 'Save the CEO plan as a brain page:\n```bash\ngbrain put "ceo-plans/<feature-slug>" --content "$(cat <<\'EOF\'\n---\ntitle: "CEO Plan: <feature name>"\ntags: [ceo-plan, <feature-slug>]\n---\n<scope decisions and vision in markdown>\nEOF\n)"\n```',
+    'retro': 'Save the retrospective as a brain page:\n```bash\ngbrain put "retros/<date>" --content "$(cat <<\'EOF\'\n---\ntitle: "Retro: <date range>"\ntags: [retro, <date>]\n---\n<retro output in markdown>\nEOF\n)"\n```',
+    'plan-eng-review': 'Save the architecture decisions as a brain page:\n```bash\ngbrain put "eng-reviews/<feature-slug>" --content "$(cat <<\'EOF\'\n---\ntitle: "Eng Review: <feature name>"\ntags: [eng-review, <feature-slug>]\n---\n<review findings and decisions in markdown>\nEOF\n)"\n```',
+    'ship': 'Save the release notes as a brain page:\n```bash\ngbrain put "releases/<version>" --content "$(cat <<\'EOF\'\n---\ntitle: "Release: <version>"\ntags: [release, <version>]\n---\n<changelog entry and deploy details in markdown>\nEOF\n)"\n```',
+    'cso': 'Save the security audit as a brain page:\n```bash\ngbrain put "security-audits/<date>" --content "$(cat <<\'EOF\'\n---\ntitle: "Security Audit: <date>"\ntags: [security-audit, <date>]\n---\n<findings and remediation status in markdown>\nEOF\n)"\n```',
+    'design-consultation': 'Save the design system as a brain page:\n```bash\ngbrain put "design-systems/<project-slug>" --content "$(cat <<\'EOF\'\n---\ntitle: "Design System: <project name>"\ntags: [design-system, <project-slug>]\n---\n<design decisions in markdown>\nEOF\n)"\n```',
   };
 
-  const saveInstruction = skillSaveMap[ctx.skillName] || 'Save the skill output as a brain page if the results are worth preserving:\n```bash\ngbrain put_page --title "<descriptive title>" --tags "<relevant,tags>" <<\'EOF\'\n<content in markdown>\nEOF\n```';
+  const saveInstruction = skillSaveMap[ctx.skillName] || 'Save the skill output as a brain page if the results are worth preserving:\n```bash\ngbrain put "<slug>" --content "$(cat <<\'EOF\'\n---\ntitle: "<descriptive title>"\ntags: [<relevant>, <tags>]\n---\n<content in markdown>\nEOF\n)"\n```';
 
   return `## Save Results to Brain
 
@@ -58,7 +62,14 @@ ${saveInstruction}
 
 After saving the page, extract and enrich mentioned entities: for each actual person name or company/organization name found in the output, \`gbrain search "<entity name>"\` to check if a page exists. If not, create a stub page:
 \`\`\`bash
-gbrain put_page --title "<Person or Company Name>" --tags "entity,person" --content "Stub page. Mentioned in <skill name> output."
+gbrain put "entities/<entity-slug>" --content "$(cat <<'EOF'
+---
+title: "<Person or Company Name>"
+tags: [entity, person]
+---
+Stub page. Mentioned in <skill name> output.
+EOF
+)"
 \`\`\`
 Only extract actual person names and company/organization names. Skip product names, section headings, technical terms, and file paths.
 

@@ -57,7 +57,7 @@ while IFS= read -r f; do
     *.md) DOCS=true ;;
 
     # Config
-    package.json|package-lock.json|yarn.lock|bun.lockb) CONFIG=true ;;
+    package.json|package-lock.json|yarn.lock|bun.lock|bun.lockb) CONFIG=true ;;
     Gemfile|Gemfile.lock) CONFIG=true ;;
     *.yml|*.yaml) CONFIG=true ;;
     .github/*) CONFIG=true ;;

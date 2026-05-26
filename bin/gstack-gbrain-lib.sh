@@ -27,13 +27,26 @@
 # restore), D16 (pooler URL paste hygiene with redacted preview).
 
 # _gstack_gbrain_validate_varname <name> — returns 0 if usable, 2 otherwise.
-# Bash glob ranges honor LC_COLLATE; under en_US.UTF-8 the [A-Z] range also
-# matches lowercase letters because collation order is AaBbCc.... Use a
-# bash regex with an ASCII-explicit character class so the validator stays
-# locale-immune.
+# `local LC_ALL=C` is load-bearing twice over:
+#   1. In many macOS shells the default locale (e.g. en_US.UTF-8) makes `case`
+#      glob brackets like `[A-Z]` match lowercase letters too. Without the
+#      LC_ALL=C pin, names like `lower-case` pass validation and then trip
+#      `printf -v "$varname"` and `export "$varname"` with "not a valid
+#      identifier" errors the caller can't easily distinguish from other
+#      failures.
+#   2. `local` is required because this file is documented as a sourced helper
+#      (see header), so a bare `LC_ALL=C` would mutate the caller's locale for
+#      the rest of the process — silently affecting downstream `sort`, `tr`,
+#      and any locale-aware glob in the same shell.
+# Together they give ASCII-only bracket semantics on both macOS and Linux
+# (matching the documented `[A-Z_][A-Z0-9_]*` contract) without leaking.
 _gstack_gbrain_validate_varname() {
   local name="$1"
-  [[ "$name" =~ ^[ABCDEFGHIJKLMNOPQRSTUVWXYZ_][ABCDEFGHIJKLMNOPQRSTUVWXYZ0-9_]*$ ]]
+  local LC_ALL=C
+  case "$name" in
+    [A-Z_][A-Z0-9_]*) return 0 ;;
+    *) return 2 ;;
+  esac
 }
 
 read_secret_to_env() {
