@@ -166,6 +166,15 @@ export class BrowserManager {
   private deviceScaleFactor: number = 1;
   private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
 
+  // ─── Video recording (context option) ────────────────────────
+  // Playwright records video at the context level via recordVideo: { dir, size? }.
+  // The .webm files are written when the context closes, so start/stop both go
+  // through recreateContext() — start flips the flag and rebuilds; stop collects
+  // the page.video() paths, clears the flag, and rebuilds again to flush.
+  private recordVideoDir: string | null = null;
+  private recordVideoSize: { width: number; height: number } | null = null;
+  private recordedVideoPaths: string[] = [];
+
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
 
@@ -352,6 +361,12 @@ export class BrowserManager {
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
+    }
+    if (this.recordVideoDir) {
+      contextOptions.recordVideo = {
+        dir: this.recordVideoDir,
+        ...(this.recordVideoSize ? { size: this.recordVideoSize } : {}),
+      };
     }
     this.context = await this.browser.newContext(contextOptions);
 
@@ -1276,6 +1291,12 @@ export class BrowserManager {
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
       }
+      if (this.recordVideoDir) {
+        contextOptions.recordVideo = {
+          dir: this.recordVideoDir,
+          ...(this.recordVideoSize ? { size: this.recordVideoSize } : {}),
+        };
+      }
       this.context = await this.browser.newContext(contextOptions);
 
       if (Object.keys(this.extraHeaders).length > 0) {
@@ -1300,6 +1321,12 @@ export class BrowserManager {
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
         }
+        if (this.recordVideoDir) {
+          contextOptions.recordVideo = {
+            dir: this.recordVideoDir,
+            ...(this.recordVideoSize ? { size: this.recordVideoSize } : {}),
+          };
+        }
         this.context = await this.browser!.newContext(contextOptions);
         await this.newTab();
         this.clearRefs();
@@ -1308,6 +1335,87 @@ export class BrowserManager {
       }
       return `Context recreation failed: ${err instanceof Error ? err.message : String(err)}. Browser reset to blank tab.`;
     }
+  }
+
+  // ─── Video Recording ────────────────────────────────────────
+  /**
+   * Begin recording video of subsequent browser activity to `dir`.
+   *
+   * Playwright records video at the context level — once a context is created
+   * with `recordVideo: { dir }`, every page in that context records a .webm.
+   * The file is finalized when the context closes. To toggle recording on we
+   * set the flag and recreate the context; the existing save/restore path in
+   * recreateContext() preserves cookies, URLs, and open pages.
+   *
+   * Single-recording invariant: calling startRecording() while already
+   * recording auto-stops the prior recording and starts a fresh one. Callers
+   * can call stopRecording() first if they want the paths of the prior
+   * recording.
+   */
+  async startRecording(dir: string, size?: { width: number; height: number }): Promise<string | null> {
+    if (this.connectionMode === 'headed') {
+      throw new Error('record is not supported in headed mode (use disconnect first).');
+    }
+    if (this.recordVideoDir) {
+      // Already recording — flush the prior recording before starting fresh.
+      await this.stopRecording().catch(() => {});
+    }
+    this.recordVideoDir = dir;
+    this.recordVideoSize = size ?? null;
+    this.recordedVideoPaths = [];
+    return this.recreateContext();
+  }
+
+  /**
+   * Stop the current recording and return the paths of the .webm files
+   * Playwright wrote (one per page that was open during the recording).
+   *
+   * Calling stopRecording() when not currently recording is a no-op and
+   * returns an empty array.
+   */
+  async stopRecording(): Promise<string[]> {
+    if (!this.recordVideoDir) return [];
+
+    // Collect video file paths from each live page before tearing the
+    // context down. Playwright assigns the path eagerly so this resolves
+    // even before close, but we still need the context to close before
+    // the files are flushed to disk.
+    const paths: string[] = [];
+    for (const page of this.pages.values()) {
+      const video = page.video();
+      if (!video) continue;
+      try {
+        const p = await video.path();
+        if (p) paths.push(p);
+      } catch {
+        // Page may have been torn down already; skip.
+      }
+    }
+
+    // Clear the flag so the rebuilt context does NOT continue recording.
+    this.recordVideoDir = null;
+    this.recordVideoSize = null;
+
+    // Rebuilding the context closes the old one, which flushes the .webm files.
+    await this.recreateContext();
+
+    this.recordedVideoPaths = paths;
+    return paths;
+  }
+
+  /** True iff recordVideo is currently enabled on the active context. */
+  isRecording(): boolean {
+    return this.recordVideoDir !== null;
+  }
+
+  /** The directory videos are written to, or null if not recording. */
+  getRecordVideoDir(): string | null {
+    return this.recordVideoDir;
+  }
+
+  /** Paths of the last completed recording, or [] if no recording has finished. */
+  getRecordedVideoPaths(): string[] {
+    return [...this.recordedVideoPaths];
   }
 
   /**

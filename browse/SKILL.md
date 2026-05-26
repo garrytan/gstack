@@ -623,6 +623,38 @@ $B screenshot /tmp/out.png --selector .tweet-card
 ```
 Scale must be 1-3 (gstack policy cap). Changing `--scale` recreates the browser context; refs from `snapshot` are invalidated (rerun `snapshot`), but `load-html` content is replayed automatically. Not supported in headed mode.
 
+### 14. Record video evidence for interactive bug repros
+Static screenshots can't capture the timing of a flicker, the order of clicks that triggers a 500, or the cursor-following animation that breaks. For interactive bug findings, record a `.webm` of the repro:
+
+```bash
+$B goto https://app.example.com/checkout
+$B record start                            # auto-named dir under $TMPDIR
+# (or:  $B record start /tmp/checkout-bug --size 1280x720)
+
+$B snapshot -i                             # interact with the bug
+$B fill @e3 "test@example.com"
+$B click @e5
+# ... reproduce the bug ...
+
+$B record stop                             # flushes the .webm files, prints paths
+# Recording saved:
+#   /tmp/browse-record-2026-05-13T18-42-15-000Z/<page-id>.webm
+
+$B record status                           # confirm no active recording
+```
+
+`record` runs on the Playwright `recordVideo` context option, so:
+
+- Recording is **per-context**, not per-page — every page in the browser captures simultaneously.
+- The `.webm` is only finalized when `record stop` runs (or when the daemon shuts down).
+- Calling `record start` again while a recording is active auto-stops the prior one (single-recording invariant).
+- `record start` and `record stop` both rebuild the browser context. The save/restore path preserves cookies and open page URLs, but **`@e` refs from `snapshot` are invalidated** — rerun `snapshot` after `record start` and after `record stop`.
+- Output paths default to a timestamped dir under `$TMPDIR`. Pass `[path]` to pick a specific dir.
+- `--size WxH` resizes the video frame independently of viewport (rarely needed; default uses current viewport).
+- Not supported in headed mode (use a screen-record tool there).
+
+Use this when the repro involves any of: form submission, drag/drop, async loading state, scroll-triggered behavior, animations, focus management, dialog timing.
+
 ## Puppeteer → browse cheatsheet
 
 Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:
@@ -903,6 +935,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `disconnect` | Disconnect headed browser, return to headless mode |
 | `focus [@ref]` | Bring headed browser window to foreground (macOS) |
 | `handoff [message]` | Open visible Chrome at current page for user takeover |
+| `record start [path] [--size WxH]  |  record stop  |  record status` | Record video of browser activity to .webm. Useful as repro evidence for interactive bug findings. `start` saves session state, rebuilds the context with recordVideo enabled, and restores state; `stop` closes the context (which flushes the .webm files) and returns the paths; `status` prints the active recording dir. Calling `start` while already recording auto-stops the prior recording first. |
 | `restart` | Restart server |
 | `resume` | Re-snapshot after user takeover, return control to AI |
 | `state save|load <name>` | Save/load browser state (cookies + URLs) |

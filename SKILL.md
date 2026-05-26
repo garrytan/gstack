@@ -944,6 +944,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `disconnect` | Disconnect headed browser, return to headless mode |
 | `focus [@ref]` | Bring headed browser window to foreground (macOS) |
 | `handoff [message]` | Open visible Chrome at current page for user takeover |
+| `record start [path] [--size WxH]  |  record stop  |  record status` | Record video of browser activity to .webm. Useful as repro evidence for interactive bug findings. `start` saves session state, rebuilds the context with recordVideo enabled, and restores state; `stop` closes the context (which flushes the .webm files) and returns the paths; `status` prints the active recording dir. Calling `start` while already recording auto-stops the prior recording first. |
 | `restart` | Restart server |
 | `resume` | Re-snapshot after user takeover, return control to AI |
 | `state save|load <name>` | Save/load browser state (cookies + URLs) |
