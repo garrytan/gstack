@@ -68,77 +68,32 @@ tests via `claude -p`. Both must pass before creating a PR.
 
 ## Project structure
 
-```
-gstack/
-├── browse/          # Headless browser CLI (Playwright)
-│   ├── src/         # CLI + server + commands
-│   │   ├── commands.ts  # Command registry (single source of truth)
-│   │   └── snapshot.ts  # SNAPSHOT_FLAGS metadata array
-│   ├── test/        # Integration tests + fixtures
-│   └── dist/        # Compiled binary
-├── hosts/           # Typed host configs (one per AI agent)
-│   ├── claude.ts    # Primary host config
-│   ├── codex.ts, factory.ts, kiro.ts  # Existing hosts
-│   ├── opencode.ts, slate.ts, cursor.ts, openclaw.ts  # IDE hosts
-│   ├── hermes.ts, gbrain.ts  # Agent runtime hosts
-│   └── index.ts     # Registry: exports all, derives Host type
-├── scripts/         # Build + DX tooling
-│   ├── gen-skill-docs.ts  # Template → SKILL.md generator (config-driven)
-│   ├── host-config.ts     # HostConfig interface + validator
-│   ├── host-config-export.ts  # Shell bridge for setup script
-│   ├── host-adapters/     # Host-specific adapters (OpenClaw tool mapping)
-│   ├── resolvers/   # Template resolver modules (preamble, design, review, gbrain, etc.)
-│   ├── skill-check.ts     # Health dashboard
-│   └── dev-skill.ts       # Watch mode
-├── test/            # Skill validation + eval tests
-│   ├── helpers/     # skill-parser.ts, session-runner.ts, llm-judge.ts, eval-store.ts
-│   ├── fixtures/    # Ground truth JSON, planted-bug fixtures, eval baselines
-│   ├── skill-validation.test.ts  # Tier 1: static validation (free, <1s)
-│   ├── gen-skill-docs.test.ts    # Tier 1: generator quality (free, <1s)
-│   ├── skill-llm-eval.test.ts   # Tier 3: LLM-as-judge (~$0.15/run)
-│   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
-├── qa-only/         # /qa-only skill (report-only QA, no fixes)
-├── plan-design-review/  # /plan-design-review skill (report-only design audit)
-├── design-review/    # /design-review skill (design audit + fix loop)
-├── ship/            # Ship workflow skill
-├── review/          # PR review skill
-├── plan-ceo-review/ # /plan-ceo-review skill
-├── plan-eng-review/ # /plan-eng-review skill
-├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
-├── benchmark/       # /benchmark skill (performance regression detection)
-├── canary/          # /canary skill (post-deploy monitoring loop)
-├── codex/           # /codex skill (multi-AI second opinion via OpenAI Codex CLI)
-├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
-├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
-├── investigate/     # /investigate skill (systematic root-cause debugging)
-├── retro/           # Retrospective skill (includes /retro global cross-project mode)
-├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
-├── document-release/ # /document-release skill (post-ship doc updates + Diataxis coverage map)
-├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
-├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
-├── design-consultation/ # /design-consultation skill (design system from scratch)
-├── design-shotgun/  # /design-shotgun skill (visual design exploration)
-├── open-gstack-browser/  # /open-gstack-browser skill (launch GStack Browser)
-├── connect-chrome/  # symlink → open-gstack-browser (backwards compat)
-├── design/          # Design binary CLI (GPT Image API)
-│   ├── src/         # CLI + commands (generate, variants, compare, serve, etc.)
-│   ├── test/        # Integration tests
-│   └── dist/        # Compiled binary
-├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
-├── lib/             # Shared libraries (worktree.ts)
-├── docs/designs/    # Design documents
-├── setup-deploy/    # /setup-deploy skill (one-time deploy config)
-├── .github/         # CI workflows + Docker image
-│   ├── workflows/   # evals.yml (E2E on Ubicloud), skill-docs.yml, actionlint.yml
-│   └── docker/      # Dockerfile.ci (pre-baked toolchain + Playwright/Chromium)
-├── contrib/         # Contributor-only tools (never installed for users)
-│   └── add-host/    # /gstack-contrib-add-host skill
-├── setup            # One-time setup: build binary + symlink skills
-├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
-├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
-└── package.json     # Build scripts for browse
-```
+Top-level layout (use Glob or `gbrain search` to discover sub-files):
+
+- `browse/` — headless browser CLI (Playwright): `src/` CLI + server + commands, `dist/`
+  binary. The command registry (single source of truth) is `browse/src/commands.ts`;
+  snapshot flags live in `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`.
+- `design/` — design binary CLI (GPT Image API): generate, variants, compare, serve.
+- `hosts/` — typed host configs, one per AI agent (`claude.ts` is primary); `index.ts`
+  is the registry that exports all and derives the `Host` type.
+- `scripts/` — build + DX tooling: `gen-skill-docs.ts` (template → SKILL.md generator),
+  `host-config.ts`, `host-adapters/`, `resolvers/` (template resolver modules),
+  `skill-check.ts` (health dashboard), `dev-skill.ts` (watch mode).
+- `test/` — skill validation + eval tests; `helpers/` (skill-parser, session-runner,
+  llm-judge, eval-store), `fixtures/`, tiered `skill-validation` / `gen-skill-docs` /
+  `skill-llm-eval` / `skill-e2e-*` suites.
+- `extension/` — Chrome extension (side panel + activity feed + CSS inspector).
+- `lib/`, `bin/` — shared libraries (`worktree.ts`) and CLI utilities (`gstack-*`).
+- `.github/` — CI workflows (evals.yml, skill-docs.yml, actionlint.yml) + `docker/Dockerfile.ci`.
+- `contrib/` — contributor-only tools, never installed for users (`add-host/`).
+- **Skill directories**, each a `/<name>` skill: `ship`, `review`, `qa`, `qa-only`,
+  `autoplan`, `plan-ceo-review`, `plan-eng-review`, `plan-design-review`, `design-review`,
+  `design-consultation`, `design-shotgun`, `office-hours`, `investigate`, `codex`,
+  `benchmark`, `canary`, `land-and-deploy`, `cso`, `retro`, `document-release`,
+  `document-generate`, `setup-deploy`, `open-gstack-browser` (+ `connect-chrome` symlink).
+- Root files: `setup` (one-time build + skill symlinks), `SKILL.md` (generated from
+  `SKILL.md.tmpl` — don't edit directly), `ETHOS.md` (builder philosophy), `package.json`,
+  `ARCHITECTURE.md`, `CONTRIBUTING.md`.
 
 ## SKILL.md workflow
 
