@@ -285,12 +285,31 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
 
+function errorCode(err: unknown): string {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string' && code.length > 0) return code;
+  }
+  return 'UNKNOWN';
+}
+
+function errorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) return message;
+  }
+  return String(err);
+}
+
+function logServerLockError(action: string, lockPath: string, err: unknown): void {
+  console.error(`[browse] acquireServerLock: unexpected ${errorCode(err)} while ${action} ${lockPath}: ${errorMessage(err)}`);
+}
+
 /**
  * Acquire an exclusive lockfile to prevent concurrent ensureServer() races (TOCTOU).
  * Returns a cleanup function that releases the lock.
  */
-function acquireServerLock(): (() => void) | null {
-  const lockPath = `${config.stateFile}.lock`;
+export function acquireServerLock(lockPath: string = `${config.stateFile}.lock`): (() => void) | null {
   try {
     // 'wx' — create exclusively, fails if file already exists (atomic check-and-create)
     // Using string flag instead of numeric constants for Bun Windows compatibility
@@ -298,19 +317,36 @@ function acquireServerLock(): (() => void) | null {
     fs.writeSync(fd, `${process.pid}\n`);
     fs.closeSync(fd);
     return () => { safeUnlink(lockPath); };
-  } catch {
-    // Lock already held — check if the holder is still alive
-    try {
-      const holderPid = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
-      if (holderPid && isProcessAlive(holderPid)) {
-        return null; // Another live process holds the lock
-      }
-      // Stale lock — remove and retry
-      fs.unlinkSync(lockPath);
-      return acquireServerLock();
-    } catch {
+  } catch (err) {
+    if (errorCode(err) !== 'EEXIST') {
+      logServerLockError('opening', lockPath, err);
       return null;
     }
+
+    // Lock already held — check if the holder is still alive
+    let holderPid: number;
+    try {
+      holderPid = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
+    } catch (readErr) {
+      if (errorCode(readErr) === 'ENOENT') {
+        return acquireServerLock(lockPath);
+      }
+      logServerLockError('reading holder PID from', lockPath, readErr);
+      return null;
+    }
+
+    if (holderPid && isProcessAlive(holderPid)) {
+      return null; // Another live process holds the lock
+    }
+
+    // Stale lock — remove and retry
+    try {
+      fs.unlinkSync(lockPath);
+    } catch (unlinkErr) {
+      logServerLockError('removing stale', lockPath, unlinkErr);
+      return null;
+    }
+    return acquireServerLock(lockPath);
   }
 }
 
