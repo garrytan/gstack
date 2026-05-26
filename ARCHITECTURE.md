@@ -179,6 +179,28 @@ The Chrome sidebar agent has tools (Bash, Read, Glob, Grep, WebFetch) and reads 
 
 **Visibility.** The sidebar header shows a shield icon (green/amber/red) polled via `/sidebar-chat`. A centered banner appears on canary leak or BLOCK verdict with the exact layer scores. `bin/gstack-security-dashboard` aggregates local attempts; `supabase/functions/community-pulse` aggregates opt-in community telemetry across users.
 
+## Sidebar & PTY lifecycle
+
+The Chrome sidebar's one execution surface is the **Terminal** pane: an interactive `claude` PTY. Activity / Refs / Inspector are debug overlays behind the footer's `debug` toggle. The chat-queue path was removed once the PTY proved out — `sidebar-agent.ts` and the `/sidebar-command` / `/sidebar-chat` / `/sidebar-agent/event` endpoints are gone. Before modifying `sidepanel.js`, `background.js`, `content.js`, `terminal-agent.ts`, or sidebar-related server endpoints, read [docs/designs/SIDEBAR_MESSAGE_FLOW.md](docs/designs/SIDEBAR_MESSAGE_FLOW.md) — it covers the WS auth flow, dual-token model, and threat-model boundary. Silent failures here usually trace to not understanding the cross-component flow.
+
+### WebSocket auth uses Sec-WebSocket-Protocol, not cookies
+
+Browsers can't set `Authorization` on a WebSocket upgrade, but they CAN set `Sec-WebSocket-Protocol` via `new WebSocket(url, [token])`. The agent reads it, validates against `validTokens`, and MUST echo the protocol back in the upgrade response — without the echo, Chromium closes the connection immediately. `Set-Cookie: gstack_pty=...` is kept as a fallback for non-browser callers; the cross-port `SameSite=Strict` cookie path doesn't survive from a chrome-extension origin.
+
+### Embedder terminal-agent ownership (v1.42.1.0+, identity-based kill v1.44.0.0+)
+
+`buildFetchHandler` in `browse/src/server.ts` accepts `ServerConfig.ownsTerminalAgent?: boolean` (default `true`). When `true`, factory shutdown runs the full teardown: identity-based kill via `killAgentByRecord(readAgentRecord(stateDir))` from `browse/src/terminal-agent-control.ts` plus `safeUnlinkQuiet` on `<stateDir>/terminal-port`, `<stateDir>/terminal-internal-token`, and `<stateDir>/terminal-agent-pid` (the per-boot agent record introduced in v1.44). Embedders (e.g. the gbrowser phoenix overlay) that pre-launch their own PTY server must pass `false` so their discovery files survive gstack teardown cycles. The flag is the third caller-owned teardown gate in `ServerConfig` (alongside `xvfb?` and `proxyBridge?`); polarity is inverted (explicit bool vs presence) and documented in the field's JSDoc. CLI `start()` always passes `true` explicitly — the static-grep test in `browse/test/server-embedder-terminal-port.test.ts` fails CI if a refactor drops it.
+
+Pre-v1.44 used `pkill -f terminal-agent\.ts` (regex match) which would kill sibling gstack sessions on the same host; `browse/test/terminal-agent-pid-identity.test.ts` is a static-grep tripwire that fails CI if any source file re-introduces `pkill ... terminal-agent` or `spawnSync('pkill', ...)`.
+
+### Cross-pane PTY injection
+
+The toolbar's Cleanup button and the Inspector's "Send to Code" action both pipe text into the live claude PTY via `window.gstackInjectToTerminal(text)`, exposed by `sidepanel-terminal.js`. There is no `/sidebar-command` POST — the live REPL is the only execution surface in the sidebar.
+
+### `/health` must not surface any shell-grant token
+
+`/health` already leaks `AUTH_TOKEN` to localhost callers in headed mode (a v1.1+ TODO). Don't make that worse by adding the PTY session token there. PTY auth flows through `POST /pty-session` only.
+
 ## The ref system
 
 Refs (`@e1`, `@e2`, `@c1`) are how the agent addresses page elements without writing CSS selectors or XPath.
