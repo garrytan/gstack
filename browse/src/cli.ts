@@ -489,8 +489,18 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       console.error('[browse] Command timed out after 30s');
       process.exit(1);
     }
-    // Connection error — server may have crashed
-    if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+    // Connection error — server may have crashed.
+    // The compiled CLI runs on Bun, whose fetch reports a refused/dropped
+    // socket as err.code 'ConnectionRefused' / 'ConnectionClosed' (message
+    // "Unable to connect. Is the computer able to access the url?"), NOT Node's
+    // ECONNREFUSED/ECONNRESET. Match both, or daemon crashes leak the raw Bun
+    // error and exit 1 instead of triggering the restart-and-retry below.
+    const isConnError =
+      err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' ||
+      err.code === 'ConnectionRefused' || err.code === 'ConnectionClosed' ||
+      err.message?.includes('fetch failed') ||
+      err.message?.includes('Unable to connect');
+    if (isConnError) {
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
       // Kill the old server to avoid orphaned chromium processes

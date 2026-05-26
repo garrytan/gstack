@@ -421,15 +421,25 @@ export async function handleMetaCommand(
     }
 
     case 'stop': {
-      await shutdown();
+      // Defer shutdown so the response flushes before process.exit() (same
+      // reason as 'restart' below). Otherwise the CLI sees a dropped socket;
+      // and now that connection-loss triggers the crash-retry path, that would
+      // resurrect a fresh daemon only to stop it again. Send the 200, then exit.
+      setTimeout(() => { void shutdown(); }, 100);
       return 'Server stopped';
     }
 
     case 'restart': {
-      // Signal that we want a restart — the CLI will detect exit and restart
+      // Signal that we want a restart — the CLI will detect exit and restart.
       console.log('[browse] Restart requested. Exiting for CLI to restart.');
-      await shutdown();
-      return 'Restarting...';
+      // Defer shutdown one tick so this HTTP response actually flushes before
+      // process.exit(). shutdown() exits inline (server.ts), so the old
+      // `await shutdown(); return 'Restarting...'` never sent a response — the
+      // CLI saw a dropped socket and `browse restart` errored out. The daemon
+      // now exits ~100ms after the CLI gets its 200; the next browse command
+      // lazily cold-starts a fresh one.
+      setTimeout(() => { void shutdown(); }, 100);
+      return 'Restarting... (daemon exiting; next browse command starts a fresh one)';
     }
 
     // ─── Visual ────────────────────────────────────────
