@@ -34,7 +34,12 @@ export function getGitRoot(): string | null {
     const proc = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], {
       stdout: 'pipe',
       stderr: 'pipe',
-      timeout: 2_000, // Don't hang if .git is broken
+      // Raised from 2s: under heavy machine load `git rev-parse` routinely
+      // takes >2s (measured 6.3s spikes). Timing out here returns null →
+      // resolveConfig falls back to process.cwd() → state files scatter across
+      // cwds (split-brain daemons; `goto` and `url` hit different servers). 8s
+      // still bounds a genuinely broken .git from hanging the CLI forever.
+      timeout: 8_000,
     });
     if (proc.exitCode !== 0) return null;
     return proc.stdout.toString().trim() || null;
