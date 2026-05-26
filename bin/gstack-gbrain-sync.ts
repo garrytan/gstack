@@ -32,7 +32,7 @@
 import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
 import { join, dirname } from "path";
 import { execSync, spawnSync } from "child_process";
-import { homedir, hostname } from "os";
+import { homedir, hostname, platform } from "os";
 import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
@@ -949,6 +949,29 @@ function runMemoryIngest(args: CliArgs): StageResult {
   };
 }
 
+/**
+ * Spawn a bash-shebang script with platform-aware invocation.
+ *
+ * On POSIX (Linux/macOS), spawnSync can exec a `#!/usr/bin/env bash` script
+ * directly — the kernel reads the shebang and invokes bash.
+ *
+ * On Windows, spawnSync can't honor a POSIX shebang and fails to spawn — the
+ * resulting SpawnSyncReturns has `status: null` and `error: ENOENT` (or
+ * similar). We explicitly route through `bash <script>` on Windows so the
+ * same script runs identically across platforms. Assumes Git Bash / WSL /
+ * MSYS2 `bash` is on PATH, which is already required by gstack-gbrain-detect.
+ */
+function spawnBashScript(
+  scriptPath: string,
+  args: string[],
+  options: Parameters<typeof spawnSync>[2],
+): ReturnType<typeof spawnSync> {
+  if (platform() === "win32") {
+    return spawnSync("bash", [scriptPath, ...args], options);
+  }
+  return spawnSync(scriptPath, args, options);
+}
+
 function runBrainSyncPush(args: CliArgs): StageResult {
   const t0 = Date.now();
 
@@ -961,11 +984,11 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     return { name: "brain-sync", ran: false, ok: true, duration_ms: 0, summary: "skipped (gstack-brain-sync not installed)" };
   }
 
-  spawnSync(brainSyncPath, ["--discover-new"], {
+  spawnBashScript(brainSyncPath, ["--discover-new"], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 60 * 1000,
   });
-  const result = spawnSync(brainSyncPath, ["--once"], {
+  const result = spawnBashScript(brainSyncPath, ["--once"], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 60 * 1000,
   });
@@ -975,7 +998,12 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     ran: true,
     ok: result.status === 0,
     duration_ms: Date.now() - t0,
-    summary: result.status === 0 ? "curated artifacts pushed" : `gstack-brain-sync exited ${result.status}`,
+    summary:
+      result.status === 0
+        ? "curated artifacts pushed"
+        : result.status === null
+          ? `gstack-brain-sync failed to spawn (${result.error?.message ?? "no error message"})`
+          : `gstack-brain-sync exited ${result.status}`,
   };
 }
 
