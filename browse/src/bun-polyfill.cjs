@@ -12,6 +12,7 @@
 
 const http = require('http');
 const { spawnSync, spawn } = require('child_process');
+const { Readable } = require('stream');
 
 globalThis.Bun = {
   serve(options) {
@@ -93,11 +94,36 @@ globalThis.Bun = {
       cwd: options.cwd,
     });
 
+    // Bun's spawn exposes `proc.exited` as a Promise resolving to the exit
+    // code; several call sites — DPAPI decryption, isBrowserRunning,
+    // browser-skill-commands — `await proc.exited` directly or via
+    // Promise.race with a timeout. Without this, those awaits resolve to
+    // `undefined` immediately and the operation looks like a silent failure.
+    const exited = new Promise((resolveExited) => {
+      proc.once('exit', (code, signal) => {
+        // Match Bun: exit code on normal exit; 128 + signal number on signal;
+        // 0 if neither was reported.
+        if (code !== null) resolveExited(code);
+        else if (signal) resolveExited(128 + (require('os').constants.signals[signal] || 0));
+        else resolveExited(0);
+      });
+      proc.once('error', () => resolveExited(1));
+    });
+
+    // Bun gives consumers a Web ReadableStream so `new Response(proc.stdout)`
+    // works regardless of read order. With Node's Readable, the stream auto-
+    // drains once the child exits, so `await proc.exited` followed by
+    // `new Response(proc.stdout).text()` throws "body disturbed or locked".
+    // Readable.toWeb hands the consumer a fresh ReadableStream that buffers
+    // until it's read. Falls back to the raw Node stream on Node < 18.
+    const toWeb = (s) => (s && typeof Readable.toWeb === 'function' ? Readable.toWeb(s) : s);
+
     return {
       pid: proc.pid,
-      stdout: proc.stdout,
-      stderr: proc.stderr,
+      stdout: toWeb(proc.stdout),
+      stderr: toWeb(proc.stderr),
       stdin: proc.stdin,
+      exited,
       unref() { proc.unref(); },
       kill(signal) { proc.kill(signal); },
     };

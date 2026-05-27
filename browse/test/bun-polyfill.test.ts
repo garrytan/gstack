@@ -1,8 +1,11 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import * as path from 'path';
 
-// Load the polyfill into a fresh object (don't clobber globalThis.Bun)
-const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');
+// Load the polyfill into a fresh object (don't clobber globalThis.Bun).
+// Forward-slash on Windows so the path interpolates cleanly into the
+// `require('${polyfillPath}')` template literals below — raw backslashes
+// would be interpreted as JS escape sequences in the spawned Node script.
+const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs').replace(/\\/g, '/');
 
 describe('bun-polyfill', () => {
   // We test the polyfill by requiring it in a subprocess under Node.js
@@ -46,6 +49,52 @@ describe('bun-polyfill', () => {
     expect(lines[0]).toBe('HAS_PID');
     expect(lines[1]).toBe('HAS_KILL');
     expect(lines[2]).toBe('HAS_UNREF');
+  });
+
+  // Bun.spawn parity: `proc.exited` is a Promise resolving to the exit code.
+  // The DPAPI helper and isBrowserRunning both `await proc.exited`; without
+  // it the awaits resolve immediately to `undefined` and the caller reads
+  // stdout before the child has produced it — surfacing as a silent failure.
+  test('Bun.spawn exposes proc.exited that resolves to the exit code', async () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      require('${polyfillPath}');
+      (async () => {
+        const p = Bun.spawn(['node', '-e', 'process.exit(0)'], { stdio: ['ignore', 'ignore', 'ignore'] });
+        console.log(typeof p.exited === 'object' && typeof p.exited.then === 'function' ? 'IS_PROMISE' : 'NOT_PROMISE');
+        console.log('exit:' + await p.exited);
+      })();
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    const lines = result.stdout.toString().trim().split('\n');
+    expect(lines[0]).toBe('IS_PROMISE');
+    expect(lines[1]).toBe('exit:0');
+  });
+
+  test('Bun.spawn proc.exited reflects non-zero exit codes', async () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      require('${polyfillPath}');
+      (async () => {
+        const p = Bun.spawn(['node', '-e', 'process.exit(3)'], { stdio: ['ignore', 'ignore', 'ignore'] });
+        console.log('exit:' + await p.exited);
+      })();
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('exit:3');
+  });
+
+  test('Bun.spawn proc.exited resolves before reading stdout (no race)', async () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      require('${polyfillPath}');
+      (async () => {
+        // Real-world pattern: write to stdout, then exit. Awaiting proc.exited
+        // before reading must guarantee the bytes are flushed.
+        const p = Bun.spawn(['node', '-e', 'process.stdout.write("ready"); process.exit(0)'], {
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        const code = await p.exited;
+        const out = await new Response(p.stdout).text();
+        console.log(out + ':' + code);
+      })();
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('ready:0');
   });
 
   test('Bun.serve creates an HTTP server that responds', async () => {
