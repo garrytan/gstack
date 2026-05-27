@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased]
+
+## **Three new strategy skills land between planning and execution: /find-pmf, /north-star, /growth-loop.** gstack's planning skills already make architecture, design, and DX decisions explicit. These three close the loop on the upstream questions every founder hits before architecture matters: do we have product/market fit, what's the one number that proves we're winning, and which loop produces the next user.
+
+`/find-pmf` runs the Sean Ellis 40% survey methodology. It hard-gates premature scaling: under 30 active respondents, you can't run the test; under 10% "very disappointed," you don't ship more features. It outputs a one-page report with the score, the HXC pattern in users' own words, the must-build vs do-not-build lists driven by survey segments, and one concrete next action calibrated to the score band.
+
+`/north-star` maps your business shape (attention / transaction / productivity / asset / network) to the metric shape it deserves, then generates 5 candidates and scores each on the predictive-leading-actionable-singular rubric. The output isn't just the NSM — it's the input metrics teams actually move week to week, plus counter-metrics that catch the gaming.
+
+`/growth-loop` replaces funnel thinking with loop thinking. It inventories every loop your product runs (active, aspirational, dormant), scores them on investment, velocity, and compounding, and picks one to double down on. The math translates "double down" into a weekly operational ask: how many inputs the chosen team needs to produce.
+
+All three cite only publicly-published methodology (Sean Ellis on Startup-Marketing.com, Rahul Vohra on First Round Review, Andrew Chen, Brian Balfour on Reforge, Amplitude's NSM playbook). No copyrighted content carried inline.
+
+### What this means for builders
+
+You can now run the full pre-architecture strategy pass without leaving Claude Code. `/office-hours` interrogates the idea, `/find-pmf` measures whether the market has voted yes, `/north-star` picks the metric that proves it, `/growth-loop` picks the lever to move it, then `/plan-eng-review` locks the architecture that ships it. Five skills, one Claude session, no tab-switching to read PM blogs at 11pm.
+
+### Itemized changes
+
+#### Added
+- `/find-pmf` skill — Sean Ellis 40% survey with HXC pattern surfacing and score-band-calibrated next-action recommendations
+- `/north-star` skill — business-shape-to-metric-shape mapping with 4-dimension rubric scoring and counter-metric design
+- `/growth-loop` skill — loop inventory + leverage scoring + investment math, with a "design a new loop" phase when nothing scores high
+
+#### For contributors
+- New skill templates use the standard `{{PREAMBLE}}` resolver pattern; no new generator changes needed
+- Reference directories (`*/references/`) stubbed for future canonical-source extracts
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.

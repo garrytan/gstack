@@ -183,6 +183,9 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/plan-eng-review` | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | `/plan-design-review` | **Senior Designer** | Rates each design dimension 0-10, explains what a 10 looks like, then edits the plan to get there. AI Slop detection. Interactive — one AskUserQuestion per design choice. |
 | `/plan-devex-review` | **Developer Experience Lead** | Interactive DX review: explores developer personas, benchmarks against competitors' TTHW, designs your magical moment, traces friction points step by step. Three modes: DX EXPANSION, DX POLISH, DX TRIAGE. 20-45 forcing questions. |
+| `/find-pmf` | **PMF Diagnostic** | Runs the Sean Ellis 40% survey, surfaces the high-expectation-customer pattern in users' own words, outputs a one-page PMF report with a measurable score and one next action. Hard-gates scaling before the score is real. |
+| `/north-star` | **NSM Architect** | Define and stress-test your north-star metric. Maps business shape to metric shape, scores 5 candidates on the predictive/leading/actionable/singular rubric, defines input metrics + counter-metric guardrails. |
+| `/growth-loop` | **Growth Loop Architect** | Inventory active and dormant loops across acquisition, engagement, monetization, and content. Score each on investment/velocity/compounding. Pick one to double down on with the investment math translated into weekly operational asks. |
 | `/design-consultation` | **Design Partner** | Build a complete design system from scratch. Researches the landscape, proposes creative risks, generates realistic product mockups. |
 | `/review` | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | `/investigate` | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
@@ -475,6 +478,7 @@ On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file
 ## gstack
 Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
 Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
+/plan-devex-review, /find-pmf, /north-star, /growth-loop,
 /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy,
 /canary, /benchmark, /browse, /open-gstack-browser, /qa, /qa-only, /design-review,
 /setup-browser-cookies, /setup-deploy, /setup-gbrain, /sync-gbrain, /retro, /investigate,

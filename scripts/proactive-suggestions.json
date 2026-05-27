@@ -88,9 +88,19 @@
       "routing": "Reads all project docs, cross-references the\ndiff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),\nupdates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,\ndetects architecture diagram drift, polishes CHANGELOG voice with a sell-test\nrubric, cleans up TODOS, and optionally bumps VERSION. Surfaces documentation\ndebt in the PR body. Use when asked to \"update the docs\", \"sync documentation\",\nor \"post-ship docs\". Proactively suggest after a PR is merged or code is shipped.",
       "voice_line": null
     },
+    "find-pmf": {
+      "lead": "Product/market fit diagnostic.",
+      "routing": "Runs the Sean Ellis 40% test, surfaces the\nhigh-expectation customer (HXC) using your own users' words, and outputs a\none-page PMF report with a measurable score and one next action.\nUse when asked to \"find PMF\", \"measure product market fit\", \"do we have PMF\",\n\"run the PMF survey\", \"Sean Ellis test\", or \"Superhuman PMF engine\".\nProactively invoke this skill when the user is questioning whether their\nproduct has PMF, before scaling spend, before raising a Series A, or\nwhenever they describe symptoms of weak fit (high churn, slow word of mouth,\nno organic pull).",
+      "voice_line": null
+    },
     "freeze": {
       "lead": "Restrict file edits to a specific directory for the session.",
       "routing": "Blocks Edit and\nWrite outside the allowed path. Use when debugging to prevent accidentally\n\"fixing\" unrelated code, or when you want to scope changes to one module.\nUse when asked to \"freeze\", \"restrict edits\", \"only edit this folder\",\nor \"lock down edits\".",
+      "voice_line": null
+    },
+    "growth-loop": {
+      "lead": "Map your product's growth loops.",
+      "routing": "Inventories the active and dormant loops\nacross acquisition, engagement, monetization, and content/UGC. Scores each\nloop on input investment, output velocity, and compounding factor. Outputs\na single loop to double down on next quarter with the math behind it.\nUse when asked to \"map growth loops\", \"growth strategy\", \"where's our\ngrowth coming from\", \"growth model\", \"flywheel\", \"PLG loop\", or\n\"what should we invest in for growth\".\nProactively invoke when a team is deciding where to put growth resources,\npicking between paid and organic, or trying to escape the funnel mindset.",
       "voice_line": null
     },
     "gstack": {
@@ -162,6 +172,11 @@
       "lead": "Turn any markdown file into a publication-quality PDF.",
       "routing": "Proper 1in margins,\nintelligent page breaks, page numbers, cover pages, running headers, curly\nquotes and em dashes, clickable TOC, diagonal DRAFT watermark. Not a draft\nartifact — a finished artifact. Use when asked to \"make a PDF\", \"export to\nPDF\", \"turn this markdown into a PDF\", or \"generate a document\".",
       "voice_line": "Voice triggers (speech-to-text aliases): \"make this a pdf\", \"make it a pdf\", \"export to pdf\", \"turn this into a pdf\", \"turn this markdown into a pdf\", \"generate a pdf\", \"make a pdf from\", \"pdf this markdown\"."
+    },
+    "north-star": {
+      "lead": "North-star metric (NSM) definition and stress-test.",
+      "routing": "Walks you through\nbusiness-model fit, generates 5 candidate NSMs, scores each against the\npredictive-leading-actionable-singular rubric, and outputs the chosen NSM\nwith its input metrics and counter-metric guardrails.\nUse when asked to \"pick a north star\", \"define NSM\", \"what should we\nmeasure\", \"north star metric\", \"OMTM\" (one metric that matters), or\n\"find our metric\".\nProactively invoke when the user is starting a new product, redoing OKRs,\nor saying their team disagrees on what to optimize for.",
+      "voice_line": null
     },
     "office-hours": {
       "lead": "YC Office Hours — two modes.",

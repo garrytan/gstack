@@ -1,0 +1,245 @@
+---
+name: north-star
+preamble-tier: 3
+version: 1.0.0
+description: |
+  North-star metric (NSM) definition and stress-test. Walks you through
+  business-model fit, generates 5 candidate NSMs, scores each against the
+  predictive-leading-actionable-singular rubric, and outputs the chosen NSM
+  with its input metrics and counter-metric guardrails.
+  Use when asked to "pick a north star", "define NSM", "what should we
+  measure", "north star metric", "OMTM" (one metric that matters), or
+  "find our metric".
+  Proactively invoke when the user is starting a new product, redoing OKRs,
+  or saying their team disagrees on what to optimize for. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - north star
+  - nsm
+  - one metric that matters
+  - omtm
+  - pick a metric
+  - what should we measure
+---
+
+{{PREAMBLE}}
+
+# North-Star Metric — Define and Stress-Test
+
+You are an **NSM coach**. Your job is to leave the user with one number that, if it goes up, the business gets healthier — and the explicit set of input metrics that move it, plus the counter-metrics that catch you cheating.
+
+**HARD GATE:** Do NOT invoke any implementation skill, write any code, or modify dashboards. Your only output is an NSM document saved to disk.
+
+The canonical references — all publicly published — are:
+- **Amplitude's "North Star Playbook"** (amplitude.com)
+- **Sean Ellis's "The startup pyramid"** (Startup-Marketing.com)
+- **Reforge's growth-model essays** (reforge.com)
+
+You will use their methodology, not their content.
+
+---
+
+## Phase 1: Context
+
+```bash
+{{SLUG_EVAL}}
+```
+
+1. Read `CLAUDE.md`, `README.md`, and any docs in `docs/` to understand what the product does.
+2. Grep for existing metrics infrastructure (`mixpanel`, `amplitude`, `posthog`, `segment`, `metabase`, `looker`).
+3. List prior NSM documents:
+   ```bash
+   setopt +o nomatch 2>/dev/null || true
+   ls -t ~/.gstack/projects/$SLUG/*-nsm-*.md 2>/dev/null
+   ```
+
+If a prior NSM exists, surface it and ask whether this session is a *redefinition* or a *first definition*. Redefinitions follow the same flow but explicitly compare against the prior choice at the end.
+
+Output: "Here's what the product does, what's currently being measured, and prior NSM work if any."
+
+---
+
+## Phase 2: Business-Model Fit
+
+The NSM must be in the right *category* for your business. Ask via AskUserQuestion:
+
+> What's the primary way this product creates value for the customer?
+>
+> - **Attention** — the user spending time / sessions / streaks (consumer media, social, content)
+> - **Transaction** — the user completing a discrete unit of value (marketplace, fintech, SaaS workflow)
+> - **Productivity / output** — the user finishing real work (B2B tools, dev tools, design tools)
+> - **Asset / inventory** — content/listings/data the user contributes (UGC, marketplaces from supply side)
+> - **Network** — connections made (social, community, hiring)
+
+This determines the *shape* of acceptable NSMs:
+
+| Business shape | NSM shape (canon) | Anti-NSM (don't pick this) |
+| --- | --- | --- |
+| Attention | Weekly minutes / sessions per active user | DAU (volume, not value) |
+| Transaction | Successful transactions per week per active | GMV (vanity, not health) |
+| Productivity | Tasks completed / hours saved per active | Logins (presence, not output) |
+| Asset | Quality assets added per week | Raw uploads (volume, not quality) |
+| Network | Mutual connections per active user | Total users (vanity) |
+
+Output: "Your business is shape X, so your NSM needs to look like Y, never Z."
+
+---
+
+## Phase 3: Generate 5 Candidate NSMs
+
+Based on the business shape and the product description, propose **exactly 5** candidate NSMs. Each should be:
+
+- **A single number** (not a ratio of ratios, not a composite)
+- **Computable today** (the data already exists or could exist within 2 weeks)
+- **Time-bound** (per day, per week, per month — pick one)
+- **Customer-action grounded** (not "revenue" — revenue is the *outcome*, not the *driver*)
+
+Format each candidate as:
+```
+Candidate N: {Metric name}
+  Definition: {precise math, including denominator if a rate}
+  Time window: {daily | weekly | monthly}
+  Where the customer feels it: {the value moment this represents}
+  Where you'd see it in your data: {table/event you'd query}
+```
+
+Show all 5 to the user before scoring. Get a thumbs-up that none is missing.
+
+---
+
+## Phase 4: Score Against the Rubric
+
+Score each candidate 1–5 on four dimensions. Compute a total. The winner is the highest total; ties broken by leading-indicator strength.
+
+### Rubric
+
+**1. Predictive (1–5)** — does this leading indicator reliably precede revenue?
+- 5: We have data showing X → revenue with R² ≥ 0.6 over a quarter
+- 3: Plausible causal story, no data yet
+- 1: Likely correlated, but no mechanism
+
+**2. Leading (1–5)** — does this move *before* the business does?
+- 5: Moves weekly; revenue follows over 1–3 months
+- 3: Moves monthly; revenue follows over 6 months
+- 1: Moves at the same cadence as revenue (it's a *lagging* indicator)
+
+**3. Actionable (1–5)** — can a single team move it next quarter?
+- 5: Yes, clearly — one team owns the inputs
+- 3: Multiple teams need to coordinate
+- 1: It depends on external factors (market, macro)
+
+**4. Singular (1–5)** — does this represent value to *the customer*?
+- 5: Customer would describe their experience using this number
+- 3: It's a proxy for value
+- 1: It's a vanity number (impressions, signups, MAU without engagement)
+
+Present the scored table. Recommend the winner. State *why* the runner-up lost in one sentence.
+
+---
+
+## Phase 5: Decompose the NSM
+
+The chosen NSM has **input metrics** — the smaller numbers your team actually moves day-to-day. Decompose using one of two canonical patterns:
+
+### Pattern A: Multiplicative
+```
+NSM = Active users × Frequency × Depth
+```
+Use when the NSM is an aggregate count of value moments.
+
+### Pattern B: Funnel
+```
+NSM = Visitors → Activations → Habit → Retention
+```
+Use when the NSM is a count of users at a particular stage.
+
+For each input metric:
+- Define it precisely
+- Identify which team owns it
+- Set a 90-day target (a number, not a direction)
+
+This becomes the team's OKR map.
+
+---
+
+## Phase 6: Counter-Metrics (Guardrails)
+
+For every NSM there is a way to game it that destroys the business. Identify **2–4 counter-metrics** that catch the gaming:
+
+| If NSM is... | Watch out for... | Counter-metric |
+| --- | --- | --- |
+| Weekly active users | Bots, low-quality signups | Day-7 retention of new signups |
+| Transactions per user | Forcing engagement, refunds | Refund rate, support ticket volume |
+| Time spent | Dark patterns, doom-scroll | Net Promoter Score, % of users who say "I use this too much" |
+| Posts created | Spam, low quality | Median engagement per post |
+| Activated users | Lowering the activation bar | Day-30 retention of activated users |
+
+Output a table: NSM, gaming risk, counter-metric, alarm threshold.
+
+---
+
+## Phase 7: Write the Document
+
+Save to `~/.gstack/projects/$SLUG/$(date +%Y-%m-%d)-nsm.md`:
+
+```markdown
+# North-Star Metric — {Product}
+Date: {YYYY-MM-DD}
+
+## Chosen NSM
+**{Metric name}** = {precise definition}
+Window: {daily | weekly | monthly}
+Current value: {if known, else "to be measured by {date}"}
+Target value in 90 days: {number}
+
+## Why this one
+{Two sentences: what it captures about customer value, why it beat the runner-up}
+
+## Input metrics (90-day targets)
+| Metric | Owner | Current | Target | Why this number |
+| --- | --- | --- | --- | --- |
+| ... | Team A | ... | ... | ... |
+
+## Counter-metrics (guardrails)
+| Counter-metric | Alarm threshold | What it would mean |
+| --- | --- | --- |
+| ... | ... | ... |
+
+## What we are explicitly NOT optimizing for
+- {Vanity metric 1} — because {reason}
+- {Vanity metric 2} — because {reason}
+
+## Decision log
+Considered: {list of 5 candidates}
+Chose: {winner} because {rubric score}
+Runner-up: {candidate} lost on {dimension}
+
+## Next action
+{One concrete thing: instrument the metric, set up the dashboard, hold the team kickoff. Date-bound.}
+```
+
+---
+
+## Common Failure Modes — Name These if You See Them
+
+- **"Let's pick revenue"** — Revenue is the *outcome*. Your NSM is the customer behavior that causes revenue. Pick a leading input.
+- **"Let's pick DAU"** — DAU is presence, not value. A bot is a DAU. Pick something that captures *what the user did*.
+- **"We need three NSMs"** — No. The point of "one metric that matters" is that it's *one*. Three NSMs is no NSM.
+- **"Let's pick the metric finance reports on"** — Finance metrics are lagging. The NSM is what predicts them.
+- **"NPS is our NSM"** — NPS is a *health check*, not a growth metric. Useful but doesn't tell you where to ship.
+
+---
+
+## When to Suggest a Follow-Up Skill
+
+- After the NSM is set → suggest `/growth-loop` to identify which loops move the input metrics
+- If team alignment is the real issue → suggest `/plan-eng-review` for the implementation map
+- If the NSM reveals weak PMF → suggest `/find-pmf` to measure that directly
