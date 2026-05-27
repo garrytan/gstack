@@ -121,6 +121,32 @@ describe('bun-polyfill', () => {
     expect(out).toMatch(/^exit:\d+$/);
   });
 
+  // GSTACK_SPAWN_MAX_BUFFER caps the drain so a runaway child can't OOM the
+  // server. Past the cap, the pipe keeps flowing (child doesn't block) but
+  // further bytes are dropped. Set a small cap, write more than that, assert
+  // the captured stdout equals the cap and the child exits cleanly.
+  test('Bun.spawn caps buffered output at GSTACK_SPAWN_MAX_BUFFER', async () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      process.env.GSTACK_SPAWN_MAX_BUFFER = '${1024}';
+      require('${polyfillPath}');
+      (async () => {
+        // Child writes 10 KB; cap is 1 KB; drained output should be exactly 1 KB
+        // and exit should still resolve cleanly (child not back-pressured to death).
+        const p = Bun.spawn(
+          ['node', '-e', 'process.stdout.write("y".repeat(10 * 1024)); process.exit(0)'],
+          { stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+        const code = await Promise.race([
+          p.exited,
+          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+        ]).catch(() => 'TIMEOUT');
+        const out = await new Response(p.stdout).text();
+        console.log(out.length + ':' + code);
+      })();
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('1024:0');
+  });
+
   // Regression for the pipe-blocking case: if the child writes more than the
   // OS pipe buffer (~16-64 KB) and the polyfill doesn't drain eagerly, the
   // child blocks in write() and `exit` never fires. 1 MB is well past every

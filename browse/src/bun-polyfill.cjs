@@ -99,11 +99,32 @@ globalThis.Bun = {
     // (~16-64 KB) back-pressures the child until it blocks in write() and
     // `exit` never fires. Eager draining keeps the pipes flowing regardless
     // of read order; replay below is via fresh Web ReadableStreams.
+    //
+    // Cap the buffer so a runaway child can't OOM the server. 16 MB is
+    // generous: DPAPI outputs are tiny, tasklist is <1 KB, and the
+    // browser-skill consumer has its own 1 MB readCapped. Once the cap is
+    // reached we keep draining the pipe (so the child never blocks) but
+    // discard further bytes. Override via GSTACK_SPAWN_MAX_BUFFER (bytes).
+    const MAX_BUFFER = Math.max(
+      0,
+      parseInt(process.env.GSTACK_SPAWN_MAX_BUFFER || '', 10) || 16 * 1024 * 1024,
+    );
     const drain = (stream) => {
-      if (!stream) return { done: Promise.resolve(), chunks: [] };
-      const chunks = [];
+      if (!stream) return { done: Promise.resolve(), chunks: [], truncated: false };
+      const state = { chunks: [], bytes: 0, truncated: false };
       const done = new Promise((resolve) => {
-        stream.on('data', (chunk) => chunks.push(chunk));
+        stream.on('data', (chunk) => {
+          if (state.bytes >= MAX_BUFFER) { state.truncated = true; return; }
+          if (state.bytes + chunk.length <= MAX_BUFFER) {
+            state.chunks.push(chunk);
+            state.bytes += chunk.length;
+          } else {
+            const remaining = MAX_BUFFER - state.bytes;
+            state.chunks.push(chunk.subarray(0, remaining));
+            state.bytes = MAX_BUFFER;
+            state.truncated = true;
+          }
+        });
         // Any terminal event resolves: 'end' on normal close, 'error' on a
         // stream-level error, 'close' as the belt-and-suspenders for spawn
         // failures where Node fires 'close' but neither 'end' nor 'error'.
@@ -111,7 +132,7 @@ globalThis.Bun = {
         stream.once('error', resolve);
         stream.once('close', resolve);
       });
-      return { done, chunks };
+      return { done, chunks: state.chunks };
     };
     const stdoutDrain = drain(proc.stdout);
     const stderrDrain = drain(proc.stderr);
