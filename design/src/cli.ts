@@ -32,6 +32,8 @@ import {
   shutdownDaemon,
 } from "./daemon-client";
 import { spawn as nodeSpawn } from "child_process";
+import fs from "fs";
+import path from "path";
 
 function parseArgs(argv: string[]): {
   command: string;
@@ -121,8 +123,8 @@ async function runSetup(): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
-  const { command, flags, positionals } = parseArgs(process.argv);
+async function main(argv = process.argv): Promise<void> {
+  const { command, flags, positionals } = parseArgs(argv);
 
   if (!COMMANDS.has(command)) {
     console.error(`Unknown command: ${command}`);
@@ -132,7 +134,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "generate":
-      await generate({
+      await generateWithRoundArtifacts({
         brief: flags.brief as string,
         briefFile: flags["brief-file"] as string,
         output: (flags.output as string) || "/tmp/gstack-mockup.png",
@@ -206,7 +208,7 @@ async function main(): Promise<void> {
       break;
 
     case "iterate":
-      await iterate({
+      await iterateWithRoundArtifacts({
         session: flags.session as string,
         feedback: flags.feedback as string,
         output: (flags.output as string) || "/tmp/gstack-iterate.png",
@@ -318,6 +320,129 @@ async function main(): Promise<void> {
   }
 }
 
+const ROUND_MANIFEST = ".gstack-design-rounds.json";
+
+interface RoundAttempt {
+  label: string;
+  path: string;
+  success: boolean;
+  error?: string;
+}
+
+type RoundManifest = Record<string, RoundAttempt[]>;
+
+interface RoundArtifactPlan {
+  aliasOutput: string;
+  primaryOutput: string;
+  roundKey: string;
+  label: string;
+}
+
+function roundBaseName(outputPath: string): string | null {
+  const parsed = path.parse(outputPath);
+  if (parsed.ext !== ".png") return null;
+  if (parsed.name === "variant-recommended") return parsed.name;
+  if (/^variant-iteration-\d+$/.test(parsed.name)) return parsed.name;
+  return null;
+}
+
+function labelForIndex(index: number): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (index < alphabet.length) return alphabet[index];
+  return `${index + 1}`;
+}
+
+function roundKey(outputPath: string, baseName: string): string {
+  return path.join(path.dirname(outputPath), baseName);
+}
+
+function readRoundManifest(dir: string): RoundManifest {
+  const manifestPath = path.join(dir, ROUND_MANIFEST);
+  if (!fs.existsSync(manifestPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as RoundManifest;
+  } catch {
+    return {};
+  }
+}
+
+function writeRoundManifest(dir: string, manifest: RoundManifest): void {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, ROUND_MANIFEST), JSON.stringify(manifest, null, 2));
+}
+
+function planRoundArtifacts(outputPath: string): RoundArtifactPlan | null {
+  const baseName = roundBaseName(outputPath);
+  if (!baseName) return null;
+
+  const dir = path.dirname(outputPath);
+  const manifest = readRoundManifest(dir);
+  const key = roundKey(outputPath, baseName);
+  const attempts = manifest[key] || [];
+  const label = labelForIndex(attempts.length);
+
+  return {
+    aliasOutput: outputPath,
+    primaryOutput: path.join(dir, `${baseName}-${label}.png`),
+    roundKey: key,
+    label,
+  };
+}
+
+function recordRoundAttempt(plan: RoundArtifactPlan, success: boolean, error?: string): void {
+  const dir = path.dirname(plan.aliasOutput);
+  const manifest = readRoundManifest(dir);
+  const attempts = manifest[plan.roundKey] || [];
+  const existing = attempts.find(attempt => attempt.label === plan.label);
+  const attempt = { label: plan.label, path: plan.primaryOutput, success, error };
+  if (existing) {
+    Object.assign(existing, attempt);
+  } else {
+    attempts.push(attempt);
+  }
+  manifest[plan.roundKey] = attempts;
+  writeRoundManifest(dir, manifest);
+}
+
+function copyRoundAlias(plan: RoundArtifactPlan): void {
+  if (plan.primaryOutput === plan.aliasOutput) return;
+  fs.copyFileSync(plan.primaryOutput, plan.aliasOutput);
+}
+
+async function generateWithRoundArtifacts(options: Parameters<typeof generate>[0]): Promise<void> {
+  const plan = planRoundArtifacts(options.output);
+  if (!plan) {
+    await generate(options);
+    return;
+  }
+
+  try {
+    await generate({ ...options, output: plan.primaryOutput });
+    recordRoundAttempt(plan, true);
+    copyRoundAlias(plan);
+  } catch (err: any) {
+    recordRoundAttempt(plan, false, err.message || String(err));
+    throw err;
+  }
+}
+
+async function iterateWithRoundArtifacts(options: Parameters<typeof iterate>[0]): Promise<void> {
+  const plan = planRoundArtifacts(options.output);
+  if (!plan) {
+    await iterate(options);
+    return;
+  }
+
+  try {
+    await iterate({ ...options, output: plan.primaryOutput });
+    recordRoundAttempt(plan, true);
+    copyRoundAlias(plan);
+  } catch (err: any) {
+    recordRoundAttempt(plan, false, err.message || String(err));
+    throw err;
+  }
+}
+
 /**
  * Default `$D compare --serve` path: ensure the persistent daemon is up,
  * publish the board, open the browser to its URL, then exit. The daemon
@@ -400,7 +525,88 @@ async function resolveImagePaths(input: string): Promise<string[]> {
   }
 
   // Comma-separated or single path
-  return input.split(",").map(p => p.trim());
+  const resolved: string[] = [];
+  const missing: string[] = [];
+  for (const imagePath of input.split(",").map(p => p.trim()).filter(Boolean)) {
+    const roundImages = resolveRoundImageAlias(imagePath);
+    if (roundImages) {
+      resolved.push(...roundImages.paths);
+      missing.push(...roundImages.missing);
+    } else {
+      resolved.push(imagePath);
+      if (!fs.existsSync(imagePath)) missing.push(path.basename(imagePath));
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Missing generated design variants: ${missing.join(", ")}`);
+  }
+
+  return resolved;
+}
+
+function resolveRoundImageAlias(imagePath: string): { paths: string[]; missing: string[] } | null {
+  const baseName = roundBaseName(imagePath);
+  if (!baseName) return null;
+
+  const dir = path.dirname(imagePath);
+  const manifest = readRoundManifest(dir);
+  const attempts = manifest[roundKey(imagePath, baseName)] || [];
+
+  if (attempts.length > 0) {
+    return {
+      paths: attempts.filter(attempt => attempt.success && fs.existsSync(attempt.path)).map(attempt => attempt.path),
+      missing: attempts
+        .filter(attempt => !attempt.success || !fs.existsSync(attempt.path))
+        .map(attempt => `${baseName}-${attempt.label}.png`),
+    };
+  }
+
+  const discovered = discoverRoundImages(dir, baseName);
+  if (discovered.paths.length > 0 || discovered.missing.length > 0) {
+    return discovered;
+  }
+
+  if (fs.existsSync(imagePath)) {
+    return { paths: [imagePath], missing: [] };
+  }
+
+  return { paths: [], missing: [path.basename(imagePath)] };
+}
+
+function discoverRoundImages(dir: string, baseName: string): { paths: string[]; missing: string[] } {
+  if (!fs.existsSync(dir)) return { paths: [], missing: [] };
+
+  const matches = fs.readdirSync(dir)
+    .map(name => {
+      const match = name.match(new RegExp(`^${escapeRegExp(baseName)}-([A-Z])\\.png$`));
+      return match ? { label: match[1], name } : null;
+    })
+    .filter((match): match is { label: string; name: string } => match !== null)
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  if (matches.length === 0) return { paths: [], missing: [] };
+
+  const highestIndex = matches[matches.length - 1].label.charCodeAt(0) - 65;
+  const byLabel = new Map(matches.map(match => [match.label, match.name]));
+  const paths: string[] = [];
+  const missing: string[] = [];
+
+  for (let i = 0; i <= highestIndex; i++) {
+    const label = labelForIndex(i);
+    const name = byLabel.get(label);
+    if (name) {
+      paths.push(path.join(dir, name));
+    } else {
+      missing.push(`${baseName}-${label}.png`);
+    }
+  }
+
+  return { paths, missing };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Self-execution shortcut: when invoked with --daemon-mode, this same
@@ -408,14 +614,21 @@ async function resolveImagePaths(input: string): Promise<string[]> {
 // the production install to a single executable; daemon-client.ts spawns
 // `<this binary> --daemon-mode` (or `bun run cli.ts --daemon-mode` in dev)
 // rather than relying on a separate daemon.ts file at a known path.
-if (process.argv.includes("--daemon-mode")) {
+if (import.meta.main && process.argv.includes("--daemon-mode")) {
   const { start } = await import("./daemon");
   start();
   // start() binds Bun.serve and registers signal handlers; this branch
   // never falls through to main(). Process stays alive on the bound port.
-} else {
+} else if (import.meta.main) {
   main().catch((err) => {
     console.error(err.message || err);
     process.exit(1);
   });
 }
+
+export {
+  main,
+  resolveImagePaths,
+  planRoundArtifacts,
+  resolveRoundImageAlias,
+};
