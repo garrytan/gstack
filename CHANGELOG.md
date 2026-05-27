@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.48.1.0] - 2026-05-28
+
+**`playwright` bumped to `^1.60.0` — fixes indefinite setup hang on Node 24.16+ and Node 26.x.**
+
+`./setup` calls `playwright install chromium`. On Node 24.16+ and Node 26.x a yauzl extraction bug in Playwright < 1.60.0 causes the download to stall indefinitely after completing. Users would see 100% download progress and then nothing — no error, no prompt, no timeout. The fix is a one-line version bump from `^1.58.2` to `^1.60.0`. Closes #1703.
+
+### The numbers that matter
+
+| Item | Before | After |
+|------|--------|-------|
+| Playwright version floor | ^1.58.2 | ^1.60.0 |
+| Node 24.16+ / Node 26.x setup | hangs indefinitely after download | completes normally |
+
+### Itemized changes
+
+#### Fixed
+- `package.json`: `playwright` bumped from `^1.58.2` to `^1.60.0`. Resolves yauzl extraction hang on Node 24.16+ (and Node 26.x) that caused `./setup` to stall forever after the Chromium download completed.
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.
