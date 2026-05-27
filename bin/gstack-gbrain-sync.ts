@@ -30,7 +30,7 @@
  */
 
 import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve, relative, isAbsolute } from "path";
 import { execSync, spawnSync } from "child_process";
 import { homedir, hostname } from "os";
 import { createHash } from "crypto";
@@ -52,6 +52,7 @@ interface CliArgs {
   noMemory: boolean;
   noBrainSync: boolean;
   codeOnly: boolean;
+  allowReclone: boolean;
 }
 
 interface CodeStageDetail {
@@ -62,7 +63,7 @@ interface CodeStageDetail {
   status?: "ok" | "skipped" | "failed";
 }
 
-interface StageResult {
+export interface StageResult {
   name: string;
   ran: boolean;
   ok: boolean;
@@ -205,6 +206,7 @@ Options:
   --no-memory          Skip the gstack-memory-ingest stage (transcripts + artifacts).
   --no-brain-sync      Skip the gstack-brain-sync git pipeline stage.
   --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
+  --allow-reclone      Allow code sync when the source row has remote_url set.
   --help               This text.
 
 Stages run in order: code → memory ingest → curated git push.
@@ -220,6 +222,7 @@ function parseArgs(): CliArgs {
   let noMemory = false;
   let noBrainSync = false;
   let codeOnly = false;
+  let allowReclone = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -231,6 +234,7 @@ function parseArgs(): CliArgs {
       case "--no-code": noCode = true; break;
       case "--no-memory": noMemory = true; break;
       case "--no-brain-sync": noBrainSync = true; break;
+      case "--allow-reclone": allowReclone = true; break;
       case "--code-only":
         codeOnly = true;
         noMemory = true;
@@ -247,7 +251,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly };
+  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly, allowReclone };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -414,6 +418,155 @@ export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): stri
   return found?.local_path ?? null;
 }
 
+function stageError(
+  stage: string,
+  t0: number,
+  summary: string,
+  detail?: CodeStageDetail,
+): StageResult {
+  return {
+    name: stage,
+    ran: true,
+    ok: false,
+    duration_ms: Date.now() - t0,
+    summary,
+    detail,
+  };
+}
+
+function gbrainHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.GBRAIN_HOME || join(env.HOME || homedir(), ".gbrain");
+}
+
+export function autopilotLockPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(gbrainHome(env), "autopilot.lock");
+}
+
+export function autopilotLockStageError(
+  t0: number,
+  env: NodeJS.ProcessEnv = process.env,
+): StageResult | null {
+  const lockPath = autopilotLockPath(env);
+  if (!existsSync(lockPath)) return null;
+  return stageError(
+    "code",
+    t0,
+    `refusing code sync: gbrain autopilot lock present at ${lockPath}. Stop autopilot first; if stale, run: kill "$(cat ${lockPath})" && rm "${lockPath}"`,
+  );
+}
+
+interface GbrainSourceShowRow {
+  local_path?: string;
+  remote_url?: string;
+  config?: {
+    remote_url?: string;
+  };
+}
+
+type SourceShowResult =
+  | { ok: true; source: GbrainSourceShowRow }
+  | { ok: false; reason: string };
+
+function sourceRemoteUrl(source: GbrainSourceShowRow): string | null {
+  const direct = typeof source.remote_url === "string" ? source.remote_url.trim() : "";
+  if (direct) return direct;
+  const config = typeof source.config?.remote_url === "string" ? source.config.remote_url.trim() : "";
+  return config || null;
+}
+
+export function gbrainSourceShow(sourceId: string, env?: NodeJS.ProcessEnv): SourceShowResult {
+  const r = spawnGbrain(["sources", "show", "--json", sourceId], {
+    timeout: 10_000,
+    baseEnv: env,
+  });
+  if (r.status !== 0) {
+    const reason = (r.stderr || r.stdout || "").trim().split("\n").pop() || `exit ${r.status}`;
+    return { ok: false, reason };
+  }
+  try {
+    const parsed = JSON.parse(r.stdout || "null") as unknown;
+    const candidate = (
+      parsed && typeof parsed === "object" && "source" in parsed
+        ? (parsed as { source?: unknown }).source
+        : parsed
+    );
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return { ok: false, reason: "sources show returned non-object JSON" };
+    }
+    return { ok: true, source: candidate as GbrainSourceShowRow };
+  } catch (err) {
+    return { ok: false, reason: `sources show returned malformed JSON: ${(err as Error).message}` };
+  }
+}
+
+function isInsidePath(child: string, parent: string): boolean {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function isInsideGbrainClones(localPath: string, env?: NodeJS.ProcessEnv): boolean {
+  return isInsidePath(localPath, join(gbrainHome(env), "clones"));
+}
+
+export function guardSourceRemoval(
+  sourceId: string,
+  env: NodeJS.ProcessEnv | undefined,
+  t0: number,
+): StageResult | null {
+  const show = gbrainSourceShow(sourceId, env);
+  if (!show.ok) {
+    return stageError(
+      "code",
+      t0,
+      `refusing to remove source ${sourceId}: could not audit source row with gbrain sources show --json (${show.reason})`,
+      { source_id: sourceId, status: "failed" },
+    );
+  }
+
+  const remoteUrl = sourceRemoteUrl(show.source);
+  const localPath = show.source.local_path;
+  if (remoteUrl && (!localPath || !isInsideGbrainClones(localPath, env))) {
+    return stageError(
+      "code",
+      t0,
+      `refusing to remove URL-managed source ${sourceId}: config.remote_url is set and local_path ${localPath || "(missing)"} is outside ${join(gbrainHome(env), "clones")}. Manually clear remote_url or remove the DB row with --keep-storage after verifying the path.`,
+      { source_id: sourceId, source_path: localPath, status: "failed" },
+    );
+  }
+
+  return null;
+}
+
+export function guardCodeSyncReclone(
+  sourceId: string,
+  args: Pick<CliArgs, "allowReclone">,
+  env: NodeJS.ProcessEnv | undefined,
+  t0: number,
+  root: string,
+): StageResult | null {
+  const show = gbrainSourceShow(sourceId, env);
+  if (!show.ok) {
+    return stageError(
+      "code",
+      t0,
+      `refusing code sync for ${sourceId}: could not audit source row with gbrain sources show --json (${show.reason})`,
+      { source_id: sourceId, source_path: root, status: "failed" },
+    );
+  }
+
+  const remoteUrl = sourceRemoteUrl(show.source);
+  if (remoteUrl && !args.allowReclone) {
+    return stageError(
+      "code",
+      t0,
+      `warning: source ${sourceId} has remote_url set; skipping gbrain sync --strategy code because gbrain may reclone or replace local files. Re-run with --allow-reclone only after verifying this source is safe.`,
+      { source_id: sourceId, source_path: root, status: "failed" },
+    );
+  }
+
+  return null;
+}
+
 /** Result of `planHostnameFoldMigration` — informs `runCodeImport` of next steps. */
 export type HostnameFoldMigration =
   | { kind: "none"; reason: "ids-match" | "no-legacy-source" }
@@ -481,7 +634,7 @@ export function planHostnameFoldMigration(
  * the inconsistency across the codebase.
  */
 export function removeOrphanedSource(oldId: string, env?: NodeJS.ProcessEnv): boolean {
-  const r = spawnGbrain(["sources", "remove", oldId, "--confirm-destructive"], { baseEnv: env });
+  const r = spawnGbrain(["sources", "remove", oldId, "--keep-storage", "--confirm-destructive"], { baseEnv: env });
   return r.status === 0;
 }
 
@@ -615,6 +768,9 @@ function skipStageForLocalStatus(
 
 async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const t0 = Date.now();
+  const autopilotGuard = autopilotLockStageError(t0);
+  if (autopilotGuard) return autopilotGuard;
+
   const root = repoRoot();
   if (!root) {
     return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
@@ -661,13 +817,18 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const legacyId = deriveLegacyCodeSourceId(root);
   let legacyRemoved = false;
   if (legacyId !== sourceId) {
-    const rm = spawnGbrain(["sources", "remove", legacyId, "--confirm-destructive"], {
-      timeout: 30_000,
-      baseEnv: gbrainEnv,
-    });
-    // Treat absent-source as success (clean state). gbrain emits "not found" on
-    // missing id; treat any non-zero exit without "not found" as a soft fail.
-    if (rm.status === 0) legacyRemoved = true;
+    const legacyPath = sourceLocalPath(legacyId, gbrainEnv);
+    if (legacyPath !== null) {
+      const removeGuard = guardSourceRemoval(legacyId, gbrainEnv, t0);
+      if (removeGuard) return removeGuard;
+      const rm = spawnGbrain(["sources", "remove", legacyId, "--keep-storage", "--confirm-destructive"], {
+        timeout: 30_000,
+        baseEnv: gbrainEnv,
+      });
+      // Treat absent-source as success (clean state). gbrain emits "not found" on
+      // missing id; treat any non-zero exit without "not found" as a soft fail.
+      if (rm.status === 0) legacyRemoved = true;
+    }
   }
 
   // Step 0b: Hostname-fold migration (#1414).
@@ -682,7 +843,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     console.error(
       `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
       + `points at ${migration.oldPath}, current repo is ${migration.currentPath}. `
-      + `Clean up manually with: gbrain sources remove ${migration.oldId} --confirm-destructive`,
+      + `Clean up manually with: gbrain sources remove ${migration.oldId} --keep-storage --confirm-destructive`,
     );
   } else if (migration.kind === "renamed" && !args.quiet) {
     console.error(`[sync:code] hostname-fold migration: renamed ${migration.oldId} → ${migration.newId} (pages preserved)`);
@@ -720,6 +881,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
     "GSTACK_SYNC_CODE_TIMEOUT_MS",
   );
+  const recloneGuard = guardCodeSyncReclone(sourceId, args, gbrainEnv, t0, root);
+  if (recloneGuard) return recloneGuard;
+
   const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: codeTimeoutMs,
@@ -780,6 +944,8 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // safety: register → sync → verify → THEN delete.
   let hostnameLegacyRemoved = false;
   if (migration.kind === "pending-cleanup" && pageCount !== null && pageCount > 0) {
+    const removeGuard = guardSourceRemoval(migration.oldId, gbrainEnv, t0);
+    if (removeGuard) return removeGuard;
     hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
     if (hostnameLegacyRemoved && !args.quiet) {
       console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
