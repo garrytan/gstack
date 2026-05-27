@@ -90,10 +90,13 @@ for (const taggedLine of lines) {
     const isCrossProject = sourceTag === 'cross';
     e._crossProject = isCrossProject;
 
-    // Trust gate: cross-project learnings only loaded if trusted (user-stated)
-    // This prevents prompt injection from one project's AI-generated learnings
-    // silently influencing reviews in another project.
-    if (isCrossProject && e.trusted === false) continue;
+    // Trust gate: cross-project learnings only loaded if explicitly trusted
+    // (user-stated). This prevents prompt injection from one project's
+    // AI-generated learnings silently influencing reviews in another project.
+    // Fail closed: rows missing the trusted field (legacy entries written
+    // before the field existed, hand-edited rows, or rows from other tools)
+    // are treated as untrusted rather than admitted by default.
+    if (isCrossProject && e.trusted !== true) continue;
 
     entries.push(e);
   } catch {}
