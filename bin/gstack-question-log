@@ -34,9 +34,12 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 INPUT="$1"
 
 # Validate and enrich from registry.
+# Prefer bun (matches upstream); fall back to python3/python on Windows.
 TMPERR=$(mktemp)
 trap 'rm -f "$TMPERR"' EXIT
 set +e
+
+if command -v bun >/dev/null 2>&1; then
 VALIDATED=$(printf '%s' "$INPUT" | bun -e "
 const path = require('path');
 const raw = await Bun.stdin.text();
@@ -155,6 +158,16 @@ if (!j.ts) j.ts = new Date().toISOString();
 console.log(JSON.stringify(j));
 " 2>"$TMPERR")
 VALIDATE_RC=$?
+elif command -v python3 >/dev/null 2>&1; then
+  VALIDATED=$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/gstack-question-log-validate.py" 2>"$TMPERR")
+  VALIDATE_RC=$?
+elif command -v python >/dev/null 2>&1; then
+  VALIDATED=$(printf '%s' "$INPUT" | python "$SCRIPT_DIR/gstack-question-log-validate.py" 2>"$TMPERR")
+  VALIDATE_RC=$?
+else
+  echo "gstack-question-log: no JSON runtime available (need bun or python3 on PATH)" >&2
+  exit 1
+fi
 set -e
 
 if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then

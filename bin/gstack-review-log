@@ -7,10 +7,21 @@ eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
-# Validate: input must be parseable JSON (reject malformed or injection attempts)
+# Validate: input must be parseable JSON (reject malformed or injection attempts).
+# Prefer bun (matches upstream); fall back to python3/python on Windows.
 INPUT="$1"
-if ! printf '%s' "$INPUT" | bun -e "JSON.parse(await Bun.stdin.text())" 2>/dev/null; then
-  # Not valid JSON — refuse to append
+validate_json() {
+  if command -v bun >/dev/null 2>&1; then
+    printf '%s' "$1" | bun -e "JSON.parse(await Bun.stdin.text())" 2>/dev/null
+  elif command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$1" | python3 -c "import json,sys; json.loads(sys.stdin.read())" 2>/dev/null
+  elif command -v python >/dev/null 2>&1; then
+    printf '%s' "$1" | python -c "import json,sys; json.loads(sys.stdin.read())" 2>/dev/null
+  else
+    return 1
+  fi
+}
+if ! validate_json "$INPUT"; then
   echo "gstack-review-log: invalid JSON, skipping" >&2
   exit 1
 fi
