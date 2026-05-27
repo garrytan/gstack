@@ -33,6 +33,9 @@ beforeAll(() => {
   const otherEntries = [
     { ts: '2026-05-04T00:00:00Z', skill: 'test', type: 'pattern', key: 'foreign-observed', insight: 'A foreign observed insight', confidence: 8, source: 'observed', trusted: false, files: [] },
     { ts: '2026-05-05T00:00:00Z', skill: 'test', type: 'pattern', key: 'foreign-user', insight: 'A foreign user-stated insight', confidence: 8, source: 'user-stated', trusted: true, files: [] },
+    // Legacy / hand-written / third-party row written before the trusted field
+    // existed: no `trusted` key at all. Must NOT be admitted cross-project.
+    { ts: '2026-05-06T00:00:00Z', skill: 'test', type: 'pattern', key: 'foreign-legacy', insight: 'A foreign legacy insight', confidence: 8, source: 'observed', files: [] },
   ];
   fs.writeFileSync(path.join(projDir, 'learnings.jsonl'), entries.map(e => JSON.stringify(e)).join('\n') + '\n');
   fs.writeFileSync(path.join(otherProjDir, 'learnings.jsonl'), otherEntries.map(e => JSON.stringify(e)).join('\n') + '\n');
@@ -78,5 +81,12 @@ describe('gstack-learnings-search cross-project trust gating', () => {
     expect(out).toContain('foreign-user');
     expect(out).toContain('[cross-project]');
     expect(out).not.toContain('foreign-observed');
+  });
+
+  test('cross-project mode rejects foreign rows missing the trusted field (fail closed)', () => {
+    const out = run(['--cross-project', '--query', 'foreign']);
+    // Legacy/hand-written rows with no `trusted` field must be treated as
+    // untrusted, not admitted by default — otherwise the trust gate fails open.
+    expect(out).not.toContain('foreign-legacy');
   });
 });
