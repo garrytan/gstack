@@ -18,6 +18,9 @@ Invoke them by name (e.g., `/office-hours`).
 | `/plan-eng-review` | Lock architecture, data flow, edge cases, and tests. |
 | `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |
 | `/plan-devex-review` | DX-mode review: TTHW, magical moments, friction points, persona traces. |
+| `/find-pmf` | Run the Sean Ellis 40% survey, surface the HXC pattern, output a one-page PMF report with score-band-calibrated next actions. |
+| `/north-star` | Pick and stress-test a north-star metric. Maps business shape to metric shape; scores 5 candidates; defines input metrics + counter-metric guardrails. |
+| `/growth-loop` | Inventory active/dormant loops, score on investment-velocity-compounding, pick one to double down on with the operational math. |
 | `/plan-tune` | Self-tune AskUserQuestion sensitivity per question. |
 | `/autoplan` | One command runs CEO → design → eng → DX review. |
 | `/design-consultation` | Build a complete design system from scratch. |

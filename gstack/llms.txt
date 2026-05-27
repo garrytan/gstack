@@ -28,7 +28,9 @@ Conventions:
 - [/devex-review](devex-review/SKILL.md): Live developer experience audit.
 - [/document-generate](document-generate/SKILL.md): Generate missing documentation from scratch for a feature, module, or entire project.
 - [/document-release](document-release/SKILL.md): Post-ship documentation update.
+- [/find-pmf](find-pmf/SKILL.md): Product/market fit diagnostic.
 - [/freeze](freeze/SKILL.md): Restrict file edits to a specific directory for the session.
+- [/growth-loop](growth-loop/SKILL.md): Map your product's growth loops.
 - [/gstack](gstack/SKILL.md): Fast headless browser for QA testing and site dogfooding.
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
@@ -43,6 +45,7 @@ Conventions:
 - [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
 - [/learn](learn/SKILL.md): Manage project learnings.
 - [/make-pdf](make-pdf/SKILL.md): Turn any markdown file into a publication-quality PDF.
+- [/north-star](north-star/SKILL.md): North-star metric (NSM) definition and stress-test.
 - [/office-hours](office-hours/SKILL.md): YC Office Hours — two modes.
 - [/open-gstack-browser](open-gstack-browser/SKILL.md): Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
 - [/pair-agent](pair-agent/SKILL.md): Pair a remote AI agent with your browser.
