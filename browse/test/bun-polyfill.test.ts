@@ -97,6 +97,31 @@ describe('bun-polyfill', () => {
     expect(result.stdout.toString().trim()).toBe('ready:0');
   });
 
+  // Regression for the pipe-blocking case: if the child writes more than the
+  // OS pipe buffer (~16-64 KB) and the polyfill doesn't drain eagerly, the
+  // child blocks in write() and `exit` never fires. 1 MB is well past every
+  // OS pipe buffer size. Pre-fix this test hangs forever; post-fix it returns
+  // in <500ms. Bun's default per-test timeout is 5s — generous here.
+  test('Bun.spawn drains large stdout so proc.exited still resolves', async () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      require('${polyfillPath}');
+      (async () => {
+        const ONE_MB = 1024 * 1024;
+        const p = Bun.spawn(
+          ['node', '-e', 'process.stdout.write("x".repeat(' + ONE_MB + ')); process.exit(0)'],
+          { stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+        const code = await Promise.race([
+          p.exited,
+          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 10000))
+        ]).catch(e => 'TIMEOUT');
+        const out = await new Response(p.stdout).text();
+        console.log(out.length + ':' + code);
+      })().catch((e) => { console.log('THREW:' + e.message); });
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('1048576:0');
+  }, 15000);
+
   test('Bun.serve creates an HTTP server that responds', async () => {
     const result = Bun.spawnSync(['node', '-e', `
       require('${polyfillPath}');

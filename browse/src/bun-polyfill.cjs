@@ -12,7 +12,6 @@
 
 const http = require('http');
 const { spawnSync, spawn } = require('child_process');
-const { Readable } = require('stream');
 
 globalThis.Bun = {
   serve(options) {
@@ -94,34 +93,70 @@ globalThis.Bun = {
       cwd: options.cwd,
     });
 
+    // Drain stdout/stderr eagerly into in-memory buffers. Bun's spawn buffers
+    // these for the consumer; Node's Readables are pull-based, so if the caller
+    // awaits `proc.exited` before reading, anything past the OS pipe buffer
+    // (~16-64 KB) back-pressures the child until it blocks in write() and
+    // `exit` never fires. Eager draining keeps the pipes flowing regardless
+    // of read order; replay below is via fresh Web ReadableStreams.
+    const drain = (stream) => {
+      if (!stream) return { done: Promise.resolve(), chunks: [] };
+      const chunks = [];
+      const done = new Promise((resolve) => {
+        stream.on('data', (chunk) => chunks.push(chunk));
+        stream.once('end', resolve);
+        stream.once('error', resolve);   // exit event carries the real status
+      });
+      return { done, chunks };
+    };
+    const stdoutDrain = drain(proc.stdout);
+    const stderrDrain = drain(proc.stderr);
+
     // Bun's spawn exposes `proc.exited` as a Promise resolving to the exit
     // code; several call sites — DPAPI decryption, isBrowserRunning,
     // browser-skill-commands — `await proc.exited` directly or via
     // Promise.race with a timeout. Without this, those awaits resolve to
     // `undefined` immediately and the operation looks like a silent failure.
+    // Resolve only after both pipes have finished draining so consumers that
+    // read stdout AFTER awaiting exit see the full output, not a partial buffer.
     const exited = new Promise((resolveExited) => {
+      let exitStatus;
       proc.once('exit', (code, signal) => {
         // Match Bun: exit code on normal exit; 128 + signal number on signal;
         // 0 if neither was reported.
-        if (code !== null) resolveExited(code);
-        else if (signal) resolveExited(128 + (require('os').constants.signals[signal] || 0));
-        else resolveExited(0);
+        if (code !== null) exitStatus = code;
+        else if (signal) exitStatus = 128 + (require('os').constants.signals[signal] || 0);
+        else exitStatus = 0;
       });
-      proc.once('error', () => resolveExited(1));
+      proc.once('error', () => {
+        if (exitStatus === undefined) exitStatus = 1;
+      });
+      Promise.all([
+        new Promise((r) => proc.once('exit', r)),
+        stdoutDrain.done,
+        stderrDrain.done,
+      ]).then(() => resolveExited(exitStatus !== undefined ? exitStatus : 0));
     });
 
-    // Bun gives consumers a Web ReadableStream so `new Response(proc.stdout)`
-    // works regardless of read order. With Node's Readable, the stream auto-
-    // drains once the child exits, so `await proc.exited` followed by
-    // `new Response(proc.stdout).text()` throws "body disturbed or locked".
-    // Readable.toWeb hands the consumer a fresh ReadableStream that buffers
-    // until it's read. Falls back to the raw Node stream on Node < 18.
-    const toWeb = (s) => (s && typeof Readable.toWeb === 'function' ? Readable.toWeb(s) : s);
+    // Replay buffered output as a fresh Web ReadableStream. `start()` awaits
+    // the drain before enqueueing so `new Response(proc.stdout).text()` yields
+    // the complete output regardless of whether the consumer reads before or
+    // after awaiting `proc.exited`. Stream is single-shot (locked after one
+    // read), matching Bun's behavior.
+    const replay = (d) => new ReadableStream({
+      async start(controller) {
+        await d.done;
+        for (const chunk of d.chunks) {
+          controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+        }
+        controller.close();
+      },
+    });
 
     return {
       pid: proc.pid,
-      stdout: toWeb(proc.stdout),
-      stderr: toWeb(proc.stderr),
+      stdout: replay(stdoutDrain),
+      stderr: replay(stderrDrain),
       stdin: proc.stdin,
       exited,
       unref() { proc.unref(); },
