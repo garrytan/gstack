@@ -3,7 +3,7 @@ name: plan-devex-review
 preamble-tier: 3
 interactive: true
 version: 2.0.0
-description: Interactive developer experience plan review. (gstack)
+description: "Interactive developer experience plan review. (gstack)"
 benefits-from: [office-hours]
 allowed-tools:
   - Read

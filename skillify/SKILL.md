@@ -1,7 +1,7 @@
 ---
 name: skillify
 version: 1.0.0
-description: Codify the most recent successful /scrape flow into a permanent browser-skill on disk. (gstack)
+description: "Codify the most recent successful /scrape flow into a permanent browser-skill on disk. (gstack)"
 allowed-tools:
   - Bash
   - Read

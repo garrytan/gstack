@@ -13,7 +13,7 @@
  *      the conditional gate is in the pipeline.
  *   2. Smoke: running with --catalog-mode=full produces a frontmatter
  *      `description: |` block (multi-line) instead of the trim'd one-line
- *      `description: ...(gstack)` form.
+ *      quoted `description: "...(gstack)"` form.
  *
  * The smoke test mutates the working tree mid-run. It restores the default
  * trim'd state in a finally block so a crash mid-test still leaves a clean
@@ -60,7 +60,7 @@ describe('--catalog-mode=full opt-out behavior (smoke)', () => {
   test('--catalog-mode=full produces multi-line description in frontmatter', () => {
     // Save the trim'd state so we can restore it.
     const trimmedShip = fs.readFileSync(SHIP_SKILL, 'utf-8');
-    expect(trimmedShip).toMatch(/^description: Ship workflow:[^\n]*\(gstack\)\n/m);
+    expect(trimmedShip).toMatch(/^description: "Ship workflow:[^\n]*\(gstack\)"\n/m);
 
     try {
       // Run with --catalog-mode=full. Mutates working tree.
@@ -100,7 +100,7 @@ describe('--catalog-mode=full opt-out behavior (smoke)', () => {
       }
       // Sanity-check the restored state matches what we saw at the start.
       const restoredShip = fs.readFileSync(SHIP_SKILL, 'utf-8');
-      expect(restoredShip).toMatch(/^description: Ship workflow:[^\n]*\(gstack\)\n/m);
+      expect(restoredShip).toMatch(/^description: "Ship workflow:[^\n]*\(gstack\)"\n/m);
     }
   }, 180_000);
 

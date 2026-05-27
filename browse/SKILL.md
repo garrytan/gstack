@@ -2,7 +2,7 @@
 name: browse
 preamble-tier: 1
 version: 1.1.0
-description: Fast headless browser for QA testing and site dogfooding. (gstack)
+description: "Fast headless browser for QA testing and site dogfooding. (gstack)"
 triggers:
   - browse a page
   - headless browser
