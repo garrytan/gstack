@@ -56,16 +56,29 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
 
   const tokenStore = new SessionTokenStore();
   let tunnel: DeviceTunnel | null = null;
-  let cachedTunnelAt = 0;
 
+  // No TTL on the tunnel cache. Rationale: bootstrapTunnel rotates the boot
+  // token and the iOS-side StateServer *deletes* the boot-token file on disk
+  // immediately after handling /auth/rotate (see StateServer.swift.template
+  // handleAuthRotate). The rotated bearer lives only in this daemon's memory.
+  // If we invalidate on a wall-clock timer, the next request re-runs
+  // bootstrapTunnel which can no longer read the now-deleted boot token →
+  // boot_token_unavailable → every subsequent request returns 503
+  // device_not_connected. Instead, hold the tunnel for the lifetime of the
+  // daemon and only drop it when the proxy reports the underlying CoreDevice
+  // route is dead (ECONNREFUSED / EHOSTUNREACH → 503 device_disconnected).
+  // The keepalive in devicectl.startTunnelKeepalive prevents the route from
+  // going stale in practice.
   const getTunnel = async (): Promise<DeviceTunnel | null> => {
-    // Cache the tunnel for 30s; refresh on demand.
-    if (tunnel && Date.now() - cachedTunnelAt < 30_000) return tunnel;
+    if (tunnel) return tunnel;
     if (opts.tunnelProvider) {
       tunnel = await opts.tunnelProvider();
-      cachedTunnelAt = Date.now();
     }
     return tunnel;
+  };
+
+  const invalidateTunnel = (): void => {
+    tunnel = null;
   };
 
   // 2. Tailnet probe (fail-closed).
@@ -80,7 +93,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
 
   // 3. Loopback listener (full surface).
   const loopbackServer = createServer(async (req, res) => {
-    await handleLoopback({ req, res, tokenStore, getTunnel });
+    await handleLoopback({ req, res, tokenStore, getTunnel, invalidateTunnel });
   });
   // Use port 0 for OS-assigned port when test/random port collisions are a risk.
   const requestedPort = opts.loopbackPort;
@@ -91,7 +104,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
   // mode this can collide; we try the actualPort first and skip ipv6 if it
   // fails (tests don't exercise ::1 explicitly).
   const loopbackServerV6 = createServer(async (req, res) => {
-    await handleLoopback({ req, res, tokenStore, getTunnel });
+    await handleLoopback({ req, res, tokenStore, getTunnel, invalidateTunnel });
   });
   let v6Bound = false;
   try {
@@ -112,6 +125,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
         res,
         tokenStore,
         getTunnel,
+        invalidateTunnel,
         whoIsImpl: opts.whoIsImpl ?? ((addr) => whoIs(addr, opts.tailnetSocketPath)),
       });
     });
@@ -172,6 +186,7 @@ interface HandlerCtx {
   res: ServerResponse;
   tokenStore: SessionTokenStore;
   getTunnel: () => Promise<DeviceTunnel | null>;
+  invalidateTunnel: () => void;
 }
 
 function readBody(req: IncomingMessage, maxBytes = 1_048_576): Promise<Buffer | { error: 'body_too_large' }> {
@@ -215,7 +230,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  * loopback bind itself is the boundary).
  */
 async function handleLoopback(ctx: HandlerCtx): Promise<void> {
-  const { req, res, tokenStore, getTunnel } = ctx;
+  const { req, res, tokenStore, getTunnel, invalidateTunnel } = ctx;
   const url = parseUrl(req.url ?? '/');
   const path = url.pathname ?? '/';
   const method = req.method ?? 'GET';
@@ -259,10 +274,25 @@ async function handleLoopback(ctx: HandlerCtx): Promise<void> {
     const sessionId = (req.headers['x-session-id'] as string | undefined) ?? null;
     const agentIdentity = (req.headers['x-agent-identity'] as string | undefined) ?? undefined;
     const upstream = await proxyToDevice({ inbound: req, body, tunnel, sessionId, agentIdentity });
+    // If the underlying CoreDevice tunnel route went stale (ECONNREFUSED /
+    // EHOSTUNREACH surface as 503 device_disconnected from proxy.ts), drop
+    // the cached tunnel so the next request triggers a fresh bootstrap.
+    if (upstream.status === 503 && isDeviceDisconnected(upstream.body)) {
+      invalidateTunnel();
+    }
     res.writeHead(upstream.status, upstream.headers);
     res.end(upstream.body);
   } catch (err) {
     sendJson(res, 500, { error: 'internal_error', detail: (err as Error).message });
+  }
+}
+
+function isDeviceDisconnected(body: Buffer): boolean {
+  try {
+    const parsed = JSON.parse(body.toString('utf-8')) as { error?: string };
+    return parsed.error === 'device_disconnected';
+  } catch {
+    return false;
   }
 }
 
@@ -274,7 +304,7 @@ interface TailnetCtx extends HandlerCtx {
  * Tailnet handler — locked allowlist + capability tiers.
  */
 async function handleTailnet(ctx: TailnetCtx): Promise<void> {
-  const { req, res, tokenStore, getTunnel, whoIsImpl } = ctx;
+  const { req, res, tokenStore, getTunnel, invalidateTunnel, whoIsImpl } = ctx;
   const url = parseUrl(req.url ?? '/');
   const path = url.pathname ?? '/';
   const method = req.method ?? 'GET';
@@ -371,6 +401,12 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
       sessionId,
       agentIdentity: session.identity,
     });
+
+    // If the CoreDevice tunnel went stale, drop the cached tunnel — next
+    // request will re-bootstrap. See handleLoopback for the same path.
+    if (upstream.status === 503 && isDeviceDisconnected(upstream.body)) {
+      invalidateTunnel();
+    }
 
     // Audit the action (mutating endpoints only).
     if (requiredCapability !== 'observe') {

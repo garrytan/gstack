@@ -29,10 +29,15 @@ public final class StateServer {
     private let port: UInt16
     private let bootTokenPath: String
 
-    // Two listeners for dual-stack loopback. The fork's single-listener IPv6-only
-    // binding was caught in eng + outside-voice review as incomplete.
+    // One listener for dual-stack loopback. NWListener with default
+    // NWParameters.tcp on iOS binds a dual-stack socket (IN6ADDR_ANY without
+    // IPV6_V6ONLY) — the ::1 listener accepts IPv4 connections via 4-in-6
+    // mapped addresses (e.g. ::ffff:127.0.0.1). An earlier revision opened a
+    // second 127.0.0.1 listener on the same port; that second bind reliably
+    // failed with POSIXErrorCode 48 (EADDRINUSE) on iOS 26.x and spammed the
+    // log with `LISTENER_FAILED family=ipv4 err=POSIXErrorCode(rawValue: 48):
+    // Address already in use` on every launch. Verified on iPhone 12 Pro.
     private var ipv6Listener: NWListener?
-    private var ipv4Listener: NWListener?
 
     // Auth state. The boot token is what we wrote to os_log on first launch.
     // It exists ONLY long enough for the daemon to call /auth/rotate.
@@ -100,10 +105,10 @@ public final class StateServer {
         //    seconds.
         logger.notice("gstack-ios-qa-bootstrap token=\(self.bootToken, privacy: .public) port=\(self.port, privacy: .public) build=\(self.appBuildId, privacy: .public)")
 
-        // 3. Bind both IPv6 and IPv4 loopback. CoreDevice tunnel uses IPv6;
-        //    local tooling may use IPv4. Never bind 0.0.0.0 or ::.
+        // 3. Bind ::1. CoreDevice tunnel uses IPv6; IPv4 loopback callers are
+        //    accepted via 4-in-6 mapped addresses on the same dual-stack
+        //    socket. Never bind 0.0.0.0 or ::.
         startListener(family: .ipv6)
-        startListener(family: .ipv4)
     }
 
     public func register(buildId: String, accessorHash: String, atomicRestore: @escaping AtomicRestoreFn) {
@@ -121,12 +126,13 @@ public final class StateServer {
     // MARK: Listener setup
 
     private enum AddressFamily {
-        case ipv4
+        // Only .ipv6 is bound — see startListener comment block. The enum is
+        // kept (rather than inlining ::1) so future readers see the explicit
+        // decision and don't reintroduce a second IPv4 listener.
         case ipv6
 
         var host: NWEndpoint.Host {
             switch self {
-            case .ipv4: return NWEndpoint.Host("127.0.0.1")
             case .ipv6: return NWEndpoint.Host("::1")
             }
         }
@@ -172,7 +178,6 @@ public final class StateServer {
 
             switch family {
             case .ipv6: ipv6Listener = listener
-            case .ipv4: ipv4Listener = listener
             }
         } catch {
             logger.error("Listener bind failed (\(String(describing: family))): \(error.localizedDescription, privacy: .public)")
