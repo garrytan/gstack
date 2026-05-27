@@ -1181,8 +1181,50 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 > Consensus: [X/6 confirmed, Y disagreements → surfaced at gate].
 > Passing to Phase 2.
 
-Do NOT begin Phase 2 until all Phase 1 outputs are written to the plan file
+Do NOT begin Phase 1.5 until all Phase 1 outputs are written to the plan file
 and the premise gate has been passed.
+
+---
+
+**Pre-Phase 1.5 checklist (verify before starting):**
+- [ ] CEO completion summary written to plan file
+- [ ] CEO dual voices ran (Codex + Claude subagent, or noted unavailable)
+- [ ] CEO consensus table produced
+- [ ] Premise gate passed (user confirmed)
+- [ ] Phase-transition summary emitted
+
+## Phase 1.5: PM Review (conditional — run when prioritization or user-segment clarity is needed)
+
+**Skip condition:** Skip Phase 1.5 if ALL of the following are true:
+- The plan has 3 or fewer distinct deliverables (no prioritization needed)
+- The target user segment is already explicitly named in the CEO review
+- No TODOS.md items compete with this plan's scope
+
+If skipping, log: "Phase 1.5 skipped — plan scope is small and segment is already
+defined."
+
+**Run condition:** Run Phase 1.5 if ANY of the following is true:
+- The CEO review produced more than 5 distinct work items
+- The plan touches multiple user segments or personas
+- Any CEO review item was classified as "borderline scope"
+- TODOS.md exists with items that may conflict or overlap
+
+Follow plan-pm-review/SKILL.md in **PRIORITIZE** mode by default. Switch to
+**SEGMENT** mode if the CEO review surfaced user-segment ambiguity, or **SHARPEN**
+mode if the CEO review produced vague scope items without acceptance criteria.
+
+**Override rules:**
+- Mode selection: auto-select based on what the CEO review revealed (PRIORITIZE
+  by default; SEGMENT if personas are unclear; SHARPEN if items are vague)
+- RICE scoring: use CC+gstack effort estimates, not human-team estimates
+- Cut list: P3 items → TODOS.md automatically (P3)
+- AskUserQuestion: suppress all except items with Confidence < 50% or where both
+  CEO and PM scoring conflict — surface those at the Final Gate
+
+**PHASE 1.5 COMPLETE.** Emit phase-transition summary:
+> **Phase 1.5 complete.** PM mode: [PRIORITIZE/SEGMENT/SHARPEN]. Items scored: N.
+> P1 items: N. P2 items: N. P3 items deferred to TODOS: N.
+> Passing to Phase 2.
 
 ---
 
@@ -1191,7 +1233,7 @@ and the premise gate has been passed.
 - [ ] CEO dual voices ran (Codex + Claude subagent, or noted unavailable)
 - [ ] CEO consensus table produced
 - [ ] Premise gate passed (user confirmed)
-- [ ] Phase-transition summary emitted
+- [ ] Phase 1.5 ran (or skipped with reason logged)
 
 ## Phase 2: Design Review (conditional — skip if no UI scope)
 
@@ -1529,6 +1571,15 @@ produced. Check the plan file and conversation for each item.
 - [ ] Dual voices ran (Codex + Claude subagent, or noted unavailable)
 - [ ] CEO consensus table produced
 
+**Phase 1.5 (PM) outputs — only if ran (not skipped):**
+- [ ] Mode selected (PRIORITIZE / SHARPEN / SEGMENT) and logged
+- [ ] Scope challenge: primary user named, riskiest assumption identified
+- [ ] Mode-specific output produced (RICE table OR acceptance criteria OR JTBD blocks)
+- [ ] "NOT in scope" section written
+- [ ] "What already exists" section written
+- [ ] TODOS cross-reference ran
+- [ ] Phase 1.5 ran (or explicitly skipped with reason logged)
+
 **Phase 2 (Design) outputs — only if UI scope detected:**
 - [ ] All 7 dimensions evaluated with scores
 - [ ] Issues identified and auto-decided
@@ -1681,6 +1732,7 @@ I recommend [X] — [principle]. But [Y] is also viable:
 ### Review Scores
 - CEO: [summary]
 - CEO Voices: Codex [summary], Claude subagent [summary], Consensus [X/6 confirmed]
+- PM: [mode run + key finding, or "skipped, plan ≤3 deliverables + segment already named"]
 - Design: [summary or "skipped, no UI scope"]
 - Design Voices: Codex [summary], Claude subagent [summary], Consensus [X/7 confirmed] (or "skipped")
 - Eng: [summary]
@@ -1737,6 +1789,11 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-ceo-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"SELECTIVE_EXPANSION","via":"autoplan","commit":"'"$COMMIT"'"}'
 
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"FULL_REVIEW","via":"autoplan","commit":"'"$COMMIT"'"}'
+```
+
+If Phase 1.5 ran (PM scope):
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-pm-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":0,"mode":"MODE","via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
 If Phase 2 ran (UI scope):

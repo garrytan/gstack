@@ -7,6 +7,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
 | [`/spec`](#spec) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Backlog-ready output that downstream skills can pick up. Optional agent spawn at the end. |
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
+| [`/plan-pm-review`](#plan-pm-review) | **Product Manager** | RICE/ICE prioritization, JTBD segmentation, acceptance criteria. Three modes: PRIORITIZE (cut list + ranked roadmap), SHARPEN (testable done conditions), SEGMENT (who is this for and what job does it do). |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
@@ -169,6 +170,26 @@ It asks, **"what is the 10-star product hiding inside this request?"**
 - **SCOPE REDUCTION** — find the minimum viable version. Cut everything else.
 
 Visions and decisions are persisted to `~/.gstack/projects/` so they survive beyond the conversation. Exceptional visions can be promoted to `docs/designs/` in your repo for the team.
+
+---
+
+## `/plan-pm-review`
+
+This is my **product manager mode**.
+
+After the CEO review has validated direction, I want the plan stress-tested through a PM lens before engineering locks in architecture. Three things tend to go wrong without this step: teams build the wrong thing perfectly, no one writes down what "done" means, and the user segments are never named — so everyone has a different mental model of who they're building for.
+
+`/plan-pm-review` runs one of three modes:
+
+**PRIORITIZE** — Apply RICE scoring (Reach × Impact × Confidence / Effort) to every item. The output is a ranked cut list: what ships, what defers, and what the model recommends cutting. For AI-assisted projects, effort is measured in CC+gstack time (not human-team time), so RICE scores look very different from traditional PM estimates.
+
+**SHARPEN** — Turn vague plan items into acceptance criteria and done definitions. Every item leaves with a testable "done" condition and a user-facing outcome statement. A done condition is valid only if a QA engineer can verify it without asking the developer a question.
+
+**SEGMENT** — JTBD (Jobs to Be Done) pass: who is this for, what job are they hiring it to do, what tool are they firing when they pick this, and whether the plan actually addresses the job or just the surface feature. Produces a segment-to-feature coverage matrix.
+
+All three modes produce a "NOT in scope" section (explicit deferrals) and a "What already exists" section (existing product coverage that prevents feature duplication).
+
+`/plan-pm-review` feeds into `/plan-eng-review` — RICE-scored P1 items make the architecture review much more focused. Vague plans produce vague arch reviews. The full pipeline is: `office-hours → plan-ceo-review → plan-pm-review → plan-eng-review → ship`.
 
 ---
 

@@ -9,7 +9,7 @@
 
 import type { TemplateContext, ResolverFn } from './types';
 
-const VALID_PHASES = new Set(['ceo-review', 'design-review', 'eng-review', 'devex-review']);
+const VALID_PHASES = new Set(['ceo-review', 'design-review', 'eng-review', 'devex-review', 'pm-review']);
 
 export const generateTasksSectionEmit: ResolverFn = (_ctx: TemplateContext, args?: string[]) => {
   const phase = args?.[0];

@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.49.0.0] - 2026-05-28
+
+## **`/plan-pm-review` ships: RICE prioritization, JTBD segmentation, and acceptance criteria land as the missing PM voice in the review pipeline.**
+## **`/autoplan` gains Phase 1.5 between CEO and Eng review — plans with 5+ deliverables, multiple user segments, or TODOS conflicts now get a cut list before architecture commits.**
+
+The plan review pipeline had a gap: the CEO review tells you what to build, the eng review locks in how to build it, but nobody asked who it's for, what to cut, or what "done" actually means. `/plan-pm-review` fills that role.
+
+Three modes, each sharpening the plan before engineering touches it. PRIORITIZE applies RICE scoring (Reach x Impact x Confidence / Effort) to every item and produces a ranked cut list with explicit tradeoffs. SHARPEN turns vague plan items into acceptance criteria and done definitions — a done condition is valid only if a QA engineer can verify it without asking the developer a question. SEGMENT runs JTBD analysis: who is the primary user, what job are they hiring this product to do, what tool are they firing when they switch, and does the plan actually solve the job or just the surface feature. All three modes produce an explicit "NOT in scope" section so deferred items are tracked, not forgotten.
+
+For AI-assisted projects, RICE effort is measured in CC+gstack time (not human-team months), so scores look dramatically different from traditional PM estimates. A task that takes a human team two weeks takes CC thirty minutes. The cut list reflects that.
+
+### The numbers that matter
+
+New skill: `plan-pm-review/` (1464 lines, ~17K tokens — comparable to `/plan-eng-review`).
+`/autoplan` Phase 1.5 adds 60 lines to `autoplan/SKILL.md.tmpl` with skip conditions so small plans with a named segment pass through at zero cost.
+
+| Item | Before | After |
+|------|--------|-------|
+| Plan review voices | CEO + Eng (+Design, +DX conditional) | CEO + PM + Eng (+Design, +DX conditional) |
+| RICE scoring in pipeline | Not available | Auto-runs for plans >5 deliverables or multiple segments |
+| Acceptance criteria | Manual (user responsibility) | SHARPEN mode produces testable done conditions for every item |
+| JTBD analysis | Not available | SEGMENT mode: functional + emotional + social job, firing trigger, success metric |
+| `/autoplan` phases | 4 phases (1 CEO + optional Design + Eng + optional DX) | 5 phases (1 CEO + optional PM + optional Design + Eng + optional DX) |
+
+### What this means for builders
+
+Plans that hit `/autoplan` with five or more deliverables now get a PM pass before the architecture is locked. That means cuts are surfaced while they're still cheap (before eng commits to data models and test plans), user segments are named explicitly, and every item has a testable done condition. For smaller plans, Phase 1.5 skips automatically.
+
+To run the PM review standalone: `/plan-pm-review`. To get it inline with the full pipeline: `/autoplan` (Phase 1.5 triggers automatically when warranted).
+
+### Itemized changes
+
+#### Added
+
+- **`plan-pm-review/SKILL.md.tmpl`**: New skill template. Three modes: PRIORITIZE (RICE scorecard + cut list + ranked roadmap + risk-adjusted confidence table), SHARPEN (acceptance criteria format + sharpness audit), SEGMENT (JTBD framework blocks + segment coverage matrix + misalignment flags). Requires explicit scope challenge (five forcing questions) before any mode runs. All modes produce "NOT in scope" and "What already exists" sections. JSONL task emission via `{{TASKS_SECTION_EMIT:pm-review}}` feeds into `/autoplan` aggregation.
+- **`plan-pm-review/SKILL.md`**: Generated from the template above.
+
+#### Changed
+
+- **`scripts/resolvers/tasks-section.ts`**: Added `'pm-review'` to `VALID_PHASES` so `{{TASKS_SECTION_EMIT:pm-review}}` resolves without throwing.
+- **`autoplan/SKILL.md.tmpl`**: Phase 1.5 (PM Review) inserted between Phase 1 (CEO) and Phase 2 (Design). Skip conditions: plan <= 3 deliverables AND segment already named AND no TODOS conflicts. Run conditions: >5 work items OR multiple user segments OR borderline scope OR TODOS conflicts. Auto-selects mode (PRIORITIZE by default, SEGMENT if personas unclear, SHARPEN if items vague). Updated Pre-Gate Verification checklist, Review Scores summary, and Completion review log section.
+- **`autoplan/SKILL.md`**: Regenerated.
+- **`AGENTS.md`**: Added `/plan-pm-review` entry.
+- **`docs/skills.md`**: Added `/plan-pm-review` table row and full section.
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.

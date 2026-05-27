@@ -15,6 +15,7 @@ Invoke them by name (e.g., `/office-hours`).
 |-------|-------------|
 | `/office-hours` | Start here. Reframes your product idea before you write code. |
 | `/plan-ceo-review` | CEO-level review: find the 10-star product in the request. |
+| `/plan-pm-review` | PM-mode review: RICE prioritization, JTBD segmentation, acceptance criteria. |
 | `/plan-eng-review` | Lock architecture, data flow, edge cases, and tests. |
 | `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |
 | `/plan-devex-review` | DX-mode review: TTHW, magical moments, friction points, persona traces. |
