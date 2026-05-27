@@ -46,9 +46,35 @@ function freezeInput(filePath: string) {
   return { tool_input: { file_path: filePath } };
 }
 
+/** Extract permissionDecision from the hookSpecificOutput envelope (or legacy flat format). */
+function getPermissionDecision(output: any): string | undefined {
+  if (output?.hookSpecificOutput?.permissionDecision !== undefined) {
+    return output.hookSpecificOutput.permissionDecision;
+  }
+  return output?.permissionDecision;
+}
+
+/** Extract the deny/ask reason from the hookSpecificOutput envelope (or legacy flat format). */
+function getReason(output: any): string | undefined {
+  if (output?.hookSpecificOutput?.permissionDecisionReason !== undefined) {
+    return output.hookSpecificOutput.permissionDecisionReason;
+  }
+  return output?.message;
+}
+
 function withFreezeDir(freezePath: string, fn: (stateDir: string) => void) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-test-'));
   fs.writeFileSync(path.join(stateDir, 'freeze-dir.txt'), freezePath);
+  try {
+    fn(stateDir);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+}
+
+function withCarefulActive(fn: (stateDir: string) => void) {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-careful-test-'));
+  fs.writeFileSync(path.join(stateDir, 'careful-active.txt'), '');
   try {
     fn(stateDir);
   } finally {
@@ -61,40 +87,67 @@ function withFreezeDir(freezePath: string, fn: (stateDir: string) => void) {
 // ============================================================
 describe('check-careful.sh', () => {
 
+  describe('no-op without careful-active.txt', () => {
+    test('allows everything when careful is not active (no state file)', () => {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-careful-test-'));
+      try {
+        const { exitCode, output } = runHook(
+          CAREFUL_SCRIPT,
+          carefulInput('rm -rf /var/important'),
+          { CLAUDE_PLUGIN_DATA: stateDir },
+        );
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBeUndefined();
+      } finally {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // --- Destructive rm commands ---
 
   describe('rm -rf / rm -r', () => {
     test('rm -rf /var/data warns with recursive delete message', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /var/data'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('recursive delete');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /var/data'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('recursive delete');
+      });
     });
 
     test('rm -r ./some-dir warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -r ./some-dir'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('recursive delete');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -r ./some-dir'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('recursive delete');
+      });
     });
 
     test('rm -rf node_modules allows (safe exception)', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBeUndefined();
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBeUndefined();
+      });
     });
 
     test('rm -rf .next dist allows (multiple safe targets)', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf .next dist'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBeUndefined();
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf .next dist'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBeUndefined();
+      });
     });
 
     test('rm -rf node_modules /var/data warns (mixed safe+unsafe)', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules /var/data'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('recursive delete');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules /var/data'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('recursive delete');
+      });
     });
   });
 
@@ -106,24 +159,30 @@ describe('check-careful.sh', () => {
 
   describe('SQL destructive commands', () => {
     test('psql DROP TABLE warns with DROP in message', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('psql -c DROP TABLE users;'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('DROP');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('psql -c DROP TABLE users;'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('DROP');
+      });
     });
 
     test('mysql drop database warns (case insensitive)', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('mysql -e drop database mydb'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message.toLowerCase()).toContain('drop');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('mysql -e drop database mydb'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)!.toLowerCase()).toContain('drop');
+      });
     });
 
     test('psql TRUNCATE warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('psql -c TRUNCATE orders;'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('TRUNCATE');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('psql -c TRUNCATE orders;'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('TRUNCATE');
+      });
     });
   });
 
@@ -131,38 +190,48 @@ describe('check-careful.sh', () => {
 
   describe('git destructive commands', () => {
     test('git push --force warns with force-push', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push --force origin main'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('force-push');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push --force origin main'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('force-push');
+      });
     });
 
     test('git push -f warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push -f origin main'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('force-push');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git push -f origin main'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('force-push');
+      });
     });
 
     test('git reset --hard warns with uncommitted', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git reset --hard HEAD~3'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('uncommitted');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git reset --hard HEAD~3'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('uncommitted');
+      });
     });
 
     test('git checkout . warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git checkout .'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('uncommitted');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git checkout .'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('uncommitted');
+      });
     });
 
     test('git restore . warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git restore .'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('uncommitted');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('git restore .'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('uncommitted');
+      });
     });
   });
 
@@ -170,24 +239,30 @@ describe('check-careful.sh', () => {
 
   describe('container and infra commands', () => {
     test('kubectl delete warns with kubectl in message', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('kubectl delete pod my-pod'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('kubectl');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('kubectl delete pod my-pod'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('kubectl');
+      });
     });
 
     test('docker rm -f warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('docker rm -f container123'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('Docker');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('docker rm -f container123'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('Docker');
+      });
     });
 
     test('docker system prune -a warns', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('docker system prune -a'));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('Docker');
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('docker system prune -a'), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('Docker');
+      });
     });
   });
 
@@ -204,9 +279,11 @@ describe('check-careful.sh', () => {
 
     for (const cmd of safeCmds) {
       test(`"${cmd}" allows`, () => {
-        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(cmd));
-        expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBeUndefined();
+        withCarefulActive((stateDir) => {
+          const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(cmd), { CLAUDE_PLUGIN_DATA: stateDir });
+          expect(exitCode).toBe(0);
+          expect(getPermissionDecision(output)).toBeUndefined();
+        });
       });
     }
   });
@@ -215,21 +292,27 @@ describe('check-careful.sh', () => {
 
   describe('edge cases', () => {
     test('empty command allows gracefully', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(''));
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBeUndefined();
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(''), { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBeUndefined();
+      });
     });
 
     test('missing command field allows gracefully', () => {
-      const { exitCode, output } = runHook(CAREFUL_SCRIPT, { tool_input: {} });
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBeUndefined();
+      withCarefulActive((stateDir) => {
+        const { exitCode, output } = runHook(CAREFUL_SCRIPT, { tool_input: {} }, { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBeUndefined();
+      });
     });
 
     test('malformed JSON input allows gracefully (exit 0, output {})', () => {
-      const { exitCode, raw } = runHookRaw(CAREFUL_SCRIPT, 'this is not json at all{{{{');
-      expect(exitCode).toBe(0);
-      expect(raw).toBe('{}');
+      withCarefulActive((stateDir) => {
+        const { exitCode, raw } = runHookRaw(CAREFUL_SCRIPT, 'this is not json at all{{{{', { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(raw).toBe('{}');
+      });
     });
 
     test('Python fallback: grep fails on multiline JSON, Python parses it', () => {
@@ -237,11 +320,13 @@ describe('check-careful.sh', () => {
       // grep works line-by-line, so it cannot match "command"..."value" across lines.
       // This forces CMD to be empty, triggering the Python fallback which handles
       // the full JSON correctly.
-      const rawJson = '{"tool_input":{"command":\n"rm -rf /tmp/important"}}';
-      const { exitCode, output } = runHookRaw(CAREFUL_SCRIPT, rawJson);
-      expect(exitCode).toBe(0);
-      expect(output.permissionDecision).toBe('ask');
-      expect(output.message).toContain('recursive delete');
+      withCarefulActive((stateDir) => {
+        const rawJson = '{"tool_input":{"command":\n"rm -rf /tmp/important"}}';
+        const { exitCode, output } = runHookRaw(CAREFUL_SCRIPT, rawJson, { CLAUDE_PLUGIN_DATA: stateDir });
+        expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBe('ask');
+        expect(getReason(output)).toContain('recursive delete');
+      });
     });
   });
 });
@@ -260,7 +345,7 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBeUndefined();
+        expect(getPermissionDecision(output)).toBeUndefined();
       });
     });
 
@@ -272,7 +357,7 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBeUndefined();
+        expect(getPermissionDecision(output)).toBeUndefined();
       });
     });
   });
@@ -286,9 +371,9 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBe('deny');
-        expect(output.message).toContain('freeze');
-        expect(output.message).toContain('outside');
+        expect(getPermissionDecision(output)).toBe('deny');
+        expect(getReason(output)).toContain('freeze');
+        expect(getReason(output)).toContain('outside');
       });
     });
 
@@ -300,9 +385,9 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBe('deny');
-        expect(output.message).toContain('freeze');
-        expect(output.message).toContain('outside');
+        expect(getPermissionDecision(output)).toBe('deny');
+        expect(getReason(output)).toContain('freeze');
+        expect(getReason(output)).toContain('outside');
       });
     });
   });
@@ -316,8 +401,8 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBe('deny');
-        expect(output.message).toContain('outside');
+        expect(getPermissionDecision(output)).toBe('deny');
+        expect(getReason(output)).toContain('outside');
       });
     });
   });
@@ -332,7 +417,7 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
-        expect(output.permissionDecision).toBeUndefined();
+        expect(getPermissionDecision(output)).toBeUndefined();
       } finally {
         fs.rmSync(stateDir, { recursive: true, force: true });
       }
@@ -348,7 +433,35 @@ describe('check-freeze.sh', () => {
           { CLAUDE_PLUGIN_DATA: stateDir },
         );
         expect(exitCode).toBe(0);
+        expect(getPermissionDecision(output)).toBeUndefined();
+      });
+    });
+  });
+
+  describe('hookSpecificOutput format', () => {
+    test('deny response uses hookSpecificOutput envelope', () => {
+      withFreezeDir('/Users/dev/project/src/', (stateDir) => {
+        const { output } = runHook(
+          FREEZE_SCRIPT,
+          freezeInput('/Users/dev/other/index.ts'),
+          { CLAUDE_PLUGIN_DATA: stateDir },
+        );
+        expect(output.hookSpecificOutput).toBeDefined();
+        expect(output.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+        expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+        expect(output.hookSpecificOutput.permissionDecisionReason).toBeDefined();
         expect(output.permissionDecision).toBeUndefined();
+      });
+    });
+
+    test('allow response is plain {} (no hookSpecificOutput)', () => {
+      withFreezeDir('/Users/dev/project/src/', (stateDir) => {
+        const { output } = runHook(
+          FREEZE_SCRIPT,
+          freezeInput('/Users/dev/project/src/file.ts'),
+          { CLAUDE_PLUGIN_DATA: stateDir },
+        );
+        expect(output.hookSpecificOutput).toBeUndefined();
       });
     });
   });

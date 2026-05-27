@@ -88,6 +88,11 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   # Create real directory with symlinked SKILL.md (absolute path)
   mkdir -p "$target"
   ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  # Symlink bin/ so hook scripts declared in SKILL.md frontmatter are reachable
+  if [ -d "$INSTALL_DIR/$skill/bin" ]; then
+    [ -L "$target/bin" ] && rm "$target/bin"
+    ln -snf "$INSTALL_DIR/$skill/bin" "$target/bin"
+  fi
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 

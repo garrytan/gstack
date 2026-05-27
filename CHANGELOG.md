@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.48.3.0] - 2026-05-28
+
+**`/freeze` and `/careful` now actually block. Three independent bugs — no bin/ symlink, no hook registration, wrong response format — were all required for the hooks to fire and enforce.**
+
+The `/freeze` skill blocks Edit and Write outside a declared directory. `/careful` warns before destructive Bash commands. Both worked during skill invocation but provided zero actual enforcement. An Edit on a blocked file would succeed silently.
+
+| Bug | Symptom | Root cause |
+|-----|---------|-----------|
+| Bug 1 | Hook script not found | `link_claude_skill_dirs` symlinked `SKILL.md` but not `bin/` — hook scripts unreachable |
+| Bug 2 | Hook never fired | SKILL.md frontmatter `hooks:` is documentation only — setup never wrote to `~/.claude/settings.json` |
+| Bug 3 | Hook fired, deny ignored | Scripts returned a flat object; correct format requires `hookSpecificOutput` envelope |
+
+Re-run `./setup` once to activate. After that, `/freeze` actually blocks edits outside the declared directory.
+
+### Itemized changes
+
+#### Fixed
+- **Bug 1** — `setup` and `gstack-relink` now symlink each skill's `bin/` alongside `SKILL.md`
+- **Bug 2** — `setup` registers PreToolUse hook entries in `~/.claude/settings.json` at install time
+- **Bug 3** — `check-freeze.sh` and `check-careful.sh` now output the correct `hookSpecificOutput` envelope
+
+#### For contributors
+- `test/hook-scripts.test.ts`: freeze and careful tests assert `hookSpecificOutput` shape
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.

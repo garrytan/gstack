@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# gstack-settings-hook — add/remove SessionStart hooks in Claude Code settings.json
+# gstack-settings-hook — add/remove hooks in Claude Code settings.json
 #
 # Usage:
-#   gstack-settings-hook add <hook-command>     # add SessionStart hook
-#   gstack-settings-hook remove <hook-command>  # remove SessionStart hook
+#   gstack-settings-hook add <hook-command>                      # add SessionStart hook
+#   gstack-settings-hook remove <hook-command>                   # remove SessionStart hook
+#   gstack-settings-hook add-pretooluse <matcher> <command>      # add PreToolUse hook
+#   gstack-settings-hook remove-pretooluse <matcher> <command>   # remove PreToolUse hook
 #
 # Requires: bun (already a gstack hard dependency)
 # Writes atomically: .tmp + rename to prevent corruption on crash/disk-full.
@@ -11,10 +13,16 @@
 set -euo pipefail
 
 ACTION="${1:-}"
-HOOK_CMD="${2:-}"
 SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-$HOME/.claude/settings.json}"
 
-if [ -z "$ACTION" ] || [ -z "$HOOK_CMD" ]; then
+if [ -z "$ACTION" ]; then
+  echo "Usage: gstack-settings-hook {add|remove} <hook-command>" >&2
+  echo "       gstack-settings-hook {add-pretooluse|remove-pretooluse} <matcher> <command>" >&2
+  exit 1
+fi
+
+HOOK_CMD="${2:-}"
+if [ -z "$HOOK_CMD" ]; then
   echo "Usage: gstack-settings-hook {add|remove} <hook-command>" >&2
   exit 1
 fi
@@ -75,8 +83,76 @@ case "$ACTION" in
       fs.renameSync(tmp, settingsPath);
     " 2>/dev/null
     ;;
+  add-pretooluse)
+    MATCHER="${2:-}"
+    HOOK_CMD2="${3:-}"
+    if [ -z "$MATCHER" ] || [ -z "$HOOK_CMD2" ]; then
+      echo "Usage: gstack-settings-hook add-pretooluse <matcher> <command>" >&2
+      exit 1
+    fi
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_MATCHER="$MATCHER" GSTACK_HOOK_CMD="$HOOK_CMD2" bun -e "
+      const fs = require('fs');
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      const matcher = process.env.GSTACK_MATCHER;
+      const hookCmd = process.env.GSTACK_HOOK_CMD;
+
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
+
+      if (!settings.hooks) settings.hooks = {};
+      if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
+
+      // Dedup: check if this exact matcher+command combo is already registered
+      const exists = settings.hooks.PreToolUse.some(entry =>
+        entry.matcher === matcher &&
+        entry.hooks && entry.hooks.some(h => h.command === hookCmd)
+      );
+
+      if (!exists) {
+        settings.hooks.PreToolUse.push({
+          matcher,
+          hooks: [{ type: 'command', command: hookCmd }]
+        });
+      }
+
+      const tmp = settingsPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+      fs.renameSync(tmp, settingsPath);
+    " 2>/dev/null
+    ;;
+  remove-pretooluse)
+    MATCHER="${2:-}"
+    HOOK_CMD2="${3:-}"
+    if [ -z "$MATCHER" ] || [ -z "$HOOK_CMD2" ]; then
+      echo "Usage: gstack-settings-hook remove-pretooluse <matcher> <command>" >&2
+      exit 1
+    fi
+    [ -f "$SETTINGS_FILE" ] || exit 0
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_MATCHER="$MATCHER" GSTACK_HOOK_CMD="$HOOK_CMD2" bun -e "
+      const fs = require('fs');
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      const matcher = process.env.GSTACK_MATCHER;
+      const hookCmd = process.env.GSTACK_HOOK_CMD;
+
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { process.exit(0); }
+
+      if (settings.hooks && settings.hooks.PreToolUse) {
+        settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(entry =>
+          !(entry.matcher === matcher &&
+            entry.hooks && entry.hooks.some(h => h.command === hookCmd))
+        );
+        if (settings.hooks.PreToolUse.length === 0) delete settings.hooks.PreToolUse;
+        if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+      }
+
+      const tmp = settingsPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+      fs.renameSync(tmp, settingsPath);
+    " 2>/dev/null
+    ;;
   *)
-    echo "Unknown action: $ACTION (expected add or remove)" >&2
+    echo "Unknown action: $ACTION (expected add, remove, add-pretooluse, or remove-pretooluse)" >&2
     exit 1
     ;;
 esac

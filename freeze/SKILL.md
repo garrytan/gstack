@@ -78,10 +78,12 @@ again. To remove it, run `/unfreeze` or end the session."
 
 The hook reads `file_path` from the Edit/Write tool input JSON, then checks
 whether the path starts with the freeze directory. If not, it returns
-`permissionDecision: "deny"` to block the operation.
+a `hookSpecificOutput` deny decision to block the operation.
 
-The freeze boundary persists for the session via the state file. The hook
-script reads it on every Edit/Write invocation.
+The hook is registered globally in Claude Code's settings by the gstack
+installer. It is a no-op when no freeze state file exists, so it does not
+interfere in sessions where `/freeze` has not been invoked. The freeze
+boundary persists via the state file; `/unfreeze` clears it.
 
 ## Notes
 

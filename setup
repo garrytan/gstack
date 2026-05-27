@@ -474,6 +474,12 @@ link_claude_skill_dirs() {
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
       _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      # Link bin/ so hook scripts declared in SKILL.md frontmatter are reachable
+      if [ -d "$gstack_dir/$dir_name/bin" ]; then
+        if [ -L "$target/bin" ]; then rm "$target/bin"; fi
+        if [ -e "$target/bin" ] && [ ! -L "$target/bin" ]; then rm -rf "$target/bin"; fi
+        _link_or_copy "$gstack_dir/$dir_name/bin" "$target/bin"
+      fi
       linked+=("$link_name")
     fi
   done
@@ -1149,4 +1155,25 @@ if [ "$NO_TEAM_MODE" -eq 1 ]; then
   fi
 
   log "Team mode disabled: auto-update hook removed."
+fi
+
+# 11. Register PreToolUse hooks for safety skills (freeze, careful)
+# Hooks declared in SKILL.md frontmatter are not auto-read by Claude Code — they
+# must be present in ~/.claude/settings.json. Register them here so the hook
+# scripts are actually invoked when the skills are active.
+# check-freeze.sh returns {} when no freeze state file exists, so it is safe as a
+# permanent global hook.  check-careful.sh checks for ~/.gstack/careful-active.txt
+# and is similarly safe when /careful has not been invoked.
+if [ -x "$SETTINGS_HOOK" ] && command -v bun >/dev/null 2>&1; then
+  _FREEZE_HOOK_SCRIPT="$SOURCE_GSTACK_DIR/freeze/bin/check-freeze.sh"
+  _CAREFUL_HOOK_SCRIPT="$SOURCE_GSTACK_DIR/careful/bin/check-careful.sh"
+
+  if [ -f "$_FREEZE_HOOK_SCRIPT" ]; then
+    "$SETTINGS_HOOK" add-pretooluse "Edit|Write|MultiEdit" "bash $_FREEZE_HOOK_SCRIPT" 2>/dev/null || true
+    log "  registered PreToolUse hook: freeze (Edit/Write/MultiEdit)"
+  fi
+  if [ -f "$_CAREFUL_HOOK_SCRIPT" ]; then
+    "$SETTINGS_HOOK" add-pretooluse "Bash" "bash $_CAREFUL_HOOK_SCRIPT" 2>/dev/null || true
+    log "  registered PreToolUse hook: careful (Bash)"
+  fi
 fi
