@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.48.2.0] - 2026-05-28
+
+**`eval:list --limit` now rejects malformed values instead of silently hiding runs.**
+
+`bun run eval:list -- --limit 1abc` used to silently show only 1 row; `--limit nope` would show zero rows while reporting the full count in the footer. Both cases now exit 1 with a clear error. Closes #1683.
+
+### The numbers that matter
+
+| Input | Before | After |
+|-------|--------|-------|
+| `--limit 1abc` | Shows 1 row, exit 0 | Error: must be positive integer, exit 1 |
+| `--limit nope` | Shows 0 rows (NaN slice), exit 0 | Error: must be positive integer, exit 1 |
+| `--limit 5` | Works | Works (unchanged) |
+
+### Itemized changes
+
+#### Fixed
+- `scripts/eval-list.ts`: `--limit` parsing uses `Number.parseInt` + `Number.isSafeInteger` + string round-trip check. Malformed/negative/zero values print a clear stderr error and exit 1.
+
+#### For contributors
+- `test/eval-list-limit.test.ts`: 6 gate-tier regression tests covering float, suffixed, non-numeric, zero, negative, and valid inputs.
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.

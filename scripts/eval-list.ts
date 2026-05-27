@@ -21,7 +21,15 @@ let limit = 20;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch' && args[i + 1]) { filterBranch = args[++i]; }
   else if (args[i] === '--tier' && args[i + 1]) { filterTier = args[++i]; }
-  else if (args[i] === '--limit' && args[i + 1]) { limit = parseInt(args[++i], 10); }
+  else if (args[i] === '--limit' && args[i + 1]) {
+    const raw = args[++i];
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
+      console.error(`Error: --limit must be a positive integer, got: ${raw}`);
+      process.exit(1);
+    }
+    limit = parsed;
+  }
 }
 
 // Read eval files
