@@ -471,7 +471,7 @@ Read the `STATE:` line and dispatch:
 
 - **FRESH** → proceed with the bump action below (steps 1–4).
 - **ALREADY_BUMPED** → skip the bump by default, BUT check for queue drift first: call `bin/gstack-next-version` with the implied bump level (derived from `CURRENT_VERSION` vs `BASE_VERSION`), compare its `.version` against `CURRENT_VERSION`. If they differ (queue moved since last ship), use **AskUserQuestion**: "VERSION drift detected: you claim v<CURRENT> but next available is v<NEW> (queue moved). A) Rebump to v<NEW> and rewrite CHANGELOG header + PR title (recommended), B) Keep v<CURRENT> — will be rejected by CI version-gate until resolved." If A, treat this as FRESH with `NEW_VERSION=<new>` and run steps 1-4 (which will also trigger Step 13 CHANGELOG header rewrite and Step 19 PR title rewrite). If B, reuse `CURRENT_VERSION` and warn that CI will likely reject. If util is offline, warn and reuse `CURRENT_VERSION`.
-- **DRIFT_STALE_PKG** → a prior `/ship` bumped `VERSION` but failed to update `package.json`. Run the sync-only repair block below (after step 4). Do NOT re-bump. Reuse `CURRENT_VERSION` for CHANGELOG and PR body. (Queue check still runs in ALREADY_BUMPED terms after repair.)
+- **DRIFT_STALE_PKG** → a prior `/ship` bumped `VERSION` but failed to update `package.json`. Run the sync-only repair block below (after step 4). Do NOT re-bump. Reuse `CURRENT_VERSION` for CHANGELOG and PR body. (Queue check still runs in ALREADY_BUMPED terms after repair.) `package-lock.json` is opportunistically synced in the same repair block; the idempotency detector does not inspect the lockfile (lockfile-only drift never blocks runtime), so a stale lockfile alone is not a halt condition.
 - **DRIFT_UNEXPECTED** → `/ship` has halted (exit 1). Resolve manually; /ship cannot tell which file is authoritative.
 
 1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
@@ -512,7 +512,7 @@ Read the `STATE:` line and dispatch:
    - If `ACTIVE_SIBLING_COUNT > 0` and any active sibling's VERSION is `>= NEW_VERSION`, use **AskUserQuestion**: "Sibling workspace <path> has v<X> committed <N>h ago but hasn't PR'd yet. Wait for them to ship first, or advance past? A) Advance past (recommended for unrelated work), B) Abort /ship and sync up with sibling first."
    - Validate `NEW_VERSION` matches `MAJOR.MINOR.PATCH.MICRO`. If util returns an empty or malformed version, fall back to local bump.
 
-4. **Validate** `NEW_VERSION` and write it to **both** `VERSION` and `package.json`. This block runs only when `STATE: FRESH`.
+4. **Validate** `NEW_VERSION` and write it to `VERSION`, `package.json`, and `package-lock.json` (when present). This block runs only when `STATE: FRESH`.
 
 ```bash
 if ! printf '%s' "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -536,6 +536,20 @@ if [ -f package.json ]; then
     exit 1
   fi
 fi
+# Opportunistically sync package-lock.json (lockfileVersion 3 stores the version in two places: top-level and packages[""].version). Skip silently when absent (yarn/pnpm/bun lockfile, or no JS project).
+if [ -f package-lock.json ]; then
+  if command -v node >/dev/null 2>&1; then
+    node -e 'const fs=require("fs");let l;try{l=JSON.parse(fs.readFileSync("./package-lock.json","utf8"))}catch(e){console.error("ERROR: package-lock.json is not valid JSON: "+e.message);process.exit(1)}l.version=process.argv[1];if(l.packages&&l.packages[""])l.packages[""].version=process.argv[1];fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2)+"\n")' "$NEW_VERSION" || {
+      echo "ERROR: failed to update package-lock.json. VERSION and package.json were written but the lockfile is now stale. Fix and re-run."
+      exit 1
+    }
+  elif command -v bun >/dev/null 2>&1; then
+    bun -e 'const fs=require("fs");let l;try{l=JSON.parse(fs.readFileSync("./package-lock.json","utf8"))}catch(e){console.error("ERROR: package-lock.json is not valid JSON: "+e.message);process.exit(1)}l.version=process.argv[1];if(l.packages&&l.packages[""])l.packages[""].version=process.argv[1];fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2)+"\n")' "$NEW_VERSION" || {
+      echo "ERROR: failed to update package-lock.json. VERSION and package.json were written but the lockfile is now stale."
+      exit 1
+    }
+  fi
+fi
 ```
 
 **DRIFT_STALE_PKG repair path** — runs when idempotency reports `STATE: DRIFT_STALE_PKG`. No re-bump; sync `package.json.version` to the current `VERSION` and continue. Reuse `CURRENT_VERSION` for CHANGELOG and PR body.
@@ -556,6 +570,20 @@ else
     echo "ERROR: drift repair failed."
     exit 1
   }
+fi
+# Opportunistically sync package-lock.json on the repair path too.
+if [ -f package-lock.json ]; then
+  if command -v node >/dev/null 2>&1; then
+    node -e 'const fs=require("fs");let l;try{l=JSON.parse(fs.readFileSync("./package-lock.json","utf8"))}catch(e){console.error("ERROR: package-lock.json is not valid JSON: "+e.message);process.exit(1)}l.version=process.argv[1];if(l.packages&&l.packages[""])l.packages[""].version=process.argv[1];fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2)+"\n")' "$REPAIR_VERSION" || {
+      echo "ERROR: drift repair failed — could not update package-lock.json."
+      exit 1
+    }
+  elif command -v bun >/dev/null 2>&1; then
+    bun -e 'const fs=require("fs");let l;try{l=JSON.parse(fs.readFileSync("./package-lock.json","utf8"))}catch(e){console.error("ERROR: package-lock.json is not valid JSON: "+e.message);process.exit(1)}l.version=process.argv[1];if(l.packages&&l.packages[""])l.packages[""].version=process.argv[1];fs.writeFileSync("package-lock.json",JSON.stringify(l,null,2)+"\n")' "$REPAIR_VERSION" || {
+      echo "ERROR: drift repair failed — could not update package-lock.json."
+      exit 1
+    }
+  fi
 fi
 echo "Drift repaired: package.json synced to $REPAIR_VERSION. No version bump performed."
 ```
