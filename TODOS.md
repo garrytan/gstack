@@ -1768,6 +1768,49 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Priority:** P2
 **Depends on:** CDP patches proving the value of anti-bot stealth first
 
+## /spec follow-ups (deferred from v1.47.0.0 via /plan-ceo-review SCOPE EXPANSION)
+
+### P2: `/spec --epic` mode (parent issue + child issues + dependency graph)
+
+**Priority:** P2
+
+**What:** Add `--epic` flag that produces an Epic issue (parent) plus N child issues with explicit dependency graph and topological order. Emits multiple `gh issue create` calls with parent linkage in child bodies.
+
+**Why:** Multi-week initiatives often span 3-5 specs that share context but ship sequentially. Today `/spec --epic` would let users author the full initiative in one session and file all linked issues atomically. The Epic template already exists in `spec/SKILL.md.tmpl` (carried over from PR #1698); only the flag routing + multi-issue `gh` orchestration is missing.
+
+**Pros:**
+- Closes the multi-issue workflow gap that `/spec` v1 doesn't cover.
+- Parent + child linkage means project boards show the full initiative at-a-glance.
+- Composes cleanly with existing `--execute` (spawn an agent on the parent epic; agent files children as it works).
+
+**Cons:**
+- More gh API surface (one create per child, parent-link edit pass).
+- Dependency-graph rendering in markdown is fiddly across GitHub vs GitLab renderers.
+
+**Context:** Considered in `/plan-ceo-review` SCOPE EXPANSION (D5), deferred 2026-05-25 in favor of shipping the 5 critical-path expansions (--execute, --dedupe, archive, quality gate, --audit). Re-evaluate once v1.47 ships and we see how often users hit "this should be 3 issues" in real /spec sessions.
+
+**Depends on:** v1.47.0.0 `/spec` lands first; need real usage data to calibrate the multi-issue surface.
+
+### P3: `/spec --dedupe` semantic matching (LLM-based) for v1.1
+
+**Priority:** P3
+
+**What:** Upgrade `--dedupe`'s string match against `gh issue list --search` to LLM-based semantic similarity. Today's v1 picks string overlap on title keywords; semantic match would catch "the sidebar terminal flakes on reload" matching an existing issue titled "PTY reconnect fails after extension restart" where keyword overlap is zero.
+
+**Why:** String match has high precision but low recall — it misses near-duplicates with different vocabulary. LLM semantic match catches more dupes but costs ~$0.01-0.05 per spec dispatch and adds 5-10s latency.
+
+**Pros:**
+- Catches dupes string match misses.
+- One more reason `/spec` is more useful than freehand authoring.
+
+**Cons:**
+- Paid + slower. Most v1 users probably don't hit enough false-negatives to justify the cost.
+- Adds another LLM-judged decision to a skill that already has the quality gate.
+
+**Context:** Considered in `/plan-ceo-review` build-time decisions; chose string match for v1 to keep the dedupe path free + fast. Revisit if v1 produces a meaningful false-negative rate in real use.
+
+**Depends on:** v1.47.0.0 ships; gather real false-negative data from the v1 string matcher.
+
 ## Completed
 
 ### Slim preamble + real-PTY plan-mode E2E harness (v1.13.1.0)
