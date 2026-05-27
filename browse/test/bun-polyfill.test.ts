@@ -97,6 +97,30 @@ describe('bun-polyfill', () => {
     expect(result.stdout.toString().trim()).toBe('ready:0');
   });
 
+  // Spawn-failure case: Node emits 'error' but not 'exit' when the binary
+  // is missing, so listening only for 'exit' hangs `await proc.exited`
+  // forever. The lifecycle promise must resolve on either event.
+  test('Bun.spawn proc.exited resolves on spawn failure (missing binary)', async () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      require('${polyfillPath}');
+      (async () => {
+        const p = Bun.spawn(['this-binary-does-not-exist-zzz-' + Date.now()], {
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+        const code = await Promise.race([
+          p.exited,
+          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+        ]).catch(() => 'TIMEOUT');
+        console.log('exit:' + code);
+      })();
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    // Anything other than 'TIMEOUT' (and ideally a non-zero number) means the
+    // lifecycle promise resolved on the spawn error.
+    const out = result.stdout.toString().trim();
+    expect(out).not.toBe('exit:TIMEOUT');
+    expect(out).toMatch(/^exit:\d+$/);
+  });
+
   // Regression for the pipe-blocking case: if the child writes more than the
   // OS pipe buffer (~16-64 KB) and the polyfill doesn't drain eagerly, the
   // child blocks in write() and `exit` never fires. 1 MB is well past every

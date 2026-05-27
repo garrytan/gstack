@@ -104,8 +104,12 @@ globalThis.Bun = {
       const chunks = [];
       const done = new Promise((resolve) => {
         stream.on('data', (chunk) => chunks.push(chunk));
+        // Any terminal event resolves: 'end' on normal close, 'error' on a
+        // stream-level error, 'close' as the belt-and-suspenders for spawn
+        // failures where Node fires 'close' but neither 'end' nor 'error'.
         stream.once('end', resolve);
-        stream.once('error', resolve);   // exit event carries the real status
+        stream.once('error', resolve);
+        stream.once('close', resolve);
       });
       return { done, chunks };
     };
@@ -131,11 +135,17 @@ globalThis.Bun = {
       proc.once('error', () => {
         if (exitStatus === undefined) exitStatus = 1;
       });
-      Promise.all([
-        new Promise((r) => proc.once('exit', r)),
-        stdoutDrain.done,
-        stderrDrain.done,
-      ]).then(() => resolveExited(exitStatus !== undefined ? exitStatus : 0));
+      // Wait for either 'exit' (normal child lifecycle) or 'error' (spawn
+      // failure — Node fires error without exit when the binary is missing).
+      // Either path resolves the lifecycle promise; without listening to both
+      // a spawn error hangs `await proc.exited` until the consumer's own
+      // timeout fires.
+      const lifecycle = new Promise((r) => {
+        proc.once('exit', r);
+        proc.once('error', r);
+      });
+      Promise.all([lifecycle, stdoutDrain.done, stderrDrain.done])
+        .then(() => resolveExited(exitStatus !== undefined ? exitStatus : 0));
     });
 
     // Replay buffered output as a fresh Web ReadableStream. `start()` awaits
