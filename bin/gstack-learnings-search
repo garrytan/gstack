@@ -92,8 +92,11 @@ for (const taggedLine of lines) {
 
     // Trust gate: cross-project learnings only loaded if trusted (user-stated)
     // This prevents prompt injection from one project's AI-generated learnings
-    // silently influencing reviews in another project.
-    if (isCrossProject && e.trusted === false) continue;
+    // silently influencing reviews in another project. Fail closed — rows
+    // without a 'trusted' field (legacy data written before the field landed
+    // in #988 in 2026-04, hand-edited rows, rows produced by other tools)
+    // are treated as untrusted. See #1745.
+    if (isCrossProject && e.trusted !== true) continue;
 
     entries.push(e);
   } catch {}
