@@ -68,6 +68,21 @@ do_check() {
         return;
       }
 
+      // Split-chain carve-out: per-option calls in N-option splits emit
+      // question_ids of the form <skill>-split-<option-slug>. These are
+      // NEVER AUTO_DECIDE-eligible regardless of stored preferences — the
+      // whole point of splitting is restoring user sovereignty over the
+      // option set. See scripts/resolvers/preamble/generate-ask-user-format.ts
+      // \"Handling 5+ options — split, never drop\" for the surrounding
+      // mechanism that generates these ids.
+      if (/-split-/.test(qid)) {
+        console.log('ASK_NORMALLY');
+        if (pref === 'never-ask' || pref === 'ask-only-for-one-way') {
+          console.log('NOTE: split-chain per-option calls always ASK_NORMALLY; your ' + pref + ' preference does not apply to options inside a sequential split.');
+        }
+        return;
+      }
+
       switch (pref) {
         case 'never-ask':
           console.log('AUTO_DECIDE');
