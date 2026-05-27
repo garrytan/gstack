@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.48.4.0] - 2026-05-28
+
+**Bash syntax validation now catches broken shell code in SKILL.md files before it ships to users.**
+
+Every generated SKILL.md contains bash code blocks that agents execute. A typo like `2/dev/null` instead of `2>/dev/null`, or a missing closing code fence that swallows prose as bash, would pass all tests and break silently in the field. `test/skill-bash-syntax.test.ts` extracts all bash blocks across all 53 skill files and runs `bash -n` (parse-only) on each. The test also found and fixed a real bug: an unclosed fence in `codex/SKILL.md` that caused prose text to be parsed as shell code.
+
+### Itemized changes
+
+#### Added
+- `test/skill-bash-syntax.test.ts`: gate-tier free test; `bash -n` on all bash blocks in all 53 SKILL.md files; angle-bracket placeholders preprocessed to avoid false positives from stdin-redirect syntax
+
+#### Fixed
+- `codex/SKILL.md` + `codex/SKILL.md.tmpl`: missing closing fence on the resumed-session bash block
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.
