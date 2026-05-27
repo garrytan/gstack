@@ -1,7 +1,7 @@
 ---
 name: unfreeze
 version: 0.1.0
-description: Clear the freeze boundary set by /freeze, allowing edits to all directories again. (gstack)
+description: "Clear the freeze boundary set by /freeze, allowing edits to all directories again. (gstack)"
 triggers:
   - unfreeze edits
   - unlock all directories

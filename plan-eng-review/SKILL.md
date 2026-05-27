@@ -3,7 +3,7 @@ name: plan-eng-review
 preamble-tier: 3
 interactive: true
 version: 1.0.0
-description: Eng manager-mode plan review. (gstack)
+description: "Eng manager-mode plan review. (gstack)"
 benefits-from: [office-hours]
 allowed-tools:
   - Read

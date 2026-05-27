@@ -31,3 +31,5 @@ jobs:
             echo "Generated Factory SKILL.md files are stale. Run: bun run gen:skill-docs --host factory"
             exit 1
           }
+      - name: Validate generated skill frontmatter
+        run: bun run skill:frontmatter

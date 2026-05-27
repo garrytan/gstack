@@ -8,7 +8,7 @@
  *   - Freshness check (generated files match committed files)
  */
 
-import { validateSkill } from '../test/helpers/skill-parser';
+import { validateSkill, validateSkillFrontmatter } from '../test/helpers/skill-parser';
 import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -35,6 +35,16 @@ let hasErrors = false;
 console.log('  Skills:');
 for (const file of SKILL_FILES) {
   const fullPath = path.join(ROOT, file);
+  const frontmatterErrors = validateSkillFrontmatter(fullPath);
+  if (frontmatterErrors.length > 0) {
+    hasErrors = true;
+    console.log(`  ❌ ${file.padEnd(30)} — invalid frontmatter`);
+    for (const err of frontmatterErrors) {
+      console.log(`      line ${err.line}: ${err.message}`);
+    }
+    continue;
+  }
+
   const result = validateSkill(fullPath);
 
   if (result.warnings.length > 0) {

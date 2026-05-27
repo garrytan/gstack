@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { validateSkill, extractRemoteSlugPatterns, extractWeightsFromTable } from './helpers/skill-parser';
+import { validateSkill, validateSkillFrontmatter, extractRemoteSlugPatterns, extractWeightsFromTable } from './helpers/skill-parser';
 import { ALL_COMMANDS, COMMAND_DESCRIPTIONS, READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
@@ -8,6 +8,30 @@ import * as path from 'path';
 const ROOT = path.resolve(import.meta.dir, '..');
 
 describe('SKILL.md command validation', () => {
+  test('all SKILL.md files have loadable YAML frontmatter', () => {
+    const skillFiles: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === '.git') continue;
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+        } else if (entry.name === 'SKILL.md') {
+          skillFiles.push(fullPath);
+        }
+      }
+    };
+    walk(ROOT);
+
+    const errors = skillFiles.flatMap((skillPath) =>
+      validateSkillFrontmatter(skillPath).map((error) =>
+        `${path.relative(ROOT, skillPath)}:${error.line}: ${error.message}`
+      )
+    );
+
+    expect(errors).toEqual([]);
+  });
+
   test('all $B commands in SKILL.md are valid browse commands', () => {
     const result = validateSkill(path.join(ROOT, 'SKILL.md'));
     expect(result.invalid).toHaveLength(0);

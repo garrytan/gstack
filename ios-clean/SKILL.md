@@ -2,7 +2,7 @@
 name: ios-clean
 preamble-tier: 3
 version: 1.0.0
-description: Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app. (gstack)
+description: "Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app. (gstack)"
 allowed-tools:
   - Bash
   - Read

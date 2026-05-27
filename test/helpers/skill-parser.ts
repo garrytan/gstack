@@ -34,6 +34,11 @@ export interface ValidationResult {
   warnings: string[];
 }
 
+export interface FrontmatterError {
+  line: number;
+  message: string;
+}
+
 /**
  * Extract all $B invocations from bash code blocks in a SKILL.md file.
  */
@@ -136,6 +141,50 @@ export function validateSkill(skillPath: string): ValidationResult {
   }
 
   return result;
+}
+
+/**
+ * Lightweight frontmatter validation for the YAML subset used by SKILL.md.
+ *
+ * This intentionally does not try to be a complete YAML parser. It catches the
+ * class of errors that make agents skip skills: missing delimiters and plain
+ * scalar values that contain ": " without being quoted or written as a block.
+ */
+export function validateSkillFrontmatter(skillPath: string): FrontmatterError[] {
+  const content = fs.readFileSync(skillPath, 'utf-8');
+  const errors: FrontmatterError[] = [];
+
+  if (!content.startsWith('---\n')) {
+    return [{ line: 1, message: 'missing opening frontmatter delimiter' }];
+  }
+
+  const fmEnd = content.indexOf('\n---', 4);
+  if (fmEnd === -1) {
+    return [{ line: 1, message: 'missing closing frontmatter delimiter' }];
+  }
+
+  const frontmatter = content.slice(4, fmEnd);
+  const lines = frontmatter.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^\s*[A-Za-z0-9_-]+:\s+(.+?)\s*$/);
+    if (!match) continue;
+
+    const value = match[1].trim();
+    const isQuoted = value.startsWith('"') || value.startsWith("'");
+    const isBlockScalar = value === '|' || value === '>' || value.startsWith('|') || value.startsWith('>');
+    const isFlowValue = value.startsWith('[') || value.startsWith('{');
+    if (isQuoted || isBlockScalar || isFlowValue) continue;
+
+    if (/:\s/.test(value)) {
+      errors.push({
+        line: i + 2,
+        message: 'plain YAML scalar contains ": "; quote it or use a block scalar',
+      });
+    }
+  }
+
+  return errors;
 }
 
 /**

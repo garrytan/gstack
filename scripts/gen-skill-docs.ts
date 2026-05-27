@@ -299,6 +299,10 @@ export function buildTrimmedDescription(parts: CatalogParts): string {
   return `${lead}${suffix}`;
 }
 
+function yamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
 /** Build the body section that holds the routing/voice prose. */
 export function buildWhenToInvokeSection(parts: CatalogParts): string {
   const lines: string[] = ['## When to invoke this skill', ''];
@@ -355,7 +359,7 @@ export function applyCatalogTrim(content: string, skillName: string): { content:
   // Replace description in frontmatter — keep trailing newline so the next
   // YAML field doesn't collide on the same line as the description value.
   const newDesc = buildTrimmedDescription(parts);
-  const newFrontmatter = frontmatter.replace(descMatch[0], `description: ${newDesc}\n`);
+  const newFrontmatter = frontmatter.replace(descMatch[0], `description: ${yamlString(newDesc)}\n`);
   let newContent = '---\n' + newFrontmatter + content.slice(fmEnd);
 
   // Insert body section after frontmatter (after the closing ---\n and any

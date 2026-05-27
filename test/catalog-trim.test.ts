@@ -228,7 +228,7 @@ Original body content here.
     expect(result).not.toBeNull();
     const { content, parts } = result!;
     // Frontmatter description is now ONE line ending with (gstack)
-    expect(content).toMatch(/^description: Example skill:[^\n]*\(gstack\)\n/m);
+    expect(content).toMatch(/^description: "Example skill:[^\n]*\(gstack\)"\n/m);
     // Body has the When to invoke section
     expect(content).toContain('## When to invoke this skill');
     expect(content).toContain('Use when asked to do an example task.');
@@ -257,7 +257,7 @@ Original body content here.
     expect(result).not.toBeNull();
     expect(result!.content).not.toMatch(/\(gstack\)preamble-tier/);
     expect(result!.content).not.toMatch(/\(gstack\)allowed-tools/);
-    expect(result!.content).toMatch(/\(gstack\)\n[a-z-]+:/);
+    expect(result!.content).toMatch(/\(gstack\)"\n[a-z-]+:/);
   });
 
   test('returns null on content without proper frontmatter', () => {
