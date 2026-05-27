@@ -244,10 +244,13 @@ describe('validateAllConfigs', () => {
 
 describe('HOST_PATHS derivation from configs', () => {
   test('Claude uses literal home paths (no env vars)', () => {
-    expect(HOST_PATHS.claude.skillRoot).toBe('~/.claude/skills/gstack');
-    expect(HOST_PATHS.claude.binDir).toBe('~/.claude/skills/gstack/bin');
-    expect(HOST_PATHS.claude.browseDir).toBe('~/.claude/skills/gstack/browse/dist');
-    expect(HOST_PATHS.claude.designDir).toBe('~/.claude/skills/gstack/design/dist');
+    // Paths use `$HOME/...` (not `~/...`) so substituted values expand
+    // correctly inside double-quoted bash assignments and quoted `[ -x "$(…)" ]`
+    // tests — see #1715 / the artifacts-sync preamble bug.
+    expect(HOST_PATHS.claude.skillRoot).toBe('$HOME/.claude/skills/gstack');
+    expect(HOST_PATHS.claude.binDir).toBe('$HOME/.claude/skills/gstack/bin');
+    expect(HOST_PATHS.claude.browseDir).toBe('$HOME/.claude/skills/gstack/browse/dist');
+    expect(HOST_PATHS.claude.designDir).toBe('$HOME/.claude/skills/gstack/design/dist');
   });
 
   test('Codex uses $GSTACK_ROOT env vars', () => {
@@ -269,7 +272,7 @@ describe('HOST_PATHS derivation from configs', () => {
   test('every host with usesEnvVars=false gets literal paths', () => {
     for (const config of ALL_HOST_CONFIGS) {
       if (!config.usesEnvVars) {
-        expect(HOST_PATHS[config.name].skillRoot).toContain('~/');
+        expect(HOST_PATHS[config.name].skillRoot).toContain('$HOME/');
         expect(HOST_PATHS[config.name].binDir).toContain('/bin');
       }
     }

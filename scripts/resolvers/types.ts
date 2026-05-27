@@ -34,7 +34,14 @@ function buildHostPaths(): Record<string, HostPaths> {
         makePdfDir: '$GSTACK_MAKE_PDF',
       };
     } else {
-      const root = `~/${config.globalRoot}`;
+      // Use `$HOME` (not `~`) so substituted paths expand correctly in every
+      // bash quoting context. Tilde expansion only fires when `~` is at the
+      // start of an unquoted word, so values that land inside double-quoted
+      // variable assignments (e.g. `_BRAIN_SYNC_BIN="${ctx.paths.binDir}/..."`)
+      // or quoted `[ -x "$(…)" ]` tests would otherwise resolve to a literal
+      // path that doesn't exist and silently disable artifacts sync on every
+      // skill invocation (#1715).
+      const root = `$HOME/${config.globalRoot}`;
       paths[config.name] = {
         skillRoot: root,
         localSkillRoot: config.localSkillRoot,
