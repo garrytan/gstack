@@ -7,17 +7,15 @@
 
 After `/office-hours` + eng-review + `/design-consultation` produces a design doc, the bottleneck is execution: one agent works through the whole doc serially. `/fanout docs/designs/MY_FEATURE.md` reads the doc, identifies independent slabs of work via a 4-layer heuristic (numbered phases → implementation subsections → file-reference tables → natural seams), promotes shared groundwork to a synchronous Slab 0, builds a slab matrix with verification gates, and writes a `## Parallel Execution Plan` section back to the doc. Alongside it, a `worktree-dispatch.sh` script with Slab 0 ready to run and Slabs 1-N commented out (uncommented manually after Slab 0 lands on main).
 
-### The numbers that matter
+### The shape of the win
 
-Estimated impact based on typical design-doc scope on docs in `docs/designs/`:
+No production benchmarks yet — this is a v0 release. The structural argument:
 
-| Metric | Serial (1 agent) | Parallel (3 agents) | Δ |
-|---|---|---|---|
-| Wall-clock to implementation done | ~6h avg | ~2.5h avg | -58% |
-| Coordination overhead (Slab 0) | 0min | ~30min | +30min |
-| Net time saved | — | — | ~3h per doc |
+- Serial implementation of a 3-subsystem design doc waits on one agent finishing each subsystem in sequence.
+- Parallel implementation runs three agents concurrently after a brief Slab 0 (shared groundwork) lands. Wall-clock collapses to `Slab 0 time + max(slab times)` instead of the sum.
+- The 4-layer slab detection heuristic + explicit Slab 0 promotion is the structural defense against the failure mode where three parallel agents trip over the same shared type file.
 
-The 30-minute Slab 0 cost pays for itself the first time three parallel agents *don't* trip over the same shared type file.
+Real numbers will land in v1 with the first production runs and a paid E2E eval. Until then, the win is qualitative: it turns "wait for one agent" into "wait for the slowest of three."
 
 ### What this means for builders
 
