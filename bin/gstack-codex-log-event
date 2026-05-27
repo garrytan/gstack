@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# gstack-codex-log-event: standalone telemetry emitter. Replaces
+# _gstack_codex_log_event() from gstack-codex-probe for skill templates
+# that cannot safely source the probe file.
+#
+# Usage: gstack-codex-log-event <event> [duration_s]
+# Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
+#              codex_version_warning.
+# Payload: {skill, event, duration_s, ts}. NEVER includes prompt content,
+# env var values, or auth tokens.
+_event="${1:-unknown}"
+_duration="${2:-0}"
+_bin_dir="$(cd "$(dirname "$0")" && pwd)"
+_TEL=$("$_bin_dir/gstack-config" get telemetry 2>/dev/null || echo "off")
+[ "$_TEL" = "off" ] && exit 0
+mkdir -p "$HOME/.gstack/analytics" 2>/dev/null || exit 0
+_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+printf '{"skill":"codex","event":"%s","duration_s":"%s","ts":"%s"}\n' \
+  "$_event" "$_duration" "$_ts" \
+  >> "$HOME/.gstack/analytics/skill-usage.jsonl" 2>/dev/null || true

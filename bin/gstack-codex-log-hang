@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# gstack-codex-log-hang: standalone hang logger. Replaces _gstack_codex_log_hang()
+# from gstack-codex-probe for skill templates that cannot safely source the probe.
+#
+# Usage: gstack-codex-log-hang <mode> [prompt_size]
+# Invoked when a codex invocation times out (exit 124). Records an operational
+# learning so future /investigate sessions surface the pattern. Best-effort.
+_mode="${1:-unknown}"
+_prompt_size="${2:-0}"
+_log_bin="$HOME/.claude/skills/gstack/bin/gstack-learnings-log"
+[ -x "$_log_bin" ] || exit 0
+_key="codex-hang-$(date +%s 2>/dev/null || echo unknown)"
+"$_log_bin" "$(printf '{"skill":"codex","type":"operational","key":"%s","insight":"Codex timed out after 600s during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["codex/SKILL.md.tmpl","autoplan/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \
+  >/dev/null 2>&1 || true

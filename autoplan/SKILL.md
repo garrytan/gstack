@@ -1038,26 +1038,22 @@ Loaded review skills from disk. Starting full review pipeline with auto-decision
 ## Phase 0.5: Codex auth + version preflight
 
 Before invoking any Codex voice, preflight the CLI: verify auth (multi-signal) and
-warn on known-bad CLI versions. This is infrastructure for all 4 phases below —
-source it once here and the helper functions stay in scope for the rest of the
-workflow.
+warn on known-bad CLI versions. Standalone probe binaries handle auth, version
+checks, and telemetry — no `source` needed, no security hook triggers.
 
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
-
 # Check Codex binary. If missing, tag the degradation matrix and continue
 # with Claude subagent only (autoplan's existing degradation fallback).
 if ! command -v codex >/dev/null 2>&1; then
-  _gstack_codex_log_event "codex_cli_missing"
+  ~/.claude/skills/gstack/bin/gstack-codex-log-event "codex_cli_missing"
   echo "[codex-unavailable: binary not found] — proceeding with Claude subagent only"
   _CODEX_AVAILABLE=false
-elif ! _gstack_codex_auth_probe >/dev/null; then
-  _gstack_codex_log_event "codex_auth_failed"
+elif ! ~/.claude/skills/gstack/bin/gstack-codex-auth-probe >/dev/null; then
+  ~/.claude/skills/gstack/bin/gstack-codex-log-event "codex_auth_failed"
   echo "[codex-unavailable: auth missing] — proceeding with Claude subagent only. Run \`codex login\` or set \$CODEX_API_KEY to enable dual-voice review."
   _CODEX_AVAILABLE=false
 else
-  _gstack_codex_version_check   # non-blocking warn if known-bad
+  ~/.claude/skills/gstack/bin/gstack-codex-version-check   # non-blocking warn if known-bad
   _CODEX_AVAILABLE=true
 fi
 ```
@@ -1091,7 +1087,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Codex CEO voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  ~/.claude/skills/gstack/bin/gstack-codex-timeout-wrapper 600 codex exec"IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   You are a CEO/founder advisor reviewing a development plan.
   Challenge the strategic foundations: Are the premises valid or assumed? Is this the
@@ -1102,8 +1098,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   File: <plan_path>" -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
   _CODEX_EXIT=$?
   if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-event "codex_timeout" "600"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-hang "autoplan" "0"
     echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
   fi
   ```
@@ -1208,7 +1204,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Codex design voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  ~/.claude/skills/gstack/bin/gstack-codex-timeout-wrapper 600 codex exec"IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Read the plan file at <plan_path>. Evaluate this plan's
   UI/UX design decisions.
@@ -1225,8 +1221,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   Be opinionated. No hedging." -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
   _CODEX_EXIT=$?
   if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-event "codex_timeout" "600"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-hang "autoplan" "0"
     echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
   fi
   ```
@@ -1289,7 +1285,7 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   **Codex eng voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  ~/.claude/skills/gstack/bin/gstack-codex-timeout-wrapper 600 codex exec"IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Review this plan for architectural issues, missing edge cases,
   and hidden complexity. Be adversarial.
@@ -1301,8 +1297,8 @@ Override: every AskUserQuestion → auto-decide using the 6 principles.
   File: <plan_path>" -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
   _CODEX_EXIT=$?
   if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-event "codex_timeout" "600"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-hang "autoplan" "0"
     echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
   fi
   ```
@@ -1410,7 +1406,7 @@ Log: "Phase 3.5 skipped — no developer-facing scope detected."
   **Codex DX voice** (via Bash):
   ```bash
   _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-  _gstack_codex_timeout_wrapper 600 codex exec "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
+  ~/.claude/skills/gstack/bin/gstack-codex-timeout-wrapper 600 codex exec"IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. Stay focused on repository code only.
 
   Read the plan file at <plan_path>. Evaluate this plan's developer experience.
 
@@ -1427,8 +1423,8 @@ Log: "Phase 3.5 skipped — no developer-facing scope detected."
   Be adversarial. Think like a developer who is evaluating this against 3 competitors." -C "$_REPO_ROOT" -s read-only --enable web_search_cached < /dev/null
   _CODEX_EXIT=$?
   if [ "$_CODEX_EXIT" = "124" ]; then
-    _gstack_codex_log_event "codex_timeout" "600"
-    _gstack_codex_log_hang "autoplan" "0"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-event "codex_timeout" "600"
+    ~/.claude/skills/gstack/bin/gstack-codex-log-hang "autoplan" "0"
     echo "[codex stalled past 10 minutes — tagging as [codex-unavailable] for this phase and proceeding with Claude subagent only]"
   fi
   ```

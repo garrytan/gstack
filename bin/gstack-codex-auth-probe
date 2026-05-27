@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# gstack-codex-auth-probe: standalone auth check. Prints AUTH_OK (exit 0) or
+# AUTH_FAILED (exit 1). Replaces _gstack_codex_auth_probe() from gstack-codex-probe
+# for skill templates that cannot safely source the probe file.
+#
+# Multi-signal: env vars OR auth file. Avoids false negatives for env-auth users
+# (CI, platform engineers) that a file-only check would reject.
+_codex_home="${CODEX_HOME:-$HOME/.codex}"
+_k1=$(printf '%s' "${CODEX_API_KEY:-}" | tr -d '[:space:]')
+_k2=$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '[:space:]')
+if [ -n "$_k1" ] || [ -n "$_k2" ] || [ -f "$_codex_home/auth.json" ]; then
+  echo "AUTH_OK"
+  exit 0
+fi
+echo "AUTH_FAILED"
+exit 1

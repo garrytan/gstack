@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# gstack-codex-timeout-wrapper: standalone timeout wrapper. Replaces
+# _gstack_codex_timeout_wrapper() from gstack-codex-probe for skill templates
+# that cannot safely source the probe file.
+#
+# Usage: gstack-codex-timeout-wrapper <duration_seconds> <command> [args...]
+# Resolves gtimeout (Homebrew coreutils on macOS) -> timeout (Linux) -> unwrapped.
+if [ "$#" -lt 2 ]; then
+  echo "Usage: gstack-codex-timeout-wrapper <duration> <command> [args...]" >&2
+  exit 1
+fi
+_duration="$1"
+shift
+_to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+if [ -n "$_to" ]; then
+  "$_to" "$_duration" "$@"
+else
+  "$@"
+fi

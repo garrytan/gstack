@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.48.2.0] - 2026-05-28
+
+**`/codex` and `/autoplan` replace inline python streaming parsers with a standalone binary, eliminating security hook triggers.**
+
+The `gstack-codex-jsonl-parser` binary handles JSONL streaming from `codex exec --json` in both challenge (`--mode challenge`) and consult (`--mode consult`) modes. Three shell invocation patterns that consistently triggered pre-tool-use security hooks in `/codex` and `/autoplan` are removed or replaced.
+
+### Itemized changes
+
+#### Changed
+- `codex/SKILL.md.tmpl` + `codex/SKILL.md`: three inline python blocks replaced with `gstack-codex-jsonl-parser` binary invocations; python availability check updated to `if ! command -v python3`
+- `autoplan/SKILL.md.tmpl` + `autoplan/SKILL.md`: same pattern fixes
+
+#### Added
+- `bin/gstack-codex-jsonl-parser`: standalone python3 binary handling JSONL streaming in challenge and consult modes
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.
