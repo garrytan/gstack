@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableDependencyDashboard",
+  ],
+  "baseBranchPatterns": ["main"],
+  "schedule": ["on the 2nd day of the month"],
+  "timezone": "America/Sao_Paulo",
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 0,
+  "labels": ["dependencies"],
+  "separateMajorMinor": false,
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "commitMessagePrefix": "[RENOVATE]",
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "commitMessagePrefix": "[RENOVATE] [CI]",
+      "pinDigests": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "npm-dev-deps",
+      "commitMessagePrefix": "[RENOVATE] [JS] [DEV]",
+      "automerge": true,
+      "automergeType": "pr",
+      "matchUpdateTypes": ["patch"]
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "groupName": "npm-deps",
+      "commitMessagePrefix": "[RENOVATE] [JS]",
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "npm-major",
+      "commitMessagePrefix": "[RENOVATE] [JS] [MAJOR]",
+      "automerge": false
+    },
+    {
+      "matchPackageNames": ["@types/*"],
+      "groupName": "types",
+      "commitMessagePrefix": "[RENOVATE] [JS] [TYPES]",
+      "automerge": true
+    }
+  ]
+}
