@@ -781,7 +781,12 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 1. Read `CLAUDE.md`, `TODOS.md` (if they exist).
 2. Run `git log --oneline -30` and `git diff origin/main --stat 2>/dev/null` to understand recent context.
 3. Use Grep/Glob to map the codebase areas most relevant to the user's request.
-4. **List existing design docs for this project:**
+4. **Codebase Surface Map (conditional):** If the design is schema-touching, visibility/auth-touching, or server-action-touching, verify the relevant codebase surface before Phase 2:
+   - **Schema-touching:** list recent migrations touching affected tables; summarize triggers, constraints, check columns, and relevant legacy columns.
+   - **Visibility/auth-touching:** read RLS policies and authorization checks for affected tables/resources; summarize what users can see or mutate today.
+   - **Server-action-touching:** list existing server actions, route handlers, jobs, or mutation flows in scope; summarize what they already write/read.
+   Output a `Codebase Surface` note with file paths and evidence. If none of these triggers apply, explicitly say `Codebase Surface: not applicable`.
+5. **List existing design docs for this project:**
    ```bash
    setopt +o nomatch 2>/dev/null || true  # zsh compat
    ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null
@@ -826,7 +831,7 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-5. **Ask: what's your goal with this?** This is a real question, not a formality. The answer determines everything about how the session runs.
+6. **Ask: what's your goal with this?** This is a real question, not a formality. The answer determines everything about how the session runs.
 
    Via AskUserQuestion, ask:
 
@@ -843,7 +848,7 @@ smarter on their codebase over time.
    - Startup, intrapreneurship → **Startup mode** (Phase 2A)
    - Hackathon, open source, research, learning, having fun → **Builder mode** (Phase 2B)
 
-6. **Assess product stage** (only for startup/intrapreneurship modes):
+7. **Assess product stage** (only for startup/intrapreneurship modes):
    - Pre-product (idea stage, no users yet)
    - Has users (people using it, not yet paying)
    - Has paying customers
@@ -1136,6 +1141,8 @@ PREMISES:
 2. [statement] — agree/disagree?
 3. [statement] — agree/disagree?
 ```
+
+**Verify against code first:** Before using AskUserQuestion, inspect the code for every premise that asserts a codebase fact (for example: "column X is orphan", "trigger Y doesn't fire here", "policy Z hides W", "server action A never writes B"). Use Grep/Glob/Read against the relevant migrations, policies, actions, handlers, jobs, or files from the Codebase Surface Map. Present the evidence path(s) next to the premise. If a codebase-fact premise cannot be verified, mark it `UNVERIFIED` and ask the user about uncertainty, not as if it were established fact.
 
 Use AskUserQuestion to confirm. If the user disagrees with a premise, revise understanding and loop back.
 
@@ -1541,6 +1548,9 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## Constraints
 {from Phase 2A}
 
+## Codebase Surface
+{from Phase 1 Codebase Surface Map — include migration/policy/server-action paths and observed triggers/constraints/checks/columns; omit this section if Codebase Surface was not applicable}
+
 ## Premises
 {from Phase 3}
 
@@ -1598,6 +1608,9 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 ## Constraints
 {from Phase 2B}
 
+## Codebase Surface
+{from Phase 1 Codebase Surface Map — include migration/policy/server-action paths and observed triggers/constraints/checks/columns; omit this section if Codebase Surface was not applicable}
+
 ## Premises
 {from Phase 3}
 
@@ -1644,6 +1657,10 @@ adversarial independence.
 
 Prompt the subagent with:
 - The file path of the document just written
+- "READ the referenced sources before judging codebase claims. If the doc names
+  codebase paths, migrations, RLS policies, server actions, triggers, constraints,
+  or columns, open/read those sources yourself and report doc-vs-code mismatches.
+  Do not limit review to internal doc consistency."
 - "Read this document and review it on 5 dimensions. For each dimension, note PASS or
   list specific issues with suggested fixes. At the end, output a quality score (1-10)
   across all dimensions."

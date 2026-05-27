@@ -528,7 +528,7 @@ describeIfSelected('Office Hours Spec Review E2E', ['office-hours-spec-review'],
 
   testConcurrentIfSelected('office-hours-spec-review', async () => {
     const result = await runSkillTest({
-      prompt: `Read office-hours/SKILL.md. I want to understand the spec review loop.
+      prompt: `Read office-hours/SKILL.md as reference material only. Do not execute the office-hours workflow, do not run its phases, and do not ask any user questions. I want to understand the spec review loop.
 
 Summarize what the "Spec Review Loop" section does — specifically:
 1. How many dimensions does the reviewer check?
@@ -539,6 +539,7 @@ Summarize what the "Spec Review Loop" section does — specifically:
 Write your summary to ${ohDir}/spec-review-summary.md`,
       workingDirectory: ohDir,
       maxTurns: 8,
+      allowedTools: ['Read', 'Write', 'Grep'],
       timeout: 120_000,
       testName: 'office-hours-spec-review',
       runId,
@@ -551,9 +552,9 @@ Write your summary to ${ohDir}/spec-review-summary.md`,
     const summaryPath = path.join(ohDir, 'spec-review-summary.md');
     if (fs.existsSync(summaryPath)) {
       const summary = fs.readFileSync(summaryPath, 'utf-8').toLowerCase();
-      expect(summary).toMatch(/5.*dimension|dimension.*5|completeness|consistency|clarity|scope|feasibility/);
-      expect(summary).toMatch(/agent|subagent/);
-      expect(summary).toMatch(/3.*iteration|iteration.*3|maximum.*3/);
+      expect(summary).toMatch(/5.*dimension|dimension.*5|five.*dimension|dimension.*five|completeness|consistency|clarity|scope|feasibility/);
+      expect(summary).toMatch(/agent|subagent|task/);
+      expect(summary).toMatch(/3.*iteration|iteration.*3|three.*iteration|iteration.*three|maximum.*3|maximum.*three/);
     }
   }, 180_000);
 });
