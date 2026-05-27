@@ -73,10 +73,62 @@ enum ElementsBridgeImpl {
     /// Each entry has frame (in window coords), accessibility label,
     /// identifier, traits as a bitmask, and a parent path. Skips
     /// non-accessible / hidden views.
+    ///
+    /// SwiftUI caveat: SwiftUI hosts its accessibility tree inside
+    /// `_UIHostingView` and friends. Many leaf "views" are synthetic
+    /// AX elements with no backing UIView — they only surface through
+    /// `accessibilityElementCount()` / `accessibilityElement(at:)` on
+    /// the hosting container, and only after the AX subsystem has been
+    /// poked. We force-materialize via `UIAccessibility.post`, then
+    /// descend through synthetic elements aggressively. Identifiers
+    /// declared with `.accessibilityIdentifier(...)` in SwiftUI ARE
+    /// preserved on the synthetic element, so reading
+    /// `accessibilityIdentifier` via KVC works.
+    ///
+    /// For views where the AX tree still doesn't surface what you need
+    /// (custom drawing, `.accessibilityHidden(true)` containers wrapping
+    /// taggable leaves), use the `GstackProbe` SwiftUI ViewModifier — it
+    /// registers (id, frame, label) in `GstackProbeRegistry`, which the
+    /// walker merges into the output as synthetic `gstack-probe` entries.
+    /// See `ios-qa/docs/swiftui-accessibility.md`.
     static func snapshot() -> [JSONDict] {
         guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return [] }
+
+        // Force SwiftUI hosting views to materialize their AX subtree.
+        // No-op if VoiceOver already populated it; cheap nudge otherwise.
+        // `.layoutChanged` is documented and doesn't speak anything.
+        UIAccessibility.post(notification: .layoutChanged, argument: nil)
+
         var elements: [JSONDict] = []
         collect(view: window, parentPath: "", windowBounds: window.bounds, into: &elements)
+
+        // Merge GstackProbe-registered SwiftUI views. These are an explicit
+        // escape hatch for views that don't surface through the AX tree.
+        // Probe frames are captured via SwiftUI's `.global` GeometryReader,
+        // which returns window-relative coordinates — same space as the
+        // walker's other frames.
+        let windowBounds = window.bounds
+        for probe in GstackProbeRegistry.shared.snapshot() {
+            let frameInWindow = probe.frame
+            guard windowBounds.intersects(frameInWindow) else { continue }
+            elements.append([
+                "path": "<gstack-probe>",
+                "class": "GstackProbe",
+                "label": probe.label,
+                "identifier": probe.identifier,
+                "value": "",
+                "traits": 0,
+                "frame": [
+                    "x": Int(frameInWindow.origin.x),
+                    "y": Int(frameInWindow.origin.y),
+                    "w": Int(frameInWindow.size.width),
+                    "h": Int(frameInWindow.size.height),
+                ],
+                "is_user_interaction_enabled": true,
+                "source": "gstack-probe",
+            ])
+        }
+
         return elements
     }
 
@@ -120,67 +172,90 @@ enum ElementsBridgeImpl {
             ])
         }
 
-        // Recurse into accessibility-elements first (some custom views vend
-        // synthetic children), then UIView subviews. SwiftUI's host views
-        // populate accessibilityElements lazily — many return nil before
-        // VoiceOver triggers them. Force population by reading accessibilityElementCount.
-        _ = view.accessibilityElementCount()
-        if let axElements = view.accessibilityElements {
+        // Descend through accessibility children FIRST. SwiftUI hosting
+        // views vend their entire AX tree this way — `subviews` only shows
+        // `_UIGraphicsView` / `HostingView` shells without leaves.
+        //
+        // Three signals from the AX protocol, in priority order:
+        //   1. `accessibilityElements: [Any]?` — explicit array if set.
+        //   2. `accessibilityElementCount()` + `accessibilityElement(at:)` —
+        //      indexed access. SwiftUI's `_UIHostingView` uses this path.
+        //      Empty array vs nil matters: SwiftUI often returns `[]` for
+        //      `accessibilityElements` even when `accessibilityElementCount()`
+        //      reports >0, so we always try the indexed path on hosts.
+        //   3. `subviews` — UIKit-native fallback.
+        //
+        // We try (1) then (2), then ALWAYS recurse `subviews` because mixed
+        // UIKit + SwiftUI screens have both.
+        var emittedAXChildren = false
+        if let axElements = view.accessibilityElements, !axElements.isEmpty {
+            emittedAXChildren = true
             for case let element as NSObject in axElements {
-                if let v = element as? UIView {
-                    collect(view: v, parentPath: path, windowBounds: windowBounds, into: &elements)
-                } else {
-                    // Synthetic accessibility element (no UIView). Capture frame in screen coords.
-                    let af = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
-                    elements.append([
-                        "path": "\(path) > <synthetic>",
-                        "class": "AccessibilityElement",
-                        "label": (element.value(forKey: "accessibilityLabel") as? String) ?? "",
-                        "identifier": (element.value(forKey: "accessibilityIdentifier") as? String) ?? "",
-                        "value": (element.value(forKey: "accessibilityValue") as? String) ?? "",
-                        "traits": (element.value(forKey: "accessibilityTraits") as? NSNumber)?.intValue ?? 0,
-                        "frame": [
-                            "x": Int(af.origin.x),
-                            "y": Int(af.origin.y),
-                            "w": Int(af.size.width),
-                            "h": Int(af.size.height),
-                        ],
-                        "is_user_interaction_enabled": true,
-                    ])
-                }
+                emitAXChild(element, parentPath: path, windowBounds: windowBounds, into: &elements)
             }
-        } else {
-            // accessibilityElements is nil — iterate by index. SwiftUI uses
-            // this dynamic protocol pattern; many AX elements only respond
-            // to accessibilityElementCount + accessibilityElement(at:).
-            let count = view.accessibilityElementCount()
-            for i in 0..<count {
+        }
+        // ALSO try the indexed path. SwiftUI hosting views often expose
+        // children only here, with `accessibilityElements` returning nil
+        // or an empty array. Safe because UIKit-native containers either
+        // return 0 here or vend the same elements as `.accessibilityElements`
+        // (dedup by object identity below would be ideal, but the cost of
+        // a few duplicates is acceptable vs missing every SwiftUI element).
+        let axCount = view.accessibilityElementCount()
+        if axCount > 0 && !emittedAXChildren {
+            for i in 0..<axCount {
                 guard let element = view.accessibilityElement(at: i) as? NSObject else { continue }
-                if let v = element as? UIView {
-                    collect(view: v, parentPath: path, windowBounds: windowBounds, into: &elements)
-                } else {
-                    let af = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
-                    elements.append([
-                        "path": "\(path) > <ax\(i)>",
-                        "class": String(describing: type(of: element)),
-                        "label": (element.value(forKey: "accessibilityLabel") as? String) ?? "",
-                        "identifier": (element.value(forKey: "accessibilityIdentifier") as? String) ?? "",
-                        "value": (element.value(forKey: "accessibilityValue") as? String) ?? "",
-                        "traits": (element.value(forKey: "accessibilityTraits") as? NSNumber)?.intValue ?? 0,
-                        "frame": [
-                            "x": Int(af.origin.x),
-                            "y": Int(af.origin.y),
-                            "w": Int(af.size.width),
-                            "h": Int(af.size.height),
-                        ],
-                        "is_user_interaction_enabled": true,
-                    ])
-                }
+                emitAXChild(element, parentPath: path, windowBounds: windowBounds, into: &elements)
             }
         }
         for sub in view.subviews {
             collect(view: sub, parentPath: path, windowBounds: windowBounds, into: &elements)
         }
+    }
+
+    /// Emit a single AX child — either recurse if it's a UIView, or
+    /// extract via KVC if it's a synthetic AX element (SwiftUI shim).
+    /// Reads via `value(forKey:)` because SwiftUI's element classes are
+    /// private — `_UIAccessibilityElementMockView`, `AccessibilityNode`,
+    /// `_AXSnapshotElement`, etc. They all conform to UIAccessibility's
+    /// informal protocol, so KVC over the documented property names is
+    /// safe and version-independent.
+    private static func emitAXChild(_ element: NSObject, parentPath: String, windowBounds: CGRect, into elements: inout [JSONDict]) {
+        if let v = element as? UIView {
+            collect(view: v, parentPath: parentPath, windowBounds: windowBounds, into: &elements)
+            return
+        }
+        // Synthetic AX element. Frame is in screen coords for AX elements
+        // (per UIAccessibilityElement docs); we report screen coords here
+        // — caller can translate if needed since taps go via window coords
+        // and StateServer converts.
+        let af = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
+        let label = (element.value(forKey: "accessibilityLabel") as? String) ?? ""
+        let ident = (element.value(forKey: "accessibilityIdentifier") as? String) ?? ""
+        let val = (element.value(forKey: "accessibilityValue") as? String) ?? ""
+        let traits: Int = {
+            if let n = element.value(forKey: "accessibilityTraits") as? NSNumber { return n.intValue }
+            return 0
+        }()
+        // Skip pure-container synthetic nodes with no useful info — these
+        // are what was clogging the previous output. Keep anything with
+        // a label, identifier, value, or non-zero traits.
+        if label.isEmpty && ident.isEmpty && val.isEmpty && traits == 0 { return }
+        elements.append([
+            "path": "\(parentPath) > <ax>",
+            "class": String(describing: type(of: element)),
+            "label": label,
+            "identifier": ident,
+            "value": val,
+            "traits": traits,
+            "frame": [
+                "x": Int(af.origin.x),
+                "y": Int(af.origin.y),
+                "w": Int(af.size.width),
+                "h": Int(af.size.height),
+            ],
+            "is_user_interaction_enabled": true,
+            "source": "ax-synthetic",
+        ])
     }
 
     private static func activeScene() -> UIWindowScene? {
@@ -302,6 +377,111 @@ enum MutationBridgeImpl {
 
     private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
         scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+    }
+}
+
+// MARK: - GstackProbe — SwiftUI escape hatch
+
+/// Thread-safe registry of SwiftUI views that opted into agent visibility
+/// via `.gstackProbe("id")`. The ElementsBridge merges these into the
+/// `/elements` output as synthetic entries.
+///
+/// Why this exists: SwiftUI doesn't always create a backing UIView for
+/// declarative views (custom Canvas drawings, Shape stacks, Text inside
+/// a HStack inside a Button label). The accessibility tree usually
+/// surfaces them, but not always — particularly for views that
+/// intentionally hide AX (e.g., decorative containers wrapping
+/// taggable children). Probe is the documented escape hatch when AX
+/// doesn't materialize what the agent needs to see.
+///
+/// Cost: one CGRect + two Strings per probed view. `onGeometryChange`
+/// (iOS 18+) keeps frames in sync without continuous polling.
+@MainActor
+public final class GstackProbeRegistry {
+    public struct Probe: Sendable {
+        public let identifier: String
+        public let label: String
+        public let frame: CGRect
+    }
+
+    public static let shared = GstackProbeRegistry()
+
+    private var probes: [UUID: Probe] = [:]
+
+    /// Insert or update a probe. Idempotent on UUID — call from
+    /// `onGeometryChange` to keep `frame` current.
+    public func register(_ uuid: UUID, identifier: String, label: String, frame: CGRect) {
+        probes[uuid] = Probe(identifier: identifier, label: label, frame: frame)
+    }
+
+    /// Remove a probe — call from `.onDisappear`.
+    public func deregister(_ uuid: UUID) {
+        probes.removeValue(forKey: uuid)
+    }
+
+    /// Snapshot all live probes for the ElementsBridge walker.
+    public func snapshot() -> [Probe] {
+        Array(probes.values)
+    }
+}
+
+/// Internal PreferenceKey for shuttling GeometryReader frames out to the
+/// modifier without triggering SwiftUI's State-update-during-view-update
+/// warning that GeometryReader + direct register triggers.
+private struct GstackProbeFramePreference: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// `.gstackProbe("dashboard.captureButton")` — register a SwiftUI view
+/// with the agent's elements snapshot. Equivalent to setting
+/// `.accessibilityIdentifier(...)` PLUS guaranteeing the agent will see
+/// the (id, frame) pair regardless of how SwiftUI renders the view.
+///
+/// Prefer `.accessibilityIdentifier(...)` alone for normal SwiftUI views —
+/// the improved walker reads those out of the AX tree. Reach for
+/// `.gstackProbe(...)` only when you've confirmed via `/elements` that
+/// the agent can't see your view.
+public struct GstackProbeModifier: ViewModifier {
+    let identifier: String
+    let label: String
+    @State private var uuid = UUID()
+
+    public func body(content: Content) -> some View {
+        content
+            .accessibilityIdentifier(identifier)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .preference(key: GstackProbeFramePreference.self, value: geo.frame(in: .global))
+                }
+            )
+            .onPreferenceChange(GstackProbeFramePreference.self) { newFrame in
+                Task { @MainActor in
+                    GstackProbeRegistry.shared.register(
+                        uuid,
+                        identifier: identifier,
+                        label: label,
+                        frame: newFrame
+                    )
+                }
+            }
+            .onDisappear {
+                GstackProbeRegistry.shared.deregister(uuid)
+            }
+    }
+}
+
+public extension View {
+    /// Register this view with the gstack ios-qa agent so it shows up in
+    /// `/elements` with a known identifier + frame, even if SwiftUI's
+    /// accessibility tree doesn't surface it. Also sets the standard
+    /// `.accessibilityIdentifier(_:)` — using both is safe.
+    func gstackProbe(_ identifier: String, label: String = "") -> some View {
+        modifier(GstackProbeModifier(identifier: identifier, label: label))
     }
 }
 
