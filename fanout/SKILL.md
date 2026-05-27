@@ -1,7 +1,7 @@
 ---
 name: fanout
 version: 0.1.0
-description: Decompose a finished design doc into N parallel agent tasks with worktree dispatch.
+description: Decompose a finished design doc into N parallel agent tasks with worktree dispatch. (gstack)
 triggers:
   - fan out
   - parallelize design

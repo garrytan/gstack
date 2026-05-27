@@ -88,6 +88,11 @@
       "routing": "Reads all project docs, cross-references the\ndiff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),\nupdates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,\ndetects architecture diagram drift, polishes CHANGELOG voice with a sell-test\nrubric, cleans up TODOS, and optionally bumps VERSION. Surfaces documentation\ndebt in the PR body. Use when asked to \"update the docs\", \"sync documentation\",\nor \"post-ship docs\". Proactively suggest after a PR is merged or code is shipped.",
       "voice_line": null
     },
+    "fanout": {
+      "lead": "Decompose a finished design doc into N parallel agent tasks with worktree dispatch.",
+      "routing": "Takes a markdown file path, identifies independent slabs of work plus a shared-groundwork\nSlab 0, and writes a Parallel Execution Plan section back to the doc plus a\nworktree-dispatch.sh sidecar. Run after office-hours + eng-review + design when you\nwant 2-3 agents to implement the design in parallel worktrees.\nUse when asked to \"fan out a design\", \"parallelize this design doc\", \"split into\nmultiple agents\", \"run agents in parallel\", or when a finished design doc is ready\nfor multi-agent execution.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"fan this out\", \"parallelize this\"."
+    },
     "freeze": {
       "lead": "Restrict file edits to a specific directory for the session.",
       "routing": "Blocks Edit and\nWrite outside the allowed path. Use when debugging to prevent accidentally\n\"fixing\" unrelated code, or when you want to scope changes to one module.\nUse when asked to \"freeze\", \"restrict edits\", \"only edit this folder\",\nor \"lock down edits\".",
