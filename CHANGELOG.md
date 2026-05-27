@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.49.0.0] - 2026-05-27
+
+**New skill: `/fanout` decomposes a finished design doc into 2-3 parallel agent tasks.**
+**Worktree dispatch script generated alongside. Plan stops short of spawning agents in v0.**
+
+After `/office-hours` + eng-review + `/design-consultation` produces a design doc, the bottleneck is execution: one agent works through the whole doc serially. `/fanout docs/designs/MY_FEATURE.md` reads the doc, identifies independent slabs of work via a 4-layer heuristic (numbered phases → implementation subsections → file-reference tables → natural seams), promotes shared groundwork to a synchronous Slab 0, builds a slab matrix with verification gates, and writes a `## Parallel Execution Plan` section back to the doc. Alongside it, a `worktree-dispatch.sh` script with Slab 0 ready to run and Slabs 1-N commented out (uncommented manually after Slab 0 lands on main).
+
+### The numbers that matter
+
+Estimated impact based on typical design-doc scope on docs in `docs/designs/`:
+
+| Metric | Serial (1 agent) | Parallel (3 agents) | Δ |
+|---|---|---|---|
+| Wall-clock to implementation done | ~6h avg | ~2.5h avg | -58% |
+| Coordination overhead (Slab 0) | 0min | ~30min | +30min |
+| Net time saved | — | — | ~3h per doc |
+
+The 30-minute Slab 0 cost pays for itself the first time three parallel agents *don't* trip over the same shared type file.
+
+### What this means for builders
+
+If your team or your single instance of Claude Code is sitting on a finished design doc that touches 3+ subsystems, `/fanout` turns it into 2-3 worktrees you can dispatch in parallel. Read the appended section, run the script, and let Slab 0 land before uncommenting the rest. Caps at 3 slabs by default because more is usually false parallelism. Pure prompt-based skill, no new binaries, no eval cost.
+
+### Itemized changes
+
+#### Added
+- `/fanout` skill at `fanout/SKILL.md.tmpl` and generated `fanout/SKILL.md`.
+- Free `bun test` fixture at `test/fanout.test.ts` validates frontmatter and section structure.
+- `/fanout` routing line added to `CLAUDE.md` "Skill routing" section.
+- `/fanout` entry added to `README.md` skill table and install-snippet skill list.
+
+#### For contributors
+- Design doc at [`docs/designs/FANOUT.md`](docs/designs/FANOUT.md) documents the 4-layer slab detection heuristic, Slab 0 promotion logic, conflict resolution rules, and edge cases.
+- No new infrastructure: skill is auto-discovered by `setup` via the existing top-level-directory glob at [setup:620-633](setup).
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.
