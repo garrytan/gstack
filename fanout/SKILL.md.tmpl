@@ -1,0 +1,217 @@
+---
+name: fanout
+version: 0.1.0
+description: |
+  Decompose a finished design doc into N parallel agent tasks with worktree dispatch.
+  Takes a markdown file path, identifies independent slabs of work plus a shared-groundwork
+  Slab 0, and writes a Parallel Execution Plan section back to the doc plus a
+  worktree-dispatch.sh sidecar. Run after office-hours + eng-review + design when you
+  want 2-3 agents to implement the design in parallel worktrees.
+  Use when asked to "fan out a design", "parallelize this design doc", "split into
+  multiple agents", "run agents in parallel", or when a finished design doc is ready
+  for multi-agent execution.
+voice-triggers:
+  - "fan this out"
+  - "parallelize this"
+triggers:
+  - fan out
+  - parallelize design
+  - split into agents
+  - multi-agent execution
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+
+---
+
+{{PREAMBLE}}
+
+# /fanout — Decompose a design doc into parallel agent tasks
+
+You take a finished design doc on disk and turn it into a parallel execution plan: N independent slabs of work, a synchronous Slab 0 for shared groundwork, and a dispatch script that can spawn worktrees plus agents. You produce two artifacts: a `## Parallel Execution Plan` section appended to the input doc, and a `worktree-dispatch.sh` sidecar next to it.
+
+You do NOT spawn agents in v0. You produce the plan and stop. The user runs the dispatch script when ready.
+
+## Inputs
+
+Parse the user's invocation:
+- **Required:** path to a markdown design doc (e.g., `docs/designs/MY_FEATURE.md`).
+- **Optional `--max N`:** cap the number of parallel slabs. Default: 3.
+
+If no path is provided, AskUserQuestion for one and stop until you have it. If the path doesn't exist or isn't a `.md` file, fail with a clear error and stop.
+
+## Process
+
+### Step 1: Read the file
+
+Use the Read tool to load the entire design doc.
+
+### Step 2: Check for existing Parallel Execution Plan section
+
+Search the doc for `## Parallel Execution Plan`. If present, AskUserQuestion with three options: overwrite (replace existing section), append v2 (add a second plan section below), or abort.
+
+### Step 3: Identify slab candidates
+
+Apply heuristics in order. Stop at the first one that yields ≥2 candidates.
+
+1. **Numbered structural headers.** `## Phase N`, `## Part N`, `## Component N`, `## Step N`. Each becomes a slab candidate.
+2. **Implementation subsections.** Top-level subsections under `## Implementation Details` or `### Implementation`.
+3. **File-reference tables.** Any markdown table with file paths in the first column. Cluster paths by top-level directory (e.g., `lib/`, `src/api/`, `web/`). Each cluster becomes a slab.
+4. **Natural seams.** Backend/frontend, schema/logic/UI, API/client/CLI, server/extension. Apply by reading section headings and content.
+
+If none yield ≥2 candidates, report "this doc doesn't decompose, single-agent execution recommended" and stop without writing anything.
+
+### Step 4: Identify Slab 0 (shared groundwork)
+
+For each slab candidate, list the files it writes. Find files referenced by ≥2 candidates: type definitions, schema migrations, fixtures, shared constants, public interfaces. Promote those files to **Slab 0** (synchronous prep).
+
+If no files are shared, Slab 0 is empty. Note this — the section will read "no shared groundwork detected" and the dispatch script will skip the Slab 0 worktree, uncommenting Slabs 1-N from the start.
+
+### Step 5: Build the slab matrix
+
+For each non-Slab-0 candidate, fill in:
+- **Slab name:** descriptive (e.g., "schema migration", "API surface", "UI components").
+- **Writes:** files this slab creates or modifies.
+- **Reads:** files this slab reads from Slab 0.
+- **Public interface:** what this slab exposes for other slabs or consumers.
+- **Verification gate:** concrete command or check that proves done (`bun test path/x.test.ts`, "types compile", "screenshot diff").
+- **ETA:** rough hours estimate.
+
+### Step 6: Detect and resolve conflicts
+
+**Cross-slab writes** (two slabs write the same file): AskUserQuestion with three resolutions:
+1. Promote to Slab 0 (default for type/schema/constant files).
+2. Merge the two slabs.
+3. Pick an owner (one slab writes, the other reads).
+
+**Cross-slab reads** (Slab N reads Slab M's output, M > 0): break parallelism. AskUserQuestion with three resolutions:
+1. Promote Slab M's interface to Slab 0 (default — preserves the most parallelism).
+2. Merge the two slabs.
+3. Accept the dependency; chain them in Merge order and flag in dispatch script.
+
+### Step 7: Enforce the slab cap
+
+If slab count > `--max` (default 3), propose merging the two smallest by ETA. AskUserQuestion to confirm. Repeat until at or under the cap.
+
+If `--max` is 0 or 1, stop with "parallel execution requires --max >= 2" message.
+
+### Step 8: Write the Parallel Execution Plan section
+
+Append (or replace, per Step 2) the following section to the design doc. Use Edit tool.
+
+```markdown
+## Parallel Execution Plan
+
+### Slab 0 — Synchronous prep
+
+**Lands first.** One agent, single PR, ~<ETA> min.
+
+- **Writes:** <file list, or "None, no shared groundwork detected">
+- **Verification gate:** <gate>
+
+### Slab matrix
+
+| # | Slab | Writes | Reads | Public interface | Verification gate | ETA |
+|---|------|--------|-------|------------------|-------------------|-----|
+| 1 | <name> | <files> | Slab 0: <files> | <interface> | <gate> | <ETA> |
+| 2 | <name> | <files> | Slab 0: <files> | <interface> | <gate> | <ETA> |
+| 3 | <name> | <files> | Slab 0: <files> | <interface> | <gate> | <ETA> |
+
+### Conflict map
+
+<empty if no conflicts; otherwise list each conflict and its chosen resolution>
+
+### Merge order
+
+1. Slab 0 → main (blocking).  <omit this line if Slab 0 is empty>
+2. Slabs 1, 2, 3 → rebase on Slab 0 after it lands. Any order.
+3. Resolve CHANGELOG.md / VERSION conflicts via standard gstack queue rules.
+
+### Dispatch
+
+See [`worktree-dispatch.sh`](./worktree-dispatch.sh). Run Slab 0 first, wait for it to land on main, then uncomment Slabs 1-N and run in parallel.
+```
+
+### Step 9: Write worktree-dispatch.sh
+
+Write to the same directory as the input doc. If input is `docs/designs/FOO.md`, write `docs/designs/worktree-dispatch.sh`.
+
+Compute helpers:
+- `<repo-name>` = `basename $(git rev-parse --show-toplevel)`
+- `<topic>` = lowercase, hyphenated stem of the input filename (e.g., `FANOUT.md` → `fanout`).
+
+If Slab 0 is non-empty, write:
+
+```bash
+#!/usr/bin/env bash
+# Generated by /fanout from <input-path> on <YYYY-MM-DD>.
+# Step 1: Run Slab 0. Wait for it to land on main.
+# Step 2: Uncomment Slabs 1-N. Run them in parallel.
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+# Slab 0 — Synchronous prep
+git worktree add ../<repo-name>-slab-0 -b slab-0-<topic>
+(
+  cd ../<repo-name>-slab-0
+  claude -p "$(cat <<'EOF'
+Read <input-path>. Implement Slab 0 from the Parallel Execution Plan section:
+- Writes: <file list>
+- Verification gate: <gate>
+When the gate passes, commit, push, and open a PR via /ship.
+EOF
+)"
+)
+
+# After Slab 0 lands on main, uncomment and run these in parallel:
+#
+# git worktree add ../<repo-name>-slab-1 -b slab-1-<topic>
+# (cd ../<repo-name>-slab-1 && claude -p "...Slab 1 prompt...") &
+#
+# git worktree add ../<repo-name>-slab-2 -b slab-2-<topic>
+# (cd ../<repo-name>-slab-2 && claude -p "...Slab 2 prompt...") &
+#
+# wait
+```
+
+If Slab 0 is empty, omit the `# Slab 0` block and uncomment Slabs 1-N from the start.
+
+Then `chmod +x` the script via Bash.
+
+### Step 10: Report
+
+Print a one-paragraph summary to the user:
+- N slabs identified
+- Slab 0: X files (or "empty")
+- Estimated wall-clock: M hours serial → K hours parallel (sum of largest slab ETA + Slab 0 ETA)
+- Files written: `<doc-path>` (appended), `<dispatch-script-path>` (created, +x)
+- Next step: review the appended section in the doc, then run `bash <dispatch-script-path>` when ready
+
+## Edge cases
+
+1. **Doc has no parsable structure.** Step 3 yields 0-1 candidates. Stop with "this doc doesn't decompose" message. No files written.
+2. **Slab 0 is empty.** Section still written with "no shared groundwork detected"; dispatch script omits Slab 0 block; Slabs 1-N uncommented from the start.
+3. **All slabs write to one file.** Detect in Step 5 (every slab's Writes column lists the same single path). Report "this isn't parallelizable as written. Either decompose the file first or accept single-agent execution." Stop without writing.
+4. **Doc already has a Parallel Execution Plan section.** Handled in Step 2 via AskUserQuestion.
+5. **Non-markdown input file.** Fail in input validation. Clear error.
+6. **`--max` is 0 or 1.** Stop with explanation.
+7. **Input is a `/spec`-authored GitHub issue.** v0 only accepts file paths. Direct user to copy the issue body into a markdown file first, then re-invoke.
+
+## Rules
+
+1. NEVER spawn agents in v0. Produce the plan and stop.
+2. NEVER write to files outside the input doc's directory. Two files only: the doc itself (appended) and the dispatch script (created alongside).
+3. ALWAYS confirm via AskUserQuestion before merging slabs or overwriting an existing Parallel Execution Plan section.
+4. ALWAYS report the wall-clock estimate at the end. This is the primary justification for using the skill.
+5. The 3-slab cap is the default for a reason. More than 3 parallel agents on a single design is usually false parallelism — coordination overhead eats the wins. Push back on `--max` values above 5.
+
+## Anti-patterns
+
+- Writing the section without confirming the existing one is overwritten.
+- Inventing file paths the design doc doesn't mention. If you can't find the file, say so in the slab row.
+- Generic verification gates ("tests pass" without specifying which test file). Each slab needs a *specific* gate the implementer can run.
+- ETAs without a number ("a few hours"). Estimate concretely, even if rough.
