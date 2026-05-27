@@ -474,6 +474,28 @@ link_claude_skill_dirs() {
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
       _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      # Mirror supporting .md files (checklist.md, greptile-triage.md, etc.)
+      # so SKILL.md can read them via .claude/skills/<skill>/<file>.
+      # Excludes SKILL.md (already linked above) and *.tmpl sources.
+      for support_file in "$gstack_dir/$dir_name"/*.md; do
+        [ -f "$support_file" ] || continue
+        fname="$(basename "$support_file")"
+        [ "$fname" = "SKILL.md" ] && continue
+        if [ -L "$target/$fname" ]; then rm "$target/$fname"; fi
+        _link_or_copy "$support_file" "$target/$fname"
+      done
+      # Mirror support asset directories (specialists/, references/, templates/, bin/, etc.)
+      # Excludes build and source dirs: dist, src, test, tests, scripts, node_modules.
+      for support_dir in "$gstack_dir/$dir_name"/*/; do
+        [ -d "$support_dir" ] || continue
+        sname="$(basename "$support_dir")"
+        case "$sname" in
+          dist|src|test|tests|scripts|node_modules) continue ;;
+        esac
+        if [ -L "$target/$sname" ]; then rm "$target/$sname"; fi
+        if [ -e "$target/$sname" ] && [ ! -L "$target/$sname" ]; then rm -rf "$target/$sname"; fi
+        _link_or_copy "$gstack_dir/$dir_name/$sname" "$target/$sname"
+      done
       linked+=("$link_name")
     fi
   done

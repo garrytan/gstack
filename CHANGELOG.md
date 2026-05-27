@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.48.1.0] - 2026-05-28
+
+**`/setup` now mirrors support files and asset directories alongside SKILL.md so skills can read their own assets without path hacks.**
+
+Skills like `/review` and `/qa` ship with sidecars — `checklist.md`, `specialists/`, `bin/` — that their SKILL.md reads at runtime via `.claude/skills/<skill>/<file>`. Before this fix, `link_claude_skill_dirs` only symlinked `SKILL.md`, leaving every sidecar unreachable. Now `setup` iterates over sibling `.md` files and qualifying subdirectories and calls `_link_or_copy` for each, preserving Windows compatibility.
+
+### Itemized changes
+
+#### Fixed
+- `setup`: `link_claude_skill_dirs` now mirrors supporting `.md` files and subdirectories via `_link_or_copy` — fixes #1499
+
+#### Added
+- `test/gen-skill-docs.test.ts`: two new invariant tests asserting support file and directory mirroring
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.
