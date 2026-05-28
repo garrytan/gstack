@@ -292,6 +292,294 @@ async function connectSSE() {
   });
 }
 
+// ─── Memory Footer Readout ──────────────────────────────────────
+//
+// Polls /memory every 30s and renders "RSS: 1.4 GB · 12 tabs" in the
+// footer. Backs off to 5min if a poll takes > 2s (Codex flag — diagnostic
+// shouldn't add load when the browser is already unhealthy). Uses Bearer
+// auth like /refs above; /memory is a plain GET so EventSource semantics
+// don't apply.
+
+const MEM_POLL_FAST_MS = 30_000;
+const MEM_POLL_SLOW_MS = 5 * 60_000;
+const MEM_POLL_TIMEOUT_MS = 8_000;
+const MEM_POLL_SLOW_THRESHOLD_MS = 2_000;
+let memPollTimer = null;
+let memPollMode = 'fast'; // 'fast' | 'slow'
+
+function fmtBytesShort(n) {
+  if (typeof n !== 'number' || isNaN(n)) return '?';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(0) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+function renderMemFooter(snapshot) {
+  const el = document.getElementById('footer-mem');
+  if (!el) return;
+  const bunRss = snapshot?.bunServer?.rss ?? 0;
+  const tabCount = Array.isArray(snapshot?.tabs) ? snapshot.tabs.length : 0;
+  el.textContent = `${fmtBytesShort(bunRss)} · ${tabCount} tabs`;
+  // Color thresholds: ~2 GB Bun RSS or 50 tabs is "watch this"; ~8 GB or
+  // 200 tabs is "this is the cliff" (matches the 200-tab guardrail).
+  el.classList.remove('warn', 'bad');
+  if (bunRss > 8 * 1024 * 1024 * 1024 || tabCount > 200) el.classList.add('bad');
+  else if (bunRss > 2 * 1024 * 1024 * 1024 || tabCount > 50) el.classList.add('warn');
+}
+
+async function pollMemoryOnce() {
+  if (!serverUrl || !serverToken) return { ok: false, slow: false };
+  const start = Date.now();
+  try {
+    const resp = await fetch(`${serverUrl}/memory`, {
+      headers: { 'Authorization': `Bearer ${serverToken}` },
+      signal: AbortSignal.timeout(MEM_POLL_TIMEOUT_MS),
+      credentials: 'include',
+    });
+    const elapsed = Date.now() - start;
+    if (!resp.ok) return { ok: false, slow: elapsed > MEM_POLL_SLOW_THRESHOLD_MS };
+    const snapshot = await resp.json();
+    renderMemFooter(snapshot);
+    // Evaluate guardrail triggers (single-heavy-tab OR tab-count crossing 200).
+    // Toast is hidden when no trigger fires; snooze state suppresses re-fire.
+    try { evaluateMemToast(snapshot); } catch (err) {
+      console.debug('[gstack sidebar] mem-toast evaluation failed:', err && err.message);
+    }
+    return { ok: true, slow: elapsed > MEM_POLL_SLOW_THRESHOLD_MS };
+  } catch (err) {
+    const elapsed = Date.now() - start;
+    // Don't log every poll failure — common during browser restarts / restoring
+    // sessions. Only log on the slow path so the user sees something in the
+    // console if the diagnostic itself is misbehaving.
+    if (elapsed > MEM_POLL_SLOW_THRESHOLD_MS) {
+      console.debug('[gstack sidebar] /memory poll slow/failed:', elapsed, 'ms', err && err.message);
+    }
+    return { ok: false, slow: elapsed > MEM_POLL_SLOW_THRESHOLD_MS };
+  }
+}
+
+function scheduleNextMemPoll(delayMs) {
+  if (memPollTimer) clearTimeout(memPollTimer);
+  memPollTimer = setTimeout(async () => {
+    const { ok, slow } = await pollMemoryOnce();
+    if (!ok || slow) {
+      memPollMode = 'slow';
+      scheduleNextMemPoll(MEM_POLL_SLOW_MS);
+    } else {
+      // Successful + fast → back to fast cadence.
+      if (memPollMode === 'slow') memPollMode = 'fast';
+      scheduleNextMemPoll(MEM_POLL_FAST_MS);
+    }
+  }, delayMs);
+}
+
+function startMemPolling() {
+  if (memPollTimer) return; // already running
+  // Kick off an immediate poll so the footer populates within ~1s of sidebar
+  // open, instead of waiting 30s for the first cycle.
+  scheduleNextMemPoll(500);
+}
+
+function stopMemPolling() {
+  if (memPollTimer) {
+    clearTimeout(memPollTimer);
+    memPollTimer = null;
+  }
+}
+
+// ─── Tab guardrail toast (D5 + Codex single-tab flag) ───────
+//
+// Each /memory poll evaluates two trigger conditions:
+//   1. Tab count crossed 200 — show "top 5 tabs by max(jsHeap, ...)" with
+//      Close-selected + Snooze.
+//   2. Any single tab over 4 GB JS heap — show one-tab toast (catches the
+//      Codex case where a runaway WebGL/video page balloons one tab).
+// Snooze persists in chrome.storage.session: next warn fires at tabCount +
+// snoozeBumpTabs OR when a single tab crosses (snoozedJsHeapBytes + 1).
+//
+// "Close selected" runs $B closetab <id> via the existing /command path —
+// no chrome.tabs.remove bridge needed.
+
+const HEAVY_TAB_HEAP_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB per Codex flag
+const TOAST_SNOOZE_TAB_BUMP = 50;                    // re-warn at 200+50
+const TOAST_SNOOZE_HEAP_BUMP = 2 * 1024 * 1024 * 1024;
+
+const memToastSnooze = {
+  tabsAbove: 0,         // suppress the count-toast until tabs strictly exceeds this
+  heapAbove: 0,         // suppress the single-tab toast until heap strictly exceeds this
+};
+
+async function loadSnoozeState() {
+  if (!chrome?.storage?.session) return;
+  try {
+    const stored = await chrome.storage.session.get(['memToastSnooze']);
+    if (stored?.memToastSnooze) {
+      memToastSnooze.tabsAbove = stored.memToastSnooze.tabsAbove | 0;
+      memToastSnooze.heapAbove = stored.memToastSnooze.heapAbove | 0;
+    }
+  } catch (err) {
+    console.debug('[gstack sidebar] mem-toast snooze load failed:', err && err.message);
+  }
+}
+
+async function saveSnoozeState() {
+  if (!chrome?.storage?.session) return;
+  try {
+    await chrome.storage.session.set({ memToastSnooze: { ...memToastSnooze } });
+  } catch (err) {
+    console.debug('[gstack sidebar] mem-toast snooze save failed:', err && err.message);
+  }
+}
+
+function dismissMemToast() {
+  const toast = document.getElementById('mem-toast');
+  if (toast) toast.style.display = 'none';
+}
+
+/**
+ * Sort key for "RAM-heavy" tabs. JS heap × 4 is a rough proxy for total
+ * tab footprint (renderers tend to spend ~4× their JS heap on native +
+ * Skia + cache); when a tab is heavy via WebGL/video the JS heap is
+ * small but listeners/nodes spike. Take the max.
+ */
+function tabRamScore(tab) {
+  const heap = tab?.jsHeapUsed || 0;
+  const nodes = tab?.nodes || 0;
+  const listeners = tab?.listeners || 0;
+  // ~1 KB per DOM node + ~200 bytes per listener as a back-of-envelope
+  // native-memory estimate. Keeps the sort meaningful when JS heap is small.
+  const nativeEstimate = nodes * 1024 + listeners * 200;
+  return Math.max(heap, nativeEstimate);
+}
+
+function showMemToast(title, body, tabsForClose) {
+  const toast = document.getElementById('mem-toast');
+  const titleEl = document.getElementById('mem-toast-title');
+  const bodyEl = document.getElementById('mem-toast-body');
+  const closeBtn = document.getElementById('mem-toast-close-selected');
+  if (!toast || !titleEl || !bodyEl || !closeBtn) return;
+
+  titleEl.textContent = title;
+  bodyEl.innerHTML = '';
+
+  for (const t of tabsForClose) {
+    const row = document.createElement('div');
+    row.className = 'mem-toast-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = `mem-toast-tab-${t.id}`;
+    cb.value = String(t.id);
+    cb.checked = true; // default-selected so a fast user just hits Close
+    const label = document.createElement('label');
+    label.htmlFor = cb.id;
+    const urlShort = (t.url || '').length > 50 ? t.url.slice(0, 47) + '...' : (t.url || '(no url)');
+    label.textContent = `tab #${t.id} — ${urlShort}`;
+    const size = document.createElement('span');
+    size.className = 'mem-toast-size';
+    size.textContent = fmtBytesShort(tabRamScore(t));
+    row.appendChild(cb);
+    row.appendChild(label);
+    row.appendChild(size);
+    bodyEl.appendChild(row);
+  }
+
+  toast.style.display = '';
+
+  closeBtn.onclick = async () => {
+    const ids = tabsForClose
+      .filter((t) => document.getElementById(`mem-toast-tab-${t.id}`)?.checked)
+      .map((t) => t.id);
+    dismissMemToast();
+    for (const id of ids) {
+      try {
+        await fetch(`${serverUrl}/command`, {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ command: 'closetab', args: [String(id)] }),
+        });
+      } catch (err) {
+        console.warn('[gstack sidebar] mem-toast closetab failed:', id, err && err.message);
+      }
+    }
+  };
+}
+
+/**
+ * Driven by every successful /memory poll. Decides whether to surface
+ * the toast and which payload to show.
+ */
+function evaluateMemToast(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.tabs)) return;
+  const tabs = snapshot.tabs;
+
+  // Trigger 1: any single tab over 4 GB JS heap. Catches the WebGL/video
+  // case before the tab count threshold ever fires.
+  const heavyTab = tabs.find((t) => (t.jsHeapUsed || 0) > HEAVY_TAB_HEAP_BYTES);
+  if (heavyTab && (heavyTab.jsHeapUsed || 0) > memToastSnooze.heapAbove) {
+    showMemToast(
+      `Heavy tab: ${fmtBytesShort(heavyTab.jsHeapUsed)} JS heap`,
+      '',
+      [heavyTab],
+    );
+    return;
+  }
+
+  // Trigger 2: tab count crossed the hard guardrail (200) and isn't snoozed.
+  if (tabs.length >= 200 && tabs.length > memToastSnooze.tabsAbove) {
+    const top5 = [...tabs].sort((a, b) => tabRamScore(b) - tabRamScore(a)).slice(0, 5);
+    showMemToast(
+      `${tabs.length} tabs open — close some?`,
+      '',
+      top5,
+    );
+    return;
+  }
+
+  // No trigger: keep toast hidden.
+}
+
+function setupMemToastWiring() {
+  const close = document.getElementById('mem-toast-close');
+  if (close) close.addEventListener('click', dismissMemToast);
+  const snooze = document.getElementById('mem-toast-snooze');
+  if (snooze) {
+    snooze.addEventListener('click', async () => {
+      // Snooze logic: bump the thresholds above the current snapshot so the
+      // toast won't re-fire until the user has accumulated MORE tabs or one
+      // tab has grown ANOTHER 2 GB beyond what we just warned about. Stored
+      // in chrome.storage.session so a sidebar reload doesn't lose the
+      // snooze (but a Chrome restart does).
+      try {
+        const resp = await fetch(`${serverUrl}/memory`, {
+          headers: { 'Authorization': `Bearer ${serverToken}` },
+          signal: AbortSignal.timeout(MEM_POLL_TIMEOUT_MS),
+          credentials: 'include',
+        });
+        if (resp.ok) {
+          const snap = await resp.json();
+          const tabs = Array.isArray(snap.tabs) ? snap.tabs : [];
+          memToastSnooze.tabsAbove = tabs.length + TOAST_SNOOZE_TAB_BUMP;
+          const maxHeap = tabs.reduce((m, t) => Math.max(m, t.jsHeapUsed || 0), 0);
+          memToastSnooze.heapAbove = maxHeap + TOAST_SNOOZE_HEAP_BUMP;
+          await saveSnoozeState();
+        }
+      } catch (err) {
+        console.debug('[gstack sidebar] mem-toast snooze fetch failed:', err && err.message);
+      }
+      dismissMemToast();
+    });
+  }
+  void loadSnoozeState();
+}
+
+// Wire the toast on DOM ready.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupMemToastWiring);
+} else {
+  setupMemToastWiring();
+}
+
 // ─── Refs Tab ───────────────────────────────────────────────────
 
 async function fetchRefs() {
@@ -893,9 +1181,16 @@ function updateConnection(url, token) {
     chrome.runtime.sendMessage({ type: 'sidebarOpened' }).catch(() => {});
     connectSSE();
     connectInspectorSSE();
+    startMemPolling();
   } else {
     document.getElementById('footer-dot').className = 'dot';
     document.getElementById('footer-port').textContent = '';
+    const memEl = document.getElementById('footer-mem');
+    if (memEl) {
+      memEl.textContent = '';
+      memEl.classList.remove('warn', 'bad');
+    }
+    stopMemPolling();
     setActionButtonsEnabled(false);
     if (wasConnected) startReconnect();
   }

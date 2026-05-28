@@ -113,17 +113,45 @@ describe('sanitizeLoneSurrogates — wiring invariants', () => {
     expect(SERVER_SRC).toContain('result: sanitizeLoneSurrogates(cr.result)');
   });
 
-  test('SSE activity feed sanitizes outbound frames via sanitizeReplacer', () => {
-    // Replacer must run DURING stringify; post-stringify regex is ineffective
-    // because JSON.stringify converts \uD800 → "\\ud800" before our regex sees it.
-    expect(SERVER_SRC).toContain('JSON.stringify(entry, sanitizeReplacer)');
+  test('SSE activity feed routes outbound frames through createSseEndpoint', () => {
+    // v1.51 refactor: /activity/stream no longer inlines its own
+    // ReadableStream/sanitizer wiring; it routes through createSseEndpoint
+    // which applies sanitizeReplacer to every JSON.stringify. The grep
+    // pins both halves of the contract: the endpoint uses the helper,
+    // and the helper does the sanitization.
+    const activityBlock = SERVER_SRC.match(
+      /if \(url\.pathname === '\/activity\/stream'\)[\s\S]*?createSseEndpoint\(/,
+    );
+    expect(activityBlock).not.toBeNull();
   });
 
-  test('SSE inspector stream sanitizes outbound frames via sanitizeReplacer', () => {
-    expect(SERVER_SRC).toContain('JSON.stringify(event, sanitizeReplacer)');
+  test('SSE inspector stream routes outbound frames through createSseEndpoint', () => {
+    // Same v1.51 refactor invariant for /inspector/events.
+    const inspectorBlock = SERVER_SRC.match(
+      /if \(url\.pathname === '\/inspector\/events'[\s\S]*?createSseEndpoint\(/,
+    );
+    expect(inspectorBlock).not.toBeNull();
   });
 
-  test('sanitizeReplacer is a function defined in server.ts', () => {
+  test('createSseEndpoint applies sanitizeReplacer to every JSON.stringify', () => {
+    // The helper is the single source of truth for SSE sanitization now.
+    // If a future refactor moves stringify off the replacer (e.g. someone
+    // adds a fast-path encode), this test fails and the surrogate-escape
+    // class regresses across every SSE endpoint at once.
+    const helperPath = path.resolve(import.meta.dir, '..', 'src', 'sse-helpers.ts');
+    const helperSrc = fs.readFileSync(helperPath, 'utf-8');
+    expect(helperSrc).toContain('JSON.stringify(');
+    expect(helperSrc).toContain('sanitizeReplacer');
+    // The sanitizer itself uses stripLoneSurrogates (the shared utility in
+    // sanitize.ts) — not a private copy. Re-confirms the helper is wired
+    // to the canonical sanitizer, not a drift'd duplicate.
+    expect(helperSrc).toContain("import { stripLoneSurrogates } from './sanitize'");
+  });
+
+  test('sanitizeReplacer is a function defined in server.ts (for non-SSE egress)', () => {
+    // server.ts keeps its own sanitizeReplacer for the non-SSE JSON egress
+    // paths (handleCommandInternal etc.). The SSE path uses sse-helpers.ts's
+    // own sanitizeReplacer; both must exist independently.
     expect(SERVER_SRC).toContain('function sanitizeReplacer(');
   });
 });

@@ -1161,6 +1161,13 @@ export async function handleMetaCommand(
       return await handleCdpCommand(args, bm);
     }
 
+    case 'memory': {
+      // Lazy import — pulls in cdp-bridge + memory-snapshot + buffer accessors
+      // that aren't useful for projects that never run the diagnostic.
+      const { handleMemoryCommand } = await import('./memory-command');
+      return await handleMemoryCommand(args, bm);
+    }
+
     default:
       throw new Error(`Unknown meta command: ${command}`);
   }

@@ -38,6 +38,7 @@ import {
 import { validateTempPath } from './path-security';
 import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
+import { createSseEndpoint } from './sse-helpers';
 import { initAuditLog, writeAuditEntry } from './audit';
 import { inspectElement, modifyStyle, resetModifications, getModificationHistory, detachSession, type InspectorResult } from './cdp-inspector';
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
@@ -722,6 +723,11 @@ let inspectorTimestamp: number = 0;
 // Inspector SSE subscribers
 type InspectorSubscriber = (event: any) => void;
 const inspectorSubscribers = new Set<InspectorSubscriber>();
+
+/** Diagnostic accessor used by the $B memory snapshot. */
+export function getInspectorSubscriberCount(): number {
+  return inspectorSubscribers.size;
+}
 
 function emitInspectorEvent(event: any): void {
   for (const notify of inspectorSubscribers) {
@@ -2432,62 +2438,19 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           });
         }
         const afterId = parseInt(url.searchParams.get('after') || '0', 10);
-        const encoder = new TextEncoder();
-
-        const stream = new ReadableStream({
-          start(controller) {
-            // SSE egress invariant: every JSON.stringify here ships page-content-derived
-            // fields (URLs, command args, errors) to the sidebar. Lone surrogates must
-            // be sanitized DURING stringify (via sanitizeReplacer) so they're cleaned
-            // before escape-encoding — post-stringify regex is ineffective because
-            // JSON.stringify has already converted \uD800 → "\\ud800".
-            // 1. Gap detection + replay
+        // Cleanup contract (abort + enqueue-fail + heartbeat-fail, all
+        // idempotent) lives in createSseEndpoint; sanitizeReplacer is
+        // applied to every JSON.stringify inside the helper, so
+        // page-content-derived fields (URLs, command args, errors)
+        // stay surrogate-safe per CLAUDE.md egress invariant.
+        return createSseEndpoint(req, {
+          initialReplay: (send) => {
             const { entries, gap, gapFrom, availableFrom } = getActivityAfter(afterId);
-            if (gap) {
-              controller.enqueue(encoder.encode(`event: gap\ndata: ${JSON.stringify({ gapFrom, availableFrom }, sanitizeReplacer)}\n\n`));
-            }
-            for (const entry of entries) {
-              controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(entry, sanitizeReplacer)}\n\n`));
-            }
-
-            // 2. Subscribe for live events
-            const unsubscribe = subscribe((entry) => {
-              try {
-                controller.enqueue(encoder.encode(`event: activity\ndata: ${JSON.stringify(entry, sanitizeReplacer)}\n\n`));
-              } catch (err: any) {
-                console.debug('[browse] Activity SSE stream error, unsubscribing:', err.message);
-                unsubscribe();
-              }
-            });
-
-            // 3. Heartbeat every 15s
-            const heartbeat = setInterval(() => {
-              try {
-                controller.enqueue(encoder.encode(`: heartbeat\n\n`));
-              } catch (err: any) {
-                console.debug('[browse] Activity SSE heartbeat failed:', err.message);
-                clearInterval(heartbeat);
-                unsubscribe();
-              }
-            }, 15000);
-
-            // 4. Cleanup on disconnect
-            req.signal.addEventListener('abort', () => {
-              clearInterval(heartbeat);
-              unsubscribe();
-              try { controller.close(); } catch {
-                // Expected: stream already closed
-              }
-            });
+            if (gap) send('gap', { gapFrom, availableFrom });
+            for (const entry of entries) send('activity', entry);
           },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-          },
+          subscribe,
+          liveEventName: 'activity',
         });
       }
 
@@ -2796,6 +2759,32 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
         });
       }
 
+      // GET /memory — diagnostic snapshot (auth required, does NOT reset idle).
+      // Same auth model as /activity/stream and /inspector/events: Bearer header
+      // OR view-only SSE-session cookie. Does NOT extend /health (which already
+      // leaks AUTH_TOKEN to any localhost caller in headed mode — see TODOS.md
+      // "Audit /health token distribution"); a separate endpoint with the
+      // standard SSE auth keeps the future /health fix from cascading into the
+      // sidebar footer poll.
+      if (url.pathname === '/memory' && req.method === 'GET') {
+        const cookieToken = extractSseCookie(req);
+        if (!validateAuth(req) && !validateSseSessionToken(cookieToken)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const { buildMemorySnapshotJson } = await import('./memory-command');
+        const snapshot = await buildMemorySnapshotJson(cfgBrowserManager);
+        // sanitizeReplacer is required at every SSE/JSON egress that ships
+        // page-content-derived strings — tab.url and tab.title come from
+        // page content, so lone-surrogate bytes from broken emoji or
+        // mid-emoji splits could otherwise reach the sidebar / Claude API.
+        return new Response(JSON.stringify(snapshot, sanitizeReplacer), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       // GET /inspector/events — SSE for inspector state changes (auth required)
       if (url.pathname === '/inspector/events' && req.method === 'GET') {
         // Same auth model as /activity/stream: Bearer OR view-only cookie.
@@ -2806,62 +2795,20 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             status: 401, headers: { 'Content-Type': 'application/json' },
           });
         }
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            // SSE egress invariant: inspectorData and CDP event payloads carry
-            // page-DOM strings (selectors, attribute values, console messages).
-            // sanitizeReplacer cleans lone surrogates DURING JSON.stringify so
-            // they're neutralized before escape-encoding (post-stringify regex
-            // is a no-op once \uD800 has become "\\ud800").
-            // Send current state immediately
-            if (inspectorData) {
-              controller.enqueue(encoder.encode(
-                `event: state\ndata: ${JSON.stringify({ data: inspectorData, timestamp: inspectorTimestamp }, sanitizeReplacer)}\n\n`
-              ));
-            }
-
-            // Subscribe for live events
-            const notify: InspectorSubscriber = (event) => {
-              try {
-                controller.enqueue(encoder.encode(
-                  `event: inspector\ndata: ${JSON.stringify(event, sanitizeReplacer)}\n\n`
-                ));
-              } catch (err: any) {
-                console.debug('[browse] Inspector SSE stream error:', err.message);
-                inspectorSubscribers.delete(notify);
-              }
-            };
+        // Cleanup contract (abort + enqueue-fail + heartbeat-fail,
+        // idempotent) lives in createSseEndpoint; sanitizeReplacer is
+        // applied to every JSON.stringify inside the helper. The
+        // inspector subscriber set stays here because it's also written
+        // to by emitInspectorEvent above.
+        return createSseEndpoint(req, {
+          initialReplay: inspectorData
+            ? (send) => send('state', { data: inspectorData, timestamp: inspectorTimestamp })
+            : undefined,
+          subscribe: (notify) => {
             inspectorSubscribers.add(notify);
-
-            // Heartbeat every 15s
-            const heartbeat = setInterval(() => {
-              try {
-                controller.enqueue(encoder.encode(`: heartbeat\n\n`));
-              } catch (err: any) {
-                console.debug('[browse] Inspector SSE heartbeat failed:', err.message);
-                clearInterval(heartbeat);
-                inspectorSubscribers.delete(notify);
-              }
-            }, 15000);
-
-            // Cleanup on disconnect
-            req.signal.addEventListener('abort', () => {
-              clearInterval(heartbeat);
-              inspectorSubscribers.delete(notify);
-              try { controller.close(); } catch (err: any) {
-                // Expected: stream already closed
-              }
-            });
+            return () => inspectorSubscribers.delete(notify);
           },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-          },
+          liveEventName: 'inspector',
         });
       }
 
