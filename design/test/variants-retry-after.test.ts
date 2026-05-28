@@ -130,4 +130,56 @@ describe("generateVariant Retry-After handling", () => {
     const gap = calls[1].ts - calls[0].ts;
     expect(gap).toBeLessThan(500);
   });
+
+  test("AbortError surfaces the actual configured 240s timeout in the error message", async () => {
+    // Regression: `generateVariant`'s `setTimeout` aborts at 240_000 ms
+    // (240s) but the AbortError branch returned `"Timeout (120s)"`. A
+    // user staring at the failure has no way to know whether to bump
+    // the orchestrator timeout, retry, or drop the call — the message
+    // is off by 2x. Force the abort path and assert the surfaced
+    // string matches the real bound.
+    const fetchFn = (async (_input: any, init?: any): Promise<Response> => {
+      const signal = init?.signal as AbortSignal | undefined;
+      return await new Promise((_resolve, reject) => {
+        if (signal?.aborted) {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+          return;
+        }
+        signal?.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    }) as typeof globalThis.fetch;
+
+    const originalSetTimeout = globalThis.setTimeout;
+    // Force the 240_000 ms timer to fire on the next event-loop tick
+    // so the test runs in milliseconds instead of 4 minutes. Only the
+    // 240_000 ms timer maps to fast; the leading exponential delays
+    // (2_000+ ms on retry) keep their real value via this branch
+    // because attempt 0 never sleeps.
+    const fastSetTimeout = ((handler: any, timeout?: number, ...rest: any[]): any => {
+      if (timeout === 240_000) {
+        return originalSetTimeout(handler, 0, ...rest);
+      }
+      return originalSetTimeout(handler, timeout as number, ...rest);
+    }) as typeof globalThis.setTimeout;
+    (globalThis as any).setTimeout = fastSetTimeout;
+
+    try {
+      const result = await generateVariant(
+        "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+      );
+
+      expect(result.success).toBe(false);
+      // Critical: the message MUST report 240s (the real bound), not
+      // 120s (the pre-fix mismatched literal).
+      expect(result.error).toBe("Timeout (240s)");
+    } finally {
+      (globalThis as any).setTimeout = originalSetTimeout;
+    }
+  });
 });
