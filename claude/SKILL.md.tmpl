@@ -42,18 +42,10 @@ CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "")
 If `NOT_FOUND`, stop and tell the user:
 "Claude CLI not found. Install Claude Code, then re-run this skill."
 
-Check auth:
-
-```bash
-if [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "AUTH_FOUND"
-else
-  echo "AUTH_MISSING"
-fi
-```
-
-If `AUTH_MISSING`, stop and tell the user:
-"No Claude authentication found. Run `claude` interactively to log in, or export `ANTHROPIC_API_KEY`, then re-run this skill."
+Do not preflight Claude authentication by checking credential files. Claude Code
+may store login state in OS keychain or another host-managed location that is not
+visible to this skill. Treat the first `claude -p` invocation as the auth check,
+then surface any login/auth failure from its JSON or stderr output.
 
 ---
 
@@ -117,10 +109,14 @@ except Exception as exc:
     print(f"CLAUDE_JSON_PARSE_ERROR: {exc}")
     sys.exit(0)
 
+result = obj.get("result") or obj.get("response") or ""
+result_lower = result.lower()
+
 if obj.get("is_error"):
     print("CLAUDE_ERROR: true")
+    if any(term in result_lower for term in ("auth", "login", "unauthorized", "not logged in")):
+        print("CLAUDE_AUTH_ERROR: true")
 
-result = obj.get("result") or obj.get("response") or ""
 if result:
     print(result)
 
@@ -137,7 +133,8 @@ if session_id:
 PY
 ```
 
-If stderr contains `auth`, `login`, or `unauthorized`, tell the user:
+If the parsed output contains `CLAUDE_AUTH_ERROR: true`, or stderr contains
+`auth`, `login`, `unauthorized`, or `not logged in`, tell the user:
 "Claude authentication failed. Run `claude` interactively to authenticate or export `ANTHROPIC_API_KEY`."
 
 ---
@@ -324,8 +321,7 @@ rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
 ## Error Handling
 
 - **Binary not found:** Stop with install instructions.
-- **Auth missing:** Stop with login/API key instructions.
-- **Auth failure from stderr:** Surface the stderr line and ask the user to re-authenticate.
+- **Auth failure from Claude output or stderr:** Surface the auth line and ask the user to re-authenticate.
 - **JSON parse failure:** Show raw stdout from `$RESP_FILE` and stderr from `$ERR_FILE`.
 - **Empty response:** Tell the user "Claude returned no response. Check stderr for errors."
 - **Resume failure:** Delete `.context/claude-session-id` and retry with a fresh session.
