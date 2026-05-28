@@ -196,9 +196,14 @@ function bumpPref(list: Preference[], value: string, opposite: Preference[], act
     entry.rejected_count += 1;
   }
   entry.last_seen = now;
-  // Laplace-smoothed confidence
+  // Laplace-smoothed confidence in THIS bucket's signal: an approved entry's
+  // confidence reflects how strongly it's approved, a rejected entry's how
+  // strongly it's rejected. Using approved_count for both buckets pinned every
+  // rejected entry to 0 (rejected entries never gain approvals), which made the
+  // `show` ranking meaningless and the taste-drift warning unreachable.
   const total = entry.approved_count + entry.rejected_count;
-  entry.confidence = entry.approved_count / (total + 1);
+  const ownCount = action === 'approved' ? entry.approved_count : entry.rejected_count;
+  entry.confidence = ownCount / (total + 1);
   // Flag conflict if the opposite bucket has a strong entry for this value
   const opp = opposite.find(p => p.value.toLowerCase() === value.toLowerCase());
   if (opp && opp.approved_count + opp.rejected_count >= 3 && opp.confidence >= 0.6) {
