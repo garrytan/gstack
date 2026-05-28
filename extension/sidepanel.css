@@ -1137,6 +1137,103 @@ footer {
   transition: color 150ms;
 }
 .footer-port:hover { color: var(--text-label); }
+.footer-mem {
+  color: var(--text-meta);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  transition: color 150ms;
+}
+.footer-mem.warn {
+  color: #f59e0b;
+}
+.footer-mem.bad {
+  color: #ef4444;
+}
+
+/* ─── Memory pressure toast ─────────────────────────────────── */
+.mem-toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 44px;
+  z-index: 9999;
+  background: var(--bg-elevated, #1f1f23);
+  border: 1px solid #ef4444;
+  border-radius: var(--radius-md, 6px);
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+.mem-toast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.mem-toast-header strong {
+  color: var(--text-heading);
+  font-size: 13px;
+}
+.mem-toast-close {
+  background: transparent;
+  border: none;
+  color: var(--text-meta);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.mem-toast-close:hover { color: var(--text-heading); }
+.mem-toast-body {
+  margin-bottom: 8px;
+  color: var(--text-body);
+  line-height: 1.4;
+}
+.mem-toast-body .mem-toast-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.mem-toast-body .mem-toast-row label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mem-toast-body .mem-toast-size {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-meta);
+  width: 70px;
+  text-align: right;
+}
+.mem-toast-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.mem-toast-btn {
+  background: var(--bg-base);
+  border: 1px solid var(--zinc-600);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-body);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 12px;
+}
+.mem-toast-btn:hover { background: var(--zinc-700); }
+.mem-toast-btn.primary {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+.mem-toast-btn.primary:hover { background: #dc2626; }
 .port-input {
   width: 56px;
   padding: 2px 6px;

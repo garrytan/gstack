@@ -18,6 +18,7 @@ import type { SetContentWaitUntil } from './tab-session';
 import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
+import { withCdpSession } from './cdp-bridge';
 
 /**
  * Aggressive page cleanup selectors and heuristics.
@@ -1409,9 +1410,10 @@ export async function handleWriteCommand(
       validateOutputPath(outputPath);
 
       try {
-        const cdp = await page.context().newCDPSession(page);
-        const { data } = await cdp.send('Page.captureSnapshot', { format: 'mhtml' });
-        await cdp.detach();
+        const data = await withCdpSession(page, async (cdp) => {
+          const result = await cdp.send('Page.captureSnapshot', { format: 'mhtml' });
+          return (result as { data: string }).data;
+        });
         fs.writeFileSync(outputPath, data);
         return `Archive saved: ${outputPath} (${Math.round(data.length / 1024)}KB, MHTML)`;
       } catch (err: any) {
