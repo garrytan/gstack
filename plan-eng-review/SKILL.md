@@ -788,6 +788,38 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 * For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
 * **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
 
+## Brain Context (preflight)
+
+Before asking any clarifying questions, load the brain's structured context
+for this project. The cache layer handles staleness, refresh, and stale-but-
+usable fallback automatically. Skip questions whose answers are already
+present in the loaded context; ground recommendations in what the brain
+already knows about the user, the product, the goals, and recent decisions.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+{
+  printf '## Brain Context\n\n'
+  printf '\n### %s\n\n' "product"
+  ~/.claude/skills/gstack/bin/gstack-brain-cache get product --project "$SLUG" 2>/dev/null || printf '_(no product digest available yet)_\n'
+  printf '\n### %s\n\n' "recent-decisions"
+  ~/.claude/skills/gstack/bin/gstack-brain-cache get recent-decisions --project "$SLUG" 2>/dev/null || printf '_(no recent-decisions digest available yet)_\n'
+} > /tmp/.gstack-brain-context-$$.md 2>/dev/null
+[ -s /tmp/.gstack-brain-context-$$.md ] && cat /tmp/.gstack-brain-context-$$.md
+rm -f /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
+```
+
+**How to use this context:**
+- If `product` digest names the value prop, target user, or stage — don't re-ask.
+- If `goals` digest lists active goals — frame recommendations against them.
+- If `recent-decisions` digest names a prior scope/architecture choice — flag if this plan contradicts.
+- If `user-profile` digest carries calibration pattern statements ("tends to over-engineer security") — surface them when relevant.
+- If a digest is `(no X digest available yet)`, treat that section as cold; ask the user.
+
+**Privacy:** Salience digest is filtered by allowlist (D9 default: `projects/`,
+`gstack/`, `concepts/` only). Personal/family/therapy content never leaks here.
+
+
 ## BEFORE YOU START:
 
 ### Design Doc Check
@@ -1717,6 +1749,57 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
+
+
+## Brain Calibration Write-Back (Phase 2 / gated)
+
+When the skill makes a typed prediction worth tracking (scope decision,
+TTHW target, architectural bet, wedge commitment), it MAY write a
+`kind=bet` take to the brain so a calibration profile builds over time.
+
+**Gated on two things:**
+1. Brain trust policy for the active endpoint is `personal` (check via
+   `~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@<endpoint-hash>`).
+   Shared brains skip write-back to avoid polluting team calibration.
+2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
+   to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
+
+When both gates pass, the write-back path uses `mcp__gbrain__takes_add`
+to record a take with weight 0.7 (per SKILL_CALIBRATION_WEIGHTS).
+If the MCP op is unavailable, fall back to `mcp__gbrain__put_page` with
+a gstack:takes fence block (documented but uglier path).
+
+Mandatory take frontmatter shape:
+```yaml
+kind: bet
+holder: <user identity from whoami>
+claim: <one-line prediction the skill is making>
+weight: 0.7
+since_date: <today's date>
+expected_resolution: <date in 1-3 months depending on skill>
+source_skill: plan-eng-review
+```
+
+After write, invalidate the affected digests so the next preflight reflects
+the new state:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+  # (no per-skill invalidation targets configured)
+```
+
+
+## Brain Cache Background Refresh
+
+After the skill's work completes (and telemetry has logged), kick a
+background refresh of any cache digest that's getting close to its TTL.
+This is non-blocking — the user doesn't wait. Next invocation benefits
+from the warm cache.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+(~/.claude/skills/gstack/bin/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
+```
 
 
 ## Next Steps — Review Chaining

@@ -1151,6 +1151,44 @@ if [ "$NO_TEAM_MODE" -eq 1 ]; then
   log "Team mode disabled: auto-update hook removed."
 fi
 
+# ─── GBrain detection + conditional SKILL.md regen ──────────────────────
+#
+# Detect whether gbrain is installed and persist the result to
+# ~/.gstack/gbrain-detection.json so gen-skill-docs can decide whether to
+# render GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS blocks. If detected,
+# regenerate the Claude-host SKILL.md files with the un-suppressed
+# (compressed) brain-aware blocks via `bun run gen:skill-docs:user`.
+#
+# If gbrain is not detected, the canonical no-gbrain SKILL.md files
+# (which were just generated above by `gen:skill-docs --host claude` if
+# applicable, or which are checked in) stay as-is. Zero token overhead
+# for non-gbrain users.
+#
+# Users who install gbrain after running ./setup should re-run setup OR
+# call `gstack-config gbrain-refresh` + `bun run gen:skill-docs:user`.
+DETECT_BIN="$SOURCE_GSTACK_DIR/bin/gstack-gbrain-detect"
+GBRAIN_STATE_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+DETECTION_FILE="$GBRAIN_STATE_DIR/gbrain-detection.json"
+mkdir -p "$GBRAIN_STATE_DIR"
+if [ -x "$DETECT_BIN" ]; then
+  if "$DETECT_BIN" > "$DETECTION_FILE.tmp" 2>/dev/null; then
+    mv "$DETECTION_FILE.tmp" "$DETECTION_FILE"
+    if grep -q '"gbrain_local_status": "ok"' "$DETECTION_FILE" 2>/dev/null; then
+      log "gbrain detected — regenerating Claude SKILL.md with brain-aware blocks (~250 token overhead per planning skill)..."
+      (
+        cd "$SOURCE_GSTACK_DIR"
+        bun_cmd run gen:skill-docs:user --host claude 2>&1 | tail -3
+      ) || log "  warning: gen:skill-docs:user failed — run 'bun run gen:skill-docs:user' manually if you want brain-aware blocks"
+    else
+      log "gbrain not detected — brain-aware blocks suppressed in planning-skill SKILL.md files (zero token overhead)."
+      log "  To enable: install gbrain via /setup-gbrain, then re-run ./setup or 'gstack-config gbrain-refresh'."
+    fi
+  else
+    rm -f "$DETECTION_FILE.tmp"
+    log "  warning: gstack-gbrain-detect failed — brain-aware blocks will stay suppressed"
+  fi
+fi
+
 # 11. Plan-tune cathedral hook install (T8).
 #
 # Registers PostToolUse (deterministic AUQ capture) + PreToolUse (preference
