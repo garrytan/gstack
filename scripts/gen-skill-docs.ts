@@ -532,6 +532,45 @@ function extractHookSafetyProse(tmplContent: string): string | null {
 const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n`;
 
 /**
+ * Truncate a SKILL.md to at most `maxBytes` bytes, preserving the frontmatter
+ * and trimming the body at the last complete line that fits, then appending a
+ * one-line notice. Called after the generated header has been inserted so the
+ * header bytes are already included in the size budget.
+ */
+function truncateToMaxBytes(content: string, maxBytes: number): string {
+  if (Buffer.byteLength(content, 'utf-8') <= maxBytes) return content;
+
+  const notice = '\n\n> [Truncated to fit host file size limit. Full skill: ~/.claude/skills/gstack]\n';
+  const noticeBytes = Buffer.byteLength(notice, 'utf-8');
+  const budget = maxBytes - noticeBytes;
+
+  // Split at the end of the closing frontmatter `---` line.
+  const fmEnd = content.indexOf('\n---\n', 3);
+  const splitAt = fmEnd !== -1 ? fmEnd + 5 : 0;
+  const frontmatter = content.slice(0, splitAt);
+  const body = content.slice(splitAt);
+
+  const fmBytes = Buffer.byteLength(frontmatter, 'utf-8');
+  const bodyBudget = Math.max(0, budget - fmBytes);
+
+  let bodyTrunc = body;
+  if (Buffer.byteLength(body, 'utf-8') > bodyBudget) {
+    const lines = body.split('\n');
+    const kept: string[] = [];
+    let used = 0;
+    for (const line of lines) {
+      const lb = Buffer.byteLength(line + '\n', 'utf-8');
+      if (used + lb > bodyBudget) break;
+      kept.push(line);
+      used += lb;
+    }
+    bodyTrunc = kept.join('\n');
+  }
+
+  return frontmatter + bodyTrunc + notice;
+}
+
+/**
  * Process external host output: routing, frontmatter, path rewrites, metadata.
  * Shared between Codex and Factory (and future external hosts).
  */
@@ -681,6 +720,14 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = content.slice(0, insertAt) + header + content.slice(insertAt);
   } else {
     content = header + content;
+  }
+
+  // Config-driven: truncate to maxFileBytes after header insertion (e.g. Zed's 100KB limit).
+  if (host !== 'claude' && !symlinkLoop) {
+    const hostCfg = getHostConfig(host);
+    if (hostCfg.maxFileBytes && Buffer.byteLength(content, 'utf-8') > hostCfg.maxFileBytes) {
+      content = truncateToMaxBytes(content, hostCfg.maxFileBytes);
+    }
   }
 
   // Catalog trim (Claude only — external hosts have their own frontmatter shapes)

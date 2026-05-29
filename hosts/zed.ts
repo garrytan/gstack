@@ -23,6 +23,8 @@ const zed: HostConfig = {
     skipSkills: ['codex'],
   },
 
+  maxFileBytes: 100 * 1024,
+
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '~/.agents/skills/gstack' },
     { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
