@@ -342,17 +342,9 @@ export class BrowserManager {
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
     // Extensions only work in headed mode, so we use an off-screen window.
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
-    const { STEALTH_LAUNCH_ARGS } = await import('./stealth');
-    const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS];
+    const { STEALTH_LAUNCH_ARGS, sandboxDisableArgs } = await import('./stealth');
+    const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS, ...sandboxDisableArgs()];
     let useHeadless = true;
-
-    // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
-    // are typically disabled in containers and are never available for the root
-    // user on Linux. Detect all three cases and add --no-sandbox automatically.
-    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-    if (process.env.CI || process.env.CONTAINER || isRoot) {
-      launchArgs.push('--no-sandbox');
-    }
 
     if (extensionsDir) {
       // Skip --load-extension when running against a custom Chromium build that
@@ -435,12 +427,16 @@ export class BrowserManager {
     this.nextTabId = 1;
 
     // Find the gstack extension directory for auto-loading
+    const { sandboxDisableArgs } = await import('./stealth');
     const extensionPath = this.findExtensionPath();
     const launchArgs = [
       '--hide-crash-restore-bubble',
       // Anti-bot-detection: remove the navigator.webdriver flag that Playwright sets.
       // Sites like Google and NYTimes check this to block automation browsers.
       '--disable-blink-features=AutomationControlled',
+      // Docker/CI/root: disable the Chromium sandbox when unavailable, otherwise
+      // headed mode aborts at launch as root even though headless succeeds.
+      ...sandboxDisableArgs(),
     ];
     if (extensionPath) {
       // Skip --load-extension when running against a custom Chromium build
@@ -1555,8 +1551,9 @@ export class BrowserManager {
     try {
       const fs = require('fs');
       const path = require('path');
+      const { sandboxDisableArgs } = await import('./stealth');
       const extensionPath = this.findExtensionPath();
-      const launchArgs = ['--hide-crash-restore-bubble'];
+      const launchArgs = ['--hide-crash-restore-bubble', ...sandboxDisableArgs()];
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
