@@ -248,6 +248,16 @@ resolve_user_slug() {
   printf '%s' "$_slug"
 }
 
+read_config_value() {
+  local key="$1"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    return 0
+  fi
+  grep -E "^${key}:" "$CONFIG_FILE" 2>/dev/null \
+    | tail -1 \
+    | sed -E "s/^${key}:[[:space:]]*//; s/[[:space:]]+$//"
+}
+
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
@@ -257,8 +267,7 @@ case "${1:-}" in
       echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
       exit 1
     fi
-    # Use literal match for keys containing @ (sha hashes), regex otherwise
-    VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-f0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    VALUE=$(read_config_value "$KEY" || true)
     if [ -z "$VALUE" ]; then
       VALUE=$(lookup_default "$KEY")
     fi
@@ -307,14 +316,15 @@ case "${1:-}" in
     if [ ! -f "$CONFIG_FILE" ]; then
       printf '%s' "$CONFIG_HEADER" > "$CONFIG_FILE"
     fi
-    # Escape sed special chars in value and drop embedded newlines
-    ESC_VALUE="$(printf '%s' "$VALUE" | head -1 | sed 's/[&/\]/\\&/g')"
+    # Drop embedded newlines, then escape sed replacement metacharacters.
+    SAFE_VALUE="$(printf '%s' "$VALUE" | head -1)"
+    ESC_VALUE="$(printf '%s' "$SAFE_VALUE" | sed 's/[&/\]/\\&/g')"
     if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then
       # Portable in-place edit (BSD sed uses -i '', GNU sed uses -i without arg)
       _tmpfile="$(mktemp "${CONFIG_FILE}.XXXXXX")"
       sed "/^${KEY}:/s/.*/${KEY}: ${ESC_VALUE}/" "$CONFIG_FILE" > "$_tmpfile" && mv "$_tmpfile" "$CONFIG_FILE"
     else
-      echo "${KEY}: ${VALUE}" >> "$CONFIG_FILE"
+      echo "${KEY}: ${SAFE_VALUE}" >> "$CONFIG_FILE"
     fi
     # Auto-relink skills when prefix setting changes (skip during setup to avoid recursive call)
     if [ "$KEY" = "skill_prefix" ] && [ -z "${GSTACK_SETUP_RUNNING:-}" ]; then
@@ -332,7 +342,7 @@ case "${1:-}" in
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
-      VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+      VALUE=$(read_config_value "$KEY" || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
         SOURCE="set"
