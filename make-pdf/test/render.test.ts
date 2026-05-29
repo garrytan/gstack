@@ -227,6 +227,48 @@ describe("render (end-to-end)", () => {
     expect(result.html).toContain("Two");
   });
 
+  // Issue #1689: every TOC anchor (`#toc-N`) and page-number target
+  // (`data-toc-target="toc-N"`) must resolve to a body heading that actually
+  // carries that id. Before the fix, the TOC minted ids no heading ever
+  // received, so anchors were dead and Paged.js had no target to count pages
+  // against.
+  test("TOC anchors resolve to body heading ids (issue #1689)", () => {
+    const result = render({
+      markdown: `# One\n\n## Sub\n\nbody\n\n# Two\n\nbody\n`,
+      toc: true,
+    });
+    const hrefs = [...result.html.matchAll(/href="#([^"]+)"/g)].map((m) => m[1]);
+    const targets = [...result.html.matchAll(/data-toc-target="([^"]+)"/g)].map((m) => m[1]);
+    const headingIds = [...result.html.matchAll(/<h[1-3][^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+
+    expect(hrefs.length).toBe(3);
+    expect(targets).toEqual(hrefs);
+    // Every anchor + target points at a real heading id.
+    for (const ref of [...hrefs, ...targets]) {
+      expect(headingIds).toContain(ref);
+    }
+  });
+
+  test("TOC keeps a heading's pre-existing id instead of overwriting it (issue #1689)", () => {
+    const result = render({
+      markdown: `<h1 id="intro">Intro</h1>\n\n# Two\n`,
+      toc: true,
+    });
+    // The heading's own id is preserved and the TOC links to it.
+    expect(result.html).toContain(`id="intro"`);
+    expect(result.html).toContain(`href="#intro"`);
+    expect(result.html).toContain(`data-toc-target="intro"`);
+    // The id-less second heading still gets a minted id its entry points at.
+    const headingIds = [...result.html.matchAll(/<h[1-3][^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+    const hrefs = [...result.html.matchAll(/href="#([^"]+)"/g)].map((m) => m[1]);
+    for (const ref of hrefs) expect(headingIds).toContain(ref);
+  });
+
+  test("no toc-id injection when toc is off (issue #1689)", () => {
+    const result = render({ markdown: `# One\n\n## Sub\n`, toc: false });
+    expect(result.html).not.toContain(`id="toc-`);
+  });
+
   test("strips dangerous HTML from untrusted markdown", () => {
     const result = render({
       markdown: `# Safe\n\n<script>alert('xss')</script>\n\nBody.`,

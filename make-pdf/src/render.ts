@@ -106,14 +106,22 @@ export function render(opts: RenderOptions): RenderResult {
       })
     : "";
 
+  // Assign stable ids to body headings so the TOC's `#toc-N` anchors and
+  // `data-toc-target` spans resolve to a real element. Headings that already
+  // declare an id keep it; the TOC points at whatever id the heading carries.
+  // Only worth doing when a TOC is requested (the ids exist solely for it).
+  const { html: bodyHtml, headings: tocHeadings } = opts.toc
+    ? annotateHeadingIds(typographicHtml)
+    : { html: typographicHtml, headings: [] };
+
   const tocBlock = opts.toc
-    ? buildTocBlock(typographicHtml)
+    ? buildTocBlock(tocHeadings)
     : "";
 
   // Wrap body in .chapter sections at H1 boundaries if chapter breaks are on.
   const chapterHtml = opts.noChapterBreaks
-    ? `<section class="chapter">${typographicHtml}</section>`
-    : wrapChaptersByH1(typographicHtml);
+    ? `<section class="chapter">${bodyHtml}</section>`
+    : wrapChaptersByH1(bodyHtml);
 
   const watermarkBlock = opts.watermark
     ? `<div class="watermark">${escapeHtml(opts.watermark)}</div>`
@@ -251,23 +259,29 @@ function buildCoverBlock(opts: {
   ].filter(Boolean).join("\n");
 }
 
+interface TocHeading {
+  level: number;
+  text: string;
+  id: string;
+}
+
 /**
- * Scan HTML for H1/H2/H3 headings and emit a TOC placeholder.
- * Page numbers are filled in by Paged.js (when --toc is passed and Paged.js
- * polyfill is injected).
+ * Emit a TOC placeholder from headings that already carry ids (assigned by
+ * annotateHeadingIds). Each entry's `#id` anchor and `data-toc-target` span
+ * resolve to the matching body heading. Page numbers are filled in by Paged.js
+ * (when --toc is passed and the Paged.js polyfill is injected), which needs the
+ * target heading to exist with the referenced id before it can count pages.
  */
-function buildTocBlock(html: string): string {
-  const headings = extractHeadings(html);
+function buildTocBlock(headings: TocHeading[]): string {
   if (headings.length === 0) return "";
 
-  const items = headings.map((h, i) => {
+  const items = headings.map((h) => {
     const level = h.level >= 2 ? "level-2" : "level-1";
-    const id = `toc-${i}`;
     return [
       `  <li class="${level}">`,
-      `    <span class="toc-title"><a href="#${id}">${escapeHtml(h.text)}</a></span>`,
+      `    <span class="toc-title"><a href="#${h.id}">${escapeHtml(h.text)}</a></span>`,
       `    <span class="toc-dots"></span>`,
-      `    <span class="toc-page" data-toc-target="${id}"></span>`,
+      `    <span class="toc-page" data-toc-target="${h.id}"></span>`,
       `  </li>`,
     ].join("\n");
   }).join("\n");
@@ -282,16 +296,36 @@ function buildTocBlock(html: string): string {
   ].join("\n");
 }
 
-function extractHeadings(html: string): Array<{ level: number; text: string }> {
-  const re = /<(h[1-3])[^>]*>([\s\S]*?)<\/\1>/gi;
-  const headings: Array<{ level: number; text: string }> = [];
-  let match;
-  while ((match = re.exec(html)) !== null) {
-    const level = parseInt(match[1].slice(1), 10);
-    const text = decodeTextEntities(stripTags(match[2]).trim());
-    if (text) headings.push({ level, text });
-  }
-  return headings;
+/**
+ * Walk H1-H3 headings in document order, assigning each a stable id the TOC can
+ * link to. A heading that already declares an `id` keeps it (the TOC points at
+ * the existing id); a heading with no id gets `id="toc-N"` injected, where N is
+ * its document-order index. Returns the rewritten HTML plus the heading list
+ * (level, decoded text, resolved id) for buildTocBlock to consume, so anchors
+ * and targets are guaranteed to agree.
+ */
+function annotateHeadingIds(html: string): { html: string; headings: TocHeading[] } {
+  const headings: TocHeading[] = [];
+  let i = 0;
+  const out = html.replace(
+    /<(h[1-3])([^>]*)>([\s\S]*?)<\/\1>/gi,
+    (whole, tag: string, attrs: string, inner: string) => {
+      const level = parseInt(tag.slice(1), 10);
+      const text = decodeTextEntities(stripTags(inner).trim());
+      // Empty headings carry no TOC entry; leave them untouched.
+      if (!text) return whole;
+      const idx = i++;
+      const existing = attrs.match(/\bid\s*=\s*["']([^"']*)["']/i);
+      if (existing) {
+        headings.push({ level, text, id: existing[1] });
+        return whole;
+      }
+      const id = `toc-${idx}`;
+      headings.push({ level, text, id });
+      return `<${tag}${attrs} id="${id}">${inner}</${tag}>`;
+    },
+  );
+  return { html: out, headings };
 }
 
 /**
