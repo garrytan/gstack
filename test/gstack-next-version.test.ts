@@ -1,12 +1,14 @@
 // Pure-function tests for bin/gstack-next-version.
 // Covers the version arithmetic and slot-picking logic. Subprocess paths
-// (gh/glab/git) are covered by the integration test at the bottom (skipped
-// when the relevant CLI isn't available).
+// (gh/glab/git) are covered by the integration test at the bottom.
 
 import { test, expect, describe } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { join } from "node:path";
+import * as path from "node:path";
 import {
   parseVersion,
   fmtVersion,
@@ -221,58 +223,77 @@ describe("resolveVersionPath (monorepo VERSION-path support)", () => {
   });
 });
 
-// Integration smoke — only runs if gh is available and authenticated. Confirms
-// the CLI executes end-to-end against real APIs without crashing.
+// Integration smoke. Runs without gh/glab on PATH so it verifies the CLI output
+// shape without network access.
 describe("integration (smoke)", () => {
-  // Bumps timeout to 30s — the test spawns a real `bun run` subprocess that
-  // does a `gh pr list` against the live GitHub API to inspect claimed slots.
-  // Network latency makes 5s tight on developer machines.
-  test("CLI runs against real repo and emits parseable JSON", async () => {
-    const proc = Bun.spawnSync([
-      "bun",
-      "run",
-      "./bin/gstack-next-version",
-      "--base",
-      "main",
-      "--bump",
-      "patch",
-      "--current-version",
-      "1.6.3.0",
-      "--workspace-root",
-      "null", // skip sibling scan in CI
-    ]);
-    const out = new TextDecoder().decode(proc.stdout);
-    const parsed = JSON.parse(out);
-    expect(parsed).toHaveProperty("version");
-    expect(parseVersion(parsed.version)).not.toBeNull();
-    expect(parsed).toHaveProperty("bump", "patch");
-    expect(parsed).toHaveProperty("host");
-    expect(["github", "gitlab", "unknown"]).toContain(parsed.host);
-    expect(parsed).toHaveProperty("claimed");
-    expect(Array.isArray(parsed.claimed)).toBe(true);
-    expect(parsed).toHaveProperty("siblings");
-    expect(parsed.siblings).toEqual([]); // --workspace-root null disabled scanning
-    expect(parsed).toHaveProperty("version_path", "VERSION"); // default when no config + no flag
-  }, 30_000); // Headroom over the 4-5s wall time of the spawned process under load
+  test("CLI runs without network tools and emits parseable JSON", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-next-version-"));
+    try {
+      const proc = Bun.spawnSync([
+        process.execPath,
+        "run",
+        path.join(import.meta.dir, "..", "bin", "gstack-next-version"),
+        "--base",
+        "main",
+        "--bump",
+        "patch",
+        "--current-version",
+        "1.6.3.0",
+        "--workspace-root",
+        "null", // skip sibling scan in CI
+      ], {
+        cwd,
+        env: {
+          ...process.env,
+          PATH: "/usr/bin:/bin",
+        },
+      });
+      const out = new TextDecoder().decode(proc.stdout);
+      const parsed = JSON.parse(out);
+      expect(parsed).toHaveProperty("version");
+      expect(parseVersion(parsed.version)).not.toBeNull();
+      expect(parsed).toHaveProperty("bump", "patch");
+      expect(parsed).toHaveProperty("host");
+      expect(["github", "gitlab", "unknown"]).toContain(parsed.host);
+      expect(parsed).toHaveProperty("claimed");
+      expect(Array.isArray(parsed.claimed)).toBe(true);
+      expect(parsed).toHaveProperty("siblings");
+      expect(parsed.siblings).toEqual([]); // --workspace-root null disabled scanning
+      expect(parsed).toHaveProperty("version_path", "VERSION"); // default when no config + no flag
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   test("CLI runs with --version-path and surfaces it in JSON output", async () => {
-    const proc = Bun.spawnSync([
-      "bun",
-      "run",
-      "./bin/gstack-next-version",
-      "--base",
-      "main",
-      "--bump",
-      "patch",
-      "--current-version",
-      "1.6.3.0",
-      "--workspace-root",
-      "null",
-      "--version-path",
-      "Tinas Second Brain/health-tracker/VERSION",
-    ]);
-    const out = new TextDecoder().decode(proc.stdout);
-    const parsed = JSON.parse(out);
-    expect(parsed).toHaveProperty("version_path", "Tinas Second Brain/health-tracker/VERSION");
-  }, 30_000);
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-next-version-"));
+    try {
+      const proc = Bun.spawnSync([
+        process.execPath,
+        "run",
+        path.join(import.meta.dir, "..", "bin", "gstack-next-version"),
+        "--base",
+        "main",
+        "--bump",
+        "patch",
+        "--current-version",
+        "1.6.3.0",
+        "--workspace-root",
+        "null",
+        "--version-path",
+        "Tinas Second Brain/health-tracker/VERSION",
+      ], {
+        cwd,
+        env: {
+          ...process.env,
+          PATH: "/usr/bin:/bin",
+        },
+      });
+      const out = new TextDecoder().decode(proc.stdout);
+      const parsed = JSON.parse(out);
+      expect(parsed).toHaveProperty("version_path", "Tinas Second Brain/health-tracker/VERSION");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

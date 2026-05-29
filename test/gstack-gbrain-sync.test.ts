@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -26,10 +26,11 @@ function makeTestHome(): string {
   return mkdtempSync(join(tmpdir(), "gstack-gbrain-sync-"));
 }
 
-function runScript(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+function runScript(args: string[], env: Record<string, string> = {}, cwd?: string): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", [SCRIPT, ...args], {
     encoding: "utf-8",
     timeout: 60000,
+    cwd,
     env: { ...process.env, ...env },
   });
   return {
@@ -107,18 +108,37 @@ describe("gstack-gbrain-sync CLI", () => {
   });
 
   it("dry-run derives a stable source id from the canonical git remote", () => {
-    // The source id pattern is `gstack-code-<canonicalized-remote>`. For this
-    // repo (github.com/garrytan/gstack), the slug should appear in the dry-run
-    // preview line. We don't pin the exact slug — just verify the prefix +
-    // that the preview command would target a source with id gstack-code-*.
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    const match = r.stdout.match(/gbrain sources add (gstack-code-[a-z0-9-]+)/);
+    expect(match).not.toBeNull();
+    const sourceId = match?.[1] || "";
+    expect(sourceId.length).toBeLessThanOrEqual(32);
+    expect(sourceId).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(r.stdout).toContain(`gbrain sync --strategy code --source ${sourceId}`);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("dry-run source id stays valid for long remotes", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = join(home, "repo-with-long-remote");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    spawnSync("git", ["init", "-q"], { cwd: repo });
+    spawnSync("git", ["remote", "add", "origin", "https://github.com/example-owner/extremely-long-repository-name-for-gbrain-source-ids.git"], { cwd: repo });
+
+    const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome }, repo);
+    expect(r.exitCode).toBe(0);
+    const match = r.stdout.match(/gbrain sources add (gstack-code-[a-z0-9-]+)/);
+    expect(match).not.toBeNull();
+    const sourceId = match?.[1] || "";
+    expect(sourceId.length).toBeLessThanOrEqual(32);
+    expect(sourceId).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -544,6 +564,85 @@ describe("gstack-gbrain-sync CLI", () => {
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it("reuses an existing exact-path source instead of adding an overlapping preferred id", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const gbrainHome = join(home, ".gbrain");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(gbrainHome, { recursive: true });
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: "postgres://gbrain-test" }));
+
+    const repo = mkdtempSync(join(tmpdir(), "gstack-existing-source-"));
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    spawnSync("git", ["remote", "add", "origin", "https://github.com/example/existing-source.git"], { cwd: repo });
+    const repoRoot = realpathSync(repo);
+
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-existing-source-bin-"));
+    const statePath = join(home, "sources.json");
+    const logPath = join(home, "gbrain-calls.log");
+    const existingSourceId = "gstack-code-existing-abc12345";
+    writeFileSync(statePath, JSON.stringify({
+      sources: [{ id: existingSourceId, local_path: repoRoot, page_count: 17 }],
+    }));
+    writeFileSync(logPath, "");
+
+    const gbrain = join(bindir, "gbrain");
+    writeFileSync(gbrain, `#!/bin/sh
+echo "$@" >> "${logPath}"
+case "$1 $2" in
+  "--version ")
+    echo "gbrain 0.27.0"
+    exit 0
+    ;;
+  "sources list")
+    cat "${statePath}"
+    exit 0
+    ;;
+  "sources add")
+    echo "overlapping source add should not run" >&2
+    exit 9
+    ;;
+  "sync --strategy")
+    if [ "$3" = "code" ] && [ "$4" = "--source" ] && [ "$5" = "${existingSourceId}" ]; then
+      exit 0
+    fi
+    echo "unexpected sync args: $@" >&2
+    exit 8
+    ;;
+  "sources attach")
+    if [ "$3" = "${existingSourceId}" ]; then
+      exit 0
+    fi
+    echo "unexpected attach args: $@" >&2
+    exit 7
+    ;;
+esac
+echo "fake gbrain: unknown command: $@" >&2
+exit 1
+`);
+    chmodSync(gbrain, 0o755);
+
+    const r = runScript(["--incremental", "--code-only", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${bindir}:${process.env.PATH || ""}`,
+    }, repo);
+
+    expect(r.exitCode).toBe(0);
+    const calls = readFileSync(logPath, "utf-8");
+    expect(calls).not.toContain("sources add");
+    expect(calls).toContain(`sync --strategy code --source ${existingSourceId}`);
+    expect(calls).toContain(`sources attach ${existingSourceId}`);
+
+    const syncState = JSON.parse(readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"));
+    expect(syncState.last_stages[0].detail.source_id).toBe(existingSourceId);
+    expect(syncState.last_stages[0].detail.page_count).toBe(17);
+
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
   });
 });
 

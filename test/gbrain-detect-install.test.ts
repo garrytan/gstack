@@ -25,10 +25,12 @@ const INSTALL = path.join(ROOT, 'bin', 'gstack-gbrain-install');
 // dirs — this keeps `gbrain` out of PATH deterministically across dev machines
 // while still finding jq, git, curl, sed, cat, etc. Each test can prepend a
 // fake-gbrain dir when it wants to simulate presence.
-const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin';
+const BASE_SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin';
 
 let tmpHome: string;
 let tmpHomeReal: string;
+let bunShimDir: string;
+let safePath: string;
 
 type RunOpts = { env?: Record<string, string>; cwd?: string };
 function run(bin: string, args: string[], opts: RunOpts = {}) {
@@ -53,11 +55,15 @@ function run(bin: string, args: string[], opts: RunOpts = {}) {
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-detect-gstack-'));
   tmpHomeReal = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-detect-home-'));
+  bunShimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-detect-bun-'));
+  fs.symlinkSync(process.execPath, path.join(bunShimDir, 'bun'));
+  safePath = `${bunShimDir}:${BASE_SAFE_PATH}`;
 });
 
 afterEach(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
   fs.rmSync(tmpHomeReal, { recursive: true, force: true });
+  fs.rmSync(bunShimDir, { recursive: true, force: true });
 });
 
 describe('gstack-gbrain-detect', () => {
@@ -65,7 +71,7 @@ describe('gstack-gbrain-detect', () => {
     // Override PATH to exclude any real gbrain so the test is deterministic.
     const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
     try {
-      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${safePath}` } });
       expect(r.status).toBe(0);
       const j = JSON.parse(r.stdout);
       expect(j.gbrain_on_path).toBe(false);
@@ -84,7 +90,7 @@ describe('gstack-gbrain-detect', () => {
     fs.mkdirSync(path.join(tmpHome, '.git'));
     const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
     try {
-      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${safePath}` } });
       const j = JSON.parse(r.stdout);
       expect(j.gstack_brain_git).toBe(true);
     } finally {
@@ -101,7 +107,7 @@ describe('gstack-gbrain-detect', () => {
     );
     const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
     try {
-      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${safePath}` } });
       const j = JSON.parse(r.stdout);
       expect(j.gbrain_config_exists).toBe(true);
       expect(j.gbrain_engine).toBe('pglite');
@@ -115,7 +121,7 @@ describe('gstack-gbrain-detect', () => {
     fs.writeFileSync(path.join(tmpHomeReal, '.gbrain', 'config.json'), 'not valid json{');
     const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
     try {
-      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
+      const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${safePath}` } });
       expect(r.status).toBe(0);
       const j = JSON.parse(r.stdout);
       expect(j.gbrain_config_exists).toBe(true);
@@ -133,7 +139,7 @@ describe('gstack-gbrain-detect', () => {
       { mode: 0o755 }
     );
     try {
-      const r = run(DETECT, [], { env: { PATH: `${fakeBin}:${SAFE_PATH}` } });
+      const r = run(DETECT, [], { env: { PATH: `${fakeBin}:${safePath}` } });
       expect(r.status).toBe(0);
       const j = JSON.parse(r.stdout);
       expect(j.gbrain_on_path).toBe(true);
@@ -208,7 +214,7 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     const fakeBin = seedFakeGbrainBinary('0.18.2');
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
-        env: { PATH: `${fakeBin}:${SAFE_PATH}` },
+        env: { PATH: `${fakeBin}:${safePath}` },
       });
       expect(r.status).toBe(0);
       expect(r.stdout).toContain('installed gbrain 0.18.2');
@@ -223,7 +229,7 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     const fakeBin = seedFakeGbrainBinary('v0.18.2');
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
-        env: { PATH: `${fakeBin}:${SAFE_PATH}` },
+        env: { PATH: `${fakeBin}:${safePath}` },
       });
       expect(r.status).toBe(0);
     } finally {
@@ -237,7 +243,7 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     const fakeBin = seedFakeGbrainBinary('0.18.1');
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
-        env: { PATH: `${fakeBin}:${SAFE_PATH}` },
+        env: { PATH: `${fakeBin}:${safePath}` },
       });
       expect(r.status).toBe(3);
       expect(r.stderr).toContain('PATH SHADOWING DETECTED');
@@ -257,7 +263,7 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
-        env: { PATH: `${emptyBin}:${SAFE_PATH}` },
+        env: { PATH: `${emptyBin}:${safePath}` },
       });
       expect(r.status).toBe(3);
       expect(r.stderr).toContain("'gbrain' is not on PATH");

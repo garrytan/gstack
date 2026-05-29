@@ -12,7 +12,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ensureSourceRegistered, probeSource, sourcePageCount } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, findSourceByLocalPath, probeSource, sourcePageCount } from "../lib/gbrain-sources";
 
 interface FakeGbrainSetup {
   bindir: string;
@@ -214,6 +214,36 @@ describe("sourcePageCount", () => {
   it("returns null when page_count is missing from the source object", () => {
     const fake = makeFakeGbrain({ sources: [{ id: "no-count", local_path: "/x" } as { id: string; local_path: string }] });
     expect(sourcePageCount("no-count", fake.env)).toBeNull();
+    fake.cleanup();
+  });
+});
+
+describe("findSourceByLocalPath", () => {
+  it("finds an existing source by exact local_path", () => {
+    const fake = makeFakeGbrain({
+      sources: [
+        { id: "other-source", local_path: "/x" },
+        { id: "gstack-code-old", local_path: "/Users/me/repo", page_count: 42 },
+      ],
+    });
+    const found = findSourceByLocalPath("/Users/me/repo", { env: fake.env });
+    expect(found?.id).toBe("gstack-code-old");
+    expect(found?.page_count).toBe(42);
+    fake.cleanup();
+  });
+
+  it("prefers a matching gstack code source over another source at the same path", () => {
+    const fake = makeFakeGbrain({
+      sources: [
+        { id: "manual-source", local_path: "/Users/me/repo" },
+        { id: "gstack-code-existing", local_path: "/Users/me/repo" },
+      ],
+    });
+    const found = findSourceByLocalPath("/Users/me/repo", {
+      env: fake.env,
+      preferredIdPrefix: "gstack-code-",
+    });
+    expect(found?.id).toBe("gstack-code-existing");
     fake.cleanup();
   });
 });
