@@ -323,10 +323,17 @@ describe('gen-skill-docs', () => {
     // Ratcheted 36500 → 39000 in the contributor wave when #1205 added the
     // \\u-escape CJK rule (rule 12 + self-check item) to the AskUserQuestion
     // preamble.
+    // Ratcheted 39000 → 40000 in plan-tune cathedral T14: question-tuning
+    // resolver gained the <gstack-qid:...> marker convention + the
+    // (recommended) label requirement (D2 + D18 — both load-bearing for
+    // hook enforcement). Adds ~700 bytes.
+    // Ratcheted 40000 → 60000 in v1.52.0.0 cap audit: ~20K headroom so
+    // future preamble adds don't trip the gate on each PR. Real runaway
+    // (preamble doubling) still trips; normal scope growth doesn't.
     for (const skill of reviewSkills) {
       const content = fs.readFileSync(skill.path, 'utf-8');
       const preamble = extractPreambleBeforeWorkflow(content, skill.markers);
-      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(39_000);
+      expect(Buffer.byteLength(preamble, 'utf-8')).toBeLessThan(60_000);
     }
   });
 

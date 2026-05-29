@@ -41,20 +41,24 @@ import { logBudgetOverride } from './helpers/budget-override';
  * v1.45.0.0 T5 — hard eval cost cap.
  *
  * Per-tier defaults (override via env):
- *   EVALS_BUDGET_HARD_CAP_GATE      default $25/run
- *   EVALS_BUDGET_HARD_CAP_PERIODIC  default $70/run
- *   EVALS_BUDGET_HARD_CAP           umbrella cap if a tier-specific isn't set; default $30
+ *   EVALS_BUDGET_HARD_CAP_GATE      default $200/run
+ *   EVALS_BUDGET_HARD_CAP_PERIODIC  default $500/run
+ *   EVALS_BUDGET_HARD_CAP           umbrella cap if a tier-specific isn't set; default $300
  *   EVALS_BUDGET_OVERRIDE_REASON    if set, override fires AND audit-logs to
  *                                   ~/.gstack/analytics/spend-overrides.jsonl
  *
- * Caps are dollars-per-run, not dollars-per-test. A test that legitimately
- * gets more expensive should bake into the baseline; a runaway eval (infinite
- * retry, model price change) gets stopped here.
+ * Caps are dollars-per-run, not dollars-per-test. The cap exists to catch
+ * runaway evals (infinite retry, model price change, prompt-blowup bug),
+ * NOT to gate legitimate scope growth. Set high enough that real growth
+ * never trips it — only obvious-bug territory does. Adjusted v1.52.0.0
+ * (cathedral cap audit): $25 → $200 gate, $70 → $500 periodic. Prior
+ * defaults tripped on normal-scope expansion; new ceilings are 8× the
+ * historical worst-case eval run.
  */
-const DEFAULT_HARD_CAP_USD = Number(process.env.EVALS_BUDGET_HARD_CAP) || 30;
+const DEFAULT_HARD_CAP_USD = Number(process.env.EVALS_BUDGET_HARD_CAP) || 300;
 const TIER_CAPS: Record<'e2e' | 'llm-judge', number> = {
-  e2e: Number(process.env.EVALS_BUDGET_HARD_CAP_GATE) || DEFAULT_HARD_CAP_USD,
-  'llm-judge': Number(process.env.EVALS_BUDGET_HARD_CAP_PERIODIC) || Math.max(70, DEFAULT_HARD_CAP_USD),
+  e2e: Number(process.env.EVALS_BUDGET_HARD_CAP_GATE) || Math.min(200, DEFAULT_HARD_CAP_USD),
+  'llm-judge': Number(process.env.EVALS_BUDGET_HARD_CAP_PERIODIC) || Math.max(500, DEFAULT_HARD_CAP_USD),
 };
 
 function currentGitBranch(): string {

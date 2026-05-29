@@ -191,6 +191,13 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // /plan-tune (v1 observational)
   'plan-tune-inspect':         ['plan-tune/**', 'scripts/question-registry.ts', 'scripts/psychographic-signals.ts', 'scripts/one-way-doors.ts', 'bin/gstack-question-log', 'bin/gstack-question-preference', 'bin/gstack-developer-profile'],
 
+  // /plan-tune cathedral (T16 — 5 E2E scenarios, all gate per D12)
+  'plan-tune-hook-capture':      ['hosts/claude/hooks/**', 'bin/gstack-question-log', 'bin/gstack-developer-profile', 'plan-tune/**'],
+  'plan-tune-enforcement':       ['hosts/claude/hooks/**', 'bin/gstack-question-preference', 'scripts/question-registry.ts'],
+  'plan-tune-annotation':        ['hosts/claude/hooks/**', 'scripts/declared-annotation.ts', 'scripts/psychographic-signals.ts', 'scripts/question-registry.ts'],
+  'plan-tune-codex-import':      ['bin/gstack-codex-session-import', 'bin/gstack-question-log', 'docs/spikes/codex-session-format.md'],
+  'plan-tune-dream-cycle':       ['bin/gstack-distill-free-text', 'bin/gstack-distill-apply', 'hosts/claude/hooks/**', 'plan-tune/**'],
+
   // Codex offering verification
   'codex-offered-office-hours':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
   'codex-offered-ceo-review':    ['plan-ceo-review/**', 'scripts/gen-skill-docs.ts'],
@@ -527,6 +534,13 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // /plan-tune — gate (core v1 DX promise: plain-English intent routing)
   'plan-tune-inspect': 'gate',
+
+  // /plan-tune cathedral (T16 per D12 — all gate)
+  'plan-tune-hook-capture': 'gate',
+  'plan-tune-enforcement': 'gate',
+  'plan-tune-annotation': 'gate',
+  'plan-tune-codex-import': 'gate',
+  'plan-tune-dream-cycle': 'gate',
 
   // Codex offering verification
   'codex-offered-office-hours': 'gate',

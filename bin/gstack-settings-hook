@@ -1,21 +1,44 @@
 #!/usr/bin/env bash
-# gstack-settings-hook — add/remove SessionStart hooks in Claude Code settings.json
+# gstack-settings-hook — manage Claude Code hooks in ~/.claude/settings.json
 #
-# Usage:
-#   gstack-settings-hook add <hook-command>     # add SessionStart hook
-#   gstack-settings-hook remove <hook-command>  # remove SessionStart hook
+# Two shapes:
 #
-# Requires: bun (already a gstack hard dependency)
+#   1. Legacy (SessionStart only — used by setup --team and gstack-uninstall):
+#        gstack-settings-hook add <cmd>            # adds SessionStart hook
+#        gstack-settings-hook remove <cmd>         # removes matching SessionStart hook
+#
+#   2. Schema-aware (plan-tune cathedral T3 — supports PreToolUse + PostToolUse):
+#        gstack-settings-hook add-event --event <SessionStart|PreToolUse|PostToolUse> \
+#          --command <cmd> --source <tag> [--matcher <regex>] [--timeout <s>]
+#        gstack-settings-hook remove-source --source <tag>
+#        gstack-settings-hook diff-event   --event ... --command ... --source ... [--matcher ...]
+#        gstack-settings-hook rollback     # restore latest backup
+#        gstack-settings-hook list-sources # show all gstack-tagged hook entries
+#
+# Every add-event/remove-source writes a backup to ~/.claude/settings.json.bak.<ts>
+# before mutating (Codex correction — silent settings.json mutation is wrong).
+#
+# Dedup: legacy `add`/`remove` dedupe by the historical `gstack-session-update`
+# substring. Schema-aware `add-event` dedupes by (event, matcher, _gstack_source) so
+# multiple gstack registrations (plan-tune, ...) don't collide.
+#
 # Writes atomically: .tmp + rename to prevent corruption on crash/disk-full.
-
 set -euo pipefail
 
 ACTION="${1:-}"
-HOOK_CMD="${2:-}"
 SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-$HOME/.claude/settings.json}"
 
-if [ -z "$ACTION" ] || [ -z "$HOOK_CMD" ]; then
-  echo "Usage: gstack-settings-hook {add|remove} <hook-command>" >&2
+if [ -z "$ACTION" ]; then
+  cat <<EOF >&2
+Usage:
+  gstack-settings-hook add <hook-command>             # legacy SessionStart add
+  gstack-settings-hook remove <hook-command>          # legacy SessionStart remove
+  gstack-settings-hook add-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
+  gstack-settings-hook remove-source --source <tag>
+  gstack-settings-hook diff-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
+  gstack-settings-hook rollback
+  gstack-settings-hook list-sources
+EOF
   exit 1
 fi
 
@@ -24,59 +47,239 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
+backup_settings() {
+  if [ -f "$SETTINGS_FILE" ]; then
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$ts"
+    echo "$SETTINGS_FILE.bak.$ts" > "$SETTINGS_FILE.bak-latest"
+  fi
+}
+
+# --- legacy SessionStart add/remove (backwards compat) -----------------
+
 case "$ACTION" in
   add)
-    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_HOOK_CMD="$HOOK_CMD" bun -e "
-      const fs = require('fs');
+    HOOK_CMD="${2:-}"
+    if [ -z "$HOOK_CMD" ]; then
+      echo "Usage: gstack-settings-hook add <hook-command>" >&2
+      exit 1
+    fi
+    backup_settings
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_HOOK_CMD="$HOOK_CMD" bun -e '
+      const fs = require("fs");
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;
       const hookCmd = process.env.GSTACK_HOOK_CMD;
-
       let settings = {};
-      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
-
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch {}
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-
-      // Dedup: check if hook command already registered
       const exists = settings.hooks.SessionStart.some(entry =>
-        entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gstack-session-update'))
+        entry.hooks && entry.hooks.some(h => h.command && h.command.includes("gstack-session-update"))
       );
-
       if (!exists) {
         settings.hooks.SessionStart.push({
-          hooks: [{ type: 'command', command: hookCmd }]
+          hooks: [{ type: "command", command: hookCmd }]
         });
       }
-
-      const tmp = settingsPath + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+      const tmp = settingsPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
       fs.renameSync(tmp, settingsPath);
-    " 2>/dev/null
+    ' 2>/dev/null
     ;;
+
   remove)
+    HOOK_CMD="${2:-}"
+    if [ -z "$HOOK_CMD" ]; then
+      echo "Usage: gstack-settings-hook remove <hook-command>" >&2
+      exit 1
+    fi
     [ -f "$SETTINGS_FILE" ] || exit 1
-    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" bun -e "
-      const fs = require('fs');
+    backup_settings
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" bun -e '
+      const fs = require("fs");
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;
-
       let settings = {};
-      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { process.exit(0); }
-
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch { process.exit(0); }
       if (settings.hooks && settings.hooks.SessionStart) {
         settings.hooks.SessionStart = settings.hooks.SessionStart.filter(entry =>
-          !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gstack-session-update')))
+          !(entry.hooks && entry.hooks.some(h => h.command && h.command.includes("gstack-session-update")))
         );
         if (settings.hooks.SessionStart.length === 0) delete settings.hooks.SessionStart;
         if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
       }
-
-      const tmp = settingsPath + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+      const tmp = settingsPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
       fs.renameSync(tmp, settingsPath);
-    " 2>/dev/null
+    ' 2>/dev/null
     ;;
+
+  add-event|diff-event)
+    EVENT=""
+    COMMAND=""
+    SOURCE=""
+    MATCHER=""
+    TIMEOUT=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --event)   EVENT="$2"; shift 2 ;;
+        --command) COMMAND="$2"; shift 2 ;;
+        --source)  SOURCE="$2"; shift 2 ;;
+        --matcher) MATCHER="$2"; shift 2 ;;
+        --timeout) TIMEOUT="$2"; shift 2 ;;
+        *) echo "unknown flag: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "$EVENT" ] || [ -z "$COMMAND" ] || [ -z "$SOURCE" ]; then
+      echo "add-event/diff-event require --event, --command, --source" >&2
+      exit 1
+    fi
+    case "$EVENT" in
+      SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop|Notification) ;;
+      *) echo "invalid --event '$EVENT'; must be one of SessionStart|PreToolUse|PostToolUse|UserPromptSubmit|Stop|Notification" >&2; exit 1 ;;
+    esac
+    if [ "$ACTION" = "add-event" ]; then
+      backup_settings
+    fi
+    DIFF_ONLY=""
+    if [ "$ACTION" = "diff-event" ]; then DIFF_ONLY=1; fi
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" \
+    GSTACK_EVENT="$EVENT" \
+    GSTACK_COMMAND="$COMMAND" \
+    GSTACK_SOURCE="$SOURCE" \
+    GSTACK_MATCHER="$MATCHER" \
+    GSTACK_TIMEOUT="$TIMEOUT" \
+    GSTACK_DIFF_ONLY="$DIFF_ONLY" \
+    bun -e '
+      const fs = require("fs");
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      const event = process.env.GSTACK_EVENT;
+      const cmd = process.env.GSTACK_COMMAND;
+      const source = process.env.GSTACK_SOURCE;
+      const matcher = process.env.GSTACK_MATCHER || "";
+      const timeoutRaw = process.env.GSTACK_TIMEOUT || "";
+      const diffOnly = process.env.GSTACK_DIFF_ONLY === "1";
+
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch {}
+
+      const before = JSON.stringify(settings, null, 2);
+
+      if (!settings.hooks) settings.hooks = {};
+      if (!settings.hooks[event]) settings.hooks[event] = [];
+
+      const matchesEntry = (entry) => {
+        const sameMatcher = (entry.matcher || "") === matcher;
+        const sameSource = entry._gstack_source === source;
+        return sameMatcher && sameSource;
+      };
+
+      let existing = settings.hooks[event].find(matchesEntry);
+      const hookEntry = { type: "command", command: cmd };
+      if (timeoutRaw) {
+        const n = Number(timeoutRaw);
+        if (Number.isFinite(n) && n > 0) hookEntry.timeout = n;
+      }
+
+      if (existing) {
+        existing.hooks = [hookEntry];
+      } else {
+        const newEntry = { _gstack_source: source, hooks: [hookEntry] };
+        if (matcher) newEntry.matcher = matcher;
+        settings.hooks[event].push(newEntry);
+      }
+
+      const after = JSON.stringify(settings, null, 2);
+
+      if (diffOnly) {
+        console.log("--- BEFORE");
+        console.log(before);
+        console.log("--- AFTER");
+        console.log(after);
+        process.exit(0);
+      }
+
+      const tmp = settingsPath + ".tmp";
+      fs.writeFileSync(tmp, after + "\n");
+      fs.renameSync(tmp, settingsPath);
+      console.log("OK: " + event + " hook registered (source: " + source + ")");
+    '
+    ;;
+
+  remove-source)
+    SOURCE=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --source) SOURCE="$2"; shift 2 ;;
+        *) echo "unknown flag: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "$SOURCE" ]; then
+      echo "remove-source requires --source <tag>" >&2
+      exit 1
+    fi
+    [ -f "$SETTINGS_FILE" ] || exit 0
+    backup_settings
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_SOURCE="$SOURCE" bun -e '
+      const fs = require("fs");
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      const source = process.env.GSTACK_SOURCE;
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch { process.exit(0); }
+      if (!settings.hooks) { process.exit(0); }
+      let removed = 0;
+      for (const event of Object.keys(settings.hooks)) {
+        const before = settings.hooks[event].length;
+        settings.hooks[event] = settings.hooks[event].filter(entry => entry._gstack_source !== source);
+        removed += before - settings.hooks[event].length;
+        if (settings.hooks[event].length === 0) delete settings.hooks[event];
+      }
+      if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+      const tmp = settingsPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
+      fs.renameSync(tmp, settingsPath);
+      console.log("OK: removed " + removed + " hook entry/entries tagged source=" + source);
+    '
+    ;;
+
+  rollback)
+    if [ ! -f "$SETTINGS_FILE.bak-latest" ]; then
+      echo "rollback: no backup pointer at $SETTINGS_FILE.bak-latest" >&2
+      exit 1
+    fi
+    LATEST=$(cat "$SETTINGS_FILE.bak-latest")
+    if [ ! -f "$LATEST" ]; then
+      echo "rollback: pointer references missing backup $LATEST" >&2
+      exit 1
+    fi
+    cp "$LATEST" "$SETTINGS_FILE"
+    echo "OK: restored $SETTINGS_FILE from $LATEST"
+    ;;
+
+  list-sources)
+    [ -f "$SETTINGS_FILE" ] || { echo "(no settings file)"; exit 0; }
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" bun -e '
+      const fs = require("fs");
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(process.env.GSTACK_SETTINGS_PATH, "utf8")); } catch { process.exit(0); }
+      const hooks = settings.hooks || {};
+      let any = false;
+      for (const event of Object.keys(hooks)) {
+        for (const entry of hooks[event]) {
+          if (entry._gstack_source) {
+            any = true;
+            console.log(event + "\t" + entry._gstack_source + "\t" + (entry.matcher || "(no matcher)"));
+          }
+        }
+      }
+      if (!any) console.log("(no gstack-tagged hooks)");
+    '
+    ;;
+
   *)
-    echo "Unknown action: $ACTION (expected add or remove)" >&2
+    echo "Unknown action: $ACTION" >&2
     exit 1
     ;;
 esac

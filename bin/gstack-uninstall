@@ -232,6 +232,10 @@ SETTINGS_HOOK="$(dirname "$0")/gstack-settings-hook"
 SESSION_UPDATE="$(dirname "$0")/gstack-session-update"
 if [ -x "$SETTINGS_HOOK" ]; then
   "$SETTINGS_HOOK" remove "$SESSION_UPDATE" 2>/dev/null && REMOVED+=("SessionStart hook") || true
+  # Cathedral T8 cleanup: also remove plan-tune PreToolUse + PostToolUse hooks.
+  if "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null | grep -q "removed [1-9]"; then
+    REMOVED+=("plan-tune cathedral hooks")
+  fi
 fi
 
 # ─── Remove global state ────────────────────────────────────

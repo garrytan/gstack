@@ -1150,3 +1150,100 @@ if [ "$NO_TEAM_MODE" -eq 1 ]; then
 
   log "Team mode disabled: auto-update hook removed."
 fi
+
+# 11. Plan-tune cathedral hook install (T8).
+#
+# Registers PostToolUse (deterministic AUQ capture) + PreToolUse (preference
+# enforcement) hooks in ~/.claude/settings.json so /plan-tune actually does
+# something at runtime instead of being agent-convention. Explicit consent UX
+# per D4 + Codex: never mutate settings.json silently.
+#
+# Idempotent via _gstack_source tag = 'plan-tune-cathedral'. If both hooks
+# already registered under that tag, the install is a no-op (no prompt).
+PLAN_TUNE_LOG_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-log-hook"
+PLAN_TUNE_PREF_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-preference-hook"
+PLAN_TUNE_INSTALL_MARKER="$HOME/.gstack/.plan-tune-hooks-prompted"
+
+if [ "$NO_TEAM_MODE" -ne 1 ] \
+   && [ -x "$SETTINGS_HOOK" ] \
+   && [ -x "$PLAN_TUNE_LOG_HOOK" ] \
+   && [ -x "$PLAN_TUNE_PREF_HOOK" ]; then
+
+  # Already installed? Check the settings.json for our source tag.
+  ALREADY_INSTALLED=0
+  if "$SETTINGS_HOOK" list-sources 2>/dev/null | grep -q "plan-tune-cathedral"; then
+    ALREADY_INSTALLED=1
+  fi
+
+  if [ "$ALREADY_INSTALLED" -eq 1 ]; then
+    log ""
+    log "Plan-tune hooks already installed. Run \`$SETTINGS_HOOK list-sources\` to inspect."
+  elif [ -f "$PLAN_TUNE_INSTALL_MARKER" ]; then
+    # Previously declined. Don't re-ask. User can re-enable via /update-config.
+    :
+  elif [ -t 0 ] && [ -t 1 ]; then
+    # Interactive install with explicit consent + diff preview.
+    log ""
+    log "──────────────────────────────────────────────────────────"
+    log "Plan-tune cathedral: install Claude Code hooks?"
+    log "──────────────────────────────────────────────────────────"
+    log ""
+    log "These hooks make /plan-tune settings actually bind at runtime:"
+    log "  • PostToolUse hook captures every AskUserQuestion fire (no agent"
+    log "    compliance required). Today it's agent-convention and the log"
+    log "    is empty in dogfood."
+    log "  • PreToolUse hook enforces 'never-ask' preferences via Claude Code's"
+    log "    permissionDecision protocol. Today preferences are agent-honored"
+    log "    convention; this makes them binding."
+    log ""
+    log "Diff preview (PostToolUse capture hook):"
+    "$SETTINGS_HOOK" diff-event \
+      --event PostToolUse \
+      --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+      --command "$PLAN_TUNE_LOG_HOOK" \
+      --source plan-tune-cathedral \
+      --timeout 5 2>/dev/null || true
+    log ""
+    log "Backup: settings.json.bak.<ts> written before any mutation."
+    log "Rollback: $SETTINGS_HOOK rollback"
+    log ""
+    printf "Install both hooks now? [y/N] "
+    read -r PLAN_TUNE_INSTALL_REPLY
+    if [ "$PLAN_TUNE_INSTALL_REPLY" = "y" ] || [ "$PLAN_TUNE_INSTALL_REPLY" = "Y" ]; then
+      "$SETTINGS_HOOK" add-event \
+        --event PostToolUse \
+        --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+        --command "$PLAN_TUNE_LOG_HOOK" \
+        --source plan-tune-cathedral \
+        --timeout 5
+      "$SETTINGS_HOOK" add-event \
+        --event PreToolUse \
+        --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+        --command "$PLAN_TUNE_PREF_HOOK" \
+        --source plan-tune-cathedral \
+        --timeout 5
+      log ""
+      log "Plan-tune hooks installed. Run /plan-tune anytime to inspect."
+    else
+      log ""
+      log "Skipped. Re-run ./setup or use /update-config to install later."
+    fi
+    touch "$PLAN_TUNE_INSTALL_MARKER"
+  else
+    # Non-interactive (CI, scripted setup). Don't prompt; print one-liner.
+    log ""
+    log "Plan-tune cathedral hooks not installed (non-interactive setup)."
+    log "Install with:"
+    log "  $SETTINGS_HOOK add-event --event PostToolUse \\"
+    log "    --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \\"
+    log "    --command $PLAN_TUNE_LOG_HOOK --source plan-tune-cathedral --timeout 5"
+    log "  $SETTINGS_HOOK add-event --event PreToolUse \\"
+    log "    --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \\"
+    log "    --command $PLAN_TUNE_PREF_HOOK --source plan-tune-cathedral --timeout 5"
+  fi
+fi
+
+# Also tear down plan-tune hooks on --no-team (matches the existing pattern).
+if [ "$NO_TEAM_MODE" -eq 1 ] && [ -x "$SETTINGS_HOOK" ]; then
+  "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null || true
+fi
