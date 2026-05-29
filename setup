@@ -433,6 +433,61 @@ if ! ensure_playwright_browser; then
   exit 1
 fi
 
+# 2b. Ensure an emoji font is installed (Linux only).
+#
+# Chromium renders emoji code points as .notdef "tofu" (▯) when no emoji
+# font is installed. macOS ships "Apple Color Emoji" and Windows ships
+# "Segoe UI Emoji", so they're fine out of the box. Most Linux distros and
+# containers ship NO emoji font, which is why make-pdf output shows tofu in
+# headers/tables that contain emoji. Install Noto Color Emoji to fix it.
+#
+# Best-effort: warn (don't fail) if we can't install — PDFs still generate,
+# they just fall back to tofu for emoji as before.
+ensure_emoji_font() {
+  # Already have an emoji font? (fontconfig knows about Noto Color Emoji)
+  if command -v fc-list >/dev/null 2>&1; then
+    if fc-list 2>/dev/null | grep -qiE 'noto color emoji|noto emoji|symbola|emojione|twemoji'; then
+      return 0
+    fi
+  fi
+
+  local sudo=""
+  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+    sudo="sudo"
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Installing emoji font (fonts-noto-color-emoji) so make-pdf emoji render..."
+    $sudo apt-get update -qq >/dev/null 2>&1 || true
+    $sudo apt-get install -y -qq fonts-noto-color-emoji >/dev/null 2>&1 || return 1
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "Installing emoji font (google-noto-emoji-color-fonts)..."
+    $sudo dnf install -y google-noto-emoji-color-fonts >/dev/null 2>&1 || return 1
+  elif command -v pacman >/dev/null 2>&1; then
+    echo "Installing emoji font (noto-fonts-emoji)..."
+    $sudo pacman -Sy --noconfirm noto-fonts-emoji >/dev/null 2>&1 || return 1
+  elif command -v apk >/dev/null 2>&1; then
+    echo "Installing emoji font (font-noto-emoji)..."
+    $sudo apk add --no-cache font-noto-emoji >/dev/null 2>&1 || return 1
+  else
+    return 1
+  fi
+
+  # Refresh fontconfig cache so Chromium picks up the new font.
+  command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
+  return 0
+}
+
+if [ "$IS_WINDOWS" -eq 0 ] && [ "$(uname -s)" != "Darwin" ]; then
+  if ! ensure_emoji_font; then
+    echo "  Note: could not auto-install an emoji font. Emoji in make-pdf" >&2
+    echo "  output may render as boxes (▯). Install one manually, e.g.:" >&2
+    echo "    Debian/Ubuntu: sudo apt-get install fonts-noto-color-emoji" >&2
+    echo "    Fedora:        sudo dnf install google-noto-emoji-color-fonts" >&2
+    echo "    Arch:          sudo pacman -S noto-fonts-emoji" >&2
+  fi
+fi
+
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 

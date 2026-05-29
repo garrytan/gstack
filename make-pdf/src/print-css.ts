@@ -20,6 +20,11 @@
  *   - No <link>, no external CSS/fonts — everything inlined.
  *   - CJK fallback: Helvetica, Liberation Sans, Arial, Hiragino Kaku Gothic
  *     ProN, Noto Sans CJK JP, Microsoft YaHei, sans-serif.
+ *   - Emoji fallback: the body font stack ends in an emoji family
+ *     ("Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji") so
+ *     Chromium has a glyph source for emoji code points instead of
+ *     emitting .notdef tofu (▯). On Linux this requires an installed
+ *     emoji font — `setup` installs fonts-noto-color-emoji for that.
  */
 
 export interface PrintCssOptions {
@@ -84,7 +89,7 @@ function pageRules(size: string, margin: string, opts: PrintCssOptions): string 
     `  size: ${size};`,
     `  margin: ${margin};`,
     runningHeader
-      ? `  @top-center { content: "${runningHeader}"; font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 9pt; color: #666; }`
+      ? `  @top-center { content: "${runningHeader}"; font-family: Helvetica, "Liberation Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"; font-size: 9pt; color: #666; }`
       : ``,
     showPageNumbers
       ? `  @bottom-center { content: counter(page) " of " counter(pages); font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 9pt; color: #666; }`
@@ -107,7 +112,7 @@ function rootTypography(): string {
   return [
     `html { lang: en; }`,
     `body {`,
-    `  font-family: Helvetica, "Liberation Sans", Arial, "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif;`,
+    `  font-family: Helvetica, "Liberation Sans", Arial, "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";`,
     `  font-size: 11pt;`,
     `  line-height: 1.5;`,
     `  color: #111;`,
