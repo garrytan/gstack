@@ -128,6 +128,24 @@ const CLEANUP_SELECTORS = {
   ],
 };
 
+async function withManualTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
+  promise.catch(() => {});
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ timedOut: false as const, value })),
+      new Promise<{ timedOut: true }>((resolve) => {
+        timeout = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function handleWriteCommand(
   command: string,
   args: string[],
@@ -148,9 +166,17 @@ export async function handleWriteCommand(
       // must not leave stale content that could resurrect on a later context recreation.
       session.clearLoadedHtml();
       const normalizedUrl = await validateNavigationUrl(url);
-      const response = await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const response = await page.goto(normalizedUrl, { waitUntil: 'commit', timeout: 15000 });
+      const domReady = await withManualTimeout(
+        page.waitForLoadState('domcontentloaded', { timeout: 15000 }),
+        16000
+      );
+      if (domReady.timedOut) {
+        await page.evaluate(() => window.stop()).catch(() => {});
+      }
       const status = response?.status() || 'unknown';
-      return `Navigated to ${normalizedUrl} (${status})`;
+      const suffix = domReady.timedOut ? '; domcontentloaded timed out' : '';
+      return `Navigated to ${normalizedUrl} (${status}${suffix})`;
     }
 
     case 'back': {

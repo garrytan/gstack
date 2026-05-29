@@ -332,10 +332,25 @@ describe('cli command dispatch', () => {
     expect(cliSource).not.toContain('IS_WINDOWS ? 2 : 1, result.stdout');
   });
 
+  test('restart connection loss starts once instead of resending restart', () => {
+    expect(cliSource).toContain("if (command === 'restart' && !(await isServerHealthy(state.port)))");
+    expect(cliSource).toContain("await writeStdout('Server restarted')");
+  });
+
   test('default headless cold-start does not print a delayed startup banner', () => {
     expect(cliSource).not.toContain("console.error('[browse] Starting server...')");
     expect(cliSource).toContain('Starting server in headed mode');
     expect(cliSource).toContain('Starting server with proxy');
+  });
+});
+
+describe('write command dispatch', () => {
+  const writeSource = fs.readFileSync(path.resolve(__dirname, '../src/write-commands.ts'), 'utf-8');
+
+  test('goto commits first and bounds domcontentloaded wait', () => {
+    expect(writeSource).toContain("page.goto(normalizedUrl, { waitUntil: 'commit', timeout: 15000 })");
+    expect(writeSource).toContain("page.waitForLoadState('domcontentloaded', { timeout: 15000 })");
+    expect(writeSource).toContain("await page.evaluate(() => window.stop()).catch(() => {})");
   });
 });
 

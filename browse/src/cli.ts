@@ -500,6 +500,15 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
         await writeStdout('Server stopped');
         return;
       }
+      if (command === 'restart' && !(await isServerHealthy(state.port))) {
+        const restartEnv: Record<string, string> = {};
+        if (_globalFlags?.proxyUrl) restartEnv.BROWSE_PROXY_URL = _globalFlags.proxyUrl;
+        if (_globalFlags?.headed) restartEnv.BROWSE_HEADED = '1';
+        if (_globalFlags?.configHash) restartEnv.BROWSE_CONFIG_HASH = _globalFlags.configHash;
+        await startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
+        await writeStdout('Server restarted');
+        return;
+      }
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
       // Kill the old server to avoid orphaned chromium processes
