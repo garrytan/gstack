@@ -84,7 +84,7 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, zed, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -97,7 +97,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|zed|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -132,7 +132,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, zed, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -196,14 +196,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_ZED=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v zed >/dev/null 2>&1 && INSTALL_ZED=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_ZED" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -216,6 +218,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "zed" ]; then
+  INSTALL_ZED=1
 fi
 
 migrate_direct_codex_install() {
@@ -1074,6 +1078,57 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Zed
+if [ "$INSTALL_ZED" -eq 1 ]; then
+  ZED_SKILLS="$HOME/.agents/skills"
+  ZED_GSTACK="$ZED_SKILLS/gstack"
+  ZED_GEN_DIR="$SOURCE_GSTACK_DIR/.zed/skills"
+  mkdir -p "$ZED_SKILLS"
+
+  # Generate Zed-specific skill docs into .zed/skills/
+  ( cd "$SOURCE_GSTACK_DIR" && PATH="$HOME/.bun/bin:$PATH" bun run gen:skill-docs --host zed ) || \
+    echo "  warning: gen:skill-docs --host zed failed — skills may be stale" >&2
+
+  # Runtime asset root
+  [ -L "$ZED_GSTACK" ] && rm -f "$ZED_GSTACK"
+  mkdir -p "$ZED_GSTACK" "$ZED_GSTACK/browse" "$ZED_GSTACK/gstack-upgrade" "$ZED_GSTACK/review"
+  _link_or_copy "$SOURCE_GSTACK_DIR/bin" "$ZED_GSTACK/bin"
+  _link_or_copy "$SOURCE_GSTACK_DIR/browse/dist" "$ZED_GSTACK/browse/dist"
+  _link_or_copy "$SOURCE_GSTACK_DIR/browse/bin" "$ZED_GSTACK/browse/bin"
+  if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
+    _link_or_copy "$SOURCE_GSTACK_DIR/ETHOS.md" "$ZED_GSTACK/ETHOS.md"
+  fi
+  if [ -f "$ZED_GEN_DIR/gstack-upgrade/SKILL.md" ]; then
+    _link_or_copy "$ZED_GEN_DIR/gstack-upgrade/SKILL.md" "$ZED_GSTACK/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md TODOS-format.md; do
+    if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
+      _link_or_copy "$SOURCE_GSTACK_DIR/review/$f" "$ZED_GSTACK/review/$f"
+    fi
+  done
+
+  # Root SKILL.md with path rewrites for Zed
+  sed -e "s|~/.claude/skills/gstack|~/.agents/skills/gstack|g" \
+      -e "s|\.claude/skills/gstack|.agents/skills/gstack|g" \
+      -e "s|\.claude/skills|.agents/skills|g" \
+      "$SOURCE_GSTACK_DIR/SKILL.md" > "$ZED_GSTACK/SKILL.md"
+
+  if [ ! -d "$ZED_GEN_DIR" ]; then
+    echo "  warning: .zed/skills/ not found — run 'bun run gen:skill-docs --host zed' manually" >&2
+  else
+    for skill_dir in "$ZED_GEN_DIR"/gstack*/; do
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      skill_name="$(basename "$skill_dir")"
+      target_dir="$ZED_SKILLS/$skill_name"
+      mkdir -p "$target_dir"
+      cp "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+    done
+    echo "gstack ready (zed)."
+    echo "  browse: $BROWSE_BIN"
+    echo "  zed skills: $ZED_SKILLS"
+  fi
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

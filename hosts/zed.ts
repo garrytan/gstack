@@ -8,7 +8,7 @@ const zed: HostConfig = {
 
   globalRoot: '.agents/skills/gstack',
   localSkillRoot: '.agents/skills/gstack',
-  hostSubdir: '.agents',
+  hostSubdir: '.zed',
   usesEnvVars: true,
 
   frontmatter: {
