@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.48.3.0] - 2026-05-28
+
+**`/office-hours` profile read/write paths fully unified on `developer-profile.json`.**
+
+The gbrain context artifact and the Phase 6 profile reader both still referenced the legacy `builder-profile.jsonl` path, which gets archived after migration. On fresh installs the file never exists and these calls silently produced nothing. Now both reference `~/.gstack/developer-profile.json` directly. The writer side was fixed in v1.44.1.0 (#1671); this closes the remaining reader/artifact half. Closes #1677.
+
+### Itemized changes
+
+#### Fixed
+- `office-hours/SKILL.md.tmpl`: gbrain artifact glob updated from `~/.gstack/builder-profile.jsonl` to `~/.gstack/developer-profile.json`; removed `tail: 1` (not a JSONL file). The artifact now loads the full profile JSON as context.
+- `office-hours/SKILL.md.tmpl`: Phase 6 profile read updated from `gstack-builder-profile` (legacy shim) to `gstack-developer-profile --read` (direct call). Behavior is identical; this removes a layer of indirection that made the call site confusing.
+- `office-hours/SKILL.md`: Regenerated.
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.

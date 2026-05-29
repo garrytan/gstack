@@ -30,8 +30,7 @@ gbrain:
       render_as: "## Prior office-hours sessions in this repo"
     - id: builder-profile
       kind: filesystem
-      glob: "~/.gstack/builder-profile.jsonl"
-      tail: 1
+      glob: "~/.gstack/developer-profile.json"
       render_as: "## Your builder profile snapshot"
     - id: design-doc-history
       kind: filesystem
@@ -1760,7 +1759,7 @@ over time.
 ### Step 1: Read Builder Profile
 
 ```bash
-PROFILE=$(~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
+PROFILE=$(~/.claude/skills/gstack/bin/gstack-developer-profile --read 2>/dev/null) || PROFILE="SESSION_COUNT: 0
 TIER: introduction"
 SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
 SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')
