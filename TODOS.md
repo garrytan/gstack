@@ -717,7 +717,24 @@ reads it yet.
 
 **Effort:** L (human: ~1 week / CC: ~4h)
 **Priority:** P0
-**Depends on:** 2+ weeks of v1 dogfood, profile diversity check passing.
+**Depends on:** **90+ days of v1 dogfood stable across 3+ skills** (per
+`docs/designs/PLAN_TUNING_V0.md` §"Deferred to v2" E1 acceptance criteria).
+Distinct from the lighter-weight diversity-display gate
+(`sample_size >= 20 AND skills_covered >= 3 AND question_ids_covered >= 8
+AND days_span >= 7`) used in /plan-tune to render the inferred column —
+display is a UI affordance, promotion to E1 needs a much higher bar
+because behavioral adaptation is consequential and hard to revert. Prior
+versions of this card cited "2+ weeks" which conflicted with V0 — V0 wins.
+
+**Substrate risk (Codex outside-voice, Phase A review 2026-05-26):** Generated
+skill prose is agent-compliance-based. Tests can verify templates contain the
+right reads of `~/.gstack/developer-profile.json` and the right decision
+points, but tests cannot prove agents obey them at runtime. E1 ships
+adaptations as **advisory annotations on AskUserQuestion recommendations**
+("Recommended via your profile: <choice>") until there's a hard runtime
+execution path. Do NOT gate any AUTO_DECIDE on inferred profile alone in v1
+of E1; explicit per-question preferences remain the only AUTO_DECIDE
+source.
 
 ### E3 — `/plan-tune narrative` + `/plan-tune vibe`
 

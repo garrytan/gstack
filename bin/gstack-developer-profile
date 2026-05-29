@@ -28,7 +28,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+# GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).
+GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
 PROFILE_FILE="$GSTACK_HOME/developer-profile.json"
 LEGACY_FILE="$GSTACK_HOME/builder-profile.jsonl"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"

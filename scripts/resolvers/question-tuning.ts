@@ -25,7 +25,11 @@ export function generateQuestionTuning(ctx: TemplateContext): string {
 
 Before each AskUserQuestion, choose \`question_id\` from \`scripts/question-registry.ts\` or \`{skill}-{slug}\`, then run \`${bin}/gstack-question-preference --check "<id>"\`. \`AUTO_DECIDE\` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." \`ASK_NORMALLY\` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append \`<gstack-qid:{question_id}>\` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered \`question_id\`.
+
+**Embed the option recommendation via the \`(recommended)\` label suffix** on exactly one option per AUQ. The PreToolUse hook parses \`(recommended)\` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two \`(recommended)\` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 \`\`\`bash
 ${bin}/gstack-question-log '{"skill":"${ctx.skillName}","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 \`\`\`

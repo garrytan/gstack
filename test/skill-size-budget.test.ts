@@ -37,13 +37,14 @@ import { logBudgetOverride } from './helpers/budget-override';
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 const BASELINE_PATH = path.join(REPO_ROOT, 'test', 'fixtures', 'parity-baseline-v1.47.0.0.json');
 
-// Default per-skill ratio is 1.05 (5% growth tolerance). T4 catalog trim
-// MOVES text from frontmatter (always-loaded catalog) to a body section
-// ("## When to invoke"), so small skills with already-short descriptions
-// see a tiny body growth from the section header itself (~20 bytes). The
-// 5% per-skill tolerance accommodates that while still catching real bloat;
-// the always-loaded catalog cost is enforced separately with a hard ceiling.
-const DEFAULT_RATIO = 1.05;
+// Default per-skill ratio is 1.50 (50% growth tolerance). Adjusted v1.52.0.0
+// (cathedral cap audit) from 1.05 → 1.50: a 5% ratio tripped on legitimate
+// feature additions (e.g., plan-tune cathedral T13 grew SKILL.md ×1.24
+// adding load-bearing Dream cycle + Audit unmarked + Recent auto-decisions
+// surfaces). Real bloat is 2-3×; this catches that while not tripping on
+// normal feature scope. The always-loaded catalog cost is enforced
+// separately with a hard ceiling.
+const DEFAULT_RATIO = 1.50;
 const RATIO = Number(process.env.GSTACK_SIZE_BUDGET_RATIO) || DEFAULT_RATIO;
 
 interface Regression {

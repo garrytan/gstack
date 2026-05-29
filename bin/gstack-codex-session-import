@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# gstack-codex-session-import — backfill question-log.jsonl from Codex sessions.
+#
+# Codex has no AskUserQuestion tool (per docs/spikes/codex-session-format.md).
+# gstack skills running on Codex emit Decision Briefs as plain agent_message
+# text, and the user's response shows up in the next user_message. This
+# importer reconstructs those question/answer pairs from the structured
+# JSONL session files at ~/.codex/sessions/<date>/.
+#
+# Usage:
+#   gstack-codex-session-import                   # latest session under ~/.codex/sessions/
+#   gstack-codex-session-import <path/to.jsonl>   # explicit session file
+#   gstack-codex-session-import --since <iso>     # all sessions newer than <iso>
+#
+# Recovery strategy (two-tier per D5/T4 spike):
+#   1. Marker-first: extract <gstack-qid:foo-bar> from agent_message → stable id.
+#   2. Pattern fallback: detect D<N> header + numbered options → hash id
+#      (source=codex-import-pattern, never used as preference key per D18).
+#
+# Writes via bin/gstack-question-log so source tagging, dedup, and async
+# derive all apply uniformly.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
+CODEX_SESSIONS_ROOT="${CODEX_SESSIONS_ROOT:-$HOME/.codex/sessions}"
+
+MODE="latest"
+EXPLICIT_PATH=""
+SINCE_ISO=""
+
+if [ $# -gt 0 ]; then
+  case "$1" in
+    --since)
+      MODE="since"
+      SINCE_ISO="${2:-}"
+      ;;
+    --help|-h)
+      sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||'
+      exit 0
+      ;;
+    -*)
+      echo "unknown flag: $1" >&2
+      exit 1
+      ;;
+    *)
+      MODE="explicit"
+      EXPLICIT_PATH="$1"
+      ;;
+  esac
+fi
+
+# Resolve list of session files to process.
+SESSION_FILES=()
+case "$MODE" in
+  explicit)
+    if [ ! -f "$EXPLICIT_PATH" ]; then
+      echo "gstack-codex-session-import: file not found: $EXPLICIT_PATH" >&2
+      exit 1
+    fi
+    SESSION_FILES=("$EXPLICIT_PATH")
+    ;;
+  latest)
+    if [ ! -d "$CODEX_SESSIONS_ROOT" ]; then
+      echo "NO_SESSIONS: $CODEX_SESSIONS_ROOT does not exist"
+      exit 0
+    fi
+    LATEST=$(find "$CODEX_SESSIONS_ROOT" -type f -name "rollout-*.jsonl" -print 2>/dev/null \
+      | xargs ls -t 2>/dev/null | head -1 || true)
+    if [ -z "$LATEST" ]; then
+      echo "NO_SESSIONS: no rollout-*.jsonl files under $CODEX_SESSIONS_ROOT"
+      exit 0
+    fi
+    SESSION_FILES=("$LATEST")
+    ;;
+  since)
+    if [ -z "$SINCE_ISO" ]; then
+      echo "--since requires an ISO 8601 timestamp" >&2
+      exit 1
+    fi
+    while IFS= read -r f; do
+      SESSION_FILES+=("$f")
+    done < <(find "$CODEX_SESSIONS_ROOT" -type f -name "rollout-*.jsonl" -newer <(date -u -d "$SINCE_ISO" 2>/dev/null || date -u) 2>/dev/null)
+    ;;
+esac
+
+if [ ${#SESSION_FILES[@]} -eq 0 ]; then
+  echo "NO_SESSIONS: nothing to import"
+  exit 0
+fi
+
+# Parse + extract via bun. Emits one line per question found, ready to pipe
+# into gstack-question-log. Tagged with source so downstream consumers
+# (/plan-tune stats, dream cycle) can distinguish backfilled events from
+# live captures.
+IMPORTED=0
+SKIPPED_NO_ANSWER=0
+
+for SESSION_FILE in "${SESSION_FILES[@]}"; do
+  COUNT_LINE=$(SESSION_FILE_PATH="$SESSION_FILE" QLOG_BIN="$SCRIPT_DIR/gstack-question-log" bun -e '
+    const fs = require("fs");
+    const path = require("path");
+    const { spawnSync } = require("child_process");
+    const crypto = require("crypto");
+
+    const sessionPath = process.env.SESSION_FILE_PATH;
+    const qlogBin = process.env.QLOG_BIN;
+    const lines = fs.readFileSync(sessionPath, "utf-8").trim().split("\n").filter(Boolean);
+
+    let meta = null;
+    const stream = [];
+    for (const ln of lines) {
+      try {
+        const e = JSON.parse(ln);
+        if (e.type === "session_meta") meta = e.payload;
+        else stream.push(e);
+      } catch {}
+    }
+    if (!meta) {
+      console.error("WARN: no session_meta in " + sessionPath);
+      console.log("0 0");
+      process.exit(0);
+    }
+
+    const cwd = meta.cwd || "";
+    const sessionId = (meta.id || path.basename(sessionPath)).slice(0, 64);
+
+    // Walk for agent_message → next user_message pairs.
+    const briefs = [];
+    for (let i = 0; i < stream.length; i++) {
+      const e = stream[i];
+      if (e.type !== "event_msg" || e.payload?.type !== "agent_message") continue;
+      const text = String(e.payload?.message || "");
+      if (!text) continue;
+      // Detect D-numbered brief or marker. Markers are sufficient on their own.
+      const markerMatch = text.match(/<gstack-qid:([a-z0-9-]{1,64})>/i);
+      const dMatch = text.match(/^D\d+[\.\d]*\s*[—\-]\s*(.+?)$/m);
+      if (!markerMatch && !dMatch) continue;
+
+      // Find the next user_message in the stream.
+      let answer = null;
+      for (let j = i + 1; j < stream.length; j++) {
+        const e2 = stream[j];
+        if (e2.type === "event_msg" && e2.payload?.type === "user_message") {
+          answer = String(e2.payload?.message || "").trim();
+          break;
+        }
+      }
+      if (!answer) continue;
+
+      // Extract options A) ... B) ... from the brief.
+      const optMatches = [...text.matchAll(/^([A-Z])\)\s+(.+?)(?:\s+\(recommended\))?$/gm)];
+      const options = optMatches.map((m) => m[2].trim());
+
+      // Identify recommended option (label first, prose fallback).
+      let recommended;
+      const recLabel = [...text.matchAll(/^([A-Z])\)\s+(.+?)\s+\(recommended\)$/gm)];
+      if (recLabel.length === 1) recommended = recLabel[0][2].trim();
+
+      // Identify which option the user picked from their answer.
+      // Look for "A" / "A) ..." / option-label prefix match.
+      let userChoice = "__unknown__";
+      const letterMatch = answer.match(/^\s*([A-Z])\b/);
+      if (letterMatch) {
+        const idx = letterMatch[1].charCodeAt(0) - 65;
+        if (idx >= 0 && idx < options.length) userChoice = options[idx];
+        else userChoice = letterMatch[1];
+      } else if (options.length > 0) {
+        const lower = answer.toLowerCase();
+        const m = options.find((o) => lower.includes(o.toLowerCase().slice(0, 12)));
+        if (m) userChoice = m;
+      }
+      if (userChoice === "__unknown__") {
+        userChoice = answer.slice(0, 64);
+      }
+
+      const summary = (dMatch?.[1] || text.split("\n")[0]).slice(0, 200);
+
+      let questionId, source;
+      if (markerMatch) {
+        questionId = markerMatch[1];
+        source = "codex-import-marker";
+      } else {
+        const sortedOpts = [...options].sort().join("|");
+        const h = crypto.createHash("sha1").update("codex::" + summary + "::" + sortedOpts).digest("hex").slice(0, 10);
+        questionId = "hook-" + h;
+        source = "codex-import-pattern";
+      }
+
+      briefs.push({
+        skill: "codex",
+        question_id: questionId,
+        question_summary: summary,
+        options_count: options.length || 1,
+        user_choice: userChoice.slice(0, 64),
+        ...(recommended ? { recommended: recommended.slice(0, 64) } : {}),
+        source,
+        session_id: sessionId,
+        // Use ts_nanos+ts shape from the event itself if available; else null.
+        ts: e.timestamp || undefined,
+      });
+    }
+
+    let imported = 0;
+    for (const b of briefs) {
+      const res = spawnSync(qlogBin, [JSON.stringify(b)], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        // Run from the originating cwd so gstack-slug bucks events into the
+        // right project. Falls back to the importer cwd if the session cwd
+        // no longer exists.
+        cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
+        timeout: 5000,
+      });
+      if (res.status === 0) imported++;
+    }
+    console.log(imported + " 0");
+  ' 2>&1)
+
+  IMP=$(echo "$COUNT_LINE" | awk "{print \$1}")
+  IMPORTED=$((IMPORTED + IMP))
+done
+
+echo "IMPORTED: $IMPORTED events from ${#SESSION_FILES[@]} session(s)"

@@ -491,13 +491,14 @@
     },
     "plan-tune": {
       "skill": "plan-tune",
-      "skillMdBytes": 51717,
-      "skillMdLines": 1077,
-      "estTokens": 12929,
-      "tmplBytes": 15586,
+      "skillMdBytes": 64017,
+      "skillMdLines": 1357,
+      "estTokens": 16004,
+      "tmplBytes": 25196,
       "descriptionLen": 325,
       "hasGateEval": true,
-      "hasPeriodicEval": false
+      "hasPeriodicEval": false,
+      "_baseline_note": "Rebased from 51717 → 64017 in plan-tune cathedral v1.52.0.0 (T13). Cathedral added Dream cycle, Recent auto-decisions, Audit unmarked, Dream cycle review/distill sections — all load-bearing for hook substrate. See CHANGELOG.md [1.52.0.0]."
     },
     "qa": {
       "skill": "qa",

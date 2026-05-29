@@ -455,6 +455,7 @@ export const QUESTIONS = {
     category: 'approval',
     door_type: 'one-way',
     options: ['accept', 'reject'],
+    signal_key: 'decision-autonomy',
     description: "Merge this PR to base branch?",
   },
   'land-and-deploy-rollback': {
@@ -463,6 +464,7 @@ export const QUESTIONS = {
     category: 'approval',
     door_type: 'one-way',
     options: ['accept', 'reject'],
+    signal_key: 'decision-autonomy',
     description: "Canary detected regressions — roll back the deploy?",
   },
 

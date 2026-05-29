@@ -638,7 +638,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `$GSTACK_BIN/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 $GSTACK_BIN/gstack-question-log '{"skill":"ship","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -3067,6 +3071,29 @@ Substitute from earlier steps:
 - **BRANCH**: current branch name
 
 This step is automatic — never skip it, never ask for confirmation.
+
+---
+
+## Step 21: Plan-tune discoverability nudge (first-successful-ship only)
+
+Plan-tune cathedral T15. After a successful ship, surface /plan-tune once
+per machine. Single line, non-blocking, marker-gated so it never re-fires.
+
+```bash
+_NUDGE_MARKER="$HOME/.gstack/.plan-tune-nudge-shown"
+_QT=$($GSTACK_ROOT/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+if [ ! -f "$_NUDGE_MARKER" ] && [ "$_QT" = "false" ]; then
+  echo ""
+  echo "gstack can learn from your AskUserQuestion answers. Run /plan-tune to opt in"
+  echo "— it captures which prompts you find valuable vs noisy and (with hooks installed)"
+  echo "auto-decides your never-ask preferences."
+  touch "$_NUDGE_MARKER"
+fi
+```
+
+If the marker exists, OR question_tuning is already on, the nudge is a
+no-op. The marker guarantees at-most-once per machine. To re-enable:
+`rm ~/.gstack/.plan-tune-nudge-shown` before next ship.
 
 ---
 

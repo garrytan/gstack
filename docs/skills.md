@@ -33,6 +33,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
 | [`/plan-tune`](#plan-tune) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
+| [`/spec`](#spec) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
