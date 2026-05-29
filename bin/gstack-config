@@ -50,6 +50,17 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   continuous — auto-commit after each significant change
 #                           #                with WIP: prefix + [gstack-context] body
 #
+# ─── Outside voice (plan reviews) ────────────────────────────────────
+# outside_voice_llm_model: grok-4-fast
+#                           # Used when `codex` is unavailable or errors. If the `llm`
+#                           # CLI (datasette/llm) is installed AND this model is
+#                           # registered (e.g. via `llm install llm-xai`), skills
+#                           # invoke `llm -m <model> ...` as the next fallback before
+#                           # the Claude subagent. Set to empty string to skip the
+#                           # llm step entirely.
+#                           # Default: grok-4-fast (per Grok reasoning-mode caveat —
+#                           # grok-4-latest can hang 2-5 minutes on big prompts).
+#
 # checkpoint_push: false    # true = push WIP commits to remote as you go
 #                           # false = keep WIP commits local only (default)
 #                           # Pushing can trigger CI/deploy hooks — opt in carefully.
@@ -110,6 +121,7 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    outside_voice_llm_model) echo "grok-4-fast" ;;
     *) echo "" ;;
   esac
 }
