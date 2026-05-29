@@ -401,6 +401,29 @@ if ! ensure_playwright_browser; then
     bunx playwright install chromium
   )
 
+  # On Linux, downloading the Chromium binary is not enough: chrome-headless-shell
+  # needs system shared libraries (libnspr4, libnss3, libatk, libgbm, etc.) that
+  # are absent on minimal/fresh containers. Without them Chromium dies at launch
+  # with "error while loading shared libraries: libXXX.so: cannot open shared
+  # object file", which surfaces downstream as opaque make-pdf / browse failures.
+  # `playwright install-deps` is the official, distro-aware way to install exactly
+  # the right packages. Best-effort: try with sudo, then without, and don't hard
+  # fail here — the launch verification below is the real gate.
+  if [ "$IS_WINDOWS" -eq 0 ] && [ "$(uname -s)" = "Linux" ]; then
+    echo "Installing Chromium system dependencies (Linux)..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      if command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
+        sudo bunx playwright install-deps chromium 2>/dev/null \
+          || bunx playwright install-deps chromium 2>/dev/null \
+          || true
+      else
+        # Running as root (typical in containers) — no sudo needed/available.
+        bunx playwright install-deps chromium 2>/dev/null || true
+      fi
+    )
+  fi
+
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
     # Ensure playwright is importable by Node from the gstack directory.
@@ -429,6 +452,12 @@ if ! ensure_playwright_browser; then
     echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
   else
     echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    echo "  On Linux this is usually missing system libraries for chrome-headless-shell." >&2
+    echo "  Install them with:" >&2
+    echo "    bunx playwright install-deps chromium   # (prefix with sudo if not root)" >&2
+    echo "  Debian/Ubuntu equivalents: libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0" >&2
+    echo "    libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3" >&2
+    echo "    libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2" >&2
   fi
   exit 1
 fi
