@@ -21,7 +21,13 @@ import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
-const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+// Cold Chromium launch measured ~5.7s at load avg 10 on a dev machine running
+// many servers; at load 12+ it exceeds the old 8s budget, so the CLI gave up
+// while the (detached) daemon was still booting → "Server failed to start
+// within 8s". 15s matches the Windows budget and gives real headroom; the poll
+// loop returns the instant the daemon is healthy, so this only costs time in a
+// genuine-failure case.
+const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 15000); // Node+Chromium takes longer on Windows
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -489,8 +495,18 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       console.error('[browse] Command timed out after 30s');
       process.exit(1);
     }
-    // Connection error — server may have crashed
-    if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+    // Connection error — server may have crashed.
+    // The compiled CLI runs on Bun, whose fetch reports a refused/dropped
+    // socket as err.code 'ConnectionRefused' / 'ConnectionClosed' (message
+    // "Unable to connect. Is the computer able to access the url?"), NOT Node's
+    // ECONNREFUSED/ECONNRESET. Match both, or daemon crashes leak the raw Bun
+    // error and exit 1 instead of triggering the restart-and-retry below.
+    const isConnError =
+      err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' ||
+      err.code === 'ConnectionRefused' || err.code === 'ConnectionClosed' ||
+      err.message?.includes('fetch failed') ||
+      err.message?.includes('Unable to connect');
+    if (isConnError) {
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
       // Kill the old server to avoid orphaned chromium processes
