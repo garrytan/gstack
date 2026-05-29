@@ -323,6 +323,20 @@ export function buildWhenToInvokeSection(parts: CatalogParts): string {
  * Returns the rewritten content plus the parts (used for proactive-suggestions
  * JSON aggregation at the end of the run).
  */
+/**
+ * Render a string as a single-line YAML scalar for frontmatter. A plain scalar
+ * is invalid YAML when it contains ": " / a trailing ":" (read as a mapping
+ * separator) or starts with an indicator character, so quote those cases with a
+ * double-quoted scalar (escaping backslash and double-quote). Descriptions
+ * commonly contain colons (e.g. "Set up gbrain: install the CLI"), which made
+ * strict loaders (Codex/OpenAI skill loading) reject the generated SKILL.md.
+ */
+export function toYamlPlainOrQuoted(value: string): string {
+  const needsQuoting = /:(\s|$)/.test(value) || /^[!&*?|>@`"'#%,\[\]{}\- ]/.test(value);
+  if (!needsQuoting) return value;
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 export function applyCatalogTrim(content: string, skillName: string): { content: string; parts: CatalogParts } | null {
   // Locate description block in frontmatter
   if (!content.startsWith('---\n')) return null;
@@ -355,7 +369,7 @@ export function applyCatalogTrim(content: string, skillName: string): { content:
   // Replace description in frontmatter — keep trailing newline so the next
   // YAML field doesn't collide on the same line as the description value.
   const newDesc = buildTrimmedDescription(parts);
-  const newFrontmatter = frontmatter.replace(descMatch[0], `description: ${newDesc}\n`);
+  const newFrontmatter = frontmatter.replace(descMatch[0], `description: ${toYamlPlainOrQuoted(newDesc)}\n`);
   let newContent = '---\n' + newFrontmatter + content.slice(fmEnd);
 
   // Insert body section after frontmatter (after the closing ---\n and any
