@@ -687,11 +687,20 @@ link_browse_runtime_assets() {
   fi
 
   # server-node.mjs intentionally externalizes these runtime packages.
-  for dep in playwright playwright-core diff; do
+  # sharp is used by screenshot size-guard and needs its platform-specific
+  # native @img/* sidecars present in the copied Codex runtime root.
+  for dep in playwright playwright-core diff sharp semver detect-libc; do
     if [ -d "$gstack_dir/node_modules/$dep" ]; then
       _link_or_copy "$gstack_dir/node_modules/$dep" "$runtime_root/node_modules/$dep"
     fi
   done
+  if [ -d "$gstack_dir/node_modules/@img" ]; then
+    mkdir -p "$runtime_root/node_modules/@img"
+    for scoped_dep in "$gstack_dir/node_modules/@img"/*; do
+      [ -e "$scoped_dep" ] || continue
+      _link_or_copy "$scoped_dep" "$runtime_root/node_modules/@img/$(basename "$scoped_dep")"
+    done
+  fi
   if [ -d "$gstack_dir/node_modules/@ngrok" ]; then
     mkdir -p "$runtime_root/node_modules/@ngrok"
     for scoped_dep in "$gstack_dir/node_modules/@ngrok"/*; do
