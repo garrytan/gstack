@@ -26,6 +26,49 @@ import type { HostConfig } from './host-config';
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
 
+// ─── GBrain Detection Override ──────────────────────────────
+// When --respect-detection is passed, read ~/.gstack/gbrain-detection.json
+// and un-suppress GBRAIN_CONTEXT_LOAD + GBRAIN_SAVE_RESULTS for hosts that
+// statically suppress them (claude, codex, slate, factory, opencode,
+// openclaw, cursor, kiro). Detection state is produced by
+// bin/gstack-gbrain-detect and persisted by `gstack-config gbrain-refresh`
+// or by ./setup.
+//
+// Default (no flag): static suppressedResolvers honored as-is. Used by
+// `bun run gen:skill-docs` (CI + canonical checked-in SKILL.md files) so
+// the committed output is reproducible regardless of any developer's
+// local gbrain installation state. Use `bun run gen:skill-docs:user`
+// (which adds --respect-detection) for user-local installs.
+const RESPECT_DETECTION = process.argv.includes('--respect-detection');
+
+function loadGbrainOverride(): { detected: boolean } {
+  if (!RESPECT_DETECTION) return { detected: false };
+  const stateDir = process.env.GSTACK_HOME || path.join(process.env.HOME || '', '.gstack');
+  const detectionPath = path.join(stateDir, 'gbrain-detection.json');
+  try {
+    const json = JSON.parse(fs.readFileSync(detectionPath, 'utf-8')) as { gbrain_local_status?: string };
+    return { detected: json.gbrain_local_status === 'ok' };
+  } catch {
+    return { detected: false };
+  }
+}
+
+const GBRAIN_OVERRIDE = loadGbrainOverride();
+
+/**
+ * Compute effective suppressedResolvers for a host, applying the gbrain
+ * detection override when enabled. When the override fires, GBRAIN_*
+ * resolvers are removed from the suppression set so they render in the
+ * generated SKILL.md.
+ */
+function effectiveSuppressedResolvers(hostConfig: HostConfig): Set<string> {
+  let list = hostConfig.suppressedResolvers || [];
+  if (GBRAIN_OVERRIDE.detected) {
+    list = list.filter(r => r !== 'GBRAIN_CONTEXT_LOAD' && r !== 'GBRAIN_SAVE_RESULTS');
+  }
+  return new Set(list);
+}
+
 // ─── Host Detection (config-driven) ─────────────────────────
 
 const HOST_ARG = process.argv.find(a => a.startsWith('--host'));
@@ -631,9 +674,12 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier, model: MODEL_ARG_VAL, interactive, explainLevel: EXPLAIN_LEVEL };
 
   // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
-  // Config-driven: suppressedResolvers return empty string for this host
+  // Config-driven: suppressedResolvers return empty string for this host.
+  // effectiveSuppressedResolvers() honors --respect-detection: when gbrain
+  // is detected locally, GBRAIN_* resolvers un-suppress so brain-aware
+  // blocks render for users who have gbrain installed.
   const currentHostConfig = getHostConfig(host);
-  const suppressed = new Set(currentHostConfig.suppressedResolvers || []);
+  const suppressed = effectiveSuppressedResolvers(currentHostConfig);
   let content = tmplContent.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (match, fullKey) => {
     const parts = fullKey.split(':');
     const resolverName = parts[0];

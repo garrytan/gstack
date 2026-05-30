@@ -35,11 +35,18 @@ function listTrackedSkillMd(): string[] {
   return out.split("\n").filter((line) => line.trim().length > 0);
 }
 
-describe("scripts/resolvers/gbrain.ts — no put_page in emitted instructions (regression for #1346)", () => {
-  it("resolver source ships only `gbrain put` instructions, not the renamed `put_page`", () => {
+describe("scripts/resolvers/gbrain.ts — no `gbrain put_page` CLI subcommand in emitted instructions (regression for #1346)", () => {
+  it("resolver source ships only `gbrain put` CLI instructions, not the renamed `gbrain put_page`", () => {
+    // We're guarding against the v0.18 CLI subcommand rename
+    // (`gbrain put_page <slug>` → `gbrain put <slug>`). The MCP op
+    // `mcp__gbrain__put_page` is a legitimately separate identifier (the
+    // MCP-layer write op, unrelated to the CLI rename) and may still
+    // appear in resolver output as a fallback reference for the
+    // calibration-take write-back path. So check the CLI subcommand
+    // shape specifically: `gbrain put_page` with a space.
     const src = readFileSync(RESOLVER_PATH, "utf-8");
     const stripped = stripComments(src);
-    expect(stripped).not.toContain("put_page");
+    expect(stripped).not.toContain("gbrain put_page");
   });
 
   it("every tracked SKILL.md file is free of the renamed gbrain put_page subcommand", () => {

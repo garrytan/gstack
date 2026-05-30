@@ -2070,3 +2070,165 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 ### Auto-upgrade mode + smart update check
 - Config CLI (`bin/gstack-config`), auto-upgrade via `~/.gstack/config.yaml`, 12h cache TTL, exponential snooze backoff (24h→48h→1wk), "never ask again" option, vendored copy sync on upgrade
 **Completed:** v0.3.8
+
+---
+
+## Brain-aware planning follow-ups (filed v1.48.0.0 via /plan-ceo-review + /plan-eng-review)
+
+These are the deferred cherry-picks (E2/E3/E4) from the v1.48 brain-aware
+planning plan at `~/.claude/plans/hm-interesting-well-why-dapper-eagle.md`.
+The foundation (Phase 0 entity model + Phase 0.5 cache + Phase 1 preflight
++ Phase 1.5 trust policy + Phase 2 write-back scaffolding) ships in
+v1.48.0.0. These follow-ups extend it.
+
+### P2: /gstack-reflect nightly synthesis skill (E2)
+
+**What:** Scheduled skill that reads weekly `gstack/skill-run` + takes +
+`get_recent_salience` and synthesizes a `gstack/insight` page surfaced at
+next skill preflight.
+
+**Why:** Cross-time pattern detection is the compounding move. "You ran 4
+plan-ceo on infra this week, 0 on product — is product work getting
+starved?" surfaces patterns the user wouldn't notice.
+
+**Pros:** Brain compounds across TIME, not just across skills. Patterns
+become actionable.
+
+**Cons:** "You're starving product work" is high-judgment territory; needs
+opt-out per project, careful insight templates.
+
+**Context:** Deferred from v1.48.0.0 cherry-pick (D4) — wait 4-6 weeks for
+real `gstack/skill-run` data to accumulate before designing the reflection
+layer against real patterns instead of imagined ones.
+
+**Effort:** L (human ~1-2 days, CC ~4-6h)
+
+**Depends on:** Phase 0 (gstack/skill-run page type from v1.48.0.0) +
+~6 weeks of accumulated data
+
+### P3: Cross-machine brain-cache sync (E3)
+
+**What:** Push compressed digests through the gstack-brain-sync git pipeline
+so the brain-cache survives moving between Macs / Conductor workspaces.
+
+**Why:** Eliminates the cold-miss tax on every new machine (~1-2s once per
+machine per day).
+
+**Pros:** Instant warm cache on new machines.
+
+**Cons:** Cache poisoning risk if not designed carefully (hash invariants,
+endpoint-binding, conflict resolution).
+
+**Context:** Deferred from v1.48.0.0 cherry-pick (D5) — single-machine
+cache is fine for V1; correctness risk needs its own design pass.
+
+**Effort:** M (human ~4h, CC ~30min)
+
+**Depends on:** Brain-cache layer from v1.48.0.0
+
+### P3: /gstack-onboarding dedicated skill (E4)
+
+**What:** Guided 5-minute setup skill for new gstack installs: walks user
+through reading CLAUDE.md + README + recent commits to build `gstack/product`
+and active goals with explicit AUQs.
+
+**Why:** Better UX than the inline bootstrap (which only fires when a
+planning skill is invoked).
+
+**Pros:** Cleaner cold-start, explicit ceremony.
+
+**Cons:** Inline bootstrap (in scope for v1.48) already covers the
+cold-start path adequately.
+
+**Context:** Deferred from v1.48.0.0 cherry-pick (D6) — observe inline
+bootstrap performance first; add dedicated skill if friction is real.
+
+**Effort:** S (human ~2h, CC ~15min)
+
+**Depends on:** Inline bootstrap subcommand from v1.48.0.0
+
+### P2: Upstream gbrain takes_add + takes_resolve MCP ops
+
+**What:** Add `mcp__gbrain__takes_add` and `mcp__gbrain__takes_resolve`
+ops in `~/git/gbrain/src/core/operations.ts`. Extract the markdown-fence
+mirror logic from `commands/takes.ts:570` into a reusable
+`engine.resolveTake()` helper.
+
+**Why:** Unlocks Phase 2 calibration write-back without the fence-block
+fallback. ~150 LOC. Already on gbrain's v0.31.x roadmap.
+
+**Pros:** Clean Phase 2 path, removes the "fall back to put_page" smell.
+
+**Cons:** Lives in upstream gbrain repo, not helsinki — separate PR.
+
+**Context:** Phase 2 write-back is already wired in v1.48.0.0 behind the
+BRAIN_CALIBRATION_WRITEBACK feature flag (default off). Flag flips to
+true once upstream gbrain ships these ops. ~50 LOC follow-up in
+helsinki to swap the fallback for the preferred op.
+
+**Effort:** S (human ~1d, CC ~1h) in gbrain repo; trivial wire-up in
+helsinki.
+
+**Depends on:** None (parallel-track from v1.48.0.0)
+
+### P3: Background-refresh hook supervision
+
+**What:** Codex outside-voice raised that "background refresh at skill END"
+is hand-wavy. Add proper process supervision: PID file, timeout, failure
+log, cross-platform spawn.
+
+**Why:** Current implementation backgrounds with `&` which works but
+leaves no observability when a refresh fails.
+
+**Context:** Deferred from v1.48.0.0 codex tension T3. Stays low priority
+until users report stale digests where a background refresh silently
+failed.
+
+**Effort:** S (human ~2h, CC ~20min)
+
+### P2: Re-verify calibration takes when gbrain v0.42+ lands
+
+**What:** When upstream gbrain ships `takes_add` MCP op and we flip
+`BRAIN_CALIBRATION_WRITEBACK` from FALSE to TRUE, re-run the manual
+probe in `docs/gbrain-write-surfaces.md` against `/office-hours` and
+confirm `gbrain takes_list` surfaces a `kind=bet` entry with the
+expected weight (0.9 for office-hours, per
+`scripts/brain-cache-spec.ts:151-157`).
+
+**Why:** Today the calibration take path falls back to writing inside a
+`gbrain put` fence block because `takes_add` isn't available yet. Once
+v0.42+ ships, the agent will call `takes_add` directly — we should
+confirm the new path actually persists a queryable take.
+
+**Context:** v1.50.0.0 plan §"NOT in scope". The fence-block fallback
+test (`test/takes-fence-fallback.test.ts`) covers wiring for both paths;
+this TODO is about live verification of the preferred path when it
+becomes available.
+
+**Effort:** XS (human ~15min, CC ~5min)
+
+**Depends on:** Upstream gbrain v0.42+ release shipping `takes_add` MCP
+op (separate TODO above).
+
+### P2: Extend brain-writeback E2E to the other 4 planning skills
+
+**What:** `test/skill-e2e-office-hours-brain-writeback.test.ts` covers
+the brain-writeback path for `/office-hours` only. Adding parallel
+tests for `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`,
+and `/plan-devex-review` would bring per-skill agent-obedience coverage
+to parity with the resolver unit test
+(`test/resolvers-gbrain-save-results.test.ts`, which covers wiring for
+all 5).
+
+**Why:** The resolver test proves the right instructions get emitted;
+the E2E proves the agent actually obeys. Today we only have that
+end-to-end signal for one of five planning skills.
+
+**Context:** v1.50.0.0 plan §"NOT in scope". Extract `makeFakeGbrain`
+into `test/helpers/fake-gbrain.ts` when the second consumer arrives
+(YAGNI for one consumer today).
+
+**Effort:** S (human ~1d, CC ~1h). Periodic-tier (~$2-4 total for 4
+runs).
+
+**Depends on:** None.
