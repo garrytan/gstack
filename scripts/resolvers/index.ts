@@ -34,10 +34,14 @@ import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPref
 import { generateQuestionPreferenceCheck, generateQuestionLog, generateInlineTuneFeedback } from './question-tuning';
 import { generateMakePdfSetup } from './make-pdf';
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
+import { SECTION, SECTION_INDEX } from './sections';
+import { generateRedactTaxonomyTable, generateRedactInvocationBlock } from './redact-doc';
 
 export const RESOLVERS: Record<string, ResolverValue> = {
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
+  REDACT_TAXONOMY_TABLE: generateRedactTaxonomyTable,
+  REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   PREAMBLE: generatePreamble,
@@ -95,4 +99,6 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   MAKE_PDF_SETUP: generateMakePdfSetup,
   TASKS_SECTION_EMIT: generateTasksSectionEmit,
   TASKS_SECTION_AGGREGATE: generateTasksSectionAggregate,
+  SECTION,
+  SECTION_INDEX,
 };

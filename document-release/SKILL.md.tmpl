@@ -375,7 +375,16 @@ glab mr view -F json 2>/dev/null | python3 -c "import sys,json; print(json.load(
 
    If there are any documentation debt items, suggest adding a `docs-debt` label to the PR.
 
-4. Write the updated body back:
+4. Redaction scan-at-sink, then write the updated body back. The body is already
+   in a temp file (`/tmp/gstack-pr-body-$$.md`); scan THAT file before editing so
+   the bytes scanned are the bytes sent:
+
+```bash
+REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibility 2>/dev/null)
+[ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
+~/.claude/skills/gstack/bin/gstack-redact --from-file /tmp/gstack-pr-body-$$.md --repo-visibility "${REDACT_VIS:-unknown}" --json
+# exit 3 (HIGH) → do NOT edit, rotate+redact; exit 2 (MEDIUM) → confirm per finding.
+```
 
 **If GitHub:**
 ```bash

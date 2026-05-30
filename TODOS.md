@@ -1,5 +1,24 @@
 # TODOS
 
+## Test infrastructure
+
+### ✅ DONE (v1.53.1.0): Rebaseline parity-suite (v1.44.1 → v1.53.0.0)
+
+**What:** `test/parity-suite.test.ts` checked every skill's SKILL.md size against
+the frozen `test/fixtures/parity-baseline-v1.44.1.json`. Five planning skills had
+crept past the 1.05x ceiling: `plan-ceo-review` (1.052), `plan-eng-review` (1.062),
+`plan-design-review` (1.068), `investigate` (1.053), `office-hours` (1.065) — growth
+from the brain-aware-planning releases (v1.49–v1.52) plus the v1.53 redaction guard.
+
+**Resolved:** Captured a fresh baseline at HEAD via
+`bun run scripts/capture-baseline.ts --tag v1.53.0.0` and re-pointed the test at
+`test/fixtures/parity-baseline-v1.53.0.0.json`. The per-skill 1.05 ratio is kept, so
+future bloat is still caught — only the stale anchor moved. Mirrors the earlier
+`skill-size-budget` rebase (v1.44.1 → v1.47.0.0). Historical v1.44.1 / v1.46.0.0 /
+v1.47.0.0 baselines retained in `test/fixtures/` for the v1→v2 audit trail. The
+captured skill bytes match `origin/main` exactly (the rebasing branch left every
+SKILL.md untouched). `bun test` is green again.
+
 ## gbrowser memory follow-ups (filed via /plan-eng-review + /codex on the v1.49 leak-fix PR)
 
 These four items came out of the memory-leak investigation that shipped
