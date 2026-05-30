@@ -55,6 +55,12 @@ describe('setup: _link_or_copy invariant (D7)', () => {
     const fnBody = SETUP_SRC.slice(fnStart, fnEnd);
     expect(fnBody).toContain('_print_windows_copy_note_once');
   });
+
+  test('Ubuntu 26.04 auto-applies Playwright ubuntu24.04 platform override', () => {
+    expect(SETUP_SRC).toContain('PLAYWRIGHT_HOST_PLATFORM_OVERRIDE');
+    expect(SETUP_SRC).toContain('ubuntu24.04-x64');
+    expect(SETUP_SRC).toContain('VERSION_ID:-}" = "26.04"');
+  });
 });
 
 // Behavior matrix uses Unix `ln -snf` semantics in the IS_WINDOWS=0 cells.

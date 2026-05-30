@@ -9,61 +9,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}/ci
   EVALS_TIER: gate
+  PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
 
 jobs:
-  # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
-  build-image:
-    runs-on: ubicloud-standard-8
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if image exists
-        id: check
-        run: |
-          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.check.outputs.exists == 'false'
-        run: cp package.json bun.lock .github/docker/
-
-      - if: steps.check.outputs.exists == 'false'
-        uses: docker/build-push-action@v6
-        with:
-          context: .github/docker
-          file: .github/docker/Dockerfile.ci
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.tag }}
-            ${{ env.IMAGE }}:latest
-
   evals:
     runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-8' }}
-    needs: build-image
-    container:
-      image: ${{ needs.build-image.outputs.image-tag }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --user runner
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -99,35 +50,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Bun creates root-owned temp dirs during Docker build. GH Actions runs as
-      # runner user with HOME=/github/home. Redirect bun's cache to a writable dir.
-      - name: Fix bun temp
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Configure writable temp dirs
         run: |
-          mkdir -p /home/runner/.cache/bun
+          mkdir -p "$HOME/.cache/bun" "$HOME/.cache/tmp"
           {
-            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
-            echo "BUN_TMPDIR=/home/runner/.cache/bun"
-            echo "TMPDIR=/home/runner/.cache"
+            echo "BUN_INSTALL_CACHE_DIR=$HOME/.cache/bun"
+            echo "BUN_TMPDIR=$HOME/.cache/bun"
+            echo "TMPDIR=$HOME/.cache/tmp"
           } >> "$GITHUB_ENV"
 
-      # Restore pre-installed node_modules from Docker image via recursive
-      # copy. Symlink (`ln -s`) breaks bun's module resolution because bun
-      # resolves a file's realpath when walking up to find node_modules/<dep>;
-      # from a symlinked path, realpath escapes the workspace and sibling
-      # deps no longer resolve. Hardlink copy (`cp -al`) fails because /opt
-      # and /workspace are on different overlay-fs layers ("Invalid
-      # cross-device link"). Recursive copy works on every layout. Cost:
-      # ~5s for ~200 packages of small JS files vs ~0s for symlink — still
-      # vastly cheaper than rerunning `bun install` (network + resolution).
-      - name: Restore deps
+      - name: Install native Linux packages
         run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
-            cp -r /opt/node_modules_cache node_modules
-          else
-            bun install
-          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl unzip xz-utils ca-certificates jq bc gpg \
+            fonts-liberation fonts-noto-color-emoji fontconfig xvfb x11-utils
+          fc-cache -f
 
-      - run: bun run build
+      - name: Install GitHub CLI
+        run: |
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium and system deps
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build
+        run: bun run build
 
       # Verify Playwright can launch Chromium (fails fast if sandbox/deps are broken)
       - name: Verify Chromium
@@ -143,7 +114,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EVALS_CONCURRENCY: "40"
-          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
         run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
 
       - name: Upload eval results
@@ -219,7 +189,7 @@ jobs:
           $(echo -e "$SUITE_LINES")
 
           ---
-          *12x ubicloud-standard-8 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
+          *12x ubicloud-standard-8 native runners | wall clock ≈ slowest suite*"
 
           if [ "$FAILED" -gt 0 ]; then
             FAILURES=""

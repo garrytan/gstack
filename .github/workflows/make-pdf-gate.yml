@@ -17,6 +17,9 @@ concurrency:
   group: make-pdf-gate-${{ github.head_ref }}
   cancel-in-progress: true
 
+env:
+  PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
+
 jobs:
   gate:
     strategy:

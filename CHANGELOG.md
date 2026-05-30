@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.53.1.0] - 2026-05-31
+
+## **Eval CI no longer requires Docker. Ubuntu 26.04 uses native Playwright with the 24.04 browser target override.**
+
+The eval workflows now run directly on the Linux runners instead of building and running a GHCR Docker image. CI installs Node, Bun, the native Linux packages, the Claude CLI, project dependencies, and Playwright Chromium in each job. The Playwright host platform override is set to `ubuntu24.04-x64`, which lets current Playwright browser manifests work on Ubuntu 26.04 while using binaries that run natively there.
+
+### Itemized changes
+
+#### Changed
+- `.github/workflows/evals.yml` and `.github/workflows/evals-periodic.yml` run as native Linux jobs with `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64`.
+- The eval jobs install Playwright with `bunx playwright install --with-deps chromium` instead of using `/opt/playwright-browsers` from a Docker image.
+- `make-pdf-gate.yml` inherits the same Playwright platform override for Linux.
+- `./setup` auto-applies the Ubuntu 26.04 Playwright override when `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE` is not already set.
+
+#### Removed
+- `.github/workflows/ci-image.yml`
+- `.github/docker/Dockerfile.ci`
+
+#### Tests
+- Added a CI regression test that rejects Docker eval wiring and asserts native Playwright setup remains in place.
+- Extended the setup invariant test to pin the Ubuntu 26.04 override.
+
 ## [1.53.0.0] - 2026-05-29
 
 ## **Secrets, PII, and legal landmines get caught before they reach a public sink. One redaction engine now guards /spec, /ship, /cso, and the /document-* skills.**

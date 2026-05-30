@@ -2,9 +2,8 @@ name: Windows Free Tests
 
 # Curated subset of the free test suite that runs on a paid faster Windows runner.
 #
-# Codex's v1.18.0.0 review flagged that the existing evals.yml workflow uses
-# a Linux container, so a windows-latest matrix entry there isn't a drop-in.
-# This workflow is non-container, runs the curated Windows-safe subset, plus
+# The evals workflow runs Linux-only paid suites. This workflow is the
+# Windows-specific companion: it runs the curated Windows-safe subset, plus
 # targeted resolver tests that exercise the Bun.which-based claude binary
 # resolution + the GSTACK_CLAUDE_BIN override path on Windows.
 #

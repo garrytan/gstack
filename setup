@@ -261,6 +261,19 @@ ensure_playwright_browser() {
   fi
 }
 
+apply_playwright_platform_override() {
+  [ -z "${PLAYWRIGHT_HOST_PLATFORM_OVERRIDE:-}" ] || return 0
+  [ -r /etc/os-release ] || return 0
+
+  # Playwright 1.58 does not recognize Ubuntu 26.04 yet; the Ubuntu 24.04
+  # Chromium build runs natively on 26.04.
+  . /etc/os-release
+  if [ "${ID:-}" = "ubuntu" ] && [ "${VERSION_ID:-}" = "26.04" ]; then
+    export PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64
+    log "Using Playwright host platform override: $PLAYWRIGHT_HOST_PLATFORM_OVERRIDE"
+  fi
+}
+
 # Ensure a color-emoji font is installed (Linux only).
 #
 # Chromium renders emoji code points as .notdef "tofu" (▯) when no color-emoji
@@ -472,6 +485,7 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
+apply_playwright_platform_override
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
