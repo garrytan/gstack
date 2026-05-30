@@ -542,6 +542,13 @@ On Linux, install `fonts-liberation` for correct rendering — Helvetica and Ari
 aren't present by default, and Liberation Sans is the standard metric-compatible
 fallback. CI and Docker builds install it automatically via Dockerfile.ci.
 
+Emoji need a color-emoji font. macOS (Apple Color Emoji) and Windows (Segoe UI
+Emoji) ship one; most Linux distros and containers ship none, so emoji render as
+empty boxes (▯). `./setup` auto-installs `fonts-noto-color-emoji` on Linux
+(apt/dnf/pacman/apk, best-effort) and the print CSS falls back through Apple /
+Segoe / Noto emoji families. Set `GSTACK_SKIP_FONTS=1` to skip the install (CI
+without sudo, managed or offline machines).
+
 ## Core patterns
 
 ### 80% case — memo/letter

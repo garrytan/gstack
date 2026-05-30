@@ -261,6 +261,84 @@ ensure_playwright_browser() {
   fi
 }
 
+# Ensure a color-emoji font is installed (Linux only).
+#
+# Chromium renders emoji code points as .notdef "tofu" (▯) when no color-emoji
+# font is installed. macOS ships "Apple Color Emoji" and Windows ships "Segoe UI
+# Emoji", so they're fine out of the box. Most Linux distros and containers ship
+# NO color-emoji font, which is why make-pdf output shows tofu in headers/tables
+# that contain emoji. Install Noto Color Emoji to fix it.
+#
+# Best-effort: warn (don't fail) if we can't install — PDFs still generate, they
+# just fall back to tofu for emoji as before. Skip entirely with
+# GSTACK_SKIP_FONTS=1 (CI without sudo, managed machines, offline envs).
+#
+# Returns 0 and sets EMOJI_FONT_INSTALLED=1 when it actually installs a font.
+EMOJI_FONT_INSTALLED=0
+ensure_emoji_font() {
+  # macOS/Windows ship a color-emoji font; nothing to do.
+  [ "$(uname -s)" = "Linux" ] || return 0
+  [ "${GSTACK_SKIP_FONTS:-0}" = "1" ] && return 0
+
+  # Idempotency: a real COLOR emoji font that resolves for an actual emoji code
+  # point (U+1F600). `fc-list :lang=und-zsye` is too broad — it matches symbol
+  # and last-resort fallback fonts — so we use fc-match and require color=True.
+  if command -v fc-match >/dev/null 2>&1; then
+    if fc-match -f '%{family[0]}\t%{color}\n' ':lang=und-zsye:charset=1F600' 2>/dev/null | grep -qi 'True'; then
+      return 0
+    fi
+  fi
+
+  local sudo=""
+  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+    # -n: never prompt. If a password is required we fail fast into the
+    # warn-not-fail path below instead of hanging a non-interactive setup.
+    sudo="sudo -n"
+  fi
+
+  # Every package-manager call is wrapped in `timeout` so a stuck dpkg/rpm lock
+  # or a wedged mirror fails fast into the warn path instead of hanging setup.
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Installing color-emoji font (fonts-noto-color-emoji) so make-pdf emoji render (set GSTACK_SKIP_FONTS=1 to skip)..."
+    DEBIAN_FRONTEND=noninteractive timeout 30 $sudo apt-get update -qq >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive timeout 120 $sudo apt-get install -y -qq fonts-noto-color-emoji >/dev/null 2>&1 || return 1
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "Installing color-emoji font (google-noto-color-emoji-fonts)..."
+    timeout 120 $sudo dnf install -y google-noto-color-emoji-fonts >/dev/null 2>&1 || return 1
+  elif command -v pacman >/dev/null 2>&1; then
+    echo "Installing color-emoji font (noto-fonts-emoji)..."
+    timeout 120 $sudo pacman -Sy --noconfirm noto-fonts-emoji >/dev/null 2>&1 || return 1
+  elif command -v apk >/dev/null 2>&1; then
+    echo "Installing color-emoji font (font-noto-emoji)..."
+    timeout 120 $sudo apk add --no-cache font-noto-emoji >/dev/null 2>&1 || return 1
+  else
+    return 1
+  fi
+
+  # Refresh fontconfig cache so Chromium picks up the new font. Run under sudo
+  # for the system cache dirs (unprivileged fc-cache fails on unwritable dirs).
+  if command -v fc-cache >/dev/null 2>&1; then
+    $sudo fc-cache -f >/dev/null 2>&1 || fc-cache -f >/dev/null 2>&1 || true
+  fi
+  EMOJI_FONT_INSTALLED=1
+  return 0
+}
+
+# After a fresh font install, stop any running browse render daemon so the next
+# make-pdf render spawns a fresh Chromium that sees the new font. Chromium
+# caches its font list at process start, so a daemon that was alive before the
+# install would keep emitting tofu. `browse stop` is the graceful API; the
+# daemon auto-respawns on the next render. Best-effort and per-project-root, so
+# we also print a note for daemons in other roots.
+refresh_browse_daemon_for_fonts() {
+  [ "$EMOJI_FONT_INSTALLED" -eq 1 ] || return 0
+  if [ -x "$BROWSE_BIN" ]; then
+    "$BROWSE_BIN" stop >/dev/null 2>&1 || true
+  fi
+  echo "  Installed a color-emoji font. The next make-pdf render will show emoji."
+  echo "  If a gstack browser is running in another project, restart it to pick up the font."
+}
+
 prepare_bun_for_windows_compile() {
   BUN_CMD="bun"
   BUN_CMD_WAS_COPIED=0
@@ -431,6 +509,19 @@ if ! ensure_playwright_browser; then
     echo "gstack setup failed: Playwright Chromium could not be launched" >&2
   fi
   exit 1
+fi
+
+# 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).
+#     Best-effort: warn instead of failing if it can't install.
+if ! ensure_emoji_font; then
+  echo "  Note: could not auto-install a color-emoji font. Emoji in make-pdf" >&2
+  echo "  output may render as boxes (▯). Install one manually, e.g.:" >&2
+  echo "    Debian/Ubuntu: sudo apt-get install fonts-noto-color-emoji" >&2
+  echo "    Fedora:        sudo dnf install google-noto-color-emoji-fonts" >&2
+  echo "    Arch:          sudo pacman -S noto-fonts-emoji" >&2
+  echo "    Alpine:        sudo apk add font-noto-emoji" >&2
+else
+  refresh_browse_daemon_for_fonts
 fi
 
 # 3. Ensure ~/.gstack global state directory exists

@@ -51,6 +51,15 @@ jobs:
         if: matrix.os == 'ubicloud-standard-8'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
+      # Install a color-emoji font BEFORE Chromium launches so the emoji render
+      # gate has a fallback font. macOS ships Apple Color Emoji already.
+      - name: Install color-emoji font (Ubuntu)
+        if: matrix.os == 'ubicloud-standard-8'
+        run: |
+          sudo apt-get install -y fonts-noto-color-emoji
+          fc-cache -f || true
+          fc-match -f '%{family[0]}\t%{color}\n' ':lang=und-zsye:charset=1F600' || true
+
       - name: Install Playwright Chromium
         run: bunx playwright install chromium
 
@@ -74,7 +83,7 @@ jobs:
       - name: Run make-pdf unit tests
         run: bun test make-pdf/test/*.test.ts
 
-      - name: Run combined-features copy-paste gate (P0)
+      - name: Run E2E gates (combined-features copy-paste + emoji render)
         env:
           BROWSE_BIN: ${{ github.workspace }}/browse/dist/browse
-        run: bun test make-pdf/test/e2e/combined-gate.test.ts
+        run: bun test make-pdf/test/e2e/
