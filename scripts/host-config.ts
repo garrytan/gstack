@@ -69,6 +69,13 @@ export interface HostConfig {
   // --- Content Rewrites ---
   /** Literal string replacements on generated SKILL.md content. Order matters, replaceAll. */
   pathRewrites: Array<{ from: string; to: string }>;
+  /**
+   * Hard byte ceiling for generated SKILL.md files (e.g. 100 * 1024 for Zed).
+   * When set, the body is truncated at the last complete line that keeps the
+   * total file under this limit and a one-line truncation notice is appended.
+   * The frontmatter is never truncated.
+   */
+  maxFileBytes?: number;
   /** Tool name string replacements on content. */
   toolRewrites?: Record<string, string>;
   /** Resolver functions that return empty string for this host. */
