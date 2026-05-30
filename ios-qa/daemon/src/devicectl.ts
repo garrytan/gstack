@@ -270,8 +270,17 @@ export function launchApp(
   udid: string,
   bundleId: string,
   spawn: SpawnImpl = defaultSpawn,
+  env?: Record<string, string>,
 ): { ok: boolean; error?: string } {
-  const r = spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--device', udid, bundleId]);
+  const args = ['devicectl', 'device', 'process', 'launch', '--device', udid];
+  // Forward launch-time env vars (e.g. an app's debug-bridge enable flag) so a
+  // cold start actually boots the in-app StateServer. Bundle id stays the
+  // trailing positional arg, after every flag.
+  if (env && Object.keys(env).length > 0) {
+    args.push('--environment-variables', JSON.stringify(env));
+  }
+  args.push(bundleId);
+  const r = spawn('xcrun', args);
   if (r.status === 0) return { ok: true };
   const err = (r.stderr?.toString() ?? '') + (r.stdout?.toString() ?? '');
   if (err.includes('was not, or could not be, unlocked')) {
