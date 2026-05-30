@@ -49,6 +49,7 @@
     "marked": "^18.0.2",
     "playwright": "^1.58.2",
     "puppeteer-core": "^24.40.0",
+    "sharp": "^0.34.5",
     "socks": "^2.8.8"
   },
   "engines": {

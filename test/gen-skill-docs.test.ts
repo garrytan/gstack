@@ -2231,6 +2231,25 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('create_agents_sidecar "$SOURCE_GSTACK_DIR"');
   });
 
+  test('Codex runtime root includes browse source and externalized Node deps', () => {
+    const buildScript = fs.readFileSync(path.join(ROOT, 'browse', 'scripts', 'build-node-server.sh'), 'utf-8');
+    const externals = [...buildScript.matchAll(/--external\s+"?([^"\\\s]+)"?/g)]
+      .map((match) => match[1])
+      .filter((dep) => dep !== 'bun:sqlite');
+    const fnStart = setupContent.indexOf('link_browse_runtime_assets()');
+    const fnEnd = setupContent.indexOf('# ─── Helper: create a minimal ~/.codex/skills/gstack runtime root', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+
+    expect(fnBody).toContain('browse/src');
+    for (const dep of externals) {
+      const root = dep.startsWith('@') ? dep.split('/')[0] : dep;
+      expect(fnBody).toContain(root);
+    }
+    expect(fnBody).toContain('sharp semver detect-libc');
+    expect(fnBody).toContain('node_modules/@img');
+    expect(setupContent).toContain('link_browse_runtime_assets "$gstack_dir" "$codex_gstack"');
+  });
+
   test('link_codex_skill_dirs reads from .agents/skills/', () => {
     // The Codex link function must reference .agents/skills for generated Codex skills
     const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
@@ -2360,9 +2379,12 @@ describe('setup script validation', () => {
     const fnStart = setupContent.indexOf('create_codex_runtime_root()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
     const fnBody = setupContent.slice(fnStart, fnEnd);
+    const runtimeStart = setupContent.indexOf('link_browse_runtime_assets()');
+    const runtimeEnd = setupContent.indexOf('# ─── Helper: create a minimal ~/.codex/skills/gstack runtime root', runtimeStart);
+    const runtimeBody = setupContent.slice(runtimeStart, runtimeEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
-    expect(fnBody).toContain('browse/dist');
-    expect(fnBody).toContain('browse/bin');
+    expect(runtimeBody).toContain('browse/dist');
+    expect(runtimeBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
     // Review runtime assets (individual files, not the whole dir)
     expect(fnBody).toContain('checklist.md');

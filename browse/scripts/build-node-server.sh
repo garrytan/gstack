@@ -25,6 +25,7 @@ bun build "$SRC_DIR/server.ts" \
   --external playwright \
   --external playwright-core \
   --external diff \
+  --external sharp \
   --external "bun:sqlite" \
   --external "@ngrok/ngrok"
 
