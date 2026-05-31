@@ -225,17 +225,19 @@ do_read() {
   cat "$PROFILE_FILE" | bun -e "
     const p = JSON.parse(await Bun.stdin.text());
     const sessions = p.sessions || [];
-    const count = sessions.length;
+
+    // SESSION_COUNT / TIER / CROSS_PROJECT / NUDGE must reflect real sessions, not
+    // resource-tracking events (the Phase 6 auto-append). Without this filter, a
+    // session's resources entry written immediately after the real session inflates
+    // the count (bumping TIER), clobbers LAST_PROJECT/LAST_ASSIGNMENT/LAST_DESIGN_TITLE,
+    // and pushes NUDGE_ELIGIBLE over its threshold from bookkeeping alone.
+    const realSessions = sessions.filter(e => e.mode !== 'resources');
+
+    const count = realSessions.length;
     let tier = 'introduction';
     if (count >= 8) tier = 'inner_circle';
     else if (count >= 4) tier = 'regular';
     else if (count >= 1) tier = 'welcome_back';
-
-    // LAST_* / CROSS_PROJECT must reflect real sessions, not resource-tracking
-    // events (the Phase 6 auto-append). Without this filter, a session's
-    // resources entry written immediately after the real session would clobber
-    // LAST_PROJECT/LAST_ASSIGNMENT/LAST_DESIGN_TITLE.
-    const realSessions = sessions.filter(e => e.mode !== 'resources');
     const last = realSessions[realSessions.length - 1] || {};
     const prev = realSessions[realSessions.length - 2] || {};
     const crossProject = prev.project_slug && last.project_slug
@@ -252,7 +254,11 @@ do_read() {
     for (const v of Object.values(signalCounts)) totalSignals += v;
     const signalStr = Object.entries(signalCounts).map(([k,v]) => k + ':' + v).join(',');
 
-    const builderSessions = sessions.filter(e => e.mode !== 'startup').length;
+    // Builder-mode design sessions only — the builder->founder nudge is about
+    // someone who keeps returning to *build*, not startup-mode diagnostics and not
+    // resources bookkeeping. (Was \`e.mode !== 'startup'\`, which counted resources
+    // entries and excluded real startup sessions.)
+    const builderSessions = realSessions.filter(e => e.mode === 'builder').length;
     const nudgeEligible = builderSessions >= 3 && totalSignals >= 5;
 
     const resources = p.resources_shown || [];
