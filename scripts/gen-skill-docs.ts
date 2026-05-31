@@ -342,10 +342,6 @@ export function buildTrimmedDescription(parts: CatalogParts): string {
   return `${lead}${suffix}`;
 }
 
-function yamlString(value: string): string {
-  return JSON.stringify(value);
-}
-
 /** Build the body section that holds the routing/voice prose. */
 export function buildWhenToInvokeSection(parts: CatalogParts): string {
   const lines: string[] = ['## When to invoke this skill', ''];
@@ -358,6 +354,28 @@ export function buildWhenToInvokeSection(parts: CatalogParts): string {
     lines.push('');
   }
   return lines.join('\n');
+}
+
+/**
+ * Render a string as a YAML inline scalar value (the text after `key: `),
+ * quoting only when a plain scalar would be invalid or ambiguous.
+ *
+ * The bug this guards (#1778): a description like "Ship workflow: detect..."
+ * emitted as a plain scalar has an interior ": " that a strict YAML parser
+ * (Codex/OpenAI skill loading) reads as a nested mapping and rejects with
+ * "mapping values are not allowed in this context". When quoting is needed we
+ * fall back to JSON.stringify, which produces a double-quoted scalar that YAML
+ * accepts verbatim (YAML is a superset of JSON for flow scalars). Strings that
+ * are already valid plain scalars pass through unchanged to keep regen diffs small.
+ */
+export function toYamlInlineScalar(s: string): string {
+  const needsQuote =
+    s.length === 0 ||
+    s !== s.trim() ||                       // leading/trailing whitespace
+    /:(\s|$)/.test(s) ||                    // "foo: bar" / trailing colon → mapping ambiguity
+    /\s#/.test(s) ||                        // " #" → inline comment
+    /^[\s>|&*!%@`"'#,\[\]{}?-]/.test(s);    // leading YAML indicator char
+  return needsQuote ? JSON.stringify(s) : s;
 }
 
 /**
@@ -401,8 +419,16 @@ export function applyCatalogTrim(content: string, skillName: string): { content:
 
   // Replace description in frontmatter — keep trailing newline so the next
   // YAML field doesn't collide on the same line as the description value.
+  // Quote the value when it would be an invalid YAML plain scalar (the common
+  // case: an interior ": " like "Ship workflow: detect..." which a strict YAML
+  // parser reads as a nested mapping and rejects — #1778). toYamlInlineScalar
+  // only quotes when needed, so descriptions without special chars stay plain.
   const newDesc = buildTrimmedDescription(parts);
-  const newFrontmatter = frontmatter.replace(descMatch[0], `description: ${yamlString(newDesc)}\n`);
+  // Function replacer (not a string) so a `$` in the description — e.g. a future
+  // skill referencing `$B`/`$D` — can't be interpreted as a `$&`/`$1` replacement
+  // pattern and silently corrupt the frontmatter.
+  const newDescLine = `description: ${toYamlInlineScalar(newDesc)}\n`;
+  const newFrontmatter = frontmatter.replace(descMatch[0], () => newDescLine);
   let newContent = '---\n' + newFrontmatter + content.slice(fmEnd);
 
   // Insert body section after frontmatter (after the closing ---\n and any

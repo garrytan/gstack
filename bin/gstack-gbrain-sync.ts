@@ -37,9 +37,10 @@ import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, sourcePageCount, parseSourcesList } from "../lib/gbrain-sources";
+import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
-import { buildGbrainEnv, spawnGbrain, execGbrainJson } from "../lib/gbrain-exec";
+import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,8 @@ interface CliArgs {
   noMemory: boolean;
   noBrainSync: boolean;
   codeOnly: boolean;
+  /** #1734: opt-in to sync a URL-managed source whose code walk may auto-reclone. */
+  allowReclone: boolean;
 }
 
 interface CodeStageDetail {
@@ -59,7 +62,7 @@ interface CodeStageDetail {
   source_path?: string;
   page_count?: number | null;
   last_imported?: string;
-  status?: "ok" | "skipped" | "failed";
+  status?: "ok" | "skipped" | "failed" | "refused-autopilot" | "refused-reclone";
 }
 
 interface StageResult {
@@ -205,6 +208,8 @@ Options:
   --no-memory          Skip the gstack-memory-ingest stage (transcripts + artifacts).
   --no-brain-sync      Skip the gstack-brain-sync git pipeline stage.
   --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
+  --allow-reclone      Permit the code walk for URL-managed sources (remote_url set)
+                       even though gbrain may auto-reclone the working tree (#1734).
   --help               This text.
 
 Stages run in order: code → memory ingest → curated git push.
@@ -220,6 +225,7 @@ function parseArgs(): CliArgs {
   let noMemory = false;
   let noBrainSync = false;
   let codeOnly = false;
+  let allowReclone = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -231,6 +237,7 @@ function parseArgs(): CliArgs {
       case "--no-code": noCode = true; break;
       case "--no-memory": noMemory = true; break;
       case "--no-brain-sync": noBrainSync = true; break;
+      case "--allow-reclone": allowReclone = true; break;
       case "--code-only":
         codeOnly = true;
         noMemory = true;
@@ -247,7 +254,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly };
+  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly, allowReclone };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -407,10 +414,7 @@ export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): stri
     { baseEnv: env },
   );
   if (!raw) return null;
-  const list: Array<{ id?: string; local_path?: string }> = Array.isArray(raw)
-    ? (raw as Array<{ id?: string; local_path?: string }>)
-    : ((raw as { sources?: Array<{ id?: string; local_path?: string }> }).sources ?? []);
-  const found = list.find((s) => s.id === sourceId);
+  const found = parseSourcesList(raw).find((s) => s.id === sourceId);
   return found?.local_path ?? null;
 }
 
@@ -469,20 +473,50 @@ export function planHostnameFoldMigration(
   return { kind: "pending-cleanup", oldId: legacyPathHashId };
 }
 
+export interface GuardedRemoveResult {
+  removed: boolean;
+  /** True when a guard refused the remove (autopilot active or unsafe source). */
+  skipped: boolean;
+  reason: string;
+}
+
+/**
+ * #1734: run `gbrain sources remove <id> --confirm-destructive` only behind the
+ * data-loss guards. Checked immediately before the destructive op (E8: as late
+ * as possible) so the autopilot window is as small as we can make it without a
+ * gbrain-side lease. Refuses when autopilot is active or when the source is
+ * user-managed and gbrain can't keep its storage. Pure side-effect helper; the
+ * caller decides whether a skip is fatal (it never is today — removes are
+ * best-effort cleanup).
+ */
+export function safeSourcesRemove(sourceId: string, env?: NodeJS.ProcessEnv): GuardedRemoveResult {
+  const ap = detectAutopilot(env);
+  if (ap.active) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `autopilot active (${ap.signal}); refusing destructive remove of ${sourceId}. ` +
+        `Stop autopilot, then re-run /sync-gbrain.`,
+    };
+  }
+  const decision = decideSourceRemove(sourceId, env);
+  if (!decision.allow) {
+    return { removed: false, skipped: true, reason: decision.reason };
+  }
+  const r = spawnGbrain(
+    ["sources", "remove", sourceId, "--confirm-destructive", ...decision.extraArgs],
+    { baseEnv: env },
+  );
+  return { removed: r.status === 0, skipped: false, reason: decision.reason };
+}
+
 /**
  * Remove an orphaned source. Called only after new-source sync verifies pages
- * exist, so the old source is provably redundant before deletion.
- *
- * Flag note: existing call sites used `--confirm-destructive` here and
- * `--yes` in `lib/gbrain-sources.ts` — gbrain 0.35.0.0 accepts neither
- * deterministically (the subcommand surface help is generic). We pass
- * `--confirm-destructive` to match the existing call site convention; the
- * flag-helper centralization in commit 4 (lib/gbrain-exec.ts) will resolve
- * the inconsistency across the codebase.
+ * exist, so the old source is provably redundant before deletion. Routed through
+ * safeSourcesRemove for the #1734 guards.
  */
 export function removeOrphanedSource(oldId: string, env?: NodeJS.ProcessEnv): boolean {
-  const r = spawnGbrain(["sources", "remove", oldId, "--confirm-destructive"], { baseEnv: env });
-  return r.status === 0;
+  return safeSourcesRemove(oldId, env).removed;
 }
 
 /**
@@ -661,13 +695,12 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const legacyId = deriveLegacyCodeSourceId(root);
   let legacyRemoved = false;
   if (legacyId !== sourceId) {
-    const rm = spawnGbrain(["sources", "remove", legacyId, "--confirm-destructive"], {
-      timeout: 30_000,
-      baseEnv: gbrainEnv,
-    });
-    // Treat absent-source as success (clean state). gbrain emits "not found" on
-    // missing id; treat any non-zero exit without "not found" as a soft fail.
-    if (rm.status === 0) legacyRemoved = true;
+    // #1734: route through the data-loss guards (autopilot + source-safety).
+    const rm = safeSourcesRemove(legacyId, gbrainEnv);
+    if (rm.skipped && !args.quiet) {
+      console.error(`[sync:code] legacy-source cleanup skipped: ${rm.reason}`);
+    }
+    if (rm.removed) legacyRemoved = true;
   }
 
   // Step 0b: Hostname-fold migration (#1414).
@@ -720,6 +753,29 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
     "GSTACK_SYNC_CODE_TIMEOUT_MS",
   );
+
+  // #1734 guards, checked immediately before the destructive walk (E8):
+  //   - autopilot active → refuse (the race that wiped a working tree).
+  //   - URL-managed source → the walk can auto-reclone (rm-rf); require
+  //     --allow-reclone. Both surface a visible reason and fail the stage so the
+  //     verdict shows ERR rather than silently skipping protection.
+  const apBeforeWalk = detectAutopilot(gbrainEnv);
+  if (apBeforeWalk.active) {
+    return {
+      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
+      summary: `refused: gbrain autopilot active (${apBeforeWalk.signal}). Stop autopilot, then re-run /sync-gbrain.`,
+      detail: { source_id: sourceId, source_path: root, status: "refused-autopilot" },
+    };
+  }
+  const reclone = decideCodeSync(sourceId, gbrainEnv, args.allowReclone);
+  if (!reclone.allow) {
+    return {
+      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
+      summary: `refused: ${reclone.reason}`,
+      detail: { source_id: sourceId, source_path: root, status: "refused-reclone" },
+    };
+  }
+
   const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: codeTimeoutMs,
@@ -961,13 +1017,17 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     return { name: "brain-sync", ran: false, ok: true, duration_ms: 0, summary: "skipped (gstack-brain-sync not installed)" };
   }
 
+  // #1731: gstack-brain-sync is a bash shebang script; Windows can't spawn it
+  // without a shell, which surfaced as "brain-sync exited undefined".
   spawnSync(brainSyncPath, ["--discover-new"], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 60 * 1000,
+    shell: NEEDS_SHELL_ON_WINDOWS,
   });
   const result = spawnSync(brainSyncPath, ["--once"], {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: 60 * 1000,
+    shell: NEEDS_SHELL_ON_WINDOWS,
   });
 
   return {

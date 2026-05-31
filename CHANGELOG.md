@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.55.0.0] - 2026-05-30
+
+## **`/sync-gbrain` can no longer be the trigger that lets gbrain delete your repo. The headed browser stops crash-looping, and gbrain installs the current release instead of a pin 23 versions stale.**
+
+gbrain can rm-rf a working tree when its autopilot daemon reclones mid-cycle. `/sync-gbrain` used to call gbrain's `sources remove` and `sync --strategy code` as if they were safe, so it could be the thing that set that race off. Now every destructive gbrain call sits behind feature-detected guards: the orchestrator refuses to run while autopilot is active, refuses to remove a user-managed source it can't storage-protect (it fails closed), canonicalizes paths with realpath so a symlink can't smuggle a delete outside gbrain's own clones, and requires an explicit `--allow-reclone` before a URL-managed source's code walk. Shipped in the same wave: the headed browser's self-inflicted crash-loop is gone, big-brain memory ingests stop getting killed at a fixed 30 minutes, and the gbrain installer moves off its frozen v0.18.2 pin onto the latest release behind a version floor and a `doctor` self-test.
+
+### The numbers that matter
+
+From the shipped diff and its regression suites (`bun test test/gbrain-*.test.ts browse/test/restart-env.test.ts test/memory-ingest-timeout.test.ts`):
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Destructive gbrain ops behind guards | 0 | 4 | +4 |
+| gbrain / brain-sync spawns that work on Windows | 0/8 | 8/8 | +8 |
+| gbrain version installed | v0.18.2 (pinned, ~23 behind) | latest + min-version floor + doctor gate | — |
+| Memory-ingest timeout | hardcoded 30 min | configurable, checkpoint preserved on timeout | — |
+| Generated SKILL.md that parse under strict YAML | partial (colons broke Codex) | all (quoted) | — |
+
+The guard that matters most: a `sources remove` on a source whose files live outside `~/.gbrain/clones/` and can't be storage-protected now refuses instead of proceeding. The path that ate a repo no longer runs unattended.
+
+### What this means for you
+
+If you use `/sync-gbrain`, you are protected from the data-loss race even before gbrain ships its own root fix. "Don't run `/sync-gbrain` while `gbrain autopilot` is active" is now enforced, not just advised, and nothing gets deleted that can't be proven safe. Headed-browser QA against beacon-heavy pages (analytics, live extensions) no longer crash-loops, leaks Chromium, or silently drops to an invisible headless window. New gbrain installs track the current release. Codex and OpenAI can load every gstack skill again.
+
+### Itemized changes
+
+#### Added
+- `/sync-gbrain` destructive-op guards (`lib/gbrain-guards.ts`): multi-signal autopilot detection, fail-closed `sources remove`, realpath `remote_url` pre-flight audit, and a `--allow-reclone` gate before URL-managed code walks.
+- Install-time gbrain gate (`bin/gstack-gbrain-install`): a minimum-version floor and a `gbrain doctor --fast` self-test, both hard-fail with remediation.
+- `GSTACK_INGEST_TIMEOUT_MS` to configure the memory-ingest timeout; on timeout the gbrain checkpoint is preserved so the next run resumes.
+
+#### Changed
+- gbrain installs at the latest default-branch HEAD by default; pin a commit with `gstack-gbrain-install --pinned-commit <sha>` for reproducibility.
+- Generated SKILL.md descriptions with interior colons are now quoted, so strict YAML loaders (Codex/OpenAI) parse them.
+- `/sync-gbrain` guidance: do not run during autopilot; prefer `gbrain sources add --path` over URL-managed sources.
+
+#### Fixed
+- `/sync-gbrain` no longer races gbrain's autopilot into a destructive reclone or remove (#1734). Report by @mvanhorn.
+- `gstack-jsonl-merge` resolves equal-timestamp entries deterministically across machines, so append-only logs converge instead of re-conflicting forever (#1769). Contributed by @jbetala7.
+- Generated SKILL.md frontmatter parses under strict YAML loaders (#1778). Reported by @GilbertzzzZZ, @genisis0x, @cathrynlavery, and @sator-imaging.
+- The headed browser daemon no longer crash-loops under load, leaks Chromium processes, or silently downgrades a headed session to headless (#1781).
+- `/sync-gbrain --full` memory ingests on large brains are no longer killed at a fixed 30-minute timeout (#1611).
+- The gbrain CLI and `gstack-brain-sync` spawn correctly on Windows (#1731).
+
+#### For contributors
+- `lib/gbrain-guards.ts` with hermetic tests for every guard branch (autopilot signals, fail-closed remove, reclone gate, realpath containment).
+- `parseSourcesList` centralizes `gbrain sources list --json` shape handling across all readers (#1576, whose crash was already fixed in v1.42.0.0 — this removes the last divergent reader).
+- Static-grep tripwire (`test/gbrain-spawn-windows-shell.test.ts`) fails CI if a gbrain spawn drops the Windows shell flag.
+- gbrain-side requirements for the root fixes (ungated reclone, `--keep-storage`, a cooperative remove-lease, a capability command, true ingest-resume, integration CI) are tracked for the gbrain repo.
+
 ## [1.54.0.0] - 2026-05-30
 
 ## **The heaviest skill stopped taxing every session. /ship's always-loaded cost dropped 59%, and its prose now loads only when a step needs it.**

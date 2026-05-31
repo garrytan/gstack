@@ -35,7 +35,7 @@ import {
 } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import { buildGbrainEnv } from "./gbrain-exec";
+import { buildGbrainEnv, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
 
 export type LocalEngineStatus =
   | "ok"
@@ -113,6 +113,7 @@ export function resolveGbrainBin(env?: NodeJS.ProcessEnv): string | null {
       timeout: 2_000,
       stdio: ["ignore", "ignore", "ignore"],
       env: e,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     result = "gbrain";
   } catch {
@@ -135,6 +136,7 @@ export function readGbrainVersion(env?: NodeJS.ProcessEnv): string {
       timeout: 2_000,
       stdio: ["ignore", "pipe", "ignore"],
       env: e,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     result = out.trim().split("\n")[0] || "";
   } catch {
@@ -241,6 +243,7 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
       timeout: PROBE_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
       env: buildGbrainEnv({ baseEnv: env ?? process.env }),
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     return "ok";
   } catch (err) {
