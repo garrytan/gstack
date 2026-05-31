@@ -8,7 +8,8 @@ description: |
   evidence-backed COE reports with impact, timeline, 5+ Whys, corrective
   actions, and verification gates. Use when asked for "COE", "correction of
   error", "postmortem", "why did this recur", or "do not let this happen
-  again". (gstack)
+  again". Route active debugging to /investigate and pre-landing diff checks to
+  /review. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -23,7 +24,6 @@ triggers:
   - postmortem
   - why did this recur
   - don't let this happen again
-  - root cause analysis
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -678,6 +678,22 @@ The goal is not blame. The goal is to find the mechanism that let the failure
 happen, fix that mechanism, and prove the same class of failure is harder to
 repeat.
 
+## Skill-library fit
+
+Use `/coe` for a formal post-failure Correction of Error: a recurring failure,
+false success, missed work, data loss, brittle automation, or user-visible miss
+that needs a written record with impact, timeline, root cause, corrective
+actions, and verification.
+
+Adjacent GStack skills keep their narrower jobs:
+
+- `/investigate`: active debugging before the failure mechanism is understood.
+- `/review`: pre-landing diff or PR risk review.
+- `/retro`: engineering trends over a time window.
+- `/skillify`: turning a proven workflow or corrective action into a durable
+  skill, script, test, or guardrail.
+- `/health`: codebase health and quality dashboards.
+
 ## Contract
 
 - Do not stop at symptom labels like "timeout", "LLM failed", "human error",
@@ -697,21 +713,9 @@ repeat.
   it until it can be.
 - Finish with a verification gate and a clear residual-risk statement.
 
-## Structure principles
-
-- DRY: put each fact in one place. Evidence belongs in Evidence, sequence in
-  Timeline, mechanism in Root Cause, fixes in Corrective Actions, and proof in
-  Verification. Cross-reference instead of repeating.
-- MECE: classify on separate axes. Pick exactly one primary failure surface,
-  then add cause tags only when evidence supports them.
-- If two categories overlap, rewrite them before reporting. If a category does
-  not cover the case, add an explicit "other/unknown" with the missing evidence.
-
 ## Phase 1 - Failure classification
 
-Classify on two separate axes.
-
-Primary failure surface: pick exactly one.
+Classify the failure before changing anything. Name the primary failure mode:
 
 - Required work failed visibly: command, job, test, or pipeline failed and the
   required work did not complete.
@@ -724,7 +728,7 @@ Primary failure surface: pick exactly one.
 - Optional diagnostic failed only: a non-required search, probe, or log lookup
   failed while required work is independently verified.
 
-Cause tags: add one or more only after evidence.
+Then identify evidence-backed contributing conditions:
 
 - timeout, rate limit, or transient provider failure
 - missing file, schema drift, or dependency drift
@@ -849,8 +853,8 @@ One short paragraph: what failed, why it mattered, and what changed.
 - <time/order>: <event>
 
 ## Failure Classification
-Primary surface: <one primary failure surface from Phase 1 and why>
-Cause tags: <supported tags, or unknown with missing evidence>
+Failure mode: <primary failure mode from Phase 1 and why>
+Contributing conditions: <supported conditions, or unknown with missing evidence>
 
 ## Evidence
 - <source or command>: <what it proves>
