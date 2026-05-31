@@ -19,6 +19,38 @@ v1.47.0.0 baselines retained in `test/fixtures/` for the v1→v2 audit trail. Th
 captured skill bytes match `origin/main` exactly (the rebasing branch left every
 SKILL.md untouched). `bun test` is green again.
 
+## Token-reduction follow-ups (Phase B, filed via /plan-eng-review on the plan-ceo-review carve)
+
+### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
+
+**What:** The per-skill section carves (`/ship` v1.54, `/plan-ceo-review` v1.56) yield
+real but bounded wins (-42% to -59% on the carved skill) because the shared
+`{{PREAMBLE}}` (~40-50KB on every tier-3/4 skill) is the dominant always-loaded cost
+and stays inline. Move the rarely-needed preamble REFERENCE blocks (the AskUserQuestion
+split-rules and the CJK / lone-surrogate escaping reference) into an on-demand
+section-style doc the agent reads only when it hits those edge cases, leaving the hot
+path (voice, completeness principle, recommendation format) inline.
+
+**Why:** Highest-ROI remaining token target. One preamble carve helps EVERY tier-≥2
+skill at once, not one skill per PR. The eng-review on the plan-ceo carve flagged that
+per-skill carves stay modest precisely because the preamble dominates the always-loaded
+surface.
+
+**Pros:** A single change reduces always-loaded cost across the whole skill pack.
+**Cons:** The preamble is load-bearing and shared; a botched carve regresses every skill.
+Needs the same union-parity + per-push freshness guards the section carves use, applied
+corpus-wide.
+
+**Context:** Builds on the v2 section pipeline (`scripts/resolvers/sections.ts`,
+`{{SECTION:id}}` / `{{SECTION_INDEX}}`). The preamble source is
+`scripts/resolvers/preamble.ts`. Measure which sub-blocks are cold (escaping reference,
+split-rules) vs hot (voice, recommendation format) before cutting. Validate on one skill,
+then roll corpus-wide.
+
+**Effort estimate:** L (human team) → M (CC+gstack)
+**Priority:** P3
+**Depends on / blocked by:** The section pipeline (shipped v1.54). No hard blocker.
+
 ## gbrowser memory follow-ups (filed via /plan-eng-review + /codex on the v1.49 leak-fix PR)
 
 These four items came out of the memory-leak investigation that shipped
