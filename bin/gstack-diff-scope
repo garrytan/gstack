@@ -75,7 +75,7 @@ while IFS= read -r f; do
 
     # Backend: everything else that's code (excluding views/components already matched)
     *.rb|*.py|*.go|*.rs|*.java|*.php|*.ex|*.exs) BACKEND=true ;;
-    *.ts|*.js) BACKEND=true ;;  # Non-component TS/JS is backend
+    *.ts|*.mts|*.cts|*.js|*.mjs|*.cjs) BACKEND=true ;;  # Non-component TS/JS is backend (incl. ESM .mjs/.mts + CJS .cjs/.cts)
   esac
 done <<< "$FILES"
 

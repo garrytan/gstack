@@ -84,6 +84,17 @@ describe('gstack-diff-scope', () => {
     expect(scope.SCOPE_TESTS).toBe('true');
   });
 
+  test('detects backend via ESM/CJS extensions (.mjs/.cjs/.mts/.cts)', () => {
+    // Pure-ESM Node projects ship backend code as .mjs/.cjs (and explicit-module
+    // TypeScript as .mts/.cts). These must register as backend so the review
+    // army's backend/security reviewers fire on such changes.
+    for (const f of ['server.mjs', 'helper.cjs', 'mod.mts', 'legacy.cts']) {
+      const dir = createRepo([f]);
+      const scope = runScope(dir);
+      expect(scope.SCOPE_BACKEND).toBe('true');
+    }
+  });
+
   // --- New scope signals (Review Army) ---
 
   test('detects migrations via db/migrate/', () => {
