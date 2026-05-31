@@ -58,22 +58,47 @@ repeat.
   it until it can be.
 - Finish with a verification gate and a clear residual-risk statement.
 
+## Structure principles
+
+- DRY: put each fact in one place. Evidence belongs in Evidence, sequence in
+  Timeline, mechanism in Root Cause, fixes in Corrective Actions, and proof in
+  Verification. Cross-reference instead of repeating.
+- MECE: classify on separate axes. Pick exactly one primary failure surface,
+  then add cause tags only when evidence supports them.
+- If two categories overlap, rewrite them before reporting. If a category does
+  not cover the case, add an explicit "other/unknown" with the missing evidence.
+
 ## Phase 1 - Failure classification
 
-Name the failure mode first:
+Classify on two separate axes.
 
-- real pipeline or data failure
-- false success or silent skip
-- repeated tool, cron, or agent failure
+Primary failure surface: pick exactly one.
+
+- Required work failed visibly: command, job, test, or pipeline failed and the
+  required work did not complete.
+- Required work silently skipped or falsely succeeded: the system reported done
+  while required work was missing.
+- Required work completed incompletely or incorrectly: an artifact exists but is
+  partial, stale, under-extracted, or wrong enough to matter.
+- User-visible response missed the expectation: the answer omitted a request,
+  misrouted the work, or gave inaccurate status.
+- Optional diagnostic failed only: a non-required search, probe, or log lookup
+  failed while required work is independently verified.
+
+Cause tags: add one or more only after evidence.
+
 - timeout, rate limit, or transient provider failure
 - missing file, schema drift, or dependency drift
-- model configuration or policy failure
+- model configuration, policy, or routing mismatch
 - source availability or extractor failure
-- optional diagnostic failure that should not block the primary task
+- brittle command, parser, query, or ad hoc script
+- unclear ownership, interface, or skill instruction
+- absent verification, closeout, or blocked-state gate
+- other or unknown, with the evidence still missing
 
-If the issue is only an optional diagnostic failure, say so and continue the
-actual work with a warning. If the diagnostic failure hides whether required
-work happened, treat that as a real COE trigger.
+If an optional diagnostic failure hides whether required work happened,
+reclassify it as false success, incomplete work, or visible failure. Do not let
+"optional" obscure the primary task.
 
 ## Phase 2 - Evidence packet
 
@@ -185,7 +210,8 @@ One short paragraph: what failed, why it mattered, and what changed.
 - <time/order>: <event>
 
 ## Failure Classification
-<one classification and why>
+Primary surface: <one primary failure surface from Phase 1 and why>
+Cause tags: <supported tags, or unknown with missing evidence>
 
 ## Evidence
 - <source or command>: <what it proves>
