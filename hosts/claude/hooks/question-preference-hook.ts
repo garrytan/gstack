@@ -92,12 +92,34 @@ function readStdin(): Promise<string> {
 }
 
 function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+  // "Defer" means "no permission opinion — let the tool run and the question
+  // render normally." The Claude Code hook spec only defines the
+  // permissionDecision values "allow" | "deny" | "ask"; there is no "defer".
+  // Native Claude Code silently ignored the bogus value and fell through to
+  // normal flow, so emitting it appeared to work. Conductor's
+  // mcp__conductor__AskUserQuestion bridge does NOT ignore it: an
+  // unrecognized permissionDecision on its own injected tool hangs the
+  // round-trip, so the question never renders and no tool_result is ever
+  // returned (the harness then substitutes "[Tool result missing due to
+  // internal error]"). Since defer() fires on every ordinary question that
+  // has no never-ask enforcement, this broke AskUserQuestion entirely under
+  // Conductor.
+  //
+  // Express "no opinion" the spec-correct way: emit NO permissionDecision.
+  // When there is no additionalContext to surface, emit nothing at all
+  // (empty stdout + exit 0 is the canonical "no decision" hook response).
+  // When we do have Layer 8 memory context, surface it via additionalContext
+  // alone — still with no permissionDecision.
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 
