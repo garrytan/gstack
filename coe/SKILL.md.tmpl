@@ -1,0 +1,218 @@
+---
+name: coe
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Correction of Error root-cause analysis for recurring failures, false
+  success, data loss, user-visible misses, and brittle agent workflows. Produces
+  evidence-backed COE reports with impact, timeline, 5+ Whys, corrective
+  actions, and verification gates. Use when asked for "COE", "correction of
+  error", "postmortem", "why did this recur", or "do not let this happen
+  again". (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+triggers:
+  - COE
+  - correction of error
+  - postmortem
+  - why did this recur
+  - don't let this happen again
+  - root cause analysis
+---
+
+{{PREAMBLE}}
+
+# /coe - evidence-backed Correction of Error
+
+Run a COE when a failure matters enough that "retry it" would be malpractice:
+recurring defects, false success, silent skips, user-visible misses, data loss,
+broken automation, brittle agent behavior, or a miss the user explicitly wants
+made permanent.
+
+The goal is not blame. The goal is to find the mechanism that let the failure
+happen, fix that mechanism, and prove the same class of failure is harder to
+repeat.
+
+## Contract
+
+- Do not stop at symptom labels like "timeout", "LLM failed", "human error",
+  or "tool failed".
+- Classify the failure before changing anything.
+- Preserve evidence: command output, logs, diffs, tests, screenshots, report
+  paths, issue links, or exact source references.
+- Redact secrets, tokens, personally identifying information, customer data,
+  and private workspace details. Prefer source references or short excerpts over
+  raw dumps, especially in public artifacts.
+- Ask before public, destructive, expensive, or externally visible actions.
+- Keep private or customer-specific details out of public artifacts unless the
+  user explicitly approves disclosure.
+- If the user asked only for a report or analysis, propose corrective actions
+  instead of applying code or workflow changes.
+- Corrective actions must be testable. If an action cannot be verified, rewrite
+  it until it can be.
+- Finish with a verification gate and a clear residual-risk statement.
+
+## Phase 1 - Failure classification
+
+Name the failure mode first:
+
+- real pipeline or data failure
+- false success or silent skip
+- repeated tool, cron, or agent failure
+- timeout, rate limit, or transient provider failure
+- missing file, schema drift, or dependency drift
+- model configuration or policy failure
+- source availability or extractor failure
+- optional diagnostic failure that should not block the primary task
+
+If the issue is only an optional diagnostic failure, say so and continue the
+actual work with a warning. If the diagnostic failure hides whether required
+work happened, treat that as a real COE trigger.
+
+## Phase 2 - Evidence packet
+
+Collect only the evidence needed to explain the mechanism:
+
+- user-visible request or expectation
+- promised behavior
+- actual behavior
+- first bad observable result
+- affected scope
+- relevant logs, reports, code paths, and tests
+- existing guardrails that should have caught it
+
+Write down uncertainty explicitly. Do not pad the packet with every adjacent
+log line just because it exists.
+
+## Phase 3 - Timeline
+
+Build a short timeline with concrete timestamps or ordered events:
+
+1. Request or triggering event
+2. System action taken
+3. Where the failure entered
+4. Where it should have been detected
+5. User-visible effect
+6. Detection and repair attempt
+
+If timestamps are unavailable, use ordered steps and say timestamps were not
+available.
+
+## Phase 4 - Root cause analysis
+
+Run at least 5 Whys. Continue past 5 if the answer is still a symptom, a vague
+human explanation, or an unverifiable guess.
+
+Good Whys:
+
+- explain system behavior, not personality
+- identify the missing guardrail or bad interface
+- include evidence
+- distinguish proximate cause from root cause
+
+Bad Whys:
+
+- "the agent forgot"
+- "the model made a mistake"
+- "we should be more careful"
+- "the command failed"
+- "the user did not specify enough"
+
+Keep asking until the answer points to a durable change: a test, validator,
+workflow gate, ownership boundary, clearer skill instruction, safer default, or
+explicit blocked-state reporting.
+
+## Phase 5 - Corrective actions
+
+For each corrective action, include:
+
+- owner or owning surface
+- exact change
+- verification evidence
+- expected future detection signal
+- status: done, planned, blocked, or rejected
+
+Prefer actions that reduce classes of failure over one-off cleanup. Examples:
+
+- add a regression test for the missed case
+- add a preflight or closeout manifest
+- make the status label truthful instead of optimistic
+- split optional diagnostics from required success criteria
+- add a bounded retry with a terminal blocked receipt
+- update a skill or workflow to remove ambiguity
+
+Do not propose "be careful" as a corrective action.
+
+## Phase 6 - Verification gate
+
+Before calling the COE complete, run the smallest credible verification:
+
+- targeted test for the changed behavior
+- static validation for generated docs or skill frontmatter
+- dry run against the failed case
+- closeout checklist mapping every user request to evidence
+- local AI/code review when the change is nontrivial
+
+If a gate cannot run, state why and what evidence substitutes for it. Do not
+hide skipped gates in prose.
+
+## Phase 7 - Report shape
+
+Use this structure:
+
+```markdown
+# COE: <failure name>
+
+Date: <date>
+Status: done | planned | blocked
+Severity: low | medium | high
+
+## Summary
+One short paragraph: what failed, why it mattered, and what changed.
+
+## Impact
+- Who or what was affected
+- What was wrong or missing
+- What was not affected
+
+## Timeline
+- <time/order>: <event>
+
+## Failure Classification
+<one classification and why>
+
+## Evidence
+- <source or command>: <what it proves>
+
+## Root Cause
+### 5+ Whys
+1. Why? ...
+
+### Root Cause Statement
+<mechanism, not blame>
+
+## Corrective Actions
+| Action | Status | Verification |
+| --- | --- | --- |
+| ... | done/planned/blocked | ... |
+
+## Verification
+- <gate>: <result>
+
+## Residual Risk
+<what could still fail and how it will be noticed>
+```
+
+## Closeout response
+
+Lead with the root cause and the verified fix. Keep the user-facing summary
+short; link or point to the full report when one exists.
+
+If anything remains open, say exactly what is open and what evidence would close
+it.
