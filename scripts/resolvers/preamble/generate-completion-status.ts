@@ -20,13 +20,23 @@ import type { TemplateContext } from '../types';
  * the full rationale.
  */
 export function generatePlanModeInfo(_ctx: TemplateContext): string {
+  if (_ctx.host !== 'codex') {
+    return `## Plan Mode Safe Operations
+
+In plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`, writes to the plan file, and \`open\` for generated artifacts.
+
+## Skill Invocation During Plan Mode
+
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant \u2014 \`mcp__*__AskUserQuestion\` or native; see "AskUserQuestion Format \u2192 Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED \u2014 stop and report \`BLOCKED \u2014 AskUserQuestion unavailable\` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION \u2014 ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.`;
+  }
+
   return `## Plan Mode Safe Operations
 
 In plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`, writes to the plan file, and \`open\` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — \`mcp__*__AskUserQuestion\` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report \`BLOCKED — AskUserQuestion unavailable\` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.`;
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant -- \`mcp__*__AskUserQuestion\` or native; see "AskUserQuestion Format -> Tool resolution") satisfies plan mode's end-of-turn requirement. If no AskUserQuestion-like tool is callable in Codex, use the Codex chat fallback from "AskUserQuestion Format -> Tool resolution": ask the decision brief as a normal chat question and wait for the user. Report BLOCKED only for a genuinely non-interactive run with no allowed auto-decision. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION -- ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.`;
 }
 
 export function generateCompletionStatus(ctx: TemplateContext): string {

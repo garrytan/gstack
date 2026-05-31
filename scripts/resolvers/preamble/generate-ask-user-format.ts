@@ -1,19 +1,37 @@
 import type { TemplateContext } from '../types';
 
 export function generateAskUserFormat(_ctx: TemplateContext): string {
+  const toolResolution = _ctx.host === 'codex'
+    ? `"AskUserQuestion" can resolve to multiple interactive surfaces at runtime:
+
+- the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\`) when the host registers it;
+- Codex's **\`request_user_input\`** tool, but only when it is present in the current tool list and the active mode/instructions allow calling it;
+- a **normal chat question fallback** when the Codex session is interactive but no AskUserQuestion-like tool is callable.
+
+**Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. If \`request_user_input\` is present and current Codex instructions allow it, use that next. If neither tool is callable in Codex, ask the same decision brief as a concise normal chat question and wait for the user's answer. This fallback is degraded UI, not a gstack failure.
+
+**If no callable AskUserQuestion-like tool appears in a Codex session, do NOT report \`BLOCKED -- AskUserQuestion unavailable\` by default.** Use the normal chat fallback for interactive sessions. Report \`BLOCKED -- AskUserQuestion unavailable\` only when the run is non-interactive, no user turn can be awaited, and no explicit \`/plan-tune\` AUTO_DECIDE or skill-specific non-interactive auto-decision rule applies. Never silently auto-decide.`
+    : `"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` \u2014 appears in your tool list when the host registers it) or the **native** Claude Code tool.
+
+**Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+
+**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report \`BLOCKED \u2014 AskUserQuestion unavailable\`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking).`;
+  const deliveryRule = _ctx.host === 'codex'
+    ? "Every AskUserQuestion is a decision brief. Send it as tool_use when a callable AskUserQuestion-like tool is available; in Codex chat fallback, render the same decision brief as normal prose and stop for the user's answer."
+    : 'Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.';
+  const deliveryChecklist = _ctx.host === 'codex'
+    ? 'You are calling the tool, or using the Codex chat fallback because no AskUserQuestion-like tool is callable'
+    : 'You are calling the tool, not writing prose';
+
   return `## AskUserQuestion Format
 
 ### Tool resolution (read first)
 
-"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
-
-**Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
-
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report \`BLOCKED — AskUserQuestion unavailable\`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking).
+${toolResolution}
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+${deliveryRule}
 
 \`\`\`
 D<N> — <one-line question title>
@@ -106,7 +124,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] ${deliveryChecklist}
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \\u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain

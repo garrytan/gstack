@@ -115,7 +115,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant -- `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format -> Tool resolution") satisfies plan mode's end-of-turn requirement. If no AskUserQuestion-like tool is callable in Codex, use the Codex chat fallback from "AskUserQuestion Format -> Tool resolution": ask the decision brief as a normal chat question and wait for the user. Report BLOCKED only for a genuinely non-interactive run with no allowed auto-decision. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION -- ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -283,15 +283,19 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 ### Tool resolution (read first)
 
-"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
+"AskUserQuestion" can resolve to multiple interactive surfaces at runtime:
 
-**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+- the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion`) when the host registers it;
+- Codex's **`request_user_input`** tool, but only when it is present in the current tool list and the active mode/instructions allow calling it;
+- a **normal chat question fallback** when the Codex session is interactive but no AskUserQuestion-like tool is callable.
 
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report `BLOCKED — AskUserQuestion unavailable`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
+**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. If `request_user_input` is present and current Codex instructions allow it, use that next. If neither tool is callable in Codex, ask the same decision brief as a concise normal chat question and wait for the user's answer. This fallback is degraded UI, not a gstack failure.
+
+**If no callable AskUserQuestion-like tool appears in a Codex session, do NOT report `BLOCKED -- AskUserQuestion unavailable` by default.** Use the normal chat fallback for interactive sessions. Report `BLOCKED -- AskUserQuestion unavailable` only when the run is non-interactive, no user turn can be awaited, and no explicit `/plan-tune` AUTO_DECIDE or skill-specific non-interactive auto-decision rule applies. Never silently auto-decide.
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+Every AskUserQuestion is a decision brief. Send it as tool_use when a callable AskUserQuestion-like tool is available; in Codex chat fallback, render the same decision brief as normal prose and stop for the user's answer.
 
 ```
 D<N> — <one-line question title>
@@ -384,7 +388,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] You are calling the tool, or using the Codex chat fallback because no AskUserQuestion-like tool is callable
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain
