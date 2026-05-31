@@ -3,8 +3,28 @@
 # Usage: eval "$(gstack-slug)"  → sets SLUG and BRANCH variables
 # Or:    gstack-slug            → prints SLUG=... and BRANCH=... lines
 #
-# Security: output is sanitized to [a-zA-Z0-9._-] only, preventing
-# shell injection when consumed via source or eval.
+# Resolution order (highest precedence first):
+#   0. $GSTACK_PROJECT_SLUG env override (documented escape hatch)
+#   1. Walk UP from $(pwd) to the OUTERMOST ancestor containing a canonical
+#      project-identity marker (.git, .project.yaml, package.json, pyproject.toml,
+#      Cargo.toml, Gemfile, go.mod). Use that ancestor as the "project root".
+#      Build/deploy artifacts (.vercel, .next, dist, node_modules, etc.) are
+#      DELIBERATELY NOT markers — they're tooling output, not project identity.
+#      Without this walk-up, running gstack-slug from a subdir whose only
+#      "marker" is a deploy artifact silently resolves to the subdir's basename,
+#      misfiling all session state under a phantom slug. (2026-05-25 bug fix.)
+#   2. If the resolved project root has a git remote, derive the slug from it.
+#   3. Otherwise use the basename of the resolved project root.
+#   4. If no project root was found anywhere on the chain, fall back to the
+#      basename of $(pwd) (preserves prior behavior for plain folders).
+#
+# Caching is self-healing: a cache entry for the literal pwd that differs from
+# the freshly-computed slug gets opportunistically rewritten (single-shot, key-
+# local — never sweeps other entries). This lets pre-existing poisoned caches
+# clean themselves up without a manual `rm -rf ~/.gstack/slug-cache/`.
+#
+# Security: output is sanitized to [a-zA-Z0-9._-] only, preventing shell
+# injection when consumed via source or eval.
 set -euo pipefail
 
 CACHE_DIR="$HOME/.gstack/slug-cache"
@@ -13,30 +33,109 @@ PROJECT_DIR="$(pwd)"
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
 
-# 1. Try cached slug first (guarantees consistency across sessions)
-if [[ -f "$CACHE_FILE" ]]; then
-  SLUG=$(cat "$CACHE_FILE")
+SLUG=""
+
+# 0. Explicit env override — wins over everything. Escape hatch for vendored
+#    sub-repos and other genuine "subdir IS its own project" edge cases.
+if [[ -n "${GSTACK_PROJECT_SLUG:-}" ]]; then
+  SLUG=$(printf '%s' "$GSTACK_PROJECT_SLUG" | tr -cd 'a-zA-Z0-9._-')
 fi
 
-# 2. If no cache, compute from git remote (separated from pipeline to avoid
-#    pipefail swallowing the error and producing an empty slug)
-if [[ -z "${SLUG:-}" ]]; then
-  REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
+# 1. Walk up from pwd, tracking the OUTERMOST ancestor with a canonical
+#    project-identity marker. The walk stops at "/" so we never escape the
+#    filesystem root. Markers are an allow-list (not a blacklist) so new
+#    build/deploy tools cannot silently establish phantom project roots.
+#
+#    Markers: .git can be a directory (normal repo) or a file (worktree /
+#    submodule pointer). Everything else is a file at the directory's top
+#    level.
+#    Two tiers of markers:
+#    - STRONG markers (canonical version-control / language project files):
+#      .git, .project.yaml, package.json, pyproject.toml, Cargo.toml, Gemfile,
+#      go.mod. These signal "this directory is a real project of its own."
+#    - WEAK markers (content-only project signals): README.md, README, LICENSE.
+#      These catch content folders (markdown bundles, asset collections, AJ's
+#      loadout-style folders) that have no programming-language project files
+#      but ARE the user's project root.
+#    Rule: outermost STRONG marker wins. If no strong marker exists anywhere on
+#    the chain, outermost WEAK marker wins. This means a vendored sub-repo
+#    (e.g. `loadout/starter-pack/.git`) correctly keeps its own slug even when
+#    a weak-marker parent (`loadout/README.md`) is higher up — the sub-repo IS
+#    its own project. But a deploy-artifact-only subdir (`loadout/site/.vercel`)
+#    correctly folds into the content-project parent (`loadout/README.md`),
+#    because `.vercel` is not a marker at all.
+_outermost_project_root() {
+  local dir="$1"
+  local outermost_strong=""
+  local outermost_weak=""
+  while [[ -n "$dir" && "$dir" != "/" ]]; do
+    if [[ -e "$dir/.git" \
+       || -f "$dir/.project.yaml" \
+       || -f "$dir/package.json" \
+       || -f "$dir/pyproject.toml" \
+       || -f "$dir/Cargo.toml" \
+       || -f "$dir/Gemfile" \
+       || -f "$dir/go.mod" ]]; then
+      outermost_strong="$dir"
+    elif [[ -f "$dir/README.md" \
+         || -f "$dir/README" \
+         || -f "$dir/README.rst" \
+         || -f "$dir/LICENSE" \
+         || -f "$dir/LICENSE.md" ]]; then
+      outermost_weak="$dir"
+    fi
+    dir=$(dirname "$dir")
+  done
+  # Strong markers win over weak; either wins over nothing.
+  if [[ -n "$outermost_strong" ]]; then
+    printf '%s' "$outermost_strong"
+  else
+    printf '%s' "$outermost_weak"
+  fi
+}
+
+# Only compute the project root if we don't already have a slug (env override
+# took precedence). The walk is cheap (~10 stats on the deepest realistic cwd).
+PROJECT_ROOT=""
+if [[ -z "$SLUG" ]]; then
+  PROJECT_ROOT=$(_outermost_project_root "$PROJECT_DIR")
+fi
+
+# 2. If we found a project root and it has a git remote, derive slug from the
+#    remote URL (existing logic — kept verbatim, just rooted at PROJECT_ROOT
+#    instead of $PWD so a subdir without its own remote inherits the parent's).
+if [[ -z "$SLUG" && -n "$PROJECT_ROOT" ]]; then
+  REMOTE_URL=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null) || REMOTE_URL=""
   if [[ -n "$REMOTE_URL" ]]; then
     RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
     SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
   fi
 fi
 
-# 3. Fallback to basename only when there's truly no git remote configured
-SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+# 3. No git remote (or no remote at all) — use the project root's basename.
+if [[ -z "$SLUG" && -n "$PROJECT_ROOT" ]]; then
+  SLUG=$(basename "$PROJECT_ROOT" | tr -cd 'a-zA-Z0-9._-')
+fi
 
-# 4. Cache the slug for future sessions (atomic write, fail silently)
+# 4. Final fallback: no project root found anywhere on the chain. Use pwd's
+#    basename (preserves the old behavior for plain non-project folders).
+SLUG="${SLUG:-$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')}"
+
+# Cache compare/evict/write — self-healing. Compute the cache decision AFTER
+# fresh resolution so a stale cached value gets corrected on next invocation
+# rather than perpetuated. Single-shot: we only ever touch the cache entry for
+# the literal current pwd's key, never sweep others.
 if [[ -n "$SLUG" ]]; then
-  mkdir -p "$CACHE_DIR" 2>/dev/null || true
-  CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
-  if [[ -n "$CACHE_TMP" ]]; then
-    printf '%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+  CURRENT_CACHE=""
+  if [[ -f "$CACHE_FILE" ]]; then
+    CURRENT_CACHE=$(cat "$CACHE_FILE" 2>/dev/null || true)
+  fi
+  if [[ "$CURRENT_CACHE" != "$SLUG" ]]; then
+    mkdir -p "$CACHE_DIR" 2>/dev/null || true
+    CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
+    if [[ -n "$CACHE_TMP" ]]; then
+      printf '%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+    fi
   fi
 fi
 
