@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.48.5.0] - 2026-05-31
+
+## **Windows team-mode auto-upgrade now works — no more "Select an app" popup on every session.**
+
+When you run `./setup --team` on Windows, gstack registers a `SessionStart` hook so Claude Code can auto-upgrade on each session start. On Windows (Git Bash / MSYS2 / Cygwin), extensionless bash scripts can't be executed directly — the OS falls back to the file-association picker, showing a "Select an app to open 'gstack-session-update'" dialog every time you start a session. The script never ran, auto-upgrade was silently disabled.
+
+The fix: on Windows, the hook command is registered as `bash <path>` instead of just `<path>`, so Git Bash is invoked explicitly. The remove path (`./setup --no-team`) uses a substring match on `gstack-session-update` that handles both old-style and new-style hooks.
+
+### The 3 numbers that matter
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| Team-mode hook registered as | `<path>/gstack-session-update` | `bash <path>/gstack-session-update` |
+| "Select an app" popup on session start | every session | never |
+| `--no-team` removes old-style hook | yes (substring match) | yes (same match) |
+
+### What this means for Windows developers on team installs
+
+Run `./setup --team` (or re-run `./setup` if already in team mode) to get the fixed hook registered. If you already have the bare-path hook, the re-run replaces it cleanly.
+
+### Itemized changes
+
+#### Fixed
+- `setup`: on Windows, register `SessionStart` hook as `bash <path>` so Git Bash handles it; non-Windows behavior unchanged. Closes #1775.
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.

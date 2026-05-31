@@ -55,6 +55,14 @@ describe('setup: _link_or_copy invariant (D7)', () => {
     const fnBody = SETUP_SRC.slice(fnStart, fnEnd);
     expect(fnBody).toContain('_print_windows_copy_note_once');
   });
+
+  test('SessionStart HOOK_CMD is prefixed with bash on Windows (D7-session-hook)', () => {
+    const hookStart = SETUP_SRC.indexOf('# 10. Team mode: register/unregister SessionStart hook');
+    const hookEnd = SETUP_SRC.indexOf('\nif [ "$TEAM_MODE" -eq 1 ]', hookStart);
+    const hookSection = SETUP_SRC.slice(hookStart, hookEnd);
+    expect(hookSection).toContain('IS_WINDOWS');
+    expect(hookSection).toContain('bash $SOURCE_GSTACK_DIR/bin/gstack-session-update');
+  });
 });
 
 // Behavior matrix uses Unix `ln -snf` semantics in the IS_WINDOWS=0 cells.

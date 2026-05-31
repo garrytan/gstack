@@ -1119,7 +1119,14 @@ rm -f /tmp/gstack-latest-version
 
 # 10. Team mode: register/unregister SessionStart hook
 SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
-HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
+# On Windows (Git Bash / MSYS2 / Cygwin), extensionless scripts can't be
+# launched directly by the OS — the file-association dialog appears instead.
+# Prefix with 'bash' so Claude Code's hook runner invokes Git Bash explicitly.
+if [ "$IS_WINDOWS" -eq 1 ]; then
+  HOOK_CMD="bash $SOURCE_GSTACK_DIR/bin/gstack-session-update"
+else
+  HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
+fi
 
 if [ "$TEAM_MODE" -eq 1 ]; then
   "$GSTACK_CONFIG" set auto_upgrade true 2>/dev/null || true
