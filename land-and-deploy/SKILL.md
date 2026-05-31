@@ -2,7 +2,7 @@
 name: land-and-deploy
 preamble-tier: 4
 version: 1.0.0
-description: "Land and deploy workflow. (gstack)"
+description: Land and deploy workflow. (gstack)
 allowed-tools:
   - Bash
   - Read

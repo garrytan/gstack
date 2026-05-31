@@ -2,7 +2,7 @@
 name: context-save
 preamble-tier: 2
 version: 1.0.0
-description: "Save working context. (gstack)"
+description: Save working context. (gstack)
 allowed-tools:
   - Bash
   - Read

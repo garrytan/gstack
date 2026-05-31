@@ -3,7 +3,7 @@ name: plan-ceo-review
 preamble-tier: 3
 interactive: true
 version: 1.0.0
-description: "CEO/founder-mode plan review. (gstack)"
+description: CEO/founder-mode plan review. (gstack)
 benefits-from: [office-hours]
 allowed-tools:
   - Read
