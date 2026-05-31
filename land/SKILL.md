@@ -2,7 +2,7 @@
 name: land
 preamble-tier: 4
 version: 1.0.0
-description: Land a PR through the right merge regime: pre-flight, CI wait, VERSION-drift check, pre-merge readiness gate, then merge via no-queue, (gstack)
+description: "Land a PR through the right merge regime: pre-flight, CI wait, VERSION-drift check, pre-merge readiness gate, then merge via no-queue, (gstack)"
 allowed-tools:
   - Bash
   - Read

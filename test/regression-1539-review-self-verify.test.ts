@@ -83,9 +83,22 @@ describe("#1539 generated SKILL.md files — gate propagated to all consumers", 
     "ship/SKILL.md",
   ];
 
+  // ship's confidence-calibration gate moved into sections/review-army.md (T9 carve);
+  // read the skeleton+sections union so the gate is still found.
+  const readUnion = (rel: string): string => {
+    let body = fs.readFileSync(path.join(ROOT, rel), "utf-8");
+    const secDir = path.join(ROOT, path.dirname(rel), "sections");
+    if (fs.existsSync(secDir)) {
+      for (const f of fs.readdirSync(secDir).sort()) {
+        if (f.endsWith(".md")) body += "\n" + fs.readFileSync(path.join(secDir, f), "utf-8");
+      }
+    }
+    return body;
+  };
+
   for (const rel of consumers) {
     test(`${rel} carries the Pre-emit verification gate`, () => {
-      const body = fs.readFileSync(path.join(ROOT, rel), "utf-8");
+      const body = readUnion(rel);
       expect(body).toMatch(/Pre-emit verification gate/);
       expect(body).toMatch(/Quote the specific code line/);
     });

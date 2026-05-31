@@ -19,9 +19,14 @@
 #   - git
 #   - network reachability to https://github.com
 #
-# The pinned commit is declared here rather than resolved dynamically so
-# upgrades are explicit and reviewable. Update PINNED_COMMIT when gstack
-# verifies compatibility with a new gbrain release.
+# gbrain installs at the latest default-branch HEAD by default — the hard pin
+# was removed in #1744 (it had drifted ~23 versions behind). Pass
+# --pinned-commit <sha> to install a specific commit for reproducibility. A
+# minimum-version floor (MIN_GBRAIN_VERSION) hard-fails the install when the
+# resulting gbrain is too old for gstack's sync integration, and a fast
+# `gbrain doctor` self-test hard-fails a broken install when gbrain is already
+# configured. This keeps the version gate that the pin used to provide without
+# freezing users 23 releases behind.
 #
 # Env:
 #   GBRAIN_INSTALL_DIR — override default install path (~/gbrain)
@@ -33,8 +38,14 @@
 set -euo pipefail
 
 # --- defaults ---
-PINNED_COMMIT="08b3698e90532b7b66c445e6b1d8cdfe71822802"  # gbrain v0.18.2
-PINNED_TAG="v0.18.2"
+# No version pin by default — install the latest default-branch HEAD (#1744).
+# --pinned-commit <sha> overrides for reproducibility.
+PINNED_COMMIT=""
+PINNED_TAG=""
+# Minimum gbrain version gstack's integration is known to work with. The
+# `sources list --json` wrapped-object shape + federated sources landed by 0.20;
+# older predates the surface gstack drives. Hard-fail below this floor (#1744).
+MIN_GBRAIN_VERSION="0.20.0"
 GBRAIN_REPO_URL="https://github.com/garrytan/gbrain.git"
 DEFAULT_INSTALL_DIR="${GBRAIN_INSTALL_DIR:-$HOME/gbrain}"
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
@@ -113,7 +124,7 @@ elif [ -n "$DETECTED_CLONE" ]; then
 else
   # Fresh clone path.
   if $DRY_RUN; then
-    log "DRY RUN: would clone $GBRAIN_REPO_URL @ $PINNED_COMMIT → $INSTALL_DIR"
+    log "DRY RUN: would clone $GBRAIN_REPO_URL ${PINNED_COMMIT:+@ $PINNED_COMMIT }→ $INSTALL_DIR (latest HEAD unless --pinned-commit)"
     exit 0
   fi
   if [ -d "$INSTALL_DIR" ]; then
@@ -121,8 +132,12 @@ else
   fi
   log "cloning $GBRAIN_REPO_URL → $INSTALL_DIR"
   git clone --quiet "$GBRAIN_REPO_URL" "$INSTALL_DIR"
-  ( cd "$INSTALL_DIR" && git checkout --quiet "$PINNED_COMMIT" )
-  log "pinned to $PINNED_COMMIT${PINNED_TAG:+ ($PINNED_TAG)}"
+  if [ -n "$PINNED_COMMIT" ]; then
+    ( cd "$INSTALL_DIR" && git checkout --quiet "$PINNED_COMMIT" )
+    log "checked out pinned commit $PINNED_COMMIT${PINNED_TAG:+ ($PINNED_TAG)}"
+  else
+    log "installed latest gbrain (default-branch HEAD)"
+  fi
 fi
 
 if $DRY_RUN; then
@@ -194,6 +209,44 @@ if [ "$actual_norm" != "$expected_norm" ]; then
 fi
 
 log "installed gbrain $actual_version from $INSTALL_DIR"
+
+# --- minimum-version floor (#1744) ---
+# Unpinning means new installs track gbrain HEAD. Hard-fail if the resulting
+# version is below the floor gstack's sync integration needs — same exit-3 posture
+# as the PATH-shadow / version-mismatch failures above. A warning here is exactly
+# how the data-loss class slipped through, so this gate fails closed.
+version_lt() {
+  # 0 (true) when $1 < $2 by version sort; equal versions are NOT less-than.
+  [ "$1" = "$2" ] && return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]
+}
+if version_lt "$actual_norm" "$MIN_GBRAIN_VERSION"; then
+  echo "" >&2
+  echo "gstack-gbrain-install: gbrain $actual_version is below the minimum gstack-tested version ($MIN_GBRAIN_VERSION)." >&2
+  echo "  gstack's sync integration needs the v0.20+ source/list surface." >&2
+  echo "  Fix: update the gbrain clone at $INSTALL_DIR to a newer release (git pull), then" >&2
+  echo "  re-run /setup-gbrain. Or pass --pinned-commit <sha> to install a specific newer commit." >&2
+  echo "" >&2
+  exit 3
+fi
+
+# --- functional self-test when gbrain is already configured (#1744) ---
+# When a brain config exists (re-install / detected clone), run a fast doctor as
+# a hard gate so a broken gbrain is caught at setup, not at data-loss time.
+# Pre-init installs skip this (config not written yet); the full
+# `/sync-gbrain --dry-run` self-test runs from /setup-gbrain after `gbrain init`.
+_GBRAIN_HOME_CHECK="${GBRAIN_HOME:-$HOME/.gbrain}"
+if [ -f "$_GBRAIN_HOME_CHECK/config.json" ]; then
+  if ! gbrain doctor --fast >/dev/null 2>&1; then
+    echo "" >&2
+    echo "gstack-gbrain-install: gbrain $actual_version installed but 'gbrain doctor --fast' failed." >&2
+    echo "  Refusing to leave a broken gbrain in place. Run 'gbrain doctor' to see what's wrong," >&2
+    echo "  fix it, then re-run /setup-gbrain." >&2
+    echo "" >&2
+    exit 3
+  fi
+  log "gbrain doctor --fast passed"
+fi
 
 # v1.40.0.0 post-install validation (T6 / codex review #19): --ignore-scripts
 # may skip artifacts gbrain needs at runtime, especially on Windows

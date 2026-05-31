@@ -137,6 +137,18 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   return out;
 }
 
+/**
+ * Windows can't directly spawn the `gbrain` launcher (bun/npm install it as a
+ * `gbrain.cmd`/`.ps1` shim) or a shebang script like the bash `gstack-brain-sync`
+ * — `spawnSync`/`spawn` resolve those only through a shell's PATHEXT + interpreter
+ * lookup. Without `shell: true` the child spawn fails ENOENT, which on the sync
+ * orchestrator surfaced as "brain-sync exited undefined" (#1731). Gate on platform
+ * so POSIX keeps the cheaper no-shell path. Exported so the static-grep tripwire
+ * (test/gbrain-spawn-windows-shell.test.ts) can assert every gbrain/brain-sync
+ * spawn carries it.
+ */
+export const NEEDS_SHELL_ON_WINDOWS = process.platform === "win32";
+
 export interface SpawnGbrainOptions {
   /** Timeout in milliseconds. Defaults to 30s. */
   timeout?: number;
@@ -166,6 +178,7 @@ export function spawnGbrain(args: string[], opts: SpawnGbrainOptions = {}): Spaw
     cwd: opts.cwd,
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
+    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
   });
 }
 
@@ -198,6 +211,7 @@ export function spawnGbrainAsync(
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     cwd: opts.cwd,
     env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: false }),
+    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
   });
 }
 
@@ -212,5 +226,6 @@ export function execGbrainText(args: string[], opts: SpawnGbrainOptions = {}): s
     cwd: opts.cwd,
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
+    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
   });
 }

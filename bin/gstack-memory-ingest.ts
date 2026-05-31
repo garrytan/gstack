@@ -1349,10 +1349,32 @@ function installSignalForwarder(): void {
  * that kill the child on parent SIGTERM/SIGINT. Returns the same shape as
  * spawnSync's result so the caller doesn't care which mode was used.
  */
+/**
+ * #1611: the `gbrain import` is the long pole on big brains. Its timeout is
+ * configurable via GSTACK_INGEST_TIMEOUT_MS (default 30 min, 1min–24h) so large
+ * memory corpora aren't SIGTERM'd mid-import. On timeout we SIGTERM the child,
+ * which preserves gbrain's import-checkpoint.json (see installSignalForwarder)
+ * so the next run resumes instead of restarting from scratch.
+ */
+const DEFAULT_IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
+export function resolveImportTimeoutMs(
+  raw: string | undefined = process.env.GSTACK_INGEST_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw === "") return DEFAULT_IMPORT_TIMEOUT_MS;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || Number.isNaN(n) || n < 60_000 || n > 86_400_000) {
+    console.error(
+      `[memory-ingest] GSTACK_INGEST_TIMEOUT_MS="${raw}" invalid (need 60000–86400000ms); using ${DEFAULT_IMPORT_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_IMPORT_TIMEOUT_MS;
+  }
+  return n;
+}
+
 function runGbrainImport(
   stagingDir: string,
   timeoutMs: number,
-): Promise<{ status: number | null; stdout: string; stderr: string }> {
+): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   installSignalForwarder();
   return new Promise((resolve) => {
     // Seed DATABASE_URL from gbrain's own config so this stage works
@@ -1385,6 +1407,7 @@ function runGbrainImport(
         status: timedOut ? null : status,
         stdout,
         stderr,
+        timedOut,
       });
     });
     child.on("error", (err) => {
@@ -1394,6 +1417,7 @@ function runGbrainImport(
         status: null,
         stdout,
         stderr: stderr + `\n[spawn-error] ${(err as Error).message}`,
+        timedOut,
       });
     });
   });
@@ -1608,13 +1632,33 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // spawn, parent termination orphans the gbrain process (observed
     // during 2026-05-10 cold-run testing — gbrain kept running 15 min
     // after the orchestrator timed out).
-    const importResult = await runGbrainImport(stagingDir, 30 * 60 * 1000);
+    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs());
 
     const stdout = importResult.stdout || "";
     const stderr = importResult.stderr || "";
     const importJson = parseImportJson(stdout);
 
     if (importResult.status !== 0) {
+      // #1611: on timeout, gbrain's import-checkpoint.json is preserved (the
+      // SIGTERM forwarder keeps the staging dir), so the next /sync-gbrain
+      // resumes rather than restarting. Tell the user instead of looking failed.
+      if (importResult.timedOut) {
+        const mins = Math.round(resolveImportTimeoutMs() / 60000);
+        const msg =
+          `gbrain import timed out after ${mins}min; checkpoint preserved — re-run ` +
+          `/sync-gbrain to resume (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`;
+        console.error(`[memory-ingest] ${msg}`);
+        return {
+          written: 0,
+          skipped_secret: prep.skippedSecret,
+          skipped_dedup: prep.skippedDedup,
+          skipped_unattributed: prep.skippedUnattributed,
+          failed,
+          duration_ms: Date.now() - t0,
+          partial_pages: prep.partialPages,
+          system_error: msg,
+        };
+      }
       const tail = (stderr.trim().split("\n").pop() || "").slice(0, 300);
       const msg = `gbrain import exited ${importResult.status}: ${tail}`;
       console.error(`[memory-ingest] ERR: ${msg}`);
@@ -1810,7 +1854,12 @@ async function main(): Promise<void> {
   if (result.system_error) process.exit(1);
 }
 
-main().catch((err) => {
-  console.error(`gstack-memory-ingest fatal: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// Guard so the module is import-safe for unit tests (e.g. resolveImportTimeoutMs).
+// The orchestrator runs it as `bun gstack-memory-ingest.ts ...`, where
+// import.meta.main is true, so the CLI path is unaffected.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`gstack-memory-ingest fatal: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

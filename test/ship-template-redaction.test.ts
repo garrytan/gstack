@@ -9,7 +9,20 @@ import * as path from "path";
 import { scan } from "../lib/redact-engine";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const TMPL = fs.readFileSync(path.join(ROOT, "ship", "SKILL.md.tmpl"), "utf-8");
+// Carved (v2 plan T9): ship is a skeleton template + sections/*.md.tmpl. The
+// PR-body redaction wiring moved into sections/pr-body.md.tmpl, so assert against
+// the union of the skeleton template and its section templates.
+function readShipTemplateUnion(): string {
+  let t = fs.readFileSync(path.join(ROOT, "ship", "SKILL.md.tmpl"), "utf-8");
+  const secDir = path.join(ROOT, "ship", "sections");
+  if (fs.existsSync(secDir)) {
+    for (const f of fs.readdirSync(secDir).sort()) {
+      if (f.endsWith(".md.tmpl")) t += "\n" + fs.readFileSync(path.join(secDir, f), "utf-8");
+    }
+  }
+  return t;
+}
+const TMPL = readShipTemplateUnion();
 
 describe("/ship redaction wiring", () => {
   test("scans the PR body via the shared bin before create", () => {

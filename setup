@@ -569,6 +569,14 @@ link_claude_skill_dirs() {
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
       _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      # Link the sections/ subdir for carved skills (v2 plan T9). The prefixed
+      # Claude skill dir otherwise holds only SKILL.md, so a runtime
+      # "Read sections/<name>.md" 404s. Route through _link_or_copy so Windows
+      # gets a fresh copy (and re-copies on every ./setup, refreshing staleness).
+      if [ -d "$gstack_dir/$dir_name/sections" ]; then
+        if [ -e "$target/sections" ] || [ -L "$target/sections" ]; then rm -rf "$target/sections"; fi
+        _link_or_copy "$gstack_dir/$dir_name/sections" "$target/sections"
+      fi
       linked+=("$link_name")
     fi
   done
@@ -1144,6 +1152,20 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
           -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
           -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
           "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
+      # Carved skills (v2 plan T9): rewrite + copy each sections/*.md the same way,
+      # so a runtime "Read sections/<name>.md" resolves under ~/.kiro and doesn't
+      # leak a ~/.codex or ~/.claude path. Kiro builds from the codex output, so
+      # these section files only exist for skills that have been carved.
+      if [ -d "$skill_dir/sections" ]; then
+        mkdir -p "$target_dir/sections"
+        for section_file in "$skill_dir/sections"/*; do
+          [ -f "$section_file" ] || continue
+          sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+              -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
+              -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
+              "$section_file" > "$target_dir/sections/$(basename "$section_file")"
+        done
+      fi
     done
     echo "gstack ready (kiro)."
     echo "  browse: $BROWSE_BIN"
