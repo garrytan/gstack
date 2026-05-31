@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.48.4.0] - 2026-05-31
+
+## **`/plan-eng-review` now checks for platform-provided extension surfaces before approving new infrastructure.**
+
+When a plan proposes a new background process, queue, worker, scheduled job, webhook receiver, or integration glue layer to connect a data source to an existing platform, the reviewer now asks the right question first: does the platform itself already expose a plugin registry, integration catalog, capabilities endpoint, or package registry that delivers the same capability? If so, configuring it is the right call. Building a parallel system is only justified when the platform has no extension surface at all.
+
+### The 4 numbers that matter
+
+Baseline: Step 0 scope challenge in `/plan-eng-review` had 6 items (one duplicate-numbered). This change brings it to 8 with correct sequential numbering.
+
+| Item | Before | After |
+|------|--------|-------|
+| Step 0 scope-challenge items | 6 (1 duplicate) | 8 (sequential) |
+| Platform-capability check | missing | item 2 |
+| Duplicate "5." numbering | present | fixed (→ 6, 7) |
+| Greenfield skip clause | missing | present |
+
+Plans that propose new daemon/queue/glue infrastructure against platforms like Slack, GitHub, Supabase, or any SaaS with an app catalog will now trigger an explicit check before scope is accepted.
+
+### What this means for engineering reviewers
+
+You no longer have to add a manual comment every time a plan reinvents a plugin. The check is built into Step 0: identify the platform's discovery mechanism, walk the four branches (configure / investigate dormant / author extension / only then build), and note the outcome in your Step 0 findings. The greenfield skip clause keeps it from firing on plans that target code the team fully owns.
+
+### Itemized changes
+
+#### Changed
+- `plan-eng-review/SKILL.md.tmpl`: added item 2 (platform-capability check) to Step 0; renumbered items 3-8 sequentially (fixing duplicate "5.")
+- `plan-eng-review/SKILL.md`: regenerated
+
 ## [1.48.0.0] - 2026-05-26
 
 ## **Agents stop dropping AskUserQuestion options when there are 5+.** A new canonical preamble rule + runtime gate makes Conductor's 4-option cap a split-or-batch decision, not a silent trim.
