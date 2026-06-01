@@ -101,6 +101,35 @@ function writePkgVersion(cwd: string, version: string): void {
   writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
 }
 
+/**
+ * Opportunistically sync package-lock.json (lockfileVersion 3 stores the version
+ * in two places: top-level `version` and `packages[""].version`). Returns true if
+ * the lockfile was present and written, false if absent (yarn/pnpm/bun lockfile,
+ * or no JS at all). Throws on malformed JSON or write failure.
+ *
+ * Caller decides whether absence is an error — write() and repair() both treat
+ * absence as a silent skip. The state classifier intentionally does NOT inspect
+ * the lockfile: a stale lockfile root version doesn't break `npm ci` or anything
+ * runtime, so lockfile-only drift is opportunistically corrected on FRESH/repair
+ * but is not a halt condition.
+ */
+function writeLockVersion(cwd: string, version: string): boolean {
+  const lockPath = join(cwd, "package-lock.json");
+  if (!existsSync(lockPath)) return false;
+  const raw = readFileSync(lockPath, "utf-8");
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    fail("package-lock.json is not valid JSON. Fix the file before re-running /ship.", 2);
+  }
+  parsed.version = version;
+  const packages = parsed.packages as Record<string, { version?: string }> | undefined;
+  if (packages && packages[""]) packages[""].version = version;
+  writeFileSync(lockPath, JSON.stringify(parsed, null, 2) + "\n");
+  return true;
+}
+
 function baseVersion(cwd: string, base: string, versionRel: string): string {
   // Verify the base ref resolves, mirroring the Step 12 guard.
   try {
@@ -172,7 +201,18 @@ function cmdWrite(args: string[], cwd: string): void {
       );
     }
   }
-  process.stdout.write(JSON.stringify({ wrote: version, packageJson: existsSync(join(cwd, "package.json")) }) + "\n");
+  let lockfile = false;
+  try {
+    lockfile = writeLockVersion(cwd, version!);
+  } catch {
+    fail(
+      "failed to update package-lock.json. VERSION and package.json were written but the lockfile is now stale.",
+      3,
+    );
+  }
+  process.stdout.write(
+    JSON.stringify({ wrote: version, packageJson: existsSync(join(cwd, "package.json")), packageLock: lockfile }) + "\n",
+  );
 }
 
 function cmdRepair(args: string[], cwd: string): void {
@@ -193,7 +233,13 @@ function cmdRepair(args: string[], cwd: string): void {
   } catch {
     fail("drift repair failed — could not update package.json.", 3);
   }
-  process.stdout.write(JSON.stringify({ repaired: current }) + "\n");
+  let lockfile = false;
+  try {
+    lockfile = writeLockVersion(cwd, current);
+  } catch {
+    fail("drift repair failed — could not update package-lock.json.", 3);
+  }
+  process.stdout.write(JSON.stringify({ repaired: current, packageLock: lockfile }) + "\n");
 }
 
 // Exported for unit tests (pure logic, no I/O).
