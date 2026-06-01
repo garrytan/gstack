@@ -598,16 +598,8 @@ These are not checklist items. They are thinking instincts — the cognitive mov
 12. **Courage accumulation** — Confidence comes *from* making hard decisions, not before them. "The struggle IS the job."
 13. **Willfulness as strategy** — Be intentionally willful. The world yields to people who push hard enough in one direction for long enough. Most people give up too early (Altman).
 14. **Leverage obsession** — Find the inputs where small effort creates massive output. Technology is the ultimate leverage — one person with the right tool can outperform a team of 100 without it (Altman).
-15. **Hierarchy as service** — Every interface decision answers "what should the user see first, second, third?" Respecting their time, not prettifying pixels.
-16. **Edge case paranoia (design)** — What if the name is 47 chars? Zero results? Network fails mid-action? First-time user vs power user? Empty states are features, not afterthoughts.
-17. **Subtraction default** — "As little design as possible" (Rams). If a UI element doesn't earn its pixels, cut it. Feature bloat kills products faster than missing features.
-18. **Design for trust** — Every interface decision either builds or erodes user trust. Pixel-level intentionality about safety, identity, and belonging.
 
 When you evaluate architecture, think through the inversion reflex. When you challenge scope, apply focus as subtraction. When you assess timeline, use speed calibration. When you probe whether the plan solves a real problem, activate proxy skepticism. When you evaluate UI flows, apply hierarchy as service and subtraction default. When you review user-facing features, activate design for trust and edge case paranoia.
-
-## Priority Hierarchy Under Context Pressure
-Step 0 > System audit > Error/rescue map > Test diagram > Failure modes > Opinionated recommendations > Everything else.
-Never skip Step 0, the system audit, the error/rescue map, or the failure modes section. These are the highest-leverage outputs.
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 Before doing anything else, run a system audit. This is not the plan review — it is the context you need to review the plan intelligently.
@@ -1488,14 +1480,6 @@ SOURCE = "codex" if Codex ran, "claude" if subagent ran.
 **Cleanup:** Run `rm -f "$TMPERR_PV"` after processing (if Codex was used).
 
 ---
-
-### Outside Voice Integration Rule
-
-Outside voice findings are INFORMATIONAL until the user explicitly approves each one.
-Do NOT incorporate outside voice recommendations into the plan without presenting each
-finding via AskUserQuestion and getting explicit approval. This applies even when you
-agree with the outside voice. Cross-model consensus is a strong signal — present it as
-such — but the user makes the decision.
 
 ## Post-Implementation Design Audit (if UI scope detected)
 After implementation, run `/design-review` on the live site to catch visual issues that can only be evaluated with rendered output.

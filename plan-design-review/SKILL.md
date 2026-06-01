@@ -672,11 +672,6 @@ Flat design can strip away useful visual information that signals interactivity.
 Prioritize ruthlessly: things needed in a hurry go close at hand, everything
 else a few taps away with an obvious path to get there.
 
-## Priority Hierarchy Under Context Pressure
-
-Step 0 > Step 0.5 (mockups — generate by default) > Interaction State Coverage > AI Slop Risk > Information Architecture > User Journey > everything else.
-Never skip Step 0 or mockup generation (when the designer is available). Mockups before review passes is non-negotiable. Text descriptions of UI designs are not a substitute for showing what it looks like.
-
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 
 Before reviewing the plan, gather context:

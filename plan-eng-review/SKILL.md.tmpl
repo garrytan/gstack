@@ -37,9 +37,6 @@ triggers:
 
 Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
 
-## Priority hierarchy
-If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.
-
 ## My engineering preferences (use these to guide your recommendations):
 * DRY is important—flag repetition aggressively.
 * Well-tested code is non-negotiable; I'd rather have too many tests than too few.
@@ -52,21 +49,15 @@ If the user asks you to compress or the system triggers context compaction: Step
 
 These are not additional checklist items. They are the instincts that experienced engineering leaders develop over years — the pattern recognition that separates "reviewed the code" from "caught the landmine." Apply them throughout your review.
 
-1. **State diagnosis** — Teams exist in four states: falling behind, treading water, repaying debt, innovating. Each demands a different intervention (Larson, An Elegant Puzzle).
-2. **Blast radius instinct** — Every decision evaluated through "what's the worst case and how many systems/people does it affect?"
-3. **Boring by default** — "Every company gets about three innovation tokens." Everything else should be proven technology (McKinley, Choose Boring Technology).
-4. **Incremental over revolutionary** — Strangler fig, not big bang. Canary, not global rollout. Refactor, not rewrite (Fowler).
-5. **Systems over heroes** — Design for tired humans at 3am, not your best engineer on their best day.
-6. **Reversibility preference** — Feature flags, A/B tests, incremental rollouts. Make the cost of being wrong low.
-7. **Failure is information** — Blameless postmortems, error budgets, chaos engineering. Incidents are learning opportunities, not blame events (Allspaw, Google SRE).
-8. **Org structure IS architecture** — Conway's Law in practice. Design both intentionally (Skelton/Pais, Team Topologies).
-9. **DX is product quality** — Slow CI, bad local dev, painful deploys → worse software, higher attrition. Developer experience is a leading indicator.
-10. **Essential vs accidental complexity** — Before adding anything: "Is this solving a real problem or one we created?" (Brooks, No Silver Bullet).
-11. **Two-week smell test** — If a competent engineer can't ship a small feature in two weeks, you have an onboarding problem disguised as architecture.
-12. **Glue work awareness** — Recognize invisible coordination work. Value it, but don't let people get stuck doing only glue (Reilly, The Staff Engineer's Path).
-13. **Make the change easy, then make the easy change** — Refactor first, implement second. Never structural + behavioral changes simultaneously (Beck).
-14. **Own your code in production** — No wall between dev and ops. "The DevOps movement is ending because there are only engineers who write code and own it in production" (Majors).
-15. **Error budgets over uptime targets** — SLO of 99.9% = 0.1% downtime *budget to spend on shipping*. Reliability is resource allocation (Google SRE).
+1. **Blast radius instinct** — Every decision evaluated through "what's the worst case and how many systems/people does it affect?"
+2. **Boring by default** — "Every company gets about three innovation tokens." Everything else should be proven technology (McKinley, Choose Boring Technology).
+3. **Incremental over revolutionary** — Strangler fig, not big bang. Canary, not global rollout. Refactor, not rewrite (Fowler).
+4. **Systems over heroes** — Design for tired humans at 3am, not your best engineer on their best day.
+5. **Reversibility preference** — Feature flags, A/B tests, incremental rollouts. Make the cost of being wrong low.
+6. **DX is product quality** — Slow CI, bad local dev, painful deploys → worse software, higher attrition. Developer experience is a leading indicator.
+7. **Essential vs accidental complexity** — Before adding anything: "Is this solving a real problem or one we created?" (Brooks, No Silver Bullet).
+8. **Two-week smell test** — If a competent engineer can't ship a small feature in two weeks, you have an onboarding problem disguised as architecture.
+9. **Make the change easy, then make the easy change** — Refactor first, implement second. Never structural + behavioral changes simultaneously (Beck).
 
 When evaluating architecture, think "boring by default." When reviewing tests, think "systems over heroes." When assessing complexity, ask Brooks's question. When a plan introduces new infrastructure, check whether it's spending an innovation token wisely.
 
@@ -108,12 +99,6 @@ Before reviewing anything, answer these questions:
 5. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
 
 5. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the lake.
-
-6. **Distribution check:** If the plan introduces a new artifact type (CLI binary, library package, container image, mobile app), does it include the build/publish pipeline? Code without distribution is code nobody can use. Check:
-   - Is there a CI/CD workflow for building and publishing the artifact?
-   - Are target platforms defined (linux/darwin/windows, amd64/arm64)?
-   - How will users download or install it (GitHub Releases, package manager, container registry)?
-   If the plan defers distribution, flag it explicitly in the "NOT in scope" section — don't let it silently drop.
 
 If the complexity check triggers (8+ files or 2+ new classes/services), STOP before any review-section work. Call AskUserQuestion: name what's overbuilt, propose a minimal version that achieves the core goal, ask whether to reduce or proceed as-is. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
 
@@ -186,14 +171,6 @@ For each issue found in this section, call AskUserQuestion individually. One iss
 
 {{CODEX_PLAN_REVIEW}}
 
-### Outside Voice Integration Rule
-
-Outside voice findings are INFORMATIONAL until the user explicitly approves each one.
-Do NOT incorporate outside voice recommendations into the plan without presenting each
-finding via AskUserQuestion and getting explicit approval. This applies even when you
-agree with the outside voice. Cross-model consensus is a strong signal — present it as
-such — but the user makes the decision.
-
 ## CRITICAL RULE — How to ask questions
 Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
 * **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
@@ -239,33 +216,6 @@ For each new codepath identified in the test review diagram, list one realistic 
 
 If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
 
-### Worktree parallelization strategy
-
-Analyze the plan's implementation steps for parallel execution opportunities. This helps the user split work across git worktrees (via Claude Code's Agent tool with `isolation: "worktree"` or parallel workspaces).
-
-**Skip if:** all steps touch the same primary module, or the plan has fewer than 2 independent workstreams. In that case, write: "Sequential implementation, no parallelization opportunity."
-
-**Otherwise, produce:**
-
-1. **Dependency table** — for each implementation step/workstream:
-
-| Step | Modules touched | Depends on |
-|------|----------------|------------|
-| (step name) | (directories/modules, NOT specific files) | (other steps, or —) |
-
-Work at the module/directory level, not file level. Plans describe intent ("add API endpoints"), not specific files. Module-level ("controllers/, models/") is reliable; file-level is guesswork.
-
-2. **Parallel lanes** — group steps into lanes:
-   - Steps with no shared modules and no dependency go in separate lanes (parallel)
-   - Steps sharing a module directory go in the same lane (sequential)
-   - Steps depending on other steps go in later lanes
-
-Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 (independent)`
-
-3. **Execution order** — which lanes launch in parallel, which wait. Example: "Launch A + B in parallel worktrees. Merge both. Then C."
-
-4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
-
 {{TASKS_SECTION_EMIT:eng-review}}
 
 ### Completion summary
@@ -280,7 +230,6 @@ At the end of the review, fill in and display this summary so the user can see a
 - TODOS.md updates: ___ items proposed to user
 - Failure modes: ___ critical gaps flagged
 - Outside voice: ran (codex/claude) / skipped
-- Parallelization: ___ lanes, ___ parallel / ___ sequential
 - Lake Score: X/Y recommendations chose complete option
 
 ## Retrospective learning

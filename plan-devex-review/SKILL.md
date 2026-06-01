@@ -613,15 +613,6 @@ During each review pass, load the relevant section from:
 Read ONLY the section for the current pass (e.g., "## Pass 1" for Getting Started).
 Do NOT read the entire file at once. This keeps context focused.
 
-## Priority Hierarchy Under Context Pressure
-
-Step 0 > Developer Persona > Empathy Narrative > Competitive Benchmark >
-Magical Moment Design > TTHW Assessment > Error quality > Getting started >
-API/CLI ergonomics > Everything else.
-
-Never skip Step 0, the persona interrogation, or the empathy narrative. These are
-the highest-leverage outputs.
-
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 
 Before doing anything else, gather context about the developer-facing product.
