@@ -9,6 +9,12 @@ designer, QA lead, release engineer, debugger, and more.
 Skills live in `.agents/skills/` (or `~/.claude/skills/gstack/` on Claude Code).
 Invoke them by name (e.g., `/office-hours`).
 
+### YC Application
+
+| Skill | What it does |
+|-------|-------------|
+| `/yc-review` | YC partner-style review of your live YC application. Field-by-field critique + interview prep. |
+
 ### Plan-mode reviews
 
 | Skill | What it does |

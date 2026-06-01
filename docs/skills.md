@@ -4,6 +4,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
+| [`/yc-review`](#yc-review) | **YC Partner** | Blunt field-by-field critique of your live YC application. Pulls data from apply.ycombinator.com, rates every key answer, and generates interview prep questions targeting your weak spots. |
 | [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
 | [`/spec`](#spec) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Backlog-ready output that downstream skills can pick up. Optional agent spawn at the end. |
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
@@ -1260,3 +1261,24 @@ Convenience wrapper. The structural Release-build guard against shipping DebugBr
 ## `/ios-sync`
 
 Run after upgrading gstack or adding new `@Observable` classes. Detects what's installed, runs gen-accessors against the latest upstream templates, refreshes any changed Swift files, verifies the app rebuilds. Cache-key invalidation handles Swift version changes, generator git rev changes, and source changes.
+
+---
+
+## `/yc-review`
+
+Fetch your live YC application from apply.ycombinator.com and get a blunt, field-by-field critique in the voice of a YC partner.
+
+The review covers every answer that matters: your one-liner, what you're building, founder-market fit, traction numbers, competitive positioning, business model, and why YC. Each section is rated and explained. Weak answers are quoted directly and told exactly what needs to change.
+
+At the end you get your overall fundability signal (PASS / BORDERLINE / NO), your top 3 strengths, the top 3 things to fix before your interview, and a list of interview prep questions targeting your specific weak spots.
+
+**How it works:** the skill drives the browse session to apply.ycombinator.com. If you're logged into YC in your real browser, it imports your session cookies automatically (the same cookie-import path as `/setup-browser-cookies`), then reads your application through YC's own API. Nothing is stored on disk and no passwords are handled.
+
+**Requirement:** be logged into apply.ycombinator.com in a supported browser (Comet, Chrome, Arc, Brave, or Edge).
+
+**Usage:**
+```
+/yc-review
+```
+
+No arguments needed. Fetches your most recent application automatically.

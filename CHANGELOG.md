@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.56.0.0] - 2026-06-01
+
+## **A YC partner reads your application back to you, line by line, before the real interview does. Run `/yc-review` and hear the verdict you'd otherwise wait a batch to get.**
+
+`/yc-review` pulls your live Y Combinator application straight from apply.ycombinator.com and critiques it the way a partner would in the room: blunt, specific, quoting your actual answers back at you. It rates your one-liner, what you're building, founder-market fit, traction, competition, and business model, then closes with a fundability call (PASS / BORDERLINE / NO), your three biggest strengths, the three things to fix first, and the interview questions your weak spots will invite. It reads the application through YC's own API using the browser session you're already logged into, so there is nothing to copy, paste, or store.
+
+### What you get
+
+| Section | What it does |
+|---------|--------------|
+| Field-by-field critique | Rates every answer that matters, quotes the weakest lines verbatim |
+| Fundability signal | PASS / BORDERLINE / NO with one-sentence reasoning |
+| Fix list | The three highest-leverage changes to make before your interview |
+| Interview prep | The questions your application's gaps will provoke, so you can rehearse |
+
+The review is grounded in what you actually submitted, not what you describe from memory. If you have an interview scheduled, it surfaces the time and Zoom link from your application so the prep is concrete.
+
+### What this means for you
+
+If you've applied to YC, you can now get an honest read on your application in the time it takes to log in. Fix the weak answers while they're still editable, and walk into the interview having already heard the hard questions once. Auth reuses the same cookie-import path as `/setup-browser-cookies`, so if you're logged into YC in Comet, Chrome, Arc, Brave, or Edge, it just works.
+
+### Itemized changes
+
+#### Added
+- `/yc-review` skill: YC partner-style review of your live application from apply.ycombinator.com. Reads the application through YC's GraphQL API via the browse session, delivers a field-by-field critique, a fundability verdict, a prioritized fix list, and interview-prep questions. Authentication reuses the existing browser cookie-import flow; no application data or credentials are stored.
+
 ## [1.55.0.0] - 2026-05-30
 
 ## **`/sync-gbrain` can no longer be the trigger that lets gbrain delete your repo. The headed browser stops crash-looping, and gbrain installs the current release instead of a pin 23 versions stale.**
