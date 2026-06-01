@@ -22,23 +22,14 @@ import { generateQuestionTuning } from './question-tuning';
 
 // Core bootstrap
 import { generatePreambleBash } from './preamble/generate-preamble-bash';
-import { generateUpgradeCheck } from './preamble/generate-upgrade-check';
 import {
   generateCompletionStatus,
   generatePlanModeInfo,
 } from './preamble/generate-completion-status';
 
-// One-time onboarding prompts
-import { generateLakeIntro } from './preamble/generate-lake-intro';
-import { generateTelemetryPrompt } from './preamble/generate-telemetry-prompt';
-import { generateProactivePrompt } from './preamble/generate-proactive-prompt';
-import { generateRoutingInjection } from './preamble/generate-routing-injection';
-import { generateVendoringDeprecation } from './preamble/generate-vendoring-deprecation';
-import { generateSpawnedSessionCheck } from './preamble/generate-spawned-session-check';
-import { generateWritingStyleMigration } from './preamble/generate-writing-style-migration';
-
 // Host-specific instructions
 import { generateBrainHealthInstruction } from './preamble/generate-brain-health-instruction';
+import { generateSpawnedSessionCheck } from './preamble/generate-spawned-session-check';
 
 // GBrain cross-machine sync (runs at skill start; end-side handled in completion-status)
 import { generateBrainSyncBlock } from './preamble/generate-brain-sync-block';
@@ -47,17 +38,14 @@ import { generateBrainSyncBlock } from './preamble/generate-brain-sync-block';
 import { generateVoiceDirective } from './preamble/generate-voice-directive';
 
 // Tier 2+ context and interaction framework
-import { generateContextRecovery } from './preamble/generate-context-recovery';
 import { generateAskUserFormat } from './preamble/generate-ask-user-format';
 import { generateWritingStyle } from './preamble/generate-writing-style';
-import { generateCompletenessSection } from './preamble/generate-completeness-section';
 import { generateConfusionProtocol } from './preamble/generate-confusion-protocol';
 import { generateContinuousCheckpoint } from './preamble/generate-continuous-checkpoint';
 import { generateContextHealth } from './preamble/generate-context-health';
 
-// Tier 3+ repo mode + search
+// Tier 3+ repo mode
 import { generateRepoModeSection } from './preamble/generate-repo-mode-section';
-import { generateSearchBeforeBuildingSection } from './preamble/generate-search-before-building';
 import { generateMakePdfSetup } from './make-pdf';
 
 // Standalone export used directly by the resolver registry
@@ -65,9 +53,9 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 
 // Preamble Composition (tier → sections)
 // ─────────────────────────────────────────────
-// T1: core + upgrade + lake + telemetry + voice(trimmed) + completion
-// T2: T1 + voice(full) + ask + completeness + context-recovery + confusion + checkpoint + context-health
-// T3: T2 + repo-mode + search
+// T1: core + voice(trimmed) + completion
+// T2: T1 + voice(full) + ask + confusion + checkpoint + context-health
+// T3: T2 + repo-mode
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
 //
 // Skills by tier:
@@ -84,18 +72,9 @@ export function generatePreamble(ctx: TemplateContext): string {
     generatePreambleBash(ctx),
     ...(ctx.skillName === 'make-pdf' ? [generateMakePdfSetup(ctx)] : []),
     // Plan-mode-skill semantics stays near the top: after bash (so _SESSION_ID /
-    // _BRANCH / _TEL env vars are live) and before all onboarding gates so
-    // models read the authoritative "AskUserQuestion satisfies plan mode's
-    // end-of-turn" rule before any other instruction. Renders for all skills
-    // (not interactive-gated); the text applies universally.
+    // _BRANCH env vars are live) and before all other instructions so models read
+    // the authoritative "AskUserQuestion satisfies plan mode's end-of-turn" rule.
     generatePlanModeInfo(ctx),
-    generateUpgradeCheck(ctx),
-    generateWritingStyleMigration(ctx),
-    generateLakeIntro(),
-    generateTelemetryPrompt(ctx),
-    generateProactivePrompt(ctx),
-    generateRoutingInjection(ctx),
-    generateVendoringDeprecation(ctx),
     generateSpawnedSessionCheck(),
     generateBrainHealthInstruction(ctx),
     // AskUserQuestion Format renders BEFORE the model overlay so the pacing rule
@@ -107,15 +86,13 @@ export function generatePreamble(ctx: TemplateContext): string {
     generateModelOverlay(ctx),
     generateVoiceDirective(tier),
     ...(tier >= 2 ? [
-      generateContextRecovery(ctx),
       generateWritingStyle(ctx),
-      generateCompletenessSection(ctx),
       generateConfusionProtocol(ctx),
       generateContinuousCheckpoint(),
       generateContextHealth(ctx),
       generateQuestionTuning(ctx),
     ] : []),
-    ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
+    ...(tier >= 3 ? [generateRepoModeSection()] : []),
     generateCompletionStatus(ctx),
   ];
   return sections.filter(s => s && s.trim().length > 0).join('\n\n');
