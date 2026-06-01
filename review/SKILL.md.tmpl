@@ -268,6 +268,34 @@ If no documentation files exist, skip this step silently.
 
 {{ADVERSARIAL_STEP}}
 
+## Step 5.7: CodeRabbit local review
+
+CodeRabbit is a standard reviewer in the gstack flow. The user should not need to
+invoke it separately.
+
+Run a local CodeRabbit review against the same base branch used for this review.
+Use the shared wrapper so config files are only passed when they exist:
+
+```bash
+if command -v gstack-review-army >/dev/null 2>&1; then
+  gstack-review-army <base> --skip-codex --skip-claude --type all
+else
+  echo "gstack-review-army missing"
+fi
+```
+
+The wrapper passes `AGENTS.md`, `CLAUDE.md`, and `.coderabbit.yaml` to CodeRabbit
+only when those files exist. `--type all` maps to CodeRabbit's review type option
+(`all`, `committed`, or `uncommitted`). If CodeRabbit is not authenticated, report:
+
+```text
+CodeRabbit is installed but not authenticated. Run once: coderabbit auth login --agent
+```
+
+Do not silently mark CodeRabbit as clean when auth is missing. After auth is set
+up, CodeRabbit findings are part of the same Fix-First / ASK classification queue
+as the rest of this review.
+
 ## Step 5.8: Persist Eng Review result
 
 After all review passes complete, persist the final `/review` outcome so `/ship` can

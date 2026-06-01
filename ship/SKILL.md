@@ -916,6 +916,12 @@ If CEO Review is missing, mention as informational ("CEO Review not run — reco
 
 For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 9, but consider running /design-review for a full visual audit post-implementation." Still never block.
 
+CodeRabbit is part of the built-in pre-PR review path. If `coderabbit auth status --agent`
+shows it is not authenticated, print: "CodeRabbit is installed but not authenticated —
+run `coderabbit auth login --agent` once, then rerun /ship." Do not claim a clean
+review without CodeRabbit after authentication has been configured. Step 9 runs the
+pre-landing review and includes the CodeRabbit lane.
+
 Continue to Step 2 — do NOT block or ask. Ship runs its own review in Step 9.
 
 ---

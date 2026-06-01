@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+set -u
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gstack-review-army [base] [--type all|committed|uncommitted] [--dir path] [--skip-codex] [--skip-claude] [--skip-coderabbit]
+
+Runs the standard pre-PR review gate:
+  1. Codex self-review
+  2. Claude second-opinion review
+  3. CodeRabbit local review
+
+Outputs are written to .gstack/review-army/<timestamp>-*.log.
+EOF
+}
+
+base=""
+review_type="all"
+review_dir=""
+run_codex=1
+run_claude=1
+run_coderabbit=1
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --type|-t)
+      [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }
+      review_type="$2"
+      shift 2
+      ;;
+    --dir)
+      [ "$#" -ge 2 ] || { echo "Missing value for --dir" >&2; exit 2; }
+      review_dir="$2"
+      shift 2
+      ;;
+    --skip-codex)
+      run_codex=0
+      shift
+      ;;
+    --skip-claude)
+      run_claude=0
+      shift
+      ;;
+    --skip-coderabbit)
+      run_coderabbit=0
+      shift
+      ;;
+    --*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      if [ -n "$base" ]; then
+        echo "Unexpected argument: $1" >&2
+        usage >&2
+        exit 2
+      fi
+      base="$1"
+      shift
+      ;;
+  esac
+done
+
+case "$review_type" in
+  all|committed|uncommitted) ;;
+  *)
+    echo "Invalid --type: $review_type" >&2
+    exit 2
+    ;;
+esac
+
+if ! git_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+  echo "gstack-review-army: not inside a git repository" >&2
+  exit 2
+fi
+
+cd "$git_root" || exit 2
+
+if [ -z "$base" ]; then
+  base=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's#^refs/remotes/origin/##')
+  [ -n "$base" ] || base="main"
+fi
+
+if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
+  if git rev-parse --verify "origin/$base" >/dev/null 2>&1; then
+    base="origin/$base"
+  else
+    echo "gstack-review-army: base ref not found: $base" >&2
+    exit 2
+  fi
+fi
+
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+outdir=".gstack/review-army"
+mkdir -p "$outdir"
+summary="$outdir/$ts-summary.log"
+failures=0
+enabled_gates=0
+passed_gates=0
+
+log() {
+  printf '%s\n' "$*" | tee -a "$summary"
+}
+
+run_gate() {
+  gate_name="$1"
+  output_file="$2"
+  shift 2
+  enabled_gates=$((enabled_gates + 1))
+  log "== $gate_name =="
+  "$@" >"$output_file" 2>&1
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    passed_gates=$((passed_gates + 1))
+    log "PASS $gate_name -> $output_file"
+  else
+    log "FAIL $gate_name status=$status -> $output_file"
+    failures=$((failures + 1))
+  fi
+}
+
+log "gstack-review-army"
+log "repo=$git_root"
+log "base=$base"
+log "type=$review_type"
+if [ -n "$review_dir" ]; then
+  log "dir=$review_dir"
+fi
+log "status=$(git status --short | wc -l | tr -d ' ') changed entries"
+
+if [ "$run_codex" -eq 1 ]; then
+  if command -v codex-review-json >/dev/null 2>&1; then
+    run_gate "codex-review-json" "$outdir/$ts-codex.jsonl" codex-review-json "$base"
+  else
+    log "SKIP codex-review-json: command not found"
+  fi
+else
+  log "SKIP codex-review-json: disabled by flag"
+fi
+
+if [ "$run_claude" -eq 1 ]; then
+  if command -v claude >/dev/null 2>&1; then
+    claude_input="$outdir/$ts-claude-input.md"
+    {
+      echo "Review this change set for correctness, regressions, security risks, UX regressions when relevant, and missing verification."
+      echo
+      echo "Base: $base"
+      echo "Repository: $git_root"
+      echo
+      echo "## Git status"
+      git status --short
+      echo
+      echo "## Commit summary"
+      git log "$base"..HEAD --oneline 2>/dev/null || true
+      echo
+      echo "## Diff summary"
+      git diff --stat "$base"...HEAD 2>/dev/null || true
+      echo
+      echo "## Committed diff"
+      git diff "$base"...HEAD 2>/dev/null || true
+      echo
+      echo "## Staged diff"
+      git diff --cached
+      echo
+      echo "## Working tree diff"
+      git diff
+    } > "$claude_input"
+    log "== claude-review =="
+    claude -p < "$claude_input" > "$outdir/$ts-claude.md" 2>&1
+    status=$?
+    if [ "$status" -eq 0 ]; then
+      log "PASS claude-review -> $outdir/$ts-claude.md"
+    else
+      log "FAIL claude-review status=$status -> $outdir/$ts-claude.md"
+      failures=$((failures + 1))
+    fi
+  else
+    log "SKIP claude-review: command not found"
+  fi
+else
+  log "SKIP claude-review: disabled by flag"
+fi
+
+if [ "$run_coderabbit" -eq 1 ]; then
+  if command -v coderabbit >/dev/null 2>&1; then
+    auth_json=$(coderabbit auth status --agent 2>/dev/null || true)
+    if printf '%s' "$auth_json" | grep -q '"authenticated":true'; then
+      config_files=()
+      [ -f AGENTS.md ] && config_files+=("AGENTS.md")
+      [ -f CLAUDE.md ] && config_files+=("CLAUDE.md")
+      [ -f .coderabbit.yaml ] && config_files+=(".coderabbit.yaml")
+      config_args=()
+      [ "${#config_files[@]}" -gt 0 ] && config_args=("-c" "${config_files[@]}")
+      dir_args=()
+      [ -n "$review_dir" ] && dir_args=("--dir" "$review_dir")
+      run_gate "coderabbit-review" "$outdir/$ts-coderabbit.jsonl" coderabbit review --agent --base "$base" -t "$review_type" "${dir_args[@]}" "${config_args[@]}"
+    else
+      enabled_gates=$((enabled_gates + 1))
+      log "FAIL coderabbit-review: not authenticated"
+      log "Run once: coderabbit auth login --agent && coderabbit auth status --agent"
+      log "If this is running inside a Codex sandbox, rerun gstack-review-army with host/escalated permissions so CodeRabbit can read its host auth token and reach the backend."
+      failures=$((failures + 1))
+    fi
+  else
+    enabled_gates=$((enabled_gates + 1))
+    log "FAIL coderabbit-review: coderabbit command not found"
+    failures=$((failures + 1))
+  fi
+else
+  log "SKIP coderabbit-review: disabled by flag"
+fi
+
+if [ "$enabled_gates" -eq 0 ]; then
+  log "DONE: no review gates were enabled"
+  exit 0
+fi
+
+if [ "$failures" -eq 0 ]; then
+  log "DONE: $passed_gates/$enabled_gates enabled review gate(s) passed"
+  exit 0
+fi
+
+log "DONE: $failures/$enabled_gates review gate(s) failed"
+exit 1
