@@ -244,6 +244,50 @@ function writeCache(status: LocalEngineStatus, key: CacheEntry["key"]): void {
 }
 
 /**
+ * Confirm a healthy thin-client brain via `gbrain doctor --json --fast`.
+ *
+ * Thin-client mode (remote MCP, no local DB) intentionally refuses the
+ * `gbrain sources list` probe — `sources` is a local-DB-only command. The probe
+ * therefore throws with a "not routable" stderr that matches neither the
+ * broken-db nor broken-config pattern, so freshClassify would mislabel a
+ * perfectly healthy thin-client as broken-config and suppress every brain block
+ * (#1792). Doctor is the mode-aware signal: it reports `mode` + `status` for
+ * thin-clients. We only call it on the not-routable failure path, so the cheap
+ * ~80ms sources-list probe still owns the healthy local-DB hot path.
+ *
+ * Returns true only when doctor confirms thin-client mode AND a healthy status
+ * (`ok`/`warnings`). Any parse failure or unhealthy status falls through to the
+ * caller's defensive classification — we never upgrade an unconfirmed brain.
+ */
+function isHealthyThinClient(env?: NodeJS.ProcessEnv): boolean {
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const out = execFileSync("gbrain", ["doctor", "--json", "--fast"], {
+      encoding: "utf-8",
+      timeout: probeTimeoutMs(env),
+      stdio: ["ignore", "pipe", "ignore"],
+      env: buildGbrainEnv({ baseEnv: env ?? process.env }),
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+    });
+    parsed = JSON.parse(out);
+  } catch (err) {
+    // doctor exits 1 whenever health_score < 100 (normal on warnings), but
+    // still prints the JSON to stdout. Recover it before giving up. See #1415.
+    try {
+      const stdout = (err as { stdout?: Buffer | string })?.stdout ?? "";
+      const stdoutStr = typeof stdout === "string" ? stdout : stdout.toString("utf-8");
+      if (stdoutStr) parsed = JSON.parse(stdoutStr);
+    } catch {
+      return false;
+    }
+  }
+  if (!parsed) return false;
+  const mode = parsed.mode;
+  const status = parsed.status;
+  return mode === "thin-client" && (status === "ok" || status === "warnings");
+}
+
+/**
  * Probe via `gbrain sources list --json`. Classify the outcome.
  *
  * Pattern strings ("Cannot connect to database", "config.json") are deliberately
@@ -286,6 +330,12 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
 
     // ENOENT can happen if gbrain disappeared between resolveGbrainBin and now.
     if (e.code === "ENOENT") return "no-cli";
+
+    // Thin-client mode (remote MCP, no local DB) refuses `sources list` with a
+    // "not routable" error — `sources` is local-DB-only. This is NOT a broken
+    // brain: confirm health via the mode-aware doctor before classifying, so a
+    // healthy thin-client reports "ok" and keeps its brain blocks (#1792).
+    if (stderr.includes("not routable") && isHealthyThinClient(env)) return "ok";
 
     // Pattern match against gbrain's known error strings. Order matters:
     // "Cannot connect to database" is the more specific DB-unreachable signal.
