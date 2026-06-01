@@ -1685,7 +1685,7 @@ describe('Codex generation (--host codex)', () => {
     }
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue; // /codex is excluded from Codex output
+      if (entry.name === 'codex' || entry.name === 'implement') continue; // both are Claude wrappers around codex exec
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
       const codexName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
       if (isSymlinkLoop(codexName)) continue;
@@ -1959,7 +1959,9 @@ describe('Codex generation (--host codex)', () => {
       // codex + autoplan document the Codex CLI auth file (~/.codex/auth.json)
       // and log path (~/.codex/logs/) — those are user-facing Codex CLI paths,
       // not the gstack Codex host install path.
-      if (skill.dir !== 'pair-agent' && skill.dir !== 'codex' && skill.dir !== 'autoplan') {
+      // implement legitimately scans ~/.codex/plans/ for plan files and
+      // documents the path in its filesystem-boundary instruction to codex.
+      if (skill.dir !== 'pair-agent' && skill.dir !== 'codex' && skill.dir !== 'autoplan' && skill.dir !== 'implement') {
         expect(content).not.toContain('~/.codex/');
       }
       // gstack-upgrade legitimately references .agents/skills for cross-platform detection
@@ -2004,7 +2006,7 @@ describe('Factory generation (--host factory)', () => {
     }
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.name === 'codex') continue;
+      if (entry.name === 'codex' || entry.name === 'implement') continue;
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
       const factoryName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
       if (isSymlinkLoop(factoryName)) continue;

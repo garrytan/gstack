@@ -1645,6 +1645,7 @@ describe('Codex skill validation', () => {
     for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       if (entry.name === 'codex') continue; // Claude-only skill
+      if (entry.name === 'implement') continue; // Claude-only skill (wraps codex exec)
       if (entry.name === 'claude') continue; // External-host-only skill
       if (fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) {
         skills.push(entry.name);

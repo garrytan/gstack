@@ -27,6 +27,7 @@ Invoke them by name (e.g., `/office-hours`).
 
 | Skill | What it does |
 |-------|-------------|
+| `/implement` | Delegate plan → code to OpenAI Codex, poll progress, then auto-run /codex review + /review as a gate. cc worktree only. |
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
