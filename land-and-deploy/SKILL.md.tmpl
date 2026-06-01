@@ -617,6 +617,7 @@ If the merge fails with a permission error: **STOP.** "I don't have permission t
 ### 4a-postfail: Post-failure PR-state check
 
 **Universal invariant:** after ANY non-zero exit from `gh pr merge`, query authoritative PR state before retrying or stopping. Do NOT retry `gh pr merge`. Related: cli/cli#3442, cli/cli#13380.
+Common example: the PR merges on GitHub, then local cleanup fails because the base branch is already checked out by another worktree.
 
 ```bash
 gh pr view --json state,mergeCommit,mergedAt,mergedBy
@@ -695,6 +696,15 @@ If no deploy workflow is found after merge:
 
 If `MERGE_PATH=auto` and the repo uses merge queues AND a deploy workflow exists:
 - Tell the user: "PR made it through the merge queue and the deploy workflow is running. Monitoring it now."
+
+For repositories that deploy multiple apps from one commit, also inspect commit statuses:
+
+```bash
+gh api repos/OWNER/REPO/commits/<merge-sha>/status \
+  --jq '{state,total_count,statuses:[.statuses[] | {context,state,description,target_url}]}'
+```
+
+Track each relevant app context separately. If a status fails because it was canceled or superseded, check whether the base branch advanced to a newer commit with a successful replacement deployment before calling the release failed.
 
 Record merge timestamp, duration, and merge path for the deploy report.
 
@@ -807,7 +817,9 @@ heroku releases --app {app} -n 1 2>/dev/null
 
 ### Strategy C: Auto-deploy platforms (Vercel, Netlify)
 
-Vercel and Netlify deploy automatically on merge. No explicit deploy trigger needed. Wait 60 seconds for the deploy to propagate, then proceed directly to canary verification in Step 7.
+Vercel and Netlify deploy automatically on merge. No explicit deploy trigger needed. Poll the merge commit's commit statuses every 30-60 seconds until the relevant app contexts finish, then proceed to canary verification in Step 7. For monorepos, do not require unrelated apps to pass unless they are part of the requested release; report their status separately.
+
+If a Vercel status says it was canceled from the dashboard, check recent deployments or the latest base branch commit before treating it as a blocker. Vercel may cancel an older commit after a newer commit lands; if the newer production deployment for the same app succeeds, report the original status as superseded.
 
 ### Strategy D: Custom deploy hooks
 
