@@ -253,7 +253,15 @@ function emailAllowed(email: string, opts: ScanOptions): boolean {
 
 export function scan(input: string, opts: ScanOptions = {}): ScanResult {
   const repoVisibility: RepoVisibility = opts.repoVisibility ?? "unknown";
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  // `??` only catches null/undefined, so a NaN (e.g. from a malformed
+  // `--max-bytes` flag) or a non-positive value would slip through and make
+  // `byteLen > maxBytes` always false — silently turning this fail-CLOSED guard
+  // into fail-OPEN. Treat any invalid cap as "use the known-good default".
+  const requestedMax = opts.maxBytes;
+  const maxBytes =
+    typeof requestedMax === "number" && Number.isFinite(requestedMax) && requestedMax > 0
+      ? requestedMax
+      : DEFAULT_MAX_BYTES;
 
   // Fail CLOSED on oversize input. Check byte length BEFORE heavy work.
   const byteLen = Buffer.byteLength(input, "utf8");

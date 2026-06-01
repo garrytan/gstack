@@ -160,13 +160,27 @@ function readLines(path: string | undefined): string[] | undefined {
 
 function buildOpts(): ScanOptions {
   const vis = (arg("--repo-visibility") as RepoVisibility) || "unknown";
-  const maxBytes = arg("--max-bytes");
+  const maxBytesRaw = arg("--max-bytes");
+  let maxBytes: number | undefined;
+  if (maxBytesRaw !== undefined) {
+    // Reject a malformed cap loudly. Silently passing NaN/0/negative would
+    // weaken the engine's fail-closed oversize guard (exit 1 = usage error,
+    // distinct from the 0/2/3 finding-tier codes).
+    const parsed = Number(maxBytesRaw);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      process.stderr.write(
+        `gstack-redact: --max-bytes must be a positive integer, got: ${maxBytesRaw}\n`,
+      );
+      process.exit(1);
+    }
+    maxBytes = parsed;
+  }
   return {
     repoVisibility: ["public", "private", "unknown"].includes(vis) ? vis : "unknown",
     allowlist: readLines(arg("--allowlist")),
     selfEmail: arg("--self-email"),
     repoPublicEmails: readLines(arg("--repo-public-emails")),
-    ...(maxBytes ? { maxBytes: parseInt(maxBytes, 10) } : {}),
+    ...(maxBytes !== undefined ? { maxBytes } : {}),
   };
 }
 

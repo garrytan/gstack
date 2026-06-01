@@ -239,6 +239,20 @@ describe("oversize fails CLOSED", () => {
     expect(r.findings[0].id).toBe("engine.input_too_large");
     expect(exitCodeFor(r)).toBe(3);
   });
+
+  // Regression: an invalid cap (NaN/0/negative) must NOT disable the guard.
+  // `?? DEFAULT` did not catch NaN, so `byteLen > NaN` was always false and the
+  // fail-CLOSED guard silently failed OPEN. Invalid caps fall back to the
+  // 1 MiB default, so a >1 MiB input still blocks.
+  for (const bad of [NaN, 0, -1]) {
+    test(`invalid maxBytes (${bad}) falls back to the default cap and still blocks >1 MiB`, () => {
+      const big = "a".repeat(1024 * 1024 + 1);
+      const r = scan(big, { maxBytes: bad });
+      expect(r.oversize).toBe(true);
+      expect(r.findings[0].id).toBe("engine.input_too_large");
+      expect(exitCodeFor(r)).toBe(3);
+    });
+  }
 });
 
 describe("validators", () => {

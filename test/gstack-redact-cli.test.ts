@@ -94,4 +94,15 @@ describe("gstack-redact oversize fails closed", () => {
     expect(code).toBe(3);
     expect(stdout).toContain("too large");
   });
+
+  // Regression: a malformed --max-bytes must error loudly (usage exit 1), not
+  // silently pass NaN into the engine where it would disable the fail-closed
+  // guard. Exit 1 is distinct from the 0/2/3 finding-tier codes.
+  for (const bad of ["notanumber", "-5", "0", "10.5"]) {
+    test(`malformed --max-bytes (${bad}) exits 1 with a clear error`, () => {
+      const { code, stderr } = run(["--max-bytes", bad], "a".repeat(500));
+      expect(code).toBe(1);
+      expect(stderr).toContain("--max-bytes must be a positive integer");
+    });
+  }
 });
