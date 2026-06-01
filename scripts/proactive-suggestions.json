@@ -113,6 +113,11 @@
       "routing": "Wraps existing project tools (type checker, linter,\ntest runner, dead code detector, shell linter), computes a weighted composite\n0-10 score, and tracks trends over time. Use when: \"health check\",\n\"code quality\", \"how healthy is the codebase\", \"run all checks\",\n\"quality score\".",
       "voice_line": null
     },
+    "implement": {
+      "lead": "Delegate implementation to OpenAI Codex.",
+      "routing": "After /plan-eng-review locks a plan,\n/implement hands the plan to codex (codex exec) running in the background on\nthis cc worktree, polls progress, then auto-runs /codex review + /review as\nan independent gate. Boomerangs P1 findings back to codex for a fix pass.\nUse when asked to \"implement the plan\", \"build this from the plan\", \"code it\nup\", or after /plan-eng-review clears.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"implement the plan\", \"build the plan\", \"code it up\"."
+    },
     "investigate": {
       "lead": "Systematic debugging with root cause investigation.",
       "routing": "Four phases: investigate,\nanalyze, hypothesize, implement. Iron Law: no fixes without root cause.\nUse when asked to \"debug this\", \"fix this bug\", \"why is this broken\",\n\"investigate this error\", or \"root cause analysis\".\nProactively invoke this skill (do NOT debug directly) when the user reports\nerrors, 500 errors, stack traces, unexpected behavior, \"it was working\nyesterday\", or is troubleshooting why something stopped working.",

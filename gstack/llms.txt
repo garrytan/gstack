@@ -33,6 +33,7 @@ Conventions:
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
+- [/implement](implement/SKILL.md): Delegate implementation to OpenAI Codex.
 - [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
 - [/ios-clean](ios-clean/SKILL.md): Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.
 - [/ios-design-review](ios-design-review/SKILL.md): Visual design audit for iOS apps on real hardware.
