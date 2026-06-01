@@ -11,7 +11,7 @@
 
 import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
-import { discoverTemplates } from './discover-skills';
+import { discoverTemplates, discoverSectionTemplates } from './discover-skills';
 import { writeLlmsTxt } from './gen-llms-txt';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -357,6 +357,28 @@ export function buildWhenToInvokeSection(parts: CatalogParts): string {
 }
 
 /**
+ * Render a string as a YAML inline scalar value (the text after `key: `),
+ * quoting only when a plain scalar would be invalid or ambiguous.
+ *
+ * The bug this guards (#1778): a description like "Ship workflow: detect..."
+ * emitted as a plain scalar has an interior ": " that a strict YAML parser
+ * (Codex/OpenAI skill loading) reads as a nested mapping and rejects with
+ * "mapping values are not allowed in this context". When quoting is needed we
+ * fall back to JSON.stringify, which produces a double-quoted scalar that YAML
+ * accepts verbatim (YAML is a superset of JSON for flow scalars). Strings that
+ * are already valid plain scalars pass through unchanged to keep regen diffs small.
+ */
+export function toYamlInlineScalar(s: string): string {
+  const needsQuote =
+    s.length === 0 ||
+    s !== s.trim() ||                       // leading/trailing whitespace
+    /:(\s|$)/.test(s) ||                    // "foo: bar" / trailing colon → mapping ambiguity
+    /\s#/.test(s) ||                        // " #" → inline comment
+    /^[\s>|&*!%@`"'#,\[\]{}?-]/.test(s);    // leading YAML indicator char
+  return needsQuote ? JSON.stringify(s) : s;
+}
+
+/**
  * Apply catalog trim to a SKILL.md body:
  *  - shorten frontmatter `description:` to lead + (gstack)
  *  - insert "## When to invoke" body section AFTER the generated header
@@ -397,8 +419,16 @@ export function applyCatalogTrim(content: string, skillName: string): { content:
 
   // Replace description in frontmatter — keep trailing newline so the next
   // YAML field doesn't collide on the same line as the description value.
+  // Quote the value when it would be an invalid YAML plain scalar (the common
+  // case: an interior ": " like "Ship workflow: detect..." which a strict YAML
+  // parser reads as a nested mapping and rejects — #1778). toYamlInlineScalar
+  // only quotes when needed, so descriptions without special chars stay plain.
   const newDesc = buildTrimmedDescription(parts);
-  const newFrontmatter = frontmatter.replace(descMatch[0], `description: ${newDesc}\n`);
+  // Function replacer (not a string) so a `$` in the description — e.g. a future
+  // skill referencing `$B`/`$D` — can't be interpreted as a `$&`/`$1` replacement
+  // pattern and silently corrupt the frontmatter.
+  const newDescLine = `description: ${toYamlInlineScalar(newDesc)}\n`;
+  const newFrontmatter = frontmatter.replace(descMatch[0], () => newDescLine);
   let newContent = '---\n' + newFrontmatter + content.slice(fmEnd);
 
   // Insert body section after frontmatter (after the closing ---\n and any
@@ -575,6 +605,102 @@ function extractHookSafetyProse(tmplContent: string): string | null {
 const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n`;
 
 /**
+ * Apply a host's configured path + tool rewrites. Extracted so both SKILL.md
+ * (via processExternalHost) and section files (via processSectionTemplate) get
+ * identical per-host treatment — a section's cross-references must rewrite the
+ * same way the parent skill's do, or external hosts get wrong paths.
+ */
+function applyHostRewrites(content: string, hostConfig: HostConfig): string {
+  let result = content;
+  for (const rewrite of hostConfig.pathRewrites) {
+    result = result.replaceAll(rewrite.from, rewrite.to);
+  }
+  if (hostConfig.toolRewrites) {
+    for (const [from, to] of Object.entries(hostConfig.toolRewrites)) {
+      result = result.replaceAll(from, to);
+    }
+  }
+  return result;
+}
+
+/**
+ * Resolve {{PLACEHOLDER}} / {{NAME:arg}} tokens against the RESOLVERS registry,
+ * honoring host suppression and appliesTo gating, then assert nothing is left
+ * unresolved. Extracted so SKILL.md and section templates resolve through the
+ * exact same path — a security/sanitization fix to one can't miss the other.
+ */
+function resolvePlaceholders(
+  tmplContent: string,
+  ctx: TemplateContext,
+  hostConfig: HostConfig,
+  relTmplPath: string,
+): string {
+  // effectiveSuppressedResolvers() honors --respect-detection: when gbrain is
+  // detected locally, GBRAIN_* resolvers un-suppress. Shared by SKILL.md and
+  // section generation so both paths get the same gbrain-aware behavior.
+  const suppressed = effectiveSuppressedResolvers(hostConfig);
+  const onePass = (input: string): string =>
+    input.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (_match, fullKey) => {
+      const parts = fullKey.split(':');
+      const resolverName = parts[0];
+      const args = parts.slice(1);
+      if (suppressed.has(resolverName)) return '';
+      const entry = RESOLVERS[resolverName];
+      if (!entry) throw new Error(`Unknown placeholder {{${resolverName}}} in ${relTmplPath}`);
+      const { resolve, appliesTo } = unwrapResolver(entry);
+      if (appliesTo && !appliesTo(ctx)) return '';
+      return args.length > 0 ? resolve(ctx, args) : resolve(ctx);
+    });
+
+  // Multi-pass: a resolver may emit content that itself contains {{TOKENS}} — the
+  // {{SECTION:id}} resolver inlines a section template (with its own resolvers)
+  // for non-Claude hosts. .replace() doesn't re-scan inserted text, so loop until
+  // the output stabilizes. Bounded to avoid an infinite loop if a resolver ever
+  // emits its own placeholder; 6 passes is far more nesting than any skill needs.
+  let content = tmplContent;
+  for (let pass = 0; pass < 6; pass++) {
+    const next = onePass(content);
+    if (next === content) break;
+    content = next;
+  }
+
+  const remaining = content.match(/\{\{(\w+(?::[^}]+)?)\}\}/g);
+  if (remaining) {
+    throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
+  }
+  return content;
+}
+
+/**
+ * Build the TemplateContext from a template's frontmatter. Shared by SKILL.md
+ * and section generation so sections inherit the SAME context the parent skill
+ * resolves with (skillName, tier, benefitsFrom, interactive) — enforced by
+ * test/template-context-parity.test.ts. skillNameOverride lets section
+ * generation pin the parent skill's name instead of deriving "sections".
+ */
+function buildContext(
+  tmplContent: string,
+  tmplPath: string,
+  host: Host,
+  skillNameOverride?: string,
+): TemplateContext {
+  const { name: extractedName } = extractNameAndDescription(tmplContent);
+  const skillName = skillNameOverride || extractedName || path.basename(path.dirname(tmplPath));
+  const benefitsMatch = tmplContent.match(/^benefits-from:\s*\[([^\]]*)\]/m);
+  const benefitsFrom = benefitsMatch
+    ? benefitsMatch[1].split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
+  const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
+  const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
+  const interactiveMatch = tmplContent.match(/^interactive:\s*(true|false)\s*$/m);
+  const interactive = interactiveMatch ? interactiveMatch[1] === 'true' : undefined;
+  return {
+    skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host],
+    preambleTier, model: MODEL_ARG_VAL, interactive, explainLevel: EXPLAIN_LEVEL,
+  };
+}
+
+/**
  * Process external host output: routing, frontmatter, path rewrites, metadata.
  * Shared between Codex and Factory (and future external hosts).
  */
@@ -619,17 +745,9 @@ function processExternalHost(
     result = result.slice(0, bodyStart) + '\n' + safetyProse + '\n' + result.slice(bodyStart);
   }
 
-  // Config-driven path rewrites (order matters, replaceAll)
-  for (const rewrite of hostConfig.pathRewrites) {
-    result = result.replaceAll(rewrite.from, rewrite.to);
-  }
-
-  // Config-driven tool rewrites
-  if (hostConfig.toolRewrites) {
-    for (const [from, to] of Object.entries(hostConfig.toolRewrites)) {
-      result = result.replaceAll(from, to);
-    }
-  }
+  // Config-driven path + tool rewrites (shared with processSectionTemplate so
+  // section cross-references get the same per-host treatment as SKILL.md).
+  result = applyHostRewrites(result, hostConfig);
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
   if (hostConfig.generation.generateMetadata && !symlinkLoop) {
@@ -650,53 +768,18 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // Determine skill directory relative to ROOT
   const skillDir = path.relative(ROOT, path.dirname(tmplPath));
 
-  // Extract skill name from frontmatter early — needed for both TemplateContext and external host output paths.
-  // When frontmatter name: differs from directory name (e.g., run-tests/ with name: test),
-  // the frontmatter name is used for external skill naming and setup script symlinks.
+  // Extract name/description: name drives external skill naming + setup symlinks
+  // (and TemplateContext.skillName via buildContext); description feeds external
+  // host metadata. When frontmatter name: differs from directory name (e.g.
+  // run-tests/ with name: test), the frontmatter name wins.
   const { name: extractedName, description: extractedDescription } = extractNameAndDescription(tmplContent);
-  const skillName = extractedName || path.basename(path.dirname(tmplPath));
 
-
-  // Extract benefits-from list from frontmatter (inline YAML: benefits-from: [a, b])
-  const benefitsMatch = tmplContent.match(/^benefits-from:\s*\[([^\]]*)\]/m);
-  const benefitsFrom = benefitsMatch
-    ? benefitsMatch[1].split(',').map(s => s.trim()).filter(Boolean)
-    : undefined;
-
-  // Extract preamble-tier from frontmatter (1-4, controls which preamble sections are included)
-  const tierMatch = tmplContent.match(/^preamble-tier:\s*(\d+)$/m);
-  const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
-
-  // Extract interactive flag from frontmatter (generator-only; controls plan-mode handshake inclusion)
-  const interactiveMatch = tmplContent.match(/^interactive:\s*(true|false)\s*$/m);
-  const interactive = interactiveMatch ? interactiveMatch[1] === 'true' : undefined;
-
-  const ctx: TemplateContext = { skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host], preambleTier, model: MODEL_ARG_VAL, interactive, explainLevel: EXPLAIN_LEVEL };
-
-  // Replace placeholders (supports parameterized: {{NAME:arg1:arg2}})
-  // Config-driven: suppressedResolvers return empty string for this host.
-  // effectiveSuppressedResolvers() honors --respect-detection: when gbrain
-  // is detected locally, GBRAIN_* resolvers un-suppress so brain-aware
-  // blocks render for users who have gbrain installed.
   const currentHostConfig = getHostConfig(host);
-  const suppressed = effectiveSuppressedResolvers(currentHostConfig);
-  let content = tmplContent.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (match, fullKey) => {
-    const parts = fullKey.split(':');
-    const resolverName = parts[0];
-    const args = parts.slice(1);
-    if (suppressed.has(resolverName)) return '';
-    const entry = RESOLVERS[resolverName];
-    if (!entry) throw new Error(`Unknown placeholder {{${resolverName}}} in ${relTmplPath}`);
-    const { resolve, appliesTo } = unwrapResolver(entry);
-    if (appliesTo && !appliesTo(ctx)) return '';
-    return args.length > 0 ? resolve(ctx, args) : resolve(ctx);
-  });
+  const ctx = buildContext(tmplContent, tmplPath, host);
+  const skillName = ctx.skillName;
 
-  // Check for any remaining unresolved placeholders
-  const remaining = content.match(/\{\{(\w+(?::[^}]+)?)\}\}/g);
-  if (remaining) {
-    throw new Error(`Unresolved placeholders in ${relTmplPath}: ${remaining.join(', ')}`);
-  }
+  // Replace placeholders + assert none remain (shared path with section generation).
+  let content = resolvePlaceholders(tmplContent, ctx, currentHostConfig, relTmplPath);
 
   // Preprocess voice triggers: fold into description, strip field from frontmatter.
   // Must run BEFORE transformFrontmatter so all hosts see the updated description,
@@ -740,6 +823,58 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   }
 
   return { outputPath, content, symlinkLoop, catalogParts };
+}
+
+/**
+ * Generate one on-demand section file (`<skill>/sections/<name>.md.tmpl` →
+ * `<name>.md`). Sections are BODY FRAGMENTS — no frontmatter, no catalog trim,
+ * no voice triggers. They resolve placeholders through the SAME path as
+ * SKILL.md (resolvePlaceholders) using the PARENT skill's TemplateContext
+ * (so appliesTo gating + tier behave identically — a section's {{PREAMBLE}}-
+ * style resolver renders the same content it would in the parent, not empty).
+ *
+ * Output routing mirrors SKILL.md: Claude writes in-tree at
+ * `<skill>/sections/<name>.md`; external hosts write to
+ * `<hostSubdir>/skills/<externalName>/sections/<name>.md`. External hosts get
+ * applyHostRewrites so cross-references resolve per host.
+ */
+function processSectionTemplate(
+  sectionTmplPath: string,
+  skillDir: string,
+  host: Host = 'claude',
+): { outputPath: string; content: string } {
+  const tmplContent = fs.readFileSync(sectionTmplPath, 'utf-8');
+  const relTmplPath = path.relative(ROOT, sectionTmplPath);
+  const hostConfig = getHostConfig(host);
+
+  // Read the owning SKILL.md.tmpl so the section inherits the parent's name +
+  // tier + benefits-from (TemplateContext parity). Fall back to the dir name.
+  const parentTmplPath = path.join(ROOT, skillDir, 'SKILL.md.tmpl');
+  const parentContent = fs.existsSync(parentTmplPath) ? fs.readFileSync(parentTmplPath, 'utf-8') : '';
+  const parentName = (parentContent && extractNameAndDescription(parentContent).name) || skillDir;
+  const ctx = buildContext(parentContent || tmplContent, parentTmplPath, host, parentName);
+
+  // Resolve placeholders against the section body (shared guard catches stragglers).
+  let content = resolvePlaceholders(tmplContent, ctx, hostConfig, relTmplPath);
+
+  // External hosts: rewrite cross-reference paths/tools (no frontmatter to transform).
+  if (host !== 'claude') {
+    content = applyHostRewrites(content, hostConfig);
+  }
+
+  // Plain generated header (no frontmatter to insert after).
+  content = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(sectionTmplPath)) + content;
+
+  const fileName = path.basename(sectionTmplPath).replace(/\.tmpl$/, '');
+  let outputPath: string;
+  if (host === 'claude') {
+    outputPath = path.join(ROOT, skillDir, 'sections', fileName);
+  } else {
+    const externalName = externalSkillName(skillDir, parentName);
+    outputPath = path.join(ROOT, hostConfig.hostSubdir, 'skills', externalName, 'sections', fileName);
+  }
+  if (!DRY_RUN) fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  return { outputPath, content };
 }
 
 // ─── Main ───────────────────────────────────────────────────
@@ -831,6 +966,42 @@ for (const currentHost of hostsToRun) {
       if (content.length > TOKEN_CEILING_BYTES) {
         console.warn(`⚠️  TOKEN CEILING: ${relOutput} is ${content.length} bytes (~${tokens} tokens), exceeds ${TOKEN_CEILING_BYTES} byte ceiling (~40K tokens)`);
       }
+    }
+
+    // ─── Section generation (v2 plan T9, Claude-first carve) ───
+    // On-demand sections/*.md for carved skills. Generated for CLAUDE ONLY:
+    // every other host inlines section content via the {{SECTION:id}} resolver
+    // (keeping the full monolith skill), so they need no section files and we
+    // sidestep host-portable section paths until that plumbing lands. No-op for
+    // any skill without a sections/ dir. Mirrors the SKILL.md DRY_RUN handling so
+    // sections participate in the freshness gate.
+    for (const sec of currentHost === 'claude' ? discoverSectionTemplates(ROOT) : []) {
+      if (currentHostConfig.generation.includeSkills?.length &&
+          !currentHostConfig.generation.includeSkills.includes(sec.skillDir)) continue;
+      if (currentHostConfig.generation.skipSkills?.length &&
+          currentHostConfig.generation.skipSkills.includes(sec.skillDir)) continue;
+
+      const { outputPath, content } = processSectionTemplate(path.join(ROOT, sec.tmpl), sec.skillDir, currentHost);
+      const relOutput = path.relative(ROOT, outputPath);
+
+      if (DRY_RUN) {
+        const existing = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
+        if (existing !== content) {
+          console.log(`STALE: ${relOutput}`);
+          hasChanges = true;
+        } else {
+          console.log(`FRESH: ${relOutput}`);
+        }
+      } else {
+        fs.writeFileSync(outputPath, content);
+        console.log(`GENERATED: ${relOutput}`);
+      }
+
+      tokenBudget.push({
+        skill: relOutput,
+        lines: content.split('\n').length,
+        tokens: Math.round(content.length / 4),
+      });
     }
 
     // Generate gstack-lite and gstack-full for OpenClaw host
@@ -959,10 +1130,14 @@ The orchestrator will persist the plan link to its own memory/knowledge store.
   }
 }
 
-// --host all: report failures. Only exit(1) if claude failed.
+// --host all: any host failure fails the build. Previously only claude failures
+// exited nonzero, which let a stale or broken external-host output (e.g. a
+// section that failed to generate for Factory) slip through the freshness gate
+// silently. With sections fanned out across every host, "all hosts regenerated
+// in the same commit" is only a real gate if every host failure is fatal here.
 if (failures.length > 0 && HOST_ARG_VAL === 'all') {
   console.error(`\n${failures.length} host(s) failed: ${failures.map(f => f.host).join(', ')}`);
-  if (failures.some(f => f.host === 'claude')) process.exit(1);
+  process.exit(1);
 }
 // Single host dry-run failure already handled above
 

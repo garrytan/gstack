@@ -2,10 +2,23 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SHIP_SKILL = path.join(__dirname, '..', 'ship', 'SKILL.md');
+const SHIP_DIR = path.join(__dirname, '..', 'ship');
+
+// Carved (v2 plan T9): the Plan Completion gate moved into sections/plan-completion.md.
+// Read the skeleton + sections union so these invariants follow the content.
+function readShipUnion(): string {
+  let t = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
+  const secDir = path.join(SHIP_DIR, 'sections');
+  if (fs.existsSync(secDir)) {
+    for (const f of fs.readdirSync(secDir).sort()) {
+      if (f.endsWith('.md')) t += '\n' + fs.readFileSync(path.join(secDir, f), 'utf8');
+    }
+  }
+  return t;
+}
 
 describe('ship/SKILL.md — Plan Completion gate invariants (VAS-449 remediation)', () => {
-  const skill = fs.readFileSync(SHIP_SKILL, 'utf8');
+  const skill = readShipUnion();
 
   test('Path concreteness rule: filesystem-pathed items must be test -f checked', () => {
     expect(skill).toContain('**Path concreteness rule.**');

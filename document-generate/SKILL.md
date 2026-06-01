@@ -1111,6 +1111,20 @@ Fix any failures before proceeding.
 
 1. Stage new documentation files by name (never `git add -A` or `git add .`).
 
+**Redaction scan before commit.** Generated docs frequently contain example
+credentials; scan the staged doc content and block on a HIGH credential (a
+live-format secret in committed docs is a leak). Example configs belong in
+` ```example ` fences won't excuse a live-format secret, but the per-span
+placeholder filter passes obvious docs examples (e.g. `AKIAIOSFODNN7EXAMPLE`):
+
+```bash
+REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibility 2>/dev/null)
+[ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
+git diff --cached --no-color | grep '^+' | sed 's/^+//' | \
+  ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "${REDACT_VIS:-unknown}" --json
+# exit 3 (HIGH) → unstage the offending doc, remove the secret, re-stage. Do NOT commit.
+```
+
 2. Create a commit:
 
 ```bash

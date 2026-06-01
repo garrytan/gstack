@@ -156,7 +156,11 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     const baseline: ParityBaseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf-8'));
     const current = captureBaseline({ repoRoot: REPO_ROOT });
     const MIN_RATIO = 0.80; // a skill at <80% of its v1.44 size signals mass-deletion
-    const SECTIONS_EXTRACTED = new Set<string>(); // populate in v2.0.0.0 when sections/ lands
+    // Carved skills (v2 plan T9): the skeleton SKILL.md intentionally shrinks
+    // because prose moved into sections/*.md. The union size is guarded instead
+    // by the sectioned ship invariant in parity-harness.ts (minBytes on the
+    // skeleton+sections union), so exempt the skeleton from the body-strip floor.
+    const SECTIONS_EXTRACTED = new Set<string>(['ship']);
 
     const undershoots: Array<{
       skill: string; beforeBytes: number; afterBytes: number; ratio: number;

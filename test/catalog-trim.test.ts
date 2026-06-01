@@ -227,8 +227,10 @@ Original body content here.
     const result = applyCatalogTrim(minimalSkill, 'example');
     expect(result).not.toBeNull();
     const { content, parts } = result!;
-    // Frontmatter description is now ONE line ending with (gstack)
-    expect(content).toMatch(/^description: Example skill:[^\n]*\(gstack\)\n/m);
+    // Frontmatter description is now ONE line ending with (gstack). #1778: a
+    // description with an interior colon ("Example skill:") is YAML-quoted, so
+    // the value is wrapped in double quotes — tolerate the optional quotes.
+    expect(content).toMatch(/^description: "?Example skill:[^\n]*\(gstack\)"?\n/m);
     // Body has the When to invoke section
     expect(content).toContain('## When to invoke this skill');
     expect(content).toContain('Use when asked to do an example task.');
@@ -257,7 +259,8 @@ Original body content here.
     expect(result).not.toBeNull();
     expect(result!.content).not.toMatch(/\(gstack\)preamble-tier/);
     expect(result!.content).not.toMatch(/\(gstack\)allowed-tools/);
-    expect(result!.content).toMatch(/\(gstack\)\n[a-z-]+:/);
+    // #1778: optional closing quote when the description was YAML-quoted.
+    expect(result!.content).toMatch(/\(gstack\)"?\n[a-z-]+:/);
   });
 
   test('returns null on content without proper frontmatter', () => {

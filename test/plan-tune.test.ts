@@ -535,7 +535,15 @@ describe('end-to-end pipeline (binaries working together)', () => {
   test('log many expand choices → derive pushes scope_appetite up', () => {
     const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-e2e-'));
     try {
-      const env = { ...process.env, GSTACK_HOME: tmpHome };
+      // GSTACK_QUESTION_LOG_NO_DERIVE=1 suppresses gstack-question-log's
+      // fire-and-forget background `--derive` (it nohups one per write). Without
+      // it, the 5 rapid log writes spawn 5 racing background derives that collide
+      // with this test's explicit --derive below — a late background derive that
+      // only saw 3 entries can clobber developer-profile.json after the explicit
+      // one wrote sample_size=5, making the test flaky (~25-50% fail). The binary
+      // documents this flag for exactly this case. The explicit --derive still
+      // runs (it ignores the flag), so real derive behavior is still asserted.
+      const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_QUESTION_LOG_NO_DERIVE: '1' };
       const { spawnSync } = require('child_process');
       const logBin = path.join(ROOT, 'bin', 'gstack-question-log');
       const devBin = path.join(ROOT, 'bin', 'gstack-developer-profile');
