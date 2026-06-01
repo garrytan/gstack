@@ -65,6 +65,7 @@ import {
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
 import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
+import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1198,6 +1199,9 @@ function preparePages(
 function makeStagingDir(): string {
   const dir = join(GSTACK_HOME, `.staging-ingest-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
+  // Mint the ownership marker (#1802) so cleanupStagingDir() and decideResume()
+  // can prove this dir was created by us before any recursive delete or resume.
+  writeFileSync(join(dir, STAGING_MARKER), `${process.pid}\n${Date.now()}\n`, "utf-8");
   return dir;
 }
 
@@ -1259,6 +1263,16 @@ function isRemoteHttpMcpMode(): boolean {
  * cleanup failure.
  */
 function cleanupStagingDir(dir: string): void {
+  // #1802 deletion chokepoint: never recurse-delete a path we cannot PROVE we
+  // own. A poisoned resume could otherwise route the repo root here.
+  const verdict = checkOwnedStagingDir(dir, GSTACK_HOME);
+  if (!verdict.ok) {
+    console.error(
+      `[gbrain] staging cleanup REFUSED: "${dir}" is not an owned staging dir ` +
+        `(${verdict.reason}). Skipping rm -rf to prevent data loss (#1802).`,
+    );
+    return;
+  }
   try {
     rmSync(dir, { recursive: true, force: true });
   } catch {
@@ -1491,10 +1505,20 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   // tells it where to resume.
   const remoteHttpMode = isRemoteHttpMcpMode();
   const resumeDir = process.env.GSTACK_INGEST_RESUME_DIR;
+  // #1802 second entry point: this binary is runnable directly, so it must not
+  // trust GSTACK_INGEST_RESUME_DIR just because it exists — a stale/poisoned env
+  // could make us `gbrain import` (and later clean up) an arbitrary directory.
+  // Prove ownership here too, independently of the orchestrator's decideResume.
   const resuming = !remoteHttpMode
     && typeof resumeDir === "string"
     && resumeDir.length > 0
-    && existsSync(resumeDir);
+    && existsSync(resumeDir)
+    && checkOwnedStagingDir(resumeDir, GSTACK_HOME).ok;
+  if (!remoteHttpMode && resumeDir && resumeDir.length > 0 && !resuming) {
+    console.error(
+      `[memory-ingest] ignoring GSTACK_INGEST_RESUME_DIR="${resumeDir}" — not a proven staging dir (#1802); staging fresh.`,
+    );
+  }
   const stagingDir = resuming
     ? resumeDir!
     : remoteHttpMode
