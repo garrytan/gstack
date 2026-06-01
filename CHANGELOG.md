@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.55.1.0] - 2026-05-31
+
+## **Your builder profile's session count, tier, and the builder→founder nudge now reflect only real design sessions — the resource-tracking bookkeeping that office-hours writes after each session no longer inflates them.**
+
+After every office-hours session, gstack appends a `mode:resources` entry to your developer profile to track which founder resources it surfaced. `gstack-developer-profile read` was counting those bookkeeping entries as if they were real sessions: they padded `SESSION_COUNT`, prematurely promoted your `TIER` (introduction → welcome_back → regular → inner_circle), and helped arm `NUDGE_ELIGIBLE`. The builder→founder nudge could fire off bookkeeping alone. Now `SESSION_COUNT`, `TIER`, cross-project counts, and `NUDGE_ELIGIBLE` all filter to real sessions, and the nudge counts only `mode:builder` design sessions — so it triggers on someone who keeps coming back to *build*, which is what it was always meant to measure.
+
+### Fixed
+
+- `gstack-developer-profile read` no longer counts `mode:resources` entries toward `SESSION_COUNT` or `TIER`.
+- `NUDGE_ELIGIBLE` now requires 3+ real `mode:builder` sessions (was: any non-`startup` entry, which counted resources and excluded startup sessions), so it can no longer be armed by bookkeeping alone.
+- Added 4 regression tests covering count, tier, and nudge behavior in the presence of resource entries.
+
 ## [1.55.0.0] - 2026-05-30
 
 ## **`/sync-gbrain` can no longer be the trigger that lets gbrain delete your repo. The headed browser stops crash-looping, and gbrain installs the current release instead of a pin 23 versions stale.**
