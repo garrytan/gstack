@@ -628,5 +628,40 @@ describe('gstack-developer-profile resources entries do not inflate count/tier/n
     const r = runDev('--read');
     expect(r.stdout).toContain('NUDGE_ELIGIBLE: true');
   });
+
+  // Boundary cases around the two `>=` gates, so a future >= → > regression
+  // (or a re-loosening of the builder filter) is caught, not just the happy path.
+  function logBuilder(signals: string[], day = 20) {
+    return runDev('--log-session', JSON.stringify({
+      date: `2026-05-${day}T00:00:00Z`, mode: 'builder', project_slug: 'p', signals,
+    }));
+  }
+
+  test('NUDGE_ELIGIBLE stays false at 2 builder sessions (below the 3-session gate)', () => {
+    logBuilder(['a', 'b', 'c'], 20);
+    logBuilder(['d', 'e', 'f'], 21); // 6 signals total — signal gate met, session gate is not
+    logResources(1);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('NUDGE_ELIGIBLE stays false at 3 builder sessions with too few signals', () => {
+    logBuilder(['a'], 20);
+    logBuilder(['b'], 21);
+    logBuilder(['c', 'd'], 22); // 4 signals total — session gate met, signal gate (>=5) is not
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('TIER reaches regular at 4 real sessions even when resources entries are present', () => {
+    logStartup();
+    logStartup();
+    logStartup();
+    logStartup();
+    for (let i = 0; i < 5; i++) logResources(i);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 4');
+    expect(r.stdout).toContain('TIER: regular');
+  });
 });
 
