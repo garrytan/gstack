@@ -22,12 +22,16 @@ public final class DebugBridgeManager {
         // 2. Boot the StateServer.
         StateServer.shared.start()
 
-        // 3. The consuming app installs DebugOverlayWindow separately. See
-        //    the example in DebugBridgeWiring.swift.template:
+        // 3. The consuming app installs the UI bridges + overlay separately,
+        //    from DebugBridgeUI, via:
         //
         //      #if canImport(UIKit)
-        //      DebugOverlayWindow.shared.install(recording: recording)
+        //      DebugBridgeUIWiring.installAll()
         //      #endif
+        //
+        //    See Bridges.swift.template (`DebugBridgeUIWiring.installAll()`),
+        //    which wires ElementsBridgeImpl / ScreenshotBridgeImpl /
+        //    MutationBridgeImpl and installs the overlay window.
     }
 }
 

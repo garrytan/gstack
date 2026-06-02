@@ -32,6 +32,15 @@ let package = Package(
             dependencies: [],
             path: "Sources/DebugBridgeTouch",
             publicHeadersPath: "include",
+            cSettings: [
+                // DEBUG gate for the Obj-C translation unit. swiftSettings do
+                // NOT propagate to .m files, so without this the private
+                // UITouch/UIEvent/IOKit SPIs in DebugBridgeTouch.m would
+                // compile into Release builds and trip Apple's static API
+                // scanner (App Store Guideline 2.1). Pairs with the
+                // `#if TARGET_OS_IOS && defined(DEBUG)` gate in the .m file.
+                .define("DEBUG", to: "1", .when(configuration: .debug)),
+            ],
             linkerSettings: [
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),
             ]

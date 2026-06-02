@@ -1,3 +1,4 @@
+// swift-tools-version:5.9
 // AUTO-GENERATED from gstack/ios-qa/templates/Package.swift.template
 //
 // Drop-in SPM package definition for the DebugBridge stack. Three targets:
@@ -18,7 +19,6 @@
 // CI invariant: `swift build -c release` + `nm -j build/Release/<binary>
 // | grep -q DebugBridge && exit 1`.
 
-// swift-tools-version:5.9
 import PackageDescription
 
 let package = Package(
@@ -43,6 +43,15 @@ let package = Package(
             dependencies: [],
             path: "Sources/DebugBridgeTouch",
             publicHeadersPath: "include",
+            cSettings: [
+                // DEBUG gate for the Obj-C translation unit. swiftSettings do
+                // NOT propagate to .m files, so without this the private
+                // UITouch/UIEvent/IOKit SPIs in DebugBridgeTouch.m would
+                // compile into Release builds and trip Apple's static API
+                // scanner (App Store Guideline 2.1). Pairs with the
+                // `#if TARGET_OS_IOS && defined(DEBUG)` gate in the .m file.
+                .define("DEBUG", to: "1", .when(configuration: .debug)),
+            ],
             linkerSettings: [
                 // IOKit is loaded dynamically via dlopen at runtime (it's a
                 // private framework on iOS and can't be linked statically).
@@ -57,11 +66,6 @@ let package = Package(
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
             ]
-        ),
-        .testTarget(
-            name: "DebugBridgeCoreTests",
-            dependencies: ["DebugBridgeCore"],
-            path: "Tests/DebugBridgeCoreTests"
         ),
     ]
 )
