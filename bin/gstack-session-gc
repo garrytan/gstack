@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# gstack-session-gc — scoped cleanup for stale gstack session markers.
+#
+# This is intentionally a named helper instead of an inline `find -exec rm`
+# in generated skill preambles. Hermes and other agents correctly flag broad
+# shell deletion shapes; this helper keeps the operation auditable and locked
+# to the gstack session marker directory.
+#
+# Concurrent runs are safe: every deletion is idempotent (`rm -f`) and scoped
+# to regular files older than the configured age threshold.
+
+set -u
+
+if [ "$#" -ne 0 ]; then
+  echo "gstack-session-gc: no arguments accepted" >&2
+  exit 64
+fi
+
+STATE_ROOT="${GSTACK_HOME:-$HOME/.gstack}"
+SESSION_DIR="$STATE_ROOT/sessions"
+LOG_FILE="$STATE_ROOT/analytics/session-gc.log"
+MAX_AGE_MINUTES="${GSTACK_SESSION_GC_MAX_AGE_MINUTES:-180}"
+
+log_entry() {
+  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+case "$MAX_AGE_MINUTES" in
+  ''|*[!0-9]*)
+    echo "gstack-session-gc: GSTACK_SESSION_GC_MAX_AGE_MINUTES must be a positive integer" >&2
+    exit 64
+    ;;
+esac
+
+if [ "$MAX_AGE_MINUTES" -lt 1 ]; then
+  echo "gstack-session-gc: GSTACK_SESSION_GC_MAX_AGE_MINUTES must be >= 1" >&2
+  exit 64
+fi
+
+mkdir -p "$SESSION_DIR" || {
+  echo "gstack-session-gc: could not create $SESSION_DIR" >&2
+  exit 1
+}
+
+BASE_REAL=$(cd "$SESSION_DIR" 2>/dev/null && pwd -P) || {
+  echo "gstack-session-gc: could not resolve $SESSION_DIR" >&2
+  exit 1
+}
+
+STATUS=0
+
+while IFS= read -r -d '' file; do
+  # Belt-and-suspenders: `find -type f` excludes symlinks already, but keep an
+  # explicit check so future edits do not silently weaken the path contract.
+  if [ -L "$file" ] || [ ! -f "$file" ]; then
+    continue
+  fi
+
+  FILE_DIR=$(dirname "$file")
+  FILE_NAME=$(basename "$file")
+  FILE_DIR_REAL=$(cd "$FILE_DIR" 2>/dev/null && pwd -P) || {
+    log_entry "SKIP unresolved_dir path=$file"
+    STATUS=1
+    continue
+  }
+  FILE_REAL="$FILE_DIR_REAL/$FILE_NAME"
+
+  case "$FILE_REAL" in
+    "$BASE_REAL"/*) ;;
+    *)
+      log_entry "SKIP outside_sessions path=$FILE_REAL base=$BASE_REAL"
+      STATUS=1
+      continue
+      ;;
+  esac
+
+  if ! rm -f -- "$FILE_REAL"; then
+    log_entry "FAIL delete path=$FILE_REAL"
+    STATUS=1
+  fi
+done < <(find "$SESSION_DIR" -maxdepth 1 -type f -mmin +"$MAX_AGE_MINUTES" -print0 2>/dev/null)
+
+exit "$STATUS"

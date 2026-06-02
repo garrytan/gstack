@@ -2611,6 +2611,19 @@ describe('community fixes wave', () => {
     }
   });
 
+  // Hermes approval safety: generated preambles must not emit broad deletion shapes.
+  test('no generated SKILL.md contains find -exec rm session cleanup', () => {
+    const skills = getAllSkillMds();
+    for (const { name, content } of skills) {
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (line.includes('find ') && line.includes('-exec') && line.includes('rm')) {
+          throw new Error(`${name}/SKILL.md contains find -exec rm: ${line.trim()}`);
+        }
+      }
+    }
+  });
+
   // #467 — Telemetry: preamble JSONL writes are gated by telemetry setting
   test('preamble JSONL writes are inside telemetry conditional', () => {
     const preamble = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
