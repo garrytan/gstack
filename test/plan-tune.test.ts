@@ -426,6 +426,19 @@ describe('one-way-doors classifier', () => {
     }
   });
 
+  test('rotate <credential> password is one-way (parity with revoke/reset)', () => {
+    const cases = [
+      'Rotate the database password?',
+      'rotate password for the service account',
+    ];
+    for (const summary of cases) {
+      const result = classifyQuestion({ summary });
+      expect(result.oneWay).toBe(true);
+      expect(result.reason).toBe('keyword');
+      expect(result.matched).toBeDefined();
+    }
+  });
+
   test('skill-category fallback fires for cso:approval and land-and-deploy:approval', () => {
     expect(isOneWayDoor({ skill: 'cso', category: 'approval' })).toBe(true);
     expect(isOneWayDoor({ skill: 'land-and-deploy', category: 'approval' })).toBe(true);
