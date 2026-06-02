@@ -163,7 +163,7 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     // because prose moved into sections/*.md. The union size is guarded instead
     // by the sectioned ship invariant in parity-harness.ts (minBytes on the
     // skeleton+sections union), so exempt the skeleton from the body-strip floor.
-    const SECTIONS_EXTRACTED = new Set<string>(['ship', 'plan-ceo-review', 'office-hours']);
+    const SECTIONS_EXTRACTED = new Set<string>(['ship', 'plan-ceo-review', 'office-hours', 'plan-eng-review']);
 
     const undershoots: Array<{
       skill: string; beforeBytes: number; afterBytes: number; ratio: number;

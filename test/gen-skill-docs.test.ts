@@ -383,7 +383,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('voice and writing-style preamble sections stay compact', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
     const voice = extractMarkdownSection(content, '## Voice');
     const writingStyle = extractMarkdownSection(content, '## Writing Style');
 
@@ -392,7 +392,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('slim voice section preserves the gstack voice contract', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
     const voice = extractMarkdownSection(content, '## Voice');
 
     expect(voice).toMatch(/lead with the point|direct/i);
@@ -693,7 +693,7 @@ describe('REVIEW_DASHBOARD resolver', () => {
   });
 
   test('shared dashboard propagates review source to plan-eng-review', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
     expect(content).toContain('plan-eng-review, review, plan-design-review');
     expect(content).toContain('`review` (diff-scoped pre-landing review)');
   });
@@ -739,7 +739,7 @@ describe('REVIEW_DASHBOARD resolver', () => {
   });
 
   test('plan-eng-review chaining mentions design and ceo reviews', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
     expect(content).toContain('/plan-design-review');
     expect(content).toContain('/plan-ceo-review');
   });
@@ -761,7 +761,7 @@ describe('REVIEW_DASHBOARD resolver', () => {
 // ─── Test Coverage Audit Resolver Tests ─────────────────────
 
 describe('TEST_COVERAGE_AUDIT placeholders', () => {
-  const planSkill = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+  const planSkill = readSkillUnion('plan-eng-review'); // carved
   const shipSkill = readShipUnion();
   const reviewSkill = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
 
@@ -1369,7 +1369,7 @@ describe('Codex filesystem boundary', () => {
 
 describe('BENEFITS_FROM resolver', () => {
   const ceoContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
-  const engContent = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+  const engContent = readSkillUnion('plan-eng-review'); // carved
 
   test('plan-ceo-review contains prerequisite skill offer', () => {
     expect(ceoContent).toContain('Prerequisite Skill Offer');
@@ -2649,7 +2649,7 @@ describe('community fixes wave', () => {
 
   // #510 — Context warnings: plan-eng-review has explicit anti-warning
   test('plan-eng-review/SKILL.md contains "Do not preemptively warn"', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
     expect(content).toContain('Do not preemptively warn');
   });
 
