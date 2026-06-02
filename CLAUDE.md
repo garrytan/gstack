@@ -169,6 +169,14 @@ and `scripts/gen-skill-docs.ts` (the sources of truth), (2) run `bun run gen:ski
 to regenerate all SKILL.md files, (3) stage the regenerated files. Accepting one side's
 generated output silently drops the other side's template changes.
 
+## gstack
+
+For all web browsing, use the `/browse` skill from gstack. Never use `mcp__claude-in-chrome__*` tools.
+
+### Available skills
+
+`/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
+
 ## Platform-agnostic design
 
 Skills must NEVER hardcode framework-specific commands, file patterns, or directory
