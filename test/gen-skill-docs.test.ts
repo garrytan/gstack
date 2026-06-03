@@ -1187,6 +1187,31 @@ describe('Skill invocation during plan mode in preamble', () => {
   });
 });
 
+// --- Office Hours developer profile contract ---
+
+describe('Office Hours developer profile contract', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  const codexContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+
+  test('writes sessions and resources through unified developer profile commands', () => {
+    expect(content).toContain('gstack-developer-profile" --append-session');
+    expect(content).toContain('gstack-developer-profile" --append-resources');
+    expect(content).toContain('gstack-developer-profile" --read');
+  });
+
+  test('does not write office-hours state directly to legacy builder-profile JSONL', () => {
+    expect(content).not.toMatch(/>>\s*"\$\{GSTACK_HOME:-\$HOME\/\.gstack\}\/builder-profile\.jsonl"/);
+    expect(content).not.toContain('~/.claude/skills/gstack/bin/gstack-builder-profile');
+    expect(codexContent).not.toContain('~/.claude/skills/gstack/bin/gstack-builder-profile');
+  });
+
+  test('contains core pacing contract so optional branches do not dominate the session', () => {
+    expect(content).toContain('Core Session Pacing');
+    expect(content).toContain('Builder mode: 2 generative questions max before alternatives');
+    expect(content).toContain('Optional enrichments are conditional');
+  });
+});
+
 // --- {{SPEC_REVIEW_LOOP}} resolver tests ---
 
 describe('SPEC_REVIEW_LOOP resolver', () => {

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.59.1.0] - 2026-06-03
+
+## **`/office-hours` now writes its relationship memory to the profile it actually reads.**
+
+`/office-hours` no longer appends session state to the legacy `builder-profile.jsonl` path while the closing flow reads `developer-profile.json`. Session writes, resource dedupe, and repeat-user state now all go through `gstack-developer-profile`, so the next session can immediately see what the previous one learned.
+
+This release also tightens the session shape: optional office-hours branches now stay conditional, with explicit question budgets before premises and alternatives. The core value is the reframe, not exhausting every optional path.
+
+### Fixed
+- `/office-hours` session logging now uses `gstack-developer-profile --append-session` instead of writing directly to legacy `builder-profile.jsonl`.
+- Founder resource logging now uses `gstack-developer-profile --append-resources`, preserving resource dedupe in the unified profile.
+- The generated office-hours docs read the developer profile through `$GSTACK_BIN`, avoiding hardcoded Claude-specific paths.
+- `gstack-developer-profile` serializes profile writers with a lock around profile creation/migration and read-modify-write, preventing lost sessions under concurrent office-hours runs.
+- The upstream `--log-session` entry point remains compatible and now routes through the same unified append path, including `ts` preservation/injection.
+
+### Added
+- Regression coverage for office-hours append commands, resource dedupe, legacy JSONL avoidance, generated-doc contracts, and concurrent profile writers.
+- A core pacing contract for `/office-hours`: 2-3 diagnostic/generative questions before premises for most flows, and optional enrichments only when they change the user's direction.
+
 ## [1.55.1.0] - 2026-06-02
 
 ## **Telemetry now tells you exactly what it records and where it stays. The project-slug helper hands the shell a safe identifier on every path.**

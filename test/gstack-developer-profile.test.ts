@@ -15,7 +15,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN_DEV = path.join(ROOT, 'bin', 'gstack-developer-profile');
@@ -63,6 +63,21 @@ function readProfile(): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(file, 'utf-8'));
 }
 
+function runDevAsync(...args: string[]): Promise<{ stdout: string; stderr: string; status: number }> {
+  return new Promise((resolve) => {
+    const child = spawn(BIN_DEV, args, {
+      env: { ...process.env, GSTACK_HOME: tmpHome },
+      cwd: ROOT,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('close', (code) => resolve({ stdout, stderr, status: code ?? -1 }));
+  });
+}
+
+
 // -----------------------------------------------------------------------
 // --read (defaults + compat)
 // -----------------------------------------------------------------------
@@ -88,6 +103,130 @@ describe('gstack-developer-profile --read', () => {
     const r = runDev();
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('TIER:');
+  });
+});
+
+// -----------------------------------------------------------------------
+// --append-session / --append-resources (office-hours unified writes)
+// -----------------------------------------------------------------------
+
+describe('gstack-developer-profile office-hours append commands', () => {
+  test('--append-session writes to developer-profile.json and is immediately visible to --read', () => {
+    runDev('--read');
+    const r = runDev('--append-session', JSON.stringify({
+      date: '2026-04-30T10:00:00Z',
+      mode: 'builder',
+      project_slug: 'garrytan-gstack',
+      signal_count: 2,
+      signals: ['taste', 'agency'],
+      design_doc: '/tmp/design.md',
+      assignment: 'ship the narrow wedge',
+      resources_shown: [],
+      topics: ['office-hours', 'pacing'],
+    }));
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('APPEND_SESSION: ok');
+
+    const read = runDev('--read');
+    expect(read.stdout).toContain('SESSION_COUNT: 1');
+    expect(read.stdout).toContain('TIER: welcome_back');
+    expect(read.stdout).toContain('LAST_PROJECT: garrytan-gstack');
+    expect(read.stdout).toContain('LAST_ASSIGNMENT: ship the narrow wedge');
+    expect(read.stdout).toContain('ACCUMULATED_SIGNALS: taste:1,agency:1');
+
+    expect(fs.existsSync(path.join(tmpHome, 'builder-profile.jsonl'))).toBe(false);
+  });
+
+  test('--append-session updates an existing developer profile instead of legacy JSONL', () => {
+    runDev('--read');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const existing = readProfile();
+    (existing as any).sessions = [{
+      date: '2026-04-01',
+      mode: 'startup',
+      project_slug: 'alpha',
+      signals: ['named_users'],
+      assignment: 'talk to one user',
+    }];
+    (existing as any).signals_accumulated = { named_users: 1 };
+    fs.writeFileSync(file, JSON.stringify(existing, null, 2));
+
+    const r = runDev('--append-session', JSON.stringify({
+      date: '2026-04-30T10:00:00Z',
+      mode: 'builder',
+      project_slug: 'beta',
+      signals: ['taste'],
+      assignment: 'build the demo',
+      topics: ['demo'],
+    }));
+
+    expect(r.status).toBe(0);
+    const p = readProfile() as {
+      sessions: Array<{ project_slug: string }>;
+      signals_accumulated: Record<string, number>;
+      topics: string[];
+    };
+    expect(p.sessions.length).toBe(2);
+    expect(p.sessions[1].project_slug).toBe('beta');
+    expect(p.signals_accumulated.named_users).toBe(1);
+    expect(p.signals_accumulated.taste).toBe(1);
+    expect(p.topics).toContain('demo');
+  });
+
+  test('--append-resources dedupes URLs and increments session count for closing state', () => {
+    runDev('--append-session', JSON.stringify({
+      date: '2026-04-30T10:00:00Z',
+      mode: 'builder',
+      project_slug: 'alpha',
+      signals: [],
+      assignment: 'ship',
+    }));
+
+    const r = runDev('--append-resources', JSON.stringify({
+      date: '2026-04-30T11:00:00Z',
+      project_slug: 'alpha',
+      resources_shown: ['https://a.example', 'https://a.example', 'https://b.example'],
+    }));
+
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('APPEND_RESOURCES: ok');
+    const read = runDev('--read');
+    expect(read.stdout).toContain('SESSION_COUNT: 2');
+    expect(read.stdout).toContain('RESOURCES_SHOWN_COUNT: 2');
+    expect(read.stdout).toContain('RESOURCES_SHOWN: https://a.example,https://b.example');
+
+    const p = readProfile() as { sessions: Array<{ mode: string; ts: string }> };
+    expect(p.sessions[1].mode).toBe('resources');
+    expect(p.sessions[1].ts).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  test('--append-session serializes concurrent writers without losing sessions', async () => {
+    runDev('--read');
+    const writes = Array.from({ length: 10 }, (_, i) => runDevAsync('--append-session', JSON.stringify({
+      date: `2026-04-30T10:00:${String(i).padStart(2, '0')}Z`,
+      mode: 'builder',
+      project_slug: 'concurrent',
+      signals: ['agency'],
+      assignment: `ship ${i}`,
+      topics: ['parallel'],
+    })));
+
+    const results = await Promise.all(writes);
+    for (const r of results) {
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('APPEND_SESSION: ok');
+    }
+
+    const p = readProfile() as {
+      sessions: Array<{ project_slug: string }>;
+      signals_accumulated: Record<string, number>;
+      topics: string[];
+    };
+    expect(p.sessions.length).toBe(10);
+    expect(p.sessions.every((session) => session.project_slug === 'concurrent')).toBe(true);
+    expect(p.signals_accumulated.agency).toBe(10);
+    expect(p.topics).toContain('parallel');
   });
 });
 

@@ -940,6 +940,35 @@ Output: "Here's what I understand about this project and the area you want to ch
 
 ---
 
+## Core Session Pacing
+
+The core value is the reframe, not exhausting every optional branch. Keep the
+mandatory path short enough that a user reaches premises and alternatives while
+their original intent is still fresh.
+
+Core session target:
+- Startup pre-product: 3 diagnostic questions max before premises.
+- Startup with users: 3 diagnostic questions max before premises.
+- Paying customers: 2 diagnostic questions max before premises.
+- Pure engineering/infra: 2 diagnostic questions max before premises.
+- Builder mode: 2 generative questions max before alternatives.
+- Fully formed plan: skip diagnostic questions and run Phase 3 + Phase 4.
+
+Hard gates remain: unclear mode selection, premise disagreement, approach
+selection, privacy before web search, final design doc approval, and destructive
+or external actions. Everything else should be auto-skipped, auto-decided, or
+folded into prose when it does not change the user's direction.
+
+Optional enrichments are conditional:
+- Landscape search: only when market/category uncertainty matters.
+- Cross-model second opinion: only when premise risk is high or user asks.
+- Visual mockups/wireframes: only for UI-heavy ideas.
+- Outside design voices: only after a visual direction exists.
+- Founder resources: only after an approved doc, and only when matched to the
+  user's stated goal.
+
+---
+
 ## Phase 2A: Startup Mode — YC Product Diagnostic
 
 Use this mode when the user is building a startup or doing intrapreneurship.
@@ -1552,14 +1581,14 @@ Track which of these signals appeared during the session:
 
 Count the signals. You'll use this count in Phase 6 to determine which tier of closing message to use.
 
-### Builder Profile Append
+### Developer Profile Append
 
-After counting signals, append a session entry to the builder profile. This is the single
-source of truth for all closing state (tier, resource dedup, journey tracking). The
-`gstack-developer-profile --log-session` binary handles its own directory creation
-and writes via atomic mktemp+mv to `~/.gstack/developer-profile.json`.
+After counting signals, append a session entry to the unified developer profile.
+This is the single source of truth for all closing state (tier, resource dedup,
+journey tracking). The `gstack-developer-profile` binary handles its own directory
+creation and serializes concurrent writers.
 
-Append one JSON line with these fields (substitute actual values from this session):
+Call `gstack-developer-profile --append-session` with one JSON payload containing:
 - `date`: current ISO 8601 timestamp
 - `mode`: "startup" or "builder" (from Phase 1 mode selection)
 - `project_slug`: the SLUG value from the preamble
@@ -1571,12 +1600,11 @@ Append one JSON line with these fields (substitute actual values from this sessi
 - `topics`: array of 2-3 topic keywords that describe what this session was about
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}' 2>/dev/null || true
+"$GSTACK_BIN/gstack-developer-profile" --append-session '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}'
 ```
 
-The session entry is appended to `developer-profile.json`'s `sessions[]` array. A second
-session entry with `mode: "resources"` is appended via `--log-session` after resource
-selection in Phase 6 Beat 3.5.
+Do not write to `builder-profile.jsonl` directly. It is legacy storage and can
+be invisible once `developer-profile.json` exists.
 
 ---
 
@@ -1852,10 +1880,10 @@ Once the design doc is APPROVED, deliver the closing sequence. The closing adapt
 on how many times this user has done office hours, creating a relationship that deepens
 over time.
 
-### Step 1: Read Builder Profile
+### Step 1: Read Developer Profile
 
 ```bash
-PROFILE=$(~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
+PROFILE=$("$GSTACK_BIN/gstack-developer-profile" --read 2>/dev/null) || PROFILE="SESSION_COUNT: 0
 TIER: introduction"
 SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
 SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')
@@ -2010,7 +2038,7 @@ Then proceed to Founder Resources below.
 Share 2-3 resources from the pool below. For repeat users, resources compound by matching
 to accumulated session context, not just this session's category.
 
-**Dedup check:** Read `RESOURCES_SHOWN` from the builder profile output above.
+**Dedup check:** Read `RESOURCES_SHOWN` from the developer profile output above.
 If `RESOURCES_SHOWN_COUNT` is 34 or more, skip this section entirely (all resources exhausted).
 Otherwise, avoid selecting any URL that appears in the RESOURCES_SHOWN list.
 
@@ -2081,13 +2109,12 @@ PAUL GRAHAM ESSAYS:
 33. "You Weren't Meant to Have a Boss" — If working inside a big organization has always felt slightly wrong, this explains why. Small groups on self-chosen problems is the natural state for builders. https://paulgraham.com/boss.html
 34. "Relentlessly Resourceful" — PG's two-word description of the ideal founder. Not "brilliant." Not "visionary." Just someone who keeps figuring things out. If that's you, you're already qualified. https://paulgraham.com/relres.html
 
-**After presenting resources — log to builder profile and offer to open:**
+**After presenting resources — log to developer profile and offer to open:**
 
-1. Log the selected resource URLs to the builder profile (single source of truth).
-Append a resource-tracking entry:
+1. Log the selected resource URLs to the developer profile (single source of truth).
+Append a resource-tracking entry to the unified developer profile:
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || true)"
-~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' 2>/dev/null || true
+"$GSTACK_BIN/gstack-developer-profile" --append-resources '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","project_slug":"'"${SLUG:-unknown}"'","resources_shown":["URL1","URL2","URL3"]}'
 ```
 
 2. Log the selection to analytics:

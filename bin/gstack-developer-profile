@@ -7,6 +7,10 @@
 # Subcommands:
 #   --read              (default)  emit KEY: VALUE pairs in builder-profile format
 #                                  for /office-hours compatibility.
+#   --append-session <json>        append an /office-hours session to the unified
+#                                  developer profile.
+#   --append-resources <json>      append shown resource URLs to the unified
+#                                  developer profile.
 #   --derive            recompute inferred dimensions from question events;
 #                       write updated ~/.gstack/developer-profile.json.
 #   --profile           emit the full profile as JSON (all fields).
@@ -159,62 +163,28 @@ EOF
 }
 
 # -----------------------------------------------------------------------
-# Record session: append a session entry from /office-hours to sessions[]
-# and update aggregates (signals_accumulated, resources_shown, topics).
-# Fix for #1671: the writer side of the v1.0.0.0 migration. Reader and
-# writer now share the same file.
-# Silent skip on invalid input (matches gstack-timeline-log:22-26 pattern).
+# Profile lock: protect read-modify-rename writers from lost updates.
 # -----------------------------------------------------------------------
-do_log_session() {
-  local INPUT="${1:-}"
-  if [ -z "$INPUT" ]; then
-    return 0
+acquire_profile_lock() {
+  mkdir -p "$GSTACK_HOME"
+  local LOCK_DIR="$GSTACK_HOME/.developer-profile.lock"
+  local WAITS=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    WAITS=$((WAITS + 1))
+    if [ "$WAITS" -ge 100 ]; then
+      echo "PROFILE_LOCK: timed out waiting for $LOCK_DIR" >&2
+      exit 1
+    fi
+    sleep 0.05
+  done
+  echo "$LOCK_DIR"
+}
+
+release_profile_lock() {
+  local LOCK_DIR="${1:-}"
+  if [ -n "$LOCK_DIR" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
   fi
-
-  # Validate: input must be parseable JSON with required fields (date, mode).
-  if ! printf '%s' "$INPUT" | bun -e "
-    const j = JSON.parse(await Bun.stdin.text());
-    if (!j.date || !j.mode) process.exit(1);
-  " 2>/dev/null; then
-    return 0
-  fi
-
-  ensure_profile
-
-  local TMPOUT
-  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
-  trap 'rm -f "$TMPOUT"' EXIT
-
-  PROFILE_FILE_PATH="$PROFILE_FILE" RECORD_INPUT="$INPUT" TMPOUT_PATH="$TMPOUT" bun -e "
-    const fs = require('fs');
-    const entry = JSON.parse(process.env.RECORD_INPUT);
-    if (!entry.ts) entry.ts = new Date().toISOString();
-
-    const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_FILE_PATH, 'utf-8'));
-    profile.sessions = profile.sessions || [];
-    profile.sessions.push(entry);
-
-    profile.signals_accumulated = profile.signals_accumulated || {};
-    for (const s of (entry.signals || [])) {
-      profile.signals_accumulated[s] = (profile.signals_accumulated[s] || 0) + 1;
-    }
-
-    profile.resources_shown = profile.resources_shown || [];
-    const resSet = new Set(profile.resources_shown);
-    for (const r of (entry.resources_shown || [])) resSet.add(r);
-    profile.resources_shown = Array.from(resSet);
-
-    profile.topics = profile.topics || [];
-    const topicSet = new Set(profile.topics);
-    for (const t of (entry.topics || [])) topicSet.add(t);
-    profile.topics = Array.from(topicSet);
-
-    fs.writeFileSync(process.env.TMPOUT_PATH, JSON.stringify(profile, null, 2));
-  "
-
-  mv "$TMPOUT" "$PROFILE_FILE"
-  trap - EXIT
-  "$SCRIPT_DIR/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
 }
 
 # -----------------------------------------------------------------------
@@ -281,6 +251,150 @@ do_read() {
 do_profile() {
   ensure_profile
   cat "$PROFILE_FILE"
+}
+
+# -----------------------------------------------------------------------
+# Append helpers: /office-hours writes to the unified profile.
+# -----------------------------------------------------------------------
+do_append_session() {
+  local PAYLOAD="${1:-}"
+  if [ -z "$PAYLOAD" ]; then
+    echo "APPEND_SESSION: missing JSON payload" >&2
+    exit 1
+  fi
+
+  local LOCK_DIR
+  LOCK_DIR=$(acquire_profile_lock)
+  ensure_profile
+  PROFILE_FILE_PATH="$PROFILE_FILE" PAYLOAD_JSON="$PAYLOAD" bun -e '
+    const fs = require("fs");
+    const profilePath = process.env.PROFILE_FILE_PATH;
+    const payloadRaw = process.env.PAYLOAD_JSON;
+    let payload;
+    try {
+      payload = JSON.parse(payloadRaw);
+    } catch {
+      console.error("APPEND_SESSION: payload is not valid JSON");
+      process.exit(1);
+    }
+    const profile = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
+    if (!Array.isArray(profile.sessions)) profile.sessions = [];
+    if (!profile.signals_accumulated || typeof profile.signals_accumulated !== "object") {
+      profile.signals_accumulated = {};
+    }
+    if (!Array.isArray(profile.resources_shown)) profile.resources_shown = [];
+    if (!Array.isArray(profile.topics)) profile.topics = [];
+
+    const session = {
+      date: payload.date || new Date().toISOString(),
+      mode: payload.mode || "builder",
+      ts: payload.ts || new Date().toISOString(),
+      project_slug: payload.project_slug || "",
+      signal_count: Number(payload.signal_count || 0),
+      signals: Array.isArray(payload.signals) ? payload.signals : [],
+      design_doc: payload.design_doc || "",
+      assignment: payload.assignment || "",
+      resources_shown: Array.isArray(payload.resources_shown) ? payload.resources_shown : [],
+      topics: Array.isArray(payload.topics) ? payload.topics : [],
+    };
+
+    profile.sessions.push(session);
+    for (const signal of session.signals) {
+      profile.signals_accumulated[signal] = (profile.signals_accumulated[signal] || 0) + 1;
+    }
+    const resources = new Set(profile.resources_shown);
+    for (const r of session.resources_shown) resources.add(r);
+    profile.resources_shown = Array.from(resources);
+    const topics = new Set(profile.topics);
+    for (const t of session.topics) topics.add(t);
+    profile.topics = Array.from(topics);
+    profile.updated_at = new Date().toISOString();
+
+    const tmp = profilePath + "." + process.pid + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
+    fs.renameSync(tmp, profilePath);
+    console.log("APPEND_SESSION: ok — sessions=" + profile.sessions.length);
+  '
+  local STATUS=$?
+  release_profile_lock "$LOCK_DIR"
+  if [ "$STATUS" -ne 0 ]; then
+    exit "$STATUS"
+  fi
+  "$SCRIPT_DIR/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
+}
+
+do_log_session() {
+  local PAYLOAD="${1:-}"
+  if [ -z "$PAYLOAD" ]; then
+    return 0
+  fi
+
+  # Legacy compatibility for upstream writer calls. Invalid records silently skip,
+  # matching the previous gstack-timeline-log style contract.
+  if ! printf '%s' "$PAYLOAD" | bun -e '
+    const j = JSON.parse(await Bun.stdin.text());
+    if (!j.date || !j.mode) process.exit(1);
+  ' 2>/dev/null; then
+    return 0
+  fi
+
+  do_append_session "$PAYLOAD" >/dev/null
+}
+
+
+do_append_resources() {
+  local PAYLOAD="${1:-}"
+  if [ -z "$PAYLOAD" ]; then
+    echo "APPEND_RESOURCES: missing JSON payload" >&2
+    exit 1
+  fi
+
+  local LOCK_DIR
+  LOCK_DIR=$(acquire_profile_lock)
+  ensure_profile
+  PROFILE_FILE_PATH="$PROFILE_FILE" PAYLOAD_JSON="$PAYLOAD" bun -e '
+    const fs = require("fs");
+    const profilePath = process.env.PROFILE_FILE_PATH;
+    const payloadRaw = process.env.PAYLOAD_JSON;
+    let payload;
+    try {
+      payload = JSON.parse(payloadRaw);
+    } catch {
+      console.error("APPEND_RESOURCES: payload is not valid JSON");
+      process.exit(1);
+    }
+    const profile = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
+    if (!Array.isArray(profile.sessions)) profile.sessions = [];
+    if (!Array.isArray(profile.resources_shown)) profile.resources_shown = [];
+    const urls = Array.isArray(payload.resources_shown) ? payload.resources_shown : [];
+    const resources = new Set(profile.resources_shown);
+    for (const url of urls) resources.add(url);
+    profile.resources_shown = Array.from(resources);
+    profile.sessions.push({
+      date: payload.date || new Date().toISOString(),
+      mode: "resources",
+      ts: payload.ts || new Date().toISOString(),
+      project_slug: payload.project_slug || "",
+      signal_count: 0,
+      signals: [],
+      design_doc: "",
+      assignment: "",
+      resources_shown: urls,
+      topics: [],
+    });
+    profile.updated_at = new Date().toISOString();
+
+    const tmp = profilePath + "." + process.pid + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
+    fs.renameSync(tmp, profilePath);
+    console.log("APPEND_RESOURCES: ok — resources=" + profile.resources_shown.length);
+  '
+  local STATUS=$?
+  release_profile_lock "$LOCK_DIR"
+  if [ "$STATUS" -ne 0 ]; then
+    exit "$STATUS"
+  fi
+  "$SCRIPT_DIR/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
 }
 
 # -----------------------------------------------------------------------
@@ -502,6 +616,8 @@ do_vibe() {
 case "$CMD" in
   --read) do_read ;;
   --profile) do_profile ;;
+  --append-session) do_append_session "$@" ;;
+  --append-resources) do_append_resources "$@" ;;
   --gap) do_gap ;;
   --derive) do_derive ;;
   --trace) do_trace "$@" ;;
