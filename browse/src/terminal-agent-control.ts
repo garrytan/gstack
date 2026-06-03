@@ -19,6 +19,54 @@ import * as path from 'path';
 import { safeUnlink, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 
+export interface BunSpawnCommand {
+  command: string;
+  argsPrefix: string[];
+}
+
+function envPath(env: Record<string, string | undefined>): string {
+  return env.PATH || env.Path || env.path || '';
+}
+
+/**
+ * Resolve a Bun executable suitable for a detached child spawn.
+ *
+ * On Windows, npm installs expose `bun` as a POSIX shell shim plus `bun.cmd`.
+ * Node/Bun process spawning does not reliably execute those shims directly,
+ * so prefer the real `node_modules/bun/bin/bun.exe` beside them.
+ */
+export function resolveBunSpawnCommand(
+  env: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform,
+  execPath: string = process.execPath,
+): BunSpawnCommand | null {
+  if (platform !== 'win32') return { command: 'bun', argsPrefix: [] };
+
+  if (execPath && path.basename(execPath).toLowerCase() === 'bun.exe' && fs.existsSync(execPath)) {
+    return { command: execPath, argsPrefix: [] };
+  }
+
+  const dirs = envPath(env).split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    const candidates = [
+      path.join(dir, 'bun.exe'),
+      path.join(dir, 'node_modules', 'bun', 'bin', 'bun.exe'),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return { command: candidate, argsPrefix: [] };
+    }
+
+    for (const shim of ['bun.cmd', 'bun.bat']) {
+      const shimPath = path.join(dir, shim);
+      if (fs.existsSync(shimPath)) {
+        return { command: 'cmd.exe', argsPrefix: ['/d', '/s', '/c', `"${shimPath}"`] };
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Locate the terminal-agent script on disk. In dev (cli.ts running via
  * `bun run`), it lives next to this file in browse/src. In a compiled
@@ -68,16 +116,24 @@ export function spawnTerminalAgent(opts: {
   }
   const script = opts.scriptPath || resolveTerminalAgentScript();
   if (!script || !fs.existsSync(script)) return null;
-  const proc = (Bun as any).spawn(['bun', 'run', script], {
-    cwd: opts.cwd || process.cwd(),
-    env: {
-      ...process.env,
-      BROWSE_STATE_FILE: opts.stateFile,
-      BROWSE_SERVER_PORT: String(opts.serverPort),
-      ...(opts.extraEnv || {}),
-    },
-    stdio: ['ignore', 'ignore', 'ignore'],
-  });
+  const bun = resolveBunSpawnCommand();
+  if (!bun) return null;
+  let proc: any;
+  try {
+    proc = (Bun as any).spawn([bun.command, ...bun.argsPrefix, 'run', script], {
+      cwd: opts.cwd || process.cwd(),
+      env: {
+        ...process.env,
+        BROWSE_STATE_FILE: opts.stateFile,
+        BROWSE_SERVER_PORT: String(opts.serverPort),
+        ...(opts.extraEnv || {}),
+      },
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch (err: any) {
+    if (err?.code === 'ENOENT' || err?.code === 'EACCES') return null;
+    throw err;
+  }
   proc.unref?.();
   return proc.pid ?? null;
 }

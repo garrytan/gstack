@@ -129,7 +129,7 @@ let activeShutdown: ((code?: number) => Promise<void>) | null = null;
 // silently weakened by misconfiguration.
 function sanitizeAuthToken(raw: string | undefined): string | null {
   if (!raw) return null;
-  const stripped = raw.replace(/[\s ​-‍﻿]/g, '');
+  const stripped = raw.replace(/[\s\u00a0\u200b-\u200d\ufeff]/g, '');
   if (stripped.length < 16) return null;
   return stripped;
 }

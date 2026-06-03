@@ -239,7 +239,17 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
-    spawnSync('node', ['-e', launcherCode], { stdio: 'ignore' });
+    const launcher = Bun.spawnSync(['node', '-e', launcherCode], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 5000,
+    });
+    const launcherExit = (launcher as any).exitCode ?? (launcher as any).status ?? 0;
+    if (launcherExit !== 0) {
+      const stderr = launcher.stderr?.toString().trim();
+      const stdout = launcher.stdout?.toString().trim();
+      throw new Error(`Windows launcher failed${stderr || stdout ? `:\n${stderr || stdout}` : ''}`);
+    }
   } else {
     // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
     // loop — it does NOT call setsid(), so the spawned server stays in the

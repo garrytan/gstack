@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug, resolveGstackHome, resolveChromiumProfile, cleanSingletonLocks } from '../src/config';
+import { resolveBunSpawnCommand } from '../src/terminal-agent-control';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -341,6 +342,42 @@ describe('cli command dispatch', () => {
     expect(cliSource).not.toContain("console.error('[browse] Starting server...')");
     expect(cliSource).toContain('Starting server in headed mode');
     expect(cliSource).toContain('Starting server with proxy');
+  });
+
+  test('Windows launcher uses Bun.spawnSync for compiled CLI compatibility', () => {
+    expect(cliSource).toContain("Bun.spawnSync(['node', '-e', launcherCode]");
+    expect(cliSource).not.toContain("spawnSync('node', ['-e', launcherCode]");
+  });
+});
+
+describe('server source portability', () => {
+  const serverSource = fs.readFileSync(path.resolve(__dirname, '../src/server.ts'), 'utf-8');
+
+  test('auth-token whitespace regex uses ASCII escapes for Node bundle safety', () => {
+    expect(serverSource).toContain('raw.replace(/[\\s\\u00a0\\u200b-\\u200d\\ufeff]/g');
+    expect(serverSource).not.toContain('raw.replace(/[\\s ');
+  });
+});
+
+describe('terminal agent spawn command', () => {
+  test('Windows npm bun shim resolves to real bun.exe', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-bun-shim-'));
+    const bunExe = path.join(tmpDir, 'node_modules', 'bun', 'bin', 'bun.exe');
+    fs.mkdirSync(path.dirname(bunExe), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'bun.cmd'), '@echo off\n');
+    fs.writeFileSync(bunExe, '');
+
+    try {
+      const result = resolveBunSpawnCommand({ PATH: tmpDir }, 'win32', 'C:\\Windows\\System32\\node.exe');
+      expect(result).toEqual({ command: bunExe, argsPrefix: [] });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Windows missing bun is non-fatal for terminal-agent spawn', () => {
+    const result = resolveBunSpawnCommand({ PATH: '' }, 'win32', 'C:\\Windows\\System32\\node.exe');
+    expect(result).toBeNull();
   });
 });
 
