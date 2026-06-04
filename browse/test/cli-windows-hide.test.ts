@@ -74,7 +74,10 @@ describe('detached server spawns carry windowsHide (#1863 fold-in)', () => {
   });
 
   test('every detached spawn site in cli.ts carries windowsHide:true', () => {
-    const body = read(CLI);
+    const body = read(CLI)
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
     const detachedSpawns = body.match(/detached:\s*true/g)?.length ?? 0;
     const windowsHideFlags = body.match(/windowsHide:\s*true/g)?.length ?? 0;
     expect(windowsHideFlags).toBeGreaterThanOrEqual(detachedSpawns);
