@@ -18,6 +18,11 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+
+# Use custom Playwright browsers path if manually installed (avoids macOS cache permission issues)
+if [ -d "$SOURCE_GSTACK_DIR/.playwright-browsers" ]; then
+  export PLAYWRIGHT_BROWSERS_PATH="$SOURCE_GSTACK_DIR/.playwright-browsers"
+fi
 CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
@@ -261,12 +266,12 @@ ensure_playwright_browser() {
     # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
     (
       cd "$SOURCE_GSTACK_DIR"
-      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch({ channel: 'chromium' }); await b.close(); })()" 2>/dev/null
     )
   else
     (
       cd "$SOURCE_GSTACK_DIR"
-      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch({ channel: "chromium" }); await browser.close();'
     ) >/dev/null 2>&1
   fi
 }
@@ -483,11 +488,16 @@ fi
 
 # 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
-  echo "Installing Playwright Chromium..."
-  (
-    cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
-  )
+  # Skip download if browser already exists in custom path (avoids macOS cache hang)
+  if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ -d "$PLAYWRIGHT_BROWSERS_PATH/chromium-1208" ]; then
+    echo "Playwright Chromium already installed at $PLAYWRIGHT_BROWSERS_PATH"
+  else
+    echo "Installing Playwright Chromium..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      bunx playwright install chromium
+    )
+  fi
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
