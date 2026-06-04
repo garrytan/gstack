@@ -1,21 +1,21 @@
 /**
- * Terminal sidebar tab — interactive Claude Code PTY in xterm.js.
+ * Terminal sidebar tab — interactive coding-agent PTY in xterm.js.
  *
  * Lifecycle (per plan + codex review):
  *   1. Sidebar opens. Terminal is the default-active tab.
- *   2. Bootstrap card shows "Press any key to start Claude Code."
+ *   2. Bootstrap card shows the active agent status. Codex is the default.
  *   3. On first keystroke (lazy spawn — codex finding #8): the extension
  *      a) POSTs /pty-session on the browse server with the AUTH_TOKEN to
  *         mint a short-lived HttpOnly cookie scoped to the terminal-agent.
  *      b) Opens ws://127.0.0.1:<terminalPort>/ws — the cookie travels
  *         automatically. Terminal-agent validates the cookie + the
  *         chrome-extension:// Origin (codex finding #9), then spawns
- *         claude in a PTY.
+ *         the selected agent in a PTY.
  *   4. Bytes pump both ways. Resize observer sends {type:"resize"} text
  *      frames; tab-switch hooks send {type:"tabSwitch"} frames.
  *   5. PTY exits or WS closes -> we show "Session ended" with a restart
  *      button. We do NOT auto-reconnect (codex finding #8: auto-reconnect
- *      = burn fresh claude session every time).
+ *      = burn a fresh agent session every time).
  *
  * Keep this file dependency-free. xterm.js + xterm-addon-fit are loaded
  * via <script src> tags in sidepanel.html (window.Terminal, window.FitAddon).
@@ -30,29 +30,91 @@
     return;
   }
 
+  const DEFAULT_AGENT = 'codex';
+  const AGENTS = {
+    codex: {
+      key: 'codex',
+      label: 'Codex',
+      displayName: 'Codex CLI',
+      installTitle: 'Codex CLI not found',
+      installUrl: 'https://help.openai.com/en/articles/11096431-openai-codex-cli-getting-started',
+      installText: 'OpenAI Codex CLI guide',
+      hint: 'Real PTY. Real terminal. Codex by default.',
+    },
+    claude: {
+      key: 'claude',
+      label: 'Claude',
+      displayName: 'Claude Code',
+      installTitle: 'Claude Code not found',
+      installUrl: 'https://docs.anthropic.com/en/docs/claude-code',
+      installText: 'Claude Code docs',
+      hint: 'Real PTY. Real terminal. Claude Code.',
+    },
+  };
+
   const els = {
     bootstrap: document.getElementById('terminal-bootstrap'),
     bootstrapStatus: document.getElementById('terminal-bootstrap-status'),
+    bootstrapHint: document.getElementById('terminal-bootstrap-hint'),
     installCard: document.getElementById('terminal-install-card'),
+    installTitle: document.getElementById('terminal-install-title'),
+    installLink: document.getElementById('terminal-install-link'),
     installRetry: document.getElementById('terminal-install-retry'),
     mount: document.getElementById('terminal-mount'),
     ended: document.getElementById('terminal-ended'),
     restart: document.getElementById('terminal-restart'),
     restartNow: document.getElementById('terminal-restart-now'),
+    agentButtons: Array.from(document.querySelectorAll('[data-terminal-agent]')),
   };
 
   /** State machine. */
-  const STATE = { IDLE: 'idle', CONNECTING: 'connecting', LIVE: 'live', ENDED: 'ended', NO_CLAUDE: 'no-claude' };
+  const STATE = { IDLE: 'idle', CONNECTING: 'connecting', LIVE: 'live', ENDED: 'ended', NO_AGENT: 'no-agent' };
   let state = STATE.IDLE;
 
   let term = null;
   let fitAddon = null;
   let ws = null;
+  let connectSeq = 0;
+  let currentAgent = loadAgent();
+
+  function loadAgent() {
+    try {
+      const saved = localStorage.getItem('gstackTerminalAgent');
+      return AGENTS[saved] ? saved : DEFAULT_AGENT;
+    } catch {
+      return DEFAULT_AGENT;
+    }
+  }
+
+  function saveAgent(agent) {
+    try { localStorage.setItem('gstackTerminalAgent', agent); } catch {}
+  }
+
+  function getAgent() {
+    return AGENTS[currentAgent] || AGENTS[DEFAULT_AGENT];
+  }
 
   function show(el) { el.style.display = ''; }
   function hide(el) { el.style.display = 'none'; }
 
+  function updateAgentControls() {
+    const agent = getAgent();
+    for (const btn of els.agentButtons) {
+      const active = btn.dataset.terminalAgent === agent.key;
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    if (els.bootstrapHint) els.bootstrapHint.textContent = agent.hint;
+    if (els.installTitle) els.installTitle.textContent = agent.installTitle;
+    if (els.installLink) {
+      els.installLink.href = agent.installUrl;
+      els.installLink.textContent = agent.installText;
+    }
+    if (els.restartNow) els.restartNow.title = `Restart ${agent.displayName} session`;
+  }
+
   function setState(next, opts = {}) {
+    updateAgentControls();
+    const agent = getAgent();
     state = next;
     switch (next) {
       case STATE.IDLE:
@@ -60,14 +122,14 @@
         hide(els.installCard);
         hide(els.mount);
         hide(els.ended);
-        els.bootstrapStatus.textContent = opts.message || 'Press any key to start Claude Code.';
+        els.bootstrapStatus.textContent = opts.message || `Press any key to start ${agent.displayName}.`;
         break;
       case STATE.CONNECTING:
         show(els.bootstrap);
         hide(els.installCard);
         hide(els.mount);
         hide(els.ended);
-        els.bootstrapStatus.textContent = 'Connecting...';
+        els.bootstrapStatus.textContent = `Connecting ${agent.displayName}...`;
         break;
       case STATE.LIVE:
         hide(els.bootstrap);
@@ -81,7 +143,7 @@
         hide(els.mount);
         show(els.ended);
         break;
-      case STATE.NO_CLAUDE:
+      case STATE.NO_AGENT:
         show(els.bootstrap);
         show(els.installCard);
         hide(els.mount);
@@ -89,16 +151,6 @@
         els.bootstrapStatus.textContent = '';
         break;
     }
-  }
-
-  /**
-   * Read auth + terminalPort from the server's /health. We don't fetch this
-   * here — sidepanel.js already polls /health for connection state and
-   * exposes the relevant fields on window.gstackHealth (set below in init()).
-   * If terminalPort is missing, the agent isn't ready yet.
-   */
-  function getHealth() {
-    return window.gstackHealth || {};
   }
 
   function getServerPort() {
@@ -139,9 +191,9 @@
     }
   }
 
-  async function checkClaudeAvailable(terminalPort) {
+  async function checkAgentAvailable(terminalPort, agentKey) {
     try {
-      const resp = await fetch(`http://127.0.0.1:${terminalPort}/claude-available`, {
+      const resp = await fetch(`http://127.0.0.1:${terminalPort}/agent-available?agent=${encodeURIComponent(agentKey)}`, {
         credentials: 'include',
       });
       if (!resp.ok) return { available: false };
@@ -224,7 +276,7 @@
   /**
    * Inject a string into the live PTY (the same way a real keystroke would).
    * Used by the toolbar's Cleanup button and the Inspector's "Send to Code"
-   * action so the user can drive claude from outside-the-keyboard surfaces.
+   * action so the user can drive the selected agent from toolbar surfaces.
    * Returns true if the bytes went out, false if no live session.
    */
   window.gstackInjectToTerminal = function (text) {
@@ -239,9 +291,12 @@
 
   async function connect() {
     if (state !== STATE.IDLE) return; // already connecting/live
+    const seq = ++connectSeq;
+    const agentKey = currentAgent;
     setState(STATE.CONNECTING);
 
     const minted = await mintSession();
+    if (seq !== connectSeq || agentKey !== currentAgent) return;
     if (minted.error) {
       setState(STATE.IDLE, { message: `Cannot start: ${minted.error}` });
       return;
@@ -252,10 +307,11 @@
       return;
     }
 
-    // Pre-flight: does claude even exist on PATH?
-    const claudeStatus = await checkClaudeAvailable(terminalPort);
-    if (!claudeStatus.available) {
-      setState(STATE.NO_CLAUDE);
+    // Pre-flight: does the selected agent CLI exist on PATH?
+    const agentStatus = await checkAgentAvailable(terminalPort, agentKey);
+    if (seq !== connectSeq || agentKey !== currentAgent) return;
+    if (!agentStatus.available) {
+      setState(STATE.NO_AGENT);
       return;
     }
 
@@ -272,22 +328,24 @@
     // SameSite=Strict don't survive the jump from server.ts:34567 to the
     // agent's random port from a chrome-extension origin, so cookies
     // alone weren't reliable.
-    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [`gstack-pty.${ptySessionToken}`]);
-    ws.binaryType = 'arraybuffer';
+    const socket = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws?agent=${encodeURIComponent(agentKey)}`, [`gstack-pty.${ptySessionToken}`]);
+    ws = socket;
+    socket.binaryType = 'arraybuffer';
 
-    ws.addEventListener('open', () => {
+    socket.addEventListener('open', () => {
+      if (seq !== connectSeq || ws !== socket) return;
       try {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       } catch {}
-      // Push a fresh tab snapshot so claude's tabs.json is populated by
+      // Push a fresh tab snapshot so the agent's tabs.json is populated by
       // the time the lazy spawn finishes booting. Background.js exposes
       // the snapshot helper via chrome.runtime; we ask for it here and
       // forward whatever comes back.
       try {
         chrome.runtime.sendMessage({ type: 'getTabState' }, (resp) => {
-          if (resp && ws && ws.readyState === WebSocket.OPEN) {
+          if (resp && seq === connectSeq && ws === socket && socket.readyState === WebSocket.OPEN) {
             try {
-              ws.send(JSON.stringify({
+              socket.send(JSON.stringify({
                 type: 'tabState',
                 active: resp.active,
                 tabs: resp.tabs,
@@ -297,17 +355,18 @@
           }
         });
       } catch {}
-      // Send a single byte to nudge the agent to spawn claude (lazy-spawn trigger).
-      try { ws.send(new TextEncoder().encode('\n')); } catch {}
+      // Send a single byte to nudge the agent to spawn (lazy-spawn trigger).
+      try { socket.send(new TextEncoder().encode('\n')); } catch {}
     });
 
-    ws.addEventListener('message', (ev) => {
+    socket.addEventListener('message', (ev) => {
+      if (seq !== connectSeq || ws !== socket) return;
       if (typeof ev.data === 'string') {
         // Agent control message (rare). Treat as JSON; error frames carry code.
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === 'error' && msg.code === 'CLAUDE_NOT_FOUND') {
-            setState(STATE.NO_CLAUDE);
+          if (msg.type === 'error' && (msg.code === 'CLAUDE_NOT_FOUND' || msg.code === 'CODEX_NOT_FOUND')) {
+            setState(STATE.NO_AGENT);
             try { ws.close(); } catch {}
           }
         } catch {}
@@ -318,17 +377,20 @@
       term.write(buf);
     });
 
-    ws.addEventListener('close', () => {
-      ws = null;
-      if (state !== STATE.NO_CLAUDE) setState(STATE.ENDED);
+    socket.addEventListener('close', () => {
+      if (ws === socket) ws = null;
+      if (seq !== connectSeq) return;
+      if (state !== STATE.NO_AGENT) setState(STATE.ENDED);
     });
 
-    ws.addEventListener('error', (err) => {
+    socket.addEventListener('error', (err) => {
+      if (seq !== connectSeq || ws !== socket) return;
       console.error('[gstack terminal] ws error', err);
     });
   }
 
   function teardown() {
+    connectSeq += 1;
     try { ws && ws.close(); } catch {}
     ws = null;
     if (term) {
@@ -346,6 +408,8 @@
    * IDLE, kick off auto-connect. Safe to call from any state.
    */
   function forceRestart() {
+    const agent = getAgent();
+    connectSeq += 1;
     try { ws && ws.close(); } catch {}
     ws = null;
     if (term) {
@@ -353,7 +417,7 @@
       term = null;
       fitAddon = null;
     }
-    setState(STATE.IDLE, { message: 'Starting Claude Code...' });
+    setState(STATE.IDLE, { message: `Starting ${agent.displayName}...` });
     tryAutoConnect();
   }
 
@@ -375,11 +439,22 @@
   }
 
   function init() {
-    setState(STATE.IDLE, { message: 'Starting Claude Code...' });
+    updateAgentControls();
+    setState(STATE.IDLE, { message: `Starting ${getAgent().displayName}...` });
+
+    for (const btn of els.agentButtons) {
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.terminalAgent;
+        if (!AGENTS[next] || next === currentAgent) return;
+        currentAgent = next;
+        saveAgent(next);
+        forceRestart();
+      });
+    }
 
     els.installRetry?.addEventListener('click', () => {
-      // Re-probe claude on PATH, then try a connect.
-      setState(STATE.IDLE, { message: 'Starting Claude Code...' });
+      // Re-probe the selected agent on PATH, then try a connect.
+      setState(STATE.IDLE, { message: `Starting ${getAgent().displayName}...` });
       tryAutoConnect();
     });
 
@@ -387,14 +462,14 @@
     //   - els.restart lives inside the ENDED state card (visible only after
     //     a session has ended).
     //   - els.restartNow lives in the always-visible toolbar (lets the user
-    //     force a fresh claude mid-session without waiting for it to exit).
+    //     force a fresh agent mid-session without waiting for it to exit).
     els.restart?.addEventListener('click', forceRestart);
     els.restartNow?.addEventListener('click', forceRestart);
 
 
     // Live browser-tab state. background.js → sidepanel.js → us. We
     // forward over the live PTY WebSocket; terminal-agent.ts writes
-    // <stateDir>/active-tab.json + <stateDir>/tabs.json so claude can
+    // <stateDir>/active-tab.json + <stateDir>/tabs.json so the agent can
     // always read the current tab landscape.
     document.addEventListener('gstack:tab-state', (ev) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;

@@ -32,7 +32,7 @@
        Inspector still exist behind the `debug` toggle in the footer. -->
   <main id="tab-terminal" class="tab-content active" role="tabpanel" aria-label="Terminal">
     <!-- Toolbar with browser quick-actions on the left, Restart on the right.
-         Restart is always visible so the user can force a fresh claude any
+         Restart is always visible so the user can force a fresh agent any
          time, not just from the ENDED state. -->
     <div class="terminal-toolbar" id="terminal-toolbar">
       <div class="terminal-toolbar-actions">
@@ -40,17 +40,23 @@
         <button id="chat-screenshot-btn" class="terminal-toolbar-btn" title="Take a screenshot">📸 Screenshot</button>
         <button id="chat-cookies-btn" class="terminal-toolbar-btn" title="Import cookies from your browser">🍪 Cookies</button>
       </div>
-      <button class="terminal-toolbar-btn" id="terminal-restart-now" title="Restart Claude Code session">↻ Restart</button>
+      <div class="terminal-toolbar-right">
+        <div class="terminal-agent-switch" role="group" aria-label="Terminal agent">
+          <button class="terminal-agent-btn" data-terminal-agent="codex" aria-pressed="true" title="Use Codex CLI">Codex</button>
+          <button class="terminal-agent-btn" data-terminal-agent="claude" aria-pressed="false" title="Use Claude Code">Claude</button>
+        </div>
+        <button class="terminal-toolbar-btn" id="terminal-restart-now" title="Restart agent session">↻ Restart</button>
+      </div>
     </div>
     <div class="terminal-bootstrap" id="terminal-bootstrap">
       <div class="terminal-bootstrap-icon">▸</div>
-      <p id="terminal-bootstrap-status">Starting Claude Code...</p>
-      <p class="muted" id="terminal-bootstrap-hint">Real PTY. Real terminal. Real claude.</p>
+      <p id="terminal-bootstrap-status">Starting Codex...</p>
+      <p class="muted" id="terminal-bootstrap-hint">Real PTY. Real terminal. Codex by default.</p>
       <pre id="loading-debug" class="muted" style="font-size:11px; font-family:'JetBrains Mono',monospace; white-space:pre-wrap; margin-top:8px; color:#71717A;"></pre>
     </div>
     <div class="terminal-install-card" id="terminal-install-card" style="display:none">
-      <p><strong>Claude Code not found</strong></p>
-      <p class="muted">Install: <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank">docs.anthropic.com/en/docs/claude-code</a></p>
+      <p><strong id="terminal-install-title">Codex CLI not found</strong></p>
+      <p class="muted">Install: <a id="terminal-install-link" href="https://help.openai.com/en/articles/11096431-openai-codex-cli-getting-started" target="_blank">OpenAI Codex CLI guide</a></p>
       <button class="install-retry-btn" id="terminal-install-retry">I installed it &mdash; try again</button>
     </div>
     <div class="terminal-mount" id="terminal-mount" style="display:none"></div>

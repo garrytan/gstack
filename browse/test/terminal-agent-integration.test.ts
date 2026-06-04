@@ -11,7 +11,7 @@
  *   6. close behavior — sending close terminates the PTY child.
  *
  * Uses /bin/bash via BROWSE_TERMINAL_BINARY override so CI doesn't need
- * the `claude` binary installed.
+ * Codex or Claude Code installed.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -124,6 +124,37 @@ describe('terminal-agent: /ws gates', () => {
       },
     });
     expect(resp.status).toBe(401);
+  });
+
+  test('rejects unknown agent after valid extension Origin', async () => {
+    const resp = await fetch(`http://127.0.0.1:${agentPort}/ws?agent=not-real`, {
+      headers: { 'Origin': 'chrome-extension://abc123' },
+    });
+    expect(resp.status).toBe(400);
+    expect(await resp.text()).toBe('unknown agent');
+  });
+});
+
+describe('terminal-agent: /agent-available', () => {
+  test('defaults to Codex and accepts Claude when the test binary override is present', async () => {
+    const codexResp = await fetch(`http://127.0.0.1:${agentPort}/agent-available`);
+    expect(codexResp.status).toBe(200);
+    const codex = await codexResp.json();
+    expect(codex.agent).toBe('codex');
+    expect(codex.available).toBe(true);
+    expect(codex.path).toBe(BASH);
+
+    const claudeResp = await fetch(`http://127.0.0.1:${agentPort}/agent-available?agent=claude`);
+    expect(claudeResp.status).toBe(200);
+    const claude = await claudeResp.json();
+    expect(claude.agent).toBe('claude');
+    expect(claude.available).toBe(true);
+    expect(claude.path).toBe(BASH);
+  });
+
+  test('rejects unknown agent names', async () => {
+    const resp = await fetch(`http://127.0.0.1:${agentPort}/agent-available?agent=bad`);
+    expect(resp.status).toBe(400);
   });
 });
 

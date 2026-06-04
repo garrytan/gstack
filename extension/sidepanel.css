@@ -705,6 +705,39 @@ body::after {
   gap: 4px;
   flex-wrap: wrap;
 }
+.terminal-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.terminal-agent-switch {
+  display: inline-flex;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.terminal-agent-btn {
+  background: transparent;
+  border: 0;
+  border-right: 1px solid #27272a;
+  color: #a1a1aa;
+  padding: 3px 8px;
+  min-width: 52px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+}
+.terminal-agent-btn:last-child {
+  border-right: 0;
+}
+.terminal-agent-btn[aria-pressed="true"] {
+  background: #27272a;
+  color: #f4f4f5;
+}
+.terminal-agent-btn:hover {
+  color: #f59e0b;
+}
 .terminal-toolbar-btn {
   background: transparent;
   border: 1px solid #27272a;

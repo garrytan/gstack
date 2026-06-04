@@ -2275,6 +2275,25 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
   });
 
+  test('setup defaults to Codex while preserving explicit Claude switching', () => {
+    expect(setupContent).toContain('HOST="codex"');
+    expect(setupContent).toContain('HOST_FLAG=0');
+    expect(setupContent).toContain('elif [ "$HOST" = "claude" ]; then');
+    expect(setupContent).toContain('# If none found, default to codex');
+    expect(setupContent).toContain('INSTALL_CODEX=1');
+  });
+
+  test('Codex setup does not persist Claude-only skill prefix settings', () => {
+    expect(setupContent).toContain('if [ "$HOST" = "codex" ]; then');
+    expect(setupContent).toContain('--prefix/--no-prefix only applies to Claude Code installs');
+  });
+
+  test('team mode hook registration is gated to Claude Code installs', () => {
+    expect(setupContent).toContain('if [ "$INSTALL_CLAUDE" -eq 1 ]; then');
+    expect(setupContent).toContain('Team mode hooks are currently Claude Code-specific.');
+    expect(setupContent).toContain('./setup --host claude --team');
+  });
+
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');

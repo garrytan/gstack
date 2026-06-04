@@ -142,18 +142,18 @@ describe('Source-level guard: terminal-agent', () => {
     expect(wsHandler).toContain('acceptedProtocol');
   });
 
-  test('lazy spawn: claude PTY is spawned in message handler, not on upgrade', () => {
+  test('lazy spawn: selected agent PTY is spawned in message handler, not on upgrade', () => {
     // The whole point of lazy-spawn (codex finding #8) is that the WS
-    // upgrade itself does NOT call spawnClaude. Spawn happens on first
+    // upgrade itself does NOT call spawnAgent. Spawn happens on first
     // message frame.
     const upgradeBlock = AGENT_SRC.slice(
       AGENT_SRC.indexOf("if (url.pathname === '/ws')"),
       AGENT_SRC.indexOf("websocket: {"),
     );
-    expect(upgradeBlock).not.toContain('spawnClaude(');
+    expect(upgradeBlock).not.toContain('spawnAgent(');
     // Spawn must be invoked from the message handler (lazy on first byte).
     const messageHandler = AGENT_SRC.slice(AGENT_SRC.indexOf('message(ws, raw)'));
-    expect(messageHandler).toContain('spawnClaude(');
+    expect(messageHandler).toContain('spawnAgent(');
     expect(messageHandler).toContain('!session.spawned');
   });
 
@@ -174,7 +174,7 @@ describe('Source-level guard: terminal-agent', () => {
     expect(AGENT_SRC).toContain("msg?.type === 'tabState'");
     expect(AGENT_SRC).toContain('function handleTabState');
     const fn = AGENT_SRC.slice(AGENT_SRC.indexOf('function handleTabState'));
-    // Atomic write via tmp + rename for both files (so claude never reads
+    // Atomic write via tmp + rename for both files (so the agent never reads
     // a half-written JSON document).
     expect(fn).toContain("'tabs.json'");
     expect(fn).toContain("'active-tab.json'");
@@ -185,21 +185,31 @@ describe('Source-level guard: terminal-agent', () => {
     expect(fn).toContain("startsWith('chrome-extension://')");
   });
 
-  test('claude is spawned with --append-system-prompt tab-awareness hint', () => {
+  test('agent selection defaults to Codex and is whitelist-only', () => {
+    expect(AGENT_SRC).toContain("const DEFAULT_TERMINAL_AGENT: TerminalAgentName = 'codex'");
+    expect(AGENT_SRC).toContain("return raw === 'codex' || raw === 'claude' ? raw : null");
+    const wsHandler = AGENT_SRC.slice(AGENT_SRC.indexOf("if (url.pathname === '/ws')"));
+    expect(wsHandler).toContain("url.searchParams.get('agent')");
+    expect(wsHandler).toContain('unknown agent');
+    expect(wsHandler.indexOf("origin.startsWith('chrome-extension://')")).toBeLessThan(wsHandler.indexOf("url.searchParams.get('agent')"));
+  });
+
+  test('Claude spawn uses hidden tab-awareness hint; Codex starts clean', () => {
     expect(AGENT_SRC).toContain('function buildTabAwarenessHint');
     const hint = AGENT_SRC.slice(AGENT_SRC.indexOf('function buildTabAwarenessHint'));
     // The hint must mention the live state files and the fanout command —
-    // those are the two affordances that distinguish a gstack-PTY claude
-    // from a plain `claude` session.
+    // those are the two affordances that distinguish a gstack PTY session
+    // from a plain terminal session.
     expect(hint).toContain('tabs.json');
     expect(hint).toContain('active-tab.json');
     expect(hint).toContain('tab-each');
-    // And it must be passed via --append-system-prompt at spawn time
-    // (NOT written into the PTY as user input — that would pollute the
-    // visible transcript).
-    const spawn = AGENT_SRC.slice(AGENT_SRC.indexOf('function spawnClaude'));
-    expect(spawn).toContain("'--append-system-prompt'");
-    expect(spawn).toContain('tabHint');
+    const args = AGENT_SRC.slice(AGENT_SRC.indexOf('function buildAgentArgs'));
+    expect(args).toContain("agentName === 'claude'");
+    expect(args).toContain("'--append-system-prompt'");
+    expect(args).toContain('return resolved.args');
+    const spawn = AGENT_SRC.slice(AGENT_SRC.indexOf('function spawnAgent'));
+    expect(spawn).toContain('buildTabAwarenessHint');
+    expect(spawn).toContain('buildAgentArgs');
   });
 });
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gstack setup — build browser binary + register skills with Claude Code / Codex
+# gstack setup — build browser binary + register skills with Codex / Claude Code
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
@@ -35,7 +35,8 @@ QUIET=0
 log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
 
 # ─── Parse flags ──────────────────────────────────────────────
-HOST="claude"
+HOST="codex"
+HOST_FLAG=0
 LOCAL_INSTALL=0
 SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
@@ -43,8 +44,8 @@ TEAM_MODE=0
 NO_TEAM_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
-    --host=*) HOST="${1#--host=}"; shift ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; HOST_FLAG=1; shift 2 ;;
+    --host=*) HOST="${1#--host=}"; HOST_FLAG=1; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
@@ -94,11 +95,22 @@ case "$HOST" in
   *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
+# --local is a deprecated Claude Code-only install path. Preserve the old
+# no-host behavior while still rejecting an explicit Codex local install.
+if [ "$LOCAL_INSTALL" -eq 1 ] && [ "$HOST_FLAG" -eq 0 ]; then
+  HOST="claude"
+fi
+
 # ─── Resolve skill prefix preference ─────────────────────────
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
 export GSTACK_SETUP_RUNNING=1  # Prevent gstack-config post-set hook from triggering relink mid-setup
-if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
+if [ "$HOST" = "codex" ]; then
+  SKILL_PREFIX=0
+  if [ "$SKILL_PREFIX_FLAG" -eq 1 ]; then
+    log "warning: --prefix/--no-prefix only applies to Claude Code installs; ignoring for Codex."
+  fi
+elif [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
   _saved_prefix="$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || true)"
   if [ "$_saved_prefix" = "true" ]; then
     SKILL_PREFIX=1
@@ -161,9 +173,9 @@ if [ "$HOST" = "auto" ]; then
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
-  # If none found, default to claude
+  # If none found, default to codex
   if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
-    INSTALL_CLAUDE=1
+    INSTALL_CODEX=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
@@ -763,7 +775,7 @@ link_opencode_skill_dirs() {
   fi
 }
 
-# 4. Install for Claude (default)
+# 4. Install for Claude
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
 CODEX_REPO_LOCAL=0
@@ -1017,18 +1029,25 @@ if [ "$TEAM_MODE" -eq 1 ]; then
   "$GSTACK_CONFIG" set auto_upgrade true 2>/dev/null || true
   "$GSTACK_CONFIG" set team_mode true 2>/dev/null || true
 
-  # Register SessionStart hook in Claude Code settings
-  if [ -x "$SETTINGS_HOOK" ]; then
-    "$SETTINGS_HOOK" add "$HOOK_CMD" 2>/dev/null || true
-  fi
+  if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+    # Register SessionStart hook in Claude Code settings
+    if [ -x "$SETTINGS_HOOK" ]; then
+      "$SETTINGS_HOOK" add "$HOOK_CMD" 2>/dev/null || true
+    fi
 
-  log ""
-  log "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
-  log "  Hook: $HOOK_CMD"
-  log "  To disable: ./setup --no-team"
-  log ""
-  log "Bootstrap your repo:"
-  log "  cd <your-repo> && $SOURCE_GSTACK_DIR/bin/gstack-team-init required"
+    log ""
+    log "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
+    log "  Hook: $HOOK_CMD"
+    log "  To disable: ./setup --no-team"
+    log ""
+    log "Bootstrap your repo:"
+    log "  cd <your-repo> && $SOURCE_GSTACK_DIR/bin/gstack-team-init required"
+  else
+    log ""
+    log "Team mode hooks are currently Claude Code-specific."
+    log "  Codex install is ready; no Claude Code hook was registered."
+    log "  To enable Claude Code team mode: ./setup --host claude --team"
+  fi
 fi
 
 if [ "$NO_TEAM_MODE" -eq 1 ]; then

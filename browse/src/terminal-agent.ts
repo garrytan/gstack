@@ -1,5 +1,5 @@
 /**
- * Terminal Agent — PTY-backed Claude Code terminal for the gstack browser
+ * Terminal Agent — PTY-backed coding-agent terminal for the gstack browser
  * sidebar. Translates the phoenix gbrowser PTY (cmd/gbd/terminal.go) into
  * Bun, with a few changes informed by codex's outside-voice review:
  *
@@ -11,8 +11,8 @@
  *    target.
  *  - Cookie-based auth via /internal/grant from the parent server, not a
  *    token in /health.
- *  - Lazy spawn: claude PTY is not spawned until the WS receives its first
- *    data frame. Sidebar opens that never type don't burn a claude session.
+ *  - Lazy spawn: the selected agent PTY is not spawned until the WS receives
+ *    its first data frame. Sidebar opens that never type don't burn a session.
  *  - PTY dies with WS close (one PTY per WS). v1.1 may add session
  *    survival; for v1 we match phoenix's lifecycle.
  *
@@ -51,49 +51,104 @@ interface PtySession {
   cols: number;
   rows: number;
   cookie: string;
+  agent: TerminalAgentName;
   spawned: boolean;
 }
 
 const sessions = new WeakMap<any, PtySession>(); // ws -> session
 
-/** Find claude on PATH. */
-function findClaude(): string | null {
+type TerminalAgentName = 'codex' | 'claude';
+
+interface TerminalAgentConfig {
+  name: TerminalAgentName;
+  displayName: string;
+  binary: string;
+  installUrl: string;
+  missingCode: string;
+  fallbackPaths: string[];
+}
+
+interface ResolvedAgentCommand {
+  command: string;
+  args: string[];
+  override: boolean;
+}
+
+const DEFAULT_TERMINAL_AGENT: TerminalAgentName = 'codex';
+const AGENTS: Record<TerminalAgentName, TerminalAgentConfig> = {
+  codex: {
+    name: 'codex',
+    displayName: 'Codex CLI',
+    binary: 'codex',
+    installUrl: 'https://help.openai.com/en/articles/11096431-openai-codex-cli-getting-started',
+    missingCode: 'CODEX_NOT_FOUND',
+    fallbackPaths: [
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      `${process.env.HOME}/.local/bin/codex`,
+      `${process.env.HOME}/.bun/bin/codex`,
+      `${process.env.HOME}/.npm-global/bin/codex`,
+    ],
+  },
+  claude: {
+    name: 'claude',
+    displayName: 'Claude Code',
+    binary: 'claude',
+    installUrl: 'https://docs.anthropic.com/en/docs/claude-code',
+    missingCode: 'CLAUDE_NOT_FOUND',
+    fallbackPaths: [
+      '/opt/homebrew/bin/claude',
+      '/usr/local/bin/claude',
+      `${process.env.HOME}/.local/bin/claude`,
+      `${process.env.HOME}/.bun/bin/claude`,
+      `${process.env.HOME}/.npm-global/bin/claude`,
+    ],
+  },
+};
+
+function parseAgentName(raw: string | null | undefined): TerminalAgentName | null {
+  if (!raw) return DEFAULT_TERMINAL_AGENT;
+  return raw === 'codex' || raw === 'claude' ? raw : null;
+}
+
+/** Find the selected agent on PATH. */
+function findAgent(agentName: TerminalAgentName): ResolvedAgentCommand | null {
   // Test-only override. Lets the integration tests spawn /bin/bash instead
-  // of requiring claude to be installed on every CI runner. NEVER read in
+  // of requiring a coding-agent CLI on every CI runner. NEVER read in
   // production (sidebar UI). Documented in browse/test/terminal-agent-integration.test.ts.
   const override = process.env.BROWSE_TERMINAL_BINARY;
-  if (override && fs.existsSync(override)) return override;
+  if (override && fs.existsSync(override)) {
+    return { command: override, args: [], override: true };
+  }
+
+  const agent = AGENTS[agentName];
   // Bun.which is sync and respects PATH. Falls back to a small list of
   // common install locations if PATH is stripped (e.g., launched from
   // Conductor with a minimal env).
-  const which = (Bun as any).which?.('claude');
-  if (which) return which;
-  const candidates = [
-    '/opt/homebrew/bin/claude',
-    '/usr/local/bin/claude',
-    `${process.env.HOME}/.local/bin/claude`,
-    `${process.env.HOME}/.bun/bin/claude`,
-    `${process.env.HOME}/.npm-global/bin/claude`,
-  ];
-  for (const c of candidates) {
-    try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
+  const which = (Bun as any).which?.(agent.binary);
+  if (which) return { command: which, args: [], override: false };
+  for (const c of agent.fallbackPaths) {
+    try { fs.accessSync(c, fs.constants.X_OK); return { command: c, args: [], override: false }; } catch {}
   }
   return null;
 }
 
-/** Probe + persist claude availability for the bootstrap card. */
-function writeClaudeAvailable(): void {
+/** Probe + persist selected-agent availability for the bootstrap card. */
+function writeAgentAvailable(agentName: TerminalAgentName): void {
   const stateDir = path.dirname(STATE_FILE);
   try { mkdirSecure(stateDir); } catch {}
-  const found = findClaude();
+  const agent = AGENTS[agentName];
+  const found = findAgent(agentName);
   const status = {
+    agent: agent.name,
+    displayName: agent.displayName,
     available: !!found,
-    path: found || undefined,
-    install_url: 'https://docs.anthropic.com/en/docs/claude-code',
+    path: found?.command || undefined,
+    install_url: agent.installUrl,
     checked_at: new Date().toISOString(),
   };
-  const target = path.join(stateDir, 'claude-available.json');
-  const tmp = path.join(stateDir, `.tmp-claude-${process.pid}`);
+  const target = path.join(stateDir, `${agent.name}-available.json`);
+  const tmp = path.join(stateDir, `.tmp-${agent.name}-${process.pid}`);
   try {
     writeSecureFile(tmp, JSON.stringify(status, null, 2));
     fs.renameSync(tmp, target);
@@ -103,23 +158,25 @@ function writeClaudeAvailable(): void {
 }
 
 /**
- * System-prompt hint passed to claude via --append-system-prompt. Tells
- * claude what tab-awareness affordances exist in this session so it
+ * System-prompt hint passed to Claude via --append-system-prompt. Tells
+ * the agent what tab-awareness affordances exist in this session so it
  * doesn't have to discover them by trial. The user can override anything
  * here just by saying so — system prompt is a soft hint, not a contract.
  *
- * Two paths claude has:
+ * Two paths the agent has:
  *   1. Read live state from <stateDir>/tabs.json + active-tab.json
  *      (updated continuously by the gstack browser extension).
  *   2. Run $B tab, $B tabs, $B tab-each <command> to act on tabs. The
  *      tab-each helper fans a single command across every open tab and
  *      returns per-tab results as JSON.
  */
-function buildTabAwarenessHint(stateDir: string): string {
+function buildTabAwarenessHint(stateDir: string, agentName: TerminalAgentName): string {
   const tabsFile = path.join(stateDir, 'tabs.json');
   const activeFile = path.join(stateDir, 'active-tab.json');
+  const agent = AGENTS[agentName];
   return [
     'You are running inside the gstack browser sidebar with live access to the user\'s browser tabs.',
+    `Active terminal agent: ${agent.displayName}.`,
     '',
     'Tab state files (kept fresh automatically by the extension):',
     `  ${tabsFile}        — all open tabs (id, url, title, active, pinned)`,
@@ -137,18 +194,24 @@ function buildTabAwarenessHint(stateDir: string): string {
     '  $B tab-each text            — pull clean text from every tab',
     '  $B tab-each title           — list every tab\'s title',
     '',
-    'You\'re in a real terminal with a real PTY — slash commands, /resume, ANSI colors all work as in a normal claude session.',
+    'You\'re in a real terminal with a real PTY. Use the normal interactive commands available in this agent CLI.',
   ].join('\n');
 }
 
-/** Spawn claude in a PTY. Returns null if claude not on PATH. */
-function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void) {
-  const claudePath = findClaude();
-  if (!claudePath) return null;
+function buildAgentArgs(agentName: TerminalAgentName, resolved: ResolvedAgentCommand, tabHint: string): string[] {
+  if (resolved.override) return resolved.args;
+  if (agentName === 'claude') return ['--append-system-prompt', tabHint];
+  return resolved.args;
+}
 
-  // Match phoenix env so claude knows which browse server to talk to and
+/** Spawn the selected coding agent in a PTY. Returns null if the CLI is not on PATH. */
+function spawnAgent(agentName: TerminalAgentName, cols: number, rows: number, onData: (chunk: Buffer) => void) {
+  const resolved = findAgent(agentName);
+  if (!resolved) return null;
+
+  // Match phoenix env so the agent knows which browse server to talk to and
   // doesn't try to autostart its own. BROWSE_HEADED=1 keeps the existing
-  // headed-mode browser; BROWSE_NO_AUTOSTART prevents claude's gstack
+  // headed-mode browser; BROWSE_NO_AUTOSTART prevents gstack
   // tooling from racing to spawn another server.
   const env: Record<string, string> = {
     ...process.env as any,
@@ -160,15 +223,14 @@ function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void
     COLORTERM: 'truecolor',
   };
 
-  // --append-system-prompt is the right injection surface (per `claude --help`):
-  // it gets appended to the model's system prompt, so claude treats this as
-  // contextual guidance, not a user message. Don't use a leading PTY write
-  // for this — that would show up as if the user typed the hint, polluting
-  // the visible transcript.
+  // Claude supports hidden context through --append-system-prompt. Codex CLI
+  // does not expose an equivalent interactive flag in `codex --help`, so it
+  // starts clean instead of receiving a visible first user prompt.
   const stateDir = path.dirname(STATE_FILE);
-  const tabHint = buildTabAwarenessHint(stateDir);
+  const tabHint = buildTabAwarenessHint(stateDir, agentName);
+  const args = buildAgentArgs(agentName, resolved, tabHint);
 
-  const proc = (Bun as any).spawn([claudePath, '--append-system-prompt', tabHint], {
+  const proc = (Bun as any).spawn([resolved.command, ...args], {
     terminal: {
       rows,
       cols,
@@ -236,11 +298,35 @@ function buildServer() {
         }).catch(() => new Response('bad', { status: 400 }));
       }
 
-      // /claude-available — bootstrap card hits this when user clicks "I installed it".
+      // /agent-available — bootstrap card hits this when user clicks "I installed it".
+      if (url.pathname === '/agent-available' && req.method === 'GET') {
+        const agentName = parseAgentName(url.searchParams.get('agent'));
+        if (!agentName) {
+          return new Response(JSON.stringify({ error: 'unknown agent' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        writeAgentAvailable(agentName);
+        const agent = AGENTS[agentName];
+        const found = findAgent(agentName);
+        return new Response(JSON.stringify({
+          agent: agent.name,
+          displayName: agent.displayName,
+          available: !!found,
+          path: found?.command,
+          install_url: agent.installUrl,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // /claude-available — backwards-compatible route for old sidepanels.
       if (url.pathname === '/claude-available' && req.method === 'GET') {
-        writeClaudeAvailable();
-        const found = findClaude();
-        return new Response(JSON.stringify({ available: !!found, path: found }), {
+        writeAgentAvailable('claude');
+        const found = findAgent('claude');
+        return new Response(JSON.stringify({ available: !!found, path: found?.command }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -268,6 +354,11 @@ function buildServer() {
         }
         if (EXTENSION_ID && origin !== `chrome-extension://${EXTENSION_ID}`) {
           return new Response('forbidden origin', { status: 403 });
+        }
+
+        const agentName = parseAgentName(url.searchParams.get('agent'));
+        if (!agentName) {
+          return new Response('unknown agent', { status: 400 });
         }
 
         // Try Sec-WebSocket-Protocol first. Format: a single token, possibly
@@ -306,7 +397,7 @@ function buildServer() {
         }
 
         const upgraded = server.upgrade(req, {
-          data: { cookie: token },
+          data: { cookie: token, agent: agentName },
           // Echo the protocol back so the browser accepts the upgrade.
           // Required when the client sends Sec-WebSocket-Protocol — the
           // server MUST select one of the offered protocols, otherwise
@@ -328,6 +419,7 @@ function buildServer() {
             cols: 80,
             rows: 24,
             cookie: (ws.data as any)?.cookie || '',
+            agent: (ws.data as any)?.agent || DEFAULT_TERMINAL_AGENT,
             spawned: false,
           };
           sessions.set(ws, session);
@@ -359,13 +451,13 @@ function buildServer() {
           return;
         }
 
-        // Binary input. Lazy-spawn claude on the first byte.
+        // Binary input. Lazy-spawn the selected agent on the first byte.
         if (!session.spawned) {
           session.spawned = true;
           // UTF-8 boundary detection to prevent splitting multi-byte characters (issue #1272).
           // Buffer incomplete UTF-8 sequences until the next chunk completes them.
           let leftover = Buffer.alloc(0);
-          const proc = spawnClaude(session.cols, session.rows, (chunk) => {
+          const proc = spawnAgent(session.agent, session.cols, session.rows, (chunk) => {
             const combined = Buffer.concat([leftover, Buffer.from(chunk)]);
             // Find the last index where a UTF-8 codepoint ends. Look back at most 3 bytes.
             let safeEnd = combined.length;
@@ -384,18 +476,22 @@ function buildServer() {
             }
           });
           if (!proc) {
+            const agent = AGENTS[session.agent];
             try {
               ws.send(JSON.stringify({
                 type: 'error',
-                code: 'CLAUDE_NOT_FOUND',
-                message: 'claude CLI not on PATH. Install: https://docs.anthropic.com/en/docs/claude-code',
+                code: agent.missingCode,
+                agent: agent.name,
+                displayName: agent.displayName,
+                installUrl: agent.installUrl,
+                message: `${agent.displayName} not on PATH. Install: ${agent.installUrl}`,
               }));
-              ws.close(4404, 'claude not found');
+              ws.close(4404, `${agent.name} not found`);
             } catch {}
             return;
           }
           session.proc = proc;
-          // Watch for child exit so the WS closes cleanly when claude exits.
+          // Watch for child exit so the WS closes cleanly when the agent exits.
           proc.exited?.then?.(() => {
             try { ws.close(1000, 'pty exited'); } catch {}
           });
@@ -425,13 +521,13 @@ function buildServer() {
 }
 
 /**
- * Tab-switch helper: write the active tab to a state file (claude reads it)
+ * Tab-switch helper: write the active tab to a state file (the agent reads it)
  * and notify the parent server so its activeTabId stays synced. Skips
  * chrome:// and chrome-extension:// internal pages.
  */
 /**
  * Live tab snapshot. Writes <stateDir>/tabs.json (full list) and updates
- * <stateDir>/active-tab.json (current active). claude can read these any
+ * <stateDir>/active-tab.json (current active). The agent can read these any
  * time without invoking $B tabs — saves a round-trip when the model just
  * needs to check the landscape before deciding what to do.
  */
@@ -469,7 +565,7 @@ function handleTabState(msg: {
   }
 
   // active-tab.json — single active tab. Skip chrome-internal pages so
-  // claude doesn't see chrome:// or chrome-extension:// URLs as
+  // the agent doesn't see chrome:// or chrome-extension:// URLs as
   // "current target."
   const active = msg.active;
   if (active && active.url && !active.url.startsWith('chrome://') && !active.url.startsWith('chrome-extension://')) {
@@ -531,9 +627,8 @@ function readBrowseToken(): string {
   } catch { return ''; }
 }
 
-// Boot.
 function main() {
-  writeClaudeAvailable();
+  writeAgentAvailable(DEFAULT_TERMINAL_AGENT);
   const server = buildServer();
   const port = (server as any).port || (server as any).address?.port;
   if (!port) {
