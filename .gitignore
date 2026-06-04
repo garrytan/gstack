@@ -33,6 +33,12 @@ extension/lib/xterm-addon-fit.js
 .env.local
 .env.*
 !.env.example
+env.private
+*.private
+secrets/*.env
+.oni-secrets/
+.gstack-secrets/
+tasks/runtime-secret-checks/
 supabase/.temp/
 
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts

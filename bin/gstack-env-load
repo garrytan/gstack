@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# gstack-env-load — source gstack secrets into the current shell session
+#
+# Usage:  source bin/gstack-env-load
+# Note:   Must be sourced, not executed, to affect the calling shell.
+
+set -euo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$HOME/gstack}"
+PRIVATE_ENV_GSTACK="$HOME/.config/gstack/env.private"
+PRIVATE_ENV_ONI="$HOME/.config/oni/env.private"
+ONI_SECRETS="$HOME/.config/oni/secrets.env"
+LOCAL_ENV="$GSTACK_DIR/.env"
+
+_loaded=0
+
+_load_file() {
+  local f="$1"
+  if [[ -f "$f" ]]; then
+    # shellcheck disable=SC1090
+    source "$f"
+    (( _loaded++ )) || true
+    echo "[gstack-env-load] loaded: $(basename "$f") — values not shown" >&2
+  fi
+}
+
+# Load in priority order: gstack-specific first, then ONI fallback, then local .env
+_load_file "$PRIVATE_ENV_GSTACK"
+_load_file "$PRIVATE_ENV_ONI"
+_load_file "$ONI_SECRETS"
+_load_file "$LOCAL_ENV"
+
+if [[ $_loaded -eq 0 ]]; then
+  echo "[gstack-env-load] warning: no env files found — set credentials with bin/gstack-secret-set" >&2
+fi
+
+unset _loaded
+unset -f _load_file
