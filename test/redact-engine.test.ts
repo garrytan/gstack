@@ -57,6 +57,20 @@ describe("HIGH credential patterns", () => {
     expect(ids(`random ${tok} here`)).not.toContain("twilio.auth_token");
   });
 
+  test("openai.key flags modern prefixed keys whose body carries -/_ separators", () => {
+    // Regression: the legacy regex required a contiguous [A-Za-z0-9] run right
+    // after the prefix, so real `sk-proj-`/`sk-svcacct-`/`sk-admin-` keys (whose
+    // base64url body contains `-` and `_`) slipped through with NO finding — a
+    // HIGH credential failing OPEN past the redaction gate.
+    expect(ids("OPENAI_API_KEY=sk-proj-Ab12_Cd34-Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv")).toContain("openai.key");
+    expect(ids("sk-svcacct-abc_def-ghijklmnopqrstuvwxyz0123456789ABCDEF")).toContain("openai.key");
+    expect(ids("sk-admin-AAA_bbb-CCCdddEEEfffGGGhhhIIIjjjKKKlllMMMnnn")).toContain("openai.key");
+    // Legacy bare `sk-` + contiguous alnum still flagged.
+    expect(ids("sk-" + "B".repeat(48))).toContain("openai.key");
+    // FP guard: a short `sk-` kebab identifier is not a key.
+    expect(ids("ran the sk-mydata step")).not.toContain("openai.key");
+  });
+
   test("db.url_with_password flags real password, skips placeholder/env-var", () => {
     expect(ids("postgres://user:s3cretP@ss@db.example.com/app")).toContain("db.url_with_password");
     expect(ids("postgres://user:${DB_PASSWORD}@host/app")).not.toContain("db.url_with_password");

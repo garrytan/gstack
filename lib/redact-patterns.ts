@@ -233,8 +233,14 @@ export const PATTERNS: RedactPattern[] = [
     id: "openai.key",
     tier: "HIGH",
     category: "secret",
-    description: "OpenAI API key (incl. sk-proj-)",
-    regex: /\b(sk-(?:proj-)?[A-Za-z0-9]{32,})\b/,
+    description: "OpenAI API key (legacy sk- + project/service/admin keys)",
+    // Two forms. Legacy keys are bare `sk-` + a contiguous alphanumeric run.
+    // Modern keys carry a `sk-proj-` / `sk-svcacct-` / `sk-admin-` prefix and a
+    // base64url-style body that includes `-` and `_` (the same charset the
+    // sibling `anthropic.key` already allows). The body charset is widened only
+    // on the prefixed form so the bare `sk-` path keeps its narrow alnum match
+    // and does not start matching kebab/snake identifiers that begin with `sk-`.
+    regex: /\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{32,}|sk-[A-Za-z0-9]{32,})\b/,
   },
   {
     id: "sendgrid.key",
