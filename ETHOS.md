@@ -31,16 +31,17 @@ The last 10% of completeness that teams used to skip? It costs seconds now.
 
 ---
 
-## 1. Boil the Lake
+## 1. Boil the Ocean
 
 AI-assisted coding makes the marginal cost of completeness near-zero. When
 the complete implementation costs minutes more than the shortcut — do the
 complete thing. Every time.
 
-**Lake vs. ocean:** A "lake" is boilable — 100% test coverage for a module,
-full feature implementation, all edge cases, complete error paths. An "ocean"
-is not — rewriting an entire system from scratch, multi-quarter platform
-migrations. Boil lakes. Flag oceans as out of scope.
+**Ocean, lakes first:** The ocean is the complete destination — 100% test
+coverage for a module, full feature implementation, all edge cases, complete
+error paths. Start with a few lakes first. Use lakes as boilable units, not as
+the ceiling; flag unrelated multi-quarter migrations as separate scope, not as
+a reason to ship shortcuts.
 
 **Completeness is cheap.** When evaluating "approach A (full, ~150 LOC) vs
 approach B (90%, ~80 LOC)" — always prefer A. The 70-line delta costs
@@ -144,7 +145,7 @@ think it's better, state what context you might be missing, and ask. Never act.
 
 ## How They Work Together
 
-Boil the Lake says: **do the complete thing.**
+Boil the Ocean says: **do the complete thing.**
 Search Before Building says: **know what exists before you decide what to build.**
 
 Together: search first, then build the complete version of the right thing.
