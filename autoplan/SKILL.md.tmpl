@@ -257,6 +257,7 @@ elif ! _gstack_codex_auth_probe >/dev/null; then
   _CODEX_AVAILABLE=false
 else
   _gstack_codex_version_check   # non-blocking warn if known-bad
+  _gstack_codex_update_check    # non-blocking INFO if npm 'latest' is ahead
   _CODEX_AVAILABLE=true
 fi
 ```

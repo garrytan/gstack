@@ -472,11 +472,17 @@ DIFF_INS=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ insertion' 
 DIFF_DEL=$(git diff "$DIFF_BASE" --stat | tail -1 | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
 DIFF_TOTAL=$((DIFF_INS + DIFF_DEL))
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+# Surface known-bad versions and any pending npm 'latest' upgrade. Both
+# non-blocking — they print one line each, or stay silent on a clean install.
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null \\
+  && { _gstack_codex_version_check; _gstack_codex_update_check; } || true
 # Legacy opt-out — only gates Codex passes, Claude always runs
 OLD_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || true)
 echo "DIFF_SIZE: $DIFF_TOTAL"
 echo "OLD_CFG: \${OLD_CFG:-not_set}"
 \`\`\`
+
+If either probe line surfaces (WARN for known-bad, INFO for upgrade-available), pass it through to the user verbatim. Neither blocks the workflow.
 
 If \`OLD_CFG\` is \`disabled\`: skip Codex passes only. Claude adversarial subagent still runs (it's free and fast). Jump to the "Claude adversarial subagent" section.
 

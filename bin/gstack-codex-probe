@@ -5,6 +5,7 @@
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
+#   _gstack_codex_update_check    — INFO when an npm `latest` is available (24h cache)
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
 #
@@ -49,6 +50,46 @@ _gstack_codex_version_check() {
   fi
 }
 
+# --- Update check -----------------------------------------------------------
+
+_gstack_codex_update_check() {
+  # Compare installed Codex CLI against the npm `latest` tag. Print one INFO
+  # line when an upgrade is available. Cached for 24h at
+  # ${GSTACK_HOME:-$HOME/.gstack}/.codex-version-check so /ship invocations
+  # don't hammer the registry. Best-effort: any failure (no codex, no curl,
+  # no jq, offline, slow registry, malformed JSON) is silent — never blocks.
+  local _local _latest _cache _cache_dir _now _mtime _age
+  _local=$(codex --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+  [ -z "$_local" ] && return 0
+  _cache_dir="${GSTACK_HOME:-$HOME/.gstack}"
+  _cache="$_cache_dir/.codex-version-check"
+  _now=$(date +%s 2>/dev/null || echo 0)
+  if [ -f "$_cache" ]; then
+    _mtime=$(stat -c %Y "$_cache" 2>/dev/null || stat -f %m "$_cache" 2>/dev/null || echo 0)
+    _age=$((_now - _mtime))
+    if [ "$_age" -lt 86400 ]; then
+      _latest=$(head -1 "$_cache" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+    fi
+  fi
+  if [ -z "$_latest" ]; then
+    command -v curl >/dev/null 2>&1 || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    _latest=$(curl -fsSL -m 5 https://registry.npmjs.org/@openai/codex/latest 2>/dev/null \
+      | jq -r '.version' 2>/dev/null \
+      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+    [ -z "$_latest" ] && return 0
+    mkdir -p "$_cache_dir" 2>/dev/null
+    printf '%s\n' "$_latest" > "$_cache" 2>/dev/null || true
+  fi
+  # If local already wins (or ties) sort -V, there's nothing to upgrade to.
+  local _winner
+  _winner=$(printf '%s\n%s\n' "$_local" "$_latest" | sort -V 2>/dev/null | tail -1)
+  if [ -n "$_winner" ] && [ "$_winner" != "$_local" ]; then
+    echo "INFO: Codex CLI $_local available: $_latest. Upgrade: \`npm install -g @openai/codex@latest\`"
+    _gstack_codex_log_event "codex_update_available"
+  fi
+}
+
 # --- Timeout wrapper --------------------------------------------------------
 
 _gstack_codex_timeout_wrapper() {
@@ -72,7 +113,7 @@ _gstack_codex_log_event() {
   # Emit a telemetry event to ~/.gstack/analytics/skill-usage.jsonl.
   # Gated on $_TEL != "off" (caller sets this from gstack-config).
   # Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
-  #              codex_version_warning.
+  #              codex_version_warning, codex_update_available.
   # Payload schema: {skill, event, duration_s, ts}. NEVER includes prompt
   # content, env var values, or auth tokens.
   local _event="$1"

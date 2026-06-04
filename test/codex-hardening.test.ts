@@ -307,6 +307,218 @@ fi
   });
 });
 
+// --- Group 3.5: Update check ------------------------------------------------
+// _gstack_codex_update_check compares the installed Codex CLI to npm `latest`
+// and prints one INFO line when an upgrade is available. 24h cache lives at
+// ${GSTACK_HOME:-$HOME/.gstack}/.codex-version-check.
+//
+// All tests pre-warm the cache so no network is needed — the cache hit path
+// is also the path /ship hits 99% of the time in practice (first /ship per
+// day pays the 5s curl tax; everything else reads the cache).
+
+function writeCache(home: string, latest: string): string {
+  const dir = path.join(home, '.gstack');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, '.codex-version-check');
+  fs.writeFileSync(file, `${latest}\n`);
+  return file;
+}
+
+describe('gstack-codex-probe: update check', () => {
+  test('stale local + fresh cache → INFO line with both versions', () => {
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.100.0\n');
+    try {
+      writeCache(home, '0.140.0');
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}`, GSTACK_HOME: path.join(home, '.gstack') },
+        home,
+      });
+      expect(r.stdout).toContain('INFO:');
+      expect(r.stdout).toContain('0.100.0');
+      expect(r.stdout).toContain('0.140.0');
+      expect(r.stdout).toContain('npm install -g @openai/codex@latest');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local == latest → silent (no INFO)', () => {
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.140.0\n');
+    try {
+      writeCache(home, '0.140.0');
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}`, GSTACK_HOME: path.join(home, '.gstack') },
+        home,
+      });
+      expect(r.stdout).not.toContain('INFO:');
+      expect(r.stdout.trim()).toBe('');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local ahead of cached latest (pre-release dev build) → silent', () => {
+    // If a user is running a dev build that's ahead of npm latest, don't badger
+    // them. sort -V puts them on top, so update check is silent.
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.200.0\n');
+    try {
+      writeCache(home, '0.140.0');
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}`, GSTACK_HOME: path.join(home, '.gstack') },
+        home,
+      });
+      expect(r.stdout).not.toContain('INFO:');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('codex --version fails (binary present but unusable) → silent', () => {
+    // tempStubCodex(..., true) writes a stub that exits 1, simulating a broken
+    // / corrupt / unauthenticated codex binary. _local stays empty → silent
+    // return. Equivalent observable outcome to "no codex on PATH" without
+    // breaking the bash environment by narrowing PATH on Windows.
+    const home = tempHome();
+    const stub = tempStubCodex('', true);
+    try {
+      writeCache(home, '0.140.0');
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}`, GSTACK_HOME: path.join(home, '.gstack') },
+        home,
+      });
+      expect(r.stdout).not.toContain('INFO:');
+      expect(r.status).toBe(0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('network fetch fails (curl exits non-zero) → silent + no cache written', () => {
+    // Stub curl to exit 1 (offline, DNS fail, registry 5xx). The function must
+    // not write a bogus cache, and must not print an INFO line. The stub takes
+    // precedence over the real curl via PATH ordering.
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.100.0\n');
+    const curlStubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-curl-fail-'));
+    try {
+      const curlBin = path.join(curlStubDir, 'curl');
+      fs.writeFileSync(curlBin, '#!/bin/bash\nexit 1\n');
+      fs.chmodSync(curlBin, 0o755);
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: {
+          PATH: `${curlStubDir}:${stub.pathEntry}:${process.env.PATH}`,
+          GSTACK_HOME: path.join(home, '.gstack'),
+        },
+        home,
+      });
+      expect(r.stdout).not.toContain('INFO:');
+      expect(r.status).toBe(0);
+      // Critical: a failed fetch must NOT create a cache file. Otherwise the
+      // next run would read empty/garbage and think it's a valid version.
+      const cacheFile = path.join(home, '.gstack/.codex-version-check');
+      expect(fs.existsSync(cacheFile)).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+      fs.rmSync(curlStubDir, { recursive: true, force: true });
+    }
+  });
+
+  test('stale cache (>24h old mtime) is ignored — re-fetches from network', () => {
+    // Pre-warm cache with 0.140.0, then backdate mtime to 48h ago. Stub curl
+    // to fail so the function can't re-fetch. If the function trusted the
+    // stale cache, it would print INFO (0.100.0 vs 0.140.0). It must not.
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.100.0\n');
+    const curlStubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-curl-stale-'));
+    try {
+      const cache = writeCache(home, '0.140.0');
+      const past = (Date.now() / 1000) - 48 * 3600;
+      fs.utimesSync(cache, past, past);
+      const curlBin = path.join(curlStubDir, 'curl');
+      fs.writeFileSync(curlBin, '#!/bin/bash\nexit 1\n');
+      fs.chmodSync(curlBin, 0o755);
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: {
+          PATH: `${curlStubDir}:${stub.pathEntry}:${process.env.PATH}`,
+          GSTACK_HOME: path.join(home, '.gstack'),
+        },
+        home,
+      });
+      expect(r.stdout).not.toContain('INFO:');
+      expect(r.status).toBe(0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+      fs.rmSync(curlStubDir, { recursive: true, force: true });
+    }
+  });
+
+  test('version_check + update_check are independent — bad version AND outdated both fire', () => {
+    // 0.120.0 hits the known-bad list AND is older than the cached 0.140.0.
+    // Both messages must surface; one does not eat the other.
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.120.0\n');
+    try {
+      writeCache(home, '0.140.0');
+      const r = runProbe({
+        snippet: '_gstack_codex_version_check; _gstack_codex_update_check',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}`, GSTACK_HOME: path.join(home, '.gstack') },
+        home,
+      });
+      expect(r.stdout).toContain('WARN:');
+      expect(r.stdout).toContain('INFO:');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('cache miss writes the fetched version to the cache file', () => {
+    // Stub curl to return canned npm registry JSON; stub jq stays the real one.
+    // Verifies the side effect (file write) the cache-hit tests assume.
+    const home = tempHome();
+    const stub = tempStubCodex('codex-cli 0.100.0\n');
+    const curlStubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-curl-stub-'));
+    try {
+      const curlBin = path.join(curlStubDir, 'curl');
+      // Fake curl ignores all args and prints the smallest npm 'latest' JSON.
+      fs.writeFileSync(curlBin, '#!/bin/bash\nprintf \'{"version":"0.150.0"}\'\n');
+      fs.chmodSync(curlBin, 0o755);
+      const r = runProbe({
+        snippet: '_gstack_codex_update_check',
+        env: {
+          PATH: `${curlStubDir}:${stub.pathEntry}:${process.env.PATH}`,
+          GSTACK_HOME: path.join(home, '.gstack'),
+        },
+        home,
+      });
+      expect(r.stdout).toContain('INFO:');
+      expect(r.stdout).toContain('0.150.0');
+      const cacheFile = path.join(home, '.gstack/.codex-version-check');
+      expect(fs.existsSync(cacheFile)).toBe(true);
+      expect(fs.readFileSync(cacheFile, 'utf-8').trim()).toBe('0.150.0');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+      fs.rmSync(curlStubDir, { recursive: true, force: true });
+    }
+  });
+});
+
 // --- Group 4: Telemetry event emission --------------------------------------
 
 describe('gstack-codex-probe: telemetry event emission', () => {
