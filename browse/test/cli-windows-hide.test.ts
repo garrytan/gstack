@@ -61,3 +61,22 @@ describe('#1784 Windows console flash suppression', () => {
     expect(hiddenIcaclsCalls).toHaveLength(2);
   });
 });
+
+describe('detached server spawns carry windowsHide (#1863 fold-in)', () => {
+  test('Windows Node launcher inner spawn carries windowsHide:true', () => {
+    const body = read(CLI);
+    expect(body).toMatch(/spawn\(process\.execPath,[\s\S]{0,500}detached:true,windowsHide:true/);
+  });
+
+  test('non-Windows server nodeSpawn carries windowsHide:true', () => {
+    const body = read(CLI);
+    expect(body).toMatch(/nodeSpawn\('bun',[\s\S]{0,500}detached:\s*true[\s\S]{0,100}windowsHide:\s*true/);
+  });
+
+  test('every detached spawn site in cli.ts carries windowsHide:true', () => {
+    const body = read(CLI);
+    const detachedSpawns = body.match(/detached:\s*true/g)?.length ?? 0;
+    const windowsHideFlags = body.match(/windowsHide:\s*true/g)?.length ?? 0;
+    expect(windowsHideFlags).toBeGreaterThanOrEqual(detachedSpawns);
+  });
+});
