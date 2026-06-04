@@ -15,7 +15,7 @@ env:
 jobs:
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
   build-image:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     permissions:
       contents: read
       packages: write
@@ -56,7 +56,7 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   evals:
-    runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-2' }}
+    runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-8' }}
     needs: build-image
     container:
       image: ${{ needs.build-image.outputs.image-tag }}
@@ -155,7 +155,7 @@ jobs:
           retention-days: 90
 
   report:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     needs: evals
     if: always() && github.event_name == 'pull_request'
     timeout-minutes: 5
@@ -219,7 +219,7 @@ jobs:
           $(echo -e "$SUITE_LINES")
 
           ---
-          *12x ubicloud-standard-2 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
+          *12x ubicloud-standard-8 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
 
           if [ "$FAILED" -gt 0 ]; then
             FAILURES=""

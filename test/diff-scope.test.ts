@@ -140,6 +140,12 @@ describe('gstack-diff-scope', () => {
     expect(scope.SCOPE_AUTH).toBe('true');
   });
 
+  test('detects config via bun.lock (Bun v1.2+ text lockfile)', () => {
+    const dir = createRepo(['bun.lock']);
+    const scope = runScope(dir);
+    expect(scope.SCOPE_CONFIG).toBe('true');
+  });
+
   test('returns false for all new signals when no matching files', () => {
     const dir = createRepo(['docs/readme.md', 'config.yml']);
     const scope = runScope(dir);

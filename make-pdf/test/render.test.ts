@@ -343,6 +343,46 @@ describe("printCss", () => {
     const occurrences = (css.match(/"Liberation Sans"/g) ?? []).length;
     expect(occurrences).toBeGreaterThanOrEqual(4);
   });
+
+  // ─── emoji fallback (fix/make-pdf-emoji-tofu) ────────────────
+  // Body + @top-center running header get the color-emoji families so
+  // Chromium has a glyph source for emoji code points instead of tofu (▯).
+  // The @bottom-* boxes hold counters / "CONFIDENTIAL" only — no emoji.
+
+  test("body stack includes all three emoji families before sans-serif", () => {
+    const css = printCss();
+    expect(css).toContain(`"Apple Color Emoji"`);
+    expect(css).toContain(`"Segoe UI Emoji"`);
+    expect(css).toContain(`"Noto Color Emoji"`);
+    // Emoji families must precede the generic family so per-character fallback
+    // reaches them before terminating at sans-serif.
+    expect(css).toMatch(/"Noto Color Emoji",\s*sans-serif/);
+  });
+
+  test("@top-center running header includes emoji families", () => {
+    const css = printCss({ runningHeader: "Q3 Report 🚀" });
+    const topCenter = css.match(/@top-center\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(topCenter).toContain(`"Apple Color Emoji"`);
+    expect(topCenter).toContain(`"Noto Color Emoji"`);
+  });
+
+  test("@bottom-center and @bottom-right do NOT include emoji families", () => {
+    const css = printCss({ confidential: true });
+    const bottomCenter = css.match(/@bottom-center\s*\{[^}]*\}/)?.[0] ?? "";
+    const bottomRight = css.match(/@bottom-right\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(bottomCenter).not.toContain("Emoji");
+    expect(bottomRight).not.toContain("Emoji");
+    // ...but they still share the sans stack via the SANS_STACK constant.
+    expect(bottomCenter).toContain(`"Liberation Sans"`);
+    expect(bottomRight).toContain(`"Liberation Sans"`);
+  });
+
+  test("emoji families appear in exactly the two emoji-bearing stacks", () => {
+    const css = printCss({ runningHeader: "Title", confidential: true });
+    // body (1) + @top-center (1) = 2 occurrences of the emoji group.
+    const occurrences = (css.match(/"Apple Color Emoji"/g) ?? []).length;
+    expect(occurrences).toBe(2);
+  });
 });
 
 // ─── render() — pageNumbers / footerTemplate data flow ───────────────

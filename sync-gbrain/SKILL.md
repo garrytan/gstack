@@ -2,13 +2,7 @@
 name: sync-gbrain
 preamble-tier: 2
 version: 1.0.0
-description: |
-  Keep gbrain current with this repo's code and refresh agent search
-  guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with
-  state probing, native code-surface registration, capability checks,
-  and a verdict block. Re-runnable, idempotent. Use when: "sync gbrain",
-  "refresh gbrain", "re-index this repo", "gbrain search isn't finding
-  things". (gstack)
+description: Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with state (gstack)
 triggers:
   - sync gbrain
   - refresh gbrain
@@ -25,6 +19,14 @@ allowed-tools:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+probing, native code-surface registration, capability checks,
+and a verdict block. Re-runnable, idempotent. Use when: "sync gbrain",
+"refresh gbrain", "re-index this repo", "gbrain search isn't finding
+things".
 
 ## Preamble (run first)
 
@@ -61,7 +63,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"sync-gbrain","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"sync-gbrain","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -103,6 +105,19 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -158,7 +173,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -234,6 +249,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -320,7 +336,36 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
-12. **Non-ASCII characters — write directly, never \u-escape.** When any
+### Handling 5+ options — split, never drop
+
+AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
+drop, merge, or silently defer one to fit. Pick a compliant shape:
+
+- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
+  layout variants). One call, 5th surfaced only if first 4 don't fit.
+- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
+  Fire N sequential calls, one per option. Default to this when unsure.
+
+Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
+Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
+decision actions), and 4 buckets:
+**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
+
+After the chain, fire `D<N>.final` to validate the assembled set (reprompt
+dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
+revise one option without re-running the chain.
+
+For N>6, fire a `D<N>.0` meta-AskUserQuestion first (proceed / narrow / batch).
+
+question_ids for split chains: `<skill>-split-<option-slug>` (kebab-case ASCII,
+≤64 chars, `-2`/`-3` suffix on collision). The runtime checker
+(`bin/gstack-question-preference`) refuses `never-ask` on any `*-split-*` id,
+so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
+
+**Full rule + worked examples + Hold/dependency semantics:** see
+`docs/askuserquestion-split.md` in the gstack repo. Read on demand when N>4.
+
+**Non-ASCII characters — write directly, never \u-escape.** When any
     string field (question, option label, option description) contains
     Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
     the literal UTF-8 characters in the JSON string. **Never escape them
@@ -353,6 +398,9 @@ Before calling AskUserQuestion, verify:
 - [ ] Net line closes the decision
 - [ ] You are calling the tool, not writing prose
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
+- [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
+- [ ] If you split, you checked dependencies between options before firing the chain
+- [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
 
 
 ## Artifacts Sync (skill start)
@@ -552,84 +600,7 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - User-turn override wins: if the current message asks for terse / no explanations / just the answer, skip this section.
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
-Jargon list, gloss on first use if the term appears:
-- idempotent
-- idempotency
-- race condition
-- deadlock
-- cyclomatic complexity
-- N+1
-- N+1 query
-- backpressure
-- memoization
-- eventual consistency
-- CAP theorem
-- CORS
-- CSRF
-- XSS
-- SQL injection
-- prompt injection
-- DDoS
-- rate limit
-- throttle
-- circuit breaker
-- load balancer
-- reverse proxy
-- SSR
-- CSR
-- hydration
-- tree-shaking
-- bundle splitting
-- code splitting
-- hot reload
-- tombstone
-- soft delete
-- cascade delete
-- foreign key
-- composite index
-- covering index
-- OLTP
-- OLAP
-- sharding
-- replication lag
-- quorum
-- two-phase commit
-- saga
-- outbox pattern
-- inbox pattern
-- optimistic locking
-- pessimistic locking
-- thundering herd
-- cache stampede
-- bloom filter
-- consistent hashing
-- virtual DOM
-- reconciliation
-- closure
-- hoisting
-- tail call
-- GIL
-- zero-copy
-- mmap
-- cold start
-- warm start
-- green-blue deploy
-- canary deploy
-- feature flag
-- kill switch
-- dead letter queue
-- fan-out
-- fan-in
-- debounce
-- throttle (UI)
-- hydration mismatch
-- memory leak
-- GC pause
-- heap fragmentation
-- stack overflow
-- null pointer
-- dangling pointer
-- buffer overflow
+Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
 ## Completeness Principle — Boil the Lake
@@ -677,7 +648,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"sync-gbrain","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -744,9 +719,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 # /sync-gbrain — Keep gbrain current and teach the agent to use it
 
@@ -774,9 +747,24 @@ the skill itself, not a dispatcher binary):
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
 - `/sync-gbrain --no-memory` / `--no-brain-sync` — selectively skip stages
 - `/sync-gbrain --quiet` — suppress per-stage output
+- `/sync-gbrain --refresh-cache` — force-rebuild brain-aware planning cache (v1.48; replaces /brain-refresh-context per D1 fold). Skips code + memory stages; routes to `gstack-brain-cache refresh --project <slug>`.
+- `/sync-gbrain --audit` — emit summary of gstack-owned pages per project + sensitive-content audit (v1.48 / D10 lifecycle). Read-only.
 
 Pass-through args go straight to the orchestrator at
 `~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts`.
+
+**`--refresh-cache` short-circuit:** when this flag is present, the skill
+runs ONLY the cache refresh (`gstack-brain-cache refresh --project <slug>`
+for the current worktree's slug, plus a cross-project refresh of
+user-profile if `gstack/user-profile/<user-slug>` exists). Code +
+memory + brain-sync stages are skipped. Useful when the user knows the
+brain has new info gstack should pick up before the next planning skill.
+
+**`--audit` short-circuit:** when this flag is present, the skill runs
+`gstack-brain-cache list --project <slug> --json`, summarizes by page
+type, then scans for any cached salience entries that ended up outside
+the SALIENCE_DEFAULT_ALLOWLIST (T17 / D9 leak check). Read-only; no
+modifications to brain or cache.
 
 ---
 
@@ -788,34 +776,90 @@ Before doing anything, check that /setup-gbrain has been run on this Mac.
 ~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null
 ```
 
-**Split-engine model.** Code stage always runs locally against a per-machine
-PGLite brain (or whatever `gbrain config` points to), with each worktree of a
-repo registered as its own source. Artifacts/memory stages route through
-whatever `setup-gbrain` configured — including remote-MCP (Path 4). The two
-sides are independent: code lookups are local + worktree-scoped, artifacts
-remain cross-machine.
+**Brain trust policy gate (v1.48 / Phase 1.5 / D4 — added by T13+T5c):**
+If `gbrain_mcp_mode == "remote-http"` from the detect output AND the per-
+endpoint policy is `unset`, the policy question MUST fire here before
+the orchestrator runs. Local engines auto-set to `personal` silently per
+the per-transport default table.
 
-A previous version of this skill bounced remote-MCP users out of the code
-stage entirely. That was wrong: the code-stage CLI calls (`gbrain sources
-add`, `sync --strategy code`, `sources attach`) target the LOCAL gbrain CLI
-+ DB regardless of whether `~/.claude.json` has `gbrain` registered as a
-remote HTTP MCP for artifacts. We no longer skip the code stage in
-remote-MCP mode.
+```bash
+_HASH=$(~/.claude/skills/gstack/bin/gstack-config endpoint-hash 2>/dev/null)
+_POLICY=$(~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@$_HASH 2>/dev/null || echo unset)
+echo "BRAIN_TRUST_POLICY[$_HASH]: $_POLICY"
+```
 
-If `gbrain_on_path=false` OR `gbrain_config_exists=false`, STOP and tell
-the user:
+If `_POLICY == "unset"` AND `_HASH != "local"`, AskUserQuestion per the
+Step 9.5 wording in `/setup-gbrain` (personal vs shared, with persistence
+to `brain_trust_policy@<hash>` and conditional `artifacts_sync_mode=full`
+flip for personal). Then continue.
 
-> "/sync-gbrain requires /setup-gbrain to be run first. Run `/setup-gbrain`
-> to install gbrain, register the MCP server, and set per-repo trust policy."
+If `_POLICY == "unset"` AND `_HASH == "local"`, auto-set personal:
 
-Do NOT continue — the skill is unsafe when the local gbrain CLI is missing
-(we'd write a CLAUDE.md guidance block referencing tools that don't exist).
+```bash
+~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH personal
+```
+
+**Split-engine model (v1.34.0.0+).** Code stage runs locally against the
+per-machine gbrain engine (PGLite or whatever `gbrain config` points to),
+with each worktree of a repo registered as its own source. **Memory stage
+also runs locally** in local-stdio MCP mode — `gstack-memory-ingest` shells
+out to `gbrain import` against the same local engine. In remote-http MCP
+mode (Path 4), the memory stage instead persists staged markdown to
+`~/.gstack/transcripts/<run-id>/` and the artifacts pipeline pushes it to
+the brain admin's pull job (plan D11). Brain-sync (the `gstack-brain-sync`
+push to git) is the one stage that never touches local engine and runs
+regardless of mode.
+
+Practically: local PGLite stays code-only on remote-http machines; the
+remote brain holds everything else. Local-stdio machines mix code +
+transcripts in one local engine, as they always have.
 
 Also check the per-repo trust policy. If `gstack-gbrain-repo-policy get` for
 this repo returns `deny`, STOP:
 
 > "This repo's gbrain trust policy is `deny`. Run `/setup-gbrain --repo` to
 > change it before syncing."
+
+---
+
+## Step 1.5: Local engine pre-flight (plan D12)
+
+Read `gbrain_local_status` from the Step 1 detect output. Branch as follows
+BEFORE invoking the orchestrator:
+
+- **`ok`**: proceed to Step 2 normally.
+- **`no-cli`**: STOP. "Local gbrain CLI not installed. Run `/setup-gbrain`
+  first."
+- **`missing-config`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
+  "Your brain queries (the `mcp__gbrain__*` tools) work via remote MCP, but
+  symbol code search needs a local PGLite. Run `/setup-gbrain` and pick
+  'Yes' at the new 'local code index' prompt (Step 4.5), or run
+  `gbrain init --pglite --json --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024`
+  directly (drop the voyage flags if `VOYAGE_API_KEY` isn't set). Continuing
+  without code stage."
+  Then proceed to Step 2 — the orchestrator's `runCodeImport()` and
+  `runMemoryIngest()` will return SKIP per plan D12; only `runBrainSyncPush()`
+  will run. Do NOT abort.
+- **`missing-config`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local
+  gbrain CLI is installed but no engine config. Run `/setup-gbrain` first."
+- **`broken-config`** OR **`broken-db`**: STOP with a clear message:
+  ```
+  Local gbrain config at ~/.gbrain/config.json points at an unreachable
+  engine (status: {gbrain_local_status}). Two options:
+    1. Re-run /setup-gbrain — Step 1.5 offers Retry / Switch to PGLite /
+       Switch brain mode / Quit (plan D4).
+    2. Repair manually: mv ~/.gbrain/config.json ~/.gbrain/config.json.bak
+       && gbrain init --pglite --json --embedding-model voyage:voyage-code-3 \
+          --embedding-dimensions 1024   (drop voyage flags if VOYAGE_API_KEY unset)
+  Re-run /sync-gbrain after.
+  ```
+  Do NOT continue — the orchestrator would skip code+memory and only run
+  brain-sync, which is a degraded state the user should fix explicitly.
+
+This pre-flight short-circuits the orchestrator before it spends ~80ms
+probing the engine again. The orchestrator independently runs the same
+classifier for defense-in-depth, but Step 1.5's STOP is where the user
+gets the actionable remediation message.
 
 ---
 
@@ -877,13 +921,25 @@ Capability check (per /plan-eng-review §6):
 
 ```bash
 SLUG="_capability_check_$$"
+CAPABILITY_OK=0
 if [ -f ~/.gbrain/config.json ] && \
-   gbrain --version 2>/dev/null | grep -q '^gbrain ' && \
-   echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1 && \
-   gbrain search "ping" 2>/dev/null | grep -q "$SLUG"; then
-  CAPABILITY_OK=1
-else
-  CAPABILITY_OK=0
+   gbrain --version 2>/dev/null | grep -q '^gbrain '; then
+  # GBRAIN_PREPARE=true ensures prepared statements stay enabled when
+  # connecting through a PgBouncer transaction-mode pooler (port 6543).
+  # Without it, search silently returns no results (#1435).
+  export GBRAIN_PREPARE=true
+  if echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1; then
+    # Retry search up to 3 times with 1s delay — under transaction-mode
+    # pooling the search index may not be visible on the next connection
+    # immediately after the put.
+    for _attempt in 1 2 3; do
+      if gbrain search "ping" 2>/dev/null | grep -q "$SLUG"; then
+        CAPABILITY_OK=1
+        break
+      fi
+      sleep 1
+    done
+  fi
 fi
 gbrain delete "$SLUG" 2>/dev/null || true
 ```
@@ -933,6 +989,12 @@ Grep is still right for known exact strings, regex, multiline patterns, and
 file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
 auto-sync across all worktrees, run `gbrain autopilot --install` once per
 machine — gbrain's daemon handles incremental refresh on a schedule.
+
+Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
+orchestrator refuses destructive source ops when it detects a running autopilot
+to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
+add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
+sync code walk for them requires an explicit `--allow-reclone` opt-in.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```

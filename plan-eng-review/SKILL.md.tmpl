@@ -75,6 +75,8 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 * For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
 * **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
 
+{{BRAIN_PREFLIGHT}}
+
 ## BEFORE YOU START:
 
 ### Design Doc Check
@@ -264,6 +266,8 @@ Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 
 
 4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
 
+{{TASKS_SECTION_EMIT:eng-review}}
+
 ### Completion summary
 At the end of the review, fill in and display this summary so the user can see all findings at a glance:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
@@ -319,6 +323,10 @@ Substitute values from the Completion Summary:
 
 {{GBRAIN_SAVE_RESULTS}}
 
+{{BRAIN_WRITE_BACK}}
+
+{{BRAIN_CACHE_REFRESH}}
+
 ## Next Steps — Review Chaining
 
 After displaying the Review Readiness Dashboard, check if additional reviews would be valuable. Read the dashboard output to see which reviews have already been run and whether they are stale.
@@ -338,3 +346,5 @@ Use AskUserQuestion with only the applicable options:
 
 ## Unresolved decisions
 If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+
+{{EXIT_PLAN_MODE_GATE}}

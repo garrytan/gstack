@@ -138,6 +138,8 @@ Report findings before proceeding to Step 0.
 
 {{DESIGN_SETUP}}
 
+{{BRAIN_PREFLIGHT}}
+
 ## Step 0: Design Scope Assessment
 
 ### 0A. Initial Design Rating
@@ -372,6 +374,8 @@ For design debt: missing a11y, unresolved responsive behavior, deferred empty st
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
+{{TASKS_SECTION_EMIT:design-review}}
+
 ### Completion Summary
 ```
   +====================================================================+
@@ -446,6 +450,12 @@ Substitute values from the Completion Summary:
 
 {{LEARNINGS_LOG}}
 
+{{GBRAIN_SAVE_RESULTS}}
+
+{{BRAIN_WRITE_BACK}}
+
+{{BRAIN_CACHE_REFRESH}}
+
 ## Next Steps — Review Chaining
 
 After displaying the Review Readiness Dashboard, recommend the next review(s) based on what this design review discovered. Read the dashboard output to see which reviews have already been run and whether they are stale.
@@ -475,3 +485,5 @@ Use AskUserQuestion to present the next step. Include only applicable options:
 * One sentence max per option.
 * After each pass, pause and wait for feedback.
 * Rate before and after each pass for scannability.
+
+{{EXIT_PLAN_MODE_GATE}}

@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-image:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     permissions:
       contents: read
       packages: write
@@ -56,7 +56,7 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   evals:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     needs: build-image
     container:
       image: ${{ needs.build-image.outputs.image-tag }}

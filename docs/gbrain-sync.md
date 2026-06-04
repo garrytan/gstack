@@ -59,7 +59,7 @@ privacy mode:
 - **Only artifacts**: plans, designs, retros, learnings — skip
   behavioral data (timelines, developer profile).
 - **Decline**: keep everything local. You can turn sync on later with
-  `gstack-config set gbrain_sync_mode full`.
+  `gstack-config set artifacts_sync_mode full`.
 
 Your answer is persisted. You won't be asked again.
 
@@ -107,8 +107,8 @@ output. Scan it for problems.
 
 Change anytime with:
 ```bash
-gstack-config set gbrain_sync_mode full
-gstack-config set gbrain_sync_mode off
+gstack-config set artifacts_sync_mode full
+gstack-config set artifacts_sync_mode off
 ```
 
 ## Secret protection
@@ -170,7 +170,7 @@ gstack-brain-uninstall
 This:
 
 - Removes `~/.gstack/.git/` and all `.brain-*` config files.
-- Clears `gbrain_sync_mode` in `gstack-config`.
+- Clears `artifacts_sync_mode` in `gstack-config`.
 - Does NOT touch your learnings, plans, retros, or developer profile.
 
 Add `--delete-remote` to also delete the private GitHub repo (GitHub only,

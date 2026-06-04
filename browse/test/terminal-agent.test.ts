@@ -151,10 +151,12 @@ describe('Source-level guard: terminal-agent', () => {
       AGENT_SRC.indexOf("websocket: {"),
     );
     expect(upgradeBlock).not.toContain('spawnAgent(');
-    // Spawn must be invoked from the message handler (lazy on first byte).
+    // Spawn must be invoked from the message handler via the lazy helper.
     const messageHandler = AGENT_SRC.slice(AGENT_SRC.indexOf('message(ws, raw)'));
-    expect(messageHandler).toContain('spawnAgent(');
+    expect(messageHandler).toContain('maybeSpawnPty(ws, session)');
     expect(messageHandler).toContain('!session.spawned');
+    const spawnHelper = AGENT_SRC.slice(AGENT_SRC.indexOf('function maybeSpawnPty'));
+    expect(spawnHelper).toContain('spawnAgent(session.agent');
   });
 
   test('process.on uncaughtException + unhandledRejection handlers exist', () => {

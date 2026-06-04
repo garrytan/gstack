@@ -13,7 +13,7 @@ concurrency:
 jobs:
   sync:
     name: Sync PR title to VERSION
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     permissions:
       contents: read
       pull-requests: write

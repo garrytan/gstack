@@ -1,0 +1,949 @@
+#!/usr/bin/env bun
+/**
+ * gstack-brain-cache — three-tier cache for brain-aware planning skills.
+ *
+ * Subcommands:
+ *   get <entity-name> [--project <slug>]      — return digest content; refresh if stale
+ *   refresh [--full] [--entity X] [--project <slug>]  — force refresh one or all
+ *   invalidate <entity-name> [--project <slug>]  — mark stale; next get triggers cold
+ *   digest <entity-slug>                       — compress a brain page slug to digest
+ *   meta [--project <slug>]                    — print _meta.json
+ *
+ * (Later commits add: bootstrap [T2b], list [T18], purge [T18], retention sweep [T18].)
+ *
+ * Cache layout:
+ *   ~/.gstack/brain-cache/                     ← cross-project (user-profile only)
+ *   ~/.gstack/projects/<slug>/brain-cache/     ← per-project (everything else)
+ *
+ * Atomic writes via .tmp + rename. Stale-but-usable fallback when brain
+ * unreachable. Concurrent-refresh dedup is a follow-up commit (T15).
+ */
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync, unlinkSync, readdirSync, openSync, closeSync } from 'fs';
+import { join, dirname } from 'path';
+import { homedir, hostname } from 'os';
+import { spawnSync } from 'child_process';
+import { execGbrainJson, spawnGbrain } from '../lib/gbrain-exec';
+import {
+  BRAIN_CACHE_ENTITIES,
+  CACHE_REFRESH_LOCK_TIMEOUT_MS,
+  GSTACK_SCHEMA_PACK_NAME,
+  GSTACK_SCHEMA_PACK_VERSION,
+  SALIENCE_DEFAULT_ALLOWLIST,
+  type BrainCacheEntity,
+} from '../scripts/brain-cache-spec';
+
+// ──────────────────────────────────────────────────────────────────────────
+// Paths + meta
+// ──────────────────────────────────────────────────────────────────────────
+
+const GSTACK_HOME = process.env.GSTACK_HOME || join(homedir(), '.gstack');
+
+interface CacheMeta {
+  /** Version of the schema pack the cache was built against. Mismatch → full rebuild. */
+  schema_version: string;
+  /** SHA8 hash of the brain MCP endpoint URL (or 'local' for on-disk engines). */
+  endpoint_hash: string;
+  /** Per-entity last-refresh epoch ms. Absent → never refreshed. */
+  last_refresh: Record<string, number>;
+  /** Per-entity last-attempt epoch ms (even if attempt failed). For stale-but-usable diagnostics. */
+  last_attempt?: Record<string, number>;
+}
+
+/** Returns the directory holding a given entity's cache file. */
+export function entityDir(entity: BrainCacheEntity, projectSlug: string | null): string {
+  if (entity.scope === 'cross-project') {
+    return join(GSTACK_HOME, 'brain-cache');
+  }
+  if (!projectSlug) {
+    throw new Error(`Per-project entity needs a project slug: ${entity.file}`);
+  }
+  return join(GSTACK_HOME, 'projects', projectSlug, 'brain-cache');
+}
+
+/** Returns the path to the cache file for a given entity. */
+export function entityPath(entityName: string, projectSlug: string | null): string {
+  const entity = BRAIN_CACHE_ENTITIES[entityName];
+  if (!entity) throw new Error(`Unknown brain cache entity: ${entityName}`);
+  return join(entityDir(entity, projectSlug), entity.file);
+}
+
+/** Returns the path to the _meta.json for a given scope. */
+export function metaPath(scope: 'cross-project' | 'per-project', projectSlug: string | null): string {
+  if (scope === 'cross-project') {
+    return join(GSTACK_HOME, 'brain-cache', '_meta.json');
+  }
+  if (!projectSlug) throw new Error('Per-project meta needs a project slug');
+  return join(GSTACK_HOME, 'projects', projectSlug, 'brain-cache', '_meta.json');
+}
+
+function loadMeta(scope: 'cross-project' | 'per-project', projectSlug: string | null): CacheMeta {
+  const path = metaPath(scope, projectSlug);
+  if (!existsSync(path)) {
+    return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
+  }
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as CacheMeta;
+  } catch {
+    // Corrupt _meta — start fresh (entries will refresh on next access).
+    return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
+  }
+}
+
+function saveMeta(scope: 'cross-project' | 'per-project', projectSlug: string | null, meta: CacheMeta): void {
+  const path = metaPath(scope, projectSlug);
+  mkdirSync(dirname(path), { recursive: true });
+  atomicWrite(path, JSON.stringify(meta, null, 2));
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Endpoint hash detection
+// ──────────────────────────────────────────────────────────────────────────
+
+import { createHash } from 'crypto';
+
+function sha8(input: string): string {
+  return createHash('sha256').update(input).digest('hex').slice(0, 8);
+}
+
+/**
+ * Detects the active brain endpoint (MCP URL or 'local') and returns its
+ * stable identity hash. Used to detect when the user switches brains
+ * (different endpoint → different cache).
+ */
+export function detectEndpointHash(): string {
+  const claudeJsonPath = join(homedir(), '.claude.json');
+  if (existsSync(claudeJsonPath)) {
+    try {
+      const cfg = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
+      const gbrainServer = cfg?.mcpServers?.gbrain;
+      const url = gbrainServer?.url || gbrainServer?.transport?.url;
+      if (typeof url === 'string' && url.length > 0) {
+        return sha8(url);
+      }
+    } catch { /* fall through to local */ }
+  }
+  // Local engine — no endpoint URL; use a stable literal hash.
+  return 'local';
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Atomic write (tmp + rename)
+// ──────────────────────────────────────────────────────────────────────────
+
+function atomicWrite(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, content, 'utf-8');
+  renameSync(tmp, path);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Staleness + refresh logic
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Returns true if the cached digest is past its TTL. */
+function isStale(entityName: string, meta: CacheMeta): boolean {
+  const entity = BRAIN_CACHE_ENTITIES[entityName];
+  if (!entity) return true;
+  const last = meta.last_refresh[entityName];
+  if (!last) return true;
+  return Date.now() - last > entity.ttl_ms;
+}
+
+/** Returns true if the cache file exists on disk. */
+function hasFile(entityName: string, projectSlug: string | null): boolean {
+  return existsSync(entityPath(entityName, projectSlug));
+}
+
+/** Returns true if schema version recorded in meta differs from current pack version. */
+function schemaVersionMismatch(meta: CacheMeta): boolean {
+  return meta.schema_version !== GSTACK_SCHEMA_PACK_VERSION;
+}
+
+/** Returns true if endpoint hash recorded in meta differs from current detected endpoint. */
+function endpointSwitched(meta: CacheMeta): boolean {
+  return meta.endpoint_hash !== detectEndpointHash();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: get
+// ──────────────────────────────────────────────────────────────────────────
+
+interface GetResult {
+  /** Path to the digest file. */
+  path: string;
+  /** Cache state: 'warm' (fresh + valid), 'cold-refreshed' (was stale, refreshed inline), 'stale-fallback' (used stale because refresh failed), 'missing' (no cache and no refresh). */
+  state: 'warm' | 'cold-refreshed' | 'stale-fallback' | 'missing';
+  /** Optional message for diagnostics. */
+  message?: string;
+}
+
+export function cmdGet(entityName: string, projectSlug: string | null): GetResult {
+  const entity = BRAIN_CACHE_ENTITIES[entityName];
+  if (!entity) throw new Error(`Unknown entity: ${entityName}`);
+  const scope = entity.scope;
+  const meta = loadMeta(scope, projectSlug);
+
+  // Schema-version mismatch → full rebuild (D4 A4).
+  if (schemaVersionMismatch(meta) || endpointSwitched(meta)) {
+    rebuildAllForScope(scope, projectSlug);
+    // After rebuild, meta is fresh; fall through to warm path.
+    const newMeta = loadMeta(scope, projectSlug);
+    if (hasFile(entityName, projectSlug) && !isStale(entityName, newMeta)) {
+      return { path: entityPath(entityName, projectSlug), state: 'warm' };
+    }
+    // Rebuild may have failed for this entity specifically.
+    return { path: entityPath(entityName, projectSlug), state: 'missing', message: 'rebuild after schema/endpoint change' };
+  }
+
+  if (hasFile(entityName, projectSlug) && !isStale(entityName, meta)) {
+    return { path: entityPath(entityName, projectSlug), state: 'warm' };
+  }
+
+  // Stale or missing — try cold refresh.
+  const refreshed = refreshEntity(entityName, projectSlug);
+  if (refreshed) {
+    return { path: entityPath(entityName, projectSlug), state: 'cold-refreshed' };
+  }
+  // Refresh failed. Use stale-but-usable if file exists.
+  if (hasFile(entityName, projectSlug)) {
+    return { path: entityPath(entityName, projectSlug), state: 'stale-fallback', message: 'brain unreachable; using stale cache' };
+  }
+  // No cache and no refresh = missing.
+  return { path: entityPath(entityName, projectSlug), state: 'missing', message: 'brain unreachable; no cache available' };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: refresh
+// ──────────────────────────────────────────────────────────────────────────
+
+// ──────────────────────────────────────────────────────────────────────────
+// Lockfile dedup (T15 / D3)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the lock file path for a project scope. Cross-project entities
+ * still lock per-project (the project triggering the refresh holds the lock);
+ * concurrent attempts from different projects on cross-project entities
+ * serialize naturally because they're rare and the lock window is short.
+ */
+function lockPath(projectSlug: string | null): string {
+  const dir = projectSlug
+    ? join(GSTACK_HOME, 'projects', projectSlug, 'brain-cache')
+    : join(GSTACK_HOME, 'brain-cache');
+  return join(dir, '.refresh.lock');
+}
+
+interface LockHandle {
+  fd: number;
+  path: string;
+}
+
+/**
+ * Try to acquire the refresh lock. Returns null when another process holds it
+ * (and the lock is fresh). Stale locks (process dead OR older than the
+ * timeout) are taken over.
+ */
+function tryAcquireLock(projectSlug: string | null): LockHandle | null {
+  const path = lockPath(projectSlug);
+  mkdirSync(dirname(path), { recursive: true });
+
+  // If a lock exists, see if it's stale
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      const lock = JSON.parse(raw) as { pid: number; host: string; ts: number };
+      const age = Date.now() - lock.ts;
+      const sameHost = lock.host === hostname();
+      const processGone = sameHost && lock.pid > 0 && !isPidAlive(lock.pid);
+      if (age <= CACHE_REFRESH_LOCK_TIMEOUT_MS && !processGone) {
+        return null; // someone else holds a fresh lock
+      }
+      // Stale: take over
+    } catch {
+      // Corrupt lock file → take over
+    }
+  }
+
+  // Write our lock (best-effort O_EXCL via tmp+rename for atomic creation)
+  const payload = JSON.stringify({ pid: process.pid, host: hostname(), ts: Date.now() });
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  try {
+    writeFileSync(tmp, payload);
+    renameSync(tmp, path);
+  } catch (err) {
+    return null;
+  }
+
+  // Race: another process may have raced us. Re-read and verify ownership.
+  try {
+    const raw = readFileSync(path, 'utf-8');
+    const lock = JSON.parse(raw) as { pid: number; host: string };
+    if (lock.pid !== process.pid || lock.host !== hostname()) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return { fd: -1, path };
+}
+
+function releaseLock(handle: LockHandle): void {
+  try { unlinkSync(handle.path); } catch { /* best effort */ }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    if (err?.code === 'EPERM') return true; // exists but we don't own it
+    return false;
+  }
+}
+
+/**
+ * Run a refresh callback under the project-scoped lock. If another refresh is
+ * already in flight, returns 'dedup' and the caller can either wait + retry
+ * (the resolver does this) or fall through to stale-but-usable. Stale locks
+ * (process dead, or older than CACHE_REFRESH_LOCK_TIMEOUT_MS) are taken over.
+ */
+export function withRefreshLock<T>(projectSlug: string | null, fn: () => T): T | 'dedup' {
+  const handle = tryAcquireLock(projectSlug);
+  if (!handle) return 'dedup';
+  try {
+    return fn();
+  } finally {
+    releaseLock(handle);
+  }
+}
+
+/** Refreshes one entity from the brain. Returns true on success. */
+export function refreshEntity(entityName: string, projectSlug: string | null): boolean {
+  const entity = BRAIN_CACHE_ENTITIES[entityName];
+  if (!entity) return false;
+
+  // Mark attempt
+  const meta = loadMeta(entity.scope, projectSlug);
+  meta.last_attempt = meta.last_attempt || {};
+  meta.last_attempt[entityName] = Date.now();
+
+  // Fetch from brain. The actual fetch logic varies per entity — derived digests
+  // (recent-decisions, salience) need different queries from direct page reads.
+  // For T2a we implement the direct-page path; derived digests get filled in by
+  // the resolver / write-back paths in later commits.
+  const digestContent = fetchAndCompressEntity(entityName, projectSlug);
+  if (digestContent === null) {
+    saveMeta(entity.scope, projectSlug, meta);
+    return false;
+  }
+
+  // Enforce per-entity budget by truncating from end (oldest items live there
+  // by convention in our compressor). The per-skill budget is separately
+  // enforced at preflight injection time.
+  let final = digestContent;
+  if (Buffer.byteLength(final, 'utf-8') > entity.budget_bytes) {
+    final = truncateToBudget(final, entity.budget_bytes);
+  }
+
+  atomicWrite(entityPath(entityName, projectSlug), final);
+  meta.last_refresh[entityName] = Date.now();
+  // Keep schema/endpoint identity fresh.
+  meta.schema_version = GSTACK_SCHEMA_PACK_VERSION;
+  meta.endpoint_hash = detectEndpointHash();
+  saveMeta(entity.scope, projectSlug, meta);
+  return true;
+}
+
+/**
+ * Refresh all entities for a scope (per-project or cross-project).
+ * Used by --full and by schema/endpoint-change rebuilds.
+ */
+export function refreshAll(projectSlug: string | null): { success: number; failed: number } {
+  let success = 0;
+  let failed = 0;
+  for (const [name, entity] of Object.entries(BRAIN_CACHE_ENTITIES)) {
+    // Cross-project entities only refresh when explicitly targeted via no-slug calls
+    if (entity.scope === 'cross-project' && projectSlug) continue;
+    if (entity.scope === 'per-project' && !projectSlug) continue;
+    if (refreshEntity(name, projectSlug)) success++; else failed++;
+  }
+  return { success, failed };
+}
+
+/** Rebuild on schema-version mismatch or endpoint switch. Wipes affected scope first. */
+function rebuildAllForScope(scope: 'cross-project' | 'per-project', projectSlug: string | null): void {
+  // Wipe files but preserve dir; meta gets fully rewritten by refreshes below.
+  for (const [name, entity] of Object.entries(BRAIN_CACHE_ENTITIES)) {
+    if (entity.scope !== scope) continue;
+    const p = entityPath(name, projectSlug);
+    if (existsSync(p)) {
+      try { unlinkSync(p); } catch { /* best effort */ }
+    }
+  }
+  // Fresh meta starts here
+  const fresh: CacheMeta = {
+    schema_version: GSTACK_SCHEMA_PACK_VERSION,
+    endpoint_hash: detectEndpointHash(),
+    last_refresh: {},
+    last_attempt: {},
+  };
+  saveMeta(scope, projectSlug, fresh);
+  // Refresh all entities in this scope
+  for (const [name, entity] of Object.entries(BRAIN_CACHE_ENTITIES)) {
+    if (entity.scope !== scope) continue;
+    refreshEntity(name, projectSlug);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: invalidate
+// ──────────────────────────────────────────────────────────────────────────
+
+export function cmdInvalidate(entityName: string, projectSlug: string | null): void {
+  const entity = BRAIN_CACHE_ENTITIES[entityName];
+  if (!entity) throw new Error(`Unknown entity: ${entityName}`);
+  const meta = loadMeta(entity.scope, projectSlug);
+  delete meta.last_refresh[entityName];
+  saveMeta(entity.scope, projectSlug, meta);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Fetch + compress per-entity
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the digest markdown content for an entity, or null if the brain is
+ * unreachable / the source page doesn't exist.
+ *
+ * For T2a we implement the entity → page-slug mapping for the simple cases.
+ * Derived digests (recent-decisions, salience) get specialized paths.
+ */
+function fetchAndCompressEntity(entityName: string, projectSlug: string | null): string | null {
+  switch (entityName) {
+    case 'user-profile':
+      return fetchUserProfile();
+    case 'product':
+      return fetchProduct(projectSlug);
+    case 'goals':
+      return fetchGoals(projectSlug);
+    case 'developer-persona':
+      return fetchSimplePage(`gstack/developer-persona/${projectSlug}`);
+    case 'brand':
+      return fetchSimplePage(`gstack/brand/${projectSlug}`);
+    case 'competitive-intel':
+      return fetchSimplePage(`gstack/competitive-intel/${projectSlug}`);
+    case 'recent-decisions':
+      return fetchRecentDecisions(projectSlug);
+    case 'salience':
+      // D9 salience allowlist applied in T17 commit; T2a returns raw output for now.
+      return fetchSalience(projectSlug);
+    default:
+      return null;
+  }
+}
+
+/** Generic single-page fetch via `gbrain get`. Returns null on miss/unreachable. */
+function fetchSimplePage(slug: string): string | null {
+  const result = spawnGbrain(['get', slug, '--json'], { timeout: 10_000 });
+  if (result.status !== 0) return null;
+  try {
+    const page = JSON.parse(result.stdout) as { body?: string; title?: string };
+    if (!page?.body) return null;
+    return compressPage(slug, page.title || slug, page.body);
+  } catch {
+    return null;
+  }
+}
+
+function fetchUserProfile(): string | null {
+  // The user-slug discovery is implemented in T16 (D4 A3). For T2a we accept
+  // env GSTACK_USER_SLUG as override, fallback to $USER for direct calls.
+  const slug = process.env.GSTACK_USER_SLUG || process.env.USER || 'unknown';
+  return fetchSimplePage(`gstack/user-profile/${slug}`);
+}
+
+function fetchProduct(projectSlug: string | null): string | null {
+  if (!projectSlug) return null;
+  return fetchSimplePage(`gstack/product/${projectSlug}`);
+}
+
+/**
+ * Goals are LIST queries: all gstack/goal/<project>/* pages.
+ * Compress the top N by recency.
+ */
+function fetchGoals(projectSlug: string | null): string | null {
+  if (!projectSlug) return null;
+  const result = execGbrainJson<{ pages?: Array<{ slug: string; title?: string; body?: string }> }>([
+    'list-pages',
+    '--type', 'gstack/goal',
+    '--limit', '10',
+    '--json',
+  ]);
+  if (!result?.pages) return null;
+  const goals = result.pages.filter((p) => p.slug?.startsWith(`gstack/goal/${projectSlug}/`));
+  if (goals.length === 0) {
+    // Empty digest is valid (just header + 'no active goals' line)
+    return `# Active goals (project: ${projectSlug})\n\n_No active goals recorded yet._\n`;
+  }
+  const lines = goals.map((g) => `- [[${g.slug}]] — ${g.title || '(untitled)'}`);
+  return `# Active goals (project: ${projectSlug})\n\n${lines.join('\n')}\n`;
+}
+
+/**
+ * recent-decisions: last 5 gstack/skill-run pages for this project, compressed
+ * to one-line summaries.
+ */
+function fetchRecentDecisions(projectSlug: string | null): string | null {
+  if (!projectSlug) return null;
+  const result = execGbrainJson<{ pages?: Array<{ slug: string; title?: string }> }>([
+    'list-pages',
+    '--type', 'gstack/skill-run',
+    '--limit', '5',
+    '--sort', 'updated_desc',
+    '--json',
+  ]);
+  if (!result?.pages) {
+    return `# Recent decisions (project: ${projectSlug})\n\n_No prior skill runs recorded._\n`;
+  }
+  const lines = result.pages.map((p) => `- ${p.title || p.slug}`);
+  return `# Recent decisions (project: ${projectSlug})\n\n${lines.join('\n')}\n`;
+}
+
+/**
+ * Reads the user's salience allowlist override from gstack-config. If unset,
+ * returns SALIENCE_DEFAULT_ALLOWLIST. The override is comma-separated; we
+ * trim and drop empty entries.
+ */
+export function getSalienceAllowlist(): ReadonlyArray<string> {
+  // Short-circuit via env var for tests + headless callers.
+  const env = process.env.GSTACK_SALIENCE_ALLOWLIST;
+  if (typeof env === 'string' && env.length > 0) {
+    return env.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  // Shell out to gstack-config with a tight timeout. Falls back to defaults
+  // on any failure (config script missing, command non-zero, parse error).
+  try {
+    const skillRoot = join(homedir(), '.claude', 'skills', 'gstack');
+    const bin = join(skillRoot, 'bin', 'gstack-config');
+    if (!existsSync(bin)) return SALIENCE_DEFAULT_ALLOWLIST;
+    const result = spawnSync(bin, ['get', 'salience_allowlist'], { timeout: 2000, encoding: 'utf-8' });
+    if (result.status !== 0 || !result.stdout) return SALIENCE_DEFAULT_ALLOWLIST;
+    const trimmed = result.stdout.trim();
+    if (!trimmed) return SALIENCE_DEFAULT_ALLOWLIST;
+    const parts = trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : SALIENCE_DEFAULT_ALLOWLIST;
+  } catch {
+    return SALIENCE_DEFAULT_ALLOWLIST;
+  }
+}
+
+/**
+ * D9 salience privacy gate: returns true if the slug starts with any allowlisted
+ * prefix. Anything NOT matching is stripped at digest write time so that family,
+ * therapy, reflection, and other sensitive content never leaks into work-flow
+ * planning prompts by default.
+ */
+export function isSalienceSlugAllowed(slug: string, allowlist: ReadonlyArray<string>): boolean {
+  for (const prefix of allowlist) {
+    if (slug.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function fetchSalience(projectSlug: string | null): string | null {
+  // get-recent-salience is a gbrain CLI sub-shape; we use the MCP-shape JSON
+  const result = execGbrainJson<{ pages?: Array<{ slug: string; title?: string; emotional_weight?: number }> }>([
+    'get-recent-salience',
+    '--days', '14',
+    '--limit', '10',
+    '--json',
+  ]);
+  if (!result?.pages) return `# Recent salience\n\n_No salient pages in last 14d._\n`;
+
+  // D9 privacy gate: strip entries outside the allowlist BEFORE rendering.
+  // Sensitive personal content (family, therapy, reflection) is never written
+  // into the digest cache file, even when the brain itself ranks it salient.
+  const allowlist = getSalienceAllowlist();
+  const filtered = result.pages.filter((p) => p.slug && isSalienceSlugAllowed(p.slug, allowlist));
+  const stripped = result.pages.length - filtered.length;
+  if (filtered.length === 0) {
+    const header = `# Recent salience (last 14d)`;
+    const note = stripped > 0
+      ? `\n_All ${stripped} salient entries stripped by allowlist gate (no work-flow content in window)._\n`
+      : `\n_No salient pages in last 14d._\n`;
+    return `${header}\n${note}`;
+  }
+  const lines = filtered.map((p) => `- [[${p.slug}]] — ${p.title || ''} (weight: ${p.emotional_weight?.toFixed(2) ?? 'n/a'})`);
+  const footer = stripped > 0
+    ? `\n\n_${stripped} private entries stripped by allowlist gate._`
+    : '';
+  return `# Recent salience (last 14d)\n\n${lines.join('\n')}${footer}\n`;
+}
+
+/**
+ * Compress a brain page body into a digest. The compressor keeps frontmatter
+ * out, trims body to the first H2/H3 sections, and prepends a slug header.
+ * Per-entity budget enforcement happens at the caller (refreshEntity).
+ */
+function compressPage(slug: string, title: string, body: string): string {
+  const trimmed = body
+    .replace(/^---[\s\S]*?---\s*\n/m, '') // strip frontmatter
+    .trim();
+  return `# ${title}\nslug: ${slug}\n\n${trimmed}\n`;
+}
+
+/**
+ * Truncate a digest to a byte budget. Tries to cut at the last newline before
+ * the budget so the digest stays readable.
+ */
+function truncateToBudget(content: string, budgetBytes: number): string {
+  const buf = Buffer.from(content, 'utf-8');
+  if (buf.byteLength <= budgetBytes) return content;
+  const truncated = buf.slice(0, budgetBytes).toString('utf-8');
+  const lastNewline = truncated.lastIndexOf('\n');
+  const cleanCut = lastNewline > budgetBytes * 0.8 ? truncated.slice(0, lastNewline) : truncated;
+  return `${cleanCut}\n\n_(digest truncated to ${budgetBytes}-byte budget)_\n`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: digest
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Public: compress a brain page slug to digest format. Used by callers that
+ * want to know what the digest WOULD look like without writing to cache.
+ */
+export function cmdDigest(slug: string): string | null {
+  return fetchSimplePage(slug);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: meta
+// ──────────────────────────────────────────────────────────────────────────
+
+export function cmdMeta(projectSlug: string | null): CacheMeta {
+  if (projectSlug) return loadMeta('per-project', projectSlug);
+  return loadMeta('cross-project', null);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: bootstrap (T2b)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Bootstrap synthesizes draft entity content from CLAUDE.md + README +
+ * recent commits + learnings.jsonl for a fresh project. Emits as JSON for
+ * the caller (skill template) to AUQ-confirm before any write to the brain.
+ *
+ * This keeps the CLI pure (no AUQ logic) while preventing silent
+ * auto-extraction garbage (D10 T4 fix). The agent is responsible for the
+ * "Synthesized X — looks right?" prompt per entity.
+ */
+export interface BootstrapDraft {
+  product?: { slug: string; title: string; body: string };
+  goals?: Array<{ slug: string; title: string; body: string }>;
+  developer_persona?: { slug: string; title: string; body: string };
+  brand?: { slug: string; title: string; body: string };
+  competitive_intel?: { slug: string; title: string; body: string };
+}
+
+export function cmdBootstrap(projectSlug: string): BootstrapDraft {
+  const draft: BootstrapDraft = {};
+  const repoRoot = process.env.GSTACK_REPO_ROOT || process.cwd();
+
+  // Product synthesis: CLAUDE.md headline + README first paragraph
+  let claudeMd = '';
+  try { claudeMd = readFileSync(join(repoRoot, 'CLAUDE.md'), 'utf-8'); } catch { /* missing is fine */ }
+  let readmeMd = '';
+  try { readmeMd = readFileSync(join(repoRoot, 'README.md'), 'utf-8'); } catch { /* missing is fine */ }
+
+  const productLead = synthesizeProductLead(claudeMd, readmeMd, projectSlug);
+  if (productLead) {
+    draft.product = {
+      slug: `gstack/product/${projectSlug}`,
+      title: projectSlug,
+      body: productLead,
+    };
+  }
+
+  // Goals: try learnings.jsonl + recent commit messages mentioning "goal" or "ship"
+  const learningsPath = join(GSTACK_HOME, 'projects', projectSlug, 'learnings.jsonl');
+  const goalsHints = synthesizeGoalsHints(learningsPath, repoRoot);
+  if (goalsHints.length > 0) {
+    draft.goals = goalsHints.slice(0, 3).map((hint, idx) => ({
+      slug: `gstack/goal/${projectSlug}/bootstrap-${idx + 1}`,
+      title: hint.title,
+      body: hint.body,
+    }));
+  }
+
+  return draft;
+}
+
+function synthesizeProductLead(claudeMd: string, readmeMd: string, slug: string): string | null {
+  // First H1 in CLAUDE.md or README, plus first paragraph after it.
+  const source = claudeMd || readmeMd;
+  if (!source) return null;
+  const h1Match = source.match(/^#\s+(.+)$/m);
+  const heading = h1Match?.[1]?.trim() || slug;
+  // First non-heading paragraph
+  const paraMatch = source.match(/(?:^|\n)([^#\n][^\n]+(?:\n[^#\n][^\n]+)*)/);
+  const lead = paraMatch?.[1]?.trim() || '(no description found in CLAUDE.md or README)';
+  return [
+    `# ${heading}`,
+    '',
+    '## What',
+    lead.slice(0, 500),
+    '',
+    '## Stage',
+    '(fill in current stage, e.g., v1.x shipped, in development, paused)',
+    '',
+    '## Team',
+    '(fill in team composition + size)',
+    '',
+    '## Active goals',
+    '(populated by /office-hours over time)',
+    '',
+    '## Recent decisions',
+    '(populated by /plan-ceo-review over time)',
+    '',
+  ].join('\n');
+}
+
+function synthesizeGoalsHints(learningsPath: string, repoRoot: string): Array<{ title: string; body: string }> {
+  const hints: Array<{ title: string; body: string }> = [];
+  if (existsSync(learningsPath)) {
+    try {
+      const lines = readFileSync(learningsPath, 'utf-8').split('\n').filter(Boolean);
+      for (const line of lines.slice(-10)) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry?.insight && (entry?.type === 'pattern' || entry?.type === 'architecture')) {
+            hints.push({
+              title: entry.insight.slice(0, 80),
+              body: `Source: learnings.jsonl\nType: ${entry.type}\n\n${entry.insight}\n`,
+            });
+          }
+        } catch { /* skip malformed line */ }
+      }
+    } catch { /* unreadable file, skip */ }
+  }
+  return hints;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: list (T18)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Lists all gstack-owned pages currently in the brain for a project, grouped
+ * by type. Powers the user's ability to audit what gstack has written.
+ */
+export function cmdList(projectSlug: string | null): Array<{ type: string; slug: string; title?: string }> {
+  // We probe each gstack/<type>/ namespace via list-pages with a type filter.
+  const types = ['gstack/user-profile', 'gstack/product', 'gstack/goal', 'gstack/developer-persona', 'gstack/brand', 'gstack/competitive-intel', 'gstack/skill-run', 'gstack/take'];
+  const all: Array<{ type: string; slug: string; title?: string }> = [];
+  for (const type of types) {
+    const result = execGbrainJson<{ pages?: Array<{ slug: string; title?: string }> }>([
+      'list-pages',
+      '--type', type,
+      '--limit', '200',
+      '--json',
+    ]);
+    if (!result?.pages) continue;
+    for (const page of result.pages) {
+      if (projectSlug && !page.slug?.includes(`/${projectSlug}`) && type !== 'gstack/user-profile') {
+        continue;
+      }
+      all.push({ type, slug: page.slug, title: page.title });
+    }
+  }
+  return all;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Subcommand: purge (T18)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Delete one gstack-owned page from the brain. Caller (skill template) is
+ * responsible for the confirm prompt; this is the raw operation.
+ */
+export function cmdPurge(slug: string): { deleted: boolean; error?: string } {
+  if (!slug.startsWith('gstack/')) {
+    return { deleted: false, error: 'refusing to purge non-gstack page' };
+  }
+  const result = spawnGbrain(['delete-page', slug], { timeout: 10_000 });
+  if (result.status !== 0) {
+    return { deleted: false, error: result.stderr?.trim() || `exit ${result.status}` };
+  }
+  // Also invalidate any cached digests that referenced this page.
+  // Best-effort — derived digests may need explicit invalidate.
+  return { deleted: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CLI dispatch
+// ──────────────────────────────────────────────────────────────────────────
+
+function parseArgs(argv: string[]): { cmd: string; positional: string[]; flags: Record<string, string | boolean> } {
+  const cmd = argv[2] || '';
+  const rest = argv.slice(3);
+  const positional: string[] = [];
+  const flags: Record<string, string | boolean> = {};
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg.startsWith('--')) {
+      const key = arg.slice(2);
+      const next = rest[i + 1];
+      if (next && !next.startsWith('--')) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+  return { cmd, positional, flags };
+}
+
+function projectSlugFromFlag(flags: Record<string, string | boolean>): string | null {
+  const v = flags.project;
+  return typeof v === 'string' ? v : null;
+}
+
+function printUsage(): void {
+  process.stderr.write(`Usage: gstack-brain-cache <subcommand>
+
+Subcommands:
+  get <entity-name> [--project <slug>]
+  refresh [--full] [--entity X] [--project <slug>]
+  invalidate <entity-name> [--project <slug>]
+  digest <entity-slug>
+  meta [--project <slug>]
+  bootstrap --project <slug>           — emit synthesized entity drafts (JSON)
+  list [--project <slug>]              — list gstack-owned pages in brain
+  purge <slug>                         — delete a gstack-owned brain page (refuses non-gstack/ slugs)
+`);
+}
+
+async function main(): Promise<number> {
+  const { cmd, positional, flags } = parseArgs(process.argv);
+  const projectSlug = projectSlugFromFlag(flags);
+
+  try {
+    switch (cmd) {
+      case 'get': {
+        const entityName = positional[0];
+        if (!entityName) { printUsage(); return 1; }
+        const result = cmdGet(entityName, projectSlug);
+        if (result.state === 'missing') {
+          process.stderr.write(`(${result.state}: ${result.message ?? 'no cache'})\n`);
+          return 2;
+        }
+        if (result.state !== 'warm') {
+          process.stderr.write(`(${result.state}${result.message ? ': ' + result.message : ''})\n`);
+        }
+        process.stdout.write(readFileSync(result.path, 'utf-8'));
+        return 0;
+      }
+      case 'refresh': {
+        // D3: dedup concurrent refreshes via lockfile. Skipped (dedup) when
+        // another process is already mid-refresh on the same project.
+        if (flags.entity) {
+          const entityName = String(flags.entity);
+          const result = withRefreshLock(projectSlug, () => refreshEntity(entityName, projectSlug));
+          if (result === 'dedup') {
+            process.stderr.write(`(dedup: another refresh in flight)\n`);
+            return 3;
+          }
+          process.stdout.write(result ? `refreshed ${entityName}\n` : `failed to refresh ${entityName}\n`);
+          return result ? 0 : 1;
+        }
+        const allResult = withRefreshLock(projectSlug, () => refreshAll(projectSlug));
+        if (allResult === 'dedup') {
+          process.stderr.write(`(dedup: another refresh in flight)\n`);
+          return 3;
+        }
+        process.stdout.write(`refreshed=${allResult.success} failed=${allResult.failed}\n`);
+        return allResult.failed > 0 ? 1 : 0;
+      }
+      case 'invalidate': {
+        const entityName = positional[0];
+        if (!entityName) { printUsage(); return 1; }
+        cmdInvalidate(entityName, projectSlug);
+        process.stdout.write(`invalidated ${entityName}\n`);
+        return 0;
+      }
+      case 'digest': {
+        const slug = positional[0];
+        if (!slug) { printUsage(); return 1; }
+        const content = cmdDigest(slug);
+        if (content === null) {
+          process.stderr.write('brain unreachable or page not found\n');
+          return 2;
+        }
+        process.stdout.write(content);
+        return 0;
+      }
+      case 'meta': {
+        const meta = cmdMeta(projectSlug);
+        process.stdout.write(JSON.stringify(meta, null, 2) + '\n');
+        return 0;
+      }
+      case 'bootstrap': {
+        if (!projectSlug) {
+          process.stderr.write('bootstrap requires --project <slug>\n');
+          return 1;
+        }
+        const draft = cmdBootstrap(projectSlug);
+        process.stdout.write(JSON.stringify(draft, null, 2) + '\n');
+        return 0;
+      }
+      case 'list': {
+        const pages = cmdList(projectSlug);
+        if (flags.json) {
+          process.stdout.write(JSON.stringify(pages, null, 2) + '\n');
+        } else {
+          for (const p of pages) {
+            process.stdout.write(`${p.type}\t${p.slug}\t${p.title ?? ''}\n`);
+          }
+        }
+        return 0;
+      }
+      case 'purge': {
+        const slug = positional[0];
+        if (!slug) { printUsage(); return 1; }
+        const result = cmdPurge(slug);
+        if (result.deleted) {
+          process.stdout.write(`deleted ${slug}\n`);
+          return 0;
+        }
+        process.stderr.write(`failed: ${result.error}\n`);
+        return 1;
+      }
+      case '':
+      case 'help':
+      case '--help':
+      case '-h':
+        printUsage();
+        return 0;
+      default:
+        process.stderr.write(`unknown subcommand: ${cmd}\n`);
+        printUsage();
+        return 1;
+    }
+  } catch (err) {
+    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+// Only run main when invoked as a script (not when imported by tests)
+if (import.meta.main) {
+  main().then((code) => process.exit(code));
+}

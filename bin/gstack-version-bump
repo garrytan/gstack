@@ -1,0 +1,212 @@
+#!/usr/bin/env bun
+// gstack-version-bump — deterministic version-state classifier + writer for /ship.
+//
+// Extracted from ship Step 12 prose (v2 plan T9, hybrid CLI extraction). The
+// idempotency classification and the dual-write to VERSION + package.json are
+// pure deterministic logic; running them as tested code removes the single
+// worst /ship footgun — re-bumping an already-shipped branch — from prose the
+// agent could skip or misread when the step lives in a lazy-loaded section.
+//
+// What STAYS agent judgment (NOT here): the bump-LEVEL decision (micro/patch vs
+// minor/major, which may AskUserQuestion on feature signals) and the queue
+// collision prompt. The slot pick itself is bin/gstack-next-version. This CLI
+// only answers "what state am I in?" and "write this exact version".
+//
+// Subcommands:
+//   classify --base <branch> [--version-path <p>]
+//       Compares VERSION vs origin/<base>:VERSION vs package.json.version.
+//       Emits JSON: { state, baseVersion, currentVersion, pkgVersion, pkgExists }
+//       state ∈ FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
+//       Exit 0 on a decidable state (incl. DRIFT_UNEXPECTED — it's a real state
+//       the caller must handle), exit 2 on bad args / unresolvable base.
+//
+//   write --version <X.Y.Z.W> [--version-path <p>]
+//       Validates the 4-digit pattern, writes VERSION + package.json.version.
+//       Use for the FRESH bump (or an approved queue rebump). Exit 3 on a
+//       half-write (VERSION written, package.json failed) so the caller knows
+//       drift exists; the next classify() will report DRIFT_STALE_PKG.
+//
+//   repair [--version-path <p>]
+//       DRIFT_STALE_PKG path: sync package.json.version to the current VERSION
+//       file. No bump. Validates the VERSION pattern first.
+//
+// Contract: classify NEVER writes. write/repair mutate VERSION + package.json
+// only. No git mutation, no network. Mirrors gstack-next-version's reader/writer
+// split so /ship composes them.
+
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+
+const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
+const DEFAULT = "0.0.0.0";
+
+type State = "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
+
+function fail(msg: string, code = 2): never {
+  process.stderr.write(`gstack-version-bump: ${msg}\n`);
+  process.exit(code);
+}
+
+function argVal(args: string[], flag: string): string | undefined {
+  const i = args.indexOf(flag);
+  return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+
+/** Resolve the VERSION file path: --version-path, else .gstack/version-path, else "VERSION". */
+function resolveVersionPath(cwd: string, explicit?: string): string {
+  if (explicit) return join(cwd, explicit);
+  const pin = join(cwd, ".gstack", "version-path");
+  if (existsSync(pin)) {
+    const p = readFileSync(pin, "utf-8").trim();
+    if (p) return join(cwd, p);
+  }
+  return join(cwd, "VERSION");
+}
+
+function readVersionFile(p: string): string {
+  try {
+    const v = readFileSync(p, "utf-8").replace(/[\r\n\s]/g, "");
+    return v || DEFAULT;
+  } catch {
+    return DEFAULT;
+  }
+}
+
+/** package.json version + existence, parsed without spawning node. */
+function readPkgVersion(cwd: string): { exists: boolean; version: string } {
+  const pkgPath = join(cwd, "package.json");
+  if (!existsSync(pkgPath)) return { exists: false, version: "" };
+  let raw: string;
+  try {
+    raw = readFileSync(pkgPath, "utf-8");
+  } catch {
+    return { exists: true, version: "" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    fail("package.json is not valid JSON. Fix the file before re-running /ship.", 2);
+  }
+  const version = (parsed as { version?: unknown })?.version;
+  return { exists: true, version: typeof version === "string" ? version : "" };
+}
+
+function writePkgVersion(cwd: string, version: string): void {
+  const pkgPath = join(cwd, "package.json");
+  const raw = readFileSync(pkgPath, "utf-8");
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  parsed.version = version;
+  writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
+}
+
+function baseVersion(cwd: string, base: string, versionRel: string): string {
+  // Verify the base ref resolves, mirroring the Step 12 guard.
+  try {
+    execFileSync("git", ["rev-parse", "--verify", `origin/${base}`], { cwd, stdio: "ignore" });
+  } catch {
+    fail(`Unable to resolve origin/${base}. Run 'git fetch origin' or verify the base branch exists.`, 2);
+  }
+  try {
+    const out = execFileSync("git", ["show", `origin/${base}:${versionRel}`], { cwd }).toString();
+    const v = out.replace(/[\r\n\s]/g, "");
+    return v || DEFAULT;
+  } catch {
+    // VERSION absent on base (new repo / new file) → treat as 0.0.0.0.
+    return DEFAULT;
+  }
+}
+
+function classifyState(current: string, base: string, pkgExists: boolean, pkgVersion: string): State {
+  if (current === base) {
+    // VERSION unchanged vs base. A diverging package.json means someone hand-edited
+    // package.json bypassing /ship — unsafe to guess which is authoritative.
+    if (pkgExists && pkgVersion && pkgVersion !== current) return "DRIFT_UNEXPECTED";
+    return "FRESH";
+  }
+  // VERSION already moved past base.
+  if (pkgExists && pkgVersion && pkgVersion !== current) return "DRIFT_STALE_PKG";
+  return "ALREADY_BUMPED";
+}
+
+function cmdClassify(args: string[], cwd: string): void {
+  const base = argVal(args, "--base");
+  if (!base) fail("classify requires --base <branch>", 2);
+  const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
+  const versionRel = argVal(args, "--version-path") ?? "VERSION";
+  const current = readVersionFile(versionPath);
+  const baseV = baseVersion(cwd, base!, versionRel);
+  const pkg = readPkgVersion(cwd);
+  const state = classifyState(current, baseV, pkg.exists, pkg.version);
+  process.stdout.write(
+    JSON.stringify({
+      state,
+      baseVersion: baseV,
+      currentVersion: current,
+      pkgVersion: pkg.version || null,
+      pkgExists: pkg.exists,
+    }) + "\n",
+  );
+  // DRIFT_UNEXPECTED is a real, decidable state — the caller stops on it, but the
+  // classification itself succeeded, so exit 0. (Bad args / unresolvable base are
+  // the only exit-2 cases.)
+}
+
+function cmdWrite(args: string[], cwd: string): void {
+  const version = argVal(args, "--version");
+  if (!version) fail("write requires --version <X.Y.Z.W>", 2);
+  if (!VERSION_RE.test(version!)) {
+    fail(`NEW_VERSION (${version}) does not match MAJOR.MINOR.PATCH.MICRO. Aborting.`, 2);
+  }
+  const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
+  writeFileSync(versionPath, version + "\n");
+  if (existsSync(join(cwd, "package.json"))) {
+    try {
+      writePkgVersion(cwd, version!);
+    } catch {
+      fail(
+        "failed to update package.json. VERSION was written but package.json is now stale. " +
+          "Re-run — classify will report DRIFT_STALE_PKG and repair will sync it.",
+        3,
+      );
+    }
+  }
+  process.stdout.write(JSON.stringify({ wrote: version, packageJson: existsSync(join(cwd, "package.json")) }) + "\n");
+}
+
+function cmdRepair(args: string[], cwd: string): void {
+  const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
+  const current = readVersionFile(versionPath);
+  if (!VERSION_RE.test(current)) {
+    fail(
+      `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH.MICRO. ` +
+        "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run /ship.",
+      2,
+    );
+  }
+  if (!existsSync(join(cwd, "package.json"))) {
+    fail("repair: no package.json to sync.", 2);
+  }
+  try {
+    writePkgVersion(cwd, current);
+  } catch {
+    fail("drift repair failed — could not update package.json.", 3);
+  }
+  process.stdout.write(JSON.stringify({ repaired: current }) + "\n");
+}
+
+// Exported for unit tests (pure logic, no I/O).
+export { classifyState, VERSION_RE, type State };
+
+if (import.meta.main) {
+  const [sub, ...rest] = process.argv.slice(2);
+  const cwd = process.cwd();
+  switch (sub) {
+    case "classify": cmdClassify(rest, cwd); break;
+    case "write": cmdWrite(rest, cwd); break;
+    case "repair": cmdRepair(rest, cwd); break;
+    default:
+      fail("usage: gstack-version-bump <classify|write|repair> [flags]", 2);
+  }
+}

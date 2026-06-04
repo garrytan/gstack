@@ -54,7 +54,7 @@ import {
   rmSync,
 } from "fs";
 import { join, basename, dirname } from "path";
-import { execSync, execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
+import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
@@ -64,6 +64,7 @@ import {
   detectEngineTier,
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
+import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -193,7 +194,7 @@ Options:
   --all-history        Walk transcripts older than 90 days too.
   --sources <list>     Comma-separated subset: ${ALL_TYPES.join(",")}
   --limit <N>          Stop after N pages written (smoke testing).
-  --no-write           Skip gbrain put_page calls (still updates state file).
+  --no-write           Skip gbrain put calls (still updates state file).
                        Used by tests + dry runs without actual ingest.
   --scan-secrets       Opt-in per-file gitleaks scan during prepare. Off by
                        default; gstack-brain-sync already gates the git-push
@@ -809,16 +810,14 @@ let _gbrainAvailability: boolean | null = null;
 function gbrainAvailable(): boolean {
   if (_gbrainAvailability !== null) return _gbrainAvailability;
   try {
-    execSync("command -v gbrain", { stdio: "ignore" });
     // Probe `--help` for the `import` subcommand. gbrain v0.20.0+ ships
     // `import <dir>` (batch markdown import via path-authoritative slugs).
     // If absent, we surface a single clean error here rather than failing
     // the whole stage with a confusing usage message from gbrain itself.
-    const help = execFileSync("gbrain", ["--help"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    // `gbrain --help` probes only CLI availability, not DB connectivity, so
+    // it doesn't strictly need DATABASE_URL. But routing through the helper
+    // keeps the invariant test from chasing exceptions per call site.
+    const help = execGbrainText(["--help"], { timeout: 5000 });
     _gbrainAvailability = /^\s+import\s/m.test(help);
   } catch {
     _gbrainAvailability = false;
@@ -1062,7 +1061,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
   }
 
   // Per ED2: ~25-35 min for ~11.7K transcripts = ~150ms/page synchronous
-  // (gitleaks + render + put_page + embedding). Scale linearly.
+  // (gitleaks + render + put + embedding). Scale linearly.
   const estimateMinutes = Math.max(1, Math.round((newCount + updatedCount) * 0.15 / 60));
 
   return {
@@ -1203,6 +1202,57 @@ function makeStagingDir(): string {
 }
 
 /**
+ * Persistent staging dir used in remote-http MCP mode (split-engine D11).
+ *
+ * Instead of staging to ~/.gstack/.staging-ingest-<pid>-<ts>/ and cleaning up
+ * after `gbrain import`, remote-http users get a stable path that survives.
+ * gstack-brain-sync's allowlist pushes ~/.gstack/transcripts/** to the
+ * artifacts repo; the brain admin's pull job indexes them into the remote
+ * brain. Local PGLite (if present) stays code-only.
+ *
+ * Path: ~/.gstack/transcripts/<run-id>/  (run-id pid+ts so concurrent passes
+ * stay separate; brain-sync push doesn't care about subdir naming).
+ */
+function makePersistentTranscriptDir(): string {
+  const dir = join(
+    GSTACK_HOME,
+    "transcripts",
+    `run-${process.pid}-${Date.now()}`,
+  );
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * Detect whether the gbrain MCP is remote-http (Path 4) — and therefore we
+ * should NOT call `gbrain import` because we don't want the local PGLite
+ * polluted with transcripts (per plan D11).
+ *
+ * Reads ~/.claude.json directly (same fallback chain as gstack-gbrain-detect
+ * Tier 3). Cheap: one fs read, no fork-exec.
+ */
+function isRemoteHttpMcpMode(): boolean {
+  const home = process.env.HOME || homedir();
+  const claudeJsonPath = join(home, ".claude.json");
+  if (!existsSync(claudeJsonPath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(claudeJsonPath, "utf-8")) as {
+      mcpServers?: {
+        gbrain?: { type?: string; transport?: string; url?: string };
+      };
+    };
+    const entry = parsed.mcpServers?.gbrain;
+    if (!entry) return false;
+    const mtype = entry.type || entry.transport || "";
+    if (mtype === "url" || mtype === "http" || mtype === "sse") return true;
+    if (entry.url) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Best-effort recursive cleanup. Failures swallowed — at worst we leak a
  * staging dir to disk; the next run uses a new one and they age out via
  * normal disk hygiene. We deliberately do NOT crash the pipeline on
@@ -1222,13 +1272,39 @@ function cleanupStagingDir(dir: string): void {
  *   1. forward the signal to the child (otherwise gbrain orphans, holds the
  *      PGLite write lock, and burns CPU — observed during 2026-05-10 cold-run
  *      testing)
- *   2. synchronously clean up the staging dir BEFORE process.exit (otherwise
- *      finally blocks in async callers don't run after process.exit from
- *      inside a signal handler, leaking the staging dir on every interrupt)
+ *   2. PRESERVE the staging dir when gbrain has written an import-checkpoint
+ *      pointing at it (the next /sync-gbrain run can resume from
+ *      processedIndex+1). Otherwise synchronously clean up before
+ *      process.exit, since `finally` blocks in ingestPass never run after
+ *      process.exit fires from inside a signal handler.
+ *
+ * Resume semantics added for #1611: prior behavior unconditionally cleaned
+ * up the staging dir on SIGTERM, so the gbrain checkpoint always pointed at
+ * a missing dir and the next run had to restage from scratch.
  */
 let _activeImportChild: ChildProcess | null = null;
 let _activeStagingDir: string | null = null;
 let _signalHandlersInstalled = false;
+
+/**
+ * Returns true if gbrain has written ~/.gbrain/import-checkpoint.json with
+ * `dir` matching the current active staging dir. Indicates the next run
+ * can resume against this staging dir.
+ */
+function stagingDirIsCheckpointed(stagingDir: string): boolean {
+  try {
+    // Read HOME from env so tests can redirect; homedir() caches.
+    const home = process.env.HOME || homedir();
+    const cpPath = join(home, ".gbrain", "import-checkpoint.json");
+    if (!existsSync(cpPath)) return false;
+    const raw = readFileSync(cpPath, "utf-8");
+    const cp = JSON.parse(raw) as { dir?: string };
+    return cp.dir === stagingDir;
+  } catch {
+    return false;
+  }
+}
+
 function installSignalForwarder(): void {
   if (_signalHandlersInstalled) return;
   _signalHandlersInstalled = true;
@@ -1240,11 +1316,24 @@ function installSignalForwarder(): void {
         // child may have already exited between the alive-check and the kill
       }
     }
-    // Synchronously clean up the active staging dir before exiting. The async
-    // `finally` blocks in ingestPass never run after process.exit fires from
-    // inside this handler, so cleanup has to happen here.
     if (_activeStagingDir) {
-      cleanupStagingDir(_activeStagingDir);
+      if (stagingDirIsCheckpointed(_activeStagingDir)) {
+        // Preserve for next-run resume. The orchestrator's decideResume()
+        // (in gstack-gbrain-sync.ts) will see the checkpoint + dir and
+        // re-invoke gbrain import against this same staging dir, picking
+        // up from processedIndex+1. See #1611.
+        try {
+          process.stderr.write(
+            `[memory-ingest] ${signal} received — preserving staging dir for resume: ${_activeStagingDir}\n`,
+          );
+        } catch {
+          // best-effort: stderr may be closed already
+        }
+      } else {
+        // No checkpoint pointing here — the import never reached gbrain or
+        // crashed before writing one. Clean up so we don't leak the dir.
+        cleanupStagingDir(_activeStagingDir);
+      }
       _activeStagingDir = null;
     }
     // Re-raise to default action so the parent actually exits. Without this,
@@ -1260,17 +1349,39 @@ function installSignalForwarder(): void {
  * that kill the child on parent SIGTERM/SIGINT. Returns the same shape as
  * spawnSync's result so the caller doesn't care which mode was used.
  */
+/**
+ * #1611: the `gbrain import` is the long pole on big brains. Its timeout is
+ * configurable via GSTACK_INGEST_TIMEOUT_MS (default 30 min, 1min–24h) so large
+ * memory corpora aren't SIGTERM'd mid-import. On timeout we SIGTERM the child,
+ * which preserves gbrain's import-checkpoint.json (see installSignalForwarder)
+ * so the next run resumes instead of restarting from scratch.
+ */
+const DEFAULT_IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
+export function resolveImportTimeoutMs(
+  raw: string | undefined = process.env.GSTACK_INGEST_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw === "") return DEFAULT_IMPORT_TIMEOUT_MS;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || Number.isNaN(n) || n < 60_000 || n > 86_400_000) {
+    console.error(
+      `[memory-ingest] GSTACK_INGEST_TIMEOUT_MS="${raw}" invalid (need 60000–86400000ms); using ${DEFAULT_IMPORT_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_IMPORT_TIMEOUT_MS;
+  }
+  return n;
+}
+
 function runGbrainImport(
   stagingDir: string,
   timeoutMs: number,
-): Promise<{ status: number | null; stdout: string; stderr: string }> {
+): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   installSignalForwarder();
   return new Promise((resolve) => {
-    const child = spawn(
-      "gbrain",
-      ["import", stagingDir, "--no-embed", "--json"],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    // Seed DATABASE_URL from gbrain's own config so this stage works
+    // inside Next.js / Prisma / Rails projects with their own
+    // .env.local (codex review #7 — defense in depth on top of the
+    // parent gstack-gbrain-sync seeding the bun grandchild's env).
+    const child = spawnGbrainAsync(["import", stagingDir, "--no-embed", "--json"]);
     _activeImportChild = child;
     let stdout = "";
     let stderr = "";
@@ -1296,6 +1407,7 @@ function runGbrainImport(
         status: timedOut ? null : status,
         stdout,
         stderr,
+        timedOut,
       });
     });
     child.on("error", (err) => {
@@ -1305,6 +1417,7 @@ function runGbrainImport(
         status: null,
         stdout,
         stderr: stderr + `\n[spawn-error] ${(err as Error).message}`,
+        timedOut,
       });
     });
   });
@@ -1324,7 +1437,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   if (args.noWrite) {
     // --no-write: skip the gbrain import call but still record state for
     // prepared pages (treat them as ingested for dedup purposes). Matches
-    // the prior contract from --help: "Skip gbrain put_page calls (still
+    // the prior contract from --help: "Skip gbrain put calls (still
     // updates state file)".
     const nowIso = new Date().toISOString();
     for (const p of prep.prepared) {
@@ -1387,14 +1500,53 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     };
   }
 
-  // Phase 2: stage to a per-run dir + invoke gbrain import.
-  const stagingDir = makeStagingDir();
+  // Phase 2: stage + (optionally) invoke gbrain import.
+  //
+  // Split-engine branch per plan D11: in remote-http MCP mode, we stage to a
+  // PERSISTENT dir under ~/.gstack/transcripts/ and SKIP `gbrain import`
+  // entirely. gstack-brain-sync push will pick the dir up via its allowlist
+  // and the brain admin's pull job will index transcripts into the remote
+  // brain. Local PGLite (if any) stays code-only.
+  //
+  // Resume branch for #1611: when the orchestrator sets
+  // GSTACK_INGEST_RESUME_DIR (because gbrain's import-checkpoint.json points
+  // at an existing dir from a prior SIGTERM'd run), reuse that staging dir
+  // and skip the prepare/writeStaged phase entirely. gbrain's checkpoint
+  // tells it where to resume.
+  const remoteHttpMode = isRemoteHttpMcpMode();
+  const resumeDir = process.env.GSTACK_INGEST_RESUME_DIR;
+  const resuming = !remoteHttpMode
+    && typeof resumeDir === "string"
+    && resumeDir.length > 0
+    && existsSync(resumeDir);
+  const stagingDir = resuming
+    ? resumeDir!
+    : remoteHttpMode
+      ? makePersistentTranscriptDir()
+      : makeStagingDir();
   // Register staging dir with the signal forwarder so SIGTERM/SIGINT can
-  // synchronously clean it up before process.exit (the async finally block
-  // below does NOT run after a signal-handler exit).
-  _activeStagingDir = stagingDir;
+  // either preserve (when gbrain checkpointed it) or synchronously clean up.
+  // The async finally block below does NOT run after a signal-handler exit.
+  // In remote-http mode we skip registration — the dir is meant to persist.
+  if (!remoteHttpMode) {
+    _activeStagingDir = stagingDir;
+  }
   try {
-    const staging = writeStaged(prep.prepared, stagingDir);
+    let staging: StagingResult;
+    if (resuming) {
+      // Pages are already on disk from the previous run. Skip writeStaged.
+      // The "written" count for the verdict reflects what's on disk now;
+      // gbrain's import will skip already-completed entries via its own
+      // checkpoint (processedIndex+1).
+      if (!args.quiet) {
+        console.error(
+          `[memory-ingest] resuming previous staging dir ${stagingDir} (skipping prepare phase)`,
+        );
+      }
+      staging = { staging_dir: stagingDir, written: prep.prepared.length, errors: [], stagedPathToSource: new Map() };
+    } else {
+      staging = writeStaged(prep.prepared, stagingDir);
+    }
     failed += staging.errors.length;
     if (!args.quiet && staging.errors.length > 0) {
       for (const e of staging.errors.slice(0, 5)) {
@@ -1415,9 +1567,60 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     }
 
     if (!args.quiet) {
+      const action = remoteHttpMode
+        ? "persisting to artifacts pipeline (skipping local gbrain import — remote-http mode)"
+        : "running gbrain import";
       console.error(
-        `[memory-ingest] staged ${staging.written} pages → ${stagingDir}; running gbrain import...`,
+        `[memory-ingest] staged ${staging.written} pages → ${stagingDir}; ${action}...`,
       );
+    }
+
+    // Remote-http branch (split-engine D11): no local gbrain import. The
+    // staged markdown lives under ~/.gstack/transcripts/<run-id>/ and the
+    // next gstack-brain-sync push will move it to the artifacts repo. From
+    // there the brain admin's pull job indexes into the remote brain.
+    //
+    // We treat ALL prepared pages as "written" since the import didn't run
+    // and we have no per-page failures from gbrain to filter on. The
+    // brain admin's pull pipeline is the authoritative gate; from this
+    // machine's perspective, the act of staging IS the write.
+    if (remoteHttpMode) {
+      const nowIso = new Date().toISOString();
+      for (const p of prep.prepared) {
+        try {
+          state.sessions[p.source_path] = {
+            mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
+            sha256: fileSha256(p.source_path),
+            ingested_at: nowIso,
+            page_slug: p.page_slug,
+            partial: p.partial,
+          };
+          written++;
+        } catch (err) {
+          console.error(
+            `[state-record] ${p.source_path}: ${(err as Error).message}`,
+          );
+        }
+      }
+      state.last_full_walk = nowIso;
+      state.last_writer = "gstack-memory-ingest (remote-http mode)";
+      saveState(state);
+      if (!args.quiet) {
+        console.error(
+          `[memory-ingest] persisted ${written} pages to ${stagingDir} (brain admin will index on next pull)`,
+        );
+      }
+      // Skip the gbrain-import error handling + cleanupStagingDir paths
+      // below by short-circuiting the function.
+      return {
+        written,
+        skipped_secret: prep.skippedSecret,
+        skipped_dedup: prep.skippedDedup,
+        skipped_unattributed: prep.skippedUnattributed,
+        failed,
+        duration_ms: Date.now() - t0,
+        partial_pages: prep.partialPages,
+      };
     }
 
     // D6: single batch import. `--no-embed` matches the prior per-file
@@ -1429,13 +1632,33 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // spawn, parent termination orphans the gbrain process (observed
     // during 2026-05-10 cold-run testing — gbrain kept running 15 min
     // after the orchestrator timed out).
-    const importResult = await runGbrainImport(stagingDir, 30 * 60 * 1000);
+    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs());
 
     const stdout = importResult.stdout || "";
     const stderr = importResult.stderr || "";
     const importJson = parseImportJson(stdout);
 
     if (importResult.status !== 0) {
+      // #1611: on timeout, gbrain's import-checkpoint.json is preserved (the
+      // SIGTERM forwarder keeps the staging dir), so the next /sync-gbrain
+      // resumes rather than restarting. Tell the user instead of looking failed.
+      if (importResult.timedOut) {
+        const mins = Math.round(resolveImportTimeoutMs() / 60000);
+        const msg =
+          `gbrain import timed out after ${mins}min; checkpoint preserved — re-run ` +
+          `/sync-gbrain to resume (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`;
+        console.error(`[memory-ingest] ${msg}`);
+        return {
+          written: 0,
+          skipped_secret: prep.skippedSecret,
+          skipped_dedup: prep.skippedDedup,
+          skipped_unattributed: prep.skippedUnattributed,
+          failed,
+          duration_ms: Date.now() - t0,
+          partial_pages: prep.partialPages,
+          system_error: msg,
+        };
+      }
       const tail = (stderr.trim().split("\n").pop() || "").slice(0, 300);
       const msg = `gbrain import exited ${importResult.status}: ${tail}`;
       console.error(`[memory-ingest] ERR: ${msg}`);
@@ -1631,7 +1854,12 @@ async function main(): Promise<void> {
   if (result.system_error) process.exit(1);
 }
 
-main().catch((err) => {
-  console.error(`gstack-memory-ingest fatal: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// Guard so the module is import-safe for unit tests (e.g. resolveImportTimeoutMs).
+// The orchestrator runs it as `bun gstack-memory-ingest.ts ...`, where
+// import.meta.main is true, so the CLI path is unaffected.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`gstack-memory-ingest fatal: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

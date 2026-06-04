@@ -326,12 +326,16 @@ If you're using [Conductor](https://conductor.build) to run multiple Claude Code
 
 | Hook | Script | What it does |
 |------|--------|-------------|
-| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills |
+| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills, runs `./setup` non-interactively |
 | `archive` | `bin/dev-teardown` | Removes skill symlinks, cleans up `.claude/` directory |
 
 When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It detects the main worktree (via `git worktree list`), copies your `.env` so API keys carry over, and sets up dev mode — no manual steps needed.
 
+`bin/dev-setup` runs `./setup` fully non-interactively (it passes `--plan-tune-hooks=prompt` and closes stdin), so a forwarded Conductor TTY can never hang on a hidden setup prompt. It also never installs the plan-tune Claude Code hooks, which means a throwaway workspace can't rewrite your global `~/.claude/settings.json` to point at an ephemeral worktree path. To install the plan-tune hooks deliberately, run `./setup --plan-tune-hooks` outside dev-setup (or `gstack-config set plan_tune_hooks yes`).
+
 **First-time setup:** Put your `ANTHROPIC_API_KEY` in `.env` in the main repo (see `.env.example`). Every Conductor workspace inherits it automatically.
+
+**`GSTACK_*` env prefix (Conductor-injected keys).** Conductor explicitly strips `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from every workspace's process env. The `.env` copy path doesn't restore them either — the strip happens after env inheritance. Users who want paid evals, `/sync-gbrain` embeddings, or `claude-agent-sdk` calls to work in a Conductor workspace must set `GSTACK_ANTHROPIC_API_KEY` and `GSTACK_OPENAI_API_KEY` in Conductor's workspace env config; Conductor passes those through untouched. On the gstack side, TS entry points import `lib/conductor-env-shim.ts` as a side effect, which promotes `GSTACK_FOO_API_KEY` to `FOO_API_KEY` when the canonical name is empty. If you add a new TS entry point that hits a paid API, add `import "../lib/conductor-env-shim";` to the top of the file. Today the shim is imported from `bin/gstack-gbrain-sync.ts`, `bin/gstack-model-benchmark`, `scripts/preflight-agent-sdk.ts`, and `test/helpers/e2e-helpers.ts`.
 
 ## Things to know
 
@@ -342,6 +346,7 @@ When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It d
 - **Conductor workspaces are independent.** Each workspace is its own git worktree. `bin/dev-setup` runs automatically via `conductor.json`.
 - **`.env` propagates across worktrees.** Set it once in the main repo, all Conductor workspaces get it.
 - **`.claude/skills/` is gitignored.** The symlinks never get committed.
+- **Never write raw `ln -snf` in `setup`.** Every link site in `setup` MUST route through the `_link_or_copy SRC DST` helper near the `IS_WINDOWS` detection. The helper preserves `ln -snf` on Unix and switches to `cp -R` / `cp -f` on Windows without Developer Mode, where plain `ln -snf` produces frozen file copies that don't refresh on `git pull`. `test/setup-windows-fallback.test.ts` enforces this with a static invariant — a single raw `ln` call outside the helper body fails CI.
 
 ## Testing your changes in a real project
 

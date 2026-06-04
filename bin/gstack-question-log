@@ -28,7 +28,8 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+# GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).
+GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
@@ -49,10 +50,46 @@ if (!j.skill || !/^[a-z0-9-]+\$/.test(j.skill)) {
   process.exit(1);
 }
 
-// Required: question_id (kebab-case, <=64 chars)
+// Required: question_id (kebab-case, <=64 chars).
+// Cathedral T5: hook-sourced events use 'hook-<10-char-hash>' which is
+// kebab-case-compatible and passes the same regex.
 if (!j.question_id || !/^[a-z0-9-]+\$/.test(j.question_id) || j.question_id.length > 64) {
   process.stderr.write('gstack-question-log: invalid question_id, must be kebab-case <=64 chars\n');
   process.exit(1);
+}
+
+// Optional: source — tags which writer produced this event.
+//   'agent' (default) — preamble-driven write from inside the running agent
+//   'hook'             — PostToolUse hook captured it deterministically (T5)
+//   'auq-other'        — user picked 'Other' and typed free text (Layer 8)
+//   'auto-decided'     — PreToolUse enforcement hook substituted the answer (T6)
+//   'codex-import-marker' / 'codex-import-pattern' — T9 backfill from Codex
+const ALLOWED_SOURCES = ['agent', 'hook', 'auq-other', 'auto-decided', 'codex-import-marker', 'codex-import-pattern'];
+if (j.source !== undefined) {
+  if (!ALLOWED_SOURCES.includes(j.source)) {
+    process.stderr.write('gstack-question-log: invalid source, must be one of: ' + ALLOWED_SOURCES.join(', ') + '\n');
+    process.exit(1);
+  }
+} else {
+  j.source = 'agent';
+}
+
+// Optional: tool_use_id — Claude Code hook stdin field; used for dedup.
+if (j.tool_use_id !== undefined) {
+  if (typeof j.tool_use_id !== 'string' || j.tool_use_id.length > 128) {
+    process.stderr.write('gstack-question-log: tool_use_id must be string <=128 chars\n');
+    process.exit(1);
+  }
+}
+
+// Optional: free_text — sanitize (no newlines, <=300 chars).
+if (j.free_text !== undefined) {
+  if (typeof j.free_text !== 'string') {
+    process.stderr.write('gstack-question-log: free_text must be string\n');
+    process.exit(1);
+  }
+  if (j.free_text.length > 300) j.free_text = j.free_text.slice(0, 300);
+  j.free_text = j.free_text.replace(/\n+/g, ' ');
 }
 
 // Required: question_summary (non-empty, <=200 chars, no newlines)
@@ -164,7 +201,49 @@ if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
   exit 1
 fi
 
-echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+LOG_FILE="$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+
+# Cathedral T5: composite-source dedup. If this exact (source, tool_use_id)
+# was already logged within the last 100 lines, skip — protects against
+# hook + agent both writing the same fire (D3 plan-tune cathedral decision).
+# Lookup is bounded so the bin stays cheap on hot paths.
+DEDUP_SKIP=""
+if [ -f "$LOG_FILE" ]; then
+  DEDUP_SKIP=$(VALIDATED_JSON="$VALIDATED" LOG_FILE_PATH="$LOG_FILE" bun -e '
+    const fs = require("fs");
+    const j = JSON.parse(process.env.VALIDATED_JSON);
+    if (!j.tool_use_id) { console.log(""); process.exit(0); }
+    const want = j.source + ":" + j.tool_use_id;
+    const lines = fs.readFileSync(process.env.LOG_FILE_PATH, "utf-8").trim().split("\n").slice(-100);
+    for (const ln of lines) {
+      try {
+        const p = JSON.parse(ln);
+        if (p.source && p.tool_use_id && (p.source + ":" + p.tool_use_id) === want) {
+          console.log("dup");
+          process.exit(0);
+        }
+      } catch {}
+    }
+    console.log("");
+  ' 2>/dev/null)
+fi
+
+if [ "$DEDUP_SKIP" = "dup" ]; then
+  echo "DEDUP: skipped (source=$(echo "$VALIDATED" | bun -e 'const j=JSON.parse(await Bun.stdin.text()); console.log(j.source);'), tool_use_id duplicate)"
+  exit 0
+fi
+
+echo "$VALIDATED" >> "$LOG_FILE"
+
+# Cathedral T5: fire-and-forget --derive so inferred dimensions stay current
+# without per-event latency (D17). Sub-second op; output suppressed; never
+# blocks the hook caller. Skipped via GSTACK_QUESTION_LOG_NO_DERIVE=1 for
+# tests that don't want the side effect.
+if [ -z "${GSTACK_QUESTION_LOG_NO_DERIVE:-}" ]; then
+  (
+    nohup "$SCRIPT_DIR/gstack-developer-profile" --derive >/dev/null 2>&1 &
+  ) >/dev/null 2>&1
+fi
 
 # NOTE: question-log.jsonl is deliberately NOT enqueued for gbrain-sync.
 # Per Codex v2 review, audit/derivation data stays local alongside the

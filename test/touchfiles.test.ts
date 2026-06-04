@@ -105,8 +105,12 @@ describe('selectTests', () => {
     expect(result.selected).toContain('auto-decide-preserved');
     // v1.27+ gate-tier reviewCount-floor regression for transcript bug
     expect(result.selected).toContain('plan-ceo-finding-floor');
-    expect(result.selected.length).toBe(21);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
+    // garrytan/askuserquestion-split-on-overflow: split-overflow periodic
+    // E2E test also depends on plan-ceo-review/** (5-option scope decision
+    // regression for the "drop to fit 4 options" failure mode).
+    expect(result.selected).toContain('plan-ceo-split-overflow');
+    expect(result.selected.length).toBe(22);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 22);
   });
 
   test('global touchfile triggers ALL tests', () => {

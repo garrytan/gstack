@@ -11,6 +11,7 @@ import { handleSkillCommand } from './browser-skill-commands';
 import { validateNavigationUrl } from './url-validation';
 import { checkScope, type TokenInfo } from './token-registry';
 import { validateOutputPath, validateReadPath, SAFE_DIRECTORIES, escapeRegExp } from './path-security';
+import { guardScreenshotBuffer, guardScreenshotPath } from './screenshot-size-guard';
 // Re-export for backward compatibility (tests import from meta-commands)
 export { validateOutputPath, escapeRegExp } from './path-security';
 import * as Diff from 'diff';
@@ -136,7 +137,7 @@ function parsePdfArgs(args: string[]): ParsedPdfArgs {
   return result;
 }
 
-function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
+export function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
   // Parity with load-html --from-file (browse/src/write-commands.ts) and
   // the direct load-html <file> path: every caller-supplied file path
   // must pass validateReadPath so the safe-dirs policy can't be skirted
@@ -149,7 +150,16 @@ function parsePdfFromFile(payloadPath: string): ParsedPdfArgs {
     );
   }
   const raw = fs.readFileSync(payloadPath, 'utf8');
-  const json = JSON.parse(raw);
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`pdf: --from-file ${payloadPath} is not valid JSON (${msg}).`);
+  }
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) {
+    throw new Error(`pdf: --from-file ${payloadPath} must be a JSON object, got ${Array.isArray(json) ? 'array' : typeof json}.`);
+  }
   const out: ParsedPdfArgs = {
     output: json.output || `${TEMP_DIR}/browse-page.pdf`,
     format: json.format,
@@ -497,6 +507,10 @@ export async function handleMetaCommand(
           buffer = await page.screenshot({ clip: clipRect });
         } else {
           buffer = await page.screenshot({ fullPage: !viewportOnly });
+          // Guard the most common API-bricking case (fullPage). Element /
+          // clip captures usually stay within the cap; we still guard the
+          // path-mode below for fullPage writes.
+          ({ buffer } = await guardScreenshotBuffer(buffer));
         }
         if (buffer.length > 10 * 1024 * 1024) {
           throw new Error('Screenshot too large for --base64 (>10MB). Use disk path instead.');
@@ -517,6 +531,7 @@ export async function handleMetaCommand(
       }
 
       await page.screenshot({ path: outputPath, fullPage: !viewportOnly });
+      if (!viewportOnly) await guardScreenshotPath(outputPath);
       return `Screenshot saved${viewportOnly ? ' (viewport)' : ''}: ${outputPath}`;
     }
 
@@ -567,6 +582,7 @@ export async function handleMetaCommand(
         const screenshotPath = `${prefix}-${vp.name}.png`;
         validateOutputPath(screenshotPath);
         await page.screenshot({ path: screenshotPath, fullPage: true });
+        await guardScreenshotPath(screenshotPath);
         results.push(`${vp.name} (${vp.width}x${vp.height}): ${screenshotPath}`);
       }
 
@@ -1143,6 +1159,13 @@ export async function handleMetaCommand(
       // for projects that never use the CDP escape hatch.
       const { handleCdpCommand } = await import('./cdp-commands');
       return await handleCdpCommand(args, bm);
+    }
+
+    case 'memory': {
+      // Lazy import — pulls in cdp-bridge + memory-snapshot + buffer accessors
+      // that aren't useful for projects that never run the diagnostic.
+      const { handleMemoryCommand } = await import('./memory-command');
+      return await handleMemoryCommand(args, bm);
     }
 
     default:

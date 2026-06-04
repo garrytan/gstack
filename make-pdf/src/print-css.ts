@@ -20,7 +20,25 @@
  *   - No <link>, no external CSS/fonts — everything inlined.
  *   - CJK fallback: Helvetica, Liberation Sans, Arial, Hiragino Kaku Gothic
  *     ProN, Noto Sans CJK JP, Microsoft YaHei, sans-serif.
+ *   - Emoji fallback: the body and @top-center running-header stacks end in an
+ *     emoji family group ("Apple Color Emoji", "Segoe UI Emoji", "Noto Color
+ *     Emoji"), placed BEFORE the generic `sans-serif` so Chromium has a glyph
+ *     source for emoji code points instead of emitting .notdef tofu (▯). The
+ *     @bottom-* margin boxes hold only counters / a fixed "CONFIDENTIAL"
+ *     string, so they get no emoji families. On Linux this requires an
+ *     installed color-emoji font — `setup` installs fonts-noto-color-emoji.
+ *
+ * Font stacks are composed from the constants below so each family list has a
+ * single source of truth (DRY) and every stack stays in sync.
  */
+
+// Metric-compatible sans stack: Helvetica (macOS), Liberation Sans (Linux,
+// ships via fonts-liberation), Arial (Windows). Shared by every text surface.
+const SANS_STACK = `Helvetica, "Liberation Sans", Arial`;
+// CJK fallback families, appended to the body stack only.
+const CJK_STACK = `"Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei"`;
+// Color-emoji families: Apple (macOS), Segoe (Windows), Noto (Linux).
+const EMOJI_FAMILIES = `"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"`;
 
 export interface PrintCssOptions {
   // Document structure
@@ -84,13 +102,13 @@ function pageRules(size: string, margin: string, opts: PrintCssOptions): string 
     `  size: ${size};`,
     `  margin: ${margin};`,
     runningHeader
-      ? `  @top-center { content: "${runningHeader}"; font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 9pt; color: #666; }`
+      ? `  @top-center { content: "${runningHeader}"; font-family: ${SANS_STACK}, ${EMOJI_FAMILIES}, sans-serif; font-size: 9pt; color: #666; }`
       : ``,
     showPageNumbers
-      ? `  @bottom-center { content: counter(page) " of " counter(pages); font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 9pt; color: #666; }`
+      ? `  @bottom-center { content: counter(page) " of " counter(pages); font-family: ${SANS_STACK}, sans-serif; font-size: 9pt; color: #666; }`
       : ``,
     showConfidential
-      ? `  @bottom-right { content: "CONFIDENTIAL"; font-family: Helvetica, "Liberation Sans", Arial, sans-serif; font-size: 8pt; color: #aaa; letter-spacing: 0.05em; }`
+      ? `  @bottom-right { content: "CONFIDENTIAL"; font-family: ${SANS_STACK}, sans-serif; font-size: 8pt; color: #aaa; letter-spacing: 0.05em; }`
       : ``,
     `}`,
     ``,
@@ -107,7 +125,7 @@ function rootTypography(): string {
   return [
     `html { lang: en; }`,
     `body {`,
-    `  font-family: Helvetica, "Liberation Sans", Arial, "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif;`,
+    `  font-family: ${SANS_STACK}, ${CJK_STACK}, ${EMOJI_FAMILIES}, sans-serif;`,
     `  font-size: 11pt;`,
     `  line-height: 1.5;`,
     `  color: #111;`,

@@ -317,6 +317,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | `disconnect` | Close headed Chrome, return to headless |
 | `focus [@ref]` | Bring headed Chrome to foreground (macOS); `@ref` also scrolls into view |
 | `state save\|load <name>` | Save or load browser state (cookies + URLs) |
+| `memory [--json]` | Snapshot Bun heap + per-tab JS heap + Chromium process tree + bounded buffer sizes. Use `--json` for programmatic consumers; text mode renders sorted top-10 tabs with "and N more" tail. |
 
 ### Handoff
 

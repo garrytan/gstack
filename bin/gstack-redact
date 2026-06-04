@@ -1,0 +1,228 @@
+#!/usr/bin/env bun
+/**
+ * gstack-redact — scan text for secrets/PII/legal content via the shared engine.
+ *
+ * Skill-facing CLI over lib/redact-engine.ts. Reads from stdin (default) or
+ * --from-file, scans, and prints findings as JSON (--json) or a human table.
+ *
+ * Exit codes (consumed by skill bash to gate dispatch/file/edit/commit):
+ *   0  clean (no HIGH, no MEDIUM)
+ *   2  MEDIUM present (no HIGH) — skill runs the per-finding AskUserQuestion
+ *   3  HIGH present            — skill blocks
+ *
+ * WARN findings (tool-fence-degraded credentials) never change the exit code.
+ *
+ * Flags:
+ *   --json                       Emit JSON {findings, counts, repoVisibility, oversize}
+ *   --repo-visibility V          public | private | unknown (default unknown=public-strict wording)
+ *   --from-file PATH             Read input from PATH instead of stdin
+ *   --allowlist PATH             Newline-delimited exact spans to suppress
+ *   --self-email EMAIL           Suppress this email (the invoking user's own)
+ *   --repo-public-emails PATH    Newline-delimited repo-public emails to suppress
+ *   --auto-redact IDS            Comma-separated finding ids to auto-redact;
+ *                                prints the redacted body to stdout + diff to stderr.
+ *   --max-bytes N                Override the fail-closed size cap (default 1 MiB).
+ *
+ * Security note: this is a GUARDRAIL, not airtight enforcement. A determined
+ * user can always bypass it (direct gh/git). It catches accidents.
+ */
+import * as fs from "fs";
+import * as path from "path";
+import { spawnSync } from "child_process";
+import {
+  scan,
+  applyRedactions,
+  exitCodeFor,
+  type RepoVisibility,
+  type ScanOptions,
+  type Finding,
+} from "../lib/redact-engine";
+
+const MAX_STDIN_BYTES = 16 * 1024 * 1024; // hard ceiling before the engine cap
+
+// ── pre-push hook install/uninstall (chains any existing hook) ────────────────
+
+const MANAGED_MARKER = "# gstack-redact pre-push (managed)";
+
+function hooksPath(): string {
+  const r = spawnSync("git", ["rev-parse", "--git-path", "hooks"], { encoding: "utf8" });
+  if (r.status !== 0) {
+    process.stderr.write("gstack-redact: not in a git repo\n");
+    process.exit(1);
+  }
+  return r.stdout.trim();
+}
+
+function installPrepushHook(): void {
+  const dir = hooksPath();
+  fs.mkdirSync(dir, { recursive: true });
+  const hookPath = path.join(dir, "pre-push");
+  const prepushBin = path.join(import.meta.dir, "gstack-redact-prepush");
+
+  // If a non-managed hook exists, preserve it as pre-push.local and chain it.
+  if (fs.existsSync(hookPath)) {
+    const existing = fs.readFileSync(hookPath, "utf8");
+    if (existing.includes(MANAGED_MARKER)) {
+      process.stdout.write("gstack-redact: pre-push hook already installed.\n");
+      return;
+    }
+    const localPath = path.join(dir, "pre-push.local");
+    fs.renameSync(hookPath, localPath);
+    fs.chmodSync(localPath, 0o755);
+    process.stdout.write("gstack-redact: preserved existing hook as pre-push.local (chained).\n");
+  }
+
+  // stdin is single-consume: capture it once, feed both the chained hook and ours.
+  const wrapper = `#!/usr/bin/env bash
+${MANAGED_MARKER}
+set -euo pipefail
+_input="$(cat)"
+_local="$(git rev-parse --git-path hooks/pre-push.local)"
+if [ -x "$_local" ]; then
+  printf '%s' "$_input" | "$_local" "$@" || exit $?
+fi
+printf '%s' "$_input" | bun "${prepushBin}" "$@"
+`;
+  fs.writeFileSync(hookPath, wrapper, { mode: 0o755 });
+  fs.chmodSync(hookPath, 0o755);
+  process.stdout.write(`gstack-redact: installed pre-push hook at ${hookPath}\n`);
+}
+
+function uninstallPrepushHook(): void {
+  const dir = hooksPath();
+  const hookPath = path.join(dir, "pre-push");
+  const localPath = path.join(dir, "pre-push.local");
+  if (!fs.existsSync(hookPath) || !fs.readFileSync(hookPath, "utf8").includes(MANAGED_MARKER)) {
+    process.stdout.write("gstack-redact: no managed pre-push hook to remove.\n");
+    return;
+  }
+  if (fs.existsSync(localPath)) {
+    fs.renameSync(localPath, hookPath); // restore the chained original
+    process.stdout.write("gstack-redact: removed managed hook, restored pre-push.local.\n");
+  } else {
+    fs.unlinkSync(hookPath);
+    process.stdout.write("gstack-redact: removed managed pre-push hook.\n");
+  }
+}
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+function flag(name: string): boolean {
+  return process.argv.includes(name);
+}
+
+function readInput(): string {
+  const file = arg("--from-file");
+  if (file) {
+    const st = fs.statSync(file);
+    if (st.size > MAX_STDIN_BYTES) {
+      // Don't even read it — fail closed at the CLI boundary.
+      process.stderr.write(`gstack-redact: input file too large (${st.size} bytes)\n`);
+      process.exit(3);
+    }
+    return fs.readFileSync(file, "utf8");
+  }
+  // stdin
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const fd = 0;
+  const buf = Buffer.alloc(65536);
+  while (true) {
+    let n = 0;
+    try {
+      n = fs.readSync(fd, buf, 0, buf.length, null);
+    } catch (e: any) {
+      if (e.code === "EAGAIN") continue;
+      if (e.code === "EOF") break;
+      throw e;
+    }
+    if (n === 0) break;
+    total += n;
+    if (total > MAX_STDIN_BYTES) {
+      process.stderr.write("gstack-redact: stdin too large\n");
+      process.exit(3);
+    }
+    chunks.push(Buffer.from(buf.subarray(0, n)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function readLines(path: string | undefined): string[] | undefined {
+  if (!path || !fs.existsSync(path)) return undefined;
+  return fs
+    .readFileSync(path, "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+function buildOpts(): ScanOptions {
+  const vis = (arg("--repo-visibility") as RepoVisibility) || "unknown";
+  const maxBytes = arg("--max-bytes");
+  return {
+    repoVisibility: ["public", "private", "unknown"].includes(vis) ? vis : "unknown",
+    allowlist: readLines(arg("--allowlist")),
+    selfEmail: arg("--self-email"),
+    repoPublicEmails: readLines(arg("--repo-public-emails")),
+    ...(maxBytes ? { maxBytes: parseInt(maxBytes, 10) } : {}),
+  };
+}
+
+function humanTable(findings: Finding[]): string {
+  if (!findings.length) return "  (no findings)";
+  const rows = findings.map(
+    (f) =>
+      `  ${f.severity.padEnd(6)} ${f.id.padEnd(24)} ${String(f.line).padStart(4)}:${String(
+        f.col,
+      ).padEnd(3)} ${f.preview}`,
+  );
+  return rows.join("\n");
+}
+
+function main() {
+  // Subcommands (positional, not flags).
+  const sub = process.argv[2];
+  if (sub === "install-prepush-hook") return installPrepushHook();
+  if (sub === "uninstall-prepush-hook") return uninstallPrepushHook();
+
+  const opts = buildOpts();
+  const input = readInput();
+
+  // Auto-redact mode: print redacted body to stdout, diff to stderr, exit 0.
+  const autoIds = arg("--auto-redact");
+  if (autoIds) {
+    const { body, diff, skipped } = applyRedactions(input, autoIds.split(","), opts);
+    process.stdout.write(body);
+    if (diff) process.stderr.write(diff + "\n");
+    if (skipped.length) {
+      process.stderr.write(
+        `\ngstack-redact: ${skipped.length} finding(s) could not be auto-redacted (structural) — edit manually:\n` +
+          skipped.map((f) => `  ${f.id} @ ${f.line}:${f.col}`).join("\n") +
+          "\n",
+      );
+    }
+    process.exit(0);
+  }
+
+  const result = scan(input, opts);
+  const code = exitCodeFor(result);
+
+  if (flag("--json")) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } else {
+    const vis = result.repoVisibility.toUpperCase();
+    process.stdout.write(`gstack-redact scan — repo ${vis}\n`);
+    if (result.oversize) {
+      process.stdout.write("  BLOCKED — input too large to scan safely (fail-closed)\n");
+    } else {
+      process.stdout.write(humanTable(result.findings) + "\n");
+      const { HIGH, MEDIUM, LOW, WARN } = result.counts;
+      process.stdout.write(`  HIGH=${HIGH} MEDIUM=${MEDIUM} LOW=${LOW} WARN=${WARN}\n`);
+    }
+  }
+  process.exit(code);
+}
+
+main();

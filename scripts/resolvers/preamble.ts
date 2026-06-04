@@ -109,10 +109,10 @@ export function generatePreamble(ctx: TemplateContext): string {
     ...(tier >= 2 ? [
       generateContextRecovery(ctx),
       generateWritingStyle(ctx),
-      generateCompletenessSection(),
-      generateConfusionProtocol(),
+      generateCompletenessSection(ctx),
+      generateConfusionProtocol(ctx),
       generateContinuousCheckpoint(),
-      generateContextHealth(),
+      generateContextHealth(ctx),
       generateQuestionTuning(ctx),
     ] : []),
     ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),

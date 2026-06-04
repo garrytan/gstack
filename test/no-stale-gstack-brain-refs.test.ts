@@ -55,6 +55,9 @@ const ALLOWLIST = [
   'test/gstack-upgrade.test.ts',
   // This test itself references the patterns to grep for.
   'test/no-stale-gstack-brain-refs.test.ts',
+  // The v1.36.0.0 doc-config drift guard intentionally defends the rename
+  // by listing the deprecated keys in its DEPRECATED_KEYS denylist.
+  'test/docs-config-keys.test.ts',
   // memory.md documents the rename context.
   'setup-gbrain/memory.md',
   // The new init script's header comment intentionally cites the rename.

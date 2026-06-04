@@ -7,9 +7,9 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
+import { chmodSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { delimiter, join } from "path";
 import { spawnSync } from "child_process";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-brain-context-load.ts");
@@ -25,6 +25,37 @@ function runScript(args: string[], env: Record<string, string> = {}): { stdout: 
     stderr: result.stderr || "",
     exitCode: result.status ?? 1,
   };
+}
+
+function writeFakeGbrain(binDir: string): void {
+  if (process.platform === "win32") {
+    writeFileSync(
+      join(binDir, "gbrain.cmd"),
+      "@echo off\r\nif \"%1\"==\"--version\" (\r\n  echo gbrain 0.test\r\n) else (\r\n  echo fake gbrain %*\r\n)\r\n",
+      "utf-8",
+    );
+    return;
+  }
+
+  const fakeBin = join(binDir, "gbrain");
+  writeFileSync(
+    fakeBin,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "gbrain 0.test"
+else
+  echo "fake gbrain $*"
+fi
+`,
+    "utf-8",
+  );
+  chmodSync(fakeBin, 0o755);
+}
+
+function prependPath(binDir: string): Record<string, string> {
+  const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") || "PATH";
+  const currentPath = process.env[pathKey] || "";
+  return { [pathKey]: `${binDir}${delimiter}${currentPath}` };
 }
 
 describe("gstack-brain-context-load CLI", () => {
@@ -204,6 +235,23 @@ gbrain:
 });
 
 describe("gstack-brain-context-load — graceful gbrain absence", () => {
+  it("uses gbrain when a binary is available on PATH", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-bcl-"));
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    writeFakeGbrain(binDir);
+
+    try {
+      const r = runScript(["--repo", "test-repo", "--explain"], prependPath(binDir));
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).toContain("OK");
+      expect(r.stderr).not.toContain("gbrain CLI missing");
+      expect(r.stdout).toContain("fake gbrain list_pages");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("vector + list queries still complete (with SKIP) when gbrain CLI is missing", () => {
     // We can't easily un-install gbrain; rely on the helper's own missing-binary
     // detection. The default manifest uses kind: list which calls gbrain. If

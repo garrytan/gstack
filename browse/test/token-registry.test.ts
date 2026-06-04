@@ -6,12 +6,15 @@ import {
   revokeToken, rotateRoot, listTokens, recordCommand,
   serializeRegistry, restoreRegistry, checkConnectRateLimit,
   SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_CONTROL, SCOPE_META,
+  __resetRegistry,
 } from '../src/token-registry';
 
 describe('token-registry', () => {
   beforeEach(() => {
-    // rotateRoot clears all tokens and rate buckets, then initRegistry sets the root
-    rotateRoot();
+    // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
+    // doesn't fire on the immediate initRegistry call. rotateRoot would leave
+    // a UUID in rootToken and the guard would throw.
+    __resetRegistry();
     initRegistry('root-token-for-tests');
   });
 
@@ -333,8 +336,10 @@ describe('token-registry', () => {
       const state = serializeRegistry();
       expect(Object.keys(state.agents)).toHaveLength(2);
 
-      // Clear and restore
-      rotateRoot();
+      // Clear and restore. __resetRegistry instead of rotateRoot+initRegistry
+      // so the new initRegistry mismatch guard doesn't fire — rotateRoot
+      // leaves a UUID in rootToken and initRegistry('new-root') would throw.
+      __resetRegistry();
       initRegistry('new-root');
       restoreRegistry(state);
 

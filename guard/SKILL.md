@@ -1,12 +1,7 @@
 ---
 name: guard
 version: 0.1.0
-description: |
-  Full safety mode: destructive command warnings + directory-scoped edits.
-  Combines /careful (warns before rm -rf, DROP TABLE, force-push, etc.) with
-  /freeze (blocks edits outside a specified directory). Use for maximum safety
-  when touching prod or debugging live systems. Use when asked to "guard mode",
-  "full safety", "lock it down", or "maximum safety". (gstack)
+description: "Full safety mode: destructive command warnings + directory-scoped edits. (gstack)"
 triggers:
   - full safety mode
   - guard against mistakes
@@ -35,6 +30,14 @@ hooks:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+Combines /careful (warns before rm -rf, DROP TABLE, force-push, etc.) with
+/freeze (blocks edits outside a specified directory). Use for maximum safety
+when touching prod or debugging live systems. Use when asked to "guard mode",
+"full safety", "lock it down", or "maximum safety".
 
 # /guard — Full Safety Mode
 

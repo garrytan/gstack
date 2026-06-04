@@ -8,10 +8,11 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SCRIPT = path.join(ROOT, 'setup');
 
 describe('setup: Conductor worktree guard', () => {
-  test('setup contains the real-dir guard before the ln -snf into ~/.claude/skills/', () => {
+  test('setup contains the real-dir guard before the symlink-or-copy into ~/.claude/skills/', () => {
     const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
     const guardIdx = content.indexOf('_SKIP_CLAUDE_REGISTER=0');
-    const lnIdx = content.indexOf('ln -snf "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"');
+    // v1.36.0.0: symlink work routes through _link_or_copy helper for Windows fallback.
+    const lnIdx = content.indexOf('_link_or_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"');
     expect(guardIdx).toBeGreaterThan(-1);
     expect(lnIdx).toBeGreaterThan(-1);
     expect(guardIdx).toBeLessThan(lnIdx);

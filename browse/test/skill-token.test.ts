@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test';
 import {
-  initRegistry, rotateRoot, validateToken, checkScope,
+  initRegistry, __resetRegistry, validateToken, checkScope,
 } from '../src/token-registry';
 import {
   generateSpawnId,
@@ -22,7 +22,9 @@ import {
 
 describe('skill-token', () => {
   beforeEach(() => {
-    rotateRoot();
+    // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
+    // doesn't fire on the immediate initRegistry call.
+    __resetRegistry();
     initRegistry('root-token-for-tests');
   });
 

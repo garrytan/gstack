@@ -119,3 +119,45 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
     expect(out).toMatch(/Per-skill instructions may add/);
   });
 });
+
+describe('generateAskUserFormat — 5+ option split rule (slim inline + docs pointer)', () => {
+  const out = generateAskUserFormat(makeCtx());
+
+  // 5 highest-signal pins. The full rule lives in
+  // docs/askuserquestion-split.md; this contract only checks what the
+  // inline subsection MUST surface so the agent can act without
+  // reading the docs file for routine 5-option splits.
+
+  test('forbids dropping options to fit the 4-option cap', () => {
+    expect(out).toMatch(/caps every call at \*\*4 options\*\*/);
+    expect(out).toMatch(/NEVER\s+drop, merge, or silently defer/);
+  });
+
+  test('names the Include / Defer / Cut / Hold buckets', () => {
+    expect(out).toMatch(/A\) Include/);
+    expect(out).toMatch(/B\) Defer/);
+    expect(out).toMatch(/C\) Cut/);
+    expect(out).toMatch(/D\) Hold/);
+  });
+
+  test('specifies D<N>.k child numbering and D<N>.final summary', () => {
+    expect(out).toContain('D<N>.k');
+    expect(out).toContain('D<N>.final');
+  });
+
+  test('AUTO_DECIDE is gated at runtime, not just collision-resistance', () => {
+    expect(out).toContain('bin/gstack-question-preference');
+    expect(out).toContain('*-split-*');
+    expect(out).toContain('never AUTO_DECIDE-eligible');
+  });
+
+  test('points to docs/askuserquestion-split.md for the full rule', () => {
+    expect(out).toContain('docs/askuserquestion-split.md');
+    expect(out).toMatch(/Read on demand when N>4/);
+  });
+
+  test('regression: orphan "12." prefix removed from CJK rule', () => {
+    expect(out).not.toContain('12. **Non-ASCII');
+    expect(out).toContain('**Non-ASCII characters');
+  });
+});

@@ -1,6 +1,7 @@
+import type { TemplateContext } from '../types';
 
-
-export function generateCompletenessSection(): string {
+export function generateCompletenessSection(ctx?: TemplateContext): string {
+  if (ctx?.explainLevel === 'terse') return '';
   return `## Completeness Principle — Boil the Lake
 
 AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).

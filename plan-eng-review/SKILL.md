@@ -3,14 +3,7 @@ name: plan-eng-review
 preamble-tier: 3
 interactive: true
 version: 1.0.0
-description: |
-  Eng manager-mode plan review. Lock in the execution plan — architecture,
-  data flow, diagrams, edge cases, test coverage, performance. Walks through
-  issues interactively with opinionated recommendations. Use when asked to
-  "review the architecture", "engineering review", or "lock in the plan".
-  Proactively suggest when the user has a plan or design doc and is about to
-  start coding — to catch architecture issues before implementation. (gstack)
-  Voice triggers (speech-to-text aliases): "tech review", "technical review", "plan engineering review".
+description: Eng manager-mode plan review. (gstack)
 benefits-from: [office-hours]
 allowed-tools:
   - Read
@@ -27,6 +20,18 @@ triggers:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+Lock in the execution plan — architecture,
+data flow, diagrams, edge cases, test coverage, performance. Walks through
+issues interactively with opinionated recommendations. Use when asked to
+"review the architecture", "engineering review", or "lock in the plan".
+Proactively suggest when the user has a plan or design doc and is about to
+start coding — to catch architecture issues before implementation.
+
+Voice triggers (speech-to-text aliases): "tech review", "technical review", "plan engineering review".
 
 ## Preamble (run first)
 
@@ -63,7 +68,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"plan-eng-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"plan-eng-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -105,6 +110,19 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -160,7 +178,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -236,6 +254,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -322,7 +341,36 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
-12. **Non-ASCII characters — write directly, never \u-escape.** When any
+### Handling 5+ options — split, never drop
+
+AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
+drop, merge, or silently defer one to fit. Pick a compliant shape:
+
+- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
+  layout variants). One call, 5th surfaced only if first 4 don't fit.
+- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
+  Fire N sequential calls, one per option. Default to this when unsure.
+
+Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
+Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
+decision actions), and 4 buckets:
+**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
+
+After the chain, fire `D<N>.final` to validate the assembled set (reprompt
+dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
+revise one option without re-running the chain.
+
+For N>6, fire a `D<N>.0` meta-AskUserQuestion first (proceed / narrow / batch).
+
+question_ids for split chains: `<skill>-split-<option-slug>` (kebab-case ASCII,
+≤64 chars, `-2`/`-3` suffix on collision). The runtime checker
+(`bin/gstack-question-preference`) refuses `never-ask` on any `*-split-*` id,
+so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
+
+**Full rule + worked examples + Hold/dependency semantics:** see
+`docs/askuserquestion-split.md` in the gstack repo. Read on demand when N>4.
+
+**Non-ASCII characters — write directly, never \u-escape.** When any
     string field (question, option label, option description) contains
     Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
     the literal UTF-8 characters in the JSON string. **Never escape them
@@ -355,6 +403,9 @@ Before calling AskUserQuestion, verify:
 - [ ] Net line closes the decision
 - [ ] You are calling the tool, not writing prose
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
+- [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
+- [ ] If you split, you checked dependencies between options before firing the chain
+- [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
 
 
 ## Artifacts Sync (skill start)
@@ -554,84 +605,7 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - User-turn override wins: if the current message asks for terse / no explanations / just the answer, skip this section.
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
-Jargon list, gloss on first use if the term appears:
-- idempotent
-- idempotency
-- race condition
-- deadlock
-- cyclomatic complexity
-- N+1
-- N+1 query
-- backpressure
-- memoization
-- eventual consistency
-- CAP theorem
-- CORS
-- CSRF
-- XSS
-- SQL injection
-- prompt injection
-- DDoS
-- rate limit
-- throttle
-- circuit breaker
-- load balancer
-- reverse proxy
-- SSR
-- CSR
-- hydration
-- tree-shaking
-- bundle splitting
-- code splitting
-- hot reload
-- tombstone
-- soft delete
-- cascade delete
-- foreign key
-- composite index
-- covering index
-- OLTP
-- OLAP
-- sharding
-- replication lag
-- quorum
-- two-phase commit
-- saga
-- outbox pattern
-- inbox pattern
-- optimistic locking
-- pessimistic locking
-- thundering herd
-- cache stampede
-- bloom filter
-- consistent hashing
-- virtual DOM
-- reconciliation
-- closure
-- hoisting
-- tail call
-- GIL
-- zero-copy
-- mmap
-- cold start
-- warm start
-- green-blue deploy
-- canary deploy
-- feature flag
-- kill switch
-- dead letter queue
-- fan-out
-- fan-in
-- debounce
-- throttle (UI)
-- hydration mismatch
-- memory leak
-- GC pause
-- heap fragmentation
-- stack overflow
-- null pointer
-- dangling pointer
-- buffer overflow
+Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
 ## Completeness Principle — Boil the Lake
@@ -679,7 +653,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"plan-eng-review","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -764,9 +742,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 
 
@@ -811,6 +787,38 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 * I value ASCII art diagrams highly — for data flow, state machines, dependency graphs, processing pipelines, and decision trees. Use them liberally in plans and design docs.
 * For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
 * **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
+
+## Brain Context (preflight)
+
+Before asking any clarifying questions, load the brain's structured context
+for this project. The cache layer handles staleness, refresh, and stale-but-
+usable fallback automatically. Skip questions whose answers are already
+present in the loaded context; ground recommendations in what the brain
+already knows about the user, the product, the goals, and recent decisions.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+{
+  printf '## Brain Context\n\n'
+  printf '\n### %s\n\n' "product"
+  ~/.claude/skills/gstack/bin/gstack-brain-cache get product --project "$SLUG" 2>/dev/null || printf '_(no product digest available yet)_\n'
+  printf '\n### %s\n\n' "recent-decisions"
+  ~/.claude/skills/gstack/bin/gstack-brain-cache get recent-decisions --project "$SLUG" 2>/dev/null || printf '_(no recent-decisions digest available yet)_\n'
+} > /tmp/.gstack-brain-context-$$.md 2>/dev/null
+[ -s /tmp/.gstack-brain-context-$$.md ] && cat /tmp/.gstack-brain-context-$$.md
+rm -f /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
+```
+
+**How to use this context:**
+- If `product` digest names the value prop, target user, or stage — don't re-ask.
+- If `goals` digest lists active goals — frame recommendations against them.
+- If `recent-decisions` digest names a prior scope/architecture choice — flag if this plan contradicts.
+- If `user-profile` digest carries calibration pattern statements ("tends to over-engineer security") — surface them when relevant.
+- If a digest is `(no X digest available yet)`, treat that section as cold; ask the user.
+
+**Privacy:** Salience digest is filtered by allowlist (D9 default: `projects/`,
+`gstack/`, `concepts/` only). Personal/family/therapy content never leaks here.
+
 
 ## BEFORE YOU START:
 
@@ -993,6 +1001,43 @@ Every finding MUST include a confidence score (1-10):
 Example:
 \`[P1] (confidence: 9/10) app/models/user.rb:42 — SQL injection via string interpolation in where clause\`
 \`[P2] (confidence: 5/10) app/controllers/api/v1/users_controller.rb:18 — Possible N+1 query, verify with production logs\`
+
+### Pre-emit verification gate (#1539 — kills the "field doesn't exist" FP class)
+
+Before any finding is promoted to the report, the gate requires:
+
+1. **Quote the specific code line that motivates the finding** — file:line plus
+   the verbatim text of the line(s) that triggered it. If the finding is "field
+   X doesn't exist on model Y", quote the lines of class Y where the field
+   would live. If "dict.get() might return None", quote the dict initialization.
+   If "race condition between A and B", quote both A and B.
+
+2. **If you cannot quote the motivating line(s), the finding is unverified.**
+   Force its confidence to 4-5 (suppressed from the main report). It still goes
+   into the appendix so reviewers can audit calibration, but the user does NOT
+   see it in the critical-pass output. Do not work around this by inventing
+   speculative confidence 7+ — that defeats the gate.
+
+**Framework-meta nudge:** When the symbol is generated by a framework
+metaclass, descriptor, ORM Meta inner-class, or migration history (Django
+`Meta`, Rails `has_many`/`scope`, SQLAlchemy `relationship`/`Column`,
+TypeORM decorators, Sequelize `init`/`belongsTo`, Prisma generated client),
+quote the meta-construct (the `Meta` block, the migration, the decorator,
+the schema file) instead of expecting the literal name in the class body.
+The verification is "I read the source that creates this symbol", not "I
+grep'd for the name and didn't find it." Deeper framework-aware verification
+(model introspection, migration-history-aware checks, ORM dialect detection)
+is deliberately out of scope for the lighter gate — see the deferred
+`~/.gstack-dev/plans/1539-framework-aware-review.md` design doc.
+
+The FP classes the gate kills (measured against Django Sprint 2.5 #1539):
+
+| FP class | Why the gate catches it |
+|---|---|
+| "field doesn't exist on model" | Requires quoting the model class body or Meta; the field's absence becomes obvious |
+| "dict.get() might be None" | Requires quoting the dict initialization (e.g. Django form's `cleaned_data` is `{}`-initialized) |
+| "save() might lose fields" | Requires quoting the ORM signature or model definition |
+| "update_fields might miss X" | Requires quoting the field set; if X doesn't exist, the FP is self-evident |
 
 **Calibration learning:** If you report a finding with confidence < 7 and the user
 confirms it IS a real issue, that is a calibration event. Your initial confidence was
@@ -1216,7 +1261,7 @@ thorough review.
 **Check tool availability:**
 
 ```bash
-which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
 Use AskUserQuestion:
@@ -1422,6 +1467,78 @@ Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 
 3. **Execution order** — which lanes launch in parallel, which wait. Example: "Launch A + B in parallel worktrees. Merge both. Then C."
 
 4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
+
+## Implementation Tasks
+
+Before closing this review, synthesize the findings above into a flat list of
+build-actionable tasks. Each task derives from a specific finding — no padding.
+Emit the markdown section AND write a JSONL artifact that `/autoplan` can
+aggregate across phases.
+
+### Markdown section (always emit)
+
+```markdown
+## Implementation Tasks
+Synthesized from this review's findings. Each task derives from a specific
+finding above. Run with Claude Code or Codex; checkbox as you ship.
+
+- [ ] **T1 (P1, human: ~2h / CC: ~15min)** — <component> — <imperative title>
+  - Surfaced by: <section name> — <specific finding text or line reference>
+  - Files: <paths to touch>
+  - Verify: <test command or manual check>
+- [ ] **T2 (P2, human: ~30min / CC: ~5min)** — ...
+```
+
+Rules:
+- P1 blocks ship; P2 should land same branch; P3 is a follow-up TODO.
+- If a finding produced no actionable task, do not invent one.
+- If a section had zero findings, emit `_No new tasks from <section>._`
+- Effort uses the AI-compression table from CLAUDE.md.
+
+### JSONL artifact (always write, even if zero tasks)
+
+`/autoplan` reads this file to aggregate across phases. Build each line with
+`jq -nc` so titles and source findings containing quotes, newlines, or
+backslashes serialize cleanly — never use hand-rolled `echo` / `printf`.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+TASKS_DIR="${HOME}/.gstack/projects/${SLUG:-unknown}"
+mkdir -p "$TASKS_DIR"
+TASKS_FILE="$TASKS_DIR/tasks-eng-review-$(date +%Y%m%d-%H%M%S).jsonl"
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+# Repeat ONE jq invocation per task identified during this review.
+# Substitute the placeholders inline with shell variables you set per task:
+#   TASK_ID (T1, T2, ...), PRIORITY (P1/P2/P3), COMPONENT, TITLE,
+#   SOURCE_FINDING, EFFORT_HUMAN, EFFORT_CC, FILES_JSON (a JSON array literal
+#   like '["browse/src/sanitize.ts","browse/src/server.ts"]').
+jq -nc \
+  --arg phase 'eng-review' \
+  --arg run_id "$RUN_ID" \
+  --arg branch "$BRANCH" \
+  --arg commit "$COMMIT" \
+  --arg id "$TASK_ID" \
+  --arg priority "$PRIORITY" \
+  --arg component "$COMPONENT" \
+  --arg effort_human "$EFFORT_HUMAN" \
+  --arg effort_cc "$EFFORT_CC" \
+  --arg title "$TITLE" \
+  --arg source_finding "$SOURCE_FINDING" \
+  --argjson files "$FILES_JSON" \
+  '{phase:$phase, run_id:$run_id, branch:$branch, commit:$commit, id:$id, priority:$priority, component:$component, files:$files, effort_human:$effort_human, effort_cc:$effort_cc, title:$title, source_finding:$source_finding}' \
+  >> "$TASKS_FILE"
+```
+
+If `jq` is not installed, fall back to skipping the JSONL write and warn
+the user to install jq for autoplan aggregation. Never hand-roll JSONL.
+
+If zero tasks were identified in this review, still touch the JSONL file
+(`: > "$TASKS_FILE"`) so the aggregator sees that the phase produced output
+this run (an empty file means "ran, no findings" — distinct from "didn't run").
+
 
 ### Completion summary
 At the end of the review, fill in and display this summary so the user can see all findings at a glance:
@@ -1634,6 +1751,57 @@ already knows. A good test: would this insight save time in a future session? If
 
 
 
+## Brain Calibration Write-Back (Phase 2 / gated)
+
+When the skill makes a typed prediction worth tracking (scope decision,
+TTHW target, architectural bet, wedge commitment), it MAY write a
+`kind=bet` take to the brain so a calibration profile builds over time.
+
+**Gated on two things:**
+1. Brain trust policy for the active endpoint is `personal` (check via
+   `~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@<endpoint-hash>`).
+   Shared brains skip write-back to avoid polluting team calibration.
+2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
+   to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
+
+When both gates pass, the write-back path uses `mcp__gbrain__takes_add`
+to record a take with weight 0.7 (per SKILL_CALIBRATION_WEIGHTS).
+If the MCP op is unavailable, fall back to `mcp__gbrain__put_page` with
+a gstack:takes fence block (documented but uglier path).
+
+Mandatory take frontmatter shape:
+```yaml
+kind: bet
+holder: <user identity from whoami>
+claim: <one-line prediction the skill is making>
+weight: 0.7
+since_date: <today's date>
+expected_resolution: <date in 1-3 months depending on skill>
+source_skill: plan-eng-review
+```
+
+After write, invalidate the affected digests so the next preflight reflects
+the new state:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+  # (no per-skill invalidation targets configured)
+```
+
+
+## Brain Cache Background Refresh
+
+After the skill's work completes (and telemetry has logged), kick a
+background refresh of any cache digest that's getting close to its TTL.
+This is non-blocking — the user doesn't wait. Next invocation benefits
+from the warm cache.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+(~/.claude/skills/gstack/bin/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
+```
+
+
 ## Next Steps — Review Chaining
 
 After displaying the Review Readiness Dashboard, check if additional reviews would be valuable. Read the dashboard output to see which reviews have already been run and whether they are stale.
@@ -1653,3 +1821,28 @@ Use AskUserQuestion with only the applicable options:
 
 ## Unresolved decisions
 If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
+
+## EXIT PLAN MODE GATE (BLOCKING)
+
+Before calling ExitPlanMode, run this self-check. If any item fails, do the
+missing work — do NOT call ExitPlanMode:
+
+1. Read the plan file with the Read tool (after your most recent write to it).
+2. Confirm the LAST `## ` heading in the file is `## GSTACK REVIEW REPORT`.
+   In-body prose that mentions "outside voice", "codex findings", or similar
+   does NOT count — only the structured `## GSTACK REVIEW REPORT` section
+   satisfies this check.
+3. Confirm the report contains: a Runs / Status / Findings table, a VERDICT
+   line, and absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable.
+4. If a plan file is in context for this skill invocation: confirm
+   `gstack-review-log` was called and `gstack-review-read` was run at least
+   once. If no plan file is in context (e.g. `/codex consult` against a
+   diff with no plan), this check short-circuits — checks 1-3 already
+   short-circuit when no plan file exists.
+
+Failing this gate and calling ExitPlanMode anyway is a contract violation —
+the user will see a plan whose review report is missing or stale, and will
+(correctly) reject it. Self-deception failure mode to watch for: feeling
+"done" after writing review prose into the plan body. The body prose is not
+the report. The report is a separate, structured, table-bearing section that
+must be the file's terminal heading.
