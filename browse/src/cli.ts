@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn as nodeSpawn } from 'child_process';
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
@@ -141,10 +141,13 @@ async function killServer(pid: number): Promise<void> {
   if (IS_WINDOWS) {
     // taskkill /T /F kills the process tree (Node + Chromium)
     try {
-      Bun.spawnSync(
-        ['taskkill', '/PID', String(pid), '/T', '/F'],
-        { stdout: 'pipe', stderr: 'pipe', timeout: 5000 }
-      );
+      const proc = nodeSpawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 5000,
+        windowsHide: true,
+      });
+      if (proc.error) throw proc.error;
     } catch (err: any) {
       if (err?.code !== 'ENOENT') throw err;
     }
@@ -325,7 +328,11 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
-    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    const proc = nodeSpawnSync('node', ['-e', launcherCode], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      windowsHide: true,
+    });
+    if (proc.error) throw proc.error;
   } else {
     // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
     // loop — it does NOT call setsid(), so the spawned server stays in the
