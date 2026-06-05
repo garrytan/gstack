@@ -19,7 +19,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_SKILL_DIR}/bin/check-careful.sh"
+          command: 'bash -c ''D="$PWD"; while :; do S="$D/.claude/skills/gstack/careful/bin/check-careful.sh"; [ -x "$S" ] && exec bash "$S"; [ "$D" = "/" ] && break; D="$(dirname "$D")"; done; S="$HOME/.claude/skills/gstack/careful/bin/check-careful.sh"; [ -x "$S" ] && exec bash "$S"; exit 0'''
           statusMessage: "Checking for destructive commands..."
 sensitive: true
 ---
