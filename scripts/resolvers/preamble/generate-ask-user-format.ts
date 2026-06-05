@@ -5,20 +5,20 @@ export function generateAskUserFormat(_ctx: TemplateContext): string {
 
 ### Tool resolution (read first)
 
-"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
+"AskUserQuestion" can resolve to three equivalent surfaces at runtime: the **host MCP variant** (e.g. \`mcp__conductor__AskUserQuestion\` — appears in your tool list when the host registers it), the **native** Claude Code tool, or Codex's **\`request_user_input\`** surface (sometimes shown as \`functions.request_user_input\` in host tool metadata).
 
 **Conductor rule (read before the MCP rule):** if \`CONDUCTOR_SESSION: true\` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any \`mcp__*__AskUserQuestion\` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns \`[Tool result missing due to internal error]\`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a \`[plan-tune auto-decide] <id> → <option>\` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with \`bin/gstack-question-log\` (the PostToolUse capture hook never fires on a prose path, so \`/plan-tune\` history/learning depends on this call).
 
-**Rule (non-Conductor):** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+**Rule (non-Conductor):** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Otherwise use the native Claude Code tool when present. In Codex sessions, treat \`request_user_input\` / \`functions.request_user_input\` as the AskUserQuestion-equivalent surface. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same question/options shape and same decision-brief format apply across all equivalent surfaces.
 
-If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+If AskUserQuestion is unavailable (no equivalent surface in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
 
 ### When AskUserQuestion is unavailable or a call fails
 
 Tell three outcomes apart:
 
 1. **Auto-decide denial (NOT a failure).** The result contains \`[plan-tune auto-decide] <id> → <option>\` — the preference hook working as designed. Proceed with that option. Do NOT retry, do NOT fall back to prose.
-2. **Genuine failure** — no variant in your tool list, OR the variant is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns \`[Tool result missing due to internal error]\`).
+2. **Genuine failure** — no equivalent surface in your tool list, OR the surface is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns \`[Tool result missing due to internal error]\`).
    - If it was present and **errored** (not absent), retry the SAME call **once** — but only if no answer could have surfaced (a missing-result error can arrive after the user already saw the question; retrying would double-prompt, so if it may have reached them, treat as pending, don't retry).
    - Then branch on \`SESSION_KIND\` (echoed by the preamble; empty/absent ⇒ \`interactive\`):
      - \`spawned\` → defer to the **Spawned session** block: auto-choose the recommended option. Never prose, never BLOCKED.
@@ -36,7 +36,6 @@ Layout: a \`D<N>\` title + a one-line note to reply with a letter (in Conductor 
 **Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (\`D<N>\`, or \`D<N>.k\` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which \`D<N>.k\` it answers. Never apply a bare letter ambiguously across a chain.
 
 **One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
-
 ### Format
 
 Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
