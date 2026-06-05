@@ -30,6 +30,12 @@ const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bi
 let tmpHome: string;
 let tmpHomeReal: string;
 
+function makeTestBin(prefix: string) {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.symlinkSync(process.execPath, path.join(bin, 'bun'));
+  return bin;
+}
+
 type RunOpts = { env?: Record<string, string>; cwd?: string };
 function run(bin: string, args: string[], opts: RunOpts = {}) {
   const env = {
@@ -63,7 +69,7 @@ afterEach(() => {
 describe('gstack-gbrain-detect', () => {
   test('emits valid JSON even when nothing is configured', () => {
     // Override PATH to exclude any real gbrain so the test is deterministic.
-    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    const emptyBin = makeTestBin('empty-bin-');
     try {
       const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
       expect(r.status).toBe(0);
@@ -82,7 +88,7 @@ describe('gstack-gbrain-detect', () => {
 
   test('reports gstack_brain_git: true when GSTACK_HOME has a .git dir', () => {
     fs.mkdirSync(path.join(tmpHome, '.git'));
-    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    const emptyBin = makeTestBin('empty-bin-');
     try {
       const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
       const j = JSON.parse(r.stdout);
@@ -99,7 +105,7 @@ describe('gstack-gbrain-detect', () => {
       path.join(tmpHomeReal, '.gbrain', 'config.json'),
       JSON.stringify({ engine: 'pglite', database_path: '/tmp/x.pglite' })
     );
-    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    const emptyBin = makeTestBin('empty-bin-');
     try {
       const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
       const j = JSON.parse(r.stdout);
@@ -113,7 +119,7 @@ describe('gstack-gbrain-detect', () => {
   test('malformed config returns null engine, does not crash', () => {
     fs.mkdirSync(path.join(tmpHomeReal, '.gbrain'));
     fs.writeFileSync(path.join(tmpHomeReal, '.gbrain', 'config.json'), 'not valid json{');
-    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'empty-bin-'));
+    const emptyBin = makeTestBin('empty-bin-');
     try {
       const r = run(DETECT, [], { env: { PATH: `${emptyBin}:${SAFE_PATH}` } });
       expect(r.status).toBe(0);
@@ -126,7 +132,7 @@ describe('gstack-gbrain-detect', () => {
   });
 
   test('detects a mocked gbrain binary on PATH and reports its version', () => {
-    const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-bin-'));
+    const fakeBin = makeTestBin('fake-bin-');
     fs.writeFileSync(
       path.join(fakeBin, 'gbrain'),
       '#!/bin/bash\necho "0.18.2"\nexit 0\n',
