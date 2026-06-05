@@ -28,6 +28,7 @@ Evaluate:
 * Code organization and module structure.
 * DRY violations—be aggressive here.
 * Error handling patterns and missing edge cases (call these out explicitly).
+* Server-gated or actuated actions with optimistic UI—does the client await and surface the real result, or assume success? A swallowed rejection (auth/permission/validation) renders as false success; verify the effect landed, not the toast.
 * Technical debt hotspots.
 * Areas that are over-engineered or under-engineered relative to my preferences.
 * Existing ASCII diagrams in touched files — are they still accurate after this change?
