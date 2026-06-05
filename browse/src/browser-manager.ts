@@ -168,6 +168,11 @@ export class BrowserManager {
   // track the latest so context recreation restores it instead of hardcoding 1280x720.
   private deviceScaleFactor: number = 1;
   private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
+  // When true, contexts are (re)created with Playwright `viewport: null` so the
+  // viewport follows the real window size instead of being pinned to
+  // currentViewport. Set by `viewport auto`; cleared whenever an explicit size
+  // or deviceScaleFactor is applied. recreateContext() honors it.
+  private viewportAuto: boolean = false;
 
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
@@ -394,10 +399,7 @@ export class BrowserManager {
       void handleChromiumDisconnect(this.browser);
     });
 
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-      deviceScaleFactor: this.deviceScaleFactor,
-    };
+    const contextOptions: BrowserContextOptions = this.viewportContextOptions();
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
     }
@@ -1226,7 +1228,49 @@ export class BrowserManager {
   // ─── Viewport ──────────────────────────────────────────────
   async setViewport(width: number, height: number) {
     this.currentViewport = { width, height };
+    // An explicit size pins the viewport, so leave window-follow ("auto") mode.
+    this.viewportAuto = false;
     await this.getPage().setViewportSize({ width, height });
+  }
+
+  /**
+   * Restore window-following viewport (Playwright `viewport: null`), undoing a
+   * prior `viewport WxH` pin without tearing down the Chrome session. Rebuilds
+   * the context (state, cookies, tab URLs preserved) the same way a
+   * `viewport --scale` change does. deviceScaleFactor resets to 1 because a
+   * non-1 scale requires a concrete viewport size — `viewport: null` and a
+   * custom scale are mutually exclusive in Playwright.
+   *
+   * Returns null on success, or an error string if the new context couldn't be
+   * built (state may have been lost, per recreateContext's fallback behavior).
+   */
+  async resetViewportToAuto(): Promise<string | null> {
+    if (this.connectionMode === 'headed') {
+      throw new Error('viewport auto is not supported in headed mode — the viewport already follows the real browser window.');
+    }
+    if (this.viewportAuto) {
+      return null; // already following the window; nothing to rebuild
+    }
+
+    const prevAuto = this.viewportAuto;
+    const prevScale = this.deviceScaleFactor;
+    this.viewportAuto = true;
+    this.deviceScaleFactor = 1;
+
+    const err = await this.recreateContext();
+    if (err !== null) {
+      // recreateContext's fallback built a blank context using the NEW (auto)
+      // settings. Roll the tracked fields back, then force a second recreate so
+      // live state matches tracked state (mirrors setDeviceScaleFactor).
+      this.viewportAuto = prevAuto;
+      this.deviceScaleFactor = prevScale;
+      const rollbackErr = await this.recreateContext();
+      if (rollbackErr !== null) {
+        return `${err} (rollback also encountered: ${rollbackErr})`;
+      }
+      return err;
+    }
+    return null;
   }
 
   // ─── Extra Headers ─────────────────────────────────────────
@@ -1403,6 +1447,21 @@ export class BrowserManager {
   }
 
   /**
+   * Viewport/scale slice of the context options, honoring window-follow mode.
+   * In `viewportAuto` mode we pass `viewport: null` (and no deviceScaleFactor,
+   * which Playwright forbids alongside a null viewport) so the page tracks the
+   * real window size; otherwise we pin currentViewport + deviceScaleFactor.
+   */
+  private viewportContextOptions(): BrowserContextOptions {
+    return this.viewportAuto
+      ? { viewport: null }
+      : {
+          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+          deviceScaleFactor: this.deviceScaleFactor,
+        };
+  }
+
+  /**
    * Recreate the browser context to apply user agent changes.
    * Saves and restores cookies, localStorage, sessionStorage, and open pages.
    * Falls back to a clean slate on any failure.
@@ -1428,10 +1487,7 @@ export class BrowserManager {
       await this.context.close().catch(() => {});
 
       // 3. Create new context with updated settings
-      const contextOptions: BrowserContextOptions = {
-        viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-        deviceScaleFactor: this.deviceScaleFactor,
-      };
+      const contextOptions: BrowserContextOptions = this.viewportContextOptions();
       if (this.customUserAgent) {
         contextOptions.userAgent = this.customUserAgent;
       }
@@ -1452,10 +1508,7 @@ export class BrowserManager {
         this.tabSessions.clear();
         if (this.context) await this.context.close().catch(() => {});
 
-        const contextOptions: BrowserContextOptions = {
-          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-          deviceScaleFactor: this.deviceScaleFactor,
-        };
+        const contextOptions: BrowserContextOptions = this.viewportContextOptions();
         if (this.customUserAgent) {
           contextOptions.userAgent = this.customUserAgent;
         }
@@ -1493,8 +1546,11 @@ export class BrowserManager {
 
     const prevScale = this.deviceScaleFactor;
     const prevViewport = { ...this.currentViewport };
+    const prevAuto = this.viewportAuto;
     this.deviceScaleFactor = scale;
     this.currentViewport = { width, height };
+    // An explicit scale pins a concrete viewport, so leave window-follow mode.
+    this.viewportAuto = false;
 
     const err = await this.recreateContext();
     if (err !== null) {
@@ -1505,6 +1561,7 @@ export class BrowserManager {
       // so live state matches tracked state.
       this.deviceScaleFactor = prevScale;
       this.currentViewport = prevViewport;
+      this.viewportAuto = prevAuto;
       const rollbackErr = await this.recreateContext();
       if (rollbackErr !== null) {
         // Second recreate also failed — we're in a clean blank slate via fallback, but
