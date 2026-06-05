@@ -2348,6 +2348,56 @@ describe('viewport --scale', () => {
   });
 });
 
+// ─── viewport auto / reset / unpin (#1059) ──────────────────────
+
+describe('viewport auto (unpin)', () => {
+  test('viewport auto clears a pinned size and restores window-following', async () => {
+    // Pin a size: Playwright reports the emulated viewport.
+    await handleWriteCommand('viewport', ['375x812'], bm);
+    expect(bm.getPage().viewportSize()).toEqual({ width: 375, height: 812 });
+
+    // Unpin: the recreated context uses `viewport: null`, so viewportSize() is null.
+    const result = await handleWriteCommand('viewport', ['auto'], bm);
+    expect(result).toContain('unpinned');
+    expect(bm.getPage().viewportSize()).toBeNull();
+
+    // Reset for following tests.
+    await handleWriteCommand('viewport', ['1280x720'], bm);
+  });
+
+  test('reset and unpin are accepted aliases', async () => {
+    await handleWriteCommand('viewport', ['400x300'], bm);
+    await handleWriteCommand('viewport', ['reset'], bm);
+    expect(bm.getPage().viewportSize()).toBeNull();
+
+    await handleWriteCommand('viewport', ['200x200'], bm);
+    await handleWriteCommand('viewport', ['unpin'], bm);
+    expect(bm.getPage().viewportSize()).toBeNull();
+
+    await handleWriteCommand('viewport', ['1280x720'], bm);
+  });
+
+  test('viewport auto resets deviceScaleFactor to 1', async () => {
+    await handleWriteCommand('viewport', ['200x200', '--scale', '2'], bm);
+    expect(bm.getDeviceScaleFactor()).toBe(2);
+
+    await handleWriteCommand('viewport', ['auto'], bm);
+    expect(bm.getDeviceScaleFactor()).toBe(1);
+    expect(bm.getPage().viewportSize()).toBeNull();
+
+    await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+  });
+
+  test('viewport auto cannot be combined with --scale', async () => {
+    try {
+      await handleWriteCommand('viewport', ['auto', '--scale', '2'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/cannot be combined with --scale/);
+    }
+  });
+});
+
 // ─── setContent replay across context recreation ────────────────
 
 describe('setContent replay (load-html survives viewport --scale)', () => {
