@@ -161,12 +161,20 @@ function readLines(path: string | undefined): string[] | undefined {
 function buildOpts(): ScanOptions {
   const vis = (arg("--repo-visibility") as RepoVisibility) || "unknown";
   const maxBytes = arg("--max-bytes");
+  const parsedMaxBytes = maxBytes ? Number(maxBytes) : undefined;
+  if (
+    maxBytes &&
+    (!Number.isInteger(parsedMaxBytes) || parsedMaxBytes <= 0)
+  ) {
+    process.stderr.write("gstack-redact: --max-bytes must be a positive integer\n");
+    process.exit(1);
+  }
   return {
     repoVisibility: ["public", "private", "unknown"].includes(vis) ? vis : "unknown",
     allowlist: readLines(arg("--allowlist")),
     selfEmail: arg("--self-email"),
     repoPublicEmails: readLines(arg("--repo-public-emails")),
-    ...(maxBytes ? { maxBytes: parseInt(maxBytes, 10) } : {}),
+    ...(parsedMaxBytes ? { maxBytes: parsedMaxBytes } : {}),
   };
 }
 

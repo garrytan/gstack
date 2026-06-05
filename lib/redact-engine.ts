@@ -253,7 +253,10 @@ function emailAllowed(email: string, opts: ScanOptions): boolean {
 
 export function scan(input: string, opts: ScanOptions = {}): ScanResult {
   const repoVisibility: RepoVisibility = opts.repoVisibility ?? "unknown";
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  const maxBytes =
+    Number.isFinite(opts.maxBytes) && opts.maxBytes > 0
+      ? opts.maxBytes
+      : DEFAULT_MAX_BYTES;
 
   // Fail CLOSED on oversize input. Check byte length BEFORE heavy work.
   const byteLen = Buffer.byteLength(input, "utf8");

@@ -239,6 +239,17 @@ describe("oversize fails CLOSED", () => {
     expect(r.findings[0].id).toBe("engine.input_too_large");
     expect(exitCodeFor(r)).toBe(3);
   });
+
+  test("invalid byte caps fall back to the default fail-closed cap", () => {
+    const big = "a".repeat(2 * 1024 * 1024);
+
+    for (const maxBytes of [NaN, -1, 0]) {
+      const r = scan(big, { maxBytes });
+      expect(r.oversize).toBe(true);
+      expect(r.findings[0].id).toBe("engine.input_too_large");
+      expect(exitCodeFor(r)).toBe(3);
+    }
+  });
 });
 
 describe("validators", () => {

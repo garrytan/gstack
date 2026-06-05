@@ -94,4 +94,16 @@ describe("gstack-redact oversize fails closed", () => {
     expect(code).toBe(3);
     expect(stdout).toContain("too large");
   });
+
+  test("malformed --max-bytes exits with usage error", () => {
+    const { code, stderr } = run(["--max-bytes", "notanumber"], "safe text");
+    expect(code).toBe(1);
+    expect(stderr).toContain("--max-bytes must be a positive integer");
+  });
+
+  test("negative --max-bytes exits with usage error", () => {
+    const { code, stderr } = run(["--max-bytes", "-5"], "safe text");
+    expect(code).toBe(1);
+    expect(stderr).toContain("--max-bytes must be a positive integer");
+  });
 });
