@@ -399,7 +399,7 @@ if [ -x "$DETECT_BIN" ]; then
   if "$DETECT_BIN" > "$DETECTION_FILE.tmp" 2>/dev/null; then
     mv "$DETECTION_FILE.tmp" "$DETECTION_FILE"
   else
-    rm -f "$DETECTION_FILE.tmp"
+    rm -f "$DETECTION_FILE.tmp" "$DETECTION_FILE"
     log "  warning: gstack-gbrain-detect failed — brain-aware blocks will stay suppressed"
   fi
 fi
@@ -1386,7 +1386,6 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
 fi
 
 # C3. Tear down plan-tune hooks on --no-team.
-# Also tear down plan-tune hooks on --no-team (matches the existing pattern).
 if [ "$NO_TEAM_MODE" -eq 1 ] && [ -x "$SETTINGS_HOOK" ]; then
   "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null || true
 fi
