@@ -2,7 +2,7 @@
 name: ios-design-review
 preamble-tier: 3
 version: 1.0.0
-description: Visual design audit for iOS apps on real hardware. (gstack)
+description: Visual design audit for iOS apps on real hardware. Use when asked to review iOS design, audit iPhone app visuals, or design-QA the iOS app — evaluates typography, spacing, color, touch targets, loading states, accessibility, animations, iOS idioms, information density, and AI-slop. (gstack)
 allowed-tools:
   - Bash
   - Read

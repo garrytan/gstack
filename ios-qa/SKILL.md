@@ -2,7 +2,7 @@
 name: ios-qa
 preamble-tier: 3
 version: 1.0.0
-description: Live-device iOS QA for SwiftUI apps. (gstack)
+description: Live-device iOS QA for SwiftUI apps. Use when asked to QA, test, or find bugs on a real iOS device. Connects via USB, reads Swift source, and runs a vision-driven agent loop on live hardware to verify app behavior. (gstack)
 allowed-tools:
   - Bash
   - Read

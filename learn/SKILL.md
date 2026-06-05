@@ -2,7 +2,7 @@
 name: learn
 preamble-tier: 2
 version: 1.0.0
-description: Manage project learnings.
+description: Review, search, prune, and export project learnings. Use when asked 'what have we learned', 'show learnings', 'prune stale learnings', or 'export learnings', or when the user wonders 'didn't we fix this before?'.
 triggers:
   - show learnings
   - what have we learned

@@ -1,6 +1,6 @@
 ---
 name: hackernews-frontpage
-description: Scrape the Hacker News front page (titles, points, comment counts).
+description: Use when the user wants to scrape the Hacker News front page and retrieve the top 30 stories with titles, URLs, points, and comment counts.
 host: news.ycombinator.com
 trusted: true
 source: human

@@ -2,7 +2,7 @@
 name: design-review
 preamble-tier: 4
 version: 2.0.0
-description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them. (gstack)"
+description: "Designer's eye QA — fixes visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions. Use when asked to 'audit the design', 'visual QA', 'check if it looks good', or 'design polish', or when the user mentions visual inconsistencies on a live site. (gstack)"
 allowed-tools:
   - Bash
   - Read

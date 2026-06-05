@@ -1,7 +1,7 @@
 ---
 name: gstack-upgrade
 version: 1.1.0
-description: Upgrade gstack to the latest version.
+description: Upgrade gstack to the latest version. Use when the user asks to upgrade gstack, update the version, or get the latest release.
 triggers:
   - upgrade gstack
   - update gstack version

@@ -1,7 +1,7 @@
 ---
 name: scrape
 version: 1.0.0
-description: Pull data from a web page. (gstack)
+description: Extract data from web pages (read-only). Use when scraping content, gathering information, or pulling data from a page. For mutations (forms, clicks, orders), use /automate instead. (gstack)
 allowed-tools:
   - Bash
   - Read

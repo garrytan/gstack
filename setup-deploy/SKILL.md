@@ -2,7 +2,7 @@
 name: setup-deploy
 preamble-tier: 2
 version: 1.0.0
-description: Configure deployment settings for /land-and-deploy.
+description: Configure deployment settings for /land-and-deploy. Use when the user asks to setup deploy, configure deployment, set the deploy platform, add deploy config, or understand how to deploy with gstack.
 triggers:
   - configure deploy
   - setup deployment

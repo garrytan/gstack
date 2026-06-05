@@ -2,7 +2,7 @@
 name: canary
 preamble-tier: 2
 version: 1.0.0
-description: Post-deploy canary monitoring. (gstack)
+description: Post-deploy canary monitoring. Use when the user mentions 'monitor deploy', 'canary', 'post-deploy check', 'watch production', or 'verify deploy' to watch the live app for errors, performance regressions, and page failures. (gstack)
 allowed-tools:
   - Bash
   - Read
