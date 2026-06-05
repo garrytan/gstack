@@ -1837,7 +1837,7 @@ describe('Codex generation (--host codex)', () => {
     expect(frontmatter).toContain('YC Office Hours');
   });
 
-  test('hook skills have safety prose and no hooks: in frontmatter', () => {
+  test('Codex hook skills have safety prose and no hooks: in frontmatter', () => {
     const HOOK_SKILLS = ['gstack-careful', 'gstack-freeze', 'gstack-guard'];
     for (const skillName of HOOK_SKILLS) {
       const content = fs.readFileSync(path.join(AGENTS_DIR, skillName, 'SKILL.md'), 'utf-8');
@@ -1847,6 +1847,22 @@ describe('Codex generation (--host codex)', () => {
       const fmEnd = content.indexOf('\n---', 4);
       const frontmatter = content.slice(4, fmEnd);
       expect(frontmatter).not.toContain('hooks:');
+    }
+  });
+
+  test('Claude hook commands do not depend on CLAUDE_SKILL_DIR', () => {
+    // #1871: Claude Code 2.1.162 does not populate CLAUDE_SKILL_DIR for
+    // skill-frontmatter PreToolUse hooks. If these commands use that variable,
+    // they expand to paths like /../freeze/bin/check-freeze.sh and fail before
+    // the safety hook can do its job.
+    const HOOK_SKILLS = ['careful', 'freeze', 'guard', 'investigate'];
+    for (const skillName of HOOK_SKILLS) {
+      const content = fs.readFileSync(path.join(ROOT, skillName, 'SKILL.md'), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = content.slice(4, fmEnd);
+      expect(frontmatter).toContain('hooks:');
+      expect(frontmatter).not.toContain('CLAUDE_SKILL_DIR');
+      expect(frontmatter).toContain('$HOME/.claude/skills/gstack/');
     }
   });
 

@@ -23,12 +23,12 @@ hooks:
     - matcher: "Edit"
       hooks:
         - type: command
-          command: 'bash -c ''S="${CLAUDE_SKILL_DIR}/../freeze/bin/check-freeze.sh"; [ -x "$S" ] || S="${CLAUDE_SKILL_DIR}/../gstack-freeze/bin/check-freeze.sh"; [ -x "$S" ] && bash "$S" || exit 0'''
+          command: 'bash -c ''S="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"; [ -x "$S" ] && bash "$S" || exit 0'''
           statusMessage: "Checking debug scope boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: 'bash -c ''S="${CLAUDE_SKILL_DIR}/../freeze/bin/check-freeze.sh"; [ -x "$S" ] || S="${CLAUDE_SKILL_DIR}/../gstack-freeze/bin/check-freeze.sh"; [ -x "$S" ] && bash "$S" || exit 0'''
+          command: 'bash -c ''S="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"; [ -x "$S" ] && bash "$S" || exit 0'''
           statusMessage: "Checking debug scope boundary..."
 gbrain:
   schema: 1
