@@ -593,6 +593,7 @@ $B js "document.body.textContent.includes('Success')"
 $B responsive /tmp/layout        # mobile + tablet + desktop screenshots
 $B viewport 375x812              # or set specific viewport
 $B screenshot /tmp/mobile.png
+$B viewport auto                 # unpin: viewport follows the window again (no restart)
 ```
 
 ### 8. Test file uploads
@@ -860,7 +861,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `type <text>` | Type into focused element |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
-| `viewport [<WxH>] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. |
+| `viewport [<WxH>|auto] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. Use `auto` (alias `reset`/`unpin`) to clear a pinned size and follow the window again. |
 | `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
 
 ### Inspection
