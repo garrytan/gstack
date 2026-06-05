@@ -84,6 +84,41 @@ describe('brain-cache meta lifecycle', () => {
     expect(meta.last_refresh.product).toBeUndefined();
     expect(existsSync(join(TMP_HOME, 'projects', 'helsinki', 'brain-cache', '_meta.json'))).toBe(true);
   });
+
+  // A _meta.json can be valid JSON yet still lack the last_refresh/last_attempt
+  // maps (external tooling, a hand-edit, or any partial-but-valid persisted
+  // state). loadMeta already starts fresh on a missing/corrupt file, so a
+  // partial file must be normalized too — otherwise consumers that dereference
+  // these maps crash with a TypeError instead of degrading gracefully.
+  test('cmdGet does not crash when _meta.json lacks last_refresh', async () => {
+    const mod = await importCache();
+    const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, 'product.md'), '# Product: helsinki\n');
+    // Matching schema + endpoint (so the schema/endpoint rebuild path is not
+    // taken), but no last_refresh key.
+    writeFileSync(join(cacheDir, '_meta.json'), JSON.stringify({
+      schema_version: '1.0.0',
+      endpoint_hash: mod.detectEndpointHash(),
+    }));
+    let result: ReturnType<typeof mod.cmdGet> | undefined;
+    expect(() => { result = mod.cmdGet('product', 'helsinki'); }).not.toThrow();
+    // Treated as never-refreshed: falls through to cold-refresh, which fails
+    // (brain unreachable) and degrades to stale-fallback since the file exists.
+    expect(['stale-fallback', 'cold-refreshed', 'missing']).toContain(result!.state);
+  });
+
+  test('cmdInvalidate is a safe no-op when _meta.json lacks last_refresh', async () => {
+    const mod = await importCache();
+    const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, '_meta.json'), JSON.stringify({
+      schema_version: '1.0.0',
+      endpoint_hash: mod.detectEndpointHash(),
+    }));
+    expect(() => mod.cmdInvalidate('product', 'helsinki')).not.toThrow();
+    expect(mod.cmdMeta('helsinki').last_refresh.product).toBeUndefined();
+  });
 });
 
 describe('brain-cache endpoint detection', () => {

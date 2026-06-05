@@ -83,7 +83,13 @@ function loadMeta(scope: 'cross-project' | 'per-project', projectSlug: string | 
     return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
   }
   try {
-    return JSON.parse(readFileSync(path, 'utf-8')) as CacheMeta;
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as CacheMeta;
+    // A valid-but-partial _meta.json (missing maps) must be normalized, not
+    // returned verbatim — downstream consumers (isStale/cmdGet, cmdInvalidate,
+    // refreshEntity) dereference these maps and would otherwise throw.
+    parsed.last_refresh = parsed.last_refresh || {};
+    parsed.last_attempt = parsed.last_attempt || {};
+    return parsed;
   } catch {
     // Corrupt _meta — start fresh (entries will refresh on next access).
     return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
