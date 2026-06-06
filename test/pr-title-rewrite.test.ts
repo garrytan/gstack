@@ -24,6 +24,23 @@ describe('gstack-pr-title-rewrite', () => {
     expect(rewrite('1.2.3.4', 'v1.2.3 feat: foo').stdout).toBe('v1.2.3.4 feat: foo');
   });
 
+  test('bare correct version (no description): no change, not duplicated', () => {
+    // CHANGELOG/ship uses a version-only title for branch-ahead bumps. It must
+    // stay as-is, not become "v1.2.3.4 v1.2.3.4".
+    expect(rewrite('1.2.3.4', 'v1.2.3.4').stdout).toBe('v1.2.3.4');
+  });
+
+  test('bare different version (no description): replaces, not duplicates', () => {
+    // Must strip the stale prefix even with nothing after it, otherwise CI
+    // writes back "v1.2.3.4 v1.2.3".
+    expect(rewrite('1.2.3.4', 'v1.2.3').stdout).toBe('v1.2.3.4');
+  });
+
+  test('idempotent on a bare version title', () => {
+    const once = rewrite('1.2.3.4', 'v1.2.3').stdout;
+    expect(rewrite('1.2.3.4', once).stdout).toBe(once);
+  });
+
   test('no version prefix: prepends', () => {
     expect(rewrite('1.2.3.4', 'feat: foo').stdout).toBe('v1.2.3.4 feat: foo');
   });
