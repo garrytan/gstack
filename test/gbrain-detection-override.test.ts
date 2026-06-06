@@ -105,7 +105,12 @@ describe('gbrain detection override → gen-skill-docs', () => {
   // Single skill probe is enough to assert the override pipeline. The
   // resolver unit test (test/resolvers-gbrain-save-results.test.ts) covers
   // per-skill metadata correctness already.
-  const PROBE_FILES = ['office-hours/SKILL.md'];
+  // office-hours is carved (v2 plan T9): GBRAIN_CONTEXT_LOAD stays in the
+  // skeleton, GBRAIN_SAVE_RESULTS moved into sections/design-and-handoff.md.
+  // Probe the union so the detection override is asserted wherever the blocks land.
+  const PROBE_FILES = ['office-hours/SKILL.md', 'office-hours/sections/design-and-handoff.md'];
+  const probeUnion = (snap: Map<string, string>): string =>
+    (snap.get('office-hours/SKILL.md') ?? '') + '\n' + (snap.get('office-hours/sections/design-and-handoff.md') ?? '');
 
   test('with detected:true, Claude-host SKILL.md gains brain-aware blocks', () => {
     const { tmpHome, cleanup } = makeFixture(
@@ -117,7 +122,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
         tmpHome,
         files: PROBE_FILES,
       });
-      const content = snap.get('office-hours/SKILL.md')!;
+      const content = probeUnion(snap);
 
       // GBRAIN_SAVE_RESULTS un-suppressed → resolver output rendered.
       expect(content).toContain('## Save Results to Brain');
@@ -141,7 +146,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
         tmpHome,
         files: PROBE_FILES,
       });
-      const content = snap.get('office-hours/SKILL.md')!;
+      const content = probeUnion(snap);
 
       // GBRAIN_SAVE_RESULTS suppressed → no rendered block, no gbrain put line.
       expect(content).not.toContain('gbrain put "office-hours/');
@@ -162,7 +167,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
         tmpHome,
         files: PROBE_FILES,
       });
-      const content = snap.get('office-hours/SKILL.md')!;
+      const content = probeUnion(snap);
       expect(content).not.toContain('gbrain put "office-hours/');
     } finally {
       cleanup();
@@ -183,7 +188,7 @@ describe('gbrain detection override → gen-skill-docs', () => {
         tmpHome,
         files: PROBE_FILES,
       });
-      const content = snap.get('office-hours/SKILL.md')!;
+      const content = probeUnion(snap);
       expect(content).not.toContain('gbrain put "office-hours/');
       expect(content).not.toContain('## Save Results to Brain');
     } finally {

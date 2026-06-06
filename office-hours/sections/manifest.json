@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "office-hours",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section. No machine predicate here — see docs/designs/v2_PLAN.md.",
+  "sections": [
+    {
+      "id": "design-and-handoff",
+      "file": "design-and-handoff.md",
+      "title": "Phase 5 design doc + Phase 6 relationship handoff",
+      "trigger": "writing the design doc and running the tiered relationship handoff (Phases 5-6, after the conversation and alternatives are done)"
+    }
+  ]
+}

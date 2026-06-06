@@ -104,6 +104,13 @@ describeIfSelected(
       );
       const skillPath = join(ROOT, 'office-hours', 'SKILL.md');
       const originalSkill = readFileSync(skillPath, 'utf-8');
+      // office-hours is carved (v2 plan T9): GBRAIN_SAVE_RESULTS moved into
+      // sections/design-and-handoff.md. Regen rewrites BOTH the skeleton and the
+      // section, so we snapshot + restore + ship both, and check the UNION for
+      // the gbrain put block.
+      const sectionPath = join(ROOT, 'office-hours', 'sections', 'design-and-handoff.md');
+      const hasSection = existsSync(sectionPath);
+      const originalSection = hasSection ? readFileSync(sectionPath, 'utf-8') : null;
       try {
         execFileSync(
           'bun',
@@ -122,17 +129,23 @@ describeIfSelected(
           },
         );
         const brainAwareSkill = readFileSync(skillPath, 'utf-8');
-        if (!brainAwareSkill.includes('gbrain put "office-hours/')) {
+        const brainAwareSection = hasSection ? readFileSync(sectionPath, 'utf-8') : '';
+        if (!(brainAwareSkill + brainAwareSection).includes('gbrain put "office-hours/')) {
           throw new Error(
-            'Regenerated office-hours/SKILL.md does not contain gbrain put block. ' +
+            'Regenerated office-hours skeleton+section does not contain gbrain put block. ' +
               'Detection override may be broken — see test/gbrain-detection-override.test.ts.',
           );
         }
         mkdirSync(join(workDir, 'office-hours'), { recursive: true });
         writeFileSync(join(workDir, 'office-hours', 'SKILL.md'), brainAwareSkill);
+        if (hasSection) {
+          mkdirSync(join(workDir, 'office-hours', 'sections'), { recursive: true });
+          writeFileSync(join(workDir, 'office-hours', 'sections', 'design-and-handoff.md'), brainAwareSection);
+        }
       } finally {
-        // Always restore the canonical SKILL.md so the working tree stays clean.
+        // Always restore the canonical skeleton + section so the working tree stays clean.
         writeFileSync(skillPath, originalSkill);
+        if (hasSection && originalSection !== null) writeFileSync(sectionPath, originalSection);
         rmSync(tmpHome, { recursive: true, force: true });
       }
 

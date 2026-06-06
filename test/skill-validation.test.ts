@@ -7,20 +7,22 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
-// Carved-skill aware (v2 plan T9): ship is a skeleton SKILL.md + sections/*.md.
-// Read the union so validations of content that moved into a section still hold.
-// `_SHIP_MD` is a distinct path expression so a mechanical read-replace can't
-// recurse into this helper.
-const _SHIP_MD = path.join(ROOT, 'ship', 'SKILL.md');
-function readShipUnion(): string {
-  let t = fs.readFileSync(_SHIP_MD, 'utf-8');
-  const secDir = path.join(ROOT, 'ship', 'sections');
+// Carved-skill aware (v2 plan T9 / Phase B): a carved skill is a skeleton SKILL.md
+// plus sections/*.md. Read the union so validations of content that moved into a
+// section still hold. For an uncarved skill (no sections dir) this is just the
+// skeleton, so readSkillUnion is safe to use everywhere.
+function readSkillUnion(skill: string): string {
+  let t = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+  const secDir = path.join(ROOT, skill, 'sections');
   if (fs.existsSync(secDir)) {
     for (const f of fs.readdirSync(secDir).sort()) {
       if (f.endsWith('.md')) t += '\n' + fs.readFileSync(path.join(secDir, f), 'utf-8');
     }
   }
   return t;
+}
+function readShipUnion(): string {
+  return readSkillUnion('ship');
 }
 
 describe('SKILL.md command validation', () => {
@@ -572,8 +574,8 @@ describe('TODOS-format.md reference consistency', () => {
 
   test('skills that write TODOs reference TODOS-format.md', () => {
     const shipContent = readShipUnion();
-    const ceoPlanContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
-    const engPlanContent = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const ceoPlanContent = readSkillUnion('plan-ceo-review'); // carved: TODOS-format ref moved to section
+    const engPlanContent = readSkillUnion('plan-eng-review');
 
     expect(shipContent).toContain('TODOS-format.md');
     expect(ceoPlanContent).toContain('TODOS-format.md');
@@ -645,7 +647,10 @@ describe('v0.4.1 preamble features', () => {
 // --- Structural tests for new skills ---
 
 describe('office-hours skill structure', () => {
-  const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  // Carved (v2 plan T9): Phase 5 (Design Doc) + Phase 6 (handoff) moved into
+  // sections/design-and-handoff.md, so structural phrases now live there — read
+  // the skeleton+sections union.
+  const content = readSkillUnion('office-hours');
 
   // Original structural assertions
   for (const section of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6',
@@ -936,8 +941,10 @@ describe('CEO review mode validation', () => {
   });
 
   test('has docs/designs promotion section', () => {
-    expect(content).toContain('docs/designs');
-    expect(content).toContain('PROMOTED');
+    // Carved (v2 plan Phase B): the promotion block moved into the review section.
+    const union = readSkillUnion('plan-ceo-review');
+    expect(union).toContain('docs/designs');
+    expect(union).toContain('PROMOTED');
   });
 
   test('mode quick reference has four columns', () => {

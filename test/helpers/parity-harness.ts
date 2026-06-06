@@ -226,7 +226,14 @@ export const PARITY_INVARIANTS: ParityInvariant[] = [
     minBytes: 120_000,
   },
   {
+    // Carved (v2 plan T9): skeleton SKILL.md + sections/review-sections.md.
+    // Content + size floors run against the union (relocated prose still counts);
+    // maxSkeletonBytes asserts the always-loaded skeleton shrank from the ~138KB
+    // monolith to ~81KB (measured 80,731 B, -42%). Headroom to 90KB so a small
+    // skeleton edit doesn't trip CI, but a 10KB regression does.
     skill: 'plan-ceo-review',
+    sectioned: true,
+    maxSkeletonBytes: 90_000,
     mustContain: [
       'SCOPE EXPANSION',
       'SELECTIVE EXPANSION',
@@ -238,7 +245,13 @@ export const PARITY_INVARIANTS: ParityInvariant[] = [
     minBytes: 80_000,
   },
   {
+    // Carved (v2 plan T9): skeleton + sections/review-sections.md. The 4-section
+    // review, outside voice, and required outputs moved to the section; content
+    // checks run against the union. Skeleton shrank 106,984 -> 54,892 B (-48.7%);
+    // maxSkeletonBytes 62KB = measured + headroom.
     skill: 'plan-eng-review',
+    sectioned: true,
+    maxSkeletonBytes: 62_000,
     mustContain: [
       'Architecture',
       'Code Quality',
@@ -250,7 +263,13 @@ export const PARITY_INVARIANTS: ParityInvariant[] = [
     minBytes: 70_000,
   },
   {
+    // Carved (v2 plan T9): skeleton + sections/review-sections.md. The 7 design
+    // passes + required outputs moved to the section; content checks run against
+    // the union. Skeleton shrank 112,057 -> 76,024 B (-32.2%); maxSkeletonBytes
+    // 82KB = measured + headroom.
     skill: 'plan-design-review',
+    sectioned: true,
+    maxSkeletonBytes: 82_000,
     mustContain: [
       'design',
       'visual',
@@ -281,7 +300,15 @@ export const PARITY_INVARIANTS: ParityInvariant[] = [
     minBytes: 30_000,
   },
   {
+    // Carved (v2 plan T9): skeleton SKILL.md + sections/design-and-handoff.md.
+    // Phase 5 (design doc) + Phase 6 (handoff) moved into the section, so
+    // 'design doc' / 'problem statement' now live there — content checks run
+    // against the union. maxSkeletonBytes asserts the always-loaded skeleton
+    // shrank from the ~118KB monolith to ~89KB (measured 88,975 B, -24.8%);
+    // headroom to 96KB so a small skeleton edit doesn't trip CI.
     skill: 'office-hours',
+    sectioned: true,
+    maxSkeletonBytes: 96_000,
     mustContain: ['design doc', 'problem statement'],
     mustHaveHeadings: ['## Preamble', '## When to invoke'],
     maxSizeRatio: 1.05,

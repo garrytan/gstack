@@ -61,6 +61,8 @@ We're building a new user dashboard that shows recent activity, notifications, a
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -145,6 +147,8 @@ We're building a new user dashboard that shows recent activity, notifications, a
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -213,6 +217,8 @@ describeIfSelected('Plan CEO Review Expansion Energy E2E', ['plan-ceo-review-exp
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -319,6 +325,8 @@ Replace session-cookie auth with JWT tokens. Currently using express-session + R
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -415,6 +423,8 @@ export function main() { return Dashboard(); }
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
 
     // Set up remote-slug shim and browse shims (plan-eng-review uses remote-slug for artifact path)
     setupBrowseShims(planDir);
@@ -520,6 +530,7 @@ describeIfSelected('Office Hours Spec Review E2E', ['office-hours-spec-review'],
       path.join(ROOT, 'office-hours', 'SKILL.md'),
       path.join(ohDir, 'office-hours', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'office-hours', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(ohDir, 'office-hours', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -580,6 +591,7 @@ describeIfSelected('Plan CEO Review Benefits-From E2E', ['plan-ceo-review-benefi
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(benefitsDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(benefitsDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -663,6 +675,8 @@ We're building a real-time notification system for our SaaS app.
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -760,6 +774,10 @@ describeIfSelected('Codex Offering E2E', [
         path.join(ROOT, skill, 'SKILL.md'),
         path.join(testDir, skill, 'SKILL.md'),
       );
+      // Carved skills (v2 plan T9): copy sections/ so codex/outside-voice content
+      // (carved into review-sections.md) is present for the search.
+      const _sec = path.join(ROOT, skill, 'sections');
+      if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(testDir, skill, 'sections'), { recursive: true });
     }
   });
 

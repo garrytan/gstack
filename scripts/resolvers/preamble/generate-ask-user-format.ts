@@ -75,25 +75,12 @@ so split chains are never AUTO_DECIDE-eligible — the user's option set is sacr
 **Full rule + worked examples + Hold/dependency semantics:** see
 \`docs/askuserquestion-split.md\` in the gstack repo. Read on demand when N>4.
 
-**Non-ASCII characters — write directly, never \\u-escape.** When any
-    string field (question, option label, option description) contains
-    Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
-    the literal UTF-8 characters in the JSON string. **Never escape them
-    as \`\\uXXXX\`.** Claude Code's tool parameter pipe is UTF-8 native
-    and passes characters through unchanged. Manually escaping requires
-    recalling each codepoint from training, which is unreliable for long
-    CJK strings — the model regularly emits the wrong codepoint (e.g.
-    writes \`\\u3103\` thinking it is 管 U+7BA1, but \`\\u3103\` is
-    actually ㄃, so the user sees \`管理工具\` rendered as \`㄃3用箱\`).
-    The trigger is long, multi-line questions with hundreds of CJK
-    characters: that is exactly when reflexive escaping kicks in and
-    exactly when miscoding is most damaging. Long ≠ escape. Keep
-    characters literal.
-
-    Wrong: \`"question": "請選擇\\uXXXX\\uXXXX\\uXXXX\\uXXXX"\`
-    Right: \`"question": "請選擇管理工具"\`
-
-    Only JSON-mandatory escapes remain allowed: \`\\n\`, \`\\t\`, \`\\"\`, \`\\\\\`.
+**Non-ASCII characters — write directly, never \\u-escape.** When any string
+field contains Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text,
+emit the literal UTF-8 characters; never escape them as \`\\uXXXX\` (the pipe is
+UTF-8 native, and manual escaping miscodes long CJK strings). Only \`\\n\`,
+\`\\t\`, \`\\"\`, \`\\\\\` remain allowed. Full rationale + worked example: see
+\`docs/askuserquestion-cjk.md\`. Read on demand when a question contains CJK.
 
 ### Self-check before emitting
 

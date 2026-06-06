@@ -540,7 +540,19 @@ async function runWorkflowJudge(opts: {
   const defaults = { clarity: 4, completeness: 3, actionability: 4 };
   const thresholds = { ...defaults, ...opts.thresholds };
 
-  const content = fs.readFileSync(path.join(ROOT, opts.skillPath), 'utf-8');
+  // Read the skeleton + sections UNION so carved skills (v2 plan T9) still
+  // expose markers that moved into sections/*.md (e.g. plan-eng's "## Review
+  // Sections" + "## CRITICAL RULE", plan-design's 7 passes). Without this the
+  // slice markers vanish from the skeleton and the judge scores empty content.
+  let content = fs.readFileSync(path.join(ROOT, opts.skillPath), 'utf-8');
+  const secDir = path.join(ROOT, path.dirname(opts.skillPath), 'sections');
+  if (fs.existsSync(secDir)) {
+    for (const f of fs.readdirSync(secDir).sort()) {
+      if (f.endsWith('.md') && !f.endsWith('.md.tmpl')) {
+        content += '\n' + fs.readFileSync(path.join(secDir, f), 'utf-8');
+      }
+    }
+  }
   const startIdx = content.indexOf(opts.startMarker);
   if (startIdx === -1) throw new Error(`Start marker not found in ${opts.skillPath}: "${opts.startMarker}"`);
 
