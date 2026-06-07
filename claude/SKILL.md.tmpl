@@ -152,8 +152,26 @@ Review the current branch diff with nested Claude in tool-less mode.
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 DIFF_FILE=$(mktemp /tmp/gstack-claude-diff-XXXXXX.patch)
-git fetch origin <base> --quiet 2>/dev/null || true
-git diff "origin/<base>" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
+# Fetch the base so the comparison point is current. If the fetch fails, warn
+# loudly instead of silently diffing against a stale base -- a base that is far
+# behind can balloon the diff to hundreds of unrelated files, making the review
+# slow, useless, or prone to timing out.
+git fetch origin <base> --quiet 2>/dev/null || echo "WARNING: could not fetch origin/<base>; diffing against a possibly stale base. Review scope may be wrong." >&2
+if git rev-parse --verify --quiet "origin/<base>" >/dev/null 2>&1; then
+  _BASE_REF="origin/<base>"
+else
+  _BASE_REF="<base>"
+fi
+# Diff from the MERGE BASE to the working tree: shows only what THIS branch
+# changed (including uncommitted work) and excludes commits the base gained after
+# you branched. Diffing the base tip directly adds unrelated noise; a three-dot
+# diff would drop uncommitted changes.
+_MERGE_BASE=$(git merge-base "$_BASE_REF" HEAD 2>/dev/null)
+if [ -n "$_MERGE_BASE" ]; then
+  git diff "$_MERGE_BASE" > "$DIFF_FILE"
+else
+  git diff "$_BASE_REF" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
+fi
 ```
 
 If the diff file is empty, stop and say:
@@ -178,10 +196,56 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+# Wrap in a hard timeout so a huge diff or a stalled API call can never hang
+# forever. Prefer gtimeout (macOS coreutils), fall back to timeout (Linux), else
+# fail closed. Feed the prompt via stdin redirect (NOT `< /dev/null`, which
+# would send an empty prompt). Keep this self-contained -- each block runs in its
+# own shell, so do not rely on a helper defined in another block.
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+_CLAUDE_NO_TIMEOUT=0
+_CLAUDE_FAILURE_RESULT=""
+if [ -z "$TIMEOUT_BIN" ]; then
+  _CLAUDE_EXIT=125
+  _CLAUDE_NO_TIMEOUT=1
+  _CLAUDE_FAILURE_RESULT="No timeout command found (expected gtimeout or timeout). Claude review was not run because unbounded claude -p can hang indefinitely. Install coreutils or run on a host with timeout."
+  echo "$_CLAUDE_FAILURE_RESULT"
+else
+  "$TIMEOUT_BIN" 600 claude -p --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+  _CLAUDE_EXIT=$?
+fi
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude hit the 10-minute time limit and was stopped. It did NOT finish - do NOT treat this as a pass or a clean result. Most likely the diff is too large; re-run or split it into smaller pieces."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+elif [ "$_CLAUDE_EXIT" != "0" ] && [ "$_CLAUDE_NO_TIMEOUT" != "1" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude exited with status $_CLAUDE_EXIT. It did NOT complete - do NOT treat this as a pass or a clean result."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+fi
+if [ "$_CLAUDE_EXIT" != "0" ]; then
+  python3 - "$RESP_FILE" "$_CLAUDE_FAILURE_RESULT" <<'PY'
+import json, sys
+path, result = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"is_error": True, "result": result}, f)
+    f.write("\n")
+PY
+fi
 ```
 
-4. Present the parsed output:
+4. Present the parsed output. If Step 3 reported a nonzero `_CLAUDE_EXIT`, stop
+after reporting the `CLAUDE_ERROR` failure message and do not present it as
+review findings or a clean result:
 
 ```
 CLAUDE SAYS (code review):
@@ -224,10 +288,56 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+# Wrap in a hard timeout so a huge diff or a stalled API call can never hang
+# forever. Prefer gtimeout (macOS coreutils), fall back to timeout (Linux), else
+# fail closed. Feed the prompt via stdin redirect (NOT `< /dev/null`, which
+# would send an empty prompt). Keep this self-contained -- each block runs in its
+# own shell, so do not rely on a helper defined in another block.
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+_CLAUDE_NO_TIMEOUT=0
+_CLAUDE_FAILURE_RESULT=""
+if [ -z "$TIMEOUT_BIN" ]; then
+  _CLAUDE_EXIT=125
+  _CLAUDE_NO_TIMEOUT=1
+  _CLAUDE_FAILURE_RESULT="No timeout command found (expected gtimeout or timeout). Claude review was not run because unbounded claude -p can hang indefinitely. Install coreutils or run on a host with timeout."
+  echo "$_CLAUDE_FAILURE_RESULT"
+else
+  "$TIMEOUT_BIN" 600 claude -p --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+  _CLAUDE_EXIT=$?
+fi
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude hit the 10-minute time limit and was stopped. It did NOT finish - do NOT treat this as a pass or a clean result. Most likely the diff is too large; re-run or split it into smaller pieces."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+elif [ "$_CLAUDE_EXIT" != "0" ] && [ "$_CLAUDE_NO_TIMEOUT" != "1" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude exited with status $_CLAUDE_EXIT. It did NOT complete - do NOT treat this as a pass or a clean result."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+fi
+if [ "$_CLAUDE_EXIT" != "0" ]; then
+  python3 - "$RESP_FILE" "$_CLAUDE_FAILURE_RESULT" <<'PY'
+import json, sys
+path, result = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"is_error": True, "result": result}, f)
+    f.write("\n")
+PY
+fi
 ```
 
-4. Present the parsed output:
+4. Present the parsed output. If Step 3 reported a nonzero `_CLAUDE_EXIT`, stop
+after reporting the `CLAUDE_ERROR` failure message and do not present it as
+challenge findings or a clean result:
 
 ```
 CLAUDE SAYS (adversarial challenge):
@@ -276,13 +386,93 @@ EOF
 For a new session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+# Hard timeout so the call can never hang forever (see Review mode for rationale).
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+_CLAUDE_NO_TIMEOUT=0
+_CLAUDE_FAILURE_RESULT=""
+if [ -z "$TIMEOUT_BIN" ]; then
+  _CLAUDE_EXIT=125
+  _CLAUDE_NO_TIMEOUT=1
+  _CLAUDE_FAILURE_RESULT="No timeout command found (expected gtimeout or timeout). Claude consult was not run because unbounded claude -p can hang indefinitely. Install coreutils or run on a host with timeout."
+  echo "$_CLAUDE_FAILURE_RESULT"
+else
+  "$TIMEOUT_BIN" 600 claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+  _CLAUDE_EXIT=$?
+fi
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude hit the 10-minute time limit and was stopped before answering. It did NOT complete - do NOT treat this as a pass or a clean result. Re-run, or narrow the question."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+elif [ "$_CLAUDE_EXIT" != "0" ] && [ "$_CLAUDE_NO_TIMEOUT" != "1" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude exited with status $_CLAUDE_EXIT. It did NOT complete - do NOT treat this as a pass or a clean result."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+fi
+if [ "$_CLAUDE_EXIT" != "0" ]; then
+  python3 - "$RESP_FILE" "$_CLAUDE_FAILURE_RESULT" <<'PY'
+import json, sys
+path, result = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"is_error": True, "result": result}, f)
+    f.write("\n")
+PY
+fi
 ```
 
 For a resumed session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+# Hard timeout so the call can never hang forever (see Review mode for rationale).
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+_CLAUDE_NO_TIMEOUT=0
+_CLAUDE_FAILURE_RESULT=""
+if [ -z "$TIMEOUT_BIN" ]; then
+  _CLAUDE_EXIT=125
+  _CLAUDE_NO_TIMEOUT=1
+  _CLAUDE_FAILURE_RESULT="No timeout command found (expected gtimeout or timeout). Claude consult was not run because unbounded claude -p can hang indefinitely. Install coreutils or run on a host with timeout."
+  echo "$_CLAUDE_FAILURE_RESULT"
+else
+  "$TIMEOUT_BIN" 600 claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+  _CLAUDE_EXIT=$?
+fi
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude hit the 10-minute time limit and was stopped before answering. It did NOT complete - do NOT treat this as a pass or a clean result. Re-run, or narrow the question."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+elif [ "$_CLAUDE_EXIT" != "0" ] && [ "$_CLAUDE_NO_TIMEOUT" != "1" ]; then
+  _CLAUDE_FAILURE_RESULT="Claude exited with status $_CLAUDE_EXIT. It did NOT complete - do NOT treat this as a pass or a clean result."
+  echo "$_CLAUDE_FAILURE_RESULT"
+  if [ -s "$ERR_FILE" ]; then
+    echo "Claude stderr (last 120 lines):"
+    tail -n 120 "$ERR_FILE"
+  else
+    echo "Claude stderr was empty."
+  fi
+fi
+if [ "$_CLAUDE_EXIT" != "0" ]; then
+  python3 - "$RESP_FILE" "$_CLAUDE_FAILURE_RESULT" <<'PY'
+import json, sys
+path, result = sys.argv[1], sys.argv[2]
+with open(path, "w") as f:
+    json.dump({"is_error": True, "result": result}, f)
+    f.write("\n")
+PY
+fi
 ```
 
 4. Parse and save the session id:
@@ -303,7 +493,9 @@ if [ -n "$SESSION_ID" ]; then
 fi
 ```
 
-5. Present the parsed output:
+5. Present the parsed output. If Step 3 reported a nonzero `_CLAUDE_EXIT`, stop
+after reporting the `CLAUDE_ERROR` failure message and do not present it as a
+consult answer:
 
 ```
 CLAUDE SAYS (consult):

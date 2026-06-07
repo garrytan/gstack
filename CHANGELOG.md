@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.59.1.0] - 2026-06-07
+
+## **Nested Claude reviews now fail visibly when Claude does not complete, and review scope stays on the branch diff.**
+
+The `/claude` outside-voice skill is safer to run from Codex and other non-Claude hosts. Review and challenge mode now scope their diff from the merge base, so Claude reviews only the branch changes instead of accidentally expanding to unrelated base-branch drift. Every nested Claude invocation is also wrapped in a hard timeout and fed the real prompt through stdin.
+
+Most importantly, incomplete Claude runs no longer look clean. Timeouts, missing timeout support, and any other nonzero Claude exit now produce an explicit `CLAUDE_ERROR` result that says Claude did not complete and must not be treated as a pass. Review, challenge, and both consult paths stop on that failure instead of parsing an empty or partial response as usable findings.
+
+### Changed
+
+- `/claude review` and `/claude challenge` review the merge-base diff for the current branch, including uncommitted work, instead of diffing directly against the base tip.
+- `/claude review`, `/claude challenge`, and `/claude` consult run nested `claude -p` behind a 10-minute timeout and fail closed when no timeout binary is available.
+- All four nested Claude run paths write a structured error response on nonzero exit, so the existing parser prints `CLAUDE_ERROR` with the failure message.
+
 ## [1.56.1.0] - 2026-06-03
 
 ## **`/sync-gbrain` can no longer delete your repo. Cleanup now refuses any directory it cannot prove it created.**

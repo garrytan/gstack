@@ -1771,11 +1771,38 @@ describe('Codex generation (--host codex)', () => {
 
   test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
+    const count = (needle: string) => content.split(needle).length - 1;
     expect(content).toContain('claude -p');
     expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
     expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
-    expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
+    // Diff is scoped to the merge base (only this branch's changes, keeping
+    // uncommitted work), NOT a raw diff against the base tip which balloons on a
+    // stale/behind branch and is the deeper cause of "the review hangs".
+    expect(content).toContain('git merge-base');
+    expect(content).not.toContain('git diff "origin/<base>" > "$DIFF_FILE"');
+    // Prompt is fed via stdin redirect, NOT the old `cat "$PROMPT_FILE" | claude -p`
+    // pipe. Every nested claude call is wrapped in a hard timeout so a huge diff or a
+    // stalled API call can never hang forever; exit 124 is surfaced as "did not finish".
+    expect(content).toContain('< "$PROMPT_FILE"');
+    expect(content).not.toContain('cat "$PROMPT_FILE" | claude -p');
+    expect(content).toContain('TIMEOUT_BIN');
+    expect(content).toContain('"124"');
+    expect(content).toContain('No timeout command found');
+    expect(content).toContain('_CLAUDE_EXIT=125');
+    expect(content).toContain('_CLAUDE_NO_TIMEOUT=1');
+    expect(content).toContain('Claude stderr (last 120 lines):');
+    expect(content).toContain('Claude exited with status $_CLAUDE_EXIT. It did NOT complete - do NOT treat this as a pass or a clean result.');
+    expect(content).toContain('json.dump({"is_error": True, "result": result}, f)');
+    expect(content).toContain('if [ "$_CLAUDE_EXIT" != "0" ]; then');
+    expect(count('_CLAUDE_NO_TIMEOUT=1')).toBe(4);
+    expect(count('Claude exited with status $_CLAUDE_EXIT. It did NOT complete - do NOT treat this as a pass or a clean result.')).toBe(4);
+    expect(count('json.dump({"is_error": True, "result": result}, f)')).toBe(4);
+    expect(count('if [ "$_CLAUDE_EXIT" != "0" ]; then')).toBe(4);
+    expect(content).toContain('stop');
+    expect(content).toContain('CLAUDE_ERROR');
+    expect(content).toContain('do not present it as');
+    expect(content).not.toContain('run unwrapped');
     expect(content).toContain('--disable-slash-commands');
     expect(content).toContain('--tools ""');
     expect(content).toContain('--allowedTools Read,Grep,Glob');
