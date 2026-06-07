@@ -1782,6 +1782,10 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('cat "$PROMPT_FILE" | claude -p');
     expect(content).toContain('TIMEOUT_BIN');
     expect(content).toContain('"124"');
+    expect(content).toContain('No timeout command found');
+    expect(content).toContain('_CLAUDE_EXIT=125');
+    expect(content).toContain('Claude stderr (first 120 lines):');
+    expect(content).not.toContain('run unwrapped');
     expect(content).toContain('--disable-slash-commands');
     expect(content).toContain('--tools ""');
     expect(content).toContain('--allowedTools Read,Grep,Glob');
