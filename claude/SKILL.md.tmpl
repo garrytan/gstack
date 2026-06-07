@@ -152,8 +152,26 @@ Review the current branch diff with nested Claude in tool-less mode.
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 DIFF_FILE=$(mktemp /tmp/gstack-claude-diff-XXXXXX.patch)
-git fetch origin <base> --quiet 2>/dev/null || true
-git diff "origin/<base>" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
+# Fetch the base so the comparison point is current. If the fetch fails, warn
+# loudly instead of silently diffing against a stale base -- a base that is far
+# behind can balloon the diff to hundreds of unrelated files, making the review
+# slow, useless, or prone to timing out.
+git fetch origin <base> --quiet 2>/dev/null || echo "WARNING: could not fetch origin/<base>; diffing against a possibly stale base. Review scope may be wrong." >&2
+if git rev-parse --verify --quiet "origin/<base>" >/dev/null 2>&1; then
+  _BASE_REF="origin/<base>"
+else
+  _BASE_REF="<base>"
+fi
+# Diff from the MERGE BASE to the working tree: shows only what THIS branch
+# changed (including uncommitted work) and excludes commits the base gained after
+# you branched. Diffing the base tip directly adds unrelated noise; a three-dot
+# diff would drop uncommitted changes.
+_MERGE_BASE=$(git merge-base "$_BASE_REF" HEAD 2>/dev/null)
+if [ -n "$_MERGE_BASE" ]; then
+  git diff "$_MERGE_BASE" > "$DIFF_FILE"
+else
+  git diff "$_BASE_REF" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
+fi
 ```
 
 If the diff file is empty, stop and say:

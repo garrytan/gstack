@@ -1775,6 +1775,11 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
     expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
+    // Diff is scoped to the merge base (only this branch's changes, keeping
+    // uncommitted work), NOT a raw diff against the base tip which balloons on a
+    // stale/behind branch and is the deeper cause of "the review hangs".
+    expect(content).toContain('git merge-base');
+    expect(content).not.toContain('git diff "origin/<base>" > "$DIFF_FILE"');
     // Prompt is fed via stdin redirect, NOT the old `cat "$PROMPT_FILE" | claude -p`
     // pipe. Every nested claude call is wrapped in a hard timeout so a huge diff or a
     // stalled API call can never hang forever; exit 124 is surfaced as "did not finish".
