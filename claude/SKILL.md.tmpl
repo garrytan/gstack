@@ -178,7 +178,21 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+# Wrap in a hard timeout so a huge diff or a stalled API call can never hang
+# forever. Prefer gtimeout (macOS coreutils), fall back to timeout (Linux), else
+# run unwrapped. Feed the prompt via stdin redirect (NOT `< /dev/null`, which
+# would send an empty prompt). Keep this self-contained -- each block runs in its
+# own shell, so do not rely on a helper defined in another block.
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+if [ -n "$TIMEOUT_BIN" ]; then
+  "$TIMEOUT_BIN" 600 claude -p --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+else
+  claude -p --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+fi
+_CLAUDE_EXIT=$?
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  echo "Claude hit the 10-minute time limit and was stopped. It did NOT finish - do NOT treat this as a pass or a clean result. Most likely the diff is too large; re-run or split it into smaller pieces. See $ERR_FILE for details."
+fi
 ```
 
 4. Present the parsed output:
@@ -224,7 +238,21 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 3. Run Claude:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+# Wrap in a hard timeout so a huge diff or a stalled API call can never hang
+# forever. Prefer gtimeout (macOS coreutils), fall back to timeout (Linux), else
+# run unwrapped. Feed the prompt via stdin redirect (NOT `< /dev/null`, which
+# would send an empty prompt). Keep this self-contained -- each block runs in its
+# own shell, so do not rely on a helper defined in another block.
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+if [ -n "$TIMEOUT_BIN" ]; then
+  "$TIMEOUT_BIN" 600 claude -p --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+else
+  claude -p --output-format json --disable-slash-commands --tools "" < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+fi
+_CLAUDE_EXIT=$?
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  echo "Claude hit the 10-minute time limit and was stopped. It did NOT finish - do NOT treat this as a pass or a clean result. Most likely the diff is too large; re-run or split it into smaller pieces. See $ERR_FILE for details."
+fi
 ```
 
 4. Present the parsed output:
@@ -276,13 +304,33 @@ EOF
 For a new session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+# Hard timeout so the call can never hang forever (see Review mode for rationale).
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+if [ -n "$TIMEOUT_BIN" ]; then
+  "$TIMEOUT_BIN" 600 claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+else
+  claude -p --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+fi
+_CLAUDE_EXIT=$?
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  echo "Claude hit the 10-minute time limit and was stopped before answering. Re-run, or narrow the question. See $ERR_FILE for details."
+fi
 ```
 
 For a resumed session:
 
 ```bash
-cat "$PROMPT_FILE" | claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write > "$RESP_FILE" 2>"$ERR_FILE"
+# Hard timeout so the call can never hang forever (see Review mode for rationale).
+TIMEOUT_BIN=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)
+if [ -n "$TIMEOUT_BIN" ]; then
+  "$TIMEOUT_BIN" 600 claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+else
+  claude -p --resume "<session-id>" --output-format json --disable-slash-commands --allowedTools Read,Grep,Glob --disallowedTools Bash,Edit,Write < "$PROMPT_FILE" > "$RESP_FILE" 2>"$ERR_FILE"
+fi
+_CLAUDE_EXIT=$?
+if [ "$_CLAUDE_EXIT" = "124" ]; then
+  echo "Claude hit the 10-minute time limit and was stopped before answering. Re-run, or narrow the question. See $ERR_FILE for details."
+fi
 ```
 
 4. Parse and save the session id:

@@ -1775,7 +1775,13 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
     expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
-    expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
+    // Prompt is fed via stdin redirect, NOT the old `cat "$PROMPT_FILE" | claude -p`
+    // pipe. Every nested claude call is wrapped in a hard timeout so a huge diff or a
+    // stalled API call can never hang forever; exit 124 is surfaced as "did not finish".
+    expect(content).toContain('< "$PROMPT_FILE"');
+    expect(content).not.toContain('cat "$PROMPT_FILE" | claude -p');
+    expect(content).toContain('TIMEOUT_BIN');
+    expect(content).toContain('"124"');
     expect(content).toContain('--disable-slash-commands');
     expect(content).toContain('--tools ""');
     expect(content).toContain('--allowedTools Read,Grep,Glob');
