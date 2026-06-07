@@ -244,13 +244,20 @@ jobs:
           $(echo -e "$FAILURES")"
           fi
 
-          # Update existing comment or create new one
+          # Update existing comment or create new one. Fork PR tokens can be
+          # read-only even when the workflow asks for pull-requests:write; in
+          # that case keep the report job green and expose the results in the
+          # step summary instead of failing after all evals passed.
           COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-            --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1)
+            --jq '.[] | select(.body | startswith("## E2E Evals")) | .id' | tail -1 || true)
 
           if [ -n "$COMMENT_ID" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
-              -X PATCH -f body="$BODY"
-          else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"
+            if ! gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -X PATCH -f body="$BODY"; then
+              echo "Unable to update PR eval comment; writing eval report to step summary."
+              echo "$BODY" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          elif ! gh pr comment "${{ github.event.pull_request.number }}" --body "$BODY"; then
+            echo "Unable to create PR eval comment; writing eval report to step summary."
+            echo "$BODY" >> "$GITHUB_STEP_SUMMARY"
           fi
