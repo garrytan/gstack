@@ -25,14 +25,25 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       return { ok: false, reason: 'claude CLI not found on PATH. Install from https://claude.ai/download or npm i -g @anthropic-ai/claude-code (or set GSTACK_CLAUDE_BIN)' };
     }
-    // Auth sniff: ~/.claude/.credentials.json OR ANTHROPIC_API_KEY
+    // Auth sniff. Positive signals: a logged-in file credential or an explicit
+    // API key.
     const credsPath = path.join(os.homedir(), '.claude', '.credentials.json');
     const hasCreds = fs.existsSync(credsPath);
     const hasKey = !!process.env.ANTHROPIC_API_KEY;
-    if (!hasCreds && !hasKey) {
-      return { ok: false, reason: 'No Claude auth found. Log in via `claude` interactive session, or export ANTHROPIC_API_KEY.' };
+    if (hasCreds || hasKey) {
+      return { ok: true };
     }
-    return { ok: true };
+    // On macOS the default Claude Code subscription install stores its
+    // credential in the login Keychain, not ~/.claude/.credentials.json — so an
+    // absent file is NOT evidence of missing auth. run() drives the same
+    // `claude -p` path and already classifies a genuinely logged-out state as an
+    // `auth` error, so be optimistic here and defer the real auth decision to
+    // run() rather than dropping a provider whose run() path would succeed. (A
+    // subscription session needs no ANTHROPIC_API_KEY for `claude -p`.)
+    if (process.platform === 'darwin') {
+      return { ok: true };
+    }
+    return { ok: false, reason: 'No Claude auth found. Log in via `claude` interactive session, or export ANTHROPIC_API_KEY.' };
   }
 
   async run(opts: RunOpts): Promise<RunResult> {
