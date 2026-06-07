@@ -1,5 +1,74 @@
 # Changelog
 
+## [1.56.1.0] - 2026-06-03
+
+## **`/sync-gbrain` can no longer delete your repo. Cleanup now refuses any directory it cannot prove it created.**
+
+A `/sync-gbrain` memory sync could recursively delete your entire working tree. A
+crashed import left a checkpoint pointing at the repo root, the next sync
+"resumed" into it, and the cleanup step `rm -rf`'d it, taking uncommitted and
+untracked work with it. This release closes that path and fixes three more bugs
+hiding in the same resume machinery: cleanup now deletes only directories it can
+prove are gstack-minted staging dirs, the remote-http transcript dir is never
+touched, an interrupted import actually keeps its checkpoint so the next run
+resumes instead of restaging, and a resumed run no longer marks files that failed
+to import as successfully ingested.
+
+### The numbers that matter
+
+Source: `bun test test/regression-1611-gbrain-sync-resume.test.ts` on this branch.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Repo-root `rm -rf` reachable | yes | no | closed |
+| Proof required before delete | none | 5 checks | realpath + direct-child + name + .git tripwire + minted-marker |
+| Resume after a timed-out import | broken (dir deleted) | works | fixed |
+| Failed files mislabeled "ingested" on resume | yes | no | fixed |
+| Resume regression-test assertions | 9 | 64 | +55 |
+
+The guard is fail-closed: anything it cannot prove it owns is left on disk (a few
+seconds of re-staging next run) rather than deleted. That asymmetry is the design
+- a missing marker can cost a little work, never your data.
+
+### What this means for you
+
+If you use `/sync-gbrain`, a crashed or timed-out import can no longer cost you
+uncommitted work. Resume now does what it always claimed: a large sync that times
+out picks up where it left off next run instead of starting over, and files that
+failed to import get retried instead of silently skipped. Nothing to configure.
+Upgrade and keep syncing.
+
+### Itemized changes
+
+#### Fixed
+- **`/sync-gbrain` could `rm -rf` your repo root.** A poisoned resume checkpoint
+  (dir = the repo, written when an import was interrupted while the repo was the
+  working directory) was adopted as the staging dir and recursively deleted. A
+  single fail-closed ownership check now guards every staging delete and every
+  resume: a path must resolve cleanly, be a direct child of `~/.gstack` named
+  `.staging-ingest-*`, contain no `.git`, and carry a marker file gstack minted.
+  Anything else is refused. Contributed by @diazMelgarejo (cyre).
+- **Remote-http syncs no longer churn (or scare you).** The persistent transcript
+  dir that the brain sync pushes is no longer routed through staging cleanup, so
+  it stops being deleted on every run and stops emitting a false "preventing data
+  loss" warning.
+- **A timed-out import now actually resumes.** Previously the run said "checkpoint
+  preserved" but then deleted the staging dir, so the next run always restaged.
+  The staging dir is now kept when a checkpoint points at it, and the message is
+  honest when there is nothing to resume.
+- **Resume no longer hides import failures.** A resumed run could mark files that
+  failed to import as ingested, so they were never retried. Failures now map back
+  to their source files on resume and get another pass.
+
+#### For contributors
+- New `lib/staging-guard.ts` exports `checkOwnedStagingDir()`, the single
+  fail-closed predicate shared by the deletion chokepoint and the resume gate. It
+  returns the realpath-resolved canonical path so callers delete exactly what they
+  validated (closes a symlink TOCTOU). `makeStagingDir()` tears down and rethrows
+  if its marker write fails, so a marker-less dir can never leak. The
+  `#1611` resume regression suite grew to 64 assertions covering the poison
+  matrix, the remote-http gate, timeout-preserve, and resume failure-mapping.
+
 ## [1.56.0.0] - 2026-06-03
 
 ## **Five heavy skills now load their bulk on demand, the shared question preamble slimmed corpus-wide, and a paranoid test suite proves the questions never got worse.**

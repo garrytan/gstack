@@ -41,6 +41,7 @@ import { ensureSourceRegistered, sourcePageCount, parseSourcesList } from "../li
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
+import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ export function readGbrainCheckpoint(): GbrainCheckpoint | null {
 export type ResumeVerdict =
   | { kind: "no-checkpoint" }
   | { kind: "resume"; stagingDir: string; processedIndex: number; totalFiles: number }
-  | { kind: "stale-staging-missing"; stagingDir: string };
+  | { kind: "stale-staging-missing"; stagingDir: string; reason?: string };
 
 /**
  * Decide whether the next memory-ingest run should resume from gbrain's
@@ -169,20 +170,20 @@ export type ResumeVerdict =
  *   - checkpoint + staging ok    → resume (gbrain picks up at processedIndex+1)
  *   - checkpoint + staging gone  → warn, fall through to fresh restage
  */
-export function decideResume(): ResumeVerdict {
+export function decideResume(gstackHome: string = GSTACK_HOME): ResumeVerdict {
   const cp = readGbrainCheckpoint();
   if (!cp || !cp.dir) return { kind: "no-checkpoint" };
   const stagingDir = cp.dir;
-  if (!existsSync(stagingDir)) {
-    return { kind: "stale-staging-missing", stagingDir };
-  }
-  // Treat "non-empty" as the safe-to-resume signal. statSync on a missing
-  // file throws; we already handled missing above so this is dir-level shape.
-  try {
-    const st = statSync(stagingDir);
-    if (!st.isDirectory()) return { kind: "stale-staging-missing", stagingDir };
-  } catch {
-    return { kind: "stale-staging-missing", stagingDir };
+  // #1802: only resume into a path we can PROVE is a gstack-minted staging dir.
+  // A poisoned checkpoint (dir = repo root, written when an autopilot import was
+  // SIGTERM'd while CWD was the repo) would otherwise be adopted as the staging
+  // dir and later recursively deleted by cleanupStagingDir(). Fail-closed: any
+  // unprovable path restages from scratch (cost: one re-stage; never data loss).
+  // Pure decision: return the verdict (with reason) and let the caller log,
+  // so we don't double-log the same event from here and the call site.
+  const verdict = checkOwnedStagingDir(stagingDir, gstackHome);
+  if (!verdict.ok) {
+    return { kind: "stale-staging-missing", stagingDir, reason: verdict.reason };
   }
   return {
     kind: "resume",
@@ -953,8 +954,15 @@ function runMemoryIngest(args: CliArgs): StageResult {
     );
     childEnv.GSTACK_INGEST_RESUME_DIR = resume.stagingDir;
   } else if (resume.kind === "stale-staging-missing") {
+    // The reason distinguishes "actually gone" (disk cleanup / reboot) from
+    // "refused as unowned" (#1802 poison: the path may still exist on disk).
+    // Logging "gone" for a refused poison path misdirects incident diagnosis.
+    const why = resume.reason
+      ? `staging dir not usable: ${resume.reason}`
+      : `staging dir ${resume.stagingDir} gone`;
     console.error(
-      `[sync:memory] previous checkpoint stale (staging dir ${resume.stagingDir} gone), restaging from scratch`,
+      `[sync:memory] previous checkpoint stale (${why}), restaging from scratch. ` +
+        `Remove ~/.gbrain/import-checkpoint.json to silence.`,
     );
   }
 
