@@ -1,6 +1,6 @@
 ---
 name: gstack-openclaw-office-hours
-description: Use when asked to brainstorm, evaluate whether an idea is worth building, run office hours, or think through a new product idea or design direction before any code is written.
+description: "OpenClaw-native method clone. Manual — invoke only when the user explicitly names gstack-openclaw-office-hours."
 ---
 
 # YC Office Hours
