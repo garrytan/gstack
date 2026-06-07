@@ -106,10 +106,12 @@ export function canonicalizeRemote(url: string | null | undefined): string {
     // strip user@ prefix on URL-style remotes
     s = s.replace(/^[^@\/]+@/, "");
   }
+  // strip trailing slash(es) first, so a URL written with a trailing slash
+  // still matches the `.git$` suffix below (e.g. ".../repo.git/" must
+  // canonicalize to ".../repo", not ".../repo.git").
+  s = s.replace(/\/+$/, "");
   // strip trailing .git
   s = s.replace(/\.git$/i, "");
-  // strip trailing slash
-  s = s.replace(/\/+$/, "");
   // collapse multiple slashes (after path normalization)
   s = s.replace(/\/{2,}/g, "/");
   return s.toLowerCase();

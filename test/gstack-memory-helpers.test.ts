@@ -67,6 +67,21 @@ describe("canonicalizeRemote", () => {
   it("collapses redundant slashes", () => {
     expect(canonicalizeRemote("https://github.com//foo//bar")).toBe("github.com/foo/bar");
   });
+
+  it("strips .git even when the URL has a trailing slash", () => {
+    // A remote configured with both a .git suffix and a trailing slash must
+    // canonicalize to the same key as one without — otherwise the same repo
+    // gets two dedup/source-id keys across machines.
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git/")).toBe("github.com/garrytan/gstack");
+    expect(canonicalizeRemote("git@github.com:garrytan/gstack.git/")).toBe("github.com/garrytan/gstack");
+    expect(canonicalizeRemote("https://github.com/foo/bar.git///")).toBe("github.com/foo/bar");
+  });
+
+  it("produces the same key with or without a trailing slash", () => {
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git/")).toBe(
+      canonicalizeRemote("https://github.com/garrytan/gstack.git")
+    );
+  });
 });
 
 // ── secretScanFile ─────────────────────────────────────────────────────────
