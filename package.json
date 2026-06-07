@@ -40,7 +40,8 @@
   "dependencies": {
     "@ngrok/ngrok": "^1.7.0",
     "diff": "^7.0.0",
-    "playwright": "^1.58.2",
+    "playwright": "1.60.0",
+    "playwright-core": "1.60.0",
     "puppeteer-core": "^24.40.0"
   },
   "engines": {
