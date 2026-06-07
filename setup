@@ -711,7 +711,7 @@ link_codex_skill_dirs() {
 
   if [ ! -d "$agents_dir" ]; then
     echo "  Generating .agents/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host codex )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host codex )
   fi
 
   if [ ! -d "$agents_dir" ]; then
@@ -916,7 +916,7 @@ link_factory_skill_dirs() {
 
   if [ ! -d "$factory_dir" ]; then
     echo "  Generating .factory/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host factory )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host factory )
   fi
 
   if [ ! -d "$factory_dir" ]; then
@@ -948,7 +948,7 @@ link_opencode_skill_dirs() {
 
   if [ ! -d "$opencode_dir" ]; then
     echo "  Generating .opencode/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host opencode )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host opencode )
   fi
 
   if [ ! -d "$opencode_dir" ]; then

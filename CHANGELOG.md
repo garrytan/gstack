@@ -1,5 +1,84 @@
 # Changelog
 
+## [1.57.10.0] - 2026-06-10
+
+## **Two `setup` bugs you couldn't see. One swallowed `bun` failures, one silently broke Codex/Factory/OpenCode skill regen on a non-ASCII Windows username.**
+
+Both were originally found during the phase-reorder review on #1883 and asked
+to be carved out for a focused, fast-merge PR. This is that PR. Just the
+fixes, no restructuring.
+
+The `bun_cmd` wrapper exists for one reason: on Windows with a non-ASCII
+username, `prepare_bun_for_windows_compile` copies bun to an ASCII path and
+points `BUN_CMD` at it, because the system `bun` can't always handle a path
+through `C:\Users\<unicode>\`. Three skill-doc generation calls in
+`link_codex_skill_dirs`, `link_factory_skill_dirs`, and
+`link_opencode_skill_dirs` bypassed the wrapper and called literal `bun run`,
+so on a non-ASCII Windows username the regen exited non-zero. The next line
+checks if the output directory was created, prints a "warning" with a
+manual-recovery command, and continues — masking the failure as a soft
+warning when it was actually the wrapper being skipped.
+
+The gbrain-detected regen call had a subtler bug. `bun_cmd run
+gen:skill-docs:user --host claude 2>&1 | tail -3` pipes through `tail` so
+the subshell's exit status is `tail`'s, not bun's. `tail` always succeeds,
+so the `|| log "warning..."` clause right after never fired regardless of
+whether bun succeeded. Removing the pipe restores the warning path.
+
+### The numbers that matter
+
+Source: `bun test test/setup-bun-cmd-and-pipe-bugs.test.ts` on this branch.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| `link_*_skill_dirs` honor `BUN_CMD` override | no | yes | 3 call sites fixed |
+| `gen:skill-docs:user` warning fires on bun failure | no | yes | exit-code path restored |
+| Functional tests exercising the exit-code path | 0 | 5 | reviewer-requested over source-grep |
+
+The tests don't grep source. They stub `bun_cmd` to fail, run the exact
+shell pattern from `setup`, and assert the `||` clause does fire on the
+fixed shape and does NOT fire on the buggy shape. The reviewer on #1883
+specifically asked for this over a source-string check.
+
+### What this means for you
+
+If you install gstack with a non-ASCII Windows username, your Codex,
+Factory Droid, and OpenCode skill docs will now actually regenerate
+instead of silently failing. If you have gbrain installed and the
+post-detect SKILL.md regen ever fails, you'll see the warning instead
+of a silent skip. Nothing to configure.
+
+### Itemized changes
+
+#### Fixed
+
+- `link_codex_skill_dirs`, `link_factory_skill_dirs`, and
+  `link_opencode_skill_dirs` now route `gen:skill-docs` through `bun_cmd`
+  (the wrapper that honors `BUN_CMD`) instead of literal `bun run`. The
+  literal form bypassed the Windows non-ASCII path workaround, so on a
+  Windows username with non-ASCII characters the regen exited non-zero
+  silently. (setup:714, 919, 951)
+- The gbrain-detected SKILL.md regen no longer pipes `gen:skill-docs:user`
+  through `tail -3`. The pipe made `tail`'s exit status the subshell's,
+  swallowing bun's failure so the trailing `|| log "warning..."` guard
+  never fired. (setup:1297)
+
+#### For contributors
+
+- `test/setup-bun-cmd-and-pipe-bugs.test.ts` — 5 functional tests:
+  - 2 prove the exit-code semantics of the `| tail -3` removal by running
+    the actual shell pattern with a stubbed-to-fail `bun_cmd` and asserting
+    the `||` clause fires only without the pipe.
+  - 2 prove the `bun_cmd` wrapper honors `BUN_CMD` via a sentinel script,
+    and that all three `link_*_skill_dirs` helpers route through it.
+  - 1 anchors on the live `gbrain detected` block in `setup` (source-anchored,
+    not line-number) to confirm no pipe before the `||` guard.
+
+  These are real exit-code-path tests, not source-string grep — addressing
+  the specific concern raised on #1883.
+
+Credit: bugs identified by @jbetala7 during review on #1883.
+
 ## [1.57.9.0] - 2026-06-09
 
 ## **Your gstack checkout stays clean when gbrain is installed.**
