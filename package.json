@@ -57,6 +57,8 @@
     "@anthropic-ai/sdk": "^0.78.0"
   },
   "overrides": {
-    "basic-ftp": "^5.3.1"
+    "basic-ftp": "^5.3.1",
+    "ip-address": "^10.1.1",
+    "ws": "^8.20.1"
   }
 }
