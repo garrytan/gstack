@@ -442,6 +442,17 @@ export class BrowserManager {
       // Sites like Google and NYTimes check this to block automation browsers.
       '--disable-blink-features=AutomationControlled',
     ];
+    // Headless virtual displays (Xvnc/Xvfb on EC2) have no real GPU; Playwright's
+    // bundled Chromium crashes (SIGTRAP) during GPU process init. Disabling the
+    // GPU process keeps headed mode alive on VNC. Opt-in via GSTACK_HEADED_NOGPU.
+    if (process.env.GSTACK_HEADED_NOGPU === '1') {
+      launchArgs.push(
+        '--disable-gpu',
+        '--disable-gpu-compositing',
+        '--disable-software-rasterizer',
+        '--disable-dev-shm-usage',
+      );
+    }
     if (extensionPath) {
       // Skip --load-extension when running against a custom Chromium build
       // that already bakes the extension in as a component extension
