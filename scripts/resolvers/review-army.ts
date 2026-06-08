@@ -10,6 +10,7 @@
  * Shipped as Release 2 of the self-learning roadmap (SELF_LEARNING_V0.md).
  */
 import type { TemplateContext } from './types';
+import { DEFENSIVE_REVIEW_FRAMING, FIXTURE_SUMMARY_MODE } from './defensive-framing';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
@@ -105,8 +106,12 @@ If learnings are found, include them: "Past learnings for this domain: {learning
 
 4. Instructions:
 
-"You are a specialist code reviewer. Read the checklist below, then run
+"${DEFENSIVE_REVIEW_FRAMING}
+
+You are a specialist code reviewer. Read the checklist below, then run
 \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\` to get the full diff. Apply the checklist against the diff.
+
+If your checklist is the **security** specialist checklist, apply fixture handling: ${FIXTURE_SUMMARY_MODE}
 
 For each finding, output a JSON object on its own line:
 {\\"severity\\":\\"CRITICAL|INFORMATIONAL\\",\\"confidence\\":N,\\"path\\":\\"file\\",\\"line\\":N,\\"category\\":\\"category\\",\\"summary\\":\\"description\\",\\"fix\\":\\"recommended fix\\",\\"fingerprint\\":\\"path:line:category\\",\\"specialist\\":\\"name\\"}
@@ -216,9 +221,11 @@ The Red Team subagent receives:
 2. The merged specialist findings from Step ${stepMerge} (so it knows what was already caught)
 3. The git diff command
 
-Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
+Prompt: "${DEFENSIVE_REVIEW_FRAMING}
+
+You are a red team reviewer. The code has already been reviewed by N specialists
 who found the following issues: {merged findings summary}. Your job is to find what they
-MISSED. Read the checklist, run \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\`, and look for gaps.
+MISSED. Read the checklist, run \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\`, and look for gaps. ${FIXTURE_SUMMARY_MODE}
 Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
 concerns, integration boundary issues, and failure modes that specialist checklists
 don't cover."
