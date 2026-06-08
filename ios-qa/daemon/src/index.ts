@@ -64,9 +64,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
   let tunnel: DeviceTunnel | null = null;
   let cachedTunnelAt = 0;
 
+  // Tunnel cache TTL — sliding idle-timeout. Every reuse refreshes the timer,
+  // so an active agent session never re-bootstraps. That matters because
+  // re-bootstrap is fragile: bootstrapTunnel reads the on-disk boot token,
+  // which StateServer DELETES at /auth/rotate (StateServer.swift), so a
+  // re-bootstrap against an already-rotated app fails with
+  // boot_token_unavailable until the app is cold-relaunched. Keeping a healthy
+  // tunnel alive avoids that trap. Default 5 min covers an agent's
+  // reason-then-act gaps; override via GSTACK_IOS_TUNNEL_CACHE_MS for long idles.
+  const tunnelCacheMs = Math.max(0, parseInt(process.env.GSTACK_IOS_TUNNEL_CACHE_MS ?? '300000', 10) || 300000);
+
   const getTunnel = async (): Promise<DeviceTunnel | null> => {
-    // Cache the tunnel for 30s; refresh on demand.
-    if (tunnel && Date.now() - cachedTunnelAt < 30_000) return tunnel;
+    if (tunnel && Date.now() - cachedTunnelAt < tunnelCacheMs) {
+      cachedTunnelAt = Date.now(); // sliding: refresh the idle timer on reuse
+      return tunnel;
+    }
     if (opts.tunnelProvider) {
       tunnel = await opts.tunnelProvider();
       cachedTunnelAt = Date.now();

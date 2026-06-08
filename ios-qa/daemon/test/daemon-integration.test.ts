@@ -132,6 +132,36 @@ describe('daemon — loopback listener', () => {
     expect(lastReq?.headers['x-session-id']).toBe('sess-loopback-1');
   });
 
+  test('reuses the cached tunnel across requests (no re-bootstrap per call)', async () => {
+    // Regression guard: the tunnel cache is a sliding idle-timeout, so a burst
+    // of requests must bootstrap exactly once. A flat short TTL (or no cache)
+    // would re-bootstrap mid-session — fatal once the boot token is rotated.
+    let bootstraps = 0;
+    const countingTunnel: DeviceTunnel = {
+      udid: 'STUB-UDID',
+      ipv6Addr: '127.0.0.1',
+      port: stub.port,
+      bootTokenRotated: STATE_SERVER_TOKEN,
+    };
+    const pidPathCache = join(workDir, 'daemon-cache.pid');
+    const d = await startDaemon({
+      loopbackPort: daemon.loopbackPort + 7,
+      tailnetEnabled: false,
+      pidfilePath: pidPathCache,
+      tunnelProvider: async () => { bootstraps++; return countingTunnel; },
+    });
+    if ('error' in d) throw new Error(d.error);
+    try {
+      const base = `http://127.0.0.1:${d.loopbackPort}`;
+      await fetchWith('GET', `${base}/screenshot`);
+      await fetchWith('GET', `${base}/screenshot`);
+      await fetchWith('GET', `${base}/screenshot`);
+      expect(bootstraps).toBe(1);
+    } finally {
+      await d.close();
+    }
+  });
+
   test('returns 503 when no device tunnel is provided', async () => {
     // Force tunnel provider to return null by closing + restarting with null provider.
     await daemon.close();
