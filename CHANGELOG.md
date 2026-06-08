@@ -1,5 +1,120 @@
 # Changelog
 
+## [1.57.4.0] - 2026-06-08
+
+## **`./setup` now runs in four phases ordered by failure probability. A bad network day or a missing `sudo` no longer leaves you with zero skills installed.**
+
+`./setup` used to interleave trivial filesystem operations, expensive
+compute, settings.json mutations, and network/sudo steps in whatever order
+the script grew. That meant a Playwright Chromium download failing at step
+2 would abort the run before skills got registered at step 4, before hooks
+landed at step 10, before migrations ran at step 8. A re-run would do the
+same thing — die at step 2.
+
+This release groups the work by where failures actually come from:
+
+| Phase | What runs | Fail risk |
+|-------|-----------|-----------|
+| **A** | `~/.gstack/` directory, welcome message, GBrain detection (file scan only) | Always succeeds |
+| **B** | Local compute: binary build, skill linking, migrations, GBrain SKILL.md regen | Low |
+| **C** | `settings.json` mutation: team-mode hooks, plan-tune cathedral hooks | Medium, fully reversible |
+| **D** | External network / sudo / package managers: coreutils, emoji font, Playwright | Highest |
+
+Each phase is bracketed with a clear header in the script so contributors
+can find where new work belongs. Steps inside each phase are numbered
+(A1, A2, A3, B1...). When something fails in Phase D, the skills, hooks,
+and migrations from Phases A-C are already in place. Re-running `./setup`
+retries only the failed phase.
+
+This is intentionally a behavior-preserving move where possible. Two
+known follow-ups land as separate PRs:
+
+- **#1898**: surgical bug fixes (`bun_cmd` routing in three `link_*_skill_dirs`
+  helpers; `| tail -3` pipe that swallowed bun's exit code on
+  `gen:skill-docs:user`).
+- **#1900**: convert Playwright Chromium install/verify from `exit 1` to
+  best-effort warn. Coordinates with #1838.
+
+Splitting those out keeps this PR reviewable as "a move plus the gbrain
+detect/regen split that the new order requires." The split was requested
+by @jbetala7 on #1883.
+
+### What changed structurally
+
+The biggest behavior shift forced by the phase reorder is the **GBrain
+detection / SKILL.md regen split**. Previously detection ran late in the
+script, right alongside the regen call. The new structure runs detection
+in **A3** (filesystem scan only, no dependencies) and regen in **B6**
+(after the binary is built and skill docs are generated). The detection
+result is persisted to `~/.gstack/gbrain-detection.json` so B6 can read it.
+
+A safety guard for that split: when `gstack-gbrain-detect` exits non-zero,
+A3 now removes both the temp file AND any pre-existing `gbrain-detection.json`
+from a prior successful run. Without the guard, a stale "ok" detection file
+would survive a failed detect and trigger brain-aware regen in B6 — silently
+applying ~250 tokens of overhead per planning skill to a user whose gbrain
+might no longer be installed.
+
+### The numbers that matter
+
+Source: `bun test test/setup-*.test.ts` plus inspection of the new structure
+against `origin/main`.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Setup steps numbered 1-11 in mixed order | yes | grouped A-D by fail risk | restructured |
+| Phase headers in script | 0 | 4 | navigability |
+| GBrain detection runs before bun build | no | yes (A3, file scan only) | order |
+| GBrain regen runs after skill docs | no | yes (B6) | order |
+| Stale detection file survives a failed detect | yes (silent ~250 tok overhead) | no | safety guard |
+| Test files covering the new structure | 0 | 1 | invariant pinned |
+
+### What this means for you
+
+If you re-run `./setup` you'll see the four phase headers in the output.
+On a clean install nothing about the outcome changes — the same skills get
+registered, the same hooks get installed, the same browser gets downloaded.
+On a flaky network or a locked-down machine you'll start seeing partial
+installs (skills + hooks but no Chromium) instead of mid-run aborts —
+that's the warn-on-Playwright story in #1900 once it lands.
+
+### Itemized changes
+
+#### Changed
+
+- `setup`: reorganized into four phases (A: filesystem, B: local compute,
+  C: settings.json mutation, D: external network/sudo). Each phase is
+  bracketed with header comments. Step numbering moves from `1, 2, 3, 4...`
+  to `A1, A2, B1, B2a, B2b, B3a...`.
+- `setup`: GBrain detection moves to phase A3 (filesystem scan only, runs
+  before bun is prepared). The regen call moves to phase B6 (runs after
+  skill docs are generated). Detection result persists to
+  `~/.gstack/gbrain-detection.json` between phases.
+- `setup`: when `gstack-gbrain-detect` exits non-zero, A3 now removes both
+  the temp file AND any pre-existing `gbrain-detection.json` from a prior
+  successful run. This prevents a stale "ok" file from triggering
+  brain-aware regen for a user whose gbrain may have been removed.
+
+#### For contributors
+
+- `test/setup-gbrain-detection.test.ts`: pins the stale-file safety guard
+  with a static-source check (`rm -f "$DETECTION_FILE.tmp"
+  "$DETECTION_FILE"` must appear in the failure path).
+
+#### Carved out from this PR
+
+To keep the move reviewable, two changes that were originally in #1883
+are now their own PRs:
+
+- **#1898** (carved out for fast merge): `bun run` → `bun_cmd run` in
+  three `link_*_skill_dirs` helpers; remove `| tail -3` from
+  `gen:skill-docs:user` so its `||` warning guard actually fires on bun
+  failure.
+- **#1900** (carved out, coordinates with #1838): Playwright Chromium
+  install/verify becomes best-effort warn instead of `exit 1`.
+
+Credit: structural feedback by @jbetala7 on #1883.
+
 ## [1.57.3.0] - 2026-06-07
 
 ## **Every PR `/ship` opens gets the version stamped into its title, fork and agent PRs included.**
