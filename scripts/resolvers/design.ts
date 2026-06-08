@@ -269,6 +269,8 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - No placeholder/lorem ipsum text visible in production
 - Truncation handled (\`text-overflow: ellipsis\`, \`line-clamp\`, or \`break-words\`)
 - Active voice ("Install the CLI" not "The CLI will be installed")
+- Domain vocabulary: use the words the product's own domain uses, not generic app-speak. A banking app says "Available balance," not "Account value"; a shipping tool says "In transit," not "Status: 2." Labels borrowed from another feature or invented by the tool are a HIGH-impact finding — the user reads "what does this mean?" and stalls. Verify each domain term against the product's real schema or spec; never invent it.
+- Human register, not robotic technical-SaaS: write like a knowledgeable colleague, not a system log. "Needs a manager's approval" beats "approval_required: true"; "What's changed since you last looked" beats "Delta since last access." Plain, warm, specific — these are people, not endpoints. Raw schema or field identifiers leaking into UI copy (snake_case keys, enum values, status codes) is the tell.
 - Loading states end with \`…\` ("Saving…" not "Saving...")
 - Destructive actions have confirmation modal or undo window
 - Happy talk detection: scan for introductory paragraphs that start with "Welcome to..." or tell users how great the site is. If you can hear "blah blah blah", it's happy talk. Flag for removal.

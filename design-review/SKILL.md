@@ -785,9 +785,36 @@ $B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP
 ```
 If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
 
-**Check for DESIGN.md:**
+**Capture the design system FIRST (before any audit, mock, or fix):**
 
-Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found, read it — all design decisions must be calibrated against it. Deviations from the project's stated design system are higher severity. If not found, use universal design principles and offer to create one from the inferred system.
+A design system is rarely just a `DESIGN.md`. Capture what the project actually
+ships, in priority order, and treat what you find as the source of truth:
+
+1. A running instance / the live DOM — extract real tokens (Phase 2 does this:
+   computed colors, fonts, spacing, radii).
+2. Code-level tokens — `globals.css` `:root` custom properties, `tailwind.config`,
+   a theme/`tokens` file, CSS variables, RN `StyleSheet` / Gluestack theme.
+3. `DESIGN.md` / `design-system.md` / a style-guide doc.
+4. Sibling apps in the same product family (often share a palette with one
+   accent swapped).
+
+Read whichever exists. All findings are calibrated against it; deviations from
+the project's own system are higher severity. Only when NO system exists anywhere
+do you fall back to universal principles and offer to create a DESIGN.md.
+
+**Hard rule — never invent a new aesthetic when one already exists.** When you
+generate ANY artifact (baseline mock, target mockup, redesign, variant), reuse
+the captured tokens VERBATIM: same hex values, same fonts, same radii, same
+spacing scale. Change layout and structure, not the palette/typography.
+Introducing a new color scheme or theme for a product that already has one is
+itself a HIGH-impact finding — it makes the artifact unusable as a reference and
+silently re-litigates a settled design decision.
+
+**Design from the SHIPPED app, not the spec.** If a doc/spec describes the
+screen but a real implementation exists, audit and redraw from the shipped
+implementation — specs go stale. Confirm which is current before producing
+anything; never reconstruct a "current state" from a spec when running code
+contradicts it.
 
 **Check for clean working tree:**
 
@@ -1388,6 +1415,8 @@ Apply these at each page. Each finding gets an impact rating (high/medium/polish
 - No placeholder/lorem ipsum text visible in production
 - Truncation handled (`text-overflow: ellipsis`, `line-clamp`, or `break-words`)
 - Active voice ("Install the CLI" not "The CLI will be installed")
+- Domain vocabulary: use the words the product's own domain uses, not generic app-speak. A banking app says "Available balance," not "Account value"; a shipping tool says "In transit," not "Status: 2." Labels borrowed from another feature or invented by the tool are a HIGH-impact finding — the user reads "what does this mean?" and stalls. Verify each domain term against the product's real schema or spec; never invent it.
+- Human register, not robotic technical-SaaS: write like a knowledgeable colleague, not a system log. "Needs a manager's approval" beats "approval_required: true"; "What's changed since you last looked" beats "Delta since last access." Plain, warm, specific — these are people, not endpoints. Raw schema or field identifiers leaking into UI copy (snake_case keys, enum values, status codes) is the tell.
 - Loading states end with `…` ("Saving…" not "Saving...")
 - Destructive actions have confirmation modal or undo window
 - Happy talk detection: scan for introductory paragraphs that start with "Welcome to..." or tell users how great the site is. If you can hear "blah blah blah", it's happy talk. Flag for removal.
@@ -1788,7 +1817,7 @@ For each fixable finding, in impact order:
 If the gstack designer is available and the finding involves visual layout, hierarchy, or spacing (not just a CSS value fix like wrong color or font-size), generate a target mockup showing what the corrected version should look like:
 
 ```bash
-$D generate --brief "<description of the page/component with the finding fixed, referencing DESIGN.md constraints>" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"
+$D generate --brief "<description of the page/component with the finding fixed — reuse the captured design system verbatim (same palette, fonts, radii, spacing); change layout and structure, not the aesthetic>" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"
 ```
 
 Show the user: "Here's the current state (screenshot) and here's what it should look like (mockup). Now I'll fix the source to match."
