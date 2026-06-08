@@ -29,7 +29,8 @@ if [ -z "$COMBINED" ]; then
   exit 0
 fi
 
-printf '%s' "$COMBINED" | bun -e "
+if command -v bun >/dev/null 2>&1; then
+  printf '%s' "$COMBINED" | bun -e "
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const NEVER_GATE = new Set(['security', 'data-migration']);
 const stats = {};
@@ -63,3 +64,11 @@ for (const [name, s] of sorted) {
   console.log(name + ': ' + s.dispatched + '/' + reviewed + ' dispatched, ' + s.findings + ' findings (' + pct + '%)' + tag);
 }
 " 2>/dev/null || { echo "SPECIALIST_STATS: 0 reviews analyzed"; exit 0; }
+elif command -v python3 >/dev/null 2>&1; then
+  printf '%s' "$COMBINED" | python3 "$SCRIPT_DIR/gstack-specialist-stats-process.py" 2>/dev/null || { echo "SPECIALIST_STATS: 0 reviews analyzed"; exit 0; }
+elif command -v python >/dev/null 2>&1; then
+  printf '%s' "$COMBINED" | python "$SCRIPT_DIR/gstack-specialist-stats-process.py" 2>/dev/null || { echo "SPECIALIST_STATS: 0 reviews analyzed"; exit 0; }
+else
+  echo "SPECIALIST_STATS: 0 reviews analyzed"
+  exit 0
+fi

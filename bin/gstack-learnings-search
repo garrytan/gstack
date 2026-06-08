@@ -52,15 +52,21 @@ emit_tagged_file() {
   done < "$file"
 }
 
-# Process all files through bun for JSON parsing, decay, dedup, filtering
-{
+# Process all files for JSON parsing, decay, dedup, filtering.
+# Prefer bun (matches upstream gstack); fall back to python3/python when bun
+# is not on PATH (e.g. Windows). The Python processor at
+# gstack-learnings-search-process.py mirrors the bun logic.
+PIPELINE_INPUT() {
   [ -f "$LEARNINGS_FILE" ] && emit_tagged_file current "$LEARNINGS_FILE"
   if [ ${#CROSS_FILES[@]} -gt 0 ]; then
     for f in "${CROSS_FILES[@]}"; do
       emit_tagged_file cross "$f"
     done
   fi
-} | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" bun -e "
+}
+
+if command -v bun >/dev/null 2>&1; then
+  PIPELINE_INPUT | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" bun -e "
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const now = Date.now();
 const type = process.env.GSTACK_SEARCH_TYPE || '';
@@ -154,3 +160,11 @@ for (const [t, arr] of Object.entries(byType)) {
   console.log('');
 }
 " 2>/dev/null || exit 0
+elif command -v python3 >/dev/null 2>&1; then
+  PIPELINE_INPUT | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" python3 "$SCRIPT_DIR/gstack-learnings-search-process.py" 2>/dev/null || exit 0
+elif command -v python >/dev/null 2>&1; then
+  PIPELINE_INPUT | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" python "$SCRIPT_DIR/gstack-learnings-search-process.py" 2>/dev/null || exit 0
+else
+  echo "gstack-learnings-search: no JSON runtime available (need bun or python3 on PATH)" >&2
+  exit 1
+fi

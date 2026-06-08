@@ -17,24 +17,39 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
-# Validate: input must be parseable JSON with required fields
-if ! printf '%s' "$INPUT" | bun -e "
-  const j = JSON.parse(await Bun.stdin.text());
-  if (!j.skill || !j.event) process.exit(1);
-" 2>/dev/null; then
-  exit 0  # skip silently, non-blocking
-fi
-
-# Inject timestamp if not present
-if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); if(!j.ts) process.exit(1)" 2>/dev/null; then
-  INPUT=$(printf '%s' "$INPUT" | bun -e "
+# Validate + auto-fill ts in a single pass. Prefer bun (matches upstream),
+# fall back to python3/python on Windows. The bun branch does the same
+# three steps inline; the Python branch delegates to a sidecar validator.
+NORMALIZED=""
+if command -v bun >/dev/null 2>&1; then
+  if ! printf '%s' "$INPUT" | bun -e "
     const j = JSON.parse(await Bun.stdin.text());
-    j.ts = new Date().toISOString();
-    console.log(JSON.stringify(j));
-  " 2>/dev/null) || true
+    if (!j.skill || !j.event) process.exit(1);
+  " 2>/dev/null; then
+    exit 0  # skip silently, non-blocking
+  fi
+  if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); if(!j.ts) process.exit(1)" 2>/dev/null; then
+    NORMALIZED=$(printf '%s' "$INPUT" | bun -e "
+      const j = JSON.parse(await Bun.stdin.text());
+      j.ts = new Date().toISOString();
+      console.log(JSON.stringify(j));
+    " 2>/dev/null) || true
+  else
+    NORMALIZED="$INPUT"
+  fi
+elif command -v python3 >/dev/null 2>&1; then
+  NORMALIZED=$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/gstack-timeline-log-validate.py" 2>/dev/null) || exit 0
+elif command -v python >/dev/null 2>&1; then
+  NORMALIZED=$(printf '%s' "$INPUT" | python "$SCRIPT_DIR/gstack-timeline-log-validate.py" 2>/dev/null) || exit 0
+else
+  exit 0  # no runtime, skip silently (non-blocking is the contract)
 fi
 
-echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+if [ -z "$NORMALIZED" ]; then
+  exit 0
+fi
+
+echo "$NORMALIZED" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
 
 # gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
 "$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/timeline.jsonl" 2>/dev/null &

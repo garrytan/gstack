@@ -13,8 +13,13 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
-# Validate and sanitize input
-VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+# Validate and sanitize input.
+# Prefer bun (matches upstream gstack); fall back to python3/python when bun
+# is not on PATH (e.g. Windows, where bun does not run). The Python validator
+# at gstack-learnings-log-validate.py mirrors the bun logic line-for-line.
+VALIDATED=""
+if command -v bun >/dev/null 2>&1; then
+  VALIDATED=$(printf '%s' "$INPUT" | bun -e "
 const raw = await Bun.stdin.text();
 let j;
 try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
@@ -79,8 +84,16 @@ j.trusted = j.source === 'user-stated';
 
 console.log(JSON.stringify(j));
 " 2>/dev/null)
+elif command -v python3 >/dev/null 2>&1; then
+  VALIDATED=$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/gstack-learnings-log-validate.py" 2>/dev/null)
+elif command -v python >/dev/null 2>&1; then
+  VALIDATED=$(printf '%s' "$INPUT" | python "$SCRIPT_DIR/gstack-learnings-log-validate.py" 2>/dev/null)
+else
+  echo "gstack-learnings-log: no JSON runtime available (need bun or python3 on PATH)" >&2
+  exit 1
+fi
 
-if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
+if [ -z "$VALIDATED" ]; then
   exit 1
 fi
 

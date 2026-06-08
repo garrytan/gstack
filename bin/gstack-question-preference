@@ -40,6 +40,26 @@ ensure_file() {
   fi
 }
 
+# Pick the JSON runtime once per invocation. Prefer bun (matches upstream
+# and supports the TypeScript-side one-way-door classifier); fall back to
+# python3/python on Windows where bun isn't available. Python fallback
+# delegates to gstack-question-preference-process.py.
+PY_RUNTIME=""
+USE_BUN=true
+if command -v bun >/dev/null 2>&1; then
+  USE_BUN=true
+elif command -v python3 >/dev/null 2>&1; then
+  USE_BUN=false
+  PY_RUNTIME="python3"
+elif command -v python >/dev/null 2>&1; then
+  USE_BUN=false
+  PY_RUNTIME="python"
+else
+  echo "gstack-question-preference: no JSON runtime available (need bun or python3 on PATH)" >&2
+  exit 1
+fi
+PY_PROCESSOR="$SCRIPT_DIR/gstack-question-preference-process.py"
+
 # -----------------------------------------------------------------------
 # --check <question_id>
 # -----------------------------------------------------------------------
@@ -50,6 +70,10 @@ do_check() {
     return 0
   fi
   ensure_file
+  if [ "$USE_BUN" = false ]; then
+    "$PY_RUNTIME" "$PY_PROCESSOR" check "$QID" "$PREF_FILE"
+    return $?
+  fi
   cd "$ROOT_DIR"
   PREF_FILE_PATH="$PREF_FILE" QID="$QID" bun -e "
     import('./scripts/one-way-doors.ts').then((oneway) => {
@@ -115,6 +139,22 @@ do_write() {
     exit 1
   fi
   ensure_file
+  if [ "$USE_BUN" = false ]; then
+    local TMPERR
+    TMPERR=$(mktemp)
+    trap "rm -f '$TMPERR'" RETURN
+    set +e
+    local RESULT
+    RESULT=$(printf '%s' "$INPUT" | "$PY_RUNTIME" "$PY_PROCESSOR" write "$PREF_FILE" "$EVENT_FILE" 2>"$TMPERR")
+    local RC=$?
+    set -e
+    if [ $RC -ne 0 ]; then
+      cat "$TMPERR" >&2
+      exit $RC
+    fi
+    echo "$RESULT"
+    return 0
+  fi
   local TMPERR
   TMPERR=$(mktemp)
   # Use function-local cleanup via RETURN trap so variable lookup only happens
@@ -228,6 +268,8 @@ do_clear() {
   if [ -z "$QID" ]; then
     echo '{}' > "$PREF_FILE"
     echo "OK: cleared all preferences"
+  elif [ "$USE_BUN" = false ]; then
+    "$PY_RUNTIME" "$PY_PROCESSOR" clear-one "$QID" "$PREF_FILE"
   else
     PREF_FILE_PATH="$PREF_FILE" QID="$QID" bun -e "
       const fs = require('fs');
@@ -248,6 +290,10 @@ do_clear() {
 # -----------------------------------------------------------------------
 do_stats() {
   ensure_file
+  if [ "$USE_BUN" = false ]; then
+    "$PY_RUNTIME" "$PY_PROCESSOR" stats "$PREF_FILE"
+    return $?
+  fi
   cat "$PREF_FILE" | bun -e "
     const prefs = JSON.parse(await Bun.stdin.text());
     const entries = Object.entries(prefs);
