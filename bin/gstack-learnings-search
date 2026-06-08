@@ -93,9 +93,12 @@ for (const taggedLine of lines) {
     // Trust gate: cross-project learnings only loaded if trusted (user-stated).
     // This prevents prompt injection from one project's AI-generated learnings
     // silently influencing reviews in another project.
-    // #1745: this is an ALLOWLIST, not a denylist. `=== false` admitted any row
-    // where `trusted` is missing/undefined (legacy rows written before the field
-    // existed, hand-edited rows, rows from other tools). Require trusted === true.
+    // #1745: this is an ALLOWLIST, not a denylist. The old equals-false check
+    // admitted any row where trusted is missing/undefined (legacy rows written
+    // before the field existed, hand-edited rows, rows from other tools).
+    // Require trusted to be exactly true. NOTE: this whole block is a
+    // double-quoted bun -e string, so bash still does command substitution
+    // inside it. Keep backticks and dollar-paren out of these comments.
     if (isCrossProject && e.trusted !== true) continue;
 
     entries.push(e);
