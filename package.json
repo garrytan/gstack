@@ -55,5 +55,8 @@
   ],
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.78.0"
+  },
+  "overrides": {
+    "basic-ftp": "^5.3.1"
   }
 }
