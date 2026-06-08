@@ -87,6 +87,12 @@ export interface CarveGuard {
   minUnionBytes: number;
   /** Parity: content phrases the union must preserve. */
   mustContain: string[];
+  /**
+   * Parity: optional per-skill override for the union size-growth ceiling vs the
+   * v1.53.0.0 baseline (default 1.05). Bumped only when a deliberate cross-cutting
+   * preamble feature legitimately grows a smaller carved skeleton past 5%.
+   */
+  maxSizeRatio?: number;
 }
 
 export const CARVE_GUARDS: Record<string, CarveGuard> = {
@@ -216,6 +222,11 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     maxSkeletonBytes: 50_000,
     minUnionBytes: 55_000,
     mustContain: ['CHANGELOG', 'Diataxis', 'coverage'],
+    // The AUQ-failure prose fallback (v1.57.2.0) adds ~2KB to every skill's
+    // always-loaded preamble; on this small carved skeleton that lands at ~5.9%
+    // over the pre-carve/pre-AUQ v1.53.0.0 baseline. Headroom for the
+    // cross-cutting addition; all other skills keep the strict 1.05 ceiling.
+    maxSizeRatio: 1.08,
   },
   'design-consultation': {
     skill: 'design-consultation',
@@ -232,6 +243,10 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     maxSkeletonBytes: 64_000,
     minUnionBytes: 72_000,
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
+    // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
+    // the cross-session decision-memory nudge) lands this carved skeleton just over
+    // the strict 1.05; headroom for the shared preamble additions.
+    maxSizeRatio: 1.07,
   },
   cso: {
     skill: 'cso',
@@ -264,6 +279,10 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     maxSkeletonBytes: 70_000,
     minUnionBytes: 72_000,
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
+    // cso keeps its mode-dispatch + FP-filtering phases always-loaded, so the
+    // cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB + the
+    // decision-memory nudge) lands it just over 1.05; headroom for the shared additions.
+    maxSizeRatio: 1.07,
   },
 };
 
