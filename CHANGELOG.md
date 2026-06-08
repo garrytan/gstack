@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.57.7.0] - 2026-06-08
+
+## **The #1899 adversarial-review fix now covers all three Claude review passes, not just one.**
+## **Red-team and security-specialist dispatches no longer trip Anthropic's safeguards on repos that ship their own attack-payload fixtures.**
+
+#1899 gave the always-on adversarial pass an "authorized defensive-security review"
+framing plus summary-mode fixture handling, so reviewing a security-regression repo's
+own attack payloads stopped getting denied by Anthropic's real-time cyber safeguards.
+But the framing lived inline in one resolver, and the **red-team** and **security
+specialist** dispatches — both of which also reason adversarially over the full diff —
+were left un-framed. On a repo whose test corpus is shell-injection / path-traversal /
+symlink-escape fixtures, those two passes still got denied, which is exactly the gap
+that pushed such repos toward opting out of AI review entirely.
+
+This extracts the framing into a single shared source of truth and applies it to every
+Claude-dispatched pass that reads the diff adversarially, so the three can't drift apart
+again.
+
+### Itemized changes
+
+#### Fixed
+- **Red-team and security-specialist review denied on a repo's own security fixtures.**
+  The defensive-review framing (`DEFENSIVE_REVIEW_FRAMING`) is now prepended to every
+  specialist dispatch and the red-team dispatch, and summary-mode fixture handling
+  (`FIXTURE_SUMMARY_MODE`) is applied to the attacker-framed passes (red-team + security
+  specialist). The testing specialist still reads test files in full — summary mode is
+  scoped to the adversarial passes only, so test-quality review is not blinded.
+
+#### For contributors
+- New `scripts/resolvers/defensive-framing.ts` holds the framing as a single source of
+  truth; `generateAdversarialStep` was refactored to consume it with byte-identical
+  output (golden unchanged). `test/defensive-framing.test.ts` asserts the coverage
+  invariant — every adversarial Claude dispatch carries the framing — so a future pass
+  added without it fails CI.
+
 ## [1.57.6.0] - 2026-06-07
 
 ## **Eight community-filed bugs fixed in one wave, four of them security guards that were quietly failing open.**
