@@ -2770,6 +2770,8 @@ git push -u origin <branch-name>
 
 ---
 
+**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `$GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
 **Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
@@ -2867,8 +2869,8 @@ you missed it.>
 
 ## Linked Spec
 <Auto-detect: look for /spec archives matching this branch via:
-  eval "$(${ctx.paths.binDir}/gstack-paths)"
-  eval "$(${ctx.paths.binDir}/gstack-slug)"
+  eval "$($GSTACK_ROOT/bin/gstack-paths)"
+  eval "$($GSTACK_ROOT/bin/gstack-slug)"
   CURRENT_BRANCH=$(git branch --show-current)
   SPEC_ARCHIVES="$GSTACK_STATE_ROOT/projects/$SLUG/specs"
   # Find newest archive whose spec_branch frontmatter matches current branch (or one of its
