@@ -763,13 +763,46 @@ Produce this markdown table:
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
 
-Below the table, add these lines (omit any that are empty/not applicable):
+Below the table, add these lines. **CODEX** and **CROSS-MODEL** are optional (omit when
+empty); **VERDICT** is always present:
 
 - **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
 - **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
-- **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
+
+**Unresolved-decisions status (MANDATORY — the final content of every report).**
+After the VERDICT line, the report MUST end with an unresolved-decisions status. This is
+never omitted — it does NOT fall under the "omit when empty" rule above. It is the final
+non-whitespace line(s) of the report section, written as content under the
+\`## GSTACK REVIEW REPORT\` heading (a bold label — never a new \`## \` heading,
+which would break the terminal-heading requirement). It is the last thing the user reads
+before the approval prompt: either what is still open, or an explicit all-clear.
+
+Emit exactly one of:
+
+- **None open:** a single line containing exactly \`NO UNRESOLVED DECISIONS\`, unbolded
+  and with no markdown emphasis. A bolded \`**NO UNRESOLVED DECISIONS**\` does NOT count
+  — keep it plain so the gate's exact-line check can't be gamed by emphasis.
+- **Some open:** a bold header line \`**UNRESOLVED DECISIONS:**\` followed by one bullet
+  per unresolved item; the last bullet is the final line of the report. Each bullet names
+  the decision and what breaks if it ships deferred (e.g.
+  "- Auth provider choice — if deferred: the login flow can't be built"). If prior
+  reviews carry unresolved items, add one final bullet
+  "+ N unresolved from prior reviews — see review rows above".
+
+Compute the status (this avoids double-counting the current review):
+1. **Current-review items:** list every unanswered AskUserQuestion / deferred decision
+   from THIS review's Unresolved Decisions section, one bullet each. You have these in
+   context — do not reconstruct them from the log.
+2. **Prior-reviews count:** the log stores only \`unresolved:N\` counts, and the current
+   review's row is already written before this report runs. Take the latest fresh row per
+   review skill (same 7-day window as the dashboard), DROP the current skill's row
+   entirely (do NOT backfill an older row for it), and sum \`unresolved\` across the
+   rest. Add the "+ N unresolved from prior reviews" bullet only when that sum is > 0.
+   Never sum all log rows — reruns would double-count.
+3. **Sentinel rule:** emit \`NO UNRESOLVED DECISIONS\` if and only if step 1 produced
+   zero items AND the step 2 count is zero.
 
 ### Write to the plan file
 
