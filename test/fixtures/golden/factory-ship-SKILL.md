@@ -18,6 +18,7 @@ disable-model-invocation: true
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/.factory/skills/gstack"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/.factory/skills/gstack" ] && GSTACK_ROOT="$_ROOT/.factory/skills/gstack"
+[ ! -x "$GSTACK_ROOT/bin/gstack-update-check" ] && [ -x "${GSTACK_HOME:-$HOME/.local/share/gstack}/bin/gstack-update-check" ] && GSTACK_ROOT="${GSTACK_HOME:-$HOME/.local/share/gstack}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
