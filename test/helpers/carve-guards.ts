@@ -112,8 +112,14 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     scenario:
       'This is a FRESH version-changing ship: the branch has a real code change, VERSION still equals the base version (needs a bump), and CHANGELOG.md needs a new entry. Follow the skill flow for a version-changing ship: run the pre-landing review and prepare the CHANGELOG entry. Produce the ship plan / review report. Do NOT actually commit, push, or open a PR.',
     staticInvariants: {
-      mustStayInSkeleton: [],
-      mustMoveToSection: [],
+      // The PR-title-version invariant MUST stay always-loaded: the v1.54.0.0
+      // carve stranded it in pr-body.md and PRs started landing with bare titles
+      // (CI backstop: test/pr-title-sync-workflow-safety.test.ts).
+      mustStayInSkeleton: ['v$NEW_VERSION', 'gstack-pr-title-rewrite'],
+      // ...while the full create/update procedure stays carved into pr-body.md
+      // (out of the skeleton, present in the union). Asserts BOTH PR paths
+      // survive: the create path and the idempotent update path.
+      mustMoveToSection: ['gh pr create --base', 'gh pr edit --title'],
       // ship is operational (multi-STOP, not a plan review); no single post-STOP gate.
       gateAfterStop: undefined,
     },

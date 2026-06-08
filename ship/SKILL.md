@@ -1225,6 +1225,8 @@ git push -u origin <branch-name>
 
 ---
 
+**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+
 > **STOP.** Before syncing docs and creating or updating the PR/MR (Steps 18-19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
