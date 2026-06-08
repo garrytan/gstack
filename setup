@@ -475,44 +475,57 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   )
 fi
 
-# 2. Ensure Playwright's Chromium is available
+# 2. Ensure Playwright's Chromium is available (best-effort: warn on failure).
+#
+# When Chromium download or launch fails (network issue, missing sudo,
+# offline mirror, Bun-on-Windows pipe bug), browser-driven features
+# (/qa, /design-review, make-pdf, sidebar, /pair-agent) are unavailable
+# until the user retries. All other gstack functionality (skill
+# registration, hooks, migrations) is already installed by earlier steps.
+# Previously this step was fatal (exit 1) and would abort the whole run
+# mid-setup, leaving skills unregistered. Now it sets $_PW_FAIL_REASON,
+# prints a named warning, and returns control. Re-running ./setup retries.
+_PW_FAIL_REASON=""
+
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
-  (
-    cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
-  )
+  if ! ( cd "$SOURCE_GSTACK_DIR" && bunx playwright install chromium ); then
+    _PW_FAIL_REASON="chromium-install"
+  fi
 
-  if [ "$IS_WINDOWS" -eq 1 ]; then
+  if [ -z "$_PW_FAIL_REASON" ] && [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
     # Ensure playwright is importable by Node from the gstack directory.
     if ! command -v node >/dev/null 2>&1; then
-      echo "gstack setup failed: Node.js is required on Windows (Bun cannot launch Chromium due to a pipe bug)" >&2
-      echo "  Install Node.js: https://nodejs.org/" >&2
-      exit 1
+      _PW_FAIL_REASON="windows-no-node"
+    else
+      echo "Windows detected — verifying Node.js can load Playwright..."
+      if ! ( cd "$SOURCE_GSTACK_DIR" && \
+             # Bun's node_modules already has playwright; verify Node can require it
+             { node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright; } && \
+             # @ngrok/ngrok is externalized in server-node.mjs and resolved at runtime.
+             # Verify the platform-specific native binary is installed so /pair-agent
+             # tunnels don't fail later with a cryptic module-not-found error.
+             { node -e "require('@ngrok/ngrok')" 2>/dev/null || npm install --no-save @ngrok/ngrok; } ); then
+        _PW_FAIL_REASON="windows-node-modules"
+      fi
     fi
-    echo "Windows detected — verifying Node.js can load Playwright..."
-    (
-      cd "$SOURCE_GSTACK_DIR"
-      # Bun's node_modules already has playwright; verify Node can require it
-      node -e "require('playwright')" 2>/dev/null || npm install --no-save playwright
-      # @ngrok/ngrok is externalized in server-node.mjs and resolved at runtime.
-      # Verify the platform-specific native binary is installed so /pair-agent
-      # tunnels don't fail later with a cryptic module-not-found error.
-      node -e "require('@ngrok/ngrok')" 2>/dev/null || npm install --no-save @ngrok/ngrok
-    )
   fi
 fi
 
-if ! ensure_playwright_browser; then
+if [ -z "$_PW_FAIL_REASON" ] && ! ensure_playwright_browser; then
+  _PW_FAIL_REASON="post-install-launch"
+fi
+
+if [ -n "$_PW_FAIL_REASON" ]; then
+  echo "" >&2
+  echo "  warning: Playwright Chromium is unavailable ($_PW_FAIL_REASON)." >&2
+  echo "    Browser features (/qa, /design-review, make-pdf, sidebar, /pair-agent) are unavailable." >&2
   if [ "$IS_WINDOWS" -eq 1 ]; then
-    echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
-    echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
-    echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
-  else
-    echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    echo "    Known Bun-on-Windows issue (oven-sh/bun#4253). Ensure Node.js is installed," >&2
+    echo "    then verify: node -e \"require('playwright')\"" >&2
   fi
-  exit 1
+  echo "    Re-run ./setup to retry. Skills, hooks, and migrations are already installed." >&2
 fi
 
 # 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).

@@ -1,5 +1,89 @@
 # Changelog
 
+## [1.57.4.0] - 2026-06-08
+
+## **A failed Playwright Chromium install no longer aborts `./setup` mid-run. Skills, hooks, and migrations are already in place; you get a named warning and a retry hint.**
+
+The Playwright Chromium install is the riskiest step in `./setup`. It needs
+network, it talks to a Microsoft CDN, on Windows it bounces through Node.js
+because of a Bun pipe bug, and on locked-down machines it may not even be
+allowed to run. Until now, any failure in that step was fatal: `exit 1`, and
+the run dies before skills get registered, before hooks land, before
+migrations run. Re-running `./setup` would start over from the top.
+
+That's the wrong shape. The user already has a working bun, a built browse
+binary, and a tree of skill templates ready to go. The thing that failed —
+Chromium availability — only affects browser-driven features (`/qa`,
+`/design-review`, `make-pdf`, sidebar, `/pair-agent`). Everything else can
+still work. So make the failure non-fatal.
+
+This release replaces both `exit 1` paths in the Playwright install/verify
+block with a `$_PW_FAIL_REASON` accumulator. On install failure the script
+prints a named warning telling you which sub-step failed, names the
+affected features, gives Windows users the specific known-issue link, and
+tells you to re-run `./setup` to retry — at which point only the Playwright
+step needs to succeed, because everything else is already done.
+
+### The numbers that matter
+
+Source: `bun test test/setup-playwright-warn-not-exit.test.ts` on this branch.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Playwright failure aborts `./setup` | yes | no | warn instead of exit |
+| Skills registered when Chromium download fails | sometimes | always | depends on which step failed first |
+| Named failure reason in warning | no | yes | `chromium-install`, `windows-no-node`, `windows-node-modules`, `post-install-launch` |
+| Retry guidance in failure output | no | yes | "Re-run ./setup to retry" |
+
+The four named reasons matter. When a Playwright install fails it's usually
+not obvious whether the download died, Chromium was downloaded but won't
+launch, or Node.js isn't on PATH (Windows). The warning calls it by name
+so users and bug reports can be specific.
+
+### What this means for you
+
+If your network blinks during `./setup`, or you're on a corporate machine
+that won't let `bunx playwright install chromium` finish, you'll now get
+gstack installed with everything except browser features, plus a clear
+warning. Re-run `./setup` when the network is back to enable browser
+features. If you're on Windows and hit the Bun-on-Windows pipe bug, the
+warning tells you exactly which `node -e` check to verify.
+
+### Itemized changes
+
+#### Changed
+
+- `setup`: Playwright Chromium install/verify no longer aborts on failure.
+  The two `exit 1` paths in the install block are replaced with a
+  `$_PW_FAIL_REASON` accumulator (values: `chromium-install`,
+  `windows-no-node`, `windows-node-modules`, `post-install-launch`). When
+  set, the script prints a named warning to stderr, lists the affected
+  browser-driven features, includes the Bun-on-Windows known-issue link
+  if applicable, and tells the user to re-run `./setup` to retry. All
+  other setup steps complete normally.
+
+#### For contributors
+
+- `test/setup-playwright-warn-not-exit.test.ts` — 5 tests:
+  - Two source-anchored checks confirm no `exit 1` is reachable from the
+    Playwright block and the `_PW_FAIL_REASON` accumulator pattern is in
+    place.
+  - Two functional tests execute the live block from `setup` with stubbed
+    `ensure_playwright_browser` and `bunx`, simulate install + post-install
+    failures, and assert the script exits 0 with the named warning.
+  - One side-by-side test inlines the OLD `exit 1` bug shape and confirms
+    it returned non-zero — proves the exit-code difference is real, not a
+    quoting illusion.
+
+#### Coordination
+
+- This PR is one of three carved out from #1883 per @jbetala7's review
+  request. It touches the same code block as #1838 (which pins the
+  Playwright install version), so whichever of #1838 or this PR lands
+  first will need a small rebase on the other. The two changes are
+  complementary — #1838 fixes which Chromium build gets installed; this
+  PR fixes what happens when the install fails.
+
 ## [1.57.3.0] - 2026-06-07
 
 ## **Every PR `/ship` opens gets the version stamped into its title, fork and agent PRs included.**
