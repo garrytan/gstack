@@ -1,5 +1,94 @@
 # Changelog
 
+## [1.58.0.0] - 2026-06-07
+
+## **Eight community-filed bugs fixed in one wave, four of them security guards that were quietly failing open.**
+## **Your redaction gate now catches modern OpenAI keys, and `/ship`'s adversarial review stops choking on your own security tests.**
+
+This is a fix wave. The throughline: guards that reported success while doing nothing.
+The secret-redaction gate that every `/spec`, `/ship`, `/cso`, and `/document-*` run
+passes through was blind to modern `sk-proj-`/`sk-svcacct-`/`sk-admin-` OpenAI keys and
+silently dropped its size cap on a bad flag. The cross-project learnings trust gate was
+an allowlist on paper and a denylist in code, so untrusted rows leaked between projects.
+The destructive-action classifier waved through "rotate the database password." Each one
+looked like it was protecting you. None of them were. All four now fail closed, with
+tests that pin the exact case that used to slip by. Three more fixes clear silent
+crashes and skipped reviewers, and `/ship`'s adversarial pass no longer trips Anthropic's
+usage policy when it reads your repo's own attack-payload fixtures.
+
+### The numbers that matter
+
+Reproduce with `bun test test/redact-engine.test.ts test/gstack-learnings-search.test.ts test/one-way-doors.test.ts test/diff-scope.test.ts test/brain-cache-roundtrip.test.ts`.
+
+| Guard / path | Before | After |
+|---|---|---|
+| `sk-proj-`/`sk-svcacct-`/`sk-admin-` OpenAI keys | zero findings (HIGH fails open) | blocked, with prose false-positive guards |
+| `gstack-redact --max-bytes <garbage>` | NaN silently disables the size cap | rejected at the CLI; engine backstop holds |
+| Cross-project learnings with no `trusted` field | imported (denylist bug) | excluded (true allowlist) |
+| "rotate the database password" | classified two-way (auto-approvable) | classified one-way (always asks) |
+| `.mjs/.cjs/.mts/.cts`-only PRs | backend reviewer skipped | backend reviewer runs |
+| `_meta.json` missing `last_refresh` | brain-cache crashes (TypeError) | degrades to a cold cache |
+| Safety-skill hooks on Claude Code 2.1.162 | every Edit/Write errored | hooks resolve and run |
+| `/ship` adversarial review over security fixtures | denied by usage policy | runs, fixtures read in summary mode |
+
+The redaction one is the sharpest: a project/service-account/admin OpenAI key pasted
+into a spec or PR body used to sail straight through the gate. Now it blocks, and the
+calibration is pinned so hyphenated prose like "the sk-learning-rate schedule" does not
+false-positive and wedge your ship.
+
+### What this means for you
+
+If you rely on the redaction guard or the cross-project learnings gate, they now do what
+the docs always said. If you run `/ship` on a repo that tests its own security guards,
+adversarial review stops dying on contact with your fixtures. And if you are on Claude
+Code 2.1.162, `/guard`, `/freeze`, and `/careful` work again instead of erroring on every
+edit. Upgrade and re-run anything that touched these paths.
+
+### Itemized changes
+
+#### Fixed
+- **Redaction misses modern OpenAI keys (#1868).** `openai.key` (HIGH/block) used a
+  contiguous-alphanumeric pattern that stopped at the first `-`/`_`, so base64url-bodied
+  `sk-proj-`/`sk-svcacct-`/`sk-admin-` keys produced no finding and failed open through
+  every redaction sink. Replaced with explicit bare-vs-prefixed alternation; added
+  positive and false-positive tests. Reported by @jbetala7.
+- **Redaction size cap fails open on a bad flag (#1824).** A malformed `--max-bytes`
+  parsed to `NaN`, and `byteLen > NaN` is always false, silently disabling the
+  fail-closed oversize guard; a negative value blocked everything. The CLI now rejects
+  non-integer / non-positive values, and the engine falls back to the default cap as a
+  backstop. Reported by @jbetala7.
+- **Cross-project learnings trust gate leaked (#1745).** `gstack-learnings-search
+  --cross-project` is documented as an allowlist but was coded as `trusted === false`,
+  admitting any row missing the `trusted` field. Flipped to `trusted !== true`. Reported
+  by @jbetala7.
+- **Destructive-action classifier missed "rotate ... password" (#1839).** The `rotate`
+  keyword pattern omitted `password` while its `revoke`/`reset` siblings included it, so
+  the most common credential-rotation phrasing classified as a reversible two-way
+  question. Added `password` to the alternation.
+- **Review Army skipped backend reviewer on ESM/CJS PRs (#1810).** `gstack-diff-scope`
+  matched only `*.ts|*.js`; a PR touching only `.mjs/.cjs/.mts/.cts` reported no backend
+  scope. Added the four module extensions. Reported by @jbetala7.
+- **Brain-cache crash on a partial `_meta.json` (#1879).** `loadMeta` returned parsed
+  JSON verbatim; a file missing `last_refresh` crashed three consumers with a TypeError.
+  Added an object-shape guard and map normalization; missing schema/endpoint identity now
+  forces a safe rebuild rather than trusting a stale file. Reported by @jbetala7.
+- **Safety-skill hooks broken on Claude Code 2.1.162 (#1871).** `guard`, `freeze`, and
+  `careful` frontmatter hooks used `${CLAUDE_SKILL_DIR}`, which CC 2.1.162 no longer
+  populates, so every Edit/Write/Bash errored. Anchored the hook commands to the
+  installed checkout path. Reported by @omariani-howdy.
+- **`/ship` adversarial review denied on own security fixtures (#1899).** The Claude
+  adversarial subagent reasoned "like an attacker" over the full diff; when the diff
+  included the repo's own attack-payload regression fixtures, Anthropic's real-time
+  usage-policy safeguards denied the call. The subagent now carries authorized-defensive
+  -testing framing and reads fixture/test files in summary mode (no raw payload bytes),
+  stating so explicitly. Reported by @bmajewski.
+
+#### For contributors
+- `#1882` (skills hardcode `~/.claude/skills/gstack/`, breaking non-`gstack` install
+  dirs) is filed as the top item in `TODOS.md`. It was scoped out of this wave once it
+  proved to be a host-config/preamble change touching all 52 skills, distinct from the
+  `#1871` hook fix it was originally paired with.
+
 ## [1.57.3.0] - 2026-06-07
 
 ## **Every PR `/ship` opens gets the version stamped into its title, fork and agent PRs included.**
