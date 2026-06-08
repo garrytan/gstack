@@ -1317,6 +1317,7 @@ fi
 # already registered under that tag, the install is a no-op (no prompt).
 PLAN_TUNE_LOG_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-log-hook"
 PLAN_TUNE_PREF_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-preference-hook"
+AUQ_ERROR_FALLBACK_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/auq-error-fallback-hook"
 PLAN_TUNE_INSTALL_MARKER="$HOME/.gstack/.plan-tune-hooks-prompted"
 
 if [ "$NO_TEAM_MODE" -ne 1 ] \
@@ -1324,9 +1325,13 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
    && [ -x "$PLAN_TUNE_LOG_HOOK" ] \
    && [ -x "$PLAN_TUNE_PREF_HOOK" ]; then
 
-  # Already installed? Check the settings.json for our source tag.
+  # Already installed? Require BOTH the plan-tune source AND the AUQ-error-fallback
+  # source — so an existing install that predates the fallback hook re-runs the
+  # install (which is idempotent for the plan-tune hooks) and picks up the new one.
   ALREADY_INSTALLED=0
-  if "$SETTINGS_HOOK" list-sources 2>/dev/null | grep -q "plan-tune-cathedral"; then
+  _HOOK_SOURCES=$("$SETTINGS_HOOK" list-sources 2>/dev/null || true)
+  if printf '%s' "$_HOOK_SOURCES" | grep -q "plan-tune-cathedral" \
+     && printf '%s' "$_HOOK_SOURCES" | grep -q "auq-error-fallback"; then
     ALREADY_INSTALLED=1
   fi
 
@@ -1364,6 +1369,21 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
       --command "$PLAN_TUNE_PREF_HOOK" \
       --source plan-tune-cathedral \
       --timeout 5
+    # AskUserQuestion-failure prose-fallback reliability hook (OV3:B). Fires only when
+    # an AskUserQuestion call returns an error/missing result; inert on success and
+    # inert if the platform doesn't invoke PostToolUse on tool errors. MUST use its
+    # OWN source tag: gstack-settings-hook dedupes by (event, matcher, source) and
+    # REPLACES the entry's hooks, so sharing 'plan-tune-cathedral' would overwrite the
+    # question-log capture hook (same event+matcher). A distinct source = a second
+    # PostToolUse entry; both run in parallel.
+    if [ -x "$AUQ_ERROR_FALLBACK_HOOK" ]; then
+      "$SETTINGS_HOOK" add-event \
+        --event PostToolUse \
+        --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+        --command "$AUQ_ERROR_FALLBACK_HOOK" \
+        --source auq-error-fallback \
+        --timeout 5
+    fi
   }
 
   if [ "$ALREADY_INSTALLED" -eq 1 ]; then

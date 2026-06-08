@@ -127,6 +127,38 @@ required for our hook to fire there.
 (PostToolUse hooks can also set `additionalContext` to append to the tool
 result; we don't need this for v1 capture.)
 
+## PostToolUse on tool error (AUQ-failure fallback, OV3:B) — UNVERIFIED
+
+The AUQ-failure prose fallback adds a defensive PostToolUse hook
+(`hosts/claude/hooks/auq-error-fallback-hook.ts`) that, when an AskUserQuestion
+call returns an error / missing result, injects `additionalContext` reminding the
+model to run the prose fallback per `SESSION_KIND`. It uses the same
+`additionalContext` mechanism documented above.
+
+**Open question we could NOT settle in a harness:** does Claude Code invoke
+PostToolUse hooks when an MCP tool call returns a transport/missing-result error
+(the Conductor bug surfaces `[Tool result missing due to internal error]`)? The
+docs above cover PostToolUse on *success*. We could not force the Conductor
+internal MCP failure on demand to observe it.
+
+**Decision (OV3:B = A):** build the hook defensively anyway.
+- It is **inert on success** (only fires when `isErrorResponse(tool_response)` is
+  true) and **inert if the platform never invokes it** on the error path.
+- The prompt-level fallback in `generate-ask-user-format.ts` covers the case
+  regardless — the hook is a reliability *layer*, not the mechanism.
+- Its decision logic is unit-tested deterministically
+  (`test/auq-error-fallback-hook.test.ts`): given a synthetic error `tool_response`
+  + each `SESSION_KIND`, it emits the correct directive; given a real answer it
+  defers.
+
+**Recommended manual / partial spike (to close the gap later):** register a
+throwaway PostToolUse hook that logs on fire, then (a) trigger a normal tool
+error (e.g. a failing `Bash` call) to confirm PostToolUse fires on tool errors at
+all, and (b) reproduce the Conductor MCP AUQ failure and check the log. If (b)
+confirms a fire, promote the hook from "defensive/inert" to "verified". Until
+then, treat the runtime layer as best-effort and the prompt-level fallback as the
+guaranteed path.
+
 ## Settings.json snippet for T8 hook installer
 
 ```json

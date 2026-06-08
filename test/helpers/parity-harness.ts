@@ -252,7 +252,7 @@ const CARVED_INVARIANTS: ParityInvariant[] = Object.values(CARVE_GUARDS).map((g)
   minBytes: g.minUnionBytes,
   mustContain: g.mustContain,
   mustHaveHeadings: ['## Preamble', '## When to invoke'],
-  maxSizeRatio: 1.05,
+  maxSizeRatio: g.maxSizeRatio ?? 1.05,
 }));
 
 export const PARITY_INVARIANTS: ParityInvariant[] = [

@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeAll } from 'bun:test';
 import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
@@ -2125,6 +2125,21 @@ describe('Factory generation (--host factory)', () => {
 import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
 
 describe('Parameterized host smoke tests', () => {
+  // Regenerate every external host up front so the per-host `--dry-run` freshness
+  // checks are deterministic. These host dirs (.agents/.factory/.cursor/...) are
+  // gitignored regenerated artifacts, so the freshness check is really an
+  // idempotency/determinism check — it still catches non-deterministic gen, but no
+  // longer flakes on stale-on-disk state left by a missing `gen --host all` prestep
+  // (the canonical `bun test` does not run one). The tracked-claude freshness test
+  // (`generated files are fresh`) runs earlier and is unaffected.
+  beforeAll(() => {
+    for (const h of getExternalHosts()) {
+      Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', h.name], {
+        cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      });
+    }
+  });
+
   for (const hostConfig of getExternalHosts()) {
     describe(`${hostConfig.displayName} (--host ${hostConfig.name})`, () => {
       const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -2208,6 +2223,16 @@ describe('Parameterized host smoke tests', () => {
 // ─── --host all tests ────────────────────────────────────────
 
 describe('--host all', () => {
+  // Same determinism guard as the parameterized block: make external hosts fresh on
+  // disk so `--host all --dry-run` reports FRESH regardless of prior state.
+  beforeAll(() => {
+    for (const h of getExternalHosts()) {
+      Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', h.name], {
+        cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      });
+    }
+  });
+
   test('--host all generates for all registered hosts', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
