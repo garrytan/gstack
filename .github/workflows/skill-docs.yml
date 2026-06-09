@@ -4,7 +4,7 @@ jobs:
   check-freshness:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.0.1
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       - name: Check Claude host freshness
