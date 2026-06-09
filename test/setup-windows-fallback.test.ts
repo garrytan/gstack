@@ -44,9 +44,16 @@ describe('setup: _link_or_copy invariant (D7)', () => {
     expect(offending).toEqual([]);
   });
 
-  test('Windows-copy note message exists in setup', () => {
-    expect(SETUP_SRC).toContain('Windows install uses file copies');
+  test('Windows junction/fallback note message exists in setup', () => {
+    expect(SETUP_SRC).toContain('Windows install uses directory junctions when available');
     expect(SETUP_SRC).toContain('_print_windows_copy_note_once');
+  });
+
+  test('Windows directory branch tries mklink junctions before copying', () => {
+    const helper = extractHelper();
+    expect(helper).toContain('cmd.exe /c mklink /J');
+    expect(helper).toContain('cygpath -w "$src"');
+    expect(helper.indexOf('cmd.exe /c mklink /J')).toBeLessThan(helper.indexOf('cp -R "$src" "$dst"'));
   });
 
   test('link_claude_skill_dirs calls the Windows note printer', () => {
@@ -69,16 +76,29 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
   function runHelper(
     isWindows: '0' | '1',
     srcKind: 'file' | 'dir',
+    opts: { fakeJunction?: boolean } = {},
   ): { ok: boolean; targetIsSymlink: boolean; targetExists: boolean; stderr: string } {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-helper-'));
     try {
       const src = path.join(tmp, 'source');
       const dst = path.join(tmp, 'dest');
+      const bindir = path.join(tmp, 'bin');
       if (srcKind === 'file') {
         fs.writeFileSync(src, 'hello\n');
       } else {
         fs.mkdirSync(src);
         fs.writeFileSync(path.join(src, 'inner.txt'), 'hello\n');
+      }
+      let env = process.env;
+      if (opts.fakeJunction) {
+        fs.mkdirSync(bindir);
+        const cygpath = `#!/bin/sh\nif [ "$1" = "-w" ]; then echo "$2"; exit 0; fi\nexit 1\n`;
+        const cmd = `#!/bin/sh\nif [ "$1" = "/c" ] && [ "$2" = "mklink" ] && [ "$3" = "/J" ]; then\n  ln -s "$5" "$4"\n  exit 0\nfi\nexit 1\n`;
+        fs.writeFileSync(path.join(bindir, 'cygpath'), cygpath);
+        fs.writeFileSync(path.join(bindir, 'cmd.exe'), cmd);
+        fs.chmodSync(path.join(bindir, 'cygpath'), 0o755);
+        fs.chmodSync(path.join(bindir, 'cmd.exe'), 0o755);
+        env = { ...process.env, PATH: `${bindir}:${process.env.PATH || ''}` };
       }
       const helper = extractHelper();
       // IS_WINDOWS must exist as a shell-readable var before sourcing.
@@ -86,6 +106,7 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
       const result = spawnSync('bash', ['-c', script], {
         encoding: 'utf-8',
         timeout: 5000,
+        env,
       });
       const lst = fs.lstatSync(dst, { throwIfNoEntry: false });
       return {
@@ -119,7 +140,14 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
     expect(r.targetIsSymlink).toBe(false);
   });
 
-  test('IS_WINDOWS=1 + dir → real directory copy', () => {
+  test('IS_WINDOWS=1 + dir → junction when cmd/cygpath succeed', () => {
+    const r = runHelper('1', 'dir', { fakeJunction: true });
+    expect(r.ok).toBe(true);
+    expect(r.targetExists).toBe(true);
+    expect(r.targetIsSymlink).toBe(true);
+  });
+
+  test('IS_WINDOWS=1 + dir → real directory copy when junction is unavailable', () => {
     const r = runHelper('1', 'dir');
     expect(r.ok).toBe(true);
     expect(r.targetExists).toBe(true);

@@ -33,9 +33,10 @@ esac
 # ─── Symlink-or-copy helper ───────────────────────────────────
 # On macOS/Linux: create a symlink (existing behavior).
 # On Windows without Developer Mode (MSYS2/Git Bash): plain ln -snf silently
-# creates a frozen file copy that doesn't refresh after `git pull`. We use
-# explicit `cp -R` / `cp -f` so the user gets a real copy and the staleness
-# is reportable (re-run ./setup after pull). Auto-detects file vs dir.
+# creates a frozen file copy that doesn't refresh after `git pull`. For
+# directories, try a Windows junction first so installs reflect source updates
+# without duplicating large trees; fall back to explicit copies when junctions
+# are unavailable. Auto-detects file vs dir.
 #
 # INVARIANT: every symlink in this script MUST route through this helper.
 # A raw ln call here will be caught by test/setup-windows-fallback.test.ts
@@ -54,6 +55,15 @@ _link_or_copy() {
       return 0
     fi
     if [ -d "$src" ]; then
+      if command -v cmd.exe >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+        local _src_win _dst_win
+        _src_win="$(cygpath -w "$src" 2>/dev/null || true)"
+        _dst_win="$(cygpath -w "$dst" 2>/dev/null || true)"
+        if [ -n "$_src_win" ] && [ -n "$_dst_win" ] \
+          && cmd.exe /c mklink /J "$_dst_win" "$_src_win" >/dev/null 2>&1; then
+          return 0
+        fi
+      fi
       cp -R "$src" "$dst"
     else
       cp -f "$src" "$dst"
@@ -66,7 +76,7 @@ _link_or_copy() {
 _WINDOWS_COPY_NOTE_PRINTED=0
 _print_windows_copy_note_once() {
   if [ "$IS_WINDOWS" -eq 1 ] && [ "$_WINDOWS_COPY_NOTE_PRINTED" -eq 0 ]; then
-    echo "  note: Windows install uses file copies (no Developer Mode required). Re-run ./setup after every 'git pull' to refresh skill files."
+    echo "  note: Windows install uses directory junctions when available, with file copies as fallback."
     _WINDOWS_COPY_NOTE_PRINTED=1
   fi
 }
