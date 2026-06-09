@@ -30,7 +30,7 @@ import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
 const BROWSE_SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '0', 10);
-const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || ''; // optional: tighten Origin check
+const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || '__gstack_extension_id_unavailable__'; // fail closed if spawn did not pin the bundled extension
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared with parent server via env at spawn
 /**
  * Per-boot generation identifier. Loopback /internal/* callers include
@@ -588,7 +588,7 @@ function buildServer() {
         if (!isExtensionOrigin) {
           return new Response('forbidden origin', { status: 403 });
         }
-        if (EXTENSION_ID && origin !== `chrome-extension://${EXTENSION_ID}`) {
+        if (origin !== `chrome-extension://${EXTENSION_ID}`) {
           return new Response('forbidden origin', { status: 403 });
         }
 

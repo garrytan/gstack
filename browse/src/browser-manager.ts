@@ -15,8 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
-import { writeSecureFile, mkdirSecure } from './file-permissions';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie, type Worker } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
@@ -196,6 +195,8 @@ export class BrowserManager {
   // ─── Headed State ────────────────────────────────────────
   private connectionMode: 'launched' | 'headed' = 'launched';
   private intentionalDisconnect = false;
+  private extensionAuthToken: string | null = null;
+  private extensionId: string | null = null;
 
   // ─── Tab Count Guardrail (D5 + Codex single-tab flag) ───────
   // Idempotent threshold trackers: each guardrail fires exactly once per
@@ -318,12 +319,97 @@ export class BrowserManager {
   }
 
   /**
+   * Provision root auth to the trusted bundled extension without exposing it
+   * on a public HTTP endpoint. The service worker runs in the extension's
+   * isolated chrome-extension:// origin, so chrome.storage.local is readable
+   * by gstack's extension pages but not by arbitrary localhost processes or
+   * other extensions.
+   */
+  private async provisionExtensionAuth(authToken?: string): Promise<void> {
+    if (authToken) this.extensionAuthToken = authToken;
+    const token = authToken ?? this.extensionAuthToken;
+    if (!token || !this.context) return;
+
+    const writeToken = async (worker: Worker): Promise<void> => {
+      this.rememberExtensionId(worker);
+      await worker.evaluate(({ token: storedToken, port }) => {
+        return (globalThis as any).chrome.storage.local.set({ gstackAuthToken: storedToken, port });
+      }, { token, port: this.serverPort || 34567 });
+    };
+
+    this.context.on('serviceworker', (worker) => {
+      void (async () => {
+        if (!(await this.isGstackExtensionWorker(worker))) return;
+        await writeToken(worker);
+      })().catch((err: any) => {
+        console.warn(`[browse] Could not provision late extension auth storage: ${err.message}`);
+      });
+    });
+
+    let worker: Worker | undefined;
+    for (const candidate of this.context.serviceWorkers()) {
+      if (await this.isGstackExtensionWorker(candidate)) {
+        worker = candidate;
+        break;
+      }
+    }
+
+    if (!worker) {
+      try {
+        const candidate = await this.context.waitForEvent('serviceworker', { timeout: 5000 });
+        if (await this.isGstackExtensionWorker(candidate)) worker = candidate;
+      } catch {
+        // Component-baked/custom builds may delay worker startup until the
+        // sidepanel is opened. The event listener above provisions auth when
+        // the worker appears. Do not fall back to /health token leakage.
+        console.warn('[browse] Extension service worker not ready yet; auth storage will be provisioned on startup');
+        return;
+      }
+    }
+
+    if (!worker) {
+      console.warn('[browse] GStack extension service worker not ready yet; auth storage will be provisioned on startup');
+      return;
+    }
+
+    try {
+      await writeToken(worker);
+    } catch (err: any) {
+      console.warn(`[browse] Could not provision extension auth storage: ${err.message}`);
+    }
+  }
+
+  private async isGstackExtensionWorker(worker: Worker): Promise<boolean> {
+    if (!worker.url().startsWith('chrome-extension://')) return false;
+    try {
+      const manifest = await worker.evaluate(() => (globalThis as any).chrome.runtime.getManifest?.());
+      return manifest?.name === 'gstack browse'
+        && manifest?.background?.service_worker === 'background.js';
+    } catch {
+      return false;
+    }
+  }
+
+  private rememberExtensionId(worker: Worker): void {
+    const match = worker.url().match(/^chrome-extension:\/\/([^/]+)/);
+    if (match?.[1]) this.extensionId = match[1];
+  }
+
+  /**
    * Set the proxy config applied to chromium.launch() in launch() and
    * launchHeaded(). Called by server.ts at startup once the (optional) SOCKS5
    * bridge is up.
    */
   setProxyConfig(cfg: { server: string; username?: string; password?: string } | null): void {
     this.proxyConfig = cfg;
+  }
+
+  setExtensionAuthToken(token: string | undefined): void {
+    if (token) this.extensionAuthToken = token;
+  }
+
+  getExtensionId(): string | null {
+    return this.extensionId;
   }
 
   /**
@@ -451,22 +537,11 @@ export class BrowserManager {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
       }
-      // Write auth token for extension bootstrap (still required even when
-      // the extension is component-baked — it reads ~/.gstack/.auth.json at
-      // startup to learn how to call the daemon).
-      // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
-      // in .app bundles and breaks codesigning).
+      // Auth bootstrap is provisioned into chrome.storage.local after the
+      // persistent context starts. Do not write a readable file or expose the
+      // token on /health; local processes can read/spoof those surfaces.
       if (authToken) {
-        const fs = require('fs');
-        const path = require('path');
-        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
-        mkdirSecure(gstackDir);
-        const authFile = path.join(gstackDir, '.auth.json');
-        try {
-          writeSecureFile(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }));
-        } catch (err: any) {
-          console.warn(`[browse] Could not write .auth.json: ${err.message}`);
-        }
+        console.log('[browse] Extension auth will be provisioned via chrome.storage');
       }
     }
 
@@ -588,6 +663,7 @@ export class BrowserManager {
     // synthesis — they're removing leaked automation tells.
     const { applyStealth } = await import('./stealth');
     await applyStealth(this.context);
+    await this.provisionExtensionAuth(authToken);
     await this.context.addInitScript(() => {
       // Remove CDP runtime artifacts that automation detectors look for
       // cdc_ prefixed vars are injected by ChromeDriver/CDP
@@ -1560,8 +1636,8 @@ export class BrowserManager {
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
-        // Auth token is served via /health endpoint now (no file write needed).
-        // Extension reads token from /health on connect.
+        // Extension auth is provisioned into chrome.storage.local after the
+        // headed context starts. Do not use /health as a token bootstrap path.
         console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
       } else {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
@@ -1604,6 +1680,8 @@ export class BrowserManager {
       if (Object.keys(this.extraHeaders).length > 0) {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
       }
+
+      await this.provisionExtensionAuth();
 
       // Register disconnect handler on new browser. Same clean-vs-crash
       // discrimination as launch() / launchHeaded() above so a user-initiated
