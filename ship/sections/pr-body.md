@@ -41,13 +41,20 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub) or `glab mr update -d ...` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 19) before editing — scan the temp file, then `gh pr edit --body-file` from it.**
+If an **open** PR/MR already exists: **update** the PR body using GitHub's REST API (`gh api -X PATCH "repos/$REPO_NWO/pulls/$PR_NUMBER" --input -`) or `glab mr update -d ...` (GitLab). Do not use `gh pr edit` for GitHub updates; it can hit deprecated Projects-classic GraphQL fields on some repos. Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 19) before editing — scan the temp file, then send those exact bytes through the REST PATCH path.**
 
 **Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
 2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
-3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
+3. If `NEW_TITLE` differs from `CURRENT`, update GitHub via REST:
+   ```bash
+   PR_NUMBER=$(gh pr view --json number -q .number)
+   REPO_NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+   jq -n --arg title "$NEW_TITLE" '{title:$title}' \
+     | gh api -X PATCH "repos/$REPO_NWO/pulls/$PR_NUMBER" --input -
+   ```
+   For GitLab, run `glab mr update -t "$NEW_TITLE"`.
 4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
 
 This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
@@ -177,7 +184,17 @@ printf '%s' "v$NEW_VERSION <type>: <summary>" | ~/.claude/skills/gstack/bin/gsta
 ```
 
 HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
-`--auto-redact`). Same scan runs before the `gh pr edit --body` path (Step 17).
+`--auto-redact`). Same scan runs before the GitHub REST PATCH body path (Step 17).
+
+**If a GitHub PR already exists:** update from the SCANNED file with REST (exact bytes scanned = bytes sent):
+
+```bash
+PR_NUMBER=$(gh pr view --json number -q .number)
+REPO_NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+jq -n --rawfile body "$PR_BODY_FILE" '{body:$body}' \
+  | gh api -X PATCH "repos/$REPO_NWO/pulls/$PR_NUMBER" --input -
+rm -f "$PR_BODY_FILE"
+```
 
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
