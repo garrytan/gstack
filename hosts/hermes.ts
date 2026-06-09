@@ -3,7 +3,7 @@ import type { HostConfig } from '../scripts/host-config';
 const hermes: HostConfig = {
   name: 'hermes',
   displayName: 'Hermes',
-  cliCommand: 'hermes',
+  cliCommand: 'hermes',  // installed executable is `hermes`; the repo/product is `hermes-agent` (nousresearch/hermes-agent)
   cliAliases: [],
 
   globalRoot: '.hermes/skills/gstack',
@@ -49,9 +49,12 @@ const hermes: HostConfig = {
     'CODEX_SECOND_OPINION',
     'CODEX_PLAN_REVIEW',
     'REVIEW_ARMY',
-    // GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS are NOT suppressed.
-    // The resolvers handle GBrain-not-installed gracefully ("proceed without brain context").
-    // If Hermes has GBrain as a mod, brain features activate automatically.
+    // GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS are NOT suppressed: Hermes is brain-capable
+    // (can carry GBrain as a mod), so with GBrain installed these activate automatically. With
+    // GBrain absent, the rendered blocks still instruct `gbrain` commands, but each ends with a
+    // fallback ("if GBrain is not available, proceed without / skip this step"), so a no-GBrain
+    // agent recovers after a failed probe rather than getting stuck. (gbrain is the only other
+    // non-suppressing host, and it always has GBrain installed.)
   ],
 
   runtimeRoot: {
