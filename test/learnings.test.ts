@@ -97,7 +97,19 @@ describe('gstack-learnings-log', () => {
       { expectFail: true },
     );
     expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain('suspicious instruction-like content');
     expect(findLearningsFile()).toBeNull(); // nothing appended
+  });
+
+  test('accepts benign override prose (regression: #1934)', () => {
+    const input = '{"skill":"review","type":"pitfall","key":"override-prose","insight":"never override the flag when stale","confidence":7,"source":"observed"}';
+    const result = runLog(input);
+    expect(result.exitCode).toBe(0);
+
+    const f = findLearningsFile();
+    expect(f).not.toBeNull();
+    const parsed = JSON.parse(fs.readFileSync(f!, 'utf-8').trim());
+    expect(parsed.insight).toBe('never override the flag when stale');
   });
 
   test('append-only: duplicate keys create multiple entries', () => {

@@ -14,6 +14,9 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 INPUT="$1"
 
 # Validate and sanitize input
+VALIDATE_ERR="$(mktemp)"
+trap 'rm -f "$VALIDATE_ERR"' EXIT
+set +e
 VALIDATED=$(printf '%s' "$INPUT" | bun -e "
 import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
 const raw = await Bun.stdin.text();
@@ -63,9 +66,12 @@ if (!j.ts) j.ts = new Date().toISOString();
 j.trusted = j.source === 'user-stated';
 
 console.log(JSON.stringify(j));
-" 2>/dev/null)
+" 2>"$VALIDATE_ERR")
+VALIDATE_STATUS=$?
+set -e
 
-if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
+if [ "$VALIDATE_STATUS" -ne 0 ] || [ -z "$VALIDATED" ]; then
+  cat "$VALIDATE_ERR" >&2
   exit 1
 fi
 
