@@ -70,11 +70,26 @@ describe("buildGbrainEnv", () => {
     expect(result.DATABASE_URL).toBe("postgresql://app/db");
   });
 
-  it("returns caller env unchanged when config has no database_url field", () => {
-    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ engine: "pglite" }));
+  it("returns caller env unchanged when config has no database_url field and no local-engine signal", () => {
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ profile: "legacy" }));
     const baseEnv = { HOME: home, DATABASE_URL: "postgresql://app/db" };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe("postgresql://app/db");
+  });
+
+  it("strips caller database URLs for PGLite configs without a database_url", () => {
+    writeFileSync(
+      join(gbrainHome, "config.json"),
+      JSON.stringify({ engine: "pglite", database_path: join(gbrainHome, "gbrain.db") }),
+    );
+    const baseEnv = {
+      HOME: home,
+      DATABASE_URL: "sqlite:///app.db",
+      GBRAIN_DATABASE_URL: "postgresql://wrong/db",
+    };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.DATABASE_URL).toBeUndefined();
+    expect(result.GBRAIN_DATABASE_URL).toBeUndefined();
   });
 
   it("honors GBRAIN_HOME when set (config aligned with detectEngineTier)", () => {
