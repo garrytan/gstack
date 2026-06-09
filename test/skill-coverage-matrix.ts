@@ -76,6 +76,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     ],
     rationale: '37 deterministic invariants pin Phase 1/3 gating, --execute race/security hardening, quality-gate redaction, archive contract, plan-mode-aware Phase 5. Periodic adds full PTY pipeline + LLM-judge.',
   },
+  fanout: {
+    gate: ['test/fanout.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'v0 produces a markdown section + prompt files + bash script; deterministic given input doc structure. fanout.test.ts pins frontmatter, section invariants, and the v0.1 hardening guardrails.',
+  },
 
   // ─── Plan triad ─────────────────────────────────────────────
   'plan-ceo-review': {

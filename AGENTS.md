@@ -22,6 +22,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/autoplan` | One command runs CEO → design → eng → DX review. |
 | `/design-consultation` | Build a complete design system from scratch. |
 | `/spec` | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
+| `/fanout` | Decompose a finished design doc into N parallel agent tasks. Identifies Slab 0 (shared groundwork) plus 2-3 independent slabs, appends a Parallel Execution Plan section to the doc, and emits per-slab prompt files plus a `worktree-dispatch.sh` sidecar. v0 produces the plan and stops; user runs the script. |
 
 ### Implementation + review
 
