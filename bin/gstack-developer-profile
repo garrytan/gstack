@@ -17,6 +17,10 @@
 #   --check-mismatch    detect meaningful gaps between declared and observed.
 #   --migrate           migrate builder-profile.jsonl → developer-profile.json.
 #                       Idempotent; archives the source file on success.
+#   --append-session    read a session entry as JSON on stdin and append it to
+#                       sessions[] (write-through to developer-profile.json).
+#   --append-resources  read {resources_shown,[topics]} as JSON on stdin and merge
+#                       into resources_shown WITHOUT counting as a session.
 #
 # Profile file: ~/.gstack/developer-profile.json (unified schema — see
 # docs/designs/PLAN_TUNING_V0.md). Event file: ~/.gstack/projects/{SLUG}/
@@ -25,7 +29,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+# State root resolution mirrors bin/gstack-paths precedence so the profile the
+# skill WRITES (--append-session/--append-resources) and the one it READS are the
+# same file under a plugin install (CLAUDE_PLUGIN_DATA) or a GSTACK_HOME override.
+GSTACK_HOME="${GSTACK_HOME:-${CLAUDE_PLUGIN_DATA:-$HOME/.gstack}}"
 PROFILE_FILE="$GSTACK_HOME/developer-profile.json"
 LEGACY_FILE="$GSTACK_HOME/builder-profile.jsonl"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
@@ -44,58 +51,29 @@ do_migrate() {
   fi
 
   if [ -f "$PROFILE_FILE" ]; then
-    # Already migrated — no-op (idempotent).
+    # Already migrated — no-op (idempotent). Orphaned appends are healed by
+    # reconcile_legacy() on the next read rather than re-migrated here.
     echo "MIGRATE: already migrated (developer-profile.json exists)"
     return 0
   fi
 
-  # Run migration in a temp file, then atomic rename.
+  # Run migration in a temp file, then atomic rename. Aggregation + resource-row
+  # filtering + malformed-line accounting live in scripts/profile-store.ts.
+  mkdir -p "$GSTACK_HOME"
   local TMPOUT
   TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
   trap 'rm -f "$TMPOUT"' EXIT
 
-  cat "$LEGACY_FILE" | bun -e "
-    const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
-    const sessions = [];
-    const signalsAcc = {};
-    const resources = new Set();
-    const topics = new Set();
-    for (const line of lines) {
-      try {
-        const e = JSON.parse(line);
-        sessions.push(e);
-        for (const s of (e.signals || [])) {
-          signalsAcc[s] = (signalsAcc[s] || 0) + 1;
-        }
-        for (const r of (e.resources_shown || [])) resources.add(r);
-        for (const t of (e.topics || [])) topics.add(t);
-      } catch {}
-    }
-    const profile = {
-      identity: {},
-      declared: {},
-      inferred: {
-        values: {
-          scope_appetite: 0.5,
-          risk_tolerance: 0.5,
-          detail_preference: 0.5,
-          autonomy: 0.5,
-          architecture_care: 0.5,
-        },
-        sample_size: 0,
-        diversity: { skills_covered: 0, question_ids_covered: 0, days_span: 0 },
-      },
-      gap: {},
-      overrides: {},
-      sessions,
-      signals_accumulated: signalsAcc,
-      resources_shown: Array.from(resources),
-      topics: Array.from(topics),
-      migrated_at: new Date().toISOString(),
-      schema_version: 1,
-    };
-    console.log(JSON.stringify(profile, null, 2));
-  " > "$TMPOUT"
+  ( cd "$ROOT_DIR" && LEGACY_PATH="$LEGACY_FILE" OUT_PATH="$TMPOUT" bun -e "
+    import('./scripts/profile-store.ts').then((m) => {
+      const fs = require('fs');
+      const raw = fs.existsSync(process.env.LEGACY_PATH) ? fs.readFileSync(process.env.LEGACY_PATH, 'utf-8') : '';
+      const lines = raw.trim() ? raw.trim().split('\n') : [];
+      const { profile, dropped } = m.migrateLegacy(lines);
+      fs.writeFileSync(process.env.OUT_PATH, JSON.stringify(profile, null, 2));
+      if (dropped > 0) console.error('MIGRATE: WARNING dropped ' + dropped + ' malformed line(s) from builder-profile.jsonl');
+    }).catch((e) => { console.error('MIGRATE: ' + e.message); process.exit(1); });
+  " )
 
   # Atomic rename.
   mv "$TMPOUT" "$PROFILE_FILE"
@@ -116,12 +94,47 @@ do_migrate() {
 }
 
 # -----------------------------------------------------------------------
+# Reconcile: fold orphaned legacy appends back into the unified profile.
+# An older buggy /office-hours kept appending to builder-profile.jsonl AFTER
+# migration, where the read path never saw them. This heals those installs:
+# fold any not-yet-present legacy sessions, then archive the file. Idempotent.
+# -----------------------------------------------------------------------
+reconcile_legacy() {
+  [ -f "$PROFILE_FILE" ] || return 0
+  [ -f "$LEGACY_FILE" ] || return 0
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  if ( cd "$ROOT_DIR" && PROFILE_PATH="$PROFILE_FILE" LEGACY_PATH="$LEGACY_FILE" OUT_PATH="$TMPOUT" bun -e "
+    import('./scripts/profile-store.ts').then((m) => {
+      const fs = require('fs');
+      const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_PATH, 'utf-8'));
+      const raw = fs.readFileSync(process.env.LEGACY_PATH, 'utf-8');
+      const lines = raw.trim() ? raw.trim().split('\n') : [];
+      const { profile: out, dropped } = m.foldLegacy(profile, lines);
+      fs.writeFileSync(process.env.OUT_PATH, JSON.stringify(out, null, 2));
+      if (dropped > 0) console.error('RECONCILE: WARNING dropped ' + dropped + ' malformed line(s) from builder-profile.jsonl');
+    }).catch((e) => { console.error('RECONCILE: ' + e.message); process.exit(1); });
+  " ); then
+    mv "$TMPOUT" "$PROFILE_FILE"
+    local TS
+    TS="$(date +%Y-%m-%d-%H%M%S)"
+    mv "$LEGACY_FILE" "$LEGACY_FILE.reconciled-$TS"
+  else
+    rm -f "$TMPOUT"
+  fi
+}
+
+# -----------------------------------------------------------------------
 # Load-or-migrate helper: ensure developer-profile.json exists.
 # Auto-migrates from builder-profile.jsonl if present.
 # Returns path to profile file via stdout. Creates a minimal stub if nothing exists.
 # -----------------------------------------------------------------------
 ensure_profile() {
   if [ -f "$PROFILE_FILE" ]; then
+    # Heal orphaned legacy appends from an older buggy /office-hours (one-time).
+    if [ -f "$LEGACY_FILE" ]; then
+      reconcile_legacy
+    fi
     return 0
   fi
   if [ -f "$LEGACY_FILE" ]; then
@@ -149,6 +162,8 @@ ensure_profile() {
   "overrides": {},
   "sessions": [],
   "signals_accumulated": {},
+  "resources_shown": [],
+  "topics": [],
   "schema_version": 1
 }
 EOF
@@ -161,7 +176,9 @@ do_read() {
   ensure_profile
   cat "$PROFILE_FILE" | bun -e "
     const p = JSON.parse(await Bun.stdin.text());
-    const sessions = p.sessions || [];
+    // Resource-tracking rows (mode:'resources') are not sessions — exclude them
+    // from every session-derived value so tier/journey don't double-count.
+    const sessions = (p.sessions || []).filter(e => e.mode !== 'resources');
     const count = sessions.length;
     let tier = 'introduction';
     if (count >= 8) tier = 'inner_circle';
@@ -174,10 +191,12 @@ do_read() {
       ? prev.project_slug !== last.project_slug
       : false;
 
+    // Human-facing design title: explicit title, else doc basename, else blank.
+    const designOf = (e) => e.design_title
+      ? e.design_title
+      : (e.design_doc ? String(e.design_doc).split('/').pop() : '');
     const designs = sessions.map(e => e.design_doc || '').filter(Boolean);
-    const designTitles = sessions
-      .map(e => (e.design_doc ? (e.project_slug || 'unknown') : ''))
-      .filter(Boolean);
+    const designTitles = sessions.filter(e => e.design_doc || e.design_title).map(designOf);
 
     const signalCounts = p.signals_accumulated || {};
     let totalSignals = 0;
@@ -194,7 +213,7 @@ do_read() {
     console.log('TIER: ' + tier);
     console.log('LAST_PROJECT: ' + (last.project_slug || ''));
     console.log('LAST_ASSIGNMENT: ' + (last.assignment || ''));
-    console.log('LAST_DESIGN_TITLE: ' + (last.design_doc || ''));
+    console.log('LAST_DESIGN_TITLE: ' + designOf(last));
     console.log('DESIGN_COUNT: ' + designs.length);
     console.log('DESIGN_TITLES: ' + JSON.stringify(designTitles));
     console.log('ACCUMULATED_SIGNALS: ' + signalStr);
@@ -429,6 +448,70 @@ do_vibe() {
 }
 
 # -----------------------------------------------------------------------
+# Append a session entry (read JSON object from stdin). Write-through to the
+# unified profile so the read path sees it. JSON encoding happens here, so the
+# caller never assembles JSON in the shell (no quote/newline corruption).
+# -----------------------------------------------------------------------
+do_append_session() {
+  local INPUT
+  INPUT="$(cat)"
+  ensure_profile
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  if ( cd "$ROOT_DIR" && PROFILE_PATH="$PROFILE_FILE" OUT_PATH="$TMPOUT" APPEND_JSON="$INPUT" bun -e "
+    import('./scripts/profile-store.ts').then((m) => {
+      const fs = require('fs');
+      let entry;
+      try { entry = JSON.parse(process.env.APPEND_JSON); }
+      catch (e) { console.error('append-session: invalid JSON — ' + e.message); process.exit(2); }
+      const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_PATH, 'utf-8'));
+      const out = m.appendSession(profile, entry);
+      fs.writeFileSync(process.env.OUT_PATH, JSON.stringify(out, null, 2));
+      console.log('APPEND: ok — ' + m.realSessions(out).length + ' session(s)');
+    }).catch((e) => { console.error('append-session: ' + e.message); process.exit(1); });
+  " ); then
+    mv "$TMPOUT" "$PROFILE_FILE"
+    SCRIPT_DIR_E="$(cd "$(dirname "$0")" && pwd)"
+    "$SCRIPT_DIR_E/gstack-brain-enqueue" "developer-profile.json" 2>/dev/null &
+  else
+    local rc=$?
+    rm -f "$TMPOUT"
+    return "$rc"
+  fi
+}
+
+# -----------------------------------------------------------------------
+# Append a resources-shown record (read JSON {resources_shown,[topics]} from
+# stdin). Merges into the profile's resources_shown/topics WITHOUT adding a
+# session row, so founder-resource dedup works without inflating SESSION_COUNT.
+# -----------------------------------------------------------------------
+do_append_resources() {
+  local INPUT
+  INPUT="$(cat)"
+  ensure_profile
+  local TMPOUT
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  if ( cd "$ROOT_DIR" && PROFILE_PATH="$PROFILE_FILE" OUT_PATH="$TMPOUT" APPEND_JSON="$INPUT" bun -e "
+    import('./scripts/profile-store.ts').then((m) => {
+      const fs = require('fs');
+      let entry;
+      try { entry = JSON.parse(process.env.APPEND_JSON); }
+      catch (e) { console.error('append-resources: invalid JSON — ' + e.message); process.exit(2); }
+      const profile = JSON.parse(fs.readFileSync(process.env.PROFILE_PATH, 'utf-8'));
+      const out = m.mergeResources(profile, entry);
+      fs.writeFileSync(process.env.OUT_PATH, JSON.stringify(out, null, 2));
+      console.log('APPEND: ok — ' + (out.resources_shown || []).length + ' resource(s) tracked');
+    }).catch((e) => { console.error('append-resources: ' + e.message); process.exit(1); });
+  " ); then
+    mv "$TMPOUT" "$PROFILE_FILE"
+  else
+    local rc=$?
+    rm -f "$TMPOUT"
+    return "$rc"
+  fi
+}
+
+# -----------------------------------------------------------------------
 # Dispatch
 # -----------------------------------------------------------------------
 case "$CMD" in
@@ -441,6 +524,8 @@ case "$CMD" in
   --vibe) do_vibe ;;
   --check-mismatch) do_check_mismatch ;;
   --migrate) do_migrate ;;
+  --append-session) do_append_session ;;
+  --append-resources) do_append_resources ;;
   --help|-h) sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||' ;;
   *)
     echo "gstack-developer-profile: unknown subcommand '$CMD'" >&2

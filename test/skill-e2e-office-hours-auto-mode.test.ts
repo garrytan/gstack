@@ -5,7 +5,8 @@
  * `--disallowedTools AskUserQuestion --permission-mode default` (verified
  * by inspecting the parent claude process via `ps`). office-hours' first
  * step issues a startup-vs-builder mode AskUserQuestion
- * (office-hours/SKILL.md.tmpl:69); when AskUserQuestion is disallowed at
+ * (Phase 1 step 5 — the "what's your goal with this?" question); when
+ * AskUserQuestion is disallowed at
  * the tool-registry level the model cannot ask and silently picks one mode,
  * breaking the whole interactive premise. This test asserts that question
  * still surfaces — fix must route through mcp__conductor__AskUserQuestion

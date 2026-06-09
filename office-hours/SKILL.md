@@ -34,14 +34,13 @@ gbrain:
     - id: prior-sessions
       kind: list
       filter:
-        type: ceo-plan
         tags_contains: "repo:{repo_slug}"
       sort: updated_at_desc
       limit: 5
       render_as: "## Prior office-hours sessions in this repo"
     - id: builder-profile
       kind: filesystem
-      glob: "~/.gstack/builder-profile.jsonl"
+      glob: "~/.gstack/developer-profile.json"
       tail: 1
       render_as: "## Your builder profile snapshot"
     - id: design-doc-history
@@ -835,12 +834,29 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 1. Read `CLAUDE.md`, `TODOS.md` (if they exist).
 2. Run `git log --oneline -30` and `git diff origin/main --stat 2>/dev/null` to understand recent context.
 3. Use Grep/Glob to map the codebase areas most relevant to the user's request.
-4. **List existing design docs for this project:**
+4. **List existing design docs for this project — and offer to resume one:**
    ```bash
    setopt +o nomatch 2>/dev/null || true  # zsh compat
    ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null
    ```
-   If design docs exist, list them: "Prior designs for this project: [titles + dates]"
+   If design docs exist, list them ("Prior designs for this project: [titles + dates]") and,
+   via AskUserQuestion, offer to pick up where they left off:
+
+   > You've designed in this repo before. Continue one, or start fresh?
+   > - **Resume "{most recent title}"** — pick up the latest design
+   > - **Build on a specific prior design** — choose from the list
+   > - **Start a new idea** — fresh session
+
+   - **Resume / Build on:** read the chosen doc, infer its mode from the `Mode:` field
+     (so you can skip the goal question in step 5), and recap it back in 3-4 lines — its
+     **Recommended Approach**, any **Open Questions**, and **The Assignment** — framed as
+     "Last time you decided…". Then SKIP the Phase 2 diagnostic and go straight to Phase 3
+     (Premise Challenge) against the existing premises, so the session builds on prior
+     thinking instead of re-interrogating it. The Phase 5 doc gets a `Supersedes:` link to
+     the resumed one.
+   - **Start a new idea:** proceed normally.
+
+   If no prior design docs exist, proceed.
 
 ## Prior Learnings
 
@@ -897,10 +913,11 @@ smarter on their codebase over time.
    - Startup, intrapreneurship → **Startup mode** (Phase 2A)
    - Hackathon, open source, research, learning, having fun → **Builder mode** (Phase 2B)
 
-6. **Assess product stage** (only for startup/intrapreneurship modes):
+6. **Assess product stage** (only for startup/intrapreneurship modes). This selects the smart-routing question set below:
    - Pre-product (idea stage, no users yet)
    - Has users (people using it, not yet paying)
    - Has paying customers
+   - Pure engineering/infra (internal tooling or infrastructure with no external "customer" — routes to a reduced question set)
 
 Output: "Here's what I understand about this project and the area you want to change: ..."
 
@@ -1063,7 +1080,7 @@ The pressure is in the stacking — don't collapse it into a single ask. The spe
 
 **Escape hatch:** If the user expresses impatience ("just do it," "skip the questions"):
 - Say: "I hear you. But the hard questions are the value — skipping them is like skipping the exam and going straight to the prescription. Let me ask two more, then we'll move."
-- Consult the smart routing table for the founder's product stage. Ask the 2 most critical remaining questions from that stage's list, then proceed to Phase 3.
+- Consult the smart routing table for the founder's product stage. Ask the 2 highest-priority questions from that stage's list that you have NOT already asked, then proceed to Phase 3.
 - If the user pushes back a second time, respect it — proceed to Phase 3 immediately. Don't ask a third time.
 - If only 1 question remains, ask it. If 0 remain, proceed directly.
 - Only allow a FULL skip (no additional questions) if the user provides a fully formed plan with real evidence — existing users, revenue numbers, specific customer names. Even then, still run Phase 3 (Premise Challenge) and Phase 4 (Alternatives).
@@ -1110,7 +1127,7 @@ Ask these **ONE AT A TIME** via AskUserQuestion. The goal is to brainstorm and s
 
 **STOP** after each question. Wait for the response before asking the next.
 
-**Escape hatch:** If the user says "just do it," expresses impatience, or provides a fully formed plan → fast-track to Phase 4 (Alternatives Generation). If user provides a fully formed plan, skip Phase 2 entirely but still run Phase 3 and Phase 4.
+**Escape hatch:** If the user says "just do it," expresses impatience, or provides a fully formed plan → stop asking Phase 2B questions and move on, but STILL run Phase 3 (Premise Challenge) before Phase 4 (Alternatives Generation) — never skip the premise check. If the user provides a fully formed plan, skip Phase 2 entirely (Phase 2.5 / 2.75 self-gate on having questioned, so they fall away naturally); Phase 3 and Phase 4 always run.
 
 **If the vibe shifts mid-session** — the user starts in builder mode but says "actually I think this could be a real company" or mentions customers, revenue, fundraising — upgrade to Startup mode naturally. Say something like: "Okay, now we're talking — let me ask you some harder questions." Then switch to the Phase 2A questions.
 
@@ -1515,34 +1532,46 @@ Track which of these signals appeared during the session:
 
 Count the signals. You'll use this count in Phase 6 to determine which tier of closing message to use.
 
-### Builder Profile Append
+### Session Persistence
 
-After counting signals, append a session entry to the builder profile. This is the single
+After counting signals, persist this session to the developer profile — the single
 source of truth for all closing state (tier, resource dedup, journey tracking).
+**Write it through the profile binary**, which appends to the same `developer-profile.json`
+the closing reads from. (Do NOT hand-append raw JSONL to a file — that older path is no
+longer read, and shell-assembled JSON corrupts on quoted / apostrophe / newline text.)
+
+Emit one JSON **object** on stdin via a quoted heredoc. Substitute the real values; if
+`assignment` or a topic contains a double-quote, escape it as `\"` (it's JSON). You do
+NOT need to provide `date` — it is stamped automatically.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-mkdir -p "$GSTACK_STATE_ROOT"
+~/.claude/skills/gstack/bin/gstack-developer-profile --append-session <<'OHSESSION'
+{
+  "mode": "MODE",
+  "project_slug": "SLUG",
+  "signal_count": N,
+  "signals": SIGNALS_ARRAY,
+  "design_doc": "DOC_PATH",
+  "design_title": "DESIGN_TITLE",
+  "assignment": "ASSIGNMENT_TEXT",
+  "topics": TOPICS_ARRAY
+}
+OHSESSION
 ```
 
-Append one JSON line with these fields (substitute actual values from this session):
-- `date`: current ISO 8601 timestamp
+Field notes (substitute actual values from this session):
 - `mode`: "startup" or "builder" (from Phase 1 mode selection)
 - `project_slug`: the SLUG value from the preamble
 - `signal_count`: number of signals counted above
 - `signals`: array of signal names observed (e.g., `["named_users", "pushback", "taste"]`)
 - `design_doc`: path to the design doc that will be written in Phase 5 (construct it now)
+- `design_title`: the design's human title (its `# Design: {title}` heading) — used in the closing's design-trajectory line
 - `assignment`: the assignment you will give in the design doc's "The Assignment" section
-- `resources_shown`: empty array `[]` for now (populated after resource selection in Phase 6)
 - `topics`: array of 2-3 topic keywords that describe what this session was about
 
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-echo '{"date":"TIMESTAMP","mode":"MODE","project_slug":"SLUG","signal_count":N,"signals":SIGNALS_ARRAY,"design_doc":"DOC_PATH","assignment":"ASSIGNMENT_TEXT","resources_shown":[],"topics":TOPICS_ARRAY}' >> "$GSTACK_STATE_ROOT/builder-profile.jsonl"
-```
-
-This entry is append-only. The `resources_shown` field will be updated via a second append
-after resource selection in Phase 6 Beat 3.5.
+The command prints `APPEND: ok` on success. If it reports invalid JSON, fix the escaping
+and re-run — the session is never silently dropped. Resources shown are recorded
+separately in Phase 6 Beat 3.5.
 
 ---
 
@@ -1675,7 +1704,8 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## Distribution Plan
 {how users get the deliverable — binary download, package manager, container image, web service, etc.}
-{CI/CD pipeline for building and publishing — or "existing deployment pipeline covers this"}
+{CI/CD pipeline for building and publishing — GitHub Actions, manual release, auto-deploy on merge?}
+{omit this section if the deliverable is a web service with existing deployment pipeline}
 
 ## Next Steps
 {concrete build tasks — what to implement first, second, third}
@@ -1768,8 +1798,14 @@ over time.
 ### Step 1: Read Builder Profile
 
 ```bash
-PROFILE=$(~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
+# A new user legitimately reads SESSION_COUNT: 0 / TIER: introduction (no error).
+# The fallback only triggers on a genuine exec failure — surface it rather than
+# silently greeting a returning user as a first-timer.
+PROFILE=$(~/.claude/skills/gstack/bin/gstack-developer-profile --read) || {
+  echo "office-hours: profile read failed — defaulting to introduction tier (see error above)." >&2
+  PROFILE="SESSION_COUNT: 0
 TIER: introduction"
+}
 SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
 SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')
 ```
@@ -1817,7 +1853,7 @@ Use the founder signal count from Phase 4.5 to select the right sub-tier.
 > GStack thinks you are among the top people who could do this.
 
 Then use AskUserQuestion: "Would you consider applying to Y Combinator?"
-- If yes: run `open https://ycombinator.com/apply?ref=gstack` and say: "Bring this design doc to your YC interview. It's better than most pitch decks."
+- If yes: run `~/.claude/skills/gstack/bin/gstack-open-url https://ycombinator.com/apply?ref=gstack` and say: "Bring this design doc to your YC interview. It's better than most pitch decks."
 - If no: respond warmly: "Totally fair. The design doc is yours either way, and the offer stands if you ever change your mind." No pressure, no guilt, no re-ask.
 
 - **Middle tier** (1-2 signals, or builder whose project solves a real problem):
@@ -1897,7 +1933,7 @@ with a narrative arc (not a data table). The arc tells the STORY of their journe
 second person, referencing specific things they said across sessions. Then open it:
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-open "$GSTACK_STATE_ROOT/builder-journey.md"
+~/.claude/skills/gstack/bin/gstack-open-url "$GSTACK_STATE_ROOT/builder-journey.md"
 ```
 
 Then proceed to Founder Resources below.
@@ -1924,8 +1960,9 @@ Share 2-3 resources from the pool below. For repeat users, resources compound by
 to accumulated session context, not just this session's category.
 
 **Dedup check:** Read `RESOURCES_SHOWN` from the builder profile output above.
-If `RESOURCES_SHOWN_COUNT` is 34 or more, skip this section entirely (all resources exhausted).
-Otherwise, avoid selecting any URL that appears in the RESOURCES_SHOWN list.
+If `RESOURCES_SHOWN_COUNT` is greater than or equal to the number of resources in the pool
+below (count them at runtime — currently 34), skip this section entirely (all resources
+exhausted). Otherwise, avoid selecting any URL that appears in the RESOURCES_SHOWN list.
 
 **Selection rules:**
 - Pick 2-3 resources. Mix categories — never 3 of the same type.
@@ -1948,12 +1985,12 @@ Otherwise, avoid selecting any URL that appears in the RESOURCES_SHOWN list.
 > {1-2 sentence blurb — direct, specific, encouraging. Match Garry's voice: tell them WHY this one matters for THEIR situation.}
 > {url}
 
-**Resource Pool:**
+**Resource Pool** (34 entries — if you add or remove one, update the dedup-gate count above; `test/office-hours-structure.test.ts` enforces they match):
 
 GARRY TAN VIDEOS:
 1. "My $200 million startup mistake: Peter Thiel asked and I said no" (5 min) — The single best "why you should take the leap" video. Peter Thiel writes him a check at dinner, he says no because he might get promoted to Level 60. That 1% stake would be worth $350-500M today. https://www.youtube.com/watch?v=dtnG0ELjvcM
 2. "Unconventional Advice for Founders" (48 min, Stanford) — The magnum opus. Covers everything a pre-launch founder needs: get therapy before your psychology kills your company, good ideas look like bad ideas, the Katamari Damacy metaphor for growth. No filler. https://www.youtube.com/watch?v=Y4yMc99fpfY
-3. "The New Way To Build A Startup" (8 min) — The 2026 playbook. Introduces the "20x company" — tiny teams beating incumbents through AI automation. Three real case studies. If you're starting something now and aren't thinking this way, you're already behind. https://www.youtube.com/watch?v=rWUWfj_PqmM
+3. "The New Way To Build A Startup" (8 min) — The new-era playbook. Introduces the "20x company" — tiny teams beating incumbents through AI automation. Three real case studies. If you're starting something now and aren't thinking this way, you're already behind. https://www.youtube.com/watch?v=rWUWfj_PqmM
 4. "How To Build The Future: Sam Altman" (30 min) — Sam talks about what it takes to go from an idea to something real — picking what's important, finding your tribe, and why conviction matters more than credentials. https://www.youtube.com/watch?v=xXCBz_8hM9w
 5. "What Founders Can Do To Improve Their Design Game" (15 min) — Garry was a designer before he was an investor. Taste and craft are the real competitive advantage, not MBA skills or fundraising tricks. https://www.youtube.com/watch?v=ksGNfd-wQY4
 
@@ -1967,7 +2004,7 @@ LIGHTCONE PODCAST:
 10. "Billion-Dollar Unpopular Startup Ideas" (25 min) — Uber, Coinbase, DoorDash — they all sounded terrible at first. The best opportunities are the ones most people dismiss. Liberating if your idea feels "weird." https://www.youtube.com/watch?v=Hm-ZIiwiN1o
 11. "Vertical AI Agents Could Be 10X Bigger Than SaaS" (40 min) — The most-watched Lightcone episode. If you're building in AI, this is the landscape map — where the biggest opportunities are and why vertical agents win. https://www.youtube.com/watch?v=ASABxNenD_U
 12. "The Truth About Building AI Startups Today" (35 min) — Cuts through the hype. What's actually working, what's not, and where the real defensibility comes from in AI startups right now. https://www.youtube.com/watch?v=TwDJhUJL-5o
-13. "Startup Ideas You Can Now Build With AI" (30 min) — Concrete, actionable ideas for things that weren't possible 12 months ago. If you're looking for what to build, start here. https://www.youtube.com/watch?v=K4s6Cgicw_A
+13. "Startup Ideas You Can Now Build With AI" (30 min) — Concrete, actionable ideas for things that just became possible. If you're looking for what to build, start here. https://www.youtube.com/watch?v=K4s6Cgicw_A
 14. "Vibe Coding Is The Future" (30 min) — Building software just changed forever. If you can describe what you want, you can build it. The barrier to being a technical founder has never been lower. https://www.youtube.com/watch?v=IACHfKmZMr8
 15. "How To Get AI Startup Ideas" (30 min) — Not theoretical. Walks through specific AI startup ideas that are working right now and explains why the window is open. https://www.youtube.com/watch?v=TANaRNMbYgk
 16. "10 People + AI = Billion Dollar Company?" (25 min) — The thesis behind the 20x company. Small teams with AI leverage are outperforming 100-person incumbents. If you're a solo builder or small team, this is your permission slip to think big. https://www.youtube.com/watch?v=CKvo_kQbakU
@@ -1996,17 +2033,19 @@ PAUL GRAHAM ESSAYS:
 
 **After presenting resources — log to builder profile and offer to open:**
 
-1. Log the selected resource URLs to the builder profile (single source of truth).
-Append a resource-tracking entry:
+1. Record the shown resource URLs in the profile (single source of truth for dedup).
+This merges into `resources_shown` WITHOUT counting as a session:
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-echo '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' >> "$GSTACK_STATE_ROOT/builder-profile.jsonl"
+~/.claude/skills/gstack/bin/gstack-developer-profile --append-resources <<'OHRES'
+{ "resources_shown": ["URL1", "URL2", "URL3"] }
+OHRES
 ```
 
-2. Log the selection to analytics:
+2. Log the selection to analytics (best-effort; same state root as the profile):
 ```bash
-mkdir -p ~/.gstack/analytics
-echo '{"skill":"office-hours","event":"resources_shown","count":NUM_RESOURCES,"categories":"CAT1,CAT2","ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+mkdir -p "$GSTACK_STATE_ROOT/analytics"
+echo '{"skill":"office-hours","event":"resources_shown","count":NUM_RESOURCES,"categories":"CAT1,CAT2","ts":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' >> "$GSTACK_STATE_ROOT/analytics/skill-usage.jsonl" 2>/dev/null || true
 ```
 
 3. Use AskUserQuestion to offer opening the resources:
@@ -2020,8 +2059,8 @@ Options:
 - D) [Title of resource 3, if 3 were shown] — open just this one
 - E) Skip — I'll find them later
 
-If A: run `open URL1 && open URL2 && open URL3` (opens each in default browser).
-If B/C/D: run `open` on the selected URL only.
+If A: run `for u in URL1 URL2 URL3; do ~/.claude/skills/gstack/bin/gstack-open-url "$u"; done` (opens each in the default browser, cross-platform; independent so one failure doesn't skip the rest).
+If B/C/D: run `~/.claude/skills/gstack/bin/gstack-open-url URL` on the selected URL only.
 If E: proceed to next-skill recommendations.
 
 ### Next-skill recommendations

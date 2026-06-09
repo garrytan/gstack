@@ -38,7 +38,7 @@ Any non-zero exit code from gbrain commands should be treated as a transient fai
 
 export function generateGBrainSaveResults(ctx: TemplateContext): string {
   const skillSaveMap: Record<string, string> = {
-    'office-hours': 'Save the design document as a brain page:\n```bash\ngbrain put_page --title "Office Hours: <project name>" --tags "design-doc,<project-slug>" <<\'EOF\'\n<design doc content in markdown>\nEOF\n```',
+    'office-hours': 'Save the design document as a brain page (the `repo:<project-slug>` tag is what the prior-sessions context query matches on next time):\n```bash\ngbrain put_page --title "Office Hours: <project name>" --tags "design-doc,repo:<project-slug>" <<\'EOF\'\n<design doc content in markdown>\nEOF\n```',
     'investigate': 'Save the root cause analysis as a brain page:\n```bash\ngbrain put_page --title "Investigation: <issue summary>" --tags "investigation,<affected-files>" <<\'EOF\'\n<investigation findings in markdown>\nEOF\n```',
     'plan-ceo-review': 'Save the CEO plan as a brain page:\n```bash\ngbrain put_page --title "CEO Plan: <feature name>" --tags "ceo-plan,<feature-slug>" <<\'EOF\'\n<scope decisions and vision in markdown>\nEOF\n```',
     'retro': 'Save the retrospective as a brain page:\n```bash\ngbrain put_page --title "Retro: <date range>" --tags "retro,<date>" <<\'EOF\'\n<retro output in markdown>\nEOF\n```',

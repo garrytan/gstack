@@ -40,6 +40,7 @@ function makeEntry(overrides: Partial<{
   signal_count: number;
   signals: string[];
   design_doc: string;
+  design_title: string;
   assignment: string;
   resources_shown: string[];
   topics: string[];
@@ -51,6 +52,7 @@ function makeEntry(overrides: Partial<{
     signal_count: 0,
     signals: [],
     design_doc: '',
+    design_title: '',
     assignment: '',
     resources_shown: [],
     topics: [],
@@ -292,13 +294,23 @@ describe('gstack-builder-profile', () => {
       expect(r['LAST_PROJECT']).toBe('new-app');
     });
 
-    test('returns last design doc', () => {
+    test('returns last design title (basename fallback when no explicit title)', () => {
       writeProfile([
         makeEntry({ design_doc: 'path/to/design-1.md' }),
         makeEntry({ design_doc: 'path/to/design-2.md', date: '2026-04-02T00:00:00Z' }),
       ]);
       const r = runProfile();
-      expect(r['LAST_DESIGN_TITLE']).toBe('path/to/design-2.md');
+      // LAST_DESIGN_TITLE surfaces a human title, not a raw filesystem path.
+      expect(r['LAST_DESIGN_TITLE']).toBe('design-2.md');
+    });
+
+    test('prefers an explicit design_title over the doc path', () => {
+      writeProfile([
+        makeEntry({ design_doc: 'path/to/d1.md', design_title: 'First Idea' }),
+        makeEntry({ design_doc: 'path/to/d2.md', design_title: 'Second Idea', date: '2026-04-02T00:00:00Z' }),
+      ]);
+      const r = runProfile();
+      expect(r['LAST_DESIGN_TITLE']).toBe('Second Idea');
     });
   });
 
