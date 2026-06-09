@@ -38,6 +38,8 @@ import { spawnSync, spawn, execFileSync, type SpawnSyncReturns, type ChildProces
 
 interface GbrainConfig {
   database_url?: string;
+  engine?: string;
+  database_path?: string;
 }
 
 export interface BuildGbrainEnvOptions {
@@ -80,8 +82,13 @@ export function isTransactionModePooler(url: string): boolean {
  * unchanged when:
  *   - `GSTACK_RESPECT_ENV_DATABASE_URL=1` (intentional opt-out),
  *   - the config file is missing or unparseable,
- *   - the config has no `database_url`,
+ *   - the config has no `database_url` and is not a local PGLite config,
  *   - the caller already set DATABASE_URL to the same value.
+ *
+ * For PGLite configs, there is no DATABASE_URL to seed. In that case we
+ * strip caller-supplied database URLs so Bun's project `.env` autoload
+ * cannot make gbrain probe an unrelated app database and classify a healthy
+ * file-backed brain as `broken-db`.
  *
  * When the effective DATABASE_URL targets a PgBouncer transaction-mode
  * pooler (port 6543), sets `GBRAIN_PREPARE=true` so gbrain re-enables
@@ -108,7 +115,13 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   } catch {
     return out;
   }
-  if (!cfg.database_url) return out;
+  if (!cfg.database_url) {
+    if (cfg.engine === "pglite" || cfg.database_path) {
+      delete out.DATABASE_URL;
+      delete out.GBRAIN_DATABASE_URL;
+    }
+    return out;
+  }
 
   const hadCaller = baseEnv.DATABASE_URL !== undefined;
   const alreadyMatch = baseEnv.DATABASE_URL === cfg.database_url;

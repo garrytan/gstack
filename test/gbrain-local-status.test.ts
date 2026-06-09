@@ -55,8 +55,9 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain?: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "throws";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "throws" | "fail-on-database-url";
   withConfig?: boolean;
+  configJson?: Record<string, unknown>;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-local-status-test-"));
   const bindir = join(tmp, "bin");
@@ -73,7 +74,7 @@ function makeEnv(opts: {
   if (opts.withConfig) {
     writeFileSync(
       configPath,
-      JSON.stringify({ engine: "pglite", database_url: "pglite:///fake" }),
+      JSON.stringify(opts.configJson ?? { engine: "pglite", database_url: "pglite:///fake" }),
     );
   }
 
@@ -96,7 +97,7 @@ function makeEnv(opts: {
 }
 
 function makeFakeGbrainScript(
-  behavior: "ok" | "broken-db" | "broken-config" | "throws",
+  behavior: "ok" | "broken-db" | "broken-config" | "throws" | "fail-on-database-url",
 ): string {
   const stderrLine =
     behavior === "broken-db"
@@ -113,6 +114,14 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 if [ "$1 $2" = "sources list" ]; then
+  if [ "${behavior}" = "fail-on-database-url" ]; then
+    if [ -n "$DATABASE_URL" ] || [ -n "$GBRAIN_DATABASE_URL" ]; then
+      echo "Cannot connect to database: leaked DATABASE_URL" >&2
+      exit 1
+    fi
+    echo '{"sources":[]}'
+    exit 0
+  fi
   if [ ${exitCode} -eq 0 ]; then
     echo '{"sources":[]}'
     exit 0
@@ -136,6 +145,8 @@ function applyEnv(env: FakeEnv): () => void {
     HOME: process.env.HOME,
     PATH: process.env.PATH,
     GSTACK_HOME: process.env.GSTACK_HOME,
+    DATABASE_URL: process.env.DATABASE_URL,
+    GBRAIN_DATABASE_URL: process.env.GBRAIN_DATABASE_URL,
   };
   process.env.HOME = env.home;
   process.env.PATH = `${env.bindir}:/usr/bin:/bin`;
@@ -147,6 +158,10 @@ function applyEnv(env: FakeEnv): () => void {
     else process.env.PATH = prev.PATH;
     if (prev.GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
     else process.env.GSTACK_HOME = prev.GSTACK_HOME;
+    if (prev.DATABASE_URL === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prev.DATABASE_URL;
+    if (prev.GBRAIN_DATABASE_URL === undefined) delete process.env.GBRAIN_DATABASE_URL;
+    else process.env.GBRAIN_DATABASE_URL = prev.GBRAIN_DATABASE_URL;
   };
 }
 
@@ -204,6 +219,20 @@ describe("lib/gbrain-local-status — five status cases", () => {
   it("returns 'ok' when sources list succeeds", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: true });
     restoreEnv = applyEnv(env);
+    expect(localEngineStatus({ noCache: true })).toBe("ok");
+  });
+
+  it("does not misclassify a PGLite brain as broken-db when caller env leaks DATABASE_URL", () => {
+    env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "fail-on-database-url",
+      withConfig: true,
+      configJson: { engine: "pglite", database_path: "local/pglite.db" },
+    });
+    restoreEnv = applyEnv(env);
+    process.env.DATABASE_URL = "sqlite:///app.db";
+    process.env.GBRAIN_DATABASE_URL = "postgresql://wrong/db";
+
     expect(localEngineStatus({ noCache: true })).toBe("ok");
   });
 });
