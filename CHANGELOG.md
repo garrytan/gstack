@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-10
+
+**New skill: `/fanout` decomposes a finished design doc into 2-3 parallel agent tasks.**
+**Per-slab prompt files plus a worktree dispatch script. v0 produces the plan and stops.**
+
+After `/office-hours` + eng-review + `/design-consultation` produces a design doc, the bottleneck is execution: one agent works through the whole doc serially. `/fanout docs/designs/MY_FEATURE.md` reads the doc, identifies independent slabs of work via a 4-layer heuristic (numbered phases, implementation subsections, file-reference tables, natural seams), promotes shared groundwork to a synchronous Slab 0, builds a slab matrix with verification gates, and writes a `## Parallel Execution Plan` section back to the doc. Alongside it: one editable `<topic>-slab-<k>.prompt.md` per slab and a `worktree-dispatch.sh` with Slab 0 ready to run and Slabs 1-N commented out, uncommented manually after Slab 0 lands on main.
+
+### The shape of the win
+
+No production benchmarks yet, this is a v0 release. The structural argument:
+
+- Serial implementation of a 3-subsystem design doc waits on one agent finishing each subsystem in sequence.
+- Parallel implementation runs three agents concurrently after a brief Slab 0 (shared groundwork) lands. Wall-clock collapses to Slab 0 time plus the slowest slab, instead of the sum.
+- The slab matrix plus explicit Slab 0 promotion is the structural defense against three parallel agents tripping over the same shared type file. The skill also names the coordination tax it can't remove: every slab's /ship queues a CHANGELOG/VERSION entry, and each slab after the first rebases over the earlier ones.
+
+Real numbers land in v1 with the first production runs and a paid E2E eval. Until then the win is qualitative: it turns "wait for one agent" into "wait for the slowest of three."
+
+### What this means for builders
+
+If you're sitting on a finished design doc that touches 3+ subsystems, `/fanout` turns it into 2-3 worktrees you can dispatch in parallel, each with an editable prompt file. Read the appended section, tweak the prompts if you want, run the script, let Slab 0 land before uncommenting the rest. Caps at 3 slabs by default because more is usually false parallelism. Pure prompt-based skill, no new binaries, no eval cost.
+
+### Itemized changes
+
+#### Added
+- `/fanout` skill at `fanout/SKILL.md.tmpl` and generated `fanout/SKILL.md`.
+- Free `bun test` fixture at `test/fanout.test.ts` validates frontmatter, section structure, and the hardening guardrails below.
+- `/fanout` routing line in `CLAUDE.md`, rows in `README.md`, `AGENTS.md`, `docs/skills.md`, and a `test/skill-coverage-matrix.ts` entry.
+
+#### Hardening (from the first PR's adversarial review, all six prior limitations closed)
+- Worktree dirs and branch names carry a doc-path hash suffix, so two design docs with the same filename stem can't collide.
+- CHANGELOG/VERSION are named expected-conflict files in the Merge order, the per-slab prompts, and the wall-clock report, so the coordination tax of parallel /ship is visible up front.
+- Slab 0 promotion keeps contract ownership with the owning slab (Slab 0 lands skeletons only).
+- An over-decomposition guard stops the skill when more than a third of slabs end up chained, and the natural-seams heuristic refuses docs whose shared contracts are marked draft.
+- Table cells escape `|` and collapse newlines so odd file paths can't corrupt the slab matrix.
+- Per-slab prompt files replace heredocs in the dispatch script, eliminating the EOF-breakout class and making each slab's marching orders user-editable before dispatch.
+
+#### For contributors
+- Design doc at [`docs/designs/FANOUT.md`](docs/designs/FANOUT.md) documents the slab detection heuristic, Slab 0 promotion logic, conflict resolution rules, edge cases, and the v0.1 hardening section.
+- No new infrastructure: skill is auto-discovered by `setup` via the existing top-level-directory glob.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
