@@ -207,9 +207,13 @@ For Paths 1, 2a, 2b, 3, switch — only if `gbrain_on_path=false`:
 
 The installer runs D5 detect-first (probes `~/git/gbrain`, `~/gbrain` first),
 then D19 PATH-shadow validation (post-link `gbrain --version` must match
-install-dir `package.json`). On D19 failure the installer exits 3 with a
-clear remediation menu; surface the full output to the user and STOP. Do not
-continue the skill — the environment is broken until the user fixes PATH.
+install-dir `package.json`). On Windows MSYS/Git Bash, the installer uses
+`bun install --ignore-scripts` because Bun's Windows shell can fail while
+parsing gbrain's postinstall redirect probe before the graceful fallback runs;
+`bun link` and the later `gbrain init --pglite` migration step still run. On
+D19 failure the installer exits 3 with a clear remediation menu; surface the
+full output to the user and STOP. Do not continue the skill — the environment
+is broken until the user fixes PATH.
 
 ---
 
@@ -539,13 +543,29 @@ this machine, not just the current workspace. Absolute path avoids PATH
 resolution issues when Claude Code spawns `gbrain serve` as a subprocess.
 
 ```bash
-GBRAIN_BIN=$(command -v gbrain)
-[ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
+GBRAIN_BIN=$(command -v gbrain || true)
+if [ -z "$GBRAIN_BIN" ]; then
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*|Windows_NT) GBRAIN_BIN="$HOME/.bun/bin/gbrain.exe" ;;
+    *) GBRAIN_BIN="$HOME/.bun/bin/gbrain" ;;
+  esac
+fi
 claude mcp remove gbrain -s user 2>/dev/null || true
 claude mcp remove gbrain 2>/dev/null || true
 claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
 claude mcp list | grep gbrain  # verify: should show "✓ Connected"
 ```
+
+On Windows, keep the explicit `.exe` fallback. Claude Code on Windows does
+not apply PATHEXT when spawning the stored absolute MCP server path, so
+`C:/Users/<user>/.bun/bin/gbrain` can fail while
+`C:/Users/<user>/.bun/bin/gbrain.exe` works.
+
+If `claude mcp list` reports `✗ Failed to connect` for a local PGLite brain
+while an active Claude Code session can still call `mcp__gbrain__*` tools,
+treat it as likely single-writer lock contention, not proof registration
+failed. PGLite allows one writer; `claude mcp list` starts a second probe
+process that can lose the lock to the already-running MCP server.
 
 ### Both paths
 
@@ -859,7 +879,7 @@ Do NOT print the actual token in the curl command — leave the placeholder
 
 ```bash
 SLUG="setup-gbrain-smoke-test-$(date +%s)"
-echo "Set up on $(date). Smoke test for /setup-gbrain." | gbrain put "$SLUG"
+gbrain put "$SLUG" --content "Set up on $(date). Smoke test for /setup-gbrain."
 gbrain search "smoke test" | grep -i "$SLUG"
 ```
 
