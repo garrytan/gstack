@@ -24,6 +24,7 @@ import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
+import { loadPersistedCookies } from './cookie-persistence';
 
 /**
  * Detect whether GSTACK_CHROMIUM_PATH points at a custom Chromium build that
@@ -406,6 +407,8 @@ export class BrowserManager {
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
     }
+
+    await loadPersistedCookies(this.context);
 
     // D7: mask navigator.webdriver only. The other 3 wintermute patches
     // (plugins, languages, chrome.runtime) are intentionally NOT applied —

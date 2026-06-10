@@ -21,6 +21,7 @@ import * as crypto from 'crypto';
 import type { BrowserManager } from './browser-manager';
 import { findInstalledBrowsers, listProfiles, listDomains, importCookies, importCookiesViaCdp, hasV20Cookies, CookieImportError, type PlaywrightCookie } from './cookie-import-browser';
 import { getCookiePickerHTML } from './cookie-picker-ui';
+import { persistCookies } from './cookie-persistence';
 
 // ─── Auth State ─────────────────────────────────────────────────
 // One-time codes for the cookie picker UI (code → expiry timestamp).
@@ -268,6 +269,7 @@ export async function handleCookiePickerRoute(
       // Add to Playwright context
       const page = bm.getActiveSession().getPage();
       await page.context().addCookies(result.cookies);
+      await persistCookies(page.context());
 
       // Track what was imported
       for (const domain of Object.keys(result.domainCounts)) {
@@ -305,6 +307,7 @@ export async function handleCookiePickerRoute(
         importedDomains.delete(domain);
         importedCounts.delete(domain);
       }
+      await persistCookies(context);
 
       console.log(`[cookie-picker] Removed cookies for ${domains.length} domains`);
 

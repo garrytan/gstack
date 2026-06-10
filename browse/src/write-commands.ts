@@ -19,6 +19,7 @@ import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 import { withCdpSession } from './cdp-bridge';
+import { persistCookies } from './cookie-persistence';
 
 /**
  * Aggressive page cleanup selectors and heuristics.
@@ -565,6 +566,7 @@ export async function handleWriteCommand(
         domain: url.hostname,
         path: '/',
       }]);
+      await persistCookies(page.context());
       return `Cookie set: ${name}=****`;
     }
 
@@ -678,6 +680,7 @@ export async function handleWriteCommand(
       }
 
       await page.context().addCookies(cookies);
+      await persistCookies(page.context());
       const importedDomains = [...new Set(cookies.map((c: any) => c.domain).filter(Boolean))];
       if (importedDomains.length > 0) bm.trackCookieImportDomains(importedDomains);
       return `Loaded ${cookies.length} cookies from ${filePath}`;
@@ -711,6 +714,7 @@ export async function handleWriteCommand(
         }
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
+          await persistCookies(page.context());
           bm.trackCookieImportDomains([domain]);
         }
         const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
@@ -731,6 +735,7 @@ export async function handleWriteCommand(
         const result = await importCookies(browser, allDomainNames, profile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
+          await persistCookies(page.context());
           bm.trackCookieImportDomains(allDomainNames);
         }
         const msg = [`Imported ${result.count} cookies across ${Object.keys(result.domainCounts).length} domains from ${browser}`];
