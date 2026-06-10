@@ -109,7 +109,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `upload <sel> <file> [file2...]`: Upload file(s)
 - `useragent <string>`: Set user agent
 - `viewport [<WxH>] [--scale <n>]`: Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots).
-- `wait <sel|--networkidle|--load>`: Wait for element, network idle, or page load (timeout: 15s)
+- `wait <sel|--networkidle|--load> [timeoutMs]`: Wait for element, network idle, or page load (timeout: 15s; first local dev route hit: 90s unless explicit ms is passed)
 
 ### Meta
 - `chain  (JSON via stdin)`: Run a sequence of commands from JSON on stdin.

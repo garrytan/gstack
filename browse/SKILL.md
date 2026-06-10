@@ -918,7 +918,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
 | `viewport [<WxH>] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. |
-| `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
+| `wait <sel|--networkidle|--load> [timeoutMs]` | Wait for element, network idle, or page load (timeout: 15s; first local dev route hit: 90s unless explicit ms is passed) |
 
 ### Inspection
 | Command | Description |

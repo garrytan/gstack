@@ -18,10 +18,18 @@ import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent } from './terminal-agent-control';
+import {
+  COLD_LOCAL_ROUTE_TIMEOUT_MS,
+  MAX_WAIT_TIMEOUT_MS,
+  localRouteKey,
+  parseWaitTimeout,
+} from './wait-timeouts';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
 const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+const DEFAULT_COMMAND_REQUEST_TIMEOUT_MS = 30_000;
+const COMMAND_TIMEOUT_HEADROOM_MS = 5_000;
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -523,6 +531,26 @@ export function extractTabId(args: string[]): { tabId: number | undefined; args:
   return { tabId, args: stripped };
 }
 
+export function commandRequestTimeoutMs(command: string, args: string[]): number {
+  let timeout = DEFAULT_COMMAND_REQUEST_TIMEOUT_MS;
+
+  if (command === 'goto' && localRouteKey(args[0]) !== null) {
+    timeout = Math.max(timeout, COLD_LOCAL_ROUTE_TIMEOUT_MS + COMMAND_TIMEOUT_HEADROOM_MS);
+  }
+
+  if (command === 'wait') {
+    const selector = args[0];
+    const parsed = parseWaitTimeout(args[1]);
+    if (parsed.explicit) {
+      timeout = Math.max(timeout, parsed.timeout + COMMAND_TIMEOUT_HEADROOM_MS);
+    } else if (selector && selector !== '--load' && selector !== '--domcontentloaded' && selector !== '--networkidle') {
+      timeout = Math.max(timeout, COLD_LOCAL_ROUTE_TIMEOUT_MS + COMMAND_TIMEOUT_HEADROOM_MS);
+    }
+  }
+
+  return Math.min(timeout, MAX_WAIT_TIMEOUT_MS + COMMAND_TIMEOUT_HEADROOM_MS);
+}
+
 // ─── Command Dispatch ──────────────────────────────────────────
 async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
   // Precedence: CLI --tab-id flag > BROWSE_TAB env var.
@@ -533,6 +561,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
   const envTab = process.env.BROWSE_TAB;
   const tabId = extracted.tabId ?? (envTab ? parseInt(envTab, 10) : undefined);
   const body = JSON.stringify({ command, args, ...(tabId !== undefined && !isNaN(tabId) ? { tabId } : {}) });
+  const requestTimeoutMs = commandRequestTimeoutMs(command, args);
 
   try {
     const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {
@@ -542,7 +571,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
         'Authorization': `Bearer ${state.token}`,
       },
       body,
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     });
 
     if (resp.status === 401) {
@@ -573,14 +602,15 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      // #1781: a 30s timeout on a heavy page usually means busy, not dead.
+      // #1781: a command timeout on a heavy page usually means busy, not dead.
       // Don't kill a live server (that's what triggered the crash-loop) — report
       // and exit so the user can retry rather than losing their (headed) window.
       const ts = readState();
       const alive = ts?.pid ? isProcessAlive(ts.pid) : false;
+      const seconds = Math.round(requestTimeoutMs / 1000);
       console.error(alive
-        ? '[browse] Command timed out after 30s (server still alive — busy, not restarting). Retry, or raise load.'
-        : '[browse] Command timed out after 30s');
+        ? `[browse] Command timed out after ${seconds}s (server still alive — busy, not restarting). Retry, or raise load.`
+        : `[browse] Command timed out after ${seconds}s`);
       process.exit(1);
     }
     // Connection error — server may have crashed, OR may just be busy.

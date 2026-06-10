@@ -63,6 +63,13 @@ export class TabSession {
   private loadedHtml: string | null = null;
   private loadedHtmlWaitUntil: SetContentWaitUntil | undefined;
 
+  // ─── Local route warm state ─────────────────────────────────
+  //
+  // Tracks local dev routes that have already completed their first-hit load in
+  // this tab. Keys are computed by write-commands as origin + pathname so
+  // query/hash variants share the same cold-route budget.
+  private warmLocalRoutes: Set<string> = new Set();
+
   constructor(page: Page) {
     this.page = page;
   }
@@ -133,6 +140,17 @@ export class TabSession {
 
   getLastSnapshot(): string | null {
     return this.lastSnapshot;
+  }
+
+  // ─── Local route warm state ─────────────────────────────────
+  isLocalRouteWarm(routeKey: string | null): boolean {
+    return routeKey !== null && this.warmLocalRoutes.has(routeKey);
+  }
+
+  markLocalRouteWarm(routeKey: string | null): void {
+    if (routeKey !== null) {
+      this.warmLocalRoutes.add(routeKey);
+    }
   }
 
   // ─── Frame context ─────────────────────────────────────────

@@ -19,6 +19,31 @@ import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 import { withCdpSession } from './cdp-bridge';
+import {
+  COLD_LOCAL_ROUTE_TIMEOUT_MS,
+  DEFAULT_WAIT_TIMEOUT_MS,
+  localRouteKey,
+  parseWaitTimeout,
+  type ParsedWaitTimeout,
+} from './wait-timeouts';
+
+export interface RouteAwareTimeout {
+  timeout: number;
+  routeKey: string | null;
+  cold: boolean;
+}
+
+export function routeAwareTimeoutForUrl(
+  session: TabSession,
+  rawUrl: string | null | undefined,
+  parsedTimeout: ParsedWaitTimeout = parseWaitTimeout(undefined)
+): RouteAwareTimeout {
+  const routeKey = localRouteKey(rawUrl);
+  if (!parsedTimeout.explicit && routeKey !== null && !session.isLocalRouteWarm(routeKey)) {
+    return { timeout: COLD_LOCAL_ROUTE_TIMEOUT_MS, routeKey, cold: true };
+  }
+  return { timeout: parsedTimeout.timeout, routeKey, cold: false };
+}
 
 /**
  * Aggressive page cleanup selectors and heuristics.
@@ -149,7 +174,9 @@ export async function handleWriteCommand(
       // must not leave stale content that could resurrect on a later context recreation.
       session.clearLoadedHtml();
       const normalizedUrl = await validateNavigationUrl(url);
-      const response = await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const timeoutPlan = routeAwareTimeoutForUrl(session, normalizedUrl);
+      const response = await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: timeoutPlan.timeout });
+      session.markLocalRouteWarm(timeoutPlan.routeKey);
       const status = response?.status() || 'unknown';
       return `Navigated to ${normalizedUrl} (${status})`;
     }
@@ -157,21 +184,21 @@ export async function handleWriteCommand(
     case 'back': {
       if (inFrame) throw new Error('Cannot use back inside a frame. Run \'frame main\' first.');
       session.clearLoadedHtml();
-      await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.goBack({ waitUntil: 'domcontentloaded', timeout: DEFAULT_WAIT_TIMEOUT_MS });
       return `Back → ${page.url()}`;
     }
 
     case 'forward': {
       if (inFrame) throw new Error('Cannot use forward inside a frame. Run \'frame main\' first.');
       session.clearLoadedHtml();
-      await page.goForward({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.goForward({ waitUntil: 'domcontentloaded', timeout: DEFAULT_WAIT_TIMEOUT_MS });
       return `Forward → ${page.url()}`;
     }
 
     case 'reload': {
       if (inFrame) throw new Error('Cannot use reload inside a frame. Run \'frame main\' first.');
       session.clearLoadedHtml();
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: DEFAULT_WAIT_TIMEOUT_MS });
       return `Reloaded ${page.url()}`;
     }
 
@@ -472,9 +499,7 @@ export async function handleWriteCommand(
       const selector = args[0];
       if (!selector) throw new Error('Usage: browse wait <selector|--networkidle|--load|--domcontentloaded>');
       if (selector === '--networkidle') {
-        const MAX_WAIT_MS = 300_000;
-        const MIN_WAIT_MS = 1_000;
-        const timeout = Math.min(Math.max(args[1] ? parseInt(args[1], 10) || MIN_WAIT_MS : 15000, MIN_WAIT_MS), MAX_WAIT_MS);
+        const { timeout } = parseWaitTimeout(args[1]);
         await page.waitForLoadState('networkidle', { timeout });
         return 'Network idle';
       }
@@ -486,15 +511,14 @@ export async function handleWriteCommand(
         await page.waitForLoadState('domcontentloaded');
         return 'DOM content loaded';
       }
-      const MAX_WAIT_MS = 300_000;
-      const MIN_WAIT_MS = 1_000;
-      const timeout = Math.min(Math.max(args[1] ? parseInt(args[1], 10) || MIN_WAIT_MS : 15000, MIN_WAIT_MS), MAX_WAIT_MS);
+      const timeoutPlan = routeAwareTimeoutForUrl(session, page.url(), parseWaitTimeout(args[1]));
       const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
-        await resolved.locator.waitFor({ state: 'visible', timeout });
+        await resolved.locator.waitFor({ state: 'visible', timeout: timeoutPlan.timeout });
       } else {
-        await target.locator(resolved.selector).waitFor({ state: 'visible', timeout });
+        await target.locator(resolved.selector).waitFor({ state: 'visible', timeout: timeoutPlan.timeout });
       }
+      session.markLocalRouteWarm(timeoutPlan.routeKey);
       return `Element ${selector} appeared`;
     }
 

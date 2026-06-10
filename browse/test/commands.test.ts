@@ -8,9 +8,19 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
-import { resolveServerScript } from '../src/cli';
+import { TabSession } from '../src/tab-session';
+import { commandRequestTimeoutMs, resolveServerScript } from '../src/cli';
 import { handleReadCommand as _handleReadCommand, parseOutArgs, hasOutArg, resultToString } from '../src/read-commands';
-import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
+import {
+  handleWriteCommand as _handleWriteCommand,
+  routeAwareTimeoutForUrl,
+} from '../src/write-commands';
+import {
+  COLD_LOCAL_ROUTE_TIMEOUT_MS,
+  DEFAULT_WAIT_TIMEOUT_MS,
+  localRouteKey,
+  parseWaitTimeout,
+} from '../src/wait-timeouts';
 import { handleMetaCommand } from '../src/meta-commands';
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, CircularBuffer } from '../src/buffers';
 import * as fs from 'fs';
@@ -79,6 +89,108 @@ describe('resultToString — byte-for-byte with pre-refactor behavior', () => {
   test('primitives use String()', () => {
     expect(resultToString(42)).toBe('42');
     expect(resultToString(true)).toBe('true');
+  });
+});
+
+describe('cold local route timeout selection', () => {
+  test('local first-hit goto uses 90s, second hit uses 15s', async () => {
+    const timeouts: number[] = [];
+    let currentUrl = 'about:blank';
+    const page = {
+      goto: async (url: string, opts: { timeout: number }) => {
+        timeouts.push(opts.timeout);
+        currentUrl = url;
+        return { status: () => 200 };
+      },
+      url: () => currentUrl,
+    };
+    const session = new TabSession(page as any);
+
+    await _handleWriteCommand('goto', ['http://127.0.0.1:3000/admin/products?view=all#top'], session, {} as BrowserManager);
+    await _handleWriteCommand('goto', ['http://127.0.0.1:3000/admin/products?view=archived#bottom'], session, {} as BrowserManager);
+
+    expect(timeouts).toEqual([COLD_LOCAL_ROUTE_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS]);
+  });
+
+  test('query and hash variants share the same local route key', () => {
+    expect(localRouteKey('http://localhost:3000/admin/products?view=all#top'))
+      .toBe('http://localhost:3000/admin/products');
+    expect(localRouteKey('http://localhost:3000/admin/products?view=archived#bottom'))
+      .toBe('http://localhost:3000/admin/products');
+    expect(localRouteKey('http://[::1]:3000/admin/products?x=1#y'))
+      .toBe('http://[::1]:3000/admin/products');
+  });
+
+  test('remote URLs stay on the normal 15s default', () => {
+    const session = new TabSession({} as any);
+    const plan = routeAwareTimeoutForUrl(session, 'https://example.com/admin/products');
+    expect(plan.timeout).toBe(DEFAULT_WAIT_TIMEOUT_MS);
+    expect(plan.cold).toBe(false);
+    expect(plan.routeKey).toBeNull();
+  });
+
+  test('explicit timeout overrides cold local wait behavior', async () => {
+    let observedTimeout = 0;
+    const page = {
+      url: () => 'http://127.0.0.1:3000/admin/products',
+      locator: () => ({
+        waitFor: async (opts: { timeout: number }) => { observedTimeout = opts.timeout; },
+      }),
+    };
+    const session = new TabSession(page as any);
+
+    await _handleWriteCommand('wait', ['#products-marker', '12345'], session, {} as BrowserManager);
+
+    expect(observedTimeout).toBe(12345);
+    expect(parseWaitTimeout('999999').timeout).toBe(300_000);
+  });
+
+  test('failed navigation does not mark the route warm', async () => {
+    const page = {
+      goto: async () => { throw new Error('simulated navigation failure'); },
+      url: () => 'about:blank',
+    };
+    const session = new TabSession(page as any);
+    const url = 'http://127.0.0.1:3000/admin/products';
+    const routeKey = localRouteKey(url);
+
+    await expect(_handleWriteCommand('goto', [url], session, {} as BrowserManager))
+      .rejects.toThrow(/simulated navigation failure/);
+
+    expect(session.isLocalRouteWarm(routeKey)).toBe(false);
+  });
+
+  test('mocked slow local first-hit navigation succeeds because default budget is cold-aware', async () => {
+    let observedTimeout = 0;
+    const page = {
+      goto: async (_url: string, opts: { timeout: number }) => {
+        observedTimeout = opts.timeout;
+        if (opts.timeout <= DEFAULT_WAIT_TIMEOUT_MS) {
+          throw new Error('simulated route compile exceeded 15s');
+        }
+        return { status: () => 200 };
+      },
+      url: () => 'about:blank',
+    };
+    const session = new TabSession(page as any);
+
+    const result = await _handleWriteCommand('goto', ['http://127.0.0.1:3000/slow-cold-route'], session, {} as BrowserManager);
+
+    expect(observedTimeout).toBe(COLD_LOCAL_ROUTE_TIMEOUT_MS);
+    expect(result).toContain('Navigated to');
+  });
+
+  test('CLI command request timeout has cold-route headroom', () => {
+    expect(commandRequestTimeoutMs('goto', ['http://127.0.0.1:3000/admin/products']))
+      .toBe(COLD_LOCAL_ROUTE_TIMEOUT_MS + 5_000);
+    expect(commandRequestTimeoutMs('goto', ['https://example.com/admin/products']))
+      .toBe(30_000);
+    expect(commandRequestTimeoutMs('wait', ['text=Products']))
+      .toBe(COLD_LOCAL_ROUTE_TIMEOUT_MS + 5_000);
+    expect(commandRequestTimeoutMs('wait', ['text=Products', '60000']))
+      .toBe(65_000);
+    expect(commandRequestTimeoutMs('wait', ['text=Products', '999999']))
+      .toBe(305_000);
   });
 });
 
