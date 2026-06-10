@@ -208,6 +208,11 @@
       "routing": "Review which AskUserQuestion prompts fire across gstack skills, set per-question preferences\n(never-ask / always-ask / ask-only-for-one-way), inspect the dual-track\nprofile (what you declared vs what your behavior suggests), and enable/disable\nquestion tuning. Conversational interface — no CLI syntax required.\n\nUse when asked to \"tune questions\", \"stop asking me that\", \"too many questions\",\n\"show my profile\", \"what questions have I been asked\", \"show my vibe\",\n\"developer profile\", or \"turn off question tuning\". \n\nProactively suggest when the user says the same gstack question has come up before,\nor when they explicitly override a recommendation for the Nth time.",
       "voice_line": null
     },
+    "pr-prep": {
+      "lead": "Pre-PR upstream duplicate audit.",
+      "routing": "Walks `git log base..HEAD`, derives\nsearch keywords from commit subjects + changed file paths, queries\nupstream issues + PRs via `gh`, scores each commit against upstream\ncollisions (EXACT_DUP / OVERLAP / SIBLING / CLEAN), and refuses to\nproceed when EXACT_DUP found. Use when asked to \"audit my PR\",\n\"check for duplicates\", \"pr-prep\", \"is this already filed\",\n\"upstream check before PR\", or \"pre-PR audit\".\nProactively invoke this skill (do NOT skip the audit) before any\n`gh pr create` against a tracked upstream repo. Hooks into /ship\nas Step 0.",
+      "voice_line": null
+    },
     "qa": {
       "lead": "Systematically QA test a web application and fix bugs found.",
       "routing": "Runs QA testing,\nthen iteratively fixes bugs in source code, committing each fix atomically and\nre-verifying. Use when asked to \"qa\", \"QA\", \"test this site\", \"find bugs\",\n\"test and fix\", or \"fix what's broken\".\nProactively suggest when the user says a feature is ready for testing\nor asks \"does this work?\". Three tiers: Quick (critical/high only),\nStandard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,\nfix evidence, and a ship-readiness summary. For report-only mode, use /qa-only.",
