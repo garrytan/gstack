@@ -975,6 +975,16 @@ Final severity bucket per commit:
 | **SIBLING** | OPEN issues but no PR; or merged-recently with overlap |
 | **CLEAN** | No hits, or only old closed issues |
 
+This bucketing is implemented deterministically in `bin/gstack-pr-prep-score`
+(pure function, unit-tested in `test/pr-prep-score.test.ts`) — the canonical
+scorer. Pipe each commit's candidate set through it as JSON rather than
+re-deriving the thresholds inline:
+
+```bash
+echo "$CANDIDATE_JSON" | ~/.claude/skills/gstack/bin/gstack-pr-prep-score
+# -> {"bucket":"EXACT_DUP","topScore":1,"openIssueCount":0,"reasons":[...]}
+```
+
 ## Step 4.4: Second-opinion review via codex (CLEAN commits only)
 
 For each commit bucketed CLEAN (i.e. not duplicating upstream work),
