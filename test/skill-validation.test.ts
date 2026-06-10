@@ -1207,9 +1207,10 @@ describe('Step 3.4 test coverage audit', () => {
 
 describe('ship step numbering', () => {
   // Allowed sub-steps that are resolver-generated and intentionally nested:
-  // 8.1 (Plan Verification), 8.2 (Scope Drift), 9.1 (Review Army), 9.2 (Findings Merge),
+  // 1.5 (Upstream duplicate audit — pr-prep gate), 8.1 (Plan Verification),
+  // 8.2 (Scope Drift), 9.1 (Review Army), 9.2 (Findings Merge),
   // 9.3 (Cross-review dedup), 15.0 (WIP squash — continuous checkpoint), 15.1 (Bisectable commits).
-  const ALLOWED_SUBSTEPS = new Set(['8.1', '8.2', '9.1', '9.2', '9.3', '15.0', '15.1']);
+  const ALLOWED_SUBSTEPS = new Set(['1.5', '8.1', '8.2', '9.1', '9.2', '9.3', '15.0', '15.1']);
 
   test('ship/SKILL.md.tmpl contains no unexpected fractional step numbers', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
