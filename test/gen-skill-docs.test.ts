@@ -3239,3 +3239,62 @@ describe('EXIT PLAN MODE GATE placement', () => {
     expect(codex).toContain('Failing this gate and calling ExitPlanMode anyway is a contract violation');
   });
 });
+
+describe('GSTACK REVIEW REPORT mandatory unresolved-decisions status', () => {
+  // Report text rides in PLAN_FILE_REVIEW_REPORT → every report consumer gets it.
+  // devex-review is a report consumer but NOT a gate consumer, so the two target
+  // sets differ (CP5/CX5). Regression guard: a future token-cut that drops the
+  // unresolved-status line again fails here. See plan-flag-unresolved-issues.
+  const REPORT_CONSUMERS = [
+    'plan-ceo-review',
+    'plan-eng-review',
+    'plan-design-review',
+    'plan-devex-review',
+    'codex',
+    'devex-review',
+  ];
+  // Gate text rides in EXIT_PLAN_MODE_GATE (lives in SKILL.md, not sections).
+  const GATE_SKILLS = [
+    'plan-ceo-review',
+    'plan-eng-review',
+    'plan-design-review',
+    'plan-devex-review',
+    'codex',
+  ];
+
+  for (const skill of REPORT_CONSUMERS) {
+    test(`${skill}: report mandates the unresolved-decisions status as final content`, () => {
+      const content = readSkillUnion(skill);
+      expect(content).toContain('NO UNRESOLVED DECISIONS');
+      // The "never omit / always final" contract must be present, not just the phrase.
+      expect(content).toContain('Unresolved-decisions status (MANDATORY');
+      expect(content).toMatch(/never omitted/);
+      // \s+ tolerates prose line-wraps within "final non-whitespace line".
+      expect(content).toMatch(/final\s+non-whitespace\s+line/);
+    });
+  }
+
+  for (const skill of GATE_SKILLS) {
+    test(`${skill}: exit gate blocks unless the unresolved status is the final line`, () => {
+      const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      // Gate check #4 — present, sentinel named, and explicitly blocking (no escape).
+      expect(md).toContain('NO UNRESOLVED DECISIONS');
+      expect(md).toContain('FINAL non-whitespace line is the unresolved-decisions');
+      expect(md).toContain('FAILS the gate');
+    });
+  }
+
+  test('scripts/resolvers/review.ts source carries the mandatory block + blocking gate', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'review.ts'), 'utf-8');
+    // Report resolver: mandatory, never-omitted, exact sentinel, anti-double-count algorithm.
+    expect(src).toContain('Unresolved-decisions status (MANDATORY');
+    expect(src).toContain('NO UNRESOLVED DECISIONS');
+    expect(src).toContain('avoids double-counting');
+    expect(src).toContain('DROP the current skill');
+    // Gate resolver: the blocking final-line check with no "if applicable" escape.
+    expect(src).toContain('FINAL non-whitespace line is the unresolved-decisions');
+    expect(src).toContain('FAILS the gate');
+    // The old soft wording must be gone from the gate.
+    expect(src).not.toContain('absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable');
+  });
+});

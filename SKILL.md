@@ -917,10 +917,10 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `cookies` | All cookies as JSON |
 | `css <sel> <prop>` | Computed CSS value |
 | `dialog [--clear]` | Dialog messages |
-| `eval <file>` | Run JavaScript from a file in the page context and return result as string. Path must resolve under /tmp or cwd (no traversal). Use eval for multi-line scripts; use js for one-liners. |
+| `eval <file> [--out <file>] [--raw]` | Run JavaScript from a file in the page context and return result as string. Path must resolve under /tmp or cwd (no traversal). Use eval for multi-line scripts; use js for one-liners. With --out <file>, the result is written to disk (base64 data URL decoded to bytes unless --raw); --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel). |
 | `inspect [selector] [--all] [--history]` | Deep CSS inspection via CDP — full rule cascade, box model, computed styles |
 | `is <prop> <sel|@ref>` | State check on element. Valid <prop> values: visible, hidden, enabled, disabled, checked, editable, focused (case-sensitive). <sel> accepts a CSS selector OR an @ref token from a prior snapshot (e.g. @e3, @c1) — refs are interchangeable with selectors anywhere a selector is expected. |
-| `js <expr>` | Run inline JavaScript expression in the page context and return result as string. Same JS sandbox as eval; the only difference is js takes an inline expr while eval reads from a file. |
+| `js <expr> [--out <file>] [--raw]` | Run inline JavaScript expression in the page context and return result as string. Same JS sandbox as eval; the only difference is js takes an inline expr while eval reads from a file. With --out <file>, the result is written to disk instead of returned (a base64 data URL is decoded to raw bytes unless --raw is given) — ideal for rasterizing local renders to PNG without serializing megabytes back through the CLI. --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel). |
 | `network [--clear]` | Network requests |
 | `perf` | Page load timings |
 | `storage  |  storage set <key> <value>` | Read both localStorage and sessionStorage as JSON. With "set <key> <value>", write to localStorage only (sessionStorage is read-only via this command — set it with `js sessionStorage.setItem(...)`). |

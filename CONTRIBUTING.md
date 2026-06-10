@@ -232,6 +232,14 @@ For template authoring best practices (natural language over bash-isms, dynamic 
 
 To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
 
+**Don't bundle puppeteer/Chromium in a skill.** `browse` is the one shared
+Chromium per box, including offline local-render workloads. A skill that needs to
+rasterize its own HTML/JSON (diagrams, cards, og-images) should route through
+`browse` — `screenshot --selector` for visual output, `load-html` + `js --out` for
+bytes a render function returns — instead of `npm i puppeteer` and downloading a
+second Chromium that drifts out of version sync. One install to pin, one daemon to
+manage.
+
 ## Jargon list (V1 writing style)
 
 gstack's Writing Style section (injected into every tier-≥2 skill's preamble)

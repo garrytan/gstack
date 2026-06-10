@@ -576,6 +576,17 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 ### Unresolved Decisions
 If any AskUserQuestion goes unanswered, note here. Never silently default.
 
+## Review Log
+
+Persist after the DX Scorecard — the dashboard, the GSTACK REVIEW REPORT, and the EXIT
+PLAN MODE GATE's "review log was called" check depend on it. **PLAN MODE EXCEPTION — ALWAYS RUN** (writes to `~/.gstack/`, not project files):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"PRODUCT_TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","mode":"MODE","persona":"PERSONA","competitive_tier":"COMPETITIVE_TIER","unresolved":N,"commit":"COMMIT"}'
+```
+
+TIMESTAMP = current ISO 8601 datetime; STATUS = "clean" if score 8+ AND 0 unresolved, else "issues_open"; other fields from the DX Scorecard + Step 0; COMMIT = `git rev-parse --short HEAD`.
+
 ## Review Readiness Dashboard
 
 After completing the review, read the review log and config to display the dashboard.
@@ -675,13 +686,23 @@ Produce this markdown table:
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
 
-Below the table, add these lines (omit any that are empty/not applicable):
+Below the table, add these lines. **CODEX** and **CROSS-MODEL** are optional (omit when
+empty); **VERDICT** is always present:
 
 - **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
 - **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
-- **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
+
+**Unresolved-decisions status (MANDATORY — never omitted; the report's final non-whitespace
+line).** After VERDICT, end the report (content under the \`## GSTACK REVIEW REPORT\`
+heading — a bold label, never a new \`## \` heading; exempt from the "omit when empty"
+rule) with exactly one: the exact unbolded line \`NO UNRESOLVED DECISIONS\` (a bolded one
+does NOT count), OR a \`**UNRESOLVED DECISIONS:**\` header + one bullet per open item
+(last bullet = final line; add \`+ N unresolved from prior reviews\` only when N > 0).
+This avoids double-counting: list THIS review's open items from context; for prior reviews
+sum \`unresolved\` over the latest fresh row per skill (dashboard 7-day window) after you
+DROP the current skill's row; emit the sentinel only when both are zero.
 
 ### Write to the plan file
 

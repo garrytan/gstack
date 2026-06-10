@@ -334,6 +334,17 @@ DX IMPLEMENTATION CHECKLIST
 ### Unresolved Decisions
 If any AskUserQuestion goes unanswered, note here. Never silently default.
 
+## Review Log
+
+Persist after the DX Scorecard — the dashboard, the GSTACK REVIEW REPORT, and the EXIT
+PLAN MODE GATE's "review log was called" check depend on it. **PLAN MODE EXCEPTION — ALWAYS RUN** (writes to `~/.gstack/`, not project files):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"PRODUCT_TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","mode":"MODE","persona":"PERSONA","competitive_tier":"COMPETITIVE_TIER","unresolved":N,"commit":"COMMIT"}'
+```
+
+TIMESTAMP = current ISO 8601 datetime; STATUS = "clean" if score 8+ AND 0 unresolved, else "issues_open"; other fields from the DX Scorecard + Step 0; COMMIT = `git rev-parse --short HEAD`.
+
 {{REVIEW_DASHBOARD}}
 
 {{PLAN_FILE_REVIEW_REPORT}}

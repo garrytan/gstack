@@ -1112,13 +1112,23 @@ Produce this markdown table:
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
 
-Below the table, add these lines (omit any that are empty/not applicable):
+Below the table, add these lines. **CODEX** and **CROSS-MODEL** are optional (omit when
+empty); **VERDICT** is always present:
 
 - **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
 - **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
-- **UNRESOLVED:** total unresolved decisions across all reviews
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
+
+**Unresolved-decisions status (MANDATORY — never omitted; the report's final non-whitespace
+line).** After VERDICT, end the report (content under the \`## GSTACK REVIEW REPORT\`
+heading — a bold label, never a new \`## \` heading; exempt from the "omit when empty"
+rule) with exactly one: the exact unbolded line \`NO UNRESOLVED DECISIONS\` (a bolded one
+does NOT count), OR a \`**UNRESOLVED DECISIONS:**\` header + one bullet per open item
+(last bullet = final line; add \`+ N unresolved from prior reviews\` only when N > 0).
+This avoids double-counting: list THIS review's open items from context; for prior reviews
+sum \`unresolved\` over the latest fresh row per skill (dashboard 7-day window) after you
+DROP the current skill's row; emit the sentinel only when both are zero.
 
 ### Write to the plan file
 
@@ -1160,12 +1170,17 @@ missing work — do NOT call ExitPlanMode:
    In-body prose that mentions "outside voice", "codex findings", or similar
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
-3. Confirm the report contains: a Runs / Status / Findings table, a VERDICT
-   line, and absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable.
-4. If a plan file is in context for this skill invocation: confirm
+3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
+   (CODEX / CROSS-MODEL absorbed if applicable).
+4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
+   status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
+   `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
+   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   status each FAILS the gate.
+5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
    once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-3 already
+   diff with no plan), this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

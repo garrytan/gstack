@@ -253,7 +253,16 @@ function emailAllowed(email: string, opts: ScanOptions): boolean {
 
 export function scan(input: string, opts: ScanOptions = {}): ScanResult {
   const repoVisibility: RepoVisibility = opts.repoVisibility ?? "unknown";
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  // #1824: ?? only catches null/undefined, not NaN or <= 0. A bad value
+  // (NaN from a malformed --max-bytes, or a negative) would make `byteLen >
+  // maxBytes` always false and silently disable the fail-closed oversize guard.
+  // Guardrail: any non-finite or non-positive value falls back to the default
+  // cap. The CLI is the layer that rejects bad args; this is belt-and-suspenders
+  // so the engine never silently runs uncapped.
+  const maxBytes =
+    Number.isFinite(opts.maxBytes) && (opts.maxBytes as number) > 0
+      ? (opts.maxBytes as number)
+      : DEFAULT_MAX_BYTES;
 
   // Fail CLOSED on oversize input. Check byte length BEFORE heavy work.
   const byteLen = Buffer.byteLength(input, "utf8");

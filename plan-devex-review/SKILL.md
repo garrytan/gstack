@@ -1397,12 +1397,17 @@ missing work — do NOT call ExitPlanMode:
    In-body prose that mentions "outside voice", "codex findings", or similar
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
-3. Confirm the report contains: a Runs / Status / Findings table, a VERDICT
-   line, and absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable.
-4. If a plan file is in context for this skill invocation: confirm
+3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
+   (CODEX / CROSS-MODEL absorbed if applicable).
+4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
+   status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
+   `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
+   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   status each FAILS the gate.
+5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
    once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-3 already
+   diff with no plan), this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —
