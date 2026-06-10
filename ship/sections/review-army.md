@@ -111,6 +111,9 @@ Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "is
 
 ```bash
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
+# Surface known-bad versions + pending npm upgrade. Both non-blocking.
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null \
+  && { _gstack_codex_version_check; _gstack_codex_update_check; } || true
 ```
 
 If Codex is available, run a lightweight design check on the diff:

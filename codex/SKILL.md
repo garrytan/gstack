@@ -839,13 +839,17 @@ if ! _gstack_codex_auth_probe >/dev/null; then
   echo "AUTH_FAILED"
 fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking
+_gstack_codex_update_check    # INFO if npm 'latest' is ahead, non-blocking
 ```
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
 
 If the version check printed a `WARN:` line, pass it through to the user verbatim
-(non-blocking — Codex may still work, but the user should upgrade).
+(non-blocking — Codex may still work, but the user should upgrade). If
+`_gstack_codex_update_check` printed an `INFO:` line, pass that through too — it
+means a newer Codex CLI is on npm and the user can run `npm install -g
+@openai/codex@latest` to pick it up.
 
 The probe multi-signal auth logic accepts: `$CODEX_API_KEY` set, `$OPENAI_API_KEY`
 set, or `${CODEX_HOME:-~/.codex}/auth.json` exists. Avoids false-negatives for
