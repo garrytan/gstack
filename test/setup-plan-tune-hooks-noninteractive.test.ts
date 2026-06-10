@@ -62,6 +62,29 @@ describe('setup: plan-tune hooks are non-interactive-safe', () => {
   });
 });
 
+describe('setup: redaction pre-push hook install is consent-based and non-interactive-safe', () => {
+  test('exposes --redact-prepush-hook / --no-redact-prepush-hook / =value flags', () => {
+    expect(setupSrc).toContain('--redact-prepush-hook)');
+    expect(setupSrc).toContain('--no-redact-prepush-hook)');
+    expect(setupSrc).toContain('--redact-prepush-hook=*)');
+  });
+
+  test('redaction hook decision falls through env then saved config', () => {
+    expect(setupSrc).toContain('GSTACK_REDACT_PREPUSH_HOOK');
+    expect(setupSrc).toContain('get redact_prepush_hook');
+  });
+
+  test('redaction hook prompt is time-bounded and TTY-gated', () => {
+    expect(setupSrc).toMatch(/read -t (?:\d+|"?\$\{?\w+\}?"?) -r REDACT_PREPUSH_INSTALL_REPLY <\/dev\/tty/);
+    expect(setupSrc).toMatch(/\[ "\$QUIET" -ne 1 \] && \[ -t 0 \] && \[ -t 1 \]/);
+  });
+
+  test('redaction hook git check and install target the source gstack repo', () => {
+    expect(setupSrc).toContain('( cd "$SOURCE_GSTACK_DIR" && git rev-parse --git-dir');
+    expect(setupSrc).toContain('( cd "$SOURCE_GSTACK_DIR" && bun "$REDACT_BIN" install-prepush-hook )');
+  });
+});
+
 describe('dev-setup: never silently mutates global settings.json', () => {
   const DEV_SETUP = path.join(ROOT, 'bin', 'dev-setup');
   const devSetupSrc = fs.readFileSync(DEV_SETUP, 'utf-8');

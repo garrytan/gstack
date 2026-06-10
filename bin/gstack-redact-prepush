@@ -35,17 +35,29 @@ const ZERO = /^0+$/;
 // The canonical empty-tree object; diffing against it yields all content as added.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-function git(args: string[]): string {
+class GitScanError extends Error {
+  constructor(
+    readonly args: string[],
+    readonly status: number | null,
+    readonly stderr: string,
+  ) {
+    super(`git ${args.join(" ")} failed`);
+  }
+}
+
+function git(args: string[], opts: { allowFailure?: boolean } = {}): string {
   const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  return r.status === 0 ? (r.stdout ?? "") : "";
+  if (r.status === 0) return r.stdout ?? "";
+  if (opts.allowFailure) return "";
+  throw new GitScanError(args, r.status, r.stderr ?? "");
 }
 
 function defaultRemoteBranch(): string {
   // origin/HEAD → origin/main, fall back to main/master.
-  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"], { allowFailure: true }).trim();
   if (sym) return sym.replace("refs/remotes/", "");
   for (const b of ["origin/main", "origin/master"]) {
-    if (git(["rev-parse", "--verify", b]).trim()) return b;
+    if (git(["rev-parse", "--verify", b], { allowFailure: true }).trim()) return b;
   }
   return "origin/main";
 }
@@ -57,7 +69,7 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
     // New branch: prefer what's unique to localSha vs the remote default branch.
     // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
     // branch content is scanned as added — fail-safe (scans more, never less).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+    const base = git(["merge-base", localSha, defaultRemoteBranch()], { allowFailure: true }).trim();
     range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
@@ -108,7 +120,23 @@ function main() {
 
   for (const [, localSha, , remoteSha] of refs) {
     if (!localSha || ZERO.test(localSha)) continue; // branch delete → nothing pushed
-    const added = addedLinesFor(localSha, remoteSha || "0");
+    let added = "";
+    try {
+      added = addedLinesFor(localSha, remoteSha || "0");
+    } catch (e) {
+      if (e instanceof GitScanError) {
+        process.stderr.write(
+          "gstack-redact-prepush: could not scan pushed diff safely — blocking fail-closed.\n" +
+            `  git ${e.args.join(" ")} exited ${e.status ?? "unknown"}\n`,
+        );
+        if (e.stderr.trim()) process.stderr.write(`  ${e.stderr.trim()}\n`);
+      } else {
+        process.stderr.write(
+          "gstack-redact-prepush: could not scan pushed diff safely — blocking fail-closed.\n",
+        );
+      }
+      process.exit(1);
+    }
     if (!added.trim()) continue;
     // Visibility doesn't change HIGH behavior; pass private so nothing is treated
     // as public-strict (HIGH blocks regardless either way).

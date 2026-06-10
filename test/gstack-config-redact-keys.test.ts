@@ -31,8 +31,8 @@ describe("redact config keys", () => {
   test("redact_repo_visibility default is empty (falls through to detection)", () => {
     expect(cfg(["get", "redact_repo_visibility"]).out).toBe("");
   });
-  test("redact_prepush_hook default is false", () => {
-    expect(cfg(["get", "redact_prepush_hook"]).out).toBe("false");
+  test("redact_prepush_hook default is prompt", () => {
+    expect(cfg(["get", "redact_prepush_hook"]).out).toBe("prompt");
   });
   test("set + get round-trips a valid visibility", () => {
     cfg(["set", "redact_repo_visibility", "private"]);
@@ -43,9 +43,13 @@ describe("redact config keys", () => {
     expect(r.err).toContain("not recognized");
     expect(cfg(["get", "redact_repo_visibility"]).out).toBe("unknown");
   });
-  test("invalid prepush flag is rejected to false", () => {
+  test("invalid prepush flag is rejected to prompt", () => {
     cfg(["set", "redact_prepush_hook", "maybe"]);
-    expect(cfg(["get", "redact_prepush_hook"]).out).toBe("false");
+    expect(cfg(["get", "redact_prepush_hook"]).out).toBe("prompt");
+  });
+  test("redact_prepush_hook appears in list/defaults", () => {
+    expect(cfg(["list"]).out).toContain("redact_prepush_hook:");
+    expect(cfg(["defaults"]).out).toContain("redact_prepush_hook:");
   });
   test("no block_private key (HIGH blocks both visibilities unconditionally)", () => {
     // The default for an unknown key is empty string — there is no such key.

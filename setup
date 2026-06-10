@@ -83,6 +83,7 @@ SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
+REDACT_PREPUSH_HOOK_MODE="" # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -95,6 +96,9 @@ while [ $# -gt 0 ]; do
     --plan-tune-hooks)    PLAN_TUNE_HOOKS_MODE="yes"; shift ;;
     --no-plan-tune-hooks) PLAN_TUNE_HOOKS_MODE="no"; shift ;;
     --plan-tune-hooks=*)  PLAN_TUNE_HOOKS_MODE="${1#--plan-tune-hooks=}"; shift ;;
+    --redact-prepush-hook)    REDACT_PREPUSH_HOOK_MODE="yes"; shift ;;
+    --no-redact-prepush-hook) REDACT_PREPUSH_HOOK_MODE="no"; shift ;;
+    --redact-prepush-hook=*)  REDACT_PREPUSH_HOOK_MODE="${1#--redact-prepush-hook=}"; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
@@ -1445,6 +1449,79 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     log "  $SETTINGS_HOOK add-event --event PreToolUse \\"
     log "    --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \\"
     log "    --command $PLAN_TUNE_PREF_HOOK --source plan-tune-cathedral --timeout 5"
+  fi
+fi
+
+
+# 11b. gstack-redact pre-push hook install.
+#
+# The hook catches accidental HIGH credential pushes before they leave the local
+# repo. It is consent-based because it mutates .git/hooks/pre-push, but setup now
+# asks on a real TTY instead of hiding the guard behind a config key nobody sets.
+REDACT_BIN="$SOURCE_GSTACK_DIR/bin/gstack-redact"
+REDACT_PREPUSH_INSTALL_MARKER="$HOME/.gstack/.redact-prepush-hook-prompted"
+
+if [ "$NO_TEAM_MODE" -ne 1 ] && [ -x "$REDACT_BIN" ] && ( cd "$SOURCE_GSTACK_DIR" && git rev-parse --git-dir >/dev/null 2>&1 ); then
+  RP_DECISION="$REDACT_PREPUSH_HOOK_MODE"
+  [ -z "$RP_DECISION" ] && RP_DECISION="${GSTACK_REDACT_PREPUSH_HOOK:-}"
+  [ -z "$RP_DECISION" ] && RP_DECISION="$($GSTACK_CONFIG get redact_prepush_hook 2>/dev/null || true)"
+  RP_DECISION=$(printf '%s' "$RP_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+  case "$RP_DECISION" in
+    y|yes|true|install|on|1) RP_DECISION="yes" ;;
+    n|no|false|skip|off|0)   RP_DECISION="no" ;;
+    *)                       RP_DECISION="prompt" ;;
+  esac
+
+  _install_redact_prepush_hook() {
+    ( cd "$SOURCE_GSTACK_DIR" && bun "$REDACT_BIN" install-prepush-hook )
+  }
+
+  if [ "$RP_DECISION" = "yes" ]; then
+    _install_redact_prepush_hook
+    "$GSTACK_CONFIG" set redact_prepush_hook yes 2>/dev/null || true
+    touch "$REDACT_PREPUSH_INSTALL_MARKER"
+  elif [ "$RP_DECISION" = "no" ]; then
+    log ""
+    log "gstack-redact pre-push hook not installed (opted out)."
+    log "Install later with: ./setup --redact-prepush-hook"
+    "$GSTACK_CONFIG" set redact_prepush_hook no 2>/dev/null || true
+    touch "$REDACT_PREPUSH_INSTALL_MARKER"
+  elif [ -f "$REDACT_PREPUSH_INSTALL_MARKER" ]; then
+    :
+  elif [ "$QUIET" -ne 1 ] && [ -t 0 ] && [ -t 1 ]; then
+    _REDACT_PROMPT_TIMEOUT=10
+    log ""
+    log "──────────────────────────────────────────────────────────"
+    log "gstack-redact: install local pre-push secret guard?"
+    log "──────────────────────────────────────────────────────────"
+    log ""
+    log "This scans pushed diff lines for HIGH credentials and blocks accidental leaks."
+    log "Existing pre-push hooks are preserved as pre-push.local and chained."
+    log "Bypass remains explicit: git push --no-verify or GSTACK_REDACT_PREPUSH=skip."
+    log ""
+    printf "Install gstack-redact pre-push hook now? [y/N] (default: N, auto-skips in %ss): " "$_REDACT_PROMPT_TIMEOUT"
+    read -t "$_REDACT_PROMPT_TIMEOUT" -r REDACT_PREPUSH_INSTALL_REPLY </dev/tty 2>/dev/null || REDACT_PREPUSH_INSTALL_REPLY=""
+    case "$REDACT_PREPUSH_INSTALL_REPLY" in
+      y|Y)
+        _install_redact_prepush_hook
+        "$GSTACK_CONFIG" set redact_prepush_hook yes 2>/dev/null || true
+        touch "$REDACT_PREPUSH_INSTALL_MARKER"
+        ;;
+      n|N)
+        log ""
+        log "Skipped. Re-run ./setup --redact-prepush-hook to install later."
+        "$GSTACK_CONFIG" set redact_prepush_hook no 2>/dev/null || true
+        touch "$REDACT_PREPUSH_INSTALL_MARKER"
+        ;;
+      *)
+        log ""
+        log "No opt-in — skipped for now. Re-run ./setup --redact-prepush-hook to install."
+        ;;
+    esac
+  else
+    log ""
+    log "gstack-redact pre-push hook not installed (non-interactive setup)."
+    log "Install with: ./setup --redact-prepush-hook"
   fi
 fi
 

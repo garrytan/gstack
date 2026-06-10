@@ -108,6 +108,10 @@ export function shannonEntropy(s: string): number {
   return h;
 }
 
+function looksHighEntropySecret(span: string): boolean {
+  return span.length >= 20 && /[A-Za-z]/.test(span) && /\d/.test(span) && shannonEntropy(span) >= 3.0;
+}
+
 /** True when an IPv4 string is a public address (not RFC1918/loopback/etc). */
 export function isPublicIPv4(ip: string): boolean {
   const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -272,6 +276,49 @@ export const PATTERNS: RedactPattern[] = [
     regex: /(https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_\-]{60,})/,
   },
   {
+    id: "gitlab.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitLab personal/project/group access token (glpat…)",
+    regex: /\b(glpat-[A-Za-z0-9_\-]{20,})\b/,
+  },
+  {
+    id: "huggingface.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "Hugging Face access token (hf_…)",
+    regex: /\b(hf_[A-Za-z0-9]{30,})\b/,
+  },
+  {
+    id: "npm.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "npm access token (npm_…)",
+    regex: /\b(npm_[A-Za-z0-9_\-]{30,})\b/,
+  },
+  {
+    id: "digitalocean.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "DigitalOcean API token (dop_v1_…)",
+    regex: /\b(dop_v1_[A-Za-z0-9]{64,})\b/,
+  },
+  {
+    id: "auth.bearer",
+    tier: "HIGH",
+    category: "secret",
+    description: "High-entropy Bearer authorization token",
+    regex: /\bBearer[ \t]+([A-Za-z0-9_\-.=]{24,})\b/i,
+    validate: (span) => looksHighEntropySecret(span),
+  },
+  {
+    id: "gcp.service_account_json",
+    tier: "HIGH",
+    category: "secret",
+    description: "Google Cloud service-account JSON with embedded private key",
+    regex: /(\{[\s\S]{0,20000}"type"\s*:\s*"service_account"[\s\S]{0,20000}"private_key"\s*:\s*"-----BEGIN PRIVATE KEY-----[\s\S]{0,20000}\})/,
+  },
+  {
     id: "twilio.auth_token",
     tier: "HIGH",
     category: "secret",
@@ -340,7 +387,7 @@ export const PATTERNS: RedactPattern[] = [
     tier: "MEDIUM",
     category: "secret",
     description: "Env-style SECRET assignment with high-entropy value",
-    regex: /^[ \t]*(?:export[ \t]+)?[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[ \t]*=[ \t]*['"]?([^\s'"]{8,})['"]?/,
+    regex: /^[ \t]*(?:export[ \t]+)?[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[A-Z0-9_]*[ \t]*(?:=|:)[ \t]*['"]?([^\s'"]{8,})['"]?/i,
     // Only fire on high-entropy values — kills `FOO_KEY=changeme` FPs.
     validate: (span) =>
       !isPlaceholderSpan(span) &&
