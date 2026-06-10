@@ -42,6 +42,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     gate: ['test/skill-e2e-ship-idempotency.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-workflow.test.ts'],
   },
+  'pr-prep': {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Pre-PR upstream-duplicate audit; structural floor covers it until a behavioral E2E lands.',
+  },
   review: {
     gate: ['test/skill-e2e-review.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-review-army.test.ts', 'test/regression-1539-review-self-verify.test.ts'],
