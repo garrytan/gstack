@@ -227,6 +227,44 @@ describe("render (end-to-end)", () => {
     expect(result.html).toContain("Two");
   });
 
+  test("TOC anchors and page-number targets resolve to heading ids in the body", () => {
+    const result = render({
+      markdown: `# One\n\n## Sub\n\nbody\n\n# Two\n\nbody\n`,
+      toc: true,
+    });
+    const hrefs = [...result.html.matchAll(/href="#(toc-\d+)"/g)].map((m) => m[1]);
+    const targets = [...result.html.matchAll(/data-toc-target="(toc-\d+)"/g)].map((m) => m[1]);
+    const headingIds = [...result.html.matchAll(/<h[1-3][^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+
+    // Three headings produce three TOC entries, and the page targets mirror the anchors.
+    expect(hrefs).toHaveLength(3);
+    expect(targets).toEqual(hrefs);
+
+    // Every anchor and page target resolves to a real heading id in the body,
+    // assigned in document order (so Paged.js can count pages against them).
+    expect(headingIds).toEqual(["toc-0", "toc-1", "toc-2"]);
+    for (const id of hrefs) expect(headingIds).toContain(id);
+  });
+
+  test("does not inject heading ids when toc is off", () => {
+    const result = render({ markdown: `# One\n\n## Sub\n\nbody\n`, toc: false });
+    expect(result.html).not.toContain(`id="toc-`);
+  });
+
+  test("TOC reuses a heading's existing id instead of duplicating it", () => {
+    const result = render({
+      markdown: `<h2 id="intro">Intro</h2>\n\nbody\n`,
+      toc: true,
+    });
+    // The TOC entry points at the heading's own id, and no toc-N id is injected.
+    expect(result.html).toContain(`href="#intro"`);
+    expect(result.html).not.toContain(`id="toc-0"`);
+    // Exactly one id on the heading (no duplicate id attribute).
+    const introHeading = result.html.match(/<h2[^>]*>Intro<\/h2>/);
+    expect(introHeading).not.toBeNull();
+    expect((introHeading![0].match(/\bid=/g) || []).length).toBe(1);
+  });
+
   test("strips dangerous HTML from untrusted markdown", () => {
     const result = render({
       markdown: `# Safe\n\n<script>alert('xss')</script>\n\nBody.`,
