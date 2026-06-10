@@ -84,7 +84,14 @@ recommended action.
    - Test layout conventions (where do unit / e2e / regression tests
      belong). Look for "Writing tests", "test structure" sections.
    - Branch naming / commit message conventions. Look for "branch
-     name", "commit format", "conventional commits".
+     name", "commit format", "conventional commits". If
+     `CONTRIBUTING.md` is silent on commit format, infer the
+     de-facto standard from real history:
+     `git log upstream/$BASE_BRANCH --no-merges -20 --format='%s%n%b%n--'`.
+     Note the subject shape (e.g. `type(scope): subject`), whether
+     bodies are prose or bullets, and any required trailer (e.g. a
+     `Co-Authored-By:` line). This is the **authoritative** commit
+     style for the PR — see Step 4.6.
    - Welcomed PR areas (if listed). Skips contributions that conflict
      with the repo's roadmap.
    - Banned patterns (e.g. "never add to allowlist", "no new mocks",
@@ -229,6 +236,50 @@ Annotate each CLEAN/OVERLAP/SIBLING row with:
 If `Tests added: no` AND `not required` is unclear, surface as a
 soft warning in the report but don't block — let the human decide.
 
+## Step 4.6: Commit-message style conformance
+
+You are contributing to someone else's repo. Match THEIR commit-message
+convention, never your own (or your global `CLAUDE.md`) house style. A
+PR whose commits read in a different voice than the project signals
+"drive-by fork" and costs reviewer goodwill before a line is read.
+
+Establish the authoritative style once, from Step 1.4 (in priority
+order): the upstream `CONTRIBUTING.md` commit rules if present; else the
+de-facto shape sampled from `git log upstream/$BASE_BRANCH --no-merges`;
+else the conventional-commits baseline (`type(scope): imperative
+subject`, blank line, prose body explaining what + why).
+
+Then check each commit in `$BASE_BRANCH..HEAD` against it:
+
+- **Subject**: matches the repo's shape (type/scope vocabulary, case,
+  length, imperative mood). Flag a subject that promises content it
+  doesn't contain (e.g. "+ tests" with no test files in the diff).
+- **Body**: present when the change is non-trivial; same form as the
+  repo (prose vs bullets). Flag a personal template (emoji section
+  headers, bullet glyphs) that the upstream history doesn't use.
+- **Trailer**: present if upstream requires one. If upstream commits
+  carry a `Co-Authored-By:` (or `Signed-off-by:`) line, every commit
+  here must carry the identical line; if upstream has none, add none.
+
+Annotate each surviving commit row:
+
+```
+  Commit style: OK  (matches upstream type(scope): + prose + Co-Authored-By)
+```
+
+or, on mismatch:
+
+```
+  Commit style: NON-CONFORMANT
+    - body uses 📝/• house template; upstream uses prose
+    - missing Co-Authored-By trailer that upstream commits carry
+    Fix: git rebase to reword these N commits before filing.
+```
+
+Soft warning, never a block — style is not a duplicate. But surface it
+loudly: it is the cheapest reviewer-goodwill win in the whole audit, and
+re-wording is far cheaper before the PR exists than after review starts.
+
 ## Step 5: Render report
 
 Markdown table per commit:
@@ -241,6 +292,8 @@ Markdown table per commit:
 | Severity | # | Title | State | Author | Score |
 |---|---|---|---|---|---|
 | CLEAN | — | (no matches above threshold) | — | — | — |
+
+  Commit style: OK  (matches upstream type(scope): + prose + Co-Authored-By)
 
 **Action:** safe to file.
 
