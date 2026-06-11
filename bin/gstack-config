@@ -381,18 +381,20 @@ case "${1:-}" in
     fi
     mv "$DETECTION_FILE.tmp" "$DETECTION_FILE"
 
-    # Summarize for the user. Use python (already required elsewhere) to
-    # parse the JSON portably; fall back to grep if python is unavailable.
-    PYTHON_CMD=$(command -v python3 || command -v python || true)
-    if [ -n "$PYTHON_CMD" ]; then
-      STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_local_status','unknown'))" 2>/dev/null || echo unknown)
-      VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_version') or 'unknown')" 2>/dev/null || echo unknown)
-    else
-      STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
-      VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
-      [ -z "$STATUS" ] && STATUS=unknown
-      [ -z "$VERSION" ] && VERSION=unknown
+    # Summarize for the user. Prefer the shell parser because Git Bash can put
+    # native Windows Python first on PATH, and that Python cannot open MSYS-style
+    # /c/... paths. Keep Python only as a fallback if the flat-field grep misses.
+    STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/' | head -1 || true)
+    VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/' | head -1 || true)
+    if [ -z "$STATUS" ] || [ -z "$VERSION" ]; then
+      PYTHON_CMD=$(command -v python3 || command -v python || true)
+      if [ -n "$PYTHON_CMD" ]; then
+        [ -z "$STATUS" ] && STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_local_status','unknown'))" 2>/dev/null || echo unknown)
+        [ -z "$VERSION" ] && VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_version') or 'unknown')" 2>/dev/null || echo unknown)
+      fi
     fi
+    [ -z "$STATUS" ] && STATUS=unknown
+    [ -z "$VERSION" ] && VERSION=unknown
 
     case "$STATUS" in
       ok)
