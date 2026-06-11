@@ -58,6 +58,9 @@ if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then 
 echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
 _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
+SAWYER_SKILL_AUTOPILOT=$(~/.claude/skills/gstack/bin/gstack-config get sawyer_skill_autopilot 2>/dev/null || echo "off")
+if [ "$SAWYER_SKILL_AUTOPILOT" != "off" ] && [ "$SAWYER_SKILL_AUTOPILOT" != "suggest" ] && [ "$SAWYER_SKILL_AUTOPILOT" != "strict" ]; then SAWYER_SKILL_AUTOPILOT="off"; fi
+echo "SAWYER_SKILL_AUTOPILOT: $SAWYER_SKILL_AUTOPILOT"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"gstack","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
@@ -254,6 +257,18 @@ Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack s
 If B: run `~/.claude/skills/gstack/bin/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
 
 This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`.
+
+## Sawyer Skill Autopilot
+
+If `SAWYER_SKILL_AUTOPILOT` is `"suggest"` or `"strict"`, use this local router before guessing which gstack skill comes first or next:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-sawyer-skill-autopilot --json '{"prompt":"USER_PROMPT_OR_SUMMARY","lastSkill":"SKILL_NAME_IF_ANY","lastOutcome":"OUTCOME_IF_ANY","prState":"OPEN_OR_MERGED_IF_KNOWN","deployStatus":"HEALTHY_OR_UNKNOWN","runtimeProof":"present|missing|unknown","docsChanged":false,"developerFacing":false}'
+```
+
+Follow the JSON recommendation only within the user's current permission. If it names `permissionBoundary` as `push-pr`, `merge-deploy`, `live-runtime`, or `global-surface`, stop and ask unless the user already granted that exact permission in this turn.
+
+In `strict` mode, do not silently answer around a high-confidence `invoke` recommendation. Invoke the named skill when the host exposes a Skill tool; otherwise say which skill should run and what boundary, if any, blocks you. This router recommends only; it never pushes, merges, deploys, sends messages, or edits files.
 
 If `VENDORED_GSTACK` is `yes`, warn once via AskUserQuestion unless `~/.gstack/.vendoring-warned-$SLUG` exists:
 

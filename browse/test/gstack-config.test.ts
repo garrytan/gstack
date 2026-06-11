@@ -41,10 +41,10 @@ afterEach(() => {
 
 describe('gstack-config', () => {
   // ─── get ──────────────────────────────────────────────────
-  test('get on missing file returns empty, exit 0', () => {
+  test('get on missing file returns default value, exit 0', () => {
     const { exitCode, stdout } = run(['get', 'auto_upgrade']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('get existing key returns value', () => {
@@ -110,10 +110,12 @@ describe('gstack-config', () => {
     expect(stdout).toContain('update_check: false');
   });
 
-  test('list on missing file returns empty, exit 0', () => {
+  test('list on missing file returns active defaults, exit 0', () => {
     const { exitCode, stdout } = run(['list']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toContain('Active values');
+    expect(stdout).toContain('auto_upgrade:');
+    expect(stdout).toContain('false (default)');
   });
 
   // ─── usage ────────────────────────────────────────────────
@@ -143,6 +145,7 @@ describe('gstack-config', () => {
     expect(content).toContain('# gstack configuration');
     expect(content).toContain('edit freely');
     expect(content).toContain('proactive:');
+    expect(content).toContain('sawyer_skill_autopilot:');
     expect(content).toContain('telemetry:');
     expect(content).toContain('auto_upgrade:');
     expect(content).toContain('skill_prefix:');
@@ -176,9 +179,9 @@ describe('gstack-config', () => {
   });
 
   // ─── routing_declined ──────────────────────────────────────
-  test('routing_declined defaults to empty (not set)', () => {
+  test('routing_declined defaults to false', () => {
     const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('routing_declined can be set and read', () => {
@@ -192,5 +195,17 @@ describe('gstack-config', () => {
     run(['set', 'routing_declined', 'false']);
     const { stdout } = run(['get', 'routing_declined']);
     expect(stdout).toBe('false');
+  });
+
+  test('sawyer_skill_autopilot defaults to off and validates closed values', () => {
+    expect(run(['get', 'sawyer_skill_autopilot']).stdout).toBe('off');
+
+    expect(run(['set', 'sawyer_skill_autopilot', 'suggest']).exitCode).toBe(0);
+    expect(run(['get', 'sawyer_skill_autopilot']).stdout).toBe('suggest');
+
+    const invalid = run(['set', 'sawyer_skill_autopilot', 'launch']);
+    expect(invalid.exitCode).toBe(0);
+    expect(invalid.stderr).toContain('Valid values: off, suggest, strict');
+    expect(run(['get', 'sawyer_skill_autopilot']).stdout).toBe('off');
   });
 });
