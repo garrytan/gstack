@@ -157,7 +157,13 @@ jobs:
   report:
     runs-on: ubicloud-standard-8
     needs: evals
-    if: always() && github.event_name == 'pull_request'
+    # Skip entirely for fork PRs: GITHUB_TOKEN is read-only on forks even with
+    # pull-requests/issues: write declared, so addComment always returns 401.
+    # Fork contributors still see all eval results in the job logs and artifacts.
+    if: >
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 5
     permissions:
       contents: read
