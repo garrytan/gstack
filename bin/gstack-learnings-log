@@ -63,7 +63,7 @@ if (!j.ts) j.ts = new Date().toISOString();
 j.trusted = j.source === 'user-stated';
 
 console.log(JSON.stringify(j));
-" 2>/dev/null)
+")
 
 if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
   exit 1
