@@ -9,11 +9,11 @@ export function generateAskUserFormat(_ctx: TemplateContext): string {
 
 **Rule:** if any \`mcp__*__AskUserQuestion\` variant is in your tool list, prefer it. Hosts may disable native AUQ via \`--disallowedTools AskUserQuestion\` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report \`BLOCKED — AskUserQuestion unavailable\`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking).
+**If no AskUserQuestion variant appears in your tool list:** fall back to the host's normal user-facing chat question. Render the same decision brief in prose, stop, and wait for the user's reply. This fallback is for interactive chat hosts that can ask the user normally but do not expose an AUQ tool (for example Codex API sessions). Do not write decisions to the plan file as a substitute, and do not silently auto-decide (only \`/plan-tune\` AUTO_DECIDE opt-ins authorize auto-picking).
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+Every AskUserQuestion is a decision brief. Send it as tool_use when an AskUserQuestion tool exists; otherwise use the normal chat fallback above and wait for the user's reply.
 
 \`\`\`
 D<N> — <one-line question title>
@@ -93,7 +93,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] You are calling the tool when available; otherwise you are using the normal chat fallback and stopping for the user's reply
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \\u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain
