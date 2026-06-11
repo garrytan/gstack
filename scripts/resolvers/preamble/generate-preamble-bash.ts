@@ -56,6 +56,9 @@ if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then 
 echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
 _QUESTION_TUNING=$(${ctx.paths.binDir}/gstack-config get question_tuning 2>/dev/null || echo "false")
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
+SAWYER_SKILL_AUTOPILOT=$(${ctx.paths.binDir}/gstack-config get sawyer_skill_autopilot 2>/dev/null || echo "off")
+if [ "$SAWYER_SKILL_AUTOPILOT" != "off" ] && [ "$SAWYER_SKILL_AUTOPILOT" != "suggest" ] && [ "$SAWYER_SKILL_AUTOPILOT" != "strict" ]; then SAWYER_SKILL_AUTOPILOT="off"; fi
+echo "SAWYER_SKILL_AUTOPILOT: $SAWYER_SKILL_AUTOPILOT"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "\${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true

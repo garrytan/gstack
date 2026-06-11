@@ -27,6 +27,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # proactive: true           # Auto-invoke skills when your request matches one.
 #                           # Set to false to only run skills you type explicitly.
 #
+# sawyer_skill_autopilot: off
+#                           # off | suggest | strict. Local-only router for
+#                           # Sawyer-style cross-repo skill loops. It recommends
+#                           # first/next skills but never pushes, merges, deploys,
+#                           # or edits files by itself.
+#
 # routing_declined: false   # Set to true to skip the CLAUDE.md routing injection
 #                           # prompt. Set back to false to be asked again.
 #
@@ -114,6 +120,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 lookup_default() {
   case "$1" in
     proactive) echo "true" ;;
+    sawyer_skill_autopilot) echo "off" ;;
     routing_declined) echo "false" ;;
     telemetry) echo "off" ;;
     auto_upgrade) echo "false" ;;
@@ -318,6 +325,10 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    if [ "$KEY" = "sawyer_skill_autopilot" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "suggest" ] && [ "$VALUE" != "strict" ]; then
+      echo "Warning: sawyer_skill_autopilot '$VALUE' not recognized. Valid values: off, suggest, strict. Using off." >&2
+      VALUE="off"
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -345,6 +356,7 @@ case "${1:-}" in
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
+               sawyer_skill_autopilot \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
@@ -361,6 +373,7 @@ case "${1:-}" in
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
+               sawyer_skill_autopilot \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do

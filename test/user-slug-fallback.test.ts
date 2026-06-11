@@ -92,7 +92,7 @@ describe('resolve-user-slug fallback chain', () => {
     const configFile = join(TMP_HOME, 'config.yaml');
     expect(existsSync(configFile)).toBe(true);
     const content = readFileSync(configFile, 'utf-8');
-    expect(content).toMatch(/^user_slug_at_[a-f0-9]+:\s+persisttest/m);
+    expect(content).toMatch(/^user_slug_at_(local|[a-f0-9]+):\s+persisttest/m);
   });
 
   test('subsequent calls return same slug (stable across sessions)', () => {

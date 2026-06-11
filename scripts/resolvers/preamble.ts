@@ -33,6 +33,7 @@ import { generateLakeIntro } from './preamble/generate-lake-intro';
 import { generateTelemetryPrompt } from './preamble/generate-telemetry-prompt';
 import { generateProactivePrompt } from './preamble/generate-proactive-prompt';
 import { generateRoutingInjection } from './preamble/generate-routing-injection';
+import { generateSawyerSkillAutopilot } from './preamble/generate-sawyer-skill-autopilot';
 import { generateVendoringDeprecation } from './preamble/generate-vendoring-deprecation';
 import { generateSpawnedSessionCheck } from './preamble/generate-spawned-session-check';
 import { generateWritingStyleMigration } from './preamble/generate-writing-style-migration';
@@ -95,6 +96,7 @@ export function generatePreamble(ctx: TemplateContext): string {
     generateTelemetryPrompt(ctx),
     generateProactivePrompt(ctx),
     generateRoutingInjection(ctx),
+    generateSawyerSkillAutopilot(ctx),
     generateVendoringDeprecation(ctx),
     generateSpawnedSessionCheck(),
     generateBrainHealthInstruction(ctx),
