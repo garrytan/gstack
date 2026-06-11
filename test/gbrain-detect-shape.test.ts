@@ -177,7 +177,7 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
     }
   });
 
-  it("gbrain_local_status is one of the five documented values", () => {
+  it("gbrain_local_status is one of the six documented values", () => {
     const tmp = mkdtempSync(join(tmpdir(), "detect-shape-"));
     try {
       const out = runDetect({
@@ -186,7 +186,7 @@ describe("bin/gstack-gbrain-detect — shape regression", () => {
         GSTACK_HOME: tmp,
       });
       const parsed = JSON.parse(out) as DetectShape;
-      expect(["ok", "no-cli", "missing-config", "broken-config", "broken-db"]).toContain(
+      expect(["ok", "no-cli", "missing-config", "broken-config", "broken-db","slow-engine",]).toContain(
         parsed.gbrain_local_status,
       );
     } finally {

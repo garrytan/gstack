@@ -731,6 +731,8 @@ function skipStageForLocalStatus(
       "config at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5",
     "broken-db":
       "config points at unreachable DB; see /setup-gbrain Step 1.5",
+    "slow-engine":
+      "gbrain probe exceeded timeout; engine may be reachable but slow. Increase GSTACK_GBRAIN_PROBE_TIMEOUT_MS or use a faster database connection",
   };
   const reason = reasons[status as Exclude<LocalEngineStatus, "ok">];
   return {

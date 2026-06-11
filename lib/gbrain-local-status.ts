@@ -42,7 +42,8 @@ export type LocalEngineStatus =
   | "no-cli"
   | "missing-config"
   | "broken-config"
-  | "broken-db";
+  | "broken-db"
+  | "slow-engine";
 
 export interface ClassifyOptions {
   /** Bypass the 60s cache. Used after any state-mutating operation. */
@@ -73,7 +74,9 @@ interface CacheEntry {
 }
 
 export const CACHE_TTL_MS = 60_000;
-export const PROBE_TIMEOUT_MS = 5_000;
+export const PROBE_TIMEOUT_MS = Number(
+  process.env.GSTACK_GBRAIN_PROBE_TIMEOUT_MS ?? 20_000
+);
 
 /** Effective user home — respects HOME env override (used by tests). */
 function userHome(): string {
@@ -252,6 +255,13 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
 
     // ENOENT can happen if gbrain disappeared between resolveGbrainBin and now.
     if (e.code === "ENOENT") return "no-cli";
+    // Distinguish slow-but-reachable engines from broken configs.
+    if (
+      e.code === "ETIMEDOUT" ||
+      stderr.toLowerCase().includes("timed out")
+    ) {
+      return "slow-engine";
+    }
 
     // Pattern match against gbrain's known error strings. Order matters:
     // "Cannot connect to database" is the more specific DB-unreachable signal.
