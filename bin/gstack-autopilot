@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="$SCRIPT_DIR/gstack-config"
+
+usage() {
+  cat <<'EOF'
+Usage: gstack-autopilot {on|off|strict|status|help}
+
+Turn Sawyer skill autopilot on or off without remembering the config key.
+
+  on      enable suggest mode
+  off     disable autopilot
+  strict  enable strict mode
+  status  show the current mode
+EOF
+}
+
+mode="${1:-status}"
+
+case "$mode" in
+  on|enable|suggest)
+    "$CONFIG" set sawyer_skill_autopilot suggest >/dev/null
+    echo "Sawyer skill autopilot is on (suggest mode)."
+    ;;
+  strict)
+    "$CONFIG" set sawyer_skill_autopilot strict >/dev/null
+    echo "Sawyer skill autopilot is on (strict mode)."
+    ;;
+  off|disable)
+    "$CONFIG" set sawyer_skill_autopilot off >/dev/null
+    echo "Sawyer skill autopilot is off."
+    ;;
+  status|"")
+    current="$("$CONFIG" get sawyer_skill_autopilot 2>/dev/null || echo off)"
+    case "$current" in
+      suggest) echo "Sawyer skill autopilot is on (suggest mode)." ;;
+      strict) echo "Sawyer skill autopilot is on (strict mode)." ;;
+      *) echo "Sawyer skill autopilot is off." ;;
+    esac
+    echo "Use: gstack-autopilot on | off | strict"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "gstack-autopilot: unknown subcommand '$mode'" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

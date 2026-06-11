@@ -7,6 +7,7 @@ import { recommendSawyerSkillAutopilot } from '../lib/sawyer-skill-autopilot';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const CLI = path.join(ROOT, 'bin', 'gstack-sawyer-skill-autopilot');
+const AUTOPILOT = path.join(ROOT, 'bin', 'gstack-autopilot');
 const CONFIG = path.join(ROOT, 'bin', 'gstack-config');
 
 describe('Sawyer skill autopilot routing', () => {
@@ -209,6 +210,43 @@ describe('gstack-sawyer-skill-autopilot CLI', () => {
       expect(json.enabled).toBe(true);
       expect(json.mode).toBe('suggest');
       expect(json.skill).toBe('ship');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('gstack-autopilot shortcut', () => {
+  test('shows status and simple on/off controls', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sawyer-toggle-'));
+    try {
+      const status = spawnSync(AUTOPILOT, ['status'], {
+        encoding: 'utf-8',
+        env: { ...process.env, GSTACK_HOME: home },
+      });
+      expect(status.status).toBe(0);
+      expect(status.stdout).toContain('off');
+
+      const on = spawnSync(AUTOPILOT, ['on'], {
+        encoding: 'utf-8',
+        env: { ...process.env, GSTACK_HOME: home },
+      });
+      expect(on.status).toBe(0);
+      expect(on.stdout).toContain('on (suggest mode)');
+
+      const strict = spawnSync(AUTOPILOT, ['strict'], {
+        encoding: 'utf-8',
+        env: { ...process.env, GSTACK_HOME: home },
+      });
+      expect(strict.status).toBe(0);
+      expect(strict.stdout).toContain('on (strict mode)');
+
+      const off = spawnSync(AUTOPILOT, ['off'], {
+        encoding: 'utf-8',
+        env: { ...process.env, GSTACK_HOME: home },
+      });
+      expect(off.status).toBe(0);
+      expect(off.stdout).toContain('off');
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
