@@ -19,7 +19,7 @@ async function main() {
       enabled: false,
       mode,
       action: 'none',
-      reason: 'Sawyer skill autopilot is off. Enable with: gstack-config set sawyer_skill_autopilot suggest',
+      reason: 'Sawyer skill autopilot is off. Turn it on with: gstack-autopilot on',
     });
     return;
   }
@@ -128,9 +128,9 @@ Local-only skill router for Sawyer-style cross-repo loops. It recommends the
 first or next skill; it never pushes, merges, deploys, or edits files.
 
 Config:
-  gstack-config set sawyer_skill_autopilot off      # default
-  gstack-config set sawyer_skill_autopilot suggest  # emit recommendations
-  gstack-config set sawyer_skill_autopilot strict   # agent should follow or stop
+  gstack-autopilot off      # default
+  gstack-autopilot on       # emit recommendations
+  gstack-autopilot strict   # agent should follow or stop
 
 Usage:
   gstack-sawyer-skill-autopilot --prompt "ship this"
@@ -142,4 +142,3 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
-
