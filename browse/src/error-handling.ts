@@ -7,8 +7,6 @@
 
 import * as fs from 'fs';
 
-const IS_WINDOWS = process.platform === 'win32';
-
 // ─── Filesystem ────────────────────────────────────────────────
 
 /** Remove a file, ignoring ENOENT (already gone). Rethrows other errors. */
@@ -36,23 +34,24 @@ export function safeKill(pid: number, signal: NodeJS.Signals | number): void {
   }
 }
 
-/** Check if a PID is alive. Pure boolean probe — returns false for ALL errors. */
+/**
+ * Check if a PID is alive. Pure boolean probe — never throws.
+ *
+ * Uses signal-0 on every platform. Node/Bun implement `process.kill(pid, 0)`
+ * on Windows via `OpenProcess` — a pure existence check that spawns no child
+ * process and opens no console window. The old Windows branch shelled out to
+ * `tasklist`, which Windows gives its own console window; on the terminal-agent
+ * watchdog's per-tick existence check that flashed a `conhost.exe` window every
+ * 60s for the whole session (#1952). The parent watchdog already uses signal-0
+ * directly; this unifies on it.
+ */
 export function isProcessAlive(pid: number): boolean {
-  if (IS_WINDOWS) {
-    try {
-      const result = Bun.spawnSync(
-        ['tasklist', '/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'],
-        { stdout: 'pipe', stderr: 'pipe', timeout: 3000 }
-      );
-      return result.stdout.toString().includes(`"${pid}"`);
-    } catch {
-      return false;
-    }
-  }
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err: any) {
+    // ESRCH → gone (false); EPERM → exists but not signallable → still alive.
+    // The old Unix branch collapsed every error to false, missing the EPERM edge.
+    return err?.code === 'EPERM';
   }
 }
