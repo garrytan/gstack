@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.59.1.0] - 2026-06-11
+
+## **Codex no longer pays for full gstack routing prose at startup.**
+
+Codex and other external hosts now get the same compact skill catalog treatment
+Claude already had: frontmatter keeps only the short catalog lead, while the
+long "Use when" and proactive-routing prose moves into the skill body. This
+removes the skills-context-budget startup warning without deleting routing
+guidance from the skills themselves.
+
+### Fixed
+- External-host gstack skill generation now applies catalog trimming instead of
+  preserving full multi-line descriptions in always-loaded frontmatter.
+- Added a Codex catalog budget regression test so the generated description set
+  stays compact across future skill additions.
+
 ## [1.57.10.0] - 2026-06-10
 
 ## **Codex review now runs by default everywhere it matters.**
