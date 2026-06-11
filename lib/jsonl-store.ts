@@ -27,7 +27,7 @@ export const INJECTION_PATTERNS: readonly RegExp[] = [
   /you\s+are\s+now\s+/i,
   /always\s+output\s+no\s+findings/i,
   /skip\s+(all\s+)?(security|review|checks)/i,
-  /override[:\s]/i,
+  /\boverride\s*:/i,
   /\bsystem\s*:/i,
   /\bassistant\s*:/i,
   /\buser\s*:/i,
