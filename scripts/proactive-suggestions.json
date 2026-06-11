@@ -110,7 +110,7 @@
     },
     "health": {
       "lead": "Code quality dashboard.",
-      "routing": "Wraps existing project tools (type checker, linter,\ntest runner, dead code detector, shell linter), computes a weighted composite\n0-10 score, and tracks trends over time. Use when: \"health check\",\n\"code quality\", \"how healthy is the codebase\", \"run all checks\",\n\"quality score\".",
+      "routing": "Wraps existing project tools (type checker, linter,\ntest runner, dead code detector, shell linter) plus a read-only structure\nscan, computes a weighted composite 0-10 score, and tracks trends over time. Use when: \"health check\",\n\"code quality\", \"how healthy is the codebase\", \"run all checks\",\n\"quality score\".",
       "voice_line": null
     },
     "investigate": {
