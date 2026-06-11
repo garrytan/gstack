@@ -21,7 +21,10 @@ import { generateCompareHtml } from '../src/compare';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { TabSession } from '../../browse/src/tab-session';
+
 let bm: BrowserManager;
+let session: TabSession;
 let baseUrl: string;
 let server: ReturnType<typeof Bun.serve>;
 let tmpDir: string;
@@ -119,6 +122,7 @@ beforeAll(async () => {
 
   bm = new BrowserManager();
   await bm.launch();
+  session = bm.getActiveSession();
 });
 
 afterAll(() => {
@@ -137,32 +141,32 @@ describe('Submit: browser click → feedback.json on disk', () => {
     serverState = 'serving';
 
     // Navigate to the board (board JS uses relative URLs + location.protocol detect)
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await handleWriteCommand('goto', [baseUrl], session, bm);
 
     // Verify the board detects HTTP mode (so postFeedback will actually fetch
     // instead of falling into the file:// DOM-only path)
     const httpDetected = await handleReadCommand('js', [
       "location.protocol === 'http:' || location.protocol === 'https:'"
-    ], bm);
+    ], session, bm);
     expect(httpDetected).toBe('true');
 
     // User picks variant A, rates it 5 stars
     await handleReadCommand('js', [
       'document.querySelectorAll("input[name=\\"preferred\\"]")[0].click()'
-    ], bm);
+    ], session, bm);
     await handleReadCommand('js', [
       'document.querySelectorAll(".stars")[0].querySelectorAll(".star")[4].click()'
-    ], bm);
+    ], session, bm);
 
     // User adds overall feedback
     await handleReadCommand('js', [
       'document.getElementById("overall-feedback").value = "Ship variant A"'
-    ], bm);
+    ], session, bm);
 
     // User clicks Submit
     await handleReadCommand('js', [
       'document.getElementById("submit-btn").click()'
-    ], bm);
+    ], session, bm);
 
     // Wait a beat for the async POST to complete
     await new Promise(r => setTimeout(r, 300));
@@ -186,19 +190,19 @@ describe('Submit: browser click → feedback.json on disk', () => {
     // After submit, the page should be read-only
     const submitBtnExists = await handleReadCommand('js', [
       'document.getElementById("submit-btn").style.display'
-    ], bm);
+    ], session, bm);
     // submit button is hidden after post-submit lifecycle
     expect(submitBtnExists).toBe('none');
 
     const successVisible = await handleReadCommand('js', [
       'document.getElementById("success-msg").style.display'
-    ], bm);
+    ], session, bm);
     expect(successVisible).toBe('block');
 
     // Success message should mention /design-shotgun
     const successText = await handleReadCommand('js', [
       'document.getElementById("success-msg").textContent'
-    ], bm);
+    ], session, bm);
     expect(successText).toContain('design-shotgun');
   });
 });
@@ -211,17 +215,17 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     serverState = 'serving';
 
     // Fresh page
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await handleWriteCommand('goto', [baseUrl], session, bm);
 
     // User clicks "Totally different" chiclet
     await handleReadCommand('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"different\\"]").click()'
-    ], bm);
+    ], session, bm);
 
     // User clicks Regenerate
     await handleReadCommand('js', [
       'document.getElementById("regen-btn").click()'
-    ], bm);
+    ], session, bm);
 
     // Wait for async POST
     await new Promise(r => setTimeout(r, 300));
@@ -244,12 +248,12 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
     if (fs.existsSync(pendingPath)) fs.unlinkSync(pendingPath);
     serverState = 'serving';
 
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await handleWriteCommand('goto', [baseUrl], session, bm);
 
     // Click "More like this" on variant B (index 1)
     await handleReadCommand('js', [
       'document.querySelectorAll(".more-like-this")[1].click()'
-    ], bm);
+    ], session, bm);
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -263,21 +267,21 @@ describe('Regenerate: browser click → feedback-pending.json on disk', () => {
 
   test('board shows spinner after regenerate (user stays on same tab)', async () => {
     serverState = 'serving';
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await handleWriteCommand('goto', [baseUrl], session, bm);
 
     await handleReadCommand('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"different\\"]").click()'
-    ], bm);
+    ], session, bm);
     await handleReadCommand('js', [
       'document.getElementById("regen-btn").click()'
-    ], bm);
+    ], session, bm);
 
     await new Promise(r => setTimeout(r, 300));
 
     // Board should show "Generating new designs..." text
     const bodyText = await handleReadCommand('js', [
       'document.body.textContent'
-    ], bm);
+    ], session, bm);
     expect(bodyText).toContain('Generating new designs');
   });
 });
@@ -291,15 +295,15 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     if (fs.existsSync(feedbackPath)) fs.unlinkSync(feedbackPath);
     serverState = 'serving';
 
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await handleWriteCommand('goto', [baseUrl], session, bm);
 
     // Step 1: User clicks Regenerate
     await handleReadCommand('js', [
       'document.querySelector(".regen-chiclet[data-action=\\"match\\"]").click()'
-    ], bm);
+    ], session, bm);
     await handleReadCommand('js', [
       'document.getElementById("regen-btn").click()'
-    ], bm);
+    ], session, bm);
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -329,21 +333,21 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     expect(serverState).toBe('serving');
 
     // Step 4: Board auto-refreshes (simulated by navigating again)
-    await handleWriteCommand('goto', [baseUrl], bm);
+    await handleWriteCommand('goto', [baseUrl], session, bm);
 
     // Verify the board is fresh (no prior picks)
     const status = await handleReadCommand('js', [
       'document.getElementById("status").textContent'
-    ], bm);
+    ], session, bm);
     expect(status).toBe('');
 
     // Step 5: User picks variant C on round 2 and submits
     await handleReadCommand('js', [
       'document.querySelectorAll("input[name=\\"preferred\\"]")[2].click()'
-    ], bm);
+    ], session, bm);
     await handleReadCommand('js', [
       'document.getElementById("submit-btn").click()'
-    ], bm);
+    ], session, bm);
 
     await new Promise(r => setTimeout(r, 300));
 
