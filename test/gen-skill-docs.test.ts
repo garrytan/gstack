@@ -253,6 +253,28 @@ describe('gen-skill-docs', () => {
     expect(violations).toEqual([]);
   });
 
+  test('Codex generated skill catalog stays compact enough for startup context', () => {
+    const agentsDir = path.join(ROOT, '.agents', 'skills');
+    if (!fs.existsSync(agentsDir)) return;
+    const descriptions: Array<{ name: string; length: number }> = [];
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillMd = path.join(agentsDir, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      const content = fs.readFileSync(skillMd, 'utf-8');
+      descriptions.push({ name: entry.name, length: extractDescription(content).length });
+    }
+
+    const total = descriptions.reduce((sum, d) => sum + d.length, 0);
+    const average = descriptions.length ? total / descriptions.length : 0;
+    const max = descriptions.reduce((m, d) => Math.max(m, d.length), 0);
+
+    expect(descriptions.length).toBeGreaterThan(0);
+    expect(total).toBeLessThanOrEqual(6000);
+    expect(average).toBeLessThanOrEqual(120);
+    expect(max).toBeLessThanOrEqual(240);
+  });
+
   test('package.json version matches VERSION file', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
     const version = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf-8').trim();
@@ -1825,15 +1847,14 @@ describe('Codex generation (--host codex)', () => {
     expect(codexResult.stdout.toString()).toBe(agentsResult.stdout.toString());
   });
 
-  test('multiline descriptions preserved in Codex output', () => {
-    // office-hours has a multiline description — verify it survives the frontmatter transform
+  test('Codex output trims catalog description and preserves routing in body', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(4, fmEnd);
-    // Description should span multiple lines (block scalar)
-    const descLines = frontmatter.split('\n').filter(l => l.startsWith('  '));
-    expect(descLines.length).toBeGreaterThan(1);
-    // Verify key phrases survived
+    expect(frontmatter).toContain('description: YC Office Hours');
+    expect(frontmatter).not.toContain('Proactively invoke this skill');
+    expect(content).toContain('## When to invoke this skill');
+    expect(content).toContain('Proactively invoke this skill');
     expect(frontmatter).toContain('YC Office Hours');
   });
 

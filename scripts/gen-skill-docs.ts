@@ -851,9 +851,10 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = header + content;
   }
 
-  // Catalog trim (Claude only — external hosts have their own frontmatter shapes)
+  // Catalog trim: keep the always-loaded frontmatter catalog small for every
+  // host, then move routing/voice prose into the skill body.
   let catalogParts: CatalogParts | null = null;
-  if (host === 'claude' && CATALOG_MODE === 'trim') {
+  if (CATALOG_MODE === 'trim') {
     const trimmed = applyCatalogTrim(content, skillName);
     if (trimmed) {
       content = trimmed.content;
