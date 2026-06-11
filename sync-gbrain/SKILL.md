@@ -48,6 +48,9 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -127,7 +130,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no AskUserQuestion variant is callable, use the normal chat fallback from the AskUserQuestion Format rule and stop for the user's reply. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -162,7 +165,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -299,11 +302,31 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 **Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
-**If no AskUserQuestion variant appears in your tool list:** fall back to the host's normal user-facing chat question. Render the same decision brief in prose, stop, and wait for the user's reply. This fallback is for interactive chat hosts that can ask the user normally but do not expose an AUQ tool (for example Codex API sessions). Do not write decisions to the plan file as a substitute, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
+If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+
+### When AskUserQuestion is unavailable or a call fails
+
+Tell three outcomes apart:
+
+1. **Auto-decide denial (NOT a failure).** The result contains `[plan-tune auto-decide] <id> → <option>` — the preference hook working as designed. Proceed with that option. Do NOT retry, do NOT fall back to prose.
+2. **Genuine failure** — no variant in your tool list, OR the variant is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns `[Tool result missing due to internal error]`).
+   - If it was present and **errored** (not absent), retry the SAME call **once** — but only if no answer could have surfaced (a missing-result error can arrive after the user already saw the question; retrying would double-prompt, so if it may have reached them, treat as pending, don't retry).
+   - Then branch on `SESSION_KIND` (echoed by the preamble; empty/absent ⇒ `interactive`):
+     - `spawned` → defer to the **Spawned session** block: auto-choose the recommended option. Never prose, never BLOCKED.
+     - `headless` → `BLOCKED — AskUserQuestion unavailable`; stop and wait (no human can answer).
+     - `interactive` → **prose fallback** (below).
+
+**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
+
+1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
+2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
+3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
+
+Layout: a `D<N>` title + a one-line note that AskUserQuestion failed and to reply with a letter; the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
 
 ### Format
 
-Every AskUserQuestion is a decision brief. Send it as tool_use when an AskUserQuestion tool exists; otherwise use the normal chat fallback above and wait for the user's reply.
+Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
 
 ```
 D<N> — <one-line question title>
@@ -383,7 +406,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool when available; otherwise you are using the normal chat fallback and stopping for the user's reply
+- [ ] You are calling the tool, not writing prose — unless the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain
@@ -570,11 +593,18 @@ if [ -d "$_PROJ" ]; then
   fi
   _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
   [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
+  if [ -f "$_PROJ/decisions.active.json" ]; then
+    echo "--- ACTIVE DECISIONS (recent, scope-relevant) ---"
+    ~/.claude/skills/gstack/bin/gstack-decision-search --recent 5 2>/dev/null
+    echo "--- END DECISIONS ---"
+  fi
   echo "--- END ARTIFACTS ---"
 fi
 ```
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
+
+**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -590,9 +620,9 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap, so the complete thing is the goal. Recommend full coverage (tests, edge cases, error paths) — boil the ocean one lake at a time. The only thing out of scope is genuinely unrelated work (rewrites, multi-quarter migrations); flag that as separate scope, never as an excuse for a shortcut.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -729,7 +759,9 @@ When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
 - `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo)
+- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
+- `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id>` cycle; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
+- `/sync-gbrain --no-dream` — skip the dream cycle that `--full` would otherwise auto-run.
 - `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
 - `/sync-gbrain --no-memory` / `--no-brain-sync` — selectively skip stages
@@ -902,6 +934,76 @@ If B: continue to Step 4 with the empty-corpus state recorded.
 
 ---
 
+## Step 3.5: Call-graph health check (offer `--dream`)
+
+`gbrain code-callers` / `code-callees` (who-calls-this / what-this-calls) return
+`count: 0` until a `gbrain dream` cycle runs the `resolve_symbol_edges` phase for
+this source — not done by the code import in Step 2.
+
+**One hard prerequisite:** building a call graph requires this source's active
+**schema pack to extract code symbols** (the `extract_atoms` phase). On a pack
+that doesn't declare it (e.g. `gbrain-base` / `gbrain-base-v2`), a `dream` cycle
+completes but `resolve_symbol_edges` matches nothing — the graph stays empty no
+matter how many times you run it. So "build the call graph" is only meaningful on
+a code-aware pack. The `--dream` stage detects this and reports it honestly
+(a WARN row) rather than claiming a build that didn't happen. gbrain exposes pack
+capability only at cycle runtime (no pre-flight query as of 0.41.x), so we can't
+detect it before running. `code-def` / `code-refs` need the same symbol
+extraction; they are NOT free "direct lookups" on a non-code-aware pack.
+
+Detect whether this source's call graph is built via doctor's `cycle_freshness`
+check, matching the cwd `SOURCE_ID` literally:
+
+```bash
+SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
+  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+CYCLE=$(gbrain doctor --json --fast 2>/dev/null \
+  | jq -r --arg id "$SOURCE_ID" '
+      (.checks[] | select(.name=="cycle_freshness")) as $c
+      | if $c.status=="ok" then "completed"
+        elif ($c.message | index($id)) then "never"
+        else "unknown" end' 2>/dev/null || echo unknown)
+# index($id) = literal substring (NOT test() regex), matching the lib reader in
+# cycleCompleted(). A fail/warn that doesn't name this source → "unknown" (don't
+# mask other-source failures).
+echo "call graph for $SOURCE_ID: $CYCLE"
+```
+
+If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
+`PAGES > 0`, AskUserQuestion via the format in the preamble:
+
+> D2 — This repo's call graph isn't built. Build it now?
+>
+> ELI10: `gbrain code-callers`/`code-callees` (who calls this function / what it
+> calls) return nothing until the `resolve_symbol_edges` phase runs for this
+> source. `gbrain dream --source <this source>` runs it (scoped to this
+> worktree's code, takes a few minutes). It only produces a graph if this
+> source's schema pack extracts code symbols; if it doesn't, the run completes
+> but the graph stays empty and the dream row will say so.
+>
+> Recommendation: A — call-graph queries return 0 until this runs, and the code
+> index is already populated. If A comes back as a WARN ("pack does not extract
+> code symbols"), the fix is a code-aware schema pack, not re-running dream.
+>
+> Note: options differ in kind, not coverage — no completeness score.
+>
+> A) Run /sync-gbrain --dream now (recommended)
+> B) Skip — I'll run it later
+
+If A: re-invoke the orchestrator with `--dream --code-only` (skips memory +
+brain-sync; the dream stage still runs because it's gated on `--dream`). Then
+report the dream stage's ACTUAL row — `OK call graph built (N edges)` vs a
+`WARN` that names why the graph is still empty (non-code-aware pack, missing
+embedding key, or 0 edges matched). Do not claim success on a WARN.
+If B: continue to Step 4 with the call-graph-not-built state recorded for the
+verdict.
+
+If `CYCLE == completed` or `unknown`, do not prompt — but note `completed` means
+only that a cycle has run, not that edges exist (a non-code-aware pack reports
+`completed` with an empty graph). Step 5's verdict row surfaces the real state.
+
+---
+
 ## Step 4: Refresh `## GBrain Search Guidance` block in CLAUDE.md
 
 Capability check (per /plan-eng-review §6):
@@ -950,12 +1052,19 @@ over Grep when the question is semantic or when you don't know the exact
 identifier yet.
 
 **This worktree is pinned to a worktree-scoped code source** via the
-`.gbrain-source` file in the repo root (kubectl-style context). Any
-`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, or `query`
-call from anywhere under this worktree routes to that source by default —
-no `--source` flag needed. Conductor sibling worktrees of the same repo
-each have their own pin and their own indexed pages, so semantic results
-match the actual code on disk in this worktree.
+`.gbrain-source` file in the repo root (kubectl-style context).
+`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
+`query` from anywhere under this worktree route to that source by default —
+no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
+commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
+of the same repo each have their own pin and their own indexed pages, so
+semantic results match the code on disk here.
+
+Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
+built first — run `/sync-gbrain --dream` (or `--full`) if they return
+`count: 0`. This only works if this source's gbrain schema pack extracts code
+symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
+and reports a WARN. `code-def`/`code-refs` need the same extraction.
 
 Two indexed corpora available via the `gbrain` CLI:
 - This worktree's code (auto-pinned via `.gbrain-source`).
@@ -1020,6 +1129,7 @@ gbrain status: GREEN
   Engine .......... OK   <pglite|supabase>
   Capability ...... OK   write+search round-trip
   CWD source ...... OK   <gstack-code-{repo_slug}> (page_count=<N>)
+  Call graph ...... OK   <N> edges resolved (code-callers/callees live)
   ~/.gstack source. OK   <gstack-brain-{user}> (page_count=<N>) — managed by /setup-gbrain
   Memory sync ..... OK   <artifacts_sync_mode>
   CLAUDE.md ....... OK   ## GBrain Search Guidance present
@@ -1028,9 +1138,27 @@ gbrain status: GREEN
 Run `/sync-gbrain` again any time gbrain feels off; safe and idempotent.
 ```
 
+The **Call graph** row reports the most authoritative signal available:
+
+1. **If a dream stage ran this invocation** (`--dream`, or `--full` auto-build),
+   mirror its row verbatim — it's the ground truth for this run:
+   - `OK   <N> edges resolved (code-callers/callees live)`
+   - `WARN dream ran but this source's schema pack does not extract code symbols
+     — switch to a code-aware pack (\`gbrain schema use <pack>\`)`
+   - `WARN dream ran but the embed phase failed (missing embedding key)`
+   - `WARN dream ran but resolved 0 edges (no code symbols matched yet)`
+2. **Otherwise** fall back to the `CYCLE` value from Step 3.5, with honest wording
+   (a completed cycle proves a cycle ran, NOT that edges exist):
+   - `completed` → `OK   cycle complete — code-callers/callees live IF this source's pack extracts code symbols`
+   - `never` → `WARN call graph not built — run /sync-gbrain --dream`
+   - `unknown` → `WARN could not probe call graph (doctor unavailable) — run /sync-gbrain --dream if code-callers returns 0`
+
+Any `WARN` Call graph row flips the verdict to YELLOW.
+
 If any row is YELLOW or RED, the verdict line says so and the failing rows
 surface a one-line "next action" (e.g., `Capability ...... ERR  capability
 check failed; CLAUDE.md guidance block REMOVED — run /setup-gbrain to repair`).
+A `never`/`unknown` Call graph row flips the verdict to YELLOW.
 
 ---
 

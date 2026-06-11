@@ -212,8 +212,8 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 
 | Command | Description |
 |---------|-------------|
-| `js <expr>` | Run inline JavaScript expression in page context, return as string |
-| `eval <file>` | Run JS from a file (path under /tmp or cwd; same sandbox as `js`) |
+| `js <expr> [--out <file>] [--raw]` | Run inline JavaScript expression in page context, return as string. With `--out <file>` the result is written to disk instead of returned (a `data:*;base64,...` result is decoded to raw bytes unless `--raw`). `--out` makes the invocation a WRITE (needs `write` scope, never allowed over the tunnel). |
+| `eval <file> [--out <file>] [--raw]` | Run JS from a file (path under /tmp or cwd; same sandbox as `js`). `--out`/`--raw` behave as for `js`. |
 | `css <sel> <prop>` | Computed CSS value |
 | `attrs <sel\|@ref>` | Element attributes as JSON |
 | `is <prop> <sel\|@ref>` | State check: visible, hidden, enabled, disabled, checked, editable, focused |

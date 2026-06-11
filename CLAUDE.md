@@ -137,7 +137,7 @@ gstack/
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
+├── ETHOS.md         # Builder philosophy (Boil the Ocean, Search Before Building)
 └── package.json     # Build scripts for browse
 ```
 
@@ -776,8 +776,10 @@ When estimating or discussing effort, always show both human-team and CC+gstack 
 | Research / exploration | 1 day | 3 hours | ~3x |
 
 Completeness is cheap. Don't recommend shortcuts when the complete implementation
-is a "lake" (achievable) not an "ocean" (multi-quarter migration). See the
-Completeness Principle in the skill preamble for the full philosophy.
+is achievable. Boil the ocean — the complete thing is the goal; only genuinely
+unrelated multi-quarter migrations are separate scope, never an excuse for a
+shortcut. See the Completeness Principle in the skill preamble for the full
+philosophy.
 
 ## Search before building
 
@@ -881,6 +883,12 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
+**If you use gbrain:** the `git reset --hard` in step 2 reverts the brain-aware
+(`GBRAIN_CONTEXT_LOAD` / `GBRAIN_SAVE_RESULTS`) blocks that `gstack-config
+gbrain-refresh` renders into the install (those generated blocks differ from
+`main` by design). After deploying, re-run `gstack-config gbrain-refresh` to
+restore them across all your projects' Claude sessions. It's idempotent.
+
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
@@ -902,6 +910,31 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## Cross-session decision memory
+
+Durable decisions and their rationale are captured in an append-only, event-sourced
+store at `~/.gstack/projects/<slug>/decisions.jsonl` so neither you nor the user
+re-litigates a settled call or loses the "why" across sessions. This is the reliable,
+file-only path: it works with gbrain OFF. (gbrain semantic recall is an optional
+enhancement layered on top, never a dependency.)
+
+- **Resurface** active decisions before re-deciding: `bin/gstack-decision-search`
+  (`--recent N`, `--scope repo|branch|issue`, `--query KW`, `--all`, `--json`).
+  Add `--semantic` (with `--query`) to append related hits from gbrain memory when
+  it's up; it degrades silently to the reliable file results when gbrain is off.
+  Session start already surfaces scope-relevant active decisions via Context Recovery.
+  If a decision is listed, treat it as settled with its rationale; if you're about to
+  reverse it, say so explicitly.
+- **Capture** a DURABLE decision when you or the user make one:
+  `bin/gstack-decision-log '{"decision":"...","rationale":"...","scope":"repo|branch|issue","source":"user|skill|agent","confidence":1-10}'`.
+  Reverse a prior call with `--supersede <id>`; expunge an accidental secret with
+  `--redact <id>`; rewrite the log to the active set with `--compact`. Non-interactive
+  (never prompts), injection-sanitized, and HIGH-secret-blocking on write.
+- **Durable means:** architecture choice, scope cut, tool/vendor choice, or a reversal
+  of a prior call. NOT a turn-level edit, a phrasing tweak, or anything trivially
+  re-derivable. Capture is curated at the source — log durable decisions only, or the
+  store becomes noise.
 
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->

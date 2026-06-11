@@ -22,7 +22,7 @@ import { generateTestFailureTriage } from './preamble';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup } from './browse';
 import { generateDesignMethodology, generateDesignHardRules, generateDesignOutsideVoices, generateDesignReviewLite, generateDesignSketch, generateDesignSetup, generateDesignMockup, generateDesignShotgunLoop, generateTasteProfile, generateUXPrinciples } from './design';
 import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCoverageAuditShip, generateTestCoverageAuditReview } from './testing';
-import { generateReviewDashboard, generatePlanFileReviewReport, generateExitPlanModeGate, generateAntiShortcutClause, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec, generateScopeDrift, generateCrossReviewDedup } from './review';
+import { generateReviewDashboard, generatePlanFileReviewReport, generateExitPlanModeGate, generateAntiShortcutClause, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generateCodexDocReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec, generateScopeDrift, generateCrossReviewDedup } from './review';
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
@@ -73,6 +73,7 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   SCOPE_DRIFT: generateScopeDrift,
   DEPLOY_BOOTSTRAP: generateDeployBootstrap,
   CODEX_PLAN_REVIEW: generateCodexPlanReview,
+  CODEX_DOC_REVIEW: generateCodexDocReview,
   PLAN_COMPLETION_AUDIT_SHIP: generatePlanCompletionAuditShip,
   PLAN_COMPLETION_AUDIT_REVIEW: generatePlanCompletionAuditReview,
   PLAN_VERIFICATION_EXEC: generatePlanVerificationExec,

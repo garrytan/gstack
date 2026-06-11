@@ -300,6 +300,13 @@ export async function runAgentSdkTest(
   const queryImpl: QueryProvider = opts.queryProvider ?? query;
   const model = opts.model ?? 'claude-opus-4-7';
 
+  // NOTE on GSTACK_HEADLESS: the SDK child inherits process.env, so headless
+  // classification for eval/E2E runs is set by the `test:gate` / `test:evals`
+  // package.json scripts (scoped to that invocation), NOT mutated here. We must not
+  // pass sdkOpts.env (it breaks the SDK auth pipeline — see CLAUDE.md) and must not
+  // mutate process.env ambiently (it would leak headless into later interactive-path
+  // tests in the same Bun process — Codex review finding).
+
   let attempt = 0;
   let lastErr: unknown = null;
 

@@ -52,6 +52,9 @@ export class ClaudeAdapter implements ProviderAdapter {
         timeout: opts.timeoutMs,
         encoding: 'utf-8',
         maxBuffer: 32 * 1024 * 1024,
+        // Default GSTACK_HEADLESS=1 so a benchmark run classifies as headless (an
+        // AskUserQuestion failure BLOCKs rather than emitting unanswerable prose).
+        env: { ...process.env, GSTACK_HEADLESS: '1' },
       });
       const parsed = this.parseOutput(out);
       return {

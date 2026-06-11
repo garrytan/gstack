@@ -74,7 +74,7 @@ describeE2E('/plan-ceo-review section-loading E2E (periodic, SDK capture)', () =
           'Review the plan in PLAN.md. Hold the current scope (HOLD SCOPE mode) — do not challenge or expand scope. Run the full CEO review and produce the review report.',
         requiredSections: REQUIRED_SECTIONS,
         reportMarker: /GSTACK REVIEW REPORT|COMPLETION SUMMARY|review/i,
-        testName: '/plan-ceo-review section-loading',
+        testName: 'plan-ceo-section-loading',
         runId,
       });
 

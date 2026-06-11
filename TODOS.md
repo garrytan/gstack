@@ -1,5 +1,48 @@
 # TODOS
 
+## NEXT PRIORITY
+
+### P1: #1882 — portable skill-install prefix (non-`gstack` install dirs break silently)
+
+**What:** Every generated SKILL.md hardcodes the literal `~/.claude/skills/gstack/...`
+for its `bin/`/asset calls (the per-invocation telemetry/config preamble plus ~9
+resolvers). `setup` wires the top-level skill symlinks for any directory name, so
+installing at `~/.claude/skills/<other>` leaves every internal `bin` reference
+pointing at a non-existent `~/.claude/skills/gstack/` path — failing **silently, at
+skill-invocation time**. Make the emitted references portable: resolve the install
+root at runtime (the preamble already defines `GSTACK_ROOT`/`GSTACK_BIN` in
+`scripts/resolvers/preamble/generate-preamble-bash.ts` but the literals don't use
+them) and emit `$GSTACK_BIN`-relative paths instead of the hardcoded prefix.
+
+**Why:** Filed as #1882. Split out of the June 2026 fix wave (decision A) once
+implementation showed it is a host-config/design change, not a fix-wave patch. The
+urgent half — the guard/freeze/careful frontmatter hooks broken on CC 2.1.162 — was
+already fixed in that wave (#1871) with a literal `$HOME`-anchored path, because
+frontmatter hooks run before any runtime variable exists and cannot use `$GSTACK_BIN`.
+So #1882 is now purely the body-preamble portability work.
+
+**Pros:** Unblocks installs at any directory name; removes a whole class of silent
+invocation-time failures.
+**Cons:** Touches the most load-bearing bash in the repo (every skill's preamble);
+a silent mistake breaks all 52 skills. High blast radius — needs its own focused PR.
+
+**Context / where to start:**
+- Rewire `ctx.paths.binDir` (and browse/design dir paths) + the ~9 resolvers that
+  emit the literal (`testing.ts`, `review.ts`, `design.ts`, `browse.ts`,
+  `redact-doc.ts`, `tasks-section.ts`, `preamble/generate-*.ts`) to use the
+  preamble-defined `$GSTACK_ROOT`/`$GSTACK_BIN`.
+- Ensure `GSTACK_ROOT`/`GSTACK_BIN` are defined before first use in EVERY skill's
+  preamble (verify the telemetry preamble's first bin call is after the definition).
+- **Test conflict (verified):** `test/gen-skill-docs.test.ts:1942` and the sibling
+  ship assertion currently *assert* generated Claude output `.toContain('~/.claude/skills/gstack')`
+  as a guardrail that Codex-host paths don't leak. These must be rewritten to match
+  the new portable scheme.
+- Regenerate all 52 SKILL.md (`bun run scripts/gen-skill-docs.ts --host all`); never
+  hand-edit generated files. Bisect: resolver/host-config change commit, then the
+  52-file regen commit.
+- Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
+- Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
+
 ## Test infrastructure
 
 ### ✅ DONE (v1.53.1.0): Rebaseline parity-suite (v1.44.1 → v1.53.0.0)
@@ -2283,3 +2326,54 @@ into `test/helpers/fake-gbrain.ts` when the second consumer arrives
 runs).
 
 **Depends on:** None.
+
+### P2: Real-session carve canary (E3, deferred from carve-guard plan)
+
+**What:** Wire a real-session section-Read-miss canary on top of the
+carved skills. When a real user session drives a carved skill and the
+agent does NOT Read a section the skeleton's STOP directive pointed it
+at, log it (salted, content-free) to
+`~/.gstack/analytics/section-reads.jsonl` and surface drift via
+`bun run eval:summary`. Non-blocking alert, never a merge gate
+(real-session data is non-deterministic).
+
+**Why:** The static (E2) + behavioral (T2) guards prove carves are
+structurally sound and that a real agent Reads sections in a controlled
+eval. They do NOT see production drift — a prompt-context change that
+makes live agents start skipping a section. The canary is the only
+mechanism that catches that, from real usage.
+
+**Context:** Deferred from the carve-guard-hardening plan (D5→T2, codex
+outside-voice #7). `test/helpers/transcript-section-logger.ts` exists but
+is built for deterministic test transcripts + ship action fingerprints,
+NOT real-session drift — it needs rework before it can back this. Ship
+the deterministic guards first; add this once they've proven useful. The
+carved-skill set + each skill's `requiredReads` are already declared in
+`test/helpers/carve-guards.ts`, so the canary reads its expectations
+from there.
+
+**Effort:** M (human ~2d, CC ~4h).
+
+**Depends on:** `transcript-section-logger.ts` real-session-drift rework.
+
+### P2: Harden behavioral section-loading test hermeticity
+
+**What:** `captureSectionReads` in `test/helpers/auq-sdk-capture.ts` accepts ANY
+Read whose path matches `sections/<file>.md`. The skeleton's STOP-Read directive
+points at the gstack-root install path (`scripts/resolvers/sections.ts` builds it
+from `ctx.paths.skillRoot`), not the planted fixture copy. So a run can satisfy
+the section-read assertion by reading the GLOBAL install's section instead of the
+hermetic fixture.
+
+**Why:** A behavioral test that passes by reading the global install doesn't prove
+THIS branch's carved section loads. If the fixture's section were broken but the
+global install's weren't, the test would still pass.
+
+**Context:** Codex outside-voice finding on the carve-guard ship (v1.57.0.0).
+Pre-existing in `auq-sdk-capture.ts` — affects `skill-e2e-ship-section-loading`,
+`skill-e2e-plan-ceo-review-section-loading`, and the new
+`carve-section-loading.test.ts`. Fix: match the fixture's ABSOLUTE sections path
+(the `planDir` copy), not a bare `sections/<file>.md` regex; or rewrite the STOP
+path to the fixture during the run.
+
+**Effort:** S (human ~3h, CC ~30min). **Depends on:** None.

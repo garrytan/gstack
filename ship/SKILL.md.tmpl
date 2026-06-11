@@ -189,6 +189,12 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    ```
    The CLI validates the 4-digit `MAJOR.MINOR.PATCH.MICRO` pattern and writes **both** VERSION and package.json. On a half-write (VERSION written, package.json failed) it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
 
+5. **Record the release decision** (durable cross-session memory). The bump level is a real decision the next session should not re-derive blind:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Ship NEW_VERSION (BUMP_LEVEL)","rationale":"WHY","scope":"repo","source":"skill","confidence":9}' 2>/dev/null || true
+   ```
+   Substitute `NEW_VERSION`, `BUMP_LEVEL`, and a one-line `WHY` (the signal that set the level: diff scale, a new feature, a breaking change). Best-effort and non-interactive; never blocks the ship. Skip on the ALREADY_BUMPED path (the decision was logged on the run that did the bump).
+
 {{SECTION:changelog}}
 
 ## Step 14: TODOS.md (auto-update)
@@ -394,6 +400,8 @@ git push -u origin <branch-name>
 **You are NOT done.** The code is pushed but documentation sync and PR creation are mandatory final steps. Continue to Step 18.
 
 ---
+
+**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
 
 {{SECTION:pr-body}}
 

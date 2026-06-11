@@ -81,10 +81,10 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `cookies`: All cookies as JSON
 - `css <sel> <prop>`: Computed CSS value
 - `dialog [--clear]`: Dialog messages
-- `eval <file>`: Run JavaScript from a file in the page context and return result as string.
+- `eval <file> [--out <file>] [--raw]`: Run JavaScript from a file in the page context and return result as string.
 - `inspect [selector] [--all] [--history]`: Deep CSS inspection via CDP — full rule cascade, box model, computed styles
 - `is <prop> <sel|@ref>`: State check on element.
-- `js <expr>`: Run inline JavaScript expression in the page context and return result as string.
+- `js <expr> [--out <file>] [--raw]`: Run inline JavaScript expression in the page context and return result as string.
 - `network [--clear]`: Network requests
 - `perf`: Page load timings
 - `storage  |  storage set <key> <value>`: Read both localStorage and sessionStorage as JSON.
