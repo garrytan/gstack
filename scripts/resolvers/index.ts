@@ -15,6 +15,7 @@
  */
 
 import type { TemplateContext, ResolverFn, ResolverValue } from './types';
+import { getHostConfig } from '../../hosts/index';
 
 // Domain modules
 import { generatePreamble } from './preamble';
@@ -89,6 +90,9 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   MODEL_OVERLAY: generateModelOverlay,
   TASTE_PROFILE: generateTasteProfile,
   BIN_DIR: (ctx) => ctx.paths.binDir,
+  HOST_GLOBAL_ROOT: (ctx) => `$HOME/${getHostConfig(ctx.host).globalRoot}`,
+  LOCAL_SKILL_ROOT: (ctx) => ctx.paths.localSkillRoot,
+  SETUP_COMMAND: (ctx) => ctx.host === 'claude' ? './setup' : `./setup --host ${ctx.host}`,
   GBRAIN_CONTEXT_LOAD: generateGBrainContextLoad,
   GBRAIN_SAVE_RESULTS: generateGBrainSaveResults,
   BRAIN_PREFLIGHT: generateBrainPreflight,

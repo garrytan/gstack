@@ -19,6 +19,7 @@ import {
   factory,
   kiro,
   opencode,
+  copilot,
   slate,
   cursor,
   openclaw,
@@ -30,8 +31,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -50,6 +51,7 @@ describe('hosts/index.ts', () => {
     expect(factory.name).toBe('factory');
     expect(kiro.name).toBe('kiro');
     expect(opencode.name).toBe('opencode');
+    expect(copilot.name).toBe('copilot');
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
@@ -257,6 +259,17 @@ describe('HOST_PATHS derivation from configs', () => {
     expect(HOST_PATHS.codex.designDir).toBe('$GSTACK_DESIGN');
   });
 
+  test('Copilot uses opencode-style env var paths with Copilot roots', () => {
+    expect(copilot.usesEnvVars).toBe(true);
+    expect(copilot.globalRoot).toBe('.copilot/skills/gstack');
+    expect(copilot.localSkillRoot).toBe('.copilot/skills/gstack');
+    expect(copilot.hostSubdir).toBe('.copilot');
+    expect(HOST_PATHS.copilot.skillRoot).toBe('$GSTACK_ROOT');
+    expect(HOST_PATHS.copilot.binDir).toBe('$GSTACK_BIN');
+    expect(HOST_PATHS.copilot.browseDir).toBe('$GSTACK_BROWSE');
+    expect(HOST_PATHS.copilot.designDir).toBe('$GSTACK_DESIGN');
+  });
+
   test('every host with usesEnvVars=true gets env var paths', () => {
     for (const config of ALL_HOST_CONFIGS) {
       if (config.usesEnvVars) {
@@ -369,16 +382,41 @@ describe('host-config-export.ts CLI', () => {
     expect(lines).toContain('plan-devex-review/dx-hall-of-fame.md');
   });
 
+  test('copilot symlinks match opencode runtime assets', () => {
+    const { stdout, exitCode } = run('symlinks', 'copilot');
+    expect(exitCode).toBe(0);
+    const lines = stdout.split('\n');
+    expect(lines).toEqual(expect.arrayContaining([
+      'bin',
+      'browse/dist',
+      'browse/bin',
+      'design/dist',
+      'gstack-upgrade',
+      'ETHOS.md',
+      'review/checklist.md',
+      'review/design-checklist.md',
+      'review/greptile-triage.md',
+      'review/TODOS-format.md',
+      'review/specialists',
+      'qa/templates',
+      'qa/references',
+      'plan-devex-review/dx-hall-of-fame.md',
+    ]));
+  });
+
   test('symlinks with missing host exits 1', () => {
     const { exitCode } = run('symlinks');
     expect(exitCode).toBe(1);
   });
 
-  test('detect finds claude (since we are running in claude)', () => {
+  test('detect prints installed host names from PATH', () => {
     const { stdout, exitCode } = run('detect');
     expect(exitCode).toBe(0);
-    // claude binary should be on PATH in this environment
-    expect(stdout).toContain('claude');
+    const names = stdout.split('\n').filter(Boolean);
+    expect(names.length).toBeGreaterThan(0);
+    for (const name of names) {
+      expect(ALL_HOST_NAMES).toContain(name);
+    }
   });
 
   test('unknown command exits 1', () => {

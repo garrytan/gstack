@@ -2368,9 +2368,9 @@ describe('setup script validation', () => {
     expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|copilot', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|copilot|auto');
   });
 
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
@@ -2378,6 +2378,7 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v gh');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2417,6 +2418,46 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('qa/templates');
     expect(setupContent).toContain('qa/references');
     expect(setupContent).toContain('dx-hall-of-fame.md');
+  });
+
+  test('setup supports --host copilot with install section and Copilot skill path vars', () => {
+    expect(setupContent).toContain('INSTALL_COPILOT=');
+    expect(setupContent).toContain('COPILOT_SKILLS="$HOME/.copilot/skills"');
+    expect(setupContent).toContain('COPILOT_GSTACK="$COPILOT_SKILLS/gstack"');
+    expect(setupContent).toContain('bun_cmd run gen:skill-docs --host copilot');
+  });
+
+  test('setup installs Copilot skills into an opencode-shaped nested runtime root', () => {
+    expect(setupContent).toContain('create_copilot_runtime_root');
+    expect(setupContent).toContain('.copilot/skills');
+    expect(setupContent).toContain('review/specialists');
+    expect(setupContent).toContain('qa/templates');
+    expect(setupContent).toContain('qa/references');
+    expect(setupContent).toContain('dx-hall-of-fame.md');
+  });
+
+  test('generated Copilot preambles use Copilot roots and not opencode/codex roots', () => {
+    const copilotSkillDir = path.join(ROOT, '.copilot', 'skills', 'gstack-ship');
+    if (!fs.existsSync(copilotSkillDir)) return; // skip if .copilot/ not generated
+    const content = fs.readFileSync(path.join(copilotSkillDir, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('GSTACK_ROOT="$HOME/.copilot/skills/gstack"');
+    expect(content).toContain('[ -n "$_ROOT" ] && [ -d "$_ROOT/.copilot/skills/gstack" ]');
+    expect(content).toContain('$GSTACK_BIN/');
+    expect(content).not.toContain('.opencode/skills');
+    expect(content).not.toContain('.agents/skills/gstack');
+    expect(content).not.toContain('$HOME/.config/opencode/skills/gstack');
+    expect(content).not.toContain('$HOME/.codex/skills/gstack');
+  });
+
+  test('generated Copilot upgrade skill refreshes the Copilot host after pull/reset', () => {
+    const upgradePath = path.join(ROOT, '.copilot', 'skills', 'gstack-upgrade', 'SKILL.md');
+    if (!fs.existsSync(upgradePath)) return; // skip if .copilot/ not generated
+    const content = fs.readFileSync(upgradePath, 'utf-8');
+    expect(content).toContain('./setup --host copilot');
+    expect(content).toContain('INSTALL_DIR="$HOME/.copilot/skills/gstack"');
+    expect(content).toContain('INSTALL_DIR=".copilot/skills/gstack"');
+    expect(content).not.toContain('.agents/skills/gstack');
+    expect(content).not.toContain('cd "$INSTALL_DIR"\nSTASH_OUTPUT=$(git stash 2>&1)\ngit fetch origin\ngit reset --hard origin/main\n./setup\n');
   });
 
   test('create_agents_sidecar links runtime assets', () => {
@@ -3058,7 +3099,7 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
     // Non-Claude hosts render to hostSubdirs (.agents/, .openclaw/, etc). The
     // plan-mode-info resolver has no host-scoping — all hosts get the new
     // section, none get the old handshake. Scan all candidate host dirs.
-    const hostDirs = ['.agents', '.openclaw', '.opencode', '.factory', '.hermes', '.kiro', '.cursor', '.slate'];
+    const hostDirs = ['.agents', '.openclaw', '.opencode', '.copilot', '.factory', '.hermes', '.kiro', '.cursor', '.slate'];
     let checked = 0;
     for (const host of hostDirs) {
       const skillsRoot = path.join(ROOT, host, 'skills');

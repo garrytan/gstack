@@ -39,7 +39,7 @@ _AUTO=""
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
-**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `./setup` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
+**If `AUTO_UPGRADE=true` or `AUTO_UPGRADE=1`:** Skip AskUserQuestion. Log "Auto-upgrading gstack v{old} → v{new}..." and proceed directly to Step 2. If `{{SETUP_COMMAND}}` fails during auto-upgrade, restore from backup (`.bak` directory) and warn the user: "Auto-upgrade failed — restored previous version. Run `/gstack-upgrade` manually to retry."
 
 **Otherwise**, use AskUserQuestion:
 - Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
@@ -83,24 +83,21 @@ Continue with the current skill.
 ### Step 2: Detect install type
 
 ```bash
-if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
+if [ -d "{{HOST_GLOBAL_ROOT}}/.git" ]; then
   INSTALL_TYPE="global-git"
-  INSTALL_DIR="$HOME/.claude/skills/gstack"
+  INSTALL_DIR="{{HOST_GLOBAL_ROOT}}"
 elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.gstack/repos/gstack"
-elif [ -d ".claude/skills/gstack/.git" ]; then
+elif [ -d "{{LOCAL_SKILL_ROOT}}/.git" ]; then
   INSTALL_TYPE="local-git"
-  INSTALL_DIR=".claude/skills/gstack"
-elif [ -d ".agents/skills/gstack/.git" ]; then
-  INSTALL_TYPE="local-git"
-  INSTALL_DIR=".agents/skills/gstack"
-elif [ -d ".claude/skills/gstack" ]; then
+  INSTALL_DIR="{{LOCAL_SKILL_ROOT}}"
+elif [ -d "{{LOCAL_SKILL_ROOT}}" ]; then
   INSTALL_TYPE="vendored"
-  INSTALL_DIR=".claude/skills/gstack"
-elif [ -d "$HOME/.claude/skills/gstack" ]; then
+  INSTALL_DIR="{{LOCAL_SKILL_ROOT}}"
+elif [ -d "{{HOST_GLOBAL_ROOT}}" ]; then
   INSTALL_TYPE="vendored-global"
-  INSTALL_DIR="$HOME/.claude/skills/gstack"
+  INSTALL_DIR="{{HOST_GLOBAL_ROOT}}"
 else
   echo "ERROR: gstack not found"
   exit 1
@@ -128,7 +125,7 @@ cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
 git fetch origin
 git reset --hard origin/main
-./setup
+{{SETUP_COMMAND}}
 ```
 If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
 
@@ -139,7 +136,7 @@ TMP_DIR=$(mktemp -d)
 git clone --depth 1 https://github.com/garrytan/gstack.git "$TMP_DIR/gstack"
 mv "$INSTALL_DIR" "$INSTALL_DIR.bak"
 mv "$TMP_DIR/gstack" "$INSTALL_DIR"
-cd "$INSTALL_DIR" && ./setup
+cd "$INSTALL_DIR" && {{SETUP_COMMAND}}
 rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 ```
 
@@ -150,14 +147,14 @@ Use the install directory from Step 2. Check if there's also a local vendored co
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 LOCAL_GSTACK=""
-if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
-  _RESOLVED_LOCAL=$(cd "$_ROOT/.claude/skills/gstack" && pwd -P)
+if [ -n "$_ROOT" ] && [ -d "$_ROOT/{{LOCAL_SKILL_ROOT}}" ]; then
+  _RESOLVED_LOCAL=$(cd "$_ROOT/{{LOCAL_SKILL_ROOT}}" && pwd -P)
   _RESOLVED_PRIMARY=$(cd "$INSTALL_DIR" && pwd -P)
   if [ "$_RESOLVED_LOCAL" != "$_RESOLVED_PRIMARY" ]; then
-    LOCAL_GSTACK="$_ROOT/.claude/skills/gstack"
+    LOCAL_GSTACK="$_ROOT/{{LOCAL_SKILL_ROOT}}"
   fi
 fi
-_TEAM_MODE=$(~/.claude/skills/gstack/bin/gstack-config get team_mode 2>/dev/null || echo "false")
+_TEAM_MODE=$({{HOST_GLOBAL_ROOT}}/bin/gstack-config get team_mode 2>/dev/null || echo "false")
 echo "LOCAL_GSTACK=$LOCAL_GSTACK"
 echo "TEAM_MODE=$_TEAM_MODE"
 ```
@@ -166,9 +163,9 @@ echo "TEAM_MODE=$_TEAM_MODE"
 
 ```bash
 cd "$_ROOT"
-git rm -r --cached .claude/skills/gstack/ 2>/dev/null || true
-if ! grep -qF '.claude/skills/gstack/' .gitignore 2>/dev/null; then
-  echo '.claude/skills/gstack/' >> .gitignore
+git rm -r --cached {{LOCAL_SKILL_ROOT}}/ 2>/dev/null || true
+if ! grep -qF '{{LOCAL_SKILL_ROOT}}/' .gitignore 2>/dev/null; then
+  echo '{{LOCAL_SKILL_ROOT}}/' >> .gitignore
 fi
 rm -rf "$LOCAL_GSTACK"
 ```
@@ -179,12 +176,12 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
 cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
 rm -rf "$LOCAL_GSTACK/.git"
-cd "$LOCAL_GSTACK" && ./setup
+cd "$LOCAL_GSTACK" && {{SETUP_COMMAND}}
 rm -rf "$LOCAL_GSTACK.bak"
 ```
 Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
 
-If `./setup` fails, restore from backup and warn the user:
+If `{{SETUP_COMMAND}}` fails, restore from backup and warn the user:
 ```bash
 rm -rf "$LOCAL_GSTACK"
 mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK"

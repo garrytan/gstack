@@ -95,9 +95,6 @@ elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
 elif [ -d ".claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="local-git"
   INSTALL_DIR=".claude/skills/gstack"
-elif [ -d ".agents/skills/gstack/.git" ]; then
-  INSTALL_TYPE="local-git"
-  INSTALL_DIR=".agents/skills/gstack"
 elif [ -d ".claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
   INSTALL_DIR=".claude/skills/gstack"
@@ -160,7 +157,7 @@ if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
     LOCAL_GSTACK="$_ROOT/.claude/skills/gstack"
   fi
 fi
-_TEAM_MODE=$(~/.claude/skills/gstack/bin/gstack-config get team_mode 2>/dev/null || echo "false")
+_TEAM_MODE=$($HOME/.claude/skills/gstack/bin/gstack-config get team_mode 2>/dev/null || echo "false")
 echo "LOCAL_GSTACK=$LOCAL_GSTACK"
 echo "TEAM_MODE=$_TEAM_MODE"
 ```
