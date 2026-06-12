@@ -291,6 +291,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-shotgun-session':         ['design-shotgun/**', 'scripts/resolvers/design.ts'],
   'design-shotgun-full':            ['design-shotgun/**', 'design/src/**', 'browse/src/**'],
 
+  // /diagram (diagram-render bundle consumers). Triplet = deterministic
+  // functional (gate); authoring quality = LLM-judged benchmark (periodic).
+  'diagram-triplet':            ['diagram/**', 'lib/diagram-render/**', 'browse/src/write-commands.ts', 'browse/src/read-commands.ts'],
+  'diagram-authoring-quality':  ['diagram/**', 'lib/diagram-render/**', 'test/helpers/llm-judge.ts'],
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
 
@@ -655,6 +660,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-shotgun-path': 'gate',
   'design-shotgun-session': 'gate',
   'design-shotgun-full': 'periodic',
+
+  // /diagram — triplet is deterministic functional, judge is a quality benchmark
+  'diagram-triplet': 'gate',
+  'diagram-authoring-quality': 'periodic',
 
   // gstack-upgrade
   'gstack-upgrade-happy-path': 'gate',
