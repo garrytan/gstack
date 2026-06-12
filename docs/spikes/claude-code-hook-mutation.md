@@ -51,7 +51,8 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- `"defer"` — let permission flow continue
+- No output — let permission flow continue
+- `"defer"` — pause a non-interactive SDK/tool caller so it can resume later
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
@@ -88,7 +89,7 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-`deny > ask > allow > defer` — most restrictive wins.
+Claude Code treats `defer` as an explicit pause/resume decision, not as the normal pass-through path. Hooks that do not need to decide should exit 0 with no output.
 
 ## Implementation hookSpecificOutput examples
 
@@ -107,11 +108,12 @@ required for our hook to fire there.
 ```
 
 **Pass-through (no preference, or one-way safety override):**
+Exit 0 with no stdout. If the hook has context to add, omit `permissionDecision`:
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "additionalContext": "optional context for Claude"
   }
 }
 ```
