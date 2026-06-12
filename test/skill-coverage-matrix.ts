@@ -131,6 +131,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'design-consultation': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-shotgun': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'design-html': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  diagram: {
+    gate: ['test/skill-e2e-diagram.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: ['test/skill-e2e-diagram.test.ts'],
+    rationale: 'Triplet contract is gate-tier deterministic; authoring-quality judge is periodic (E2E_TIERS: diagram-triplet/diagram-authoring-quality).',
+  },
   cso: {
     gate: ['test/skill-e2e-cso.test.ts', 'test/cso-preserved.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: [],
