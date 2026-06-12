@@ -192,13 +192,17 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
     run('git', ['add', '.']);
     run('git', ['commit', '-m', 'initial']);
 
-    // Copy bin scripts
+    // Copy bin scripts — preserving the bin/../lib layout:
+    // gstack-learnings-log imports $SCRIPT_DIR/../lib/jsonl-store.ts
+    // (hasInjection, added v1.57.5.0), so the lib must travel with the bin.
     const binDir = path.join(opDir, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
     for (const script of ['gstack-learnings-log', 'gstack-slug']) {
       fs.copyFileSync(path.join(ROOT, 'bin', script), path.join(binDir, script));
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
+    fs.mkdirSync(path.join(opDir, 'lib'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'lib', 'jsonl-store.ts'), path.join(opDir, 'lib', 'jsonl-store.ts'));
 
     // gstack-learnings-log will create the project dir automatically via gstack-slug
 
