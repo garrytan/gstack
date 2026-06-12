@@ -38,6 +38,7 @@ fi
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+AUTOPILOT_SHIM="$HOME/.local/bin/gstack-autopilot"
 _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 
 # ─── Parse flags ─────────────────────────────────────────────
@@ -189,6 +190,20 @@ if [ -d "$KIRO_SKILLS" ]; then
     rm -rf "$_ITEM"
     REMOVED+=("kiro/$(basename "$_ITEM")")
   done
+fi
+
+# ─── Remove user-facing autopilot shim ───────────────────────────────────────
+if [ -L "$AUTOPILOT_SHIM" ]; then
+  _AUTOPILOT_TARGET="$(readlink "$AUTOPILOT_SHIM" 2>/dev/null || true)"
+  case "$_AUTOPILOT_TARGET" in
+    */gstack/bin/gstack-autopilot)
+      rm -f "$AUTOPILOT_SHIM"
+      REMOVED+=("~/.local/bin/gstack-autopilot")
+      ;;
+  esac
+elif [ -f "$AUTOPILOT_SHIM" ] && grep -q 'gstack-managed autopilot shim' "$AUTOPILOT_SHIM" 2>/dev/null; then
+  rm -f "$AUTOPILOT_SHIM"
+  REMOVED+=("~/.local/bin/gstack-autopilot")
 fi
 
 # ─── Remove per-project .agents/ sidecar ─────────────────────
