@@ -2280,6 +2280,15 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('create_agents_sidecar "$SOURCE_GSTACK_DIR"');
   });
 
+  test('setup installs a managed gstack-autopilot shim for global installs', () => {
+    expect(setupContent).toContain('install_autopilot_shim');
+    expect(setupContent).toContain('shim_dir="$HOME/.local/bin"');
+    expect(setupContent).toContain('local shim="$shim_dir/gstack-autopilot"');
+    expect(setupContent).toContain('gstack-managed autopilot shim');
+    expect(setupContent).toContain('~/.claude/skills/gstack');
+    expect(setupContent).toContain('~/.codex/skills/gstack');
+  });
+
   test('link_codex_skill_dirs reads from .agents/skills/', () => {
     // The Codex link function must reference .agents/skills for generated Codex skills
     const fnStart = setupContent.indexOf('link_codex_skill_dirs()');

@@ -1,0 +1,614 @@
+#!/usr/bin/env bun
+// gstack-next - dry-run workflow router for the next gstack skill.
+//
+// Contract: read-only. This command never writes files, pushes, merges,
+// deploys, force-updates, or performs cross-repo work. It only reports the
+// current phase, the recommended next skill, and the proof gate that should
+// change the status.
+
+import { spawnSync } from "node:child_process";
+import { basename, resolve } from "node:path";
+
+type Phase =
+  | "plan"
+  | "build"
+  | "review"
+  | "qa"
+  | "ship"
+  | "land"
+  | "runtime-closeout"
+  | "docs-devex"
+  | "done"
+  | "blocked";
+
+type PullRequestState = {
+  number?: number;
+  state: "OPEN" | "MERGED" | "CLOSED" | "UNKNOWN";
+  isDraft?: boolean;
+  url?: string;
+  checks?: "green" | "red" | "pending" | "unknown";
+};
+
+type ProfileName = "default" | "sawyer";
+
+type WorkflowInput = {
+  cwd: string;
+  branch: string;
+  baseBranch?: string;
+  isGitRepo: boolean;
+  protectedBranch: boolean;
+  dirty: boolean;
+  changedFiles: string[];
+  prompt?: string;
+  cleanReviewAtHead: boolean;
+  pr?: PullRequestState | null;
+  repoName?: string;
+  profile?: ProfileName;
+};
+
+type WorkflowDecision = {
+  phase: Phase;
+  nextSkill: string | null;
+  why: string[];
+  stopsBefore: string[];
+  proofNeededAfter: string;
+  executeSupported: false;
+};
+
+type FileSignals = {
+  frontend: boolean;
+  docs: boolean;
+  devex: boolean;
+  tests: boolean;
+  runtime: boolean;
+  deploy: boolean;
+};
+
+const HARD_STOPS = [
+  "push",
+  "merge",
+  "deploy",
+  "force",
+  "protected_branch_edit",
+  "cross_repo_write",
+];
+
+const PROTECTED_BRANCHES = new Set(["main", "master", "production", "prod"]);
+const SAWYER_REPO_ROLES: Record<string, string> = {
+  "sawyer-hub": "personal orchestration",
+  "seascape-hub": "strategy and canon",
+  "seascape-ops": "runtime and workers",
+  "seascape-vacations-site": "public site execution",
+  "seascape-analytics": "measurement",
+  "gstack": "agent workflow tooling",
+};
+
+function run(cmd: string, args: string[], cwd: string): string | null {
+  const result = spawnSync(cmd, args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 5000,
+  });
+  if (result.status !== 0) return null;
+  return result.stdout.trim();
+}
+
+function git(args: string[], cwd: string): string | null {
+  return run("git", args, cwd);
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+function parsePrompt(prompt?: string): string {
+  return (prompt || "").toLowerCase();
+}
+
+function promptWantsPlan(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(plan|spec|architecture|strategy|scope|design this|think through|roadmap)\b/.test(p);
+}
+
+function promptWantsAutoplan(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(autoplan|auto[- ]?plan|run all reviews|review everything|full review pipeline|ceo.*eng.*design|plan[- ]eng.*plan[- ]design)\b/.test(p);
+}
+
+function promptWantsReviewStatus(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(review status|readiness|did we .*review|was .*reviewed|what reviews ran|cleared to ship|review dashboard)\b/.test(p);
+}
+
+function promptWantsQa(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(qa|test the site|does this work|smoke test|browser test|verify ui)\b/.test(p);
+}
+
+function promptWantsDevex(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(devex|developer experience|onboarding|getting started|time to hello world|tthw|docs audit)\b/.test(p);
+}
+
+function promptWantsDocs(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(document-release|docs after shipping|update docs|release docs|document what shipped|changelog)\b/.test(p);
+}
+
+function promptWantsInvestigate(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(bug|broken|regression|root cause|investigate|why .* fail|why .* broken|doesn't work|does not work|wtf|error)\b/.test(p);
+}
+
+function promptWantsSecurity(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(security|secure|owasp|threat model|vulnerab|xss|csrf|sql injection|secret leak)\b/.test(p);
+}
+
+function promptWantsResume(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /^(continue|resume|status|go|do it|keep going|where were we)\b/.test(p.trim())
+    || /\b(continue this branch|continue .*work|resume .*handoff|hot[- ]thread recovery)\b/.test(p);
+}
+
+function promptWantsRuntimeCloseout(prompt?: string): boolean {
+  const p = parsePrompt(prompt);
+  return /\b(post[- ]merge|runtime closeout|live root|merged.*runtime|production proof|runtime proof)\b/.test(p);
+}
+
+function isSeascapeRuntimeRepo(input: WorkflowInput): boolean {
+  const name = input.repoName || basename(input.cwd);
+  return name === "seascape-ops" || name === "seascape-vacations-site";
+}
+
+function isSawyerProfile(input: WorkflowInput): boolean {
+  return input.profile === "sawyer";
+}
+
+export function classifyFiles(files: string[]): FileSignals {
+  const signals: FileSignals = {
+    frontend: false,
+    docs: false,
+    devex: false,
+    tests: false,
+    runtime: false,
+    deploy: false,
+  };
+
+  for (const file of files) {
+    if (/\.(css|scss|sass|less|pcss|tsx|jsx|vue|svelte|astro|html|njk|liquid|hbs|ejs)$/.test(file)) {
+      signals.frontend = true;
+    }
+    if (/(^|\/)(README|CHANGELOG|CONTRIBUTING)\.md$/.test(file) || /^docs\//.test(file) || /\.md$/.test(file)) {
+      signals.docs = true;
+    }
+    if (/^(README|docs\/|examples\/|templates\/|bin\/|cli\/|sdk\/)/.test(file) || /(getting-started|quickstart|install|setup)/i.test(file)) {
+      signals.devex = true;
+    }
+    if (/\.(test|spec)\./.test(file) || /(^|\/)(test|tests|spec|__tests__)\//.test(file)) {
+      signals.tests = true;
+    }
+    if (/^(scripts\/|workers\/|runtime\/|functions\/|netlify\/functions\/|src\/functions\/)/.test(file)) {
+      signals.runtime = true;
+    }
+    if (/^(\.github\/workflows\/|netlify\.toml|vercel\.json|render\.yaml|fly\.toml)/.test(file)) {
+      signals.deploy = true;
+    }
+  }
+
+  return signals;
+}
+
+function hasReviewProof(input: WorkflowInput): boolean {
+  return input.cleanReviewAtHead;
+}
+
+export function decideNext(input: WorkflowInput): WorkflowDecision {
+  const signals = classifyFiles(input.changedFiles);
+  const why: string[] = [];
+  const repoRole = input.repoName ? SAWYER_REPO_ROLES[input.repoName] : undefined;
+
+  if (!input.isGitRepo) {
+    return {
+      phase: "blocked",
+      nextSkill: null,
+      why: ["current directory is not a git repo"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Run inside a git checkout so gstack can read branch, diff, and PR state.",
+      executeSupported: false,
+    };
+  }
+
+  if (isSawyerProfile(input) && promptWantsResume(input.prompt)) {
+    return {
+      phase: "plan",
+      nextSkill: "/context-restore",
+      why: [
+        "Sawyer profile treats low-signal continuation as context recovery first",
+        repoRole ? `repo owns ${repoRole}` : "repo role is not configured",
+      ],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Current branch state, newest checkpoint or handoff, and concrete next command are read back before acting.",
+      executeSupported: false,
+    };
+  }
+
+  if (input.pr?.state === "MERGED" || promptWantsRuntimeCloseout(input.prompt)) {
+    if (isSawyerProfile(input) || isSeascapeRuntimeRepo(input) || signals.runtime || signals.deploy) {
+      return {
+        phase: "runtime-closeout",
+        nextSkill: "post-merge-runtime-closeout",
+        why: [
+          input.pr?.state === "MERGED" ? "PR is merged" : "prompt asks for runtime closeout",
+          isSawyerProfile(input) ? "Sawyer profile requires proof before calling merged work done" : "repo or diff needs live/runtime proof before calling the work done",
+        ],
+        stopsBefore: HARD_STOPS,
+        proofNeededAfter: "GitHub merge truth, live-root commit equality, runtime proof command, and cleanup residue classified.",
+        executeSupported: false,
+      };
+    }
+  }
+
+  if (input.pr?.state === "OPEN") {
+    why.push(input.pr.isDraft ? "PR is open but draft" : "PR is open");
+    if (input.pr.isDraft) {
+      return {
+        phase: "ship",
+        nextSkill: "/ship",
+        why,
+        stopsBefore: HARD_STOPS,
+        proofNeededAfter: "Ready PR with current tests and review proof.",
+        executeSupported: false,
+      };
+    }
+    return {
+      phase: "land",
+      nextSkill: "/land-and-deploy",
+      why,
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Merged PR, completed CI/deploy, and production or canary verification.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsInvestigate(input.prompt)) {
+    return {
+      phase: "build",
+      nextSkill: "/investigate",
+      why: ["prompt reports broken behavior or asks for root cause"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Root cause, reproduction evidence, smallest fix path, and verification command.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsSecurity(input.prompt)) {
+    return {
+      phase: "review",
+      nextSkill: "/cso",
+      why: ["prompt asks for security or threat-model review"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Security findings with evidence, severity, and fix or acceptance decision.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsReviewStatus(input.prompt)) {
+    return {
+      phase: "review",
+      nextSkill: "/landing-report",
+      why: ["prompt asks what review gates have already run"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Review readiness dashboard tied to current HEAD and stale-review notes.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsDocs(input.prompt)) {
+    return {
+      phase: "docs-devex",
+      nextSkill: "/document-release",
+      why: ["prompt asks to update docs or changelog after shipped work"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Docs diff matches the shipped code and preserves existing release history.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsAutoplan(input.prompt)) {
+    return {
+      phase: "plan",
+      nextSkill: "/autoplan",
+      why: ["prompt asks for the full review pipeline"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "CEO, design, engineering, and DX review sections are recorded or explicitly skipped as not applicable.",
+      executeSupported: false,
+    };
+  }
+
+  if (input.protectedBranch && input.dirty) {
+    return {
+      phase: "blocked",
+      nextSkill: null,
+      why: [`${input.branch} is protected and has local changes`],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Move the work to a feature branch or repo-approved worktree before editing further.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsDevex(input.prompt) || (!input.dirty && signals.devex)) {
+    return {
+      phase: "docs-devex",
+      nextSkill: "/devex-review",
+      why: [promptWantsDevex(input.prompt) ? "prompt asks for developer experience review" : "changed files are developer-facing"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Live DX scorecard with tested/inferred evidence and review log entry.",
+      executeSupported: false,
+    };
+  }
+
+  if (!input.dirty && promptWantsPlan(input.prompt)) {
+    return {
+      phase: "plan",
+      nextSkill: "/autoplan",
+      why: ["prompt is planning or scope work and no implementation diff exists yet"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Reviewed plan with the required gstack review report.",
+      executeSupported: false,
+    };
+  }
+
+  if (input.dirty) {
+    if (promptWantsQa(input.prompt) || signals.frontend) {
+      return {
+        phase: "qa",
+        nextSkill: signals.frontend ? "/design-review" : "/qa",
+        why: [signals.frontend ? "diff touches user-visible UI files" : "prompt asks for QA"],
+        stopsBefore: HARD_STOPS,
+        proofNeededAfter: "Rendered/browser proof plus fixed or classified findings.",
+        executeSupported: false,
+      };
+    }
+
+    if (!hasReviewProof(input)) {
+      return {
+        phase: "review",
+        nextSkill: "/review",
+        why: ["branch has changes without a clean review recorded at current HEAD"],
+        stopsBefore: HARD_STOPS,
+        proofNeededAfter: "Clean /review entry at current HEAD or classified unresolved findings.",
+        executeSupported: false,
+      };
+    }
+
+    if (isSawyerProfile(input) && signals.devex) {
+      return {
+        phase: "docs-devex",
+        nextSkill: "/devex-review",
+        why: [
+          "branch has review proof and touches developer-facing files",
+          "Sawyer profile checks real onboarding friction before ship",
+        ],
+        stopsBefore: HARD_STOPS,
+        proofNeededAfter: "Live DX scorecard or explicit untestable dimensions before /ship.",
+        executeSupported: false,
+      };
+    }
+
+    return {
+      phase: "ship",
+      nextSkill: "/ship",
+      why: ["branch has changes and review proof is current"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Pushed branch and PR with tests, diff review, and release notes as required by /ship.",
+      executeSupported: false,
+    };
+  }
+
+  if (promptWantsQa(input.prompt)) {
+    return {
+      phase: "qa",
+      nextSkill: "/qa-only",
+      why: ["prompt asks for QA and there is no local diff to fix yet"],
+      stopsBefore: HARD_STOPS,
+      proofNeededAfter: "Read-only QA report with screenshots or command evidence.",
+      executeSupported: false,
+    };
+  }
+
+  return {
+    phase: "done",
+    nextSkill: null,
+    why: ["no local diff, open PR, or planning prompt requires a gstack skill"],
+    stopsBefore: HARD_STOPS,
+    proofNeededAfter: "No next proof gate detected. Re-run with --prompt if the user intent is not visible from repo state.",
+    executeSupported: false,
+  };
+}
+
+function parseChangedFilesFromStatus(status: string | null): string[] {
+  if (!status) return [];
+  return status
+    .split("\n")
+    .map((line) => line.slice(3).trim())
+    .map((name) => name.includes(" -> ") ? name.split(" -> ").pop() || name : name)
+    .filter(Boolean);
+}
+
+function parseReviewProof(raw: string | null, head: string | null): boolean {
+  if (!raw || !head) return false;
+  for (const line of raw.split("\n")) {
+    if (!line.trim() || line.startsWith("---")) continue;
+    try {
+      const entry = JSON.parse(line);
+      const skill = String(entry.skill || "");
+      const status = String(entry.status || "");
+      const commit = String(entry.commit || "");
+      if ((skill === "review" || skill === "plan-eng-review") && status === "clean" && commit.startsWith(head)) {
+        return true;
+      }
+    } catch {
+      // Ignore non-JSON lines from older logs.
+    }
+  }
+  return false;
+}
+
+function detectChecks(statusCheckRollup: unknown): PullRequestState["checks"] {
+  if (!Array.isArray(statusCheckRollup) || statusCheckRollup.length === 0) return "unknown";
+  const states = statusCheckRollup.map((item: any) => String(item.conclusion || item.status || "").toUpperCase());
+  if (states.some((state) => ["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT"].includes(state))) return "red";
+  if (states.every((state) => ["SUCCESS", "COMPLETED"].includes(state))) return "green";
+  return "pending";
+}
+
+function readPrState(cwd: string): PullRequestState | null {
+  const result = spawnSync(
+    "gh",
+    ["pr", "view", "--json", "number,state,isDraft,url,statusCheckRollup"],
+    { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 },
+  );
+  if (result.status !== 0 || !result.stdout.trim()) return null;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return {
+      number: parsed.number,
+      state: parsed.state || "UNKNOWN",
+      isDraft: Boolean(parsed.isDraft),
+      url: parsed.url,
+      checks: detectChecks(parsed.statusCheckRollup),
+    };
+  } catch {
+    return { state: "UNKNOWN", checks: "unknown" };
+  }
+}
+
+function detectBaseBranch(cwd: string): string | undefined {
+  const originHead = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd);
+  if (originHead?.startsWith("origin/")) return originHead.replace(/^origin\//, "");
+  if (git(["show-ref", "--verify", "--quiet", "refs/heads/main"], cwd) !== null) return "main";
+  if (git(["show-ref", "--verify", "--quiet", "refs/heads/master"], cwd) !== null) return "master";
+  return undefined;
+}
+
+function collectInput(cwd: string, prompt?: string, profile: ProfileName = "default"): WorkflowInput {
+  const root = git(["rev-parse", "--show-toplevel"], cwd);
+  if (!root) {
+    return {
+      cwd,
+      branch: "unknown",
+      isGitRepo: false,
+      protectedBranch: false,
+      dirty: false,
+      changedFiles: [],
+      prompt,
+      cleanReviewAtHead: false,
+      pr: null,
+      repoName: basename(cwd),
+      profile,
+    };
+  }
+
+  const repo = resolve(root);
+  const branch = git(["branch", "--show-current"], repo) || "unknown";
+  const baseBranch = detectBaseBranch(repo);
+  const status = git(["status", "--porcelain"], repo);
+  const statusFiles = parseChangedFilesFromStatus(status);
+  const diffBase = baseBranch ? git(["diff", "--name-only", `${baseBranch}...HEAD`], repo) : null;
+  const changedFiles = unique([
+    ...statusFiles,
+    ...(diffBase ? diffBase.split("\n").filter(Boolean) : []),
+  ]);
+  const head = git(["rev-parse", "--short", "HEAD"], repo);
+  const scriptDir = new URL(".", import.meta.url).pathname;
+  const reviewRead = run(`${scriptDir}gstack-review-read`, [], repo);
+  const repoName = basename(repo);
+
+  return {
+    cwd: repo,
+    branch,
+    baseBranch,
+    isGitRepo: true,
+    protectedBranch: PROTECTED_BRANCHES.has(branch) || Boolean(baseBranch && branch === baseBranch),
+    dirty: Boolean(status?.trim()) || changedFiles.length > 0,
+    changedFiles,
+    prompt,
+    cleanReviewAtHead: parseReviewProof(reviewRead, head),
+    pr: readPrState(repo),
+    repoName,
+    profile,
+  };
+}
+
+function formatHuman(input: WorkflowInput, decision: WorkflowDecision): string {
+  const lines = [
+    "GSTACK NEXT (dry-run)",
+    `Profile: ${input.profile || "default"}`,
+    `Repo: ${input.repoName || basename(input.cwd)}`,
+    `Branch: ${input.branch}`,
+    `Phase: ${decision.phase}`,
+    `Next skill: ${decision.nextSkill || "none"}`,
+    `Why: ${decision.why.join("; ")}`,
+    `Stops before: ${decision.stopsBefore.join(", ")}`,
+    `Proof needed after: ${decision.proofNeededAfter}`,
+    "Execute mode: not supported yet",
+  ];
+  if (input.pr?.url) lines.splice(5, 0, `PR: ${input.pr.url}`);
+  if (input.changedFiles.length > 0) lines.splice(5, 0, `Changed files: ${input.changedFiles.length}`);
+  return `${lines.join("\n")}\n`;
+}
+
+function parseProfile(raw: string | undefined): ProfileName {
+  if (raw === "sawyer") return "sawyer";
+  return "default";
+}
+
+function parseArgs(argv: string[]): { cwd: string; prompt?: string; json: boolean; profile: ProfileName } {
+  let cwd = process.cwd();
+  let prompt: string | undefined;
+  let json = false;
+  let profile = parseProfile(process.env.GSTACK_NEXT_PROFILE);
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--json") {
+      json = true;
+    } else if (arg === "--repo") {
+      cwd = argv[++i] || cwd;
+    } else if (arg === "--prompt") {
+      prompt = argv[++i] || "";
+    } else if (arg === "--profile") {
+      profile = parseProfile(argv[++i]);
+    } else if (arg === "--help" || arg === "-h") {
+      console.log("Usage: gstack-next [--repo <path>] [--prompt <text>] [--profile default|sawyer] [--json]");
+      process.exit(0);
+    } else {
+      prompt = prompt ? `${prompt} ${arg}` : arg;
+    }
+  }
+
+  return { cwd: resolve(cwd), prompt, json, profile };
+}
+
+function main(): void {
+  const args = parseArgs(process.argv.slice(2));
+  const input = collectInput(args.cwd, args.prompt, args.profile);
+  const decision = decideNext(input);
+  if (args.json) {
+    console.log(JSON.stringify({ input, decision }, null, 2));
+  } else {
+    process.stdout.write(formatHuman(input, decision));
+  }
+}
+
+if (import.meta.main) {
+  try {
+    main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`gstack-next failed: ${message}`);
+    process.exit(3);
+  }
+}
