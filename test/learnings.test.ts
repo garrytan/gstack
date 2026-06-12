@@ -100,6 +100,16 @@ describe('gstack-learnings-log', () => {
     expect(findLearningsFile()).toBeNull(); // nothing appended
   });
 
+  test('accepts legitimate prose discussing override behavior (#1934 false-positive class)', () => {
+    // "overrides" (override + s) passes the current lib pattern AND the
+    // tightened pattern from community PR #1940 — green in either order.
+    const result = runLog(
+      '{"skill":"plan-eng-review","type":"architecture","key":"override-prose","insight":"prose overrides the deterministic table on key overlap","confidence":8,"source":"observed"}',
+    );
+    expect(result.exitCode).toBe(0);
+    expect(findLearningsFile()).not.toBeNull();
+  });
+
   test('append-only: duplicate keys create multiple entries', () => {
     const input1 = '{"skill":"review","type":"pattern","key":"dup-key","insight":"first version","confidence":6,"source":"observed"}';
     const input2 = '{"skill":"review","type":"pattern","key":"dup-key","insight":"second version","confidence":8,"source":"observed"}';
