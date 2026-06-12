@@ -628,5 +628,71 @@ describe('gstack-developer-profile resources entries do not inflate count/tier/n
     const r = runDev('--read');
     expect(r.stdout).toContain('NUDGE_ELIGIBLE: true');
   });
+
+  // Boundary cases around the two `>=` gates, so a future >= → > regression
+  // (or a re-loosening of the builder filter) is caught, not just the happy path.
+  function logBuilder(signals: string[], day = 20) {
+    return runDev('--log-session', JSON.stringify({
+      date: `2026-05-${day}T00:00:00Z`, mode: 'builder', project_slug: 'p', signals,
+    }));
+  }
+
+  test('NUDGE_ELIGIBLE stays false at 2 builder sessions (below the 3-session gate)', () => {
+    logBuilder(['a', 'b', 'c'], 20);
+    logBuilder(['d', 'e', 'f'], 21); // 6 signals total — signal gate met, session gate is not
+    logResources(1);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('NUDGE_ELIGIBLE stays false at 3 builder sessions with too few signals', () => {
+    logBuilder(['a'], 20);
+    logBuilder(['b'], 21);
+    logBuilder(['c', 'd'], 22); // 4 signals total — session gate met, signal gate (>=5) is not
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('TIER reaches regular at 4 real sessions even when resources entries are present', () => {
+    logStartup();
+    logStartup();
+    logStartup();
+    logStartup();
+    for (let i = 0; i < 5; i++) logResources(i);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 4');
+    expect(r.stdout).toContain('TIER: regular');
+  });
+
+  test('TIER stays regular at 7 real sessions and crosses to inner_circle at 8 (resources ignored)', () => {
+    // Upper-tier boundary: the >=8 inner_circle gate must key off real sessions
+    // only, so a pile of resources bookkeeping can never tip a regular into the
+    // inner circle, and 8 genuine sessions still reach it.
+    for (let i = 0; i < 7; i++) logStartup();
+    for (let i = 0; i < 6; i++) logResources(i); // 13 raw rows; pre-fix would read inner_circle
+    let r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 7');
+    expect(r.stdout).toContain('TIER: regular');
+
+    logStartup(); // 8th real session
+    r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 8');
+    expect(r.stdout).toContain('TIER: inner_circle');
+  });
+
+  test('CROSS_PROJECT ignores a trailing resources entry on a different project', () => {
+    // The last two REAL sessions are the same project, so CROSS_PROJECT is false.
+    // A trailing resources row carrying a different project_slug must not become
+    // the `last` entry and flip CROSS_PROJECT true off bookkeeping.
+    logStartup({ project_slug: 'samep' });
+    logStartup({ project_slug: 'samep' });
+    runDev('--log-session', JSON.stringify({
+      date: '2026-05-20T02:00:00Z', mode: 'resources', project_slug: 'otherp',
+      resources_shown: ['url1'],
+    }));
+    const r = runDev('--read');
+    expect(r.stdout).toContain('CROSS_PROJECT: false');
+    expect(r.stdout).toContain('LAST_PROJECT: samep');
+  });
 });
 
