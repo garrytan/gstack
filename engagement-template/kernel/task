@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""
+task — deterministic ledger operations for the cstack autonomous loop.
+Lives at bin/task in the control repo. Agents invoke this instead of editing
+ledger files themselves: the model decides WHAT, this script executes HOW.
+
+Ledger format: one flat key:value file per task at ledger/<TASK-ID>.task
+(no nesting, no YAML library needed, trivially mergeable, one task = one file).
+
+Usage:
+  task eligible --role feature --domain be --repo dsti-cms-api   # print eligible task ids, best first
+  task show <id>                                                  # print a task's fields
+  task claim <id> --agent agent-be --role feature                 # atomic claim (git push is the lock)
+  task complete <id> --agent agent-be --role feature              # role-appropriate completion
+  task complete <id> --agent agent-qa --role qa --verdict passed|failed|env_error
+  task complete <id> --agent agent-doc --role doc [--verdict n/a]
+  task fail <id> --agent agent-be --role feature [--needs-human]  # failure_count++, revert claim
+  task create <id> --repo R --domain D --desc "..." [--blocked-by A,B] [--spec tasks/X.md] ...
+  task release <id> --agent agent-be --role feature               # voluntary unclaim (no failure)
+
+Exit codes: 0 ok · 1 error · 2 lost claim race (pick another task) · 3 nothing eligible
+All mutations commit+push the control repo with retry-on-reject (pull --rebase, re-verify, push).
+"""
+
+import argparse, datetime, os, re, subprocess, sys
+try:  # exit silently when downstream pipe closes early (e.g. | head, grep -q)
+    import signal
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+except (ImportError, AttributeError, ValueError):
+    pass
+
+LEDGER_DIR = "ledger"
+ROLE_COLUMNS = {  # column ownership, enforced
+    "feature": {"status", "claimed_by", "claimed_at", "failure_count"},
+    "qa":      {"qa_status", "claimed_at"},   # + documented reopen exception handled in complete()
+    "doc":     {"doc_status", "claimed_at"},
+}
+CLAIM_FIELD  = {"feature": ("status", "in_progress"), "qa": ("qa_status", "testing"), "doc": ("doc_status", "updating")}
+DEFAULTS = {"status": "open", "claimed_by": "-", "claimed_at": "-", "blocked_by": "-",
+            "failure_count": "0", "lease_hours": "4", "qa_status": "-", "doc_status": "-",
+            "spec": "-", "done_check": "-", "e2e_check": "-"}
+
+def die(msg, code=1):
+    print(f"task: {msg}", file=sys.stderr); sys.exit(code)
+
+def now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def run(cmd, check=True):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if check and r.returncode != 0:
+        die(f"command failed: {' '.join(cmd)}\n{r.stderr.strip()}")
+    return r
+
+def path_for(tid):
+    return os.path.join(LEDGER_DIR, f"{tid}.task")
+
+def load(tid):
+    p = path_for(tid)
+    if not os.path.isfile(p):
+        die(f"no such task: {tid}")
+    fields = dict(DEFAULTS)
+    for line in open(p):
+        m = re.match(r"^([a-z_]+):\s?(.*)$", line.rstrip("\n"))
+        if m:
+            fields[m.group(1)] = m.group(2).strip() or "-"
+    fields["id"] = fields.get("id", tid)
+    return fields
+
+def save(tid, fields):
+    order = ["id", "repo", "domain", "status", "claimed_by", "claimed_at", "blocked_by",
+             "failure_count", "lease_hours", "spec", "done_check", "e2e_check",
+             "qa_status", "doc_status", "description"]
+    keys = order + [k for k in fields if k not in order]
+    with open(path_for(tid), "w") as f:
+        for k in keys:
+            if k in fields:
+                f.write(f"{k}: {fields[k]}\n")
+
+def all_tasks():
+    if not os.path.isdir(LEDGER_DIR):
+        return []
+    out = []
+    for fn in sorted(os.listdir(LEDGER_DIR)):
+        if fn.endswith(".task"):
+            out.append(load(fn[:-5]))
+    return out
+
+def stale(fields, status_field, active_value):
+    """True if claimed but lease expired."""
+    if fields.get(status_field) != active_value or fields.get("claimed_at", "-") == "-":
+        return False
+    try:
+        claimed = datetime.datetime.fromisoformat(fields["claimed_at"].replace("Z", "+00:00"))
+        lease = float(fields.get("lease_hours", "4"))
+        return (datetime.datetime.now(datetime.timezone.utc) - claimed).total_seconds() > lease * 3600
+    except ValueError:
+        return True  # unparseable timestamp = treat as stale
+
+def blocked(fields, index):
+    deps = fields.get("blocked_by", "-")
+    if deps in ("-", ""):
+        return False
+    for dep in [d.strip() for d in deps.split(",") if d.strip()]:
+        dep_t = index.get(dep)
+        if dep_t is None or dep_t.get("status") != "done":
+            return True
+    return False
+
+def eligible(role, domain, repo):
+    index = {t["id"]: t for t in all_tasks()}
+    out = []
+    for t in index.values():
+        if int(t.get("failure_count", "0")) >= 3 or t.get("status") == "needs_human":
+            continue
+        if domain and t.get("domain") not in (domain, "full"):
+            continue
+        if repo and t.get("repo", "-") not in (repo, "-"):
+            continue
+        if role == "feature":
+            ok = (t["status"] == "open" and not blocked(t, index)) or stale(t, "status", "in_progress")
+        elif role == "qa":
+            ok = t["status"] == "done" and (t["qa_status"] in ("-", "pending") or stale(t, "qa_status", "testing"))
+        elif role == "doc":
+            ok = t["status"] == "done" and (t["doc_status"] == "-" or stale(t, "doc_status", "updating"))
+        else:
+            die(f"unknown role: {role}")
+        if ok:
+            out.append(t)
+    if role == "doc":  # prefer QA-verified work
+        out.sort(key=lambda t: 0 if t.get("qa_status") == "passed" else 1)
+    return [t["id"] for t in out]
+
+def git_sync_push(message, retries=3):
+    """Commit ledger changes and push; on reject, rebase and signal caller to re-verify."""
+    run(["git", "add", LEDGER_DIR])
+    r = subprocess.run(["git", "commit", "-qm", message], capture_output=True, text=True)
+    if r.returncode != 0:
+        return True  # nothing to commit
+    for _ in range(retries):
+        if subprocess.run(["git", "push", "-q"], capture_output=True).returncode == 0:
+            return True
+        run(["git", "pull", "--rebase", "-q"], check=False)
+    return False
+
+def cmd_claim(a):
+    field, active = CLAIM_FIELD[a.role]
+    t = load(a.id)
+    # pre-check
+    if a.role == "feature" and t["status"] != "open" and not stale(t, "status", "in_progress"):
+        die(f"{a.id} not claimable (status={t['status']})", 2)
+    t[field] = active
+    t["claimed_by"] = a.agent if a.role == "feature" else t.get("claimed_by", "-")
+    t["claimed_at"] = now_iso()
+    save(a.id, t)
+    if not git_sync_push(f"claim({a.id}): {a.agent} [{a.role}]"):
+        die("push failed after retries", 1)
+    # post-push verify we still own it (rebase may have replayed over a competing claim)
+    run(["git", "pull", "--rebase", "-q"], check=False)
+    t2 = load(a.id)
+    mine = (t2.get("claimed_by") == a.agent) if a.role == "feature" else (t2.get(field) == active)
+    if t2.get(field) != active or not mine:
+        die(f"lost claim race on {a.id}", 2)
+    print(f"claimed {a.id}")
+
+def cmd_complete(a):
+    t = load(a.id)
+    msg_extra = ""
+    if a.role == "feature":
+        t["status"], t["claimed_by"], t["claimed_at"] = "done", "-", "-"
+    elif a.role == "qa":
+        v = a.verdict or die("qa complete requires --verdict passed|failed|env_error")
+        t["qa_status"], t["claimed_at"] = v, "-"
+        msg_extra = f" {v}"
+        if v == "failed":  # documented cross-column exception
+            t["failure_count"] = str(int(t["failure_count"]) + 1)
+            t["status"] = "needs_human" if int(t["failure_count"]) >= 3 else "open"
+    elif a.role == "doc":
+        t["doc_status"], t["claimed_at"] = (a.verdict or "updated"), "-"
+    save(a.id, t)
+    if not git_sync_push(f"{a.role}({a.id}):{msg_extra or ' complete'} by {a.agent}"):
+        die("push failed after retries")
+    print(f"completed {a.id}{msg_extra}")
+
+def cmd_fail(a):
+    t = load(a.id)
+    t["failure_count"] = str(int(t["failure_count"]) + 1)
+    if a.role == "feature":
+        t["status"] = "needs_human" if (a.needs_human or int(t["failure_count"]) >= 3) else "open"
+        t["claimed_by"], t["claimed_at"] = "-", "-"
+    elif a.role == "qa":
+        t["qa_status"], t["claimed_at"] = "-", "-"
+    elif a.role == "doc":
+        t["doc_status"], t["claimed_at"] = "-", "-"
+    save(a.id, t)
+    if not git_sync_push(f"fail({a.id}): {a.agent} count={t['failure_count']}"):
+        die("push failed after retries")
+    print(f"failed {a.id} (count={t['failure_count']}, status={t['status']})")
+
+def cmd_release(a):
+    t = load(a.id)
+    field, active = CLAIM_FIELD[a.role]
+    if t.get(field) == active:
+        t[field] = "open" if a.role == "feature" else "-"
+        t["claimed_at"] = "-"
+        if a.role == "feature":
+            t["claimed_by"] = "-"
+    save(a.id, t)
+    git_sync_push(f"release({a.id}): {a.agent}")
+    print(f"released {a.id}")
+
+def cmd_create(a):
+    if os.path.isfile(path_for(a.id)):
+        die(f"{a.id} already exists")
+    os.makedirs(LEDGER_DIR, exist_ok=True)
+    t = dict(DEFAULTS)
+    t.update(id=a.id, repo=a.repo, domain=a.domain, description=a.desc)
+    if a.blocked_by: t["blocked_by"] = a.blocked_by
+    if a.spec: t["spec"] = a.spec
+    if a.done_check: t["done_check"] = a.done_check
+    if a.e2e_check: t["e2e_check"] = a.e2e_check
+    if a.lease_hours: t["lease_hours"] = a.lease_hours
+    save(a.id, t)
+    git_sync_push(f"create({a.id}) by {a.agent or 'human'}")
+    print(f"created {a.id}")
+
+def main():
+    p = argparse.ArgumentParser(prog="task")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    e = sub.add_parser("eligible"); e.add_argument("--role", required=True); e.add_argument("--domain", default=""); e.add_argument("--repo", default="")
+    s = sub.add_parser("show"); s.add_argument("id")
+    for name in ("claim", "complete", "fail", "release"):
+        c = sub.add_parser(name); c.add_argument("id")
+        c.add_argument("--agent", required=True); c.add_argument("--role", required=True, choices=list(ROLE_COLUMNS))
+        if name == "complete": c.add_argument("--verdict", default=None)
+        if name == "fail": c.add_argument("--needs-human", action="store_true")
+    cr = sub.add_parser("create"); cr.add_argument("id")
+    for f in ("--repo", "--domain", "--desc"): cr.add_argument(f, required=True)
+    for f in ("--blocked-by", "--spec", "--done-check", "--e2e-check", "--lease-hours", "--agent"): cr.add_argument(f, default=None)
+
+    a = p.parse_args()
+    run(["git", "pull", "--rebase", "-q"], check=False)  # fresh view before any read/write
+    if a.cmd == "eligible":
+        ids = eligible(a.role, a.domain, a.repo)
+        if not ids: print("NO_ELIGIBLE_TASKS"); sys.exit(3)
+        print("\n".join(ids))
+    elif a.cmd == "show":
+        for k, v in load(a.id).items(): print(f"{k}: {v}")
+    elif a.cmd == "claim": cmd_claim(a)
+    elif a.cmd == "complete": cmd_complete(a)
+    elif a.cmd == "fail": cmd_fail(a)
+    elif a.cmd == "release": cmd_release(a)
+    elif a.cmd == "create": cmd_create(a)
+
+if __name__ == "__main__":
+    main()
