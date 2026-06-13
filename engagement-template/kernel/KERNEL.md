@@ -40,8 +40,25 @@ task eligible --role R --domain D [--repo X]   # ids best-first | NO_ELIGIBLE_TA
 task show <id>
 task claim <id> --agent A --role R              # exit 2 = lost race, pick another
 task complete <id> --agent A --role R [--verdict v]
-task fail <id> --agent A --role R [--needs-human]
+task fail <id> --agent A --role R [--needs-human | --awaiting-info]
+                                                  # --awaiting-info: park (status=awaiting_info),
+                                                  # no failure_count hit — agent-to-agent question
+task resume <id> --agent A --role R              # AGENT-PERMITTED. awaiting_info -> open.
 task release <id> --agent A --role R
+task unblock <id> --agent A --reason "..."      # HUMAN ONLY. needs_human -> open. Required reason.
+task sync                                        # batch-create ledger entries from tasks/*.md
+                                                  # frontmatter (ready: true). One commit, any N.
 task create <id> --repo X --domain D --desc "..." [--blocked-by ..] [--spec ..] [--done-check ..] [--e2e-check ..] [--lease-hours N]
 ```
-Exit codes: 0 ok · 1 error · 2 lost claim race · 3 nothing eligible.
+Exit codes: 0 ok · 1 error (sync: also means >=1 spec had a frontmatter error — see output) · 2 lost claim race · 3 nothing eligible.
+
+`unblock` is the ONLY sanctioned reversal of `needs_human` — it refuses any other status,
+requires a non-empty `--reason` (recorded in the commit), and deliberately leaves
+`failure_count` untouched as history. AGENT_BASE forbids agents from calling it; it exists
+so a human decision never requires a manual ledger edit.
+
+`sync` is the preferred way to register tasks at any scale: write `tasks/<ID>.md` with the
+frontmatter block from `tasks/TASK_TEMPLATE.md` (typically via the `/req-spec` skill), set
+`ready: true` once every AC is mapped, then `kernel/task sync`. Specs with `ready: false`,
+missing frontmatter (legacy specs), or already-registered IDs are skipped and reported —
+never silently re-processed. `task create` remains for one-off/manual registration.

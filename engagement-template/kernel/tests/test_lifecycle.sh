@@ -49,4 +49,68 @@ RC=$?
 set -e
 [ "$RC" -eq 2 ] || { echo "FAIL: race should exit 2, got $RC"; exit 1; }
 
+# 6. unblock: needs_human -> open with reason; rejects missing reason and wrong state
+cd "$WORK/a"
+$T create T-NH --repo r1 --domain be --desc "needs human test" >/dev/null
+$T claim T-NH --agent a1 --role feature >/dev/null
+$T fail T-NH --agent a1 --role feature --needs-human >/dev/null
+$T show T-NH | grep -q "^status: needs_human" || { echo "FAIL: fail --needs-human should set needs_human"; exit 1; }
+$T unblock T-NH --agent tshepo 2>/dev/null && { echo "FAIL: unblock without --reason should error"; exit 1; }
+$T unblock T-NH --agent tshepo --reason "human decision recorded" >/dev/null
+$T show T-NH | grep -q "^status: open" || { echo "FAIL: unblock should set open"; exit 1; }
+$T show T-NH | grep -q "^failure_count: 1" || { echo "FAIL: unblock should preserve failure_count"; exit 1; }
+$T unblock T-NH --agent tshepo --reason "again" 2>/dev/null && { echo "FAIL: unblock on non-needs_human should error"; exit 1; }
+
+# 7. sync: frontmattered ready specs -> ledger, one commit; not-ready/error specs reported
+cd "$WORK/a"
+mkdir -p tasks
+cat > tasks/SYNC-1.md <<'EOS'
+---
+repo: r1
+domain: be
+done_check: pytest tests/test_sync1.py
+ready: true
+---
+# SYNC-1 -- synced via frontmatter
+EOS
+cat > tasks/SYNC-2.md <<'EOS'
+---
+repo: r1
+domain: be
+ready: false
+---
+# SYNC-2 -- not ready yet
+EOS
+OUT=$($T sync)
+echo "$OUT" | grep -q "created: 1 (SYNC-1)" || { echo "FAIL: sync should create SYNC-1"; exit 1; }
+echo "$OUT" | grep -q "not ready.*SYNC-2" || { echo "FAIL: sync should report SYNC-2 as not ready"; exit 1; }
+[ -f ledger/SYNC-1.task ] || { echo "FAIL: SYNC-1 ledger file missing"; exit 1; }
+[ -f ledger/SYNC-2.task ] && { echo "FAIL: SYNC-2 should NOT have a ledger entry"; exit 1; }
+$T eligible --role feature --domain be | grep -q "SYNC-1" || { echo "FAIL: SYNC-1 should be eligible after sync"; exit 1; }
+# idempotent: second sync creates nothing new
+OUT2=$($T sync)
+echo "$OUT2" | grep -q "created: 0" || { echo "FAIL: second sync should create 0"; exit 1; }
+
+# 8. awaiting_info: agent-to-agent Q&A, no failure_count hit; resume reopens;
+#    if the answering agent also can't help, escalate to needs_human (failure_count++)
+cd "$WORK/a"
+$T create BUG-AI --repo r1 --domain be --desc "needs clarification from another agent" >/dev/null
+$T claim BUG-AI --agent agent-be --role feature >/dev/null
+$T fail BUG-AI --agent agent-be --role feature --awaiting-info >/dev/null
+$T show BUG-AI | grep -q "^status: awaiting_info" || { echo "FAIL: awaiting_info status"; exit 1; }
+$T show BUG-AI | grep -q "^failure_count: 0" || { echo "FAIL: awaiting_info must not increment failure_count"; exit 1; }
+$T eligible --role feature --domain be 2>/dev/null | grep -q "^BUG-AI$" && { echo "FAIL: awaiting_info should not be immediately eligible"; exit 1; }
+# answering agent CAN help -> resume -> open, re-eligible
+$T resume BUG-AI --agent agent-fe --role feature >/dev/null
+$T show BUG-AI | grep -q "^status: open" || { echo "FAIL: resume should reopen"; exit 1; }
+$T eligible --role feature --domain be | grep -q "BUG-AI" || { echo "FAIL: BUG-AI should be eligible after resume"; exit 1; }
+# resume on a non-awaiting_info task errors
+$T resume BUG-AI --agent agent-fe --role feature 2>/dev/null && { echo "FAIL: resume on open task should error"; exit 1; }
+# second round: nobody can answer -> needs_human, failure_count++
+$T claim BUG-AI --agent agent-be --role feature >/dev/null
+$T fail BUG-AI --agent agent-be --role feature --awaiting-info >/dev/null
+$T fail BUG-AI --agent agent-fe --role feature --needs-human >/dev/null
+$T show BUG-AI | grep -q "^status: needs_human" || { echo "FAIL: both-stuck should escalate to needs_human"; exit 1; }
+$T show BUG-AI | grep -q "^failure_count: 1" || { echo "FAIL: needs_human escalation should increment failure_count"; exit 1; }
+
 echo "kernel lifecycle: ALL PASS"
