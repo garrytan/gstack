@@ -391,6 +391,39 @@ describe('gen-skill-docs', () => {
     expect(Buffer.byteLength(writingStyle, 'utf-8')).toBeLessThan(2_000);
   });
 
+  test('user-local generation structurally honors explain_level: terse', () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-user-config-'));
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-user-render-'));
+    try {
+      fs.writeFileSync(path.join(stateDir, 'config.yaml'), 'explain_level: terse\n');
+      const result = Bun.spawnSync([
+        'bun', 'run', 'scripts/gen-skill-docs.ts',
+        '--respect-detection',
+        '--host', 'claude',
+        '--out-dir', outDir,
+      ], {
+        cwd: ROOT,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { ...process.env, GSTACK_HOME: stateDir, GSTACK_STATE_ROOT: stateDir },
+      });
+      const stderr = result.stderr.toString();
+      const stdout = result.stdout.toString();
+
+      expect(result.exitCode, `${stdout}\n${stderr}`).toBe(0);
+
+      const content = fs.readFileSync(path.join(outDir, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('Terse mode (build-time)');
+      expect(content).not.toContain('Curated jargon list lives');
+      expect(content).not.toContain('## Completeness Principle — Boil the Ocean');
+      expect(content).not.toContain('## Confusion Protocol');
+      expect(content).not.toContain('## Context Health (soft directive)');
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
   test('slim voice section preserves the gstack voice contract', () => {
     const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
     const voice = extractMarkdownSection(content, '## Voice');
@@ -2476,6 +2509,20 @@ describe('setup script validation', () => {
   test('setup reads skill_prefix from config', () => {
     expect(setupContent).toContain('get skill_prefix');
     expect(setupContent).toContain('GSTACK_CONFIG');
+  });
+
+  test('setup applies user-local skill rendering for terse mode without requiring gbrain', () => {
+    const regenSectionStart = setupContent.indexOf('# ─── User-local SKILL.md regen');
+    const regenSectionEnd = setupContent.indexOf('# 11. Plan-tune cathedral hook install', regenSectionStart);
+    const regenSection = setupContent.slice(regenSectionStart, regenSectionEnd);
+    const gbrainElseStart = regenSection.indexOf('gbrain not detected');
+    const userRenderIndex = regenSection.indexOf('gen:skill-docs:user --host claude');
+
+    expect(regenSection).toContain('get explain_level');
+    expect(regenSection).toContain('explain_level=terse');
+    expect(userRenderIndex).toBeGreaterThan(-1);
+    expect(gbrainElseStart).toBeGreaterThan(-1);
+    expect(userRenderIndex).toBeGreaterThan(gbrainElseStart);
   });
 
   test('setup supports --prefix flag', () => {

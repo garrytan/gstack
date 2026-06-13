@@ -126,8 +126,24 @@ const CATALOG_MODE: 'trim' | 'full' = (() => {
 // the model skips them when EXPLAIN_LEVEL: terse appears in the preamble echo).
 // Opt-in via the build flag so most users get the runtime-flexible default.
 const EXPLAIN_LEVEL_ARG = process.argv.find(a => a.startsWith('--explain-level'));
+function loadConfiguredExplainLevel(): 'default' | 'terse' {
+  if (!RESPECT_DETECTION) return 'default';
+  const stateDir = process.env.GSTACK_STATE_ROOT
+    || process.env.GSTACK_HOME
+    || process.env.GSTACK_STATE_DIR
+    || path.join(process.env.HOME || '', '.gstack');
+  const configPath = path.join(stateDir, 'config.yaml');
+  try {
+    const config = fs.readFileSync(configPath, 'utf-8');
+    const match = config.match(/^\s*explain_level\s*:\s*(default|terse)\s*$/m);
+    return match?.[1] === 'terse' ? 'terse' : 'default';
+  } catch {
+    return 'default';
+  }
+}
+
 const EXPLAIN_LEVEL: 'default' | 'terse' = (() => {
-  if (!EXPLAIN_LEVEL_ARG) return 'default';
+  if (!EXPLAIN_LEVEL_ARG) return loadConfiguredExplainLevel();
   const val = EXPLAIN_LEVEL_ARG.includes('=')
     ? EXPLAIN_LEVEL_ARG.split('=')[1]
     : process.argv[process.argv.indexOf(EXPLAIN_LEVEL_ARG) + 1];
