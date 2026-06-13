@@ -1,0 +1,497 @@
+---
+name: workflow-qa
+preamble-tier: 4
+version: 1.0.0
+description: |
+  Systematically QA test an approval/state-machine workflow as a directed
+  graph and fix bugs found. Models the workflow — states as nodes, transitions
+  as edges — then verifies every node, every edge, and every edge that should
+  NOT exist. Use when asked to "test the workflow", "QA the approval flow",
+  "verify the state machine", "check who can approve what", or after any
+  change to workflow logic, transition tables, or role permissions.
+  Proactively suggest when the user modifies a transitions map (e.g.
+  WORKFLOW_TRANSITIONS), adds a workflow state, or changes approver roles.
+  Three tiers: Quick (happy path + forbidden edges), Standard (+ actor
+  authorization + guards), Exhaustive (+ structural analysis + concurrency
+  probes). Produces a transition matrix, pass/fail evidence per edge, atomic
+  fix commits, and a client sign-off-ready report. For report-only mode, use
+  --report-only. (cstack)
+voice-triggers:
+  - "test the approvals"
+  - "check the workflow"
+  - "run workflow QA"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - test the workflow
+  - workflow qa
+  - test the approval flow
+  - verify the state machine
+  - can a user skip approval
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+{{GBRAIN_CONTEXT_LOAD}}
+
+## Engagement Context (cstack)
+
+```bash
+# cstack: load client engagement context if present
+if [ -f CLIENT.md ]; then
+  echo "CLIENT_CONTEXT: present"
+  grep -E "^(Client|Engagement|Environment):" CLIENT.md 2>/dev/null || true
+else
+  echo "CLIENT_CONTEXT: none"
+fi
+```
+
+If `CLIENT_CONTEXT: present`, read CLIENT.md before testing. It may name the
+UAT environment URL, role accounts, and which workflows are client-facing
+deliverables. **Never run workflow-qa against a client's production
+environment.** If the only URL available is production, STOP and ask.
+
+# /workflow-qa: Model → Enumerate → Execute → Fix
+
+You are a QA engineer AND a bug-fix engineer specializing in approval
+workflows. A workflow is a directed graph. Testing a graph is a well-defined
+problem: check every node, every edge, and every edge that shouldn't exist.
+When you find bugs, fix them in source code with atomic commits, then
+re-verify.
+
+## Setup
+
+**Parse the user's request for these parameters:**
+
+| Parameter | Default | Override example |
+|-----------|---------|------------------|
+| Workflow source | (auto-detect) | `Use workflow.md`, `Use WORKFLOW_TRANSITIONS in app/core/workflow.py` |
+| Mode | api (if backend detected) | `--browser`, `--api`, `--both` |
+| Target | (auto-detect localhost) | `http://localhost:8000`, UAT URL from CLIENT.md |
+| Tier | Standard | `--quick`, `--exhaustive` |
+| Actors | (from workflow source) | `Actors file: qa/actors.json` |
+| Output dir | `qa/workflow-reports/` | `Output to /tmp/wqa` |
+| Fix mode | fix | `--report-only` |
+
+**Tiers determine test classes executed:**
+- **Quick:** Class 1 (valid transitions) + Class 2 (forbidden edges)
+- **Standard:** + Class 3 (actor authorization) + Class 4 (guard conditions) (default)
+- **Exhaustive:** + Class 5 (structural analysis) + Class 6 (concurrency/replay probes)
+
+**Check for clean working tree:**
+
+```bash
+git status --porcelain
+```
+
+If the output is non-empty (working tree is dirty), **STOP** and use AskUserQuestion:
+
+"Your working tree has uncommitted changes. /workflow-qa needs a clean tree so each fix gets its own atomic commit."
+
+- A) Commit my changes — commit all current changes with a descriptive message, then start workflow QA
+- B) Stash my changes — stash, run workflow QA, pop the stash after
+- C) Abort — I'll clean up manually
+
+RECOMMENDATION: Choose A because uncommitted work should be preserved as a commit before workflow-qa adds its own fix commits.
+
+**Find the browse binary (only if `--browser` or `--both`):**
+
+{{BROWSE_SETUP}}
+
+**Create output directories:**
+
+```bash
+mkdir -p qa/workflow-reports/evidence
+```
+
+---
+
+{{LEARNINGS_SEARCH:query=workflow transition approval state machine authorization guard}}
+
+---
+
+## Phase 1: Acquire the workflow definition
+
+The single source of truth, in priority order:
+
+1. **Explicit user-named source** — a `workflow.md`, spec section, or code path the user pointed at.
+2. **Code-level transition map** — grep for the conventional shapes:
+   ```bash
+   grep -rn "WORKFLOW_TRANSITIONS\|ALLOWED_TRANSITIONS\|state_machine\|StateMachine\|transitions =" --include="*.py" --include="*.ts" -l | head -10
+   ```
+3. **Requirements artifacts** — `requirements/*-srs-*.md` (cstack /req-spec output) often contains the approval workflow as REQ blocks with state tables.
+4. **CLIENT.md** — may reference the workflow document for the engagement.
+
+**If multiple sources exist and disagree, that is itself a finding.** Log it
+as WQA-000 (severity: high, category: spec-drift) before testing anything —
+the code and the spec describing different graphs is a real bug a client will
+find at sign-off.
+
+**If no source is found:** STOP. Use AskUserQuestion to ask the user to point
+at the workflow definition or paste the states and rules. Never invent a
+workflow to test against.
+
+## Phase 2: Build the graph model
+
+Translate the definition into an explicit graph. Write it to
+`qa/workflow-reports/workflow-graph.md` so the model is reviewable and
+becomes the regression baseline.
+
+**Nodes (states):**
+
+| Field | Example |
+|-------|---------|
+| State id | `SUBMITTED` |
+| Type | initial / intermediate / terminal |
+| Entry requirements | "all mandatory fields present" |
+
+**Edges (transitions):**
+
+| Field | Example |
+|-------|---------|
+| Edge id | `T03` |
+| From → To | `SUBMITTED → L1_APPROVED` |
+| Allowed actors (roles) | `office_manager` |
+| Guard conditions | "rejection requires reason text" |
+| Side effects | notification sent, audit row written, timestamp set |
+
+**Derived sets (compute these, don't ask):**
+- **Forbidden edges** = every (from, to) pair NOT in the edge list. These
+  must be PROVEN absent — e.g. `DRAFT → PUBLISHED` skipping approval.
+- **Per-edge unauthorized actors** = all roles minus the edge's allowed
+  actors. Each is a negative test.
+- **Reachability** = can every node be reached from the initial node?
+  Unreachable state = dead code or missing edge.
+- **Liveness** = does every non-terminal node have at least one outgoing
+  edge? A non-terminal node with no exit is a dead end — documents get stuck
+  there forever.
+
+Render the graph as a Mermaid `stateDiagram-v2` block in workflow-graph.md so
+the client-facing report has a picture.
+
+**STOP point (Standard and Exhaustive tiers):** Show the user the graph
+summary — N states, M edges, K forbidden pairs, A actors — via
+AskUserQuestion: confirm the model is right before executing, or correct it.
+A wrong model produces confidently wrong test results. Quick tier skips this
+gate.
+
+## Phase 3: Generate the test matrix
+
+Enumerate every test case BEFORE executing any. Write the matrix to the
+report file first with all results as `PENDING`, then fill in results as you
+execute. This guarantees no edge is silently skipped.
+
+**Class 1 — Valid transitions (every edge fires).**
+For each edge: as an allowed actor, with guards satisfied, trigger the
+transition. Assert: new state is correct, side effects occurred (audit row,
+notification, timestamps), and the API/UI reports success.
+
+**Class 2 — Forbidden edges (the graph has no shortcuts).**
+For each forbidden (from, to) pair that the API surface could plausibly
+express (a status-update endpoint, a direct PATCH on state): attempt it as
+the MOST privileged actor. Assert: rejected with the correct error, state
+unchanged, no side effects fired. Prioritize pairs that skip approval levels
+or resurrect terminal states (`REJECTED → APPROVED`, `PUBLISHED → DRAFT`).
+
+**Class 3 — Actor authorization (every edge, every wrong actor).**
+For each edge × each unauthorized role: attempt the transition. Assert: 403
+(or UI affordance absent AND server-side rejection — testing only that the
+button is hidden is not a pass; the API must refuse too). Include the
+no-auth/anonymous case.
+
+**Class 4 — Guard conditions.**
+For each edge with guards: attempt the transition with each guard violated
+one at a time (missing mandatory field, missing rejection reason, missing
+attachment). Assert: blocked with a specific, actionable error naming the
+violated condition — "Internal Server Error" on a guard violation is a
+finding even though the transition was blocked.
+
+**Class 5 — Structural analysis (Exhaustive).**
+Pure model checks, no requests needed: unreachable states, dead-end
+non-terminal states, terminal states that have outgoing edges in code,
+transitions in code absent from spec and vice versa (extends WQA-000).
+
+**Class 6 — Concurrency and replay probes (Exhaustive).**
+- Double-fire: send the same valid transition twice in quick succession
+  (two approvers clicking approve). Assert: second attempt rejected or
+  idempotent — never a double side effect (two notifications, two audit rows
+  advancing two levels).
+- Stale-state replay: fetch entity at state A, advance it to B via another
+  actor, then submit the original A-based transition. Assert: rejected as
+  stale.
+
+## Phase 4: Execute
+
+### API mode (default when a backend is detected)
+
+Detect the running backend (try the user-given target, then common local
+ports). Authenticate one session per role:
+
+```bash
+# One token per actor role; never hardcode credentials in the report — [REDACTED]
+curl -s -X POST "$TARGET/auth/login" -d '{"username":"<role-account>","password":"[REDACTED]"}'
+```
+
+For each matrix row: create or select a fixture entity in the required `from`
+state (create fresh via API where possible — never mutate real client data),
+fire the transition request as the specified actor, assert response code,
+response body, and resulting state via a follow-up GET. Save the
+request/response pair to `qa/workflow-reports/evidence/T{NN}-{case}.json`.
+
+If the project has a test suite (pytest/httpx for FastAPI is the common
+cstack case), prefer driving these as throwaway test functions against the
+running app — you get assertions and a machine-readable pass/fail for free.
+If no test framework exists, fall back to curl with manual assertions; do
+not bootstrap a framework inside this skill.
+
+### Browser mode (`--browser`, or `--both`)
+
+Per matrix row: log in as the actor, navigate to the entity, attempt the
+transition through the UI, screenshot before/after into
+`qa/workflow-reports/evidence/`, check the console for errors. Browser mode
+additionally verifies the **affordance layer**: actions a role cannot
+perform should not be presented as available buttons that fail on click.
+After every screenshot command, Read the output file so the user sees it
+inline.
+
+**`--both` is the strongest evidence for client sign-off:** API proves the
+rule is enforced; browser proves the user experience matches the rule.
+
+### Execution rules
+
+- Verify each failure once by retrying before documenting — flake ≠ bug.
+- Check side-effect channels after every Class 1 transition (audit table,
+  notification log) — a transition that "works" but writes no audit row is a
+  finding in any government engagement.
+- Reset or recreate fixtures between cases; never let one test's state leak
+  into the next case's `from` precondition.
+
+## Phase 5: Document
+
+Document each issue immediately when found, into the report. Per issue:
+
+- **Id** (`WQA-001`), **severity**, **category**: `missing-edge` (valid
+  transition fails), `illegal-edge` (forbidden transition succeeds),
+  `auth-bypass` (wrong actor succeeds), `guard-bypass` (guard violated but
+  transition fired), `bad-error` (blocked but wrong/opaque error),
+  `side-effect` (missing or duplicated audit/notification), `dead-end`,
+  `spec-drift`, `concurrency`.
+- **Matrix row** it came from, repro request/steps, evidence file path.
+
+**Severity defaults:** `auth-bypass` and `illegal-edge` on approval-skipping
+or terminal-resurrecting pairs = **critical** (these are security findings —
+cross-file them into the engagement's security report if one exists).
+`guard-bypass`, `side-effect` on audit rows = high. `missing-edge` = high
+(feature broken). `bad-error`, `spec-drift` = medium. Cosmetic affordance
+issues = low.
+
+---
+
+## Phase 6: Triage
+
+Sort all discovered issues by severity, then decide which to fix based on the
+selected tier:
+
+- **Quick:** Fix critical + high only. Mark medium/low as "deferred."
+- **Standard:** Fix critical + high + medium. Mark low as "deferred."
+- **Exhaustive:** Fix all, including cosmetic/low severity.
+
+`--report-only`: skip Phases 6–8 entirely; write the report and stop.
+
+Mark issues that cannot be fixed from source code (e.g., third-party service
+behavior, infrastructure) as "deferred" regardless of tier.
+
+### Refresh learnings for the entity/transition where the bug lives
+
+Pick ONE keyword that names the entity type or transition under repair. The
+keyword MUST be alphanumeric or hyphen only — no quotes, slashes, dots,
+colons, or whitespace.
+
+Worked examples (workflow-specific): good keywords are `statement-approval`,
+`speech-workflow`, `l1-approve`, `rejection-guard`. Bad: `the approve bug`,
+`app/services/workflow.py`.
+
+```bash
+~/.claude/skills/cstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+```
+
+If any learnings come back, name which one applies to the fix you're about to
+make in one sentence. If none come back, continue — the absence is itself
+useful information.
+
+---
+
+## Phase 7: Fix Loop
+
+For each fixable issue, in severity order:
+
+### 7a. Locate source
+
+- Grep for the transition name, state constants, permission checks
+- Find the layer that actually enforces the rule (router vs service vs
+  model) — fix at the enforcement layer, not the UI
+- ONLY modify files directly related to the issue
+
+### 7b. Fix
+
+- Read the source code, understand the context
+- Make the **minimal fix** — smallest change that resolves the issue
+- Do NOT refactor surrounding code, add features, or "improve" unrelated things
+
+### 7c. Commit
+
+```bash
+git add <only-changed-files>
+git commit -m "fix(workflow-qa): WQA-NNN — short description"
+```
+
+- One commit per fix. Never bundle multiple fixes.
+
+### 7d. Re-test
+
+Re-run the EXACT matrix rows the fix affects, **plus all Class 2 and Class 3
+rows touching the changed transition** — an authorization fix on one edge can
+loosen another.
+
+**Blast-radius rule for `auth-bypass` and `illegal-edge` fixes:** re-run the
+FULL Class 2 + Class 3 set for the affected entity type, not just the failing
+row. Save fresh evidence files.
+
+### 7e. Classify
+
+- **verified**: re-test confirms the fix works, no new failures introduced
+- **best-effort**: fix applied but couldn't fully verify (e.g., needs a role
+  account you don't have, external notification service)
+- **reverted**: regression detected → `git revert HEAD` → mark issue as "deferred"
+
+### 7f. Regression Test
+
+Skip if: classification is not "verified", OR no test framework exists.
+
+1. **Study the project's existing test patterns:** read 2-3 test files
+   closest to the fix. Match file naming, imports, assertion style, fixture
+   patterns exactly. The test must look like it was written by the same
+   developer.
+2. **Write the regression test:** set up the entity in the precondition
+   state, attempt the transition as the relevant actor, assert the rule
+   (correct new state, or correct rejection — never just "doesn't throw").
+   Mock external side-effect channels (notifications); assert against the
+   real audit/state layer. Attribution comment:
+   ```
+   # Regression: WQA-NNN — {what broke}
+   # Found by /workflow-qa on {YYYY-MM-DD}
+   # Report: qa/workflow-reports/workflow-qa-report-{slug}-{date}.md
+   ```
+3. **Run only the new test file.** Passes → commit:
+   `git commit -m "test(workflow-qa): regression test for WQA-NNN — {desc}"`.
+   Fails → fix test once. Still failing → delete test, defer.
+4. **Convergence note:** the transition matrix is finite and stable, so over
+   a few runs the regression suite converges on TOTAL coverage of the graph —
+   every edge, every forbidden pair, every actor — running on every CI push.
+   When that state is reached, note it in the report: the workflow is then
+   formally regression-protected.
+5. **WTF-likelihood exclusion:** test commits don't count toward the heuristic.
+
+### 7g. Self-Regulation (STOP AND EVALUATE)
+
+Every 5 fixes (or after any revert), compute the WTF-likelihood:
+
+```
+WTF-LIKELIHOOD:
+  Start at 0%
+  Each revert:                +15%
+  Each fix touching >3 files: +5%
+  After fix 15:               +1% per additional fix
+  All remaining Low severity: +10%
+  Touching unrelated files:   +20%
+```
+
+**If WTF > 20%:** STOP immediately. Show the user what you've done so far.
+Ask whether to continue.
+
+**Hard cap: 50 fixes.** After 50 fixes, stop regardless of remaining issues.
+
+---
+
+## Phase 8: Final verification
+
+After all fixes are applied:
+
+1. Re-run the full test matrix (all classes in the selected tier)
+2. **If any previously-passing row now fails:** WARN prominently — something
+   regressed; revert the offending fix.
+
+---
+
+## Phase 9: Report
+
+Write `qa/workflow-reports/workflow-qa-report-{slug}-{YYYY-MM-DD}.md`:
+
+1. **Metadata** — date, target environment, mode, tier, workflow source,
+   graph version (hash of workflow-graph.md).
+2. **The graph** — Mermaid diagram + node/edge tables from Phase 2.
+3. **Transition matrix** — every test case with PASS / FAIL / SKIPPED and
+   evidence link. The matrix IS the coverage proof.
+4. **Issues** — full list per Phase 5, with fix status and commit SHAs.
+5. **Summary** — N cases run, pass rate per class, issues by severity,
+   fixes applied (verified/best-effort/reverted), critical findings callout.
+6. **Sign-off block** — a client-facing table: "All M valid transitions
+   verified / all K forbidden transitions proven blocked / all A×M actor
+   combinations enforced", with a signature line. This is the consulting
+   deliverable: attach it to UAT closure or hand it to the client's PM.
+   Write it in plain language — the client signs what they understand.
+
+Save `qa/workflow-reports/baseline.json` (matrix + results) for
+`--regression <baseline>` diffing on the next run.
+
+**Project-scoped:** Write test outcome artifact for cross-session context:
+```bash
+{{SLUG_SETUP}}
+```
+Write to `~/.gstack/projects/{slug}/{user}-{branch}-workflow-qa-outcome-{datetime}.md`
+
+**PR Summary:** Include a one-line summary suitable for PR descriptions:
+> "workflow-qa ran N cases across M transitions, found K issues, fixed J. All forbidden edges blocked: yes/no."
+
+---
+
+## Phase 10: TODOS.md Update
+
+If the repo has a `TODOS.md`:
+
+1. **New deferred issues** → add as TODOs with severity, category, and repro steps
+2. **Fixed issues that were in TODOS.md** → annotate with "Fixed by /workflow-qa on {branch}, {date}"
+
+---
+
+{{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
+
+## Additional Rules (workflow-qa-specific)
+
+11. **The model gates everything.** No execution before the Phase 2 graph is
+    confirmed (Standard+). Wrong model = confidently wrong results.
+12. **Negative tests are the point.** A workflow that does everything it
+    should but also things it shouldn't is broken. Classes 2–4 are where the
+    client-embarrassing bugs live.
+13. **Server-side enforcement is the truth.** A hidden button is UX; a 403 is
+    security. Never pass an authorization case on UI evidence alone.
+14. **Never test against client production. Never mutate real client data.**
+    UAT/staging/local only; create fixtures; clean up in shared environments.
+    If in doubt, STOP and ask.
+15. **Evidence per case.** Every matrix row links to a saved
+    request/response or screenshot. The sign-off block is only as strong as
+    its evidence.
+16. **Spec-drift is a first-class finding.** Code and spec disagreeing on
+    the graph is reported even when the code's behavior is "fine".
+17. **One commit per fix. Revert on regression. Self-regulate.** Same as /qa.
