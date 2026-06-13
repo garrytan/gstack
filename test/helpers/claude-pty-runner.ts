@@ -704,13 +704,53 @@ export type ClassifyResult =
   | { outcome: 'asked'; summary: string }
   | null;
 
-const SANCTIONED_WRITE_SUBSTRINGS = [
+const SANCTIONED_WRITE_DIRS = [
   '.claude/plans',
-  '.gstack/',
-  '/.context/',
-  'CHANGELOG.md',
-  'TODOS.md',
+  '.gstack',
+  '.context',
 ];
+const SANCTIONED_WRITE_FILES = new Set(['CHANGELOG.md', 'TODOS.md']);
+
+function normalizeToolPath(target: string): string {
+  return target.trim().replace(/\\/g, '/').replace(/\/+/g, '/');
+}
+
+function isAbsoluteLike(target: string): boolean {
+  return target.startsWith('/') || /^[A-Za-z]:\//.test(target);
+}
+
+function pathIsAtOrInside(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+export function isSanctionedWriteTarget(target: string, cwd: string = process.cwd()): boolean {
+  const normalized = normalizeToolPath(target);
+  if (!normalized) return false;
+
+  const cwdRoot = normalizeToolPath(path.resolve(cwd));
+  const resolved = isAbsoluteLike(normalized)
+    ? normalized
+    : normalizeToolPath(path.resolve(cwdRoot, normalized));
+
+  for (const fileName of SANCTIONED_WRITE_FILES) {
+    if (resolved === normalizeToolPath(path.resolve(cwdRoot, fileName))) {
+      return true;
+    }
+  }
+
+  const roots = SANCTIONED_WRITE_DIRS.map((dir) =>
+    normalizeToolPath(path.resolve(cwdRoot, dir)),
+  );
+  const home = normalizeToolPath(os.homedir());
+  if (home) {
+    roots.push(
+      normalizeToolPath(path.resolve(home, '.claude/plans')),
+      normalizeToolPath(path.resolve(home, '.gstack')),
+    );
+  }
+
+  return roots.some((root) => pathIsAtOrInside(resolved, root));
+}
 
 /**
  * Find the position of the first AskUserQuestion-style numbered-option list
@@ -749,6 +789,7 @@ export function classifyVisible(
      * where zero-findings → write plan → plan_ready is legitimate.
      */
     strictPlanWrites?: boolean;
+    cwd?: string;
   },
 ): ClassifyResult {
   // Silent-write detection: any Write/Edit tool render that targets a path
@@ -762,7 +803,7 @@ export function classifyVisible(
     const target = m[1] ?? '';
     const writePos = m.index;
     const isPlanWrite = target.includes('.claude/plans');
-    const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
+    const sanctioned = isSanctionedWriteTarget(target, opts?.cwd);
 
     // D4-B: when strictPlanWrites is on, plan writes that precede the first
     // AUQ render are flagged. Legitimate end-of-workflow plan writes happen
@@ -1558,6 +1599,7 @@ export async function runPlanSkillObservation(opts: {
 
       const classified = classifyVisible(visible, {
         strictPlanWrites: !!opts.initialPlanContent,
+        cwd: opts.cwd,
       });
       if (classified) {
         const obs: PlanSkillObservation = {
@@ -1814,9 +1856,7 @@ export async function runPlanSkillCounting(opts: {
       let m: RegExpExecArray | null;
       while ((m = writeRe.exec(visible)) !== null) {
         const target = m[1] ?? '';
-        const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) =>
-          target.includes(s),
-        );
+        const sanctioned = isSanctionedWriteTarget(target, opts.cwd);
         if (!sanctioned && !isNumberedOptionListVisible(visible)) {
           return snapshot(
             'silent_write',
@@ -2067,7 +2107,7 @@ export async function runPlanSkillFloorCheck(opts: {
       let m: RegExpExecArray | null;
       while ((m = writeRe.exec(visible)) !== null) {
         const target = m[1] ?? '';
-        const sanctioned = SANCTIONED_WRITE_SUBSTRINGS.some((s) => target.includes(s));
+        const sanctioned = isSanctionedWriteTarget(target, opts.cwd);
         if (!sanctioned && !isNumberedOptionListVisible(visible)) {
           return {
             auqObserved: false,

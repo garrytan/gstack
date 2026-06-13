@@ -40,6 +40,7 @@ import {
   engStep0Boundary,
   designStep0Boundary,
   devexStep0Boundary,
+  isSanctionedWriteTarget,
   type ClaudePtyOptions,
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
@@ -344,10 +345,36 @@ describe('classifyVisible (runtime path through the runner classifier)', () => {
 
   test('write to sanctioned path (.claude/plans) → returns null (allowed)', () => {
     const visible = `
-      ⏺ Write(/Users/me/.claude/plans/some-plan.md)
+      ⏺ Write(.claude/plans/some-plan.md)
       ⎿  Wrote 42 lines
     `;
     expect(classifyVisible(visible)).toBeNull();
+  });
+
+  test('path-confused CHANGELOG.md is not sanctioned', () => {
+    const visible = `
+      ⏺ Write(node_modules/some-pkg/CHANGELOG.md)
+      ⎿  Wrote 42 lines
+    `;
+    const result = classifyVisible(visible);
+    expect(result?.outcome).toBe('silent_write');
+  });
+
+  test('path-confused .gstack directory is not sanctioned', () => {
+    const visible = `
+      ⏺ Write(src/foo/.gstack/leak.ts)
+      ⎿  Wrote 42 lines
+    `;
+    const result = classifyVisible(visible);
+    expect(result?.outcome).toBe('silent_write');
+  });
+
+  test('sanctioned write predicate anchors paths to cwd and home roots', () => {
+    expect(isSanctionedWriteTarget('CHANGELOG.md', '/tmp/work')).toBe(true);
+    expect(isSanctionedWriteTarget('/tmp/work/CHANGELOG.md', '/tmp/work')).toBe(true);
+    expect(isSanctionedWriteTarget('/tmp/work/node_modules/pkg/CHANGELOG.md', '/tmp/work')).toBe(false);
+    expect(isSanctionedWriteTarget('/tmp/work/.gstack/report.md', '/tmp/work')).toBe(true);
+    expect(isSanctionedWriteTarget('/tmp/work/src/foo/.gstack/leak.ts', '/tmp/work')).toBe(false);
   });
 
   test('write while a permission dialog is on screen → returns null (gated, not silent, not asked)', () => {
@@ -461,7 +488,7 @@ describe('classifyVisible (runtime path through the runner classifier)', () => {
 
   test('strictPlanWrites OFF: plan write before AUQ → returns null (legacy behavior preserved)', () => {
     const visible = `
-      ⏺ Edit(/Users/me/.claude/plans/some-plan.md)
+      ⏺ Edit(.claude/plans/some-plan.md)
       ⎿  Updated 12 lines
     `;
     // Without strictPlanWrites, the sanctioned-path list lets this through.
