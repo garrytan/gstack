@@ -260,14 +260,14 @@ resolve_user_slug() {
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    # Validate key (alphanumeric + underscore + optional @<hash> suffix for
+    # Validate key (alphanumeric + underscore + optional @<endpoint-id> suffix for
     # endpoint-namespaced keys introduced by the brain-aware planning layer)
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-f0-9]+)?$'; then
-      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
+      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
-    # Use literal match for keys containing @ (sha hashes), regex otherwise
-    VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-f0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    # Use literal match for keys containing @ (endpoint ids), regex otherwise
+    VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-zA-Z0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
     if [ -z "$VALUE" ]; then
       VALUE=$(lookup_default "$KEY")
     fi
@@ -276,9 +276,9 @@ case "${1:-}" in
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
-    # Validate key (alphanumeric + underscore + optional @<hash> suffix)
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-f0-9]+)?$'; then
-      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
+    # Validate key (alphanumeric + underscore + optional @<endpoint-id> suffix)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
+      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
     # Validate brain_trust_policy value domain (D4 / D11)
