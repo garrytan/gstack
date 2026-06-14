@@ -1,0 +1,2 @@
+# Foxguard project config for gstack
+# Inherits excludes/secrets/pqc from ~/.foxguard.yml

@@ -76,10 +76,10 @@ export async function iterate(options: IterateOptions): Promise<void> {
   }
 }
 
-async function callWithThreading(
+async function callOpenAIImage(
   apiKey: string,
-  previousResponseId: string,
-  feedback: string,
+  body: Record<string, unknown>,
+  errorTag: "threaded" | "fresh",
 ): Promise<{ responseId: string; imageData: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000);
@@ -93,9 +93,8 @@ async function callWithThreading(
       },
       body: JSON.stringify({
         model: "gpt-4o",
-        input: `Based on the previous design, make these changes: ${feedback}`,
-        previous_response_id: previousResponseId,
         tools: [{ type: "image_generation", size: "1536x1024", quality: "high" }],
+        ...body,
       }),
       signal: controller.signal,
     });
@@ -109,7 +108,7 @@ async function callWithThreading(
     const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
 
     if (!imageItem?.result) {
-      throw new Error("No image data in threaded response");
+      throw new Error(`No image data in ${errorTag} response`);
     }
 
     return { responseId: data.id, imageData: imageItem.result };
@@ -118,44 +117,22 @@ async function callWithThreading(
   }
 }
 
+async function callWithThreading(
+  apiKey: string,
+  previousResponseId: string,
+  feedback: string,
+): Promise<{ responseId: string; imageData: string }> {
+  return callOpenAIImage(apiKey, {
+    input: `Based on the previous design, make these changes: ${feedback}`,
+    previous_response_id: previousResponseId,
+  }, "threaded");
+}
+
 async function callFresh(
   apiKey: string,
   prompt: string,
 ): Promise<{ responseId: string; imageData: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        input: prompt,
-        tools: [{ type: "image_generation", size: "1536x1024", quality: "high" }],
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API error (${response.status}): ${error.slice(0, 300)}`);
-    }
-
-    const data = await response.json() as any;
-    const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
-
-    if (!imageItem?.result) {
-      throw new Error("No image data in fresh response");
-    }
-
-    return { responseId: data.id, imageData: imageItem.result };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return callOpenAIImage(apiKey, { input: prompt }, "fresh");
 }
 
 function buildAccumulatedPrompt(originalBrief: string, feedback: string[]): string {
