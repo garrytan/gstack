@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # gstack-paths — output portable state-root paths for skill bash blocks
-# Usage: eval "$(gstack-paths)"  → sets GSTACK_STATE_ROOT, PLAN_ROOT, TMP_ROOT
+# Usage: eval "$(gstack-paths)"  → sets GSTACK_STATE_ROOT, GSTACK_ARTIFACTS_ROOT, PLAN_ROOT, TMP_ROOT
 # Or:    gstack-paths            → prints GSTACK_STATE_ROOT=... etc.
 #
 # Resolves three roots with explicit fallback chains so skills work the same
@@ -9,9 +9,10 @@
 # CI / container env where HOME may be unset.
 #
 # Chains:
-#   GSTACK_STATE_ROOT: GSTACK_HOME -> CLAUDE_PLUGIN_DATA (only when CLAUDE_PLUGIN_ROOT=*gstack*) -> $HOME/.gstack -> .gstack
-#   PLAN_ROOT:         GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
-#   TMP_ROOT:          TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
+#   GSTACK_STATE_ROOT:     GSTACK_HOME -> CLAUDE_PLUGIN_DATA (only when CLAUDE_PLUGIN_ROOT=*gstack*) -> $HOME/.gstack -> .gstack
+#   GSTACK_ARTIFACTS_ROOT: config artifacts_root=repo -> <git-root>/.gstack, otherwise GSTACK_STATE_ROOT
+#   PLAN_ROOT:             GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
+#   TMP_ROOT:              TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
 #
 # Security: output values are not sanitized — callers may receive paths with
 # shell-special characters if env vars contain them. Skills should always quote
@@ -31,6 +32,24 @@ elif [ -n "${HOME:-}" ]; then
   _state_root="$HOME/.gstack"
 else
   _state_root=".gstack"
+fi
+
+# Artifact root: where skills write user-facing project artifacts under
+# projects/$SLUG (design docs, review reports, test plans, checkpoints).
+# Defaults to the state root for backward compatibility. If the user sets
+# `artifacts_root: repo`, write those artifacts to the current repository's
+# `.gstack/` directory so they can be reviewed/committed with the project.
+_artifacts_root="$_state_root"
+_config_file="$_state_root/config.yaml"
+_artifacts_mode=""
+if [ -f "$_config_file" ]; then
+  _artifacts_mode=$(grep -E '^artifacts_root:' "$_config_file" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+fi
+if [ "$_artifacts_mode" = "repo" ]; then
+  _repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -n "$_repo_root" ]; then
+    _artifacts_root="$_repo_root/.gstack"
+  fi
 fi
 
 # Plan root: where /context-save and /codex consult write plan files.
@@ -61,5 +80,6 @@ fi
 mkdir -p "$_tmp_root" 2>/dev/null || true
 
 echo "GSTACK_STATE_ROOT=$_state_root"
+echo "GSTACK_ARTIFACTS_ROOT=$_artifacts_root"
 echo "PLAN_ROOT=$_plan_root"
 echo "TMP_ROOT=$_tmp_root"

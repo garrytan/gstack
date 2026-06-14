@@ -63,6 +63,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # See docs/designs/PLAN_TUNING_V1.md for rationale.
 #
 # ─── Artifacts sync (renamed from gbrain_sync_mode in v1.27.0.0) ─────
+# artifacts_root: state      # state | repo
+#                           #   state — write project artifacts under the gstack
+#                           #            state root (default: ~/.gstack/projects)
+#                           #   repo  — write project artifacts under the current
+#                           #            repo at .gstack/projects so authors can
+#                           #            review/commit them with the project.
+#                           # Used by gstack-paths as GSTACK_ARTIFACTS_ROOT.
+#
 # artifacts_sync_mode: off  # off | artifacts-only | full
 #                           #   off            — no sync (default)
 #                           #   artifacts-only — sync plans/designs/retros/learnings only
@@ -117,6 +125,7 @@ lookup_default() {
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
+    artifacts_root) echo "state" ;;
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
@@ -287,6 +296,10 @@ case "${1:-}" in
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
     fi
+    if [ "$KEY" = "artifacts_root" ] && [ "$VALUE" != "state" ] && [ "$VALUE" != "repo" ]; then
+      echo "Warning: artifacts_root '$VALUE' not recognized. Valid values: state, repo. Using state." >&2
+      VALUE="state"
+    fi
     # redact_repo_visibility: a LOCAL override for repos gh/glab can't read (e.g.
     # self-hosted GitLab). It lives in ~/.gstack/config.yaml (never committed), so
     # it can't be used to weaken the gate repo-wide for other contributors.
@@ -331,7 +344,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_root artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -347,7 +360,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_root artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

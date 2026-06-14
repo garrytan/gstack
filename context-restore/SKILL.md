@@ -745,9 +745,9 @@ Parse the user's input:
 ### Step 1: Find saved contexts
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(~/.claude/skills/gstack/bin/gstack-paths 2>/dev/null)" && eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && PROJECT_DIR="$GSTACK_ARTIFACTS_ROOT/projects/$SLUG" && mkdir -p "$PROJECT_DIR"
 eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-CHECKPOINT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/checkpoints"
+CHECKPOINT_DIR="$PROJECT_DIR/checkpoints"
 if [ ! -d "$CHECKPOINT_DIR" ]; then
   echo "NO_CHECKPOINTS"
 else
