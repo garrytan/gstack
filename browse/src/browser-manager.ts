@@ -22,6 +22,7 @@ import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
+import { parseExtraChromiumArgs, parseHttpCredentials } from './launch-overrides';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
 
@@ -369,6 +370,9 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
+    // User-supplied extra Chromium flags (GSTACK_CHROMIUM_ARGS), no-op when unset.
+    launchArgs.push(...parseExtraChromiumArgs());
+
     this.browser = await chromium.launch({
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
@@ -400,6 +404,12 @@ export class BrowserManager {
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
+    }
+    // Auto-answer HTTP basic-auth (401) challenges (GSTACK_HTTP_CREDENTIALS),
+    // undefined when unset.
+    const headlessHttpCredentials = parseHttpCredentials();
+    if (headlessHttpCredentials) {
+      contextOptions.httpCredentials = headlessHttpCredentials;
     }
     this.context = await this.browser.newContext(contextOptions);
 
@@ -441,6 +451,8 @@ export class BrowserManager {
       // Anti-bot-detection: remove the navigator.webdriver flag that Playwright sets.
       // Sites like Google and NYTimes check this to block automation browsers.
       '--disable-blink-features=AutomationControlled',
+      // User-supplied extra Chromium flags (GSTACK_CHROMIUM_ARGS), no-op when unset.
+      ...parseExtraChromiumArgs(),
     ];
     if (extensionPath) {
       // Skip --load-extension when running against a custom Chromium build
@@ -563,6 +575,8 @@ export class BrowserManager {
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
+      // Auto-answer HTTP basic-auth (401) challenges (GSTACK_HTTP_CREDENTIALS).
+      ...(parseHttpCredentials() ? { httpCredentials: parseHttpCredentials() } : {}),
       ...(executablePath ? { executablePath } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
       // Playwright adds flags that block extension loading
@@ -1556,7 +1570,8 @@ export class BrowserManager {
       const fs = require('fs');
       const path = require('path');
       const extensionPath = this.findExtensionPath();
-      const launchArgs = ['--hide-crash-restore-bubble'];
+      // User-supplied extra Chromium flags (GSTACK_CHROMIUM_ARGS), no-op when unset.
+      const launchArgs = ['--hide-crash-restore-bubble', ...parseExtraChromiumArgs()];
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
@@ -1578,6 +1593,8 @@ export class BrowserManager {
         chromiumSandbox: shouldEnableChromiumSandbox(),
         args: launchArgs,
         viewport: null,
+        // Auto-answer HTTP basic-auth (401) challenges (GSTACK_HTTP_CREDENTIALS).
+        ...(parseHttpCredentials() ? { httpCredentials: parseHttpCredentials() } : {}),
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
         ignoreDefaultArgs: [
           '--disable-extensions',
