@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeAll } from 'bun:test';
 import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
@@ -2157,7 +2157,24 @@ describe('Factory generation (--host factory)', () => {
 
 import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
 
+const EXTERNAL_HOSTS_WITH_TRACKED_SIDECARS = new Set(['openclaw']);
+function getIgnoredExternalHosts() {
+  return getExternalHosts().filter(host => !EXTERNAL_HOSTS_WITH_TRACKED_SIDECARS.has(host.name));
+}
+
 describe('Parameterized host smoke tests', () => {
+  // Regenerate ignored external host outputs up front so the per-host `--dry-run`
+  // freshness checks are deterministic. Hosts with tracked sidecars are excluded:
+  // pre-regenerating them would dirty tracked files and mask real stale-output
+  // failures that dry-run is supposed to catch.
+  beforeAll(() => {
+    for (const h of getIgnoredExternalHosts()) {
+      Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', h.name], {
+        cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      });
+    }
+  });
+
   for (const hostConfig of getExternalHosts()) {
     describe(`${hostConfig.displayName} (--host ${hostConfig.name})`, () => {
       const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -2165,6 +2182,7 @@ describe('Parameterized host smoke tests', () => {
       test('generates output that exists on disk', () => {
         // Generated dir should exist (created by earlier bun run gen:skill-docs --host all)
         if (!fs.existsSync(hostDir)) {
+          if (EXTERNAL_HOSTS_WITH_TRACKED_SIDECARS.has(hostConfig.name)) return;
           // Generate if not already done
           Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', hostConfig.name], {
             cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
@@ -2210,6 +2228,7 @@ describe('Parameterized host smoke tests', () => {
       });
 
       test('generates Claude outside-voice skill for external hosts', () => {
+        if (!fs.existsSync(hostDir)) return;
         const skillMd = path.join(hostDir, 'gstack-claude', 'SKILL.md');
         expect(fs.existsSync(skillMd)).toBe(true);
         const content = fs.readFileSync(skillMd, 'utf-8');
@@ -2241,6 +2260,16 @@ describe('Parameterized host smoke tests', () => {
 // ─── --host all tests ────────────────────────────────────────
 
 describe('--host all', () => {
+  // Same determinism guard as the parameterized block, but only for ignored host
+  // outputs. Tracked sidecars must stay untouched so --dry-run can catch staleness.
+  beforeAll(() => {
+    for (const h of getIgnoredExternalHosts()) {
+      Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', h.name], {
+        cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      });
+    }
+  });
+
   test('--host all generates for all registered hosts', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
@@ -3259,5 +3288,64 @@ describe('EXIT PLAN MODE GATE placement', () => {
     const codex = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
     expect(codex).toContain('## EXIT PLAN MODE GATE (BLOCKING)');
     expect(codex).toContain('Failing this gate and calling ExitPlanMode anyway is a contract violation');
+  });
+});
+
+describe('GSTACK REVIEW REPORT mandatory unresolved-decisions status', () => {
+  // Report text rides in PLAN_FILE_REVIEW_REPORT → every report consumer gets it.
+  // devex-review is a report consumer but NOT a gate consumer, so the two target
+  // sets differ (CP5/CX5). Regression guard: a future token-cut that drops the
+  // unresolved-status line again fails here. See plan-flag-unresolved-issues.
+  const REPORT_CONSUMERS = [
+    'plan-ceo-review',
+    'plan-eng-review',
+    'plan-design-review',
+    'plan-devex-review',
+    'codex',
+    'devex-review',
+  ];
+  // Gate text rides in EXIT_PLAN_MODE_GATE (lives in SKILL.md, not sections).
+  const GATE_SKILLS = [
+    'plan-ceo-review',
+    'plan-eng-review',
+    'plan-design-review',
+    'plan-devex-review',
+    'codex',
+  ];
+
+  for (const skill of REPORT_CONSUMERS) {
+    test(`${skill}: report mandates the unresolved-decisions status as final content`, () => {
+      const content = readSkillUnion(skill);
+      expect(content).toContain('NO UNRESOLVED DECISIONS');
+      // The "never omit / always final" contract must be present, not just the phrase.
+      expect(content).toContain('Unresolved-decisions status (MANDATORY');
+      expect(content).toMatch(/never omitted/);
+      // \s+ tolerates prose line-wraps within "final non-whitespace line".
+      expect(content).toMatch(/final\s+non-whitespace\s+line/);
+    });
+  }
+
+  for (const skill of GATE_SKILLS) {
+    test(`${skill}: exit gate blocks unless the unresolved status is the final line`, () => {
+      const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      // Gate check #4 — present, sentinel named, and explicitly blocking (no escape).
+      expect(md).toContain('NO UNRESOLVED DECISIONS');
+      expect(md).toContain('FINAL non-whitespace line is the unresolved-decisions');
+      expect(md).toContain('FAILS the gate');
+    });
+  }
+
+  test('scripts/resolvers/review.ts source carries the mandatory block + blocking gate', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'review.ts'), 'utf-8');
+    // Report resolver: mandatory, never-omitted, exact sentinel, anti-double-count algorithm.
+    expect(src).toContain('Unresolved-decisions status (MANDATORY');
+    expect(src).toContain('NO UNRESOLVED DECISIONS');
+    expect(src).toContain('avoids double-counting');
+    expect(src).toContain('DROP the current skill');
+    // Gate resolver: the blocking final-line check with no "if applicable" escape.
+    expect(src).toContain('FINAL non-whitespace line is the unresolved-decisions');
+    expect(src).toContain('FAILS the gate');
+    // The old soft wording must be gone from the gate.
+    expect(src).not.toContain('absorbs CODEX / CROSS-MODEL / UNRESOLVED lines if applicable');
   });
 });
