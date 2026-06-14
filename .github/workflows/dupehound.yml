@@ -29,12 +29,10 @@ jobs:
     name: Block new duplicates
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Set to false once FP rate is proven <10% over ~10 PRs
     continue-on-error: true
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           fetch-depth: 0
 
@@ -50,7 +48,6 @@ jobs:
           if [ -n "$PR_BASE" ]; then
             dupehound check --diff "origin/$PR_BASE" .
           else
-            # push event — diff against HEAD~1
             dupehound check --diff HEAD~1 .
           fi
 
@@ -58,19 +55,16 @@ jobs:
     name: Repo slop score
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - name: Install dupehound
         run: |
           curl -sL https://github.com/Rafaelpta/dupehound/releases/latest/download/dupehound-x86_64-unknown-linux-gnu.tar.gz | tar xz
           sudo mv dupehound /usr/local/bin/
-
-      - name: Scan and post comment with current score
+      - name: Scan
         run: |
           dupehound scan . | tee /tmp/dh-scan.txt
           SCORE=$(grep -oE 'SLOP SCORE[[:space:]]+[0-9.]+%' /tmp/dh-scan.txt | head -1 | grep -oE '[0-9.]+%' || echo "n/a")
-          echo "## dupehound slop score" >> $GITHUB_STEP_SUMMARY
-          echo "**${SCORE}**" >> $GITHUB_STEP_SUMMARY
+          echo "## dupehound slop score" >> "$GITHUB_STEP_SUMMARY"
+          echo "**${SCORE}**" >> "$GITHUB_STEP_SUMMARY"
