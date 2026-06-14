@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@v41
+        uses: renovatebot/github-action@7e1c0fa7cfd2c3e91b27cdd87ae09a6a0fafb5f2  # v41.0.0
         with:
           configurationFile: .github/renovate.json5
           token: ${{ secrets.GITHUB_TOKEN }}

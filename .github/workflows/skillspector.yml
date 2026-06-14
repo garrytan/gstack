@@ -1,0 +1,133 @@
+name: SkillSpector
+
+on:
+  pull_request:
+    paths:
+      - '**/SKILL.md'
+      - '.agents/**'
+      - '.factory/**'
+      - 'AGENTS.md'
+      - '**/agents/*.yaml'
+      - '**/agents/*.yml'
+      - '**/.codex-plugin/plugin.json'
+  push:
+    branches: [main, master]
+    paths:
+      - '**/SKILL.md'
+      - '.agents/**'
+      - '.factory/**'
+      - 'AGENTS.md'
+      - '**/agents/*.yaml'
+      - '**/agents/*.yml'
+      - '**/.codex-plugin/plugin.json'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff  # v6
+
+      - name: Install SkillSpector
+        run: |
+          git clone --depth 1 https://github.com/NVIDIA/SkillSpector.git /tmp/SkillSpector
+          uv venv .skillspector-venv --python 3.12
+          uv pip install --python .skillspector-venv/bin/python /tmp/SkillSpector
+
+      - name: Scan changed skills
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE_SHA"
+          else
+            BASE_SHA="$BEFORE_SHA"
+          fi
+
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$GITHUB_SHA" > /tmp/skillspector-changed.txt
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          repo = Path.cwd()
+          changed = (Path("/tmp/skillspector-changed.txt").read_text().splitlines())
+          roots = []
+          seen = set()
+
+          for rel in changed:
+              rel = rel.strip()
+              if not rel:
+                  continue
+              current = (repo / rel)
+              current = current if current.is_dir() else current.parent
+
+              while current != repo.parent and current != current.parent:
+                  if (current / "SKILL.md").is_file():
+                      root = str(current.relative_to(repo))
+                      if root not in seen:
+                          seen.add(root)
+                          roots.append(root)
+                      break
+                  if current == repo:
+                      break
+                  current = current.parent
+
+          Path("/tmp/skillspector-targets.txt").write_text("\n".join(roots) + ("\n" if roots else ""))
+          print(f"skill_dirs={len(roots)}")
+          for root in roots:
+              print(root)
+          PY
+
+          if [ ! -s /tmp/skillspector-targets.txt ]; then
+            echo "No changed skill roots detected; skipping scan."
+            exit 0
+          fi
+
+          while IFS= read -r dir; do
+            [ -n "$dir" ] || continue
+            echo "Scanning $dir"
+            ./.skillspector-venv/bin/skillspector scan "$dir" --no-llm --format json --output /tmp/skillspector-report.json
+            python3 - <<'PY'
+            import json
+            import sys
+
+            with open("/tmp/skillspector-report.json", "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+
+            findings = data.get("findings", [])
+            severities = {str(f.get("severity", "")).upper() for f in findings}
+            score = int(data.get("risk_score", 0))
+            blocked = score >= 70 or "CRITICAL" in severities or "HIGH" in severities
+
+            print(f"risk_score={score}")
+            print(f"severities={sorted(s for s in severities if s)}")
+            print(f"findings={len(findings)}")
+
+            if blocked:
+                print("SkillSpector gate failed")
+                sys.exit(1)
+            PY
+          done < /tmp/skillspector-targets.txt
