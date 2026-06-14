@@ -1,0 +1,2405 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "fingerprint": "8f3b2d9090847588ef1800172b1675179f442aff4e53f90e08aba0e722b66b24",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "bin/gstack-global-discover.ts",
+      "line": 72
+    },
+    {
+      "fingerprint": "239a9db0275daf0657c7aad51f5015706161e062a7cc8506f4779129d29b9def",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "bin/gstack-global-discover.ts",
+      "line": 78
+    },
+    {
+      "fingerprint": "ba89fe84c0d07efff8c8d6c86740da79b1c7319c557a7436249b5f312d978737",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "bin/gstack-global-discover.ts",
+      "line": 91
+    },
+    {
+      "fingerprint": "c689e304caf7ce84c0175c2171681b79a94628d8f0a46e00fa788108d65bbd47",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "bin/gstack-global-discover.ts",
+      "line": 342
+    },
+    {
+      "fingerprint": "b21d32fcb93d962f4a98fd21f04d0fada3aad4c568e396a6ed5980f41b345486",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "bin/gstack-global-discover.ts",
+      "line": 435
+    },
+    {
+      "fingerprint": "e7c67591468f304722881a6bd22c17ca386a7315dcf7e970868a345867328a3a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/browser-manager.ts",
+      "line": 169
+    },
+    {
+      "fingerprint": "86a836b1ea8049748ffd1953098e8fe333f99d2341beffba5aea6063819a8d1c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/browser-manager.ts",
+      "line": 234
+    },
+    {
+      "fingerprint": "cff3d96248c1030a5b66e8456884ae2bfaf54ef54fadfe4a262eb27960ceace9",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/browser-manager.ts",
+      "line": 309
+    },
+    {
+      "fingerprint": "2b37d26bca93dffca3465568db7fff2b9849cd14246f03b4bc227e78158f3f64",
+      "rule_id": "js/no-ssrf",
+      "file": "browse/src/bun-polyfill.cjs",
+      "line": 43
+    },
+    {
+      "fingerprint": "f9248195248202dcad0ae8e9057208c8e03fc26c04faf1731be4affca27257de",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/bun-polyfill.cjs",
+      "line": 69
+    },
+    {
+      "fingerprint": "2bc6b55685f0e9a037b6eece2fe54b19167a30ffe6ddb478d39e36a3405c399a",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/bun-polyfill.cjs",
+      "line": 90
+    },
+    {
+      "fingerprint": "7a192ce145c1a07745ab1e1b618778f81c399e9fa81167eb69b7228c3963ab5d",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cli.ts",
+      "line": 111
+    },
+    {
+      "fingerprint": "5fcf99bd56c6f893f25408447eba9c7930fc62c1549ab3330b7b4d79937407fd",
+      "rule_id": "js/no-ssrf",
+      "file": "browse/src/cli.ts",
+      "line": 134
+    },
+    {
+      "fingerprint": "7b48a0983ced97e5d1bbd6b9e64c0be400288d1dc60d93de702f05021aaba9a1",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cli.ts",
+      "line": 152
+    },
+    {
+      "fingerprint": "08911e98e4990b7db4604cc03562bd12296d864b2d3069e7905b0cadeb0c9646",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cli.ts",
+      "line": 195
+    },
+    {
+      "fingerprint": "1c71c90035bce6bf4be135463b4ffb416f128d129b0a3e4f1454c34f8c92c88f",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/src/cli.ts",
+      "line": 213
+    },
+    {
+      "fingerprint": "466e47f3e218ac0b3b79819ceedac84775fac5c12a49d727d4d093fe848b0ce9",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cli.ts",
+      "line": 239
+    },
+    {
+      "fingerprint": "8e522d30eab8e3a0bfc4c70c2c1516d4954c69ffabf69c26eb849d3a55640e47",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cli.ts",
+      "line": 243
+    },
+    {
+      "fingerprint": "e23ade64b31510023c3f5757fa7da4955dfefc7c79ad39873bc54e3f47e3a8a5",
+      "rule_id": "js/no-ssrf",
+      "file": "browse/src/cli.ts",
+      "line": 557
+    },
+    {
+      "fingerprint": "108fc7cf80b47f8a7794f5e113682382806398fbc0264e2df116388e98766f26",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/cli.ts",
+      "line": 567
+    },
+    {
+      "fingerprint": "f82791102456fea5da1836a4b18d69cd32ce2cd5112542f3e2b2cda80c5a329d",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cli.ts",
+      "line": 597
+    },
+    {
+      "fingerprint": "5f1a68123943e8b1b94864300228c8f598a420df3c3ad0b36d481f6e87939d95",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/cli.ts",
+      "line": 677
+    },
+    {
+      "fingerprint": "fd0a1398cc3a2251fc5ab14226d47244f608a537b27844e9416ce09c681b3da0",
+      "rule_id": "js/express-cookie-no-secure",
+      "file": "browse/src/commands.ts",
+      "line": 96
+    },
+    {
+      "fingerprint": "7f69ae37caba7241ca5d722e3d1344c8e142ac12ea8c1c693ada22ae36763bd6",
+      "rule_id": "js/express-cookie-no-httponly",
+      "file": "browse/src/commands.ts",
+      "line": 96
+    },
+    {
+      "fingerprint": "e2fe3556ac95521889576917e7e402bb6d5feb5c97ed9855547f898f50d7cda8",
+      "rule_id": "js/express-cookie-no-samesite",
+      "file": "browse/src/commands.ts",
+      "line": 96
+    },
+    {
+      "fingerprint": "6e9a5377304f30a1eafbc804b420f859ac7496ad56b7e270f2be13b080261ca2",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/config.ts",
+      "line": 30
+    },
+    {
+      "fingerprint": "ec1fca51904d007098d2d7d7e3899cabac2bb34fd75d2493daa6ceddfe763a20",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/config.ts",
+      "line": 121
+    },
+    {
+      "fingerprint": "ffa31cdce61949ede5bc78c3155dd1f81fc6f295795bdc8d6cf37b642fd1e6b6",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/src/cookie-import-browser.ts",
+      "line": 404
+    },
+    {
+      "fingerprint": "9e3c678835c53a1fee48a6e22d77310d4a1ac893e0f01d52adc50f9f205444b5",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/src/cookie-import-browser.ts",
+      "line": 405
+    },
+    {
+      "fingerprint": "9e178aebfee843ba7abf15aa948a51fe357e6bae236611c3c77e72bf281ff82c",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cookie-import-browser.ts",
+      "line": 457
+    },
+    {
+      "fingerprint": "a6871591b9ef1d75aefe957945c5647d8668c44db6ed1071a6c0004573d054d8",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/cookie-import-browser.ts",
+      "line": 534
+    },
+    {
+      "fingerprint": "8eaaecc566131013a4bf0eb16df1b7d6639171c0167841b78382463afac2d49d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/cookie-picker-routes.ts",
+      "line": 168
+    },
+    {
+      "fingerprint": "003857677abdac6a2a1b9eb778a2a6743bb39c3c98f6af31beecdcc8dc13e899",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/find-browse.ts",
+      "line": 16
+    },
+    {
+      "fingerprint": "8c9b979d247a88e1cb3ad75b03b68bddac536f6976393735f712de00069f64b2",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/meta-commands.ts",
+      "line": 339
+    },
+    {
+      "fingerprint": "598532a00a3f4fbd4a4591dbf82dd347aa612c0a033ea2b220a8403dfb0813ae",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 157
+    },
+    {
+      "fingerprint": "efdff1520198969289e1d2e15256b44a3478efaaa62675756458ec1c936fe89c",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 157
+    },
+    {
+      "fingerprint": "39445df7f8631b73af80f3662a9a998952c4424a50d2ef66ffded09d4c97b958",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 183
+    },
+    {
+      "fingerprint": "652ee0a79a242ca29c9b95ec4edb96ed6814bbf710f1d5551bf5fdd60a49856a",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 289
+    },
+    {
+      "fingerprint": "2c257e4d8f4de0bae72e8b289f47e2cc5c7d62c895e29a6fe8c574a415fc8869",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 299
+    },
+    {
+      "fingerprint": "bbd432d96feabe27f2f5f154c015ac3398a963188356076911bb0181daba530f",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 306
+    },
+    {
+      "fingerprint": "ee84f1e0dd0eb34f32965a3c62f07e29cd7cc49d8c4cff4150fc034eca11f65d",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/server.ts",
+      "line": 313
+    },
+    {
+      "fingerprint": "4d88cdd766fe393d7d1cba4f6c2dc0dcc652b8cba89ba2841d50d04107b03cb6",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/server.ts",
+      "line": 318
+    },
+    {
+      "fingerprint": "e99b643af6a2c60f1001eb074013a24c3ea942e7183018bc063dcc0183dd425d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/server.ts",
+      "line": 322
+    },
+    {
+      "fingerprint": "83aab8ec2c9d7961eee429c97eb77596e33fa045fbea7fd0d017ca2a54c7a69d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/server.ts",
+      "line": 325
+    },
+    {
+      "fingerprint": "b66503ab4dfb9ced070a5b692a057432f8d31685d45cf4011dc5b858f35d7cfb",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/server.ts",
+      "line": 618
+    },
+    {
+      "fingerprint": "5e9be34762690980f7c9ea7c1e441695e3a4eac7c7a199140793a5e063627e3c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/server.ts",
+      "line": 1515
+    },
+    {
+      "fingerprint": "4be87519b89739f88c54023678b414ed041253fac9052c67b7851a8f3362d545",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/sidebar-agent.ts",
+      "line": 66
+    },
+    {
+      "fingerprint": "8df793d90f51258d4d6c8f3189a227416921106e4d3419df90ef9b73853ad53e",
+      "rule_id": "js/no-ssrf",
+      "file": "browse/src/sidebar-agent.ts",
+      "line": 91
+    },
+    {
+      "fingerprint": "e9ddf92318da04b28bcbc3b191b16bda37daca9688ebec741ff587f5917c7d9b",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/sidebar-agent.ts",
+      "line": 336
+    },
+    {
+      "fingerprint": "2fd0981d24e1d990e51c7e4d88c3a555cd18590778f525f948d8249cf31dfb1b",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/src/sidebar-agent.ts",
+      "line": 341
+    },
+    {
+      "fingerprint": "a4a27e135ef37617c571dd9a1fd70bdc9c1f24cd6ca7ed34f823f165e889391f",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/src/write-commands.ts",
+      "line": 465
+    },
+    {
+      "fingerprint": "7507da0b34831c57ccbd517ac1fbc254ac2794d25eb8f6f211918e273d4858ed",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/bun-polyfill.test.ts",
+      "line": 12
+    },
+    {
+      "fingerprint": "606262bb6998a1fafb907e35b98df4ca4565baa430ce338ee4bdadd557d128c3",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/bun-polyfill.test.ts",
+      "line": 26
+    },
+    {
+      "fingerprint": "9126af126a5fe234868d4c1c575e03471b49518aa104882d53ae8e37c13daa3c",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/bun-polyfill.test.ts",
+      "line": 38
+    },
+    {
+      "fingerprint": "5dbc3500b7ffd5d03b6d01861bbe18932f45fbce9d18bc3b85091e9fa8c007a3",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/bun-polyfill.test.ts",
+      "line": 52
+    },
+    {
+      "fingerprint": "a5b2bb881d3846284f3c0c08be7c9e8a22b83785823e8c339a3ea4d46b74806c",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/test/commands.test.ts",
+      "line": 580
+    },
+    {
+      "fingerprint": "6a973fd11524df02b7ff65bb0d2131fec44f8116729efbbe8c16a36ab169e7b2",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/test/commands.test.ts",
+      "line": 581
+    },
+    {
+      "fingerprint": "797757480571d7144dcc5bae26d5a0e300aa47dd19e25d439b80c4308352b206",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/test/commands.test.ts",
+      "line": 582
+    },
+    {
+      "fingerprint": "e91d249ded430d257c738e75797dc1411fe2349d724dcf86221e35ffd6f1408b",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/test/commands.test.ts",
+      "line": 1966
+    },
+    {
+      "fingerprint": "235f3fa8de411284770192baea6d7121ba8788f107909e86136a9f87b3ec534e",
+      "rule_id": "js/no-path-traversal",
+      "file": "browse/test/commands.test.ts",
+      "line": 1986
+    },
+    {
+      "fingerprint": "649bda631ca93e2cd62f3129bb99d4e05631cbd8163458cbb0ddc5a380e0b742",
+      "rule_id": "js/no-hardcoded-secret",
+      "file": "browse/test/cookie-import-browser.test.ts",
+      "line": 25
+    },
+    {
+      "fingerprint": "505219a238dd43d7f6a6c191b88e67574b7dde3d4ed93ed927d5d017be95964a",
+      "rule_id": "js/no-hardcoded-secret",
+      "file": "browse/test/cookie-import-browser.test.ts",
+      "line": 27
+    },
+    {
+      "fingerprint": "b3dcdc7915145f32f839595d3eeb22d1fe67d31c9c8f7d3d83aff082440df8eb",
+      "rule_id": "js/no-hardcoded-secret",
+      "file": "browse/test/cookie-import-browser.test.ts",
+      "line": 29
+    },
+    {
+      "fingerprint": "7cac70c3a770e8fef1372cce59f9eb762ee2343953f9124377756278ca9dd615",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/findport.test.ts",
+      "line": 101
+    },
+    {
+      "fingerprint": "a593955312b1fe3b0cd37b789ab9099be230ca6a8af162cbf4e46f6f16d4159f",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/findport.test.ts",
+      "line": 132
+    },
+    {
+      "fingerprint": "f5d5f45a5e66eeafdaedf891df06cdeedbcff68f50816907da02df142ff921b9",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/gstack-config.test.ts",
+      "line": 18
+    },
+    {
+      "fingerprint": "5249d21c11392a86c068f9f0e06ce2ecd85b9dbc1b81ce9decdd36d8b8d00249",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/gstack-update-check.test.ts",
+      "line": 20
+    },
+    {
+      "fingerprint": "72ce176ca22e500fc50ddd2a8226d8c259c7493416563c82047c1f70f0029625",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/sidebar-agent-roundtrip.test.ts",
+      "line": 77
+    },
+    {
+      "fingerprint": "6fd3f7338ce6171dc5923009e2878f91a1f8a8077bd39c55bd7092b6acaa15df",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/sidebar-agent-roundtrip.test.ts",
+      "line": 108
+    },
+    {
+      "fingerprint": "d919879c958f81b687f2201f0d23d7a31ba6937077ef1843ec2db9ea8b64b14e",
+      "rule_id": "js/no-ssrf",
+      "file": "browse/test/sidebar-integration.test.ts",
+      "line": 29
+    },
+    {
+      "fingerprint": "6223110d7881cd803824379677fcfdc04e00ec0e866cbca31ad3df4acbe25785",
+      "rule_id": "js/no-command-injection",
+      "file": "browse/test/sidebar-integration.test.ts",
+      "line": 41
+    },
+    {
+      "fingerprint": "5a7610e8378c98f5cc5c68de9673778059713353e96d623b6575fb983483c822",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/test/test-server.ts",
+      "line": 54
+    },
+    {
+      "fingerprint": "3190bb055f4255e4dc7913c136eb1639672c28ec4bb2b491ec788324d9571903",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "browse/test/test-server.ts",
+      "line": 55
+    },
+    {
+      "fingerprint": "4239263ad2520fc218b28e222d7cdd20c19dbee0ed7d5c92044026cd6fcf6efc",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 39
+    },
+    {
+      "fingerprint": "3a6be41b362ca62b96fb0668120f95d23f86316093e385b326d005efbb48cad2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 40
+    },
+    {
+      "fingerprint": "4b13cfd02ed32ff35d77bd557ead6e699ad71c0cb2ae55ba7fd32f42bcc7405d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 41
+    },
+    {
+      "fingerprint": "3fbb73235796baeeb90fd425fb7413ff46c520f60b9cef37f5dc284deff58158",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 69
+    },
+    {
+      "fingerprint": "b1980193043eb5edccd3477ff4c9a0687a23ed92f1d5c5dac8a1deb2f397ced3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 92
+    },
+    {
+      "fingerprint": "ef50906b03e5517f7168210ee489314d8961cbeeff31066fe990781b8c5371c3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 93
+    },
+    {
+      "fingerprint": "7bf6aa4804273778f6e0a2cabead841dfc01524d682aee3a32a2a5cc08e23fc9",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 94
+    },
+    {
+      "fingerprint": "e64a57abb050dd62bc4cf3feba846cebf3c3623fa1e7b2ff8cc604b150b1a6a1",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 101
+    },
+    {
+      "fingerprint": "ec80a0ca2f4a82b1c49bac1d6b6f97a8a7107e2bdb336bcc36325a2b4705ec60",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 102
+    },
+    {
+      "fingerprint": "7244959cfe95bdc791ccc6b484533ef112671d3391427b20a4a64615c68b2800",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 112
+    },
+    {
+      "fingerprint": "8ac4aab6dd130bac8104245370e49f4687586419c3a689051f38d0da3addd50a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 117
+    },
+    {
+      "fingerprint": "6f0289d22fbd8ea3300b608cc642bd23ea8360d664fa9802c93ec7432088c252",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 119
+    },
+    {
+      "fingerprint": "89b2228ff7bbad7bf4284ecefda4d56cd39829de28de9f658a46bdfbfd86e26b",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 124
+    },
+    {
+      "fingerprint": "d1e8dd1c86f8031c9b5f64c753ba6c9219b18ba74a3654ee54ac6079171a676a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 127
+    },
+    {
+      "fingerprint": "38604d20f9e45dc22cc9940172ac4a0a5d19ed37f7a4ee38b74cfb2a8ddabcaa",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 133
+    },
+    {
+      "fingerprint": "94b03fbd764f436433c5db8d96229cf9d3e82e321632fae54f2ca7533be736e7",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/prototype.ts",
+      "line": 135
+    },
+    {
+      "fingerprint": "dd83cbfa5cdfb8df1d4d0075f0bf47a323beee275bf1e1c5fa9d8524febcca89",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/check.ts",
+      "line": 67
+    },
+    {
+      "fingerprint": "24aff9c707a191b83102e24fd0e835ccc297d341885e014ad018347b659615f3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 60
+    },
+    {
+      "fingerprint": "d48107ed76775b08d80219c949484a26919072348d002de2b0ae8a46ab932821",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 61
+    },
+    {
+      "fingerprint": "d6c866651fb4d47feda3ae0bd9fd8f2a6d13389fd3c97791ac7c671605d17e0b",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 103
+    },
+    {
+      "fingerprint": "c84426b0227d6d8b752488458f1eddaa9c187239bf5bc66b357167f5fae14840",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 113
+    },
+    {
+      "fingerprint": "e8588c590b0e4ab73106896511db7bb0a84885e3d07b6510c365685ee598fd14",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 157
+    },
+    {
+      "fingerprint": "38b7828c5a2fd2298bde7b871c16a686fa7b8261eb7b0f6f0b349506164c2582",
+      "rule_id": "js/no-command-injection",
+      "file": "design/src/cli.ts",
+      "line": 158
+    },
+    {
+      "fingerprint": "1b472069b42098f366db38b98557443d7f8ba45a253a074af15892d9a2a7c113",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 195
+    },
+    {
+      "fingerprint": "a0994a242e740f3b478a501d9f96243f8273ba278a2990cd8fd09acb0b57374f",
+      "rule_id": "js/no-command-injection",
+      "file": "design/src/cli.ts",
+      "line": 197
+    },
+    {
+      "fingerprint": "cef13bc00f687da48378f557b4d9a3cce3d95c8588694a9b3af037434f219f60",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 213
+    },
+    {
+      "fingerprint": "159e47be089682a1bdabacd2c2153f6614e3217461ae0a8bd03ba272046bb0b4",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/cli.ts",
+      "line": 228
+    },
+    {
+      "fingerprint": "0f79a6474c3bb3efe4364a330f6e6760b485780c5b047c6819d838e2a070760f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/diff.ts",
+      "line": 77
+    },
+    {
+      "fingerprint": "6e10e5610df1dabdc7d17f76a2b54157b45f3a13341fe209423909d301b144fa",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/evolve.ts",
+      "line": 27
+    },
+    {
+      "fingerprint": "a5e3b1ea667b1d66803060caf691652b2c503ea0c5529650be3ca4548ed87ce2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/evolve.ts",
+      "line": 37
+    },
+    {
+      "fingerprint": "840bb72764102752a8ee6318ec35fe2816eb8e0746f9d4a6ddbf1e4a5fbe006d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/evolve.ts",
+      "line": 89
+    },
+    {
+      "fingerprint": "81b6be5d73705862fa4149834cf8c95a850d5085562c23ffeb18dd31ed5cf30f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/generate.ts",
+      "line": 106
+    },
+    {
+      "fingerprint": "dcd57c58c885055b7a5b1eaf91e97032150874d9c56b569091435aa654383bdf",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/generate.ts",
+      "line": 123
+    },
+    {
+      "fingerprint": "65726ac55bd4ed9fe9b0a370d708578a88cf5962eb6abd7a1fc2ca46ec1eb935",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/generate.ts",
+      "line": 140
+    },
+    {
+      "fingerprint": "7628da7669fe68bb8a6c035e3c49d412da113b9f4277bdc017bd428d61f268c0",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/iterate.ts",
+      "line": 27
+    },
+    {
+      "fingerprint": "5e3c3a1158a787f16669c74dd8499ced686872a4be78a6a17cad90a9648de189",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/iterate.ts",
+      "line": 28
+    },
+    {
+      "fingerprint": "d5a4263cf455b9e565c15462adcc30b3ab11faf0b5b56a29181631f5c1bb87ce",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/iterate.ts",
+      "line": 29
+    },
+    {
+      "fingerprint": "c8e63168636b57f25d7f34c099680250bd35a6ea9f0b809c73e9d50527e00bde",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/iterate.ts",
+      "line": 45
+    },
+    {
+      "fingerprint": "083c988082d684cc5acd147f6049697d78cb0220252f4f41fb7a2c5e6f70b686",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/iterate.ts",
+      "line": 65
+    },
+    {
+      "fingerprint": "cac40517ea1dfbf4b0dbe0bfba2fc6042c084fdbc530419830dcee1c807fd20a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/memory.ts",
+      "line": 75
+    },
+    {
+      "fingerprint": "a39d4993b30b468b20f4a5b5749d54dba11ac737bde8eb1ec38495e12e1e303d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/memory.ts",
+      "line": 83
+    },
+    {
+      "fingerprint": "8137b7deed1203ab650f67aaa99fac5898c441f538e7d39886b1ca9c71d0df80",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 52
+    },
+    {
+      "fingerprint": "0faad1b1a55c70fe529a44c041937e569acb4258f322d8322578e0e97958f619",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 99
+    },
+    {
+      "fingerprint": "fc9316f70d75cf3cc5e1468644f2e30fc8e618ba8cbb417c22cd87a810cb9d67",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 106
+    },
+    {
+      "fingerprint": "2ef5dd96c1213bd893f85fb6d0bf6c4077822545c4145cfbf5b791151dfa2432",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 128
+    },
+    {
+      "fingerprint": "185f626a0df5d1eaa6f28a99dafb03876b6ff02057a1a0d52966a9dbc081720a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 158
+    },
+    {
+      "fingerprint": "0f765affac62f8ea760b4bdcfe6c13e3fa09752edd5bd91c437a3f2a4975014c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 189
+    },
+    {
+      "fingerprint": "e09ee54774b5b205813f7684c4481a253eed4a6adfcb1c325421ed0a8579a9d1",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 194
+    },
+    {
+      "fingerprint": "365eb0a0b2f19e0043955b52bccc115fe794b85bcc97754439088cc1e44a4ad1",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 220
+    },
+    {
+      "fingerprint": "1862435e68ee0649b9fe260f31cb87b940cbf595b0af14549b6fba71de1717ad",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 221
+    },
+    {
+      "fingerprint": "a14fce816636b68764d56fce2b0b1b3e22d3d2e41e0a749d79bb6419cb43dbc1",
+      "rule_id": "js/no-command-injection",
+      "file": "design/src/serve.ts",
+      "line": 226
+    },
+    {
+      "fingerprint": "42df1439a98a010859ea41f5ec95d90aa5f9fd30f1471e91842e9fe49cacf7dd",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 231
+    },
+    {
+      "fingerprint": "71c6730fcc4fa7726b2c66b1b0a404cdc59520b57fa43774edf2f415e94de14c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 234
+    },
+    {
+      "fingerprint": "ac45e7209732701dbcd2b014ac6905a0257f23067c979b0282680fa17a842097",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/serve.ts",
+      "line": 235
+    },
+    {
+      "fingerprint": "c089816f9e760f1918608f64adcbc91f67a3ae6b9f9f615e989cf89fe1b5d50a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 49
+    },
+    {
+      "fingerprint": "ba3d5df34a276102ae24a449d0da70e05ecacd7ba823f57a1e0ac6aa3279f1d2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 126
+    },
+    {
+      "fingerprint": "b15d71ac2aa8599d5a3c82e1812caf5b92faf79cca962371ceee8b08cd2ee04f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 145
+    },
+    {
+      "fingerprint": "c1d018b28c1f58d72270130e0d0c7bcb2c8b0ff282b721a4d614cb8c7e196af3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 160
+    },
+    {
+      "fingerprint": "02d41f0ab586394a396faaec9543d41e3366c66cbeb64b21d22c217233eeae4e",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 165
+    },
+    {
+      "fingerprint": "2d54a43787b71e9ebf19387bdadebcb0ad994b0475b10e15e02731950ec88dec",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 170
+    },
+    {
+      "fingerprint": "99d8d566609f2cb820e53d093255530197fe86cb15389dcd9b0777a2846c0f4c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 204
+    },
+    {
+      "fingerprint": "9a4dde68fedf6dc8a42ab3647580ac685c86fa478dec0eb5f7914e9029165fce",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 219
+    },
+    {
+      "fingerprint": "d4f8f1b7d0d35d318e5b095ff3933b43bf7e3c65b275f0b89f0e3cf534d5ddc2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 231
+    },
+    {
+      "fingerprint": "f0f2f475777969aa030c833e3b11a980bbfe050c0d5a1b1680f10b646e74132b",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 235
+    },
+    {
+      "fingerprint": "3a5dbb218bfcb1585bb81c1dc9ff21f17026548c3b14c4972955996686c60aa1",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "design/src/variants.ts",
+      "line": 239
+    },
+    {
+      "fingerprint": "0f1ae41cd8247a03eb48f2231c59945786d0a0fd0e432f730ee32b19db1a4469",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/feedback-roundtrip.test.ts",
+      "line": 325
+    },
+    {
+      "fingerprint": "1106a2b08ad3ca49c15255628bcfacd48e961f6ed22d374c9905f62bd78d41aa",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 122
+    },
+    {
+      "fingerprint": "02ddd7fc7d6d13ace14f030e142d2535011db02bfc3f887164d38c02c7d59065",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 132
+    },
+    {
+      "fingerprint": "922518829169ff4fc13d783932707660e0dc69dc0c70febee27c0e2f19d1b436",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 147
+    },
+    {
+      "fingerprint": "50aa21377eff7060296605472c678d5515ff8d99b266f250cc9a9b7dc8c4e6a1",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 178
+    },
+    {
+      "fingerprint": "657115ba57d537c453e984a83d6afe4704ee69fd8419c43bc594ad81c40ab578",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 189
+    },
+    {
+      "fingerprint": "e8c0e904f8017010e7ff1b74719f6a91097e4a483259a2f67a1c19cf797b662c",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 212
+    },
+    {
+      "fingerprint": "c3fb90d6a29a5761ce845ecf28080093b5003a49d92b568ded9e67d0e97cd940",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 223
+    },
+    {
+      "fingerprint": "e0b6cddc74738016a160ba30a2a5697ca628185f706dbd1e1f6d715d528b7dd4",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 232
+    },
+    {
+      "fingerprint": "608fe563a9a90403d4fb3105502030be73233a9adebf9847b2d6eaef381201fe",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 247
+    },
+    {
+      "fingerprint": "b13019f8e965a2d6e4c8f9e8fd0535f465509ab9d2f4da75f31c2939a46b5356",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 257
+    },
+    {
+      "fingerprint": "2e46c20e55c154a3cc742b9c984a3c42498812cf38717dab39f1087af0437850",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 263
+    },
+    {
+      "fingerprint": "5f32088d1dab1cdef10e5353701c38f3d990f7e887442d3c7f93567aabfd53e9",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 272
+    },
+    {
+      "fingerprint": "d45214d53eb116e35d504832a3be1da18c794fcf9461c466fa90fb682b1c9d1a",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 328
+    },
+    {
+      "fingerprint": "13d0d0d4cfbea3dbf22a8959f7821152d7ad8a71b8f7af5b298ac4e1ed332e32",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 337
+    },
+    {
+      "fingerprint": "3cc4993313185482e5152ab4d243555a9d9c82b9a4b9dc835575be24c81e447b",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 343
+    },
+    {
+      "fingerprint": "d18eb65e225f0b197167d8add491bb09625ab85dfdfb834bdb08d2fbf15b2932",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 352
+    },
+    {
+      "fingerprint": "3660dfd969f10acb755e217636c20166f9a40a610e8e07f441f6a47fe93d40e9",
+      "rule_id": "js/no-ssrf",
+      "file": "design/test/serve.test.ts",
+      "line": 356
+    },
+    {
+      "fingerprint": "6796555496c35bb25ae71a051c3111e664733beadeba1a105b44a64b699a5e53",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/background.js",
+      "line": 38
+    },
+    {
+      "fingerprint": "1269b4ead858af7951258a20cffe6c370b522538f05ea17a3b29a0e527099136",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/background.js",
+      "line": 59
+    },
+    {
+      "fingerprint": "4ba29bf95c55538320bca9b11c1429cd50fcf074281a9dc87c1cfbf4449ebc27",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/background.js",
+      "line": 122
+    },
+    {
+      "fingerprint": "b2e5f22833c00d524344c550c5364e68f88dcaa09abead4af5f3c7003bff74f9",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/background.js",
+      "line": 147
+    },
+    {
+      "fingerprint": "05fd31a75c068bc0fe85f16350143020563da784a9c27111cc6227d25852f3de",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/background.js",
+      "line": 215
+    },
+    {
+      "fingerprint": "7411c107961404df500a171d9b5cb0f00b21128e95880e48fd20217c4d5b31d3",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/background.js",
+      "line": 381
+    },
+    {
+      "fingerprint": "4a3ae4e6d1f34c5053a65bf61f781c4b7caeb545629133a7ece12f268446e88f",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/content.js",
+      "line": 36
+    },
+    {
+      "fingerprint": "af5d6fe9e10051ed40d7caca3448a78af4a0cbc708fbfab7e6efae3b2b081157",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 128
+    },
+    {
+      "fingerprint": "0eddfff8b502a4243330c033ef8f00b8676fc799d1b26822d7c6cf16bdaa8fbd",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 142
+    },
+    {
+      "fingerprint": "8186a33d0a1555a2b01d2e1e9c5f012839e743c0e6718b5bd66aaebc1e10e2a3",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 248
+    },
+    {
+      "fingerprint": "0a47cada854d2d54dcdfdc0b096b34360c6187913bab9bae99ffb334c205ed83",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 266
+    },
+    {
+      "fingerprint": "ebdd3c4796ac6926f06f3335c7221540680d9d94b81abcd9819b0fe68be34763",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 283
+    },
+    {
+      "fingerprint": "ab158263f46c7dd5bc2ef2e024decdd53ebae73066eddb9dfc75ea1acb336934",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 306
+    },
+    {
+      "fingerprint": "3181866eef5d5c39db5b3af915b4b28a0b83cd39aec6732407468849c514de07",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 370
+    },
+    {
+      "fingerprint": "5a71730de4c204b3d2eb3bbe6ed7ae8000fe67448b5673d3955f473d991fb9c7",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 439
+    },
+    {
+      "fingerprint": "20869d0d65b5dd8060b73fd5c7f6bc582eaf3281aca74b6c3ccc31057bcdd2a7",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 442
+    },
+    {
+      "fingerprint": "67764bd9f665607d94bb13df78423cc5fdecc4abe672bd3d762f2147eb23108a",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 469
+    },
+    {
+      "fingerprint": "95adedb55030a3f16a5bf871bd2653d9375bd8f5d15f3ecd0ce4579baf5f5800",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 518
+    },
+    {
+      "fingerprint": "aa7e2946086267d828db6d3b8950371e6c42334c344506faa578983e95a6d668",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 570
+    },
+    {
+      "fingerprint": "004652dcb3706fb3b37a50eca4942f9b2dec856022f033e4f9e5bb6b711b5218",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 586
+    },
+    {
+      "fingerprint": "b4b5ea0831850a253cfd5e6304f1628fc1a5ad368779487faa0dfb6823a04f49",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 594
+    },
+    {
+      "fingerprint": "ea4674003e58f519ff22ec11f602d85a7728b8a84407574cbee5d6b37cb02e24",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 670
+    },
+    {
+      "fingerprint": "39d835040e337d2ff7839e2b87a081a6e65daac1c7cf149283d8e6b45eb72e1d",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 756
+    },
+    {
+      "fingerprint": "665b0ed62ac7605a50dbe2f5bcef0671cb861368b4b3aa8d86085c8f7f5ee67f",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 772
+    },
+    {
+      "fingerprint": "8f33af39ad56ff12507dee5f0dadc74aa12e0a6a160ea7fdd3d4dd58565439b8",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 901
+    },
+    {
+      "fingerprint": "37a39839fc59a0b0b12e17c205761110e3d1f757e950123c14b932c99fad201f",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 981
+    },
+    {
+      "fingerprint": "92fc8f721ca9c0499e9b80a5fe5041a57abea0f6f04d6105618dee983ff1aaae",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 991
+    },
+    {
+      "fingerprint": "ad51ba9e70440df0a26c81da9b68302e39d4f2975dd73cf2a969139a7deefd60",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 1049
+    },
+    {
+      "fingerprint": "a6930159a303170774686d5ced052f8e79f36c84953f3bf4a8e9da0dacfe9274",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 1073
+    },
+    {
+      "fingerprint": "f4de844661ef38147ce3d3a7808c68a003ed48336df18eaf28fa5ddb02f64f80",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 1204
+    },
+    {
+      "fingerprint": "843432667b14b64a026a2f4738c27bcd358f50ee94c485ffbf2dd5990e37b11a",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 1229
+    },
+    {
+      "fingerprint": "3e993e91822a978508bd24cc19fcc40474bbadeb4eed62a8babd72b81ad95512",
+      "rule_id": "js/no-xss-innerhtml",
+      "file": "extension/sidepanel.js",
+      "line": 1271
+    },
+    {
+      "fingerprint": "f51a6850c7a91b5320d875486dcd7d2a8fddef5d6db5d27f4bb73271d72a8da4",
+      "rule_id": "js/no-ssrf",
+      "file": "extension/sidepanel.js",
+      "line": 1437
+    },
+    {
+      "fingerprint": "3c1b52ad60cc0008de9ddad42d1a155aec89feff74e42f7c6a7b6124d296b969",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 27
+    },
+    {
+      "fingerprint": "b8f75343b23604508a0cee5198a185b27358f5478f78eb60e82f9a175e022f71",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 42
+    },
+    {
+      "fingerprint": "8b628ab573ccfd562a1d22ffc8567647fc32c6c93fa73d0751238f336f13978f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 44
+    },
+    {
+      "fingerprint": "950faac79a1a8f3e6797aa0b3184f6f4afdb43bc9ee1ae0b92cb056727985627",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 47
+    },
+    {
+      "fingerprint": "12e86d2aa48b407e7c154f5dae1f2a6e3b853d2f7385b0f083ce75fe26e73472",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 50
+    },
+    {
+      "fingerprint": "eff443bfc404a0f7887fa8b85a6c76ec2ff62723ff813ef33d01dba183af1921",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 63
+    },
+    {
+      "fingerprint": "b6d6c9a3c2c381ed763b17f923095d8fb13e5d88c6645aa285a898c851d06062",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/dev-skill.ts",
+      "line": 77
+    },
+    {
+      "fingerprint": "6bcacd21cb997d15c094552b1c64723029719e26969159d2581950103ef85911",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-compare.ts",
+      "line": 28
+    },
+    {
+      "fingerprint": "5b3f93e5cbe731ab6e3e407749dc344162d1d514775aa47b9c3caae4726da32d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-compare.ts",
+      "line": 88
+    },
+    {
+      "fingerprint": "546e108c49740e4492a1d868f4c12d1b34227d8c96244afc953a54954de9e9a5",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-compare.ts",
+      "line": 93
+    },
+    {
+      "fingerprint": "1c161598b57161cee83905c889875bfa230b29733fd5f482bc8c74a03cb64c4f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-list.ts",
+      "line": 85
+    },
+    {
+      "fingerprint": "d43a7ae1656ea53b205bd36228af7c243a6268d175f478398ee5afa3bffbe321",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-list.ts",
+      "line": 107
+    },
+    {
+      "fingerprint": "1c85b2b4df047a92091209d69aaecd72be5f38014819a4bb5af9d58f1f57398f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-list.ts",
+      "line": 115
+    },
+    {
+      "fingerprint": "834e7ab0d84e0d844b06c9bf3cbb67989fa9021259c9e3ed01403de3702c5085",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-list.ts",
+      "line": 116
+    },
+    {
+      "fingerprint": "0ec077f2b0d9eeaf1eaa8ecfd4dc00cca17188f88402241a659b6fc0b76bb450",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 35
+    },
+    {
+      "fingerprint": "3a89f34efafc296b4a3fe5cf7c4e077cf1eae27bc4720965e218c4e968249a1a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 62
+    },
+    {
+      "fingerprint": "26bd6300467342293a14ee8c2a67309949c18c82bd949c9a6819be52285fe168",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 63
+    },
+    {
+      "fingerprint": "568052daec034f441f0ffea8dbb309e01bac9ed9939035945422755565b0c2b5",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 66
+    },
+    {
+      "fingerprint": "7a3bb7e1cc59f3f3534209cb55f68ed7bce9ae858ef316ecae75881b2c90d11d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 68
+    },
+    {
+      "fingerprint": "21b614af013344921af8221e4d19c92680b243827b44f6e0385362372b214603",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 69
+    },
+    {
+      "fingerprint": "ce146d295b2c41e06d0cf4a70d5ee606212b8a0b0547e00dcc8c0b01c91b1351",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 77
+    },
+    {
+      "fingerprint": "c54d389f3d62347bac3dbf354f4ecb64d7a2106d8e60c299153e1f727a23590a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 79
+    },
+    {
+      "fingerprint": "cd13e0da3bb2e631e2ea68eb0867bb19b23b6ace26087767d893af1ea68638c9",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/eval-select.ts",
+      "line": 80
+    },
+    {
+      "fingerprint": "a97c458893595132d805e8ce047cb0fc812ffacbb6b0575d0af9cc0e4ee6cc47",
+      "rule_id": "js/no-sql-injection",
+      "file": "scripts/resolvers/design.ts",
+      "line": 8
+    },
+    {
+      "fingerprint": "6e8ae531249c217f59b2ef33680125266b23dbdab7befcfa45290c51372bd749",
+      "rule_id": "js/no-sql-injection",
+      "file": "scripts/resolvers/design.ts",
+      "line": 628
+    },
+    {
+      "fingerprint": "b1e93222ed2bc1e7b3037d4bd382adb3fa469e7f71a12f6b05132a6f84b6e3e5",
+      "rule_id": "js/no-sql-injection",
+      "file": "scripts/resolvers/preamble.ts",
+      "line": 28
+    },
+    {
+      "fingerprint": "ce314cd28258c292d734c5536f5d79c8a01b1703e99e087e386d4bc704465418",
+      "rule_id": "js/no-sql-injection",
+      "file": "scripts/resolvers/review.ts",
+      "line": 259
+    },
+    {
+      "fingerprint": "e0298b2cfaff049a8e4e738683aa7bc014062d18dcdacc0835e55c7d81fe9e94",
+      "rule_id": "js/no-sql-injection",
+      "file": "scripts/resolvers/review.ts",
+      "line": 369
+    },
+    {
+      "fingerprint": "4624a54c077b003e1329aeb3c31f764da16b33dba9d1eed4e6055f28ce350baa",
+      "rule_id": "js/no-sql-injection",
+      "file": "scripts/resolvers/review.ts",
+      "line": 513
+    },
+    {
+      "fingerprint": "b175b836d2db8e2e7e4a0fb10b2963d00c1419a5a086bfae54bfd2ec662ddff3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 32
+    },
+    {
+      "fingerprint": "8e7d1638d7ac5c6e5152da2d7b9c65b10b1fc0260f7ffafc34448957fec33bf2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 42
+    },
+    {
+      "fingerprint": "8588970c3b27fedcf6220e3606f8e6ef10c6185177a7d5304572c06975a25fb5",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 44
+    },
+    {
+      "fingerprint": "eab53aa25e02a06bfeabd3e4d4197273d6c538a40b827d323c4f01a5c2622a8c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 47
+    },
+    {
+      "fingerprint": "924ddd8659fb697be11c86fe8ec0bb1b13c39b5b90012d9da7ec4ecba8aab0f2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 50
+    },
+    {
+      "fingerprint": "4539497e01503ac5b8d0817ef47c5af6e5790b11d268a302effc8941b3aec2f6",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 63
+    },
+    {
+      "fingerprint": "57a0eee8b417c9794afa4f6f05defae4b8a374ce08c7cb4c56117a6a563e330b",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 68
+    },
+    {
+      "fingerprint": "92389af0e49382bf9debc52c3fe2d6346e4a88a8f17f1ff17dfcbe995897a136",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 71
+    },
+    {
+      "fingerprint": "987a98a82dc9685cbe983ec97791a79f5967137f1657adbb75f18955856f21d2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 78
+    },
+    {
+      "fingerprint": "96c5f1de3df5cd1d6c6117a34c42f70d6d3ec04c1deee96c11505595388b96af",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 99
+    },
+    {
+      "fingerprint": "6284fe5636b1900f0015c8b6a68f419d36b1fae5feda11723840d1f10df4c087",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 101
+    },
+    {
+      "fingerprint": "b2f05a2ba4123ef802ec6ef5c421df1572f760267629feb246dc56358022b937",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 106
+    },
+    {
+      "fingerprint": "ce032120c6092babde5c717d4922ac47cda5280e7ee3bde081238576f5097974",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 109
+    },
+    {
+      "fingerprint": "baea4e9c67bf9de9e4f9f4bf1f61e90be3c81ffa18e1b64e0e4075f3ea374f69",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 130
+    },
+    {
+      "fingerprint": "6ccb08215a6467201324ce10b2f8598e7f889c64e85751ede6b92ff2e65c3ce3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 132
+    },
+    {
+      "fingerprint": "a0a804aaa6203d6ec953c81f590fa10b5f679fad65107863b0e3a95ac0835b2c",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 137
+    },
+    {
+      "fingerprint": "513c587330ee66ff514d1a9e6c1410095394f63bb1f64783c8e51226cdb2ae9d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 140
+    },
+    {
+      "fingerprint": "c0b7f3ac59a87302bcef9ffe65e585dc476819702ea0f2696c665ad9fa2de3ab",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 156
+    },
+    {
+      "fingerprint": "c7c90ff98a78b649e21b47a1d4639c7f46c1af455008172b611feb396773bb34",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 170
+    },
+    {
+      "fingerprint": "c83bb5a2c82aa1e63618a0461990bdfb6d1afcee71fef80a8fd884f904fa0979",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "scripts/skill-check.ts",
+      "line": 184
+    },
+    {
+      "fingerprint": "e0ec882aadace06dfeb38c4e83577248d46341036ae26c75ab382f8070f67b24",
+      "rule_id": "js/no-command-injection",
+      "file": "test/codex-e2e.test.ts",
+      "line": 33
+    },
+    {
+      "fingerprint": "6b514731fa23fc256a55aa4bee5ec75b4d37563c50282c4fb46c196f755e2a61",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/codex-e2e.test.ts",
+      "line": 109
+    },
+    {
+      "fingerprint": "5b0531ef7d667a1dd432cadc3b4d0be25e027ea8a59916c70a9a04cbb5136ab4",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/codex-e2e.test.ts",
+      "line": 185
+    },
+    {
+      "fingerprint": "b0091dfee77d891dddb5c2fb7ecf7127b6d6002555c73127515319266561b9a8",
+      "rule_id": "js/no-command-injection",
+      "file": "test/fixtures/coverage-audit-fixture.ts",
+      "line": 67
+    },
+    {
+      "fingerprint": "3a76d6e0bb0c6e9e5b261fa604fdc6726cb78a46fd183f77c01bdddcf056afeb",
+      "rule_id": "rb/no-sql-injection",
+      "file": "test/fixtures/review-eval-vuln.rb",
+      "line": 4
+    },
+    {
+      "fingerprint": "29b0e5c4dd93bf3b88be32e1fea716c961a4c99fcccbf808f941e66e4ca26274",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gemini-e2e.test.ts",
+      "line": 30
+    },
+    {
+      "fingerprint": "2679643b309e3b1623b5df60e93d01e4cd7cca512846d045dda619afbcbdaf6a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/gemini-e2e.test.ts",
+      "line": 105
+    },
+    {
+      "fingerprint": "9824f0c64d9b60a3fe049838cd71e6004529a6178ebd80250e6c9f4873395bd0",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 181
+    },
+    {
+      "fingerprint": "33625a3dde5944aaa3d37555f4dbb4bb396107b0a13b0eb1667659248a812d28",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1408
+    },
+    {
+      "fingerprint": "a495a549a97a1326bc915b0ba3789c57424377334c3d68e07bcebadc04f4646c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1525
+    },
+    {
+      "fingerprint": "42aa60685b2ad52e9077f08db6c4a599a8ce45ea76644f805143150ad6eff34b",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1540
+    },
+    {
+      "fingerprint": "773f07cf267d7f02efa7780a499622ea0f7c9f93ce75484719363d5f6b7d8255",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1545
+    },
+    {
+      "fingerprint": "73e25f73cb54472941174de7e3ad94d1a0ec0dc79c5cc8aff3e463a31ec0cf41",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1714
+    },
+    {
+      "fingerprint": "0de1cdc183b9f55e1e023e61d2b76b8f337aafaa4e2376900eb26087873c0ea7",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1815
+    },
+    {
+      "fingerprint": "38d078928e55da9c3557eb7d2536a1d95a8341306519dc03b22df4b9772c6a0e",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1818
+    },
+    {
+      "fingerprint": "e39deeac2dd031f59f2596ed9a5911d254fc4937189adf62848749af2cc45e99",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1827
+    },
+    {
+      "fingerprint": "43aac526e48bdd7b9afdcb7d415aa494a653383bf8e15736a6c7312369300b3b",
+      "rule_id": "js/no-command-injection",
+      "file": "test/gen-skill-docs.test.ts",
+      "line": 1850
+    },
+    {
+      "fingerprint": "700851c9edec4a051af2e21b63c628766c65d575d20c71dee39f1abbac3ff53b",
+      "rule_id": "js/no-command-injection",
+      "file": "test/helpers/codex-session-runner.ts",
+      "line": 160
+    },
+    {
+      "fingerprint": "380636301f4a629f355b1ed7031e74f9d0e46d2082fa70d6817b80aae7065e3a",
+      "rule_id": "js/no-command-injection",
+      "file": "test/helpers/codex-session-runner.ts",
+      "line": 205
+    },
+    {
+      "fingerprint": "1dc72478e9719a0e7f21f83a10cb03db56587e219826f1fde48f77e1d68c357e",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/helpers/e2e-helpers.ts",
+      "line": 137
+    },
+    {
+      "fingerprint": "371c71c88d3894235d693315e958d4439ee06e8a6fecfc3619d6e1545353a666",
+      "rule_id": "js/no-command-injection",
+      "file": "test/helpers/gemini-session-runner.ts",
+      "line": 109
+    },
+    {
+      "fingerprint": "4a929c92c3bc048c7e81024ae781567d7e295d689b2f6f54b588ccfdc5c0035f",
+      "rule_id": "js/no-command-injection",
+      "file": "test/helpers/gemini-session-runner.ts",
+      "line": 126
+    },
+    {
+      "fingerprint": "6d5618a6ce4803f92c3741deeda4e9d59a9936e10b40f49ff45da3b6f3c3b657",
+      "rule_id": "js/no-command-injection",
+      "file": "test/helpers/session-runner.ts",
+      "line": 172
+    },
+    {
+      "fingerprint": "50438b519b5778dd45124741d34cddc4cf6513ed9007312689a5de70b569dcc8",
+      "rule_id": "js/no-command-injection",
+      "file": "test/learnings.test.ts",
+      "line": 40
+    },
+    {
+      "fingerprint": "04937d10f44973843b0320703f7879a6b41558839816b094e9fa717cf6180e1a",
+      "rule_id": "js/no-command-injection",
+      "file": "test/relink.test.ts",
+      "line": 16
+    },
+    {
+      "fingerprint": "23ea9da2c9a8b5643a31b22d8cd6e1065c842b37e75f3b4e498273d507c83471",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-bws.test.ts",
+      "line": 31
+    },
+    {
+      "fingerprint": "af6530ab7743730f5f6fcbf0f0eceeb66d9a8df095dcbe986e7a386ca39ea854",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-bws.test.ts",
+      "line": 230
+    },
+    {
+      "fingerprint": "c020ad0de7f36431948eb34403bb194132fe7f362c92ba512fba89b45f3726c1",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-cso.test.ts",
+      "line": 28
+    },
+    {
+      "fingerprint": "8197dbf48ddf8221f9b43cf0fbfc2c7cfe1f8cd08b84fe00b385e589b7aaac75",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-cso.test.ts",
+      "line": 119
+    },
+    {
+      "fingerprint": "91184e015c3050221d4b3cb5309dc4e7c5441db8eb89d5c72177128b9e5cbe1c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-cso.test.ts",
+      "line": 189
+    },
+    {
+      "fingerprint": "fc915786bf64b8c23c672a729ff1a91e4b529adedef5e9badaff9631b6b465cf",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-deploy.test.ts",
+      "line": 24
+    },
+    {
+      "fingerprint": "d3c17b7cd17a319097702120e8704a6011b451cea439069d055b8093d441cc3b",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-deploy.test.ts",
+      "line": 96
+    },
+    {
+      "fingerprint": "cca697a6c80d9b81e2b7459f9d7a75ac47728722ddf22e275e1aa85bfbfb4819",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-deploy.test.ts",
+      "line": 175
+    },
+    {
+      "fingerprint": "50bfd1b6c6a45c4ce40ce54b7a53a4a377302169da493be963c0751dbadcc286",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-deploy.test.ts",
+      "line": 251
+    },
+    {
+      "fingerprint": "e633915d2034c5a63263aa4dee183af8d326e0d4c5ac866d1fc7cb0f33449807",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-deploy.test.ts",
+      "line": 312
+    },
+    {
+      "fingerprint": "fced49c4971aec8aedc88ca673acdafbee8663db3547edbc66878923f184b0cd",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-deploy.test.ts",
+      "line": 377
+    },
+    {
+      "fingerprint": "de6500fa0e0195a98d714b80b47a0333d5a892ba8bf7396a0c68556ea1ac6c32",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 54
+    },
+    {
+      "fingerprint": "4bdca70011e891b8b6dd80287d6af21645287297a5f9a1d8c1a3bc80c6de69ff",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 193
+    },
+    {
+      "fingerprint": "9f07326da3bc280f56d01043541c7492aaeb04ed7e4b461d2bc12a6a2f3a5bbf",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 317
+    },
+    {
+      "fingerprint": "999dd1d84e38c8ac444c789d96f2cb43eee42245b402cf0076156c20bd0f5c0f",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 337
+    },
+    {
+      "fingerprint": "22e5c2fb7c07871cff73ab95842b2b160439c54c2177a8541a02c9e49e259a56",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 417
+    },
+    {
+      "fingerprint": "7039f8763be0e1809ab9c49b91becb43be1135a4fba25c4fe8429eed17798a83",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 484
+    },
+    {
+      "fingerprint": "9125cd6be7adecdd67583d9b3ea47db0c969848b0d1ea6f83d5da21646bcabae",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 603
+    },
+    {
+      "fingerprint": "9026f84430b055336e10f9d4d34ab7809ec42a082f63bba529d0382c2386ec33",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-design.test.ts",
+      "line": 607
+    },
+    {
+      "fingerprint": "0f76618366a8dc9d831ac1f1d94dabe8cb5cab87591d69251ea5a7d47c7f8fdb",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-learnings.test.ts",
+      "line": 28
+    },
+    {
+      "fingerprint": "38e7589ef78d63bfecea7f83ced85c60326d7fd7fd3c9f0cb7781ea2467fa62a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-learnings.test.ts",
+      "line": 129
+    },
+    {
+      "fingerprint": "8faea7e17cb05d68facfdf79c6d5549261bdf471e832ac1b46d8c03e60318684",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 24
+    },
+    {
+      "fingerprint": "7a322b017026b17bfb4192e06519bdaaf42b899b418252d08bd328bac084554b",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 111
+    },
+    {
+      "fingerprint": "27a4528de76b757e7560b37c005a19f792fc412ce78971cf3e35b3e811477d10",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 194
+    },
+    {
+      "fingerprint": "aa3d8fc822b7f500d129ebc86732dbe8b41dfefbe04e46c7d1f98bf9fa35b202",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 289
+    },
+    {
+      "fingerprint": "ffd906d7fc4bc77b01429ba70c880d8ba3afe19c41ae07da67d301b8f32054fb",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 401
+    },
+    {
+      "fingerprint": "6e05c32085aae9d50e415c7af56919e91ab16156bc05e30e2ce8ca562b88213a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 405
+    },
+    {
+      "fingerprint": "c43d482dc2d0f0cbf6bf2fe0178a80b2e721740fdeb806522856ea9ee906d2f5",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 427
+    },
+    {
+      "fingerprint": "f9039fb0fac4b566c30b01e82dd6234119181cb091beee28f1671528cb68946c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 488
+    },
+    {
+      "fingerprint": "6dfe158b5989d47a0c42797c5a395493b8627e513e939e72195f06dd2ae48f4c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 548
+    },
+    {
+      "fingerprint": "c45db5a6490b95f146acfd7570a936d01745a1848ea28a72b91caf24c507887d",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 654
+    },
+    {
+      "fingerprint": "b8bdcd1da68e94efcd258b0b9c84ae41d4e4ab103cd228bc67de1237e5622ef3",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-plan.test.ts",
+      "line": 711
+    },
+    {
+      "fingerprint": "7eddb63ef5da40d34c0e344e10a0a1aabee0e4b08478d19eb42ea0b940a7cbf2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-qa-bugs.test.ts",
+      "line": 111
+    },
+    {
+      "fingerprint": "8ba8484de7a6166c52589c56a708a6f286d3cee4e36c5dbe26dc4f2442563973",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-qa-bugs.test.ts",
+      "line": 151
+    },
+    {
+      "fingerprint": "6d811cf18d9f6e8f8a2e63d7ea7a7895a2fcd0870f5b3b32b37060ec8a97703c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "line": 97
+    },
+    {
+      "fingerprint": "275ac3c03ee57e04a18f3fdee72d547177bbf5d74bc48541b7bc91f8cee94f29",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "line": 197
+    },
+    {
+      "fingerprint": "261131d3febae227f9948bcb1cb7639be0d3ed755f82040a7667426ed4359229",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "line": 266
+    },
+    {
+      "fingerprint": "998e1d6e89f12d6757c96218017f9f04738558f3f9d00e23d18baaa485cb9585",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "line": 316
+    },
+    {
+      "fingerprint": "a2ad0ad513f53405d252851ef26e01f9edf363f567c0e33081a22c3b098597e8",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "line": 364
+    },
+    {
+      "fingerprint": "256ea38d69c255e2c4c734b9bfe9627667b9edb250561818485418558271f0f7",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "line": 403
+    },
+    {
+      "fingerprint": "d7f94db733822fbd900e23bae3674a9c1088fdfad097ecf003f3aec54eb8447d",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 26
+    },
+    {
+      "fingerprint": "043e43b8793e312ce5a75cdc6f0277567b80e0477fa9751b6ff45d70985c8a11",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 99
+    },
+    {
+      "fingerprint": "5c3d392409da7c5d09850b60a4aeec616441d64a3ed4987d69acc41f26623d5e",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 171
+    },
+    {
+      "fingerprint": "9182b188565f015cebaf93bb0f9a8c2b0fb2d91a2196babfdd39be127c7c38ca",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 249
+    },
+    {
+      "fingerprint": "298143c902f61837c10538e21e92cb2cfd5f51c30e596dc38fa9b825ca188b2d",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 260
+    },
+    {
+      "fingerprint": "c79e0e82718d350f98d3cce7053c2fdd3cba2600552a7cf7e005501572d587bc",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 455
+    },
+    {
+      "fingerprint": "d64b3c7fa055daf6827c1c88ea475f791a1b8f1ebffb0ff4fd2ed61884a3abb9",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-review.test.ts",
+      "line": 541
+    },
+    {
+      "fingerprint": "9d07cf0aef68e5e4ff1d6fc0b3337dd6dfba72c714b0ae3a960ddfcf819e9f15",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-sidebar.test.ts",
+      "line": 55
+    },
+    {
+      "fingerprint": "154a22c220a94bfd4a122ed2bebf5d9b96c5d1ff04cd2f00bb8d267d67bd33b6",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-sidebar.test.ts",
+      "line": 191
+    },
+    {
+      "fingerprint": "153f2096ac8a59b7fc9b9f2637b019bee44ff03f3dc72e3796f89f9d9da237c4",
+      "rule_id": "js/no-ssrf",
+      "file": "test/skill-e2e-sidebar.test.ts",
+      "line": 224
+    },
+    {
+      "fingerprint": "577ded65542ac7ded55d443c765c627a20d3b01aff721b23b3e9fa46843430ad",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-sidebar.test.ts",
+      "line": 237
+    },
+    {
+      "fingerprint": "28ba890f2e4e9e006d2bb60567168347e0db9b7fcf052a1468596af67dde203a",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-sidebar.test.ts",
+      "line": 372
+    },
+    {
+      "fingerprint": "3dbd6dea55d95878d68a30960ffbce0ef341522bbc55367d3a43d46b2a3c46bb",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-sidebar.test.ts",
+      "line": 402
+    },
+    {
+      "fingerprint": "566ba6f642abfaf120d1e44d65e069e4481866923c5d0ae8db72741c293cb828",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 29
+    },
+    {
+      "fingerprint": "a566e47778bc3d440d8825e6d01e51287ecfe90afe279c729e78ddd815dddaef",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 137
+    },
+    {
+      "fingerprint": "78b062f335510f7aa17bd8d986ef169c0d750b369f95203119aa95b4de3cf1e9",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 194
+    },
+    {
+      "fingerprint": "a3d18131a83fea934a8302658fbd722cbc56afb150b97443fc03e8d9920b7d2d",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 214
+    },
+    {
+      "fingerprint": "5433cefc89f93f39595e1647d2829e6ed1bd0de8e95bf43a69922321315025b4",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 380
+    },
+    {
+      "fingerprint": "92d188f1fc6e0b072013e8e47656a376d5225115b918140ef1344f3256b0f596",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 433
+    },
+    {
+      "fingerprint": "2f0cde6463d742166eb0e4ba9d97bcd95aedfa832d26e17b1ddd1b665f9ad724",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 434
+    },
+    {
+      "fingerprint": "63c0a728cf0d11b3beb1024676f14711d20a320d25cf7319c235e347ee81ac8a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 435
+    },
+    {
+      "fingerprint": "35b030a7a097c13b7cfcfa2e7c90aad4fc1635c8ac7c15a876d5c7a8214b8fd7",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e-workflow.test.ts",
+      "line": 452
+    },
+    {
+      "fingerprint": "193a53e778f3390c5ba476dc35a72aca03dbbfe421457e1c5d4c4346550ab1c1",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 143
+    },
+    {
+      "fingerprint": "6c428db5fc04276225be8ac59689974f09623a6bc44321bcd9eb2ada8864da49",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 389
+    },
+    {
+      "fingerprint": "9af14a502dbb25354ab9cb2f947fe0135b53729e8d63d90624e83cd37306897d",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 519
+    },
+    {
+      "fingerprint": "9213d5760979f25d029793c6c87414102081d8b934a7e670cef2ced9b4ac95a3",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 576
+    },
+    {
+      "fingerprint": "79b04cf491f18bea9f881a38fee6808956b22adfd0c31b61c69e13969cd83227",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 648
+    },
+    {
+      "fingerprint": "88f711d2aaba32286e7ff53716614f2cbf954fc95524b52f540ff4a175b22efd",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 724
+    },
+    {
+      "fingerprint": "5f3f94075b8895ed9d034ba19ee3b59c5f84c65c88cd4df5b93876b441280d6d",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 821
+    },
+    {
+      "fingerprint": "282be9eb0d99ce17a11af867db923c7154b103ebda292aeea7bcef3906ec84e7",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 861
+    },
+    {
+      "fingerprint": "790dacc09222997acc8f967d292ad353def5f697bfc3b639a6157e4721754c1e",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 910
+    },
+    {
+      "fingerprint": "f28beb01ad1a989b2c175baa997f6b9c18c59bcaf2ea3b951e908c1b06ae6562",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 997
+    },
+    {
+      "fingerprint": "ce603531734fb67d3149a7b0c13e03156cc851cddb2c99feaa36a7e65dc87624",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1080
+    },
+    {
+      "fingerprint": "ecc42938657df08086e18143ed346288196a032ac0f2348d6bbd689eeb4525e8",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1174
+    },
+    {
+      "fingerprint": "6d2df7a5b104117b12e257d3a70121c79bdc44c199921f205d06731263161397",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1274
+    },
+    {
+      "fingerprint": "43282af746a4a5a9f380010e9e06243dab1ff038924afd839b10595fb53ccc61",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1374
+    },
+    {
+      "fingerprint": "4fa169b41885261a8aea84d6bc187caa19884115faf74534231b7d431549b790",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1442
+    },
+    {
+      "fingerprint": "aafc92c8dee0ff8bc3a201bdd87c5eeb6b7529fa009b89c9bcdb5388857a3638",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1461
+    },
+    {
+      "fingerprint": "6dd481fbbc53bdbcd96e2e5b5cbf6318b84f61fe368db1432e6df52a3172d024",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1563
+    },
+    {
+      "fingerprint": "9dab66aa7769f6f26810ac34dadcad2bb3268397bfad569ce41046548e88e4da",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1567
+    },
+    {
+      "fingerprint": "6aa238a74dbd372bdd302b708c1ca61ed0789c73f091d8dc80c0fadcb60d7d53",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1583
+    },
+    {
+      "fingerprint": "d044747a10accb3a72a32304c73e54f82d764774ea7882875c375dd16422d1ce",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1778
+    },
+    {
+      "fingerprint": "882f28ce4fd839c3e90872936e897bb240f7d6243fd420f0204893ad44c739eb",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 1892
+    },
+    {
+      "fingerprint": "69807ac9ee6555164e2902f1e650333f54888339b773ce49175cd0499ae55883",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2031
+    },
+    {
+      "fingerprint": "f19d3af91a992f389954a4018eb3a0cba3c25c26a4e6c79fdc1d26ce494f4c9a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2160
+    },
+    {
+      "fingerprint": "f0968c162cbf53d17bae5dccf3b31ec4b488997160ef51c3ef2b09adceba0fb8",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2303
+    },
+    {
+      "fingerprint": "5d6e3c8d7b835bc694a4df99ef63424dbe1991741c8bee467ab778956f5b6a1d",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2454
+    },
+    {
+      "fingerprint": "964f2bb670639ae2c9b7df92930fc3185a4214115c6bc84f459f54a62f3019de",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2573
+    },
+    {
+      "fingerprint": "86594b46e5044d747046084042347f9c588bea2bd432998eac61b475cef619fa",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2577
+    },
+    {
+      "fingerprint": "b6cf4031f929e3d35621dc92a478cc73183308b68a65bf17db303740fd5e3f31",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2622
+    },
+    {
+      "fingerprint": "405e7bd90bc319bbf99b98b862b5eb3158966282e3148bbee90922af597e8076",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2689
+    },
+    {
+      "fingerprint": "b2c33b65443b6502e3df446ee095343b8bd233c4a31b231e97e290c9065067ed",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2692
+    },
+    {
+      "fingerprint": "dce99a2960db6d05a52726c2b922dc8306400e7fec7e1a8f8a0b2f9e8765121e",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2699
+    },
+    {
+      "fingerprint": "dfd25e442230bab1d355882b3152989e38b1c85dea26891198e61d0a73317ad1",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2706
+    },
+    {
+      "fingerprint": "13f376f9a0e4f35ab9ee9bb3028be8182cadf68899903d047186abaa03dd0f5a",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2713
+    },
+    {
+      "fingerprint": "9a94ab41dd0b713ac05d7b715cf448a159c6e8dae6329414c10740e9e76e2e21",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2778
+    },
+    {
+      "fingerprint": "5744ac7a155a237d6ba1d1728a297c8bd065dfd59cea9ab7ff8aad39a9b7b640",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2779
+    },
+    {
+      "fingerprint": "3158ef3e0951c075ddbf5923960977c13e5fcb2eb736f49b6a5ae6bf5b6953f2",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2780
+    },
+    {
+      "fingerprint": "709fa5312121960c2640c951e33184a47a07b11c4c51a91e36b316c270a3acbf",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2848
+    },
+    {
+      "fingerprint": "22a2c82a2d6697311954aca9305e76fd04e993e3d40c3568ceec931199e5d1ca",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2849
+    },
+    {
+      "fingerprint": "61e885d04017d57d3f4328bb6686ba2cc92b2ea033a57321f8eb1a9372b7bd35",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2850
+    },
+    {
+      "fingerprint": "2c5a7b48a3a394f3b8b563588a98370223355849d5f7c34e5ebf51a42bad3dad",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2918
+    },
+    {
+      "fingerprint": "a2e85b9d9831f192ced0a47478d95d0de0c2ef5e6df772b1f9b430bb56592e8e",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2919
+    },
+    {
+      "fingerprint": "b52c31842e382fa7e11b46ba3881b59325aca7210a58fe00da9b44b788bd5edd",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2920
+    },
+    {
+      "fingerprint": "62d459110c6d526fbc71e72de8b08d4a0e429f426747267a73268b6a0f6297d6",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 2943
+    },
+    {
+      "fingerprint": "7c70900a13773fc16ad91dafce70e05178f207729591e157da5944bb10b15e46",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3085
+    },
+    {
+      "fingerprint": "9343c301171a17ce7b8c1a2ab31b40c004dd38313747e1c3a74658e8e326e248",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3086
+    },
+    {
+      "fingerprint": "9f73e8831bfeb525fb9359b0ee23f53cf039509841a241aaaab2e89664e8e60f",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3092
+    },
+    {
+      "fingerprint": "68a61a55cac6826481ce4e0b00c39bc5b5a843deb7b90336457e8f0a3f80d843",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3093
+    },
+    {
+      "fingerprint": "b67170e0f4c9a6c46d9eb4de0f74eff202215f829872f7121b332883f8dc1b40",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3099
+    },
+    {
+      "fingerprint": "2b3001a0dcad38fb6481a04e3784a28e8fd22e384c65547d35b49e748624e730",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3100
+    },
+    {
+      "fingerprint": "be933897bc275e99ce78ad394adb6720001e51f19e7d278d361ec0bfd6a5dd69",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3133
+    },
+    {
+      "fingerprint": "2f3979a462c49c19e0ab44c32e042c28b7d4a203d798ba2c303aa431940cf5f5",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3202
+    },
+    {
+      "fingerprint": "c12d0ef8d811872ced69191371238e08b96e840e511f449e49a458ee138b346c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-e2e.test.ts",
+      "line": 3264
+    },
+    {
+      "fingerprint": "4188fcf6a711c9d8c5b0832cfc0ffe23e9ddf9cdf37ae4739364c96a60ae9018",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-llm-eval.test.ts",
+      "line": 573
+    },
+    {
+      "fingerprint": "b29efd9a3ea22940ecd5aad8e5e92bf02bd986b06eb98137b77830c0c7190c08",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 125
+    },
+    {
+      "fingerprint": "21c4f955ee9cf70308b6525a55ebaca4d40fdef3a698aedfa097497f71798bc7",
+      "rule_id": "js/no-unsafe-format-string",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 159
+    },
+    {
+      "fingerprint": "36ec6542e62af4ea26a0b502a9bc050003615177dcb551fdc8b3783b9ae2d303",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 281
+    },
+    {
+      "fingerprint": "6941df3d91e816ab2a9d923ec9de3b9a32488c4e39795ca2a47e07dceeaedfa9",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 375
+    },
+    {
+      "fingerprint": "660433bd7b52d12ff3d5c1fdf31de280c654040e787261f4d4fee4e517d3d53c",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 415
+    },
+    {
+      "fingerprint": "002792770c7fc6636c78a5ef626daa1fbc508900fc66eaa326286417fef93456",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 454
+    },
+    {
+      "fingerprint": "3d535656b9073dd3f4a7e0fdb1c9b128898c337725d744ed4b270f5c259717c4",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 491
+    },
+    {
+      "fingerprint": "77fa2066810ec270e87d7da5eb3433634fa8ed69610319098241d3f3ee058b33",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-routing-e2e.test.ts",
+      "line": 563
+    },
+    {
+      "fingerprint": "4cf73da42256ff945b35c7f84d8e0bdec66a364194a337e9635a32bc3af38cff",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 267
+    },
+    {
+      "fingerprint": "ad0abc6e24780c419628edab04fe801b3acdf216fde75f3f2f662dfcba973c32",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 274
+    },
+    {
+      "fingerprint": "9a3ecddd37dfea8f84196a26a3805490580466f118e0a9e9d9520aced5b50e9f",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 963
+    },
+    {
+      "fingerprint": "617a6c473fd9af325cd38843288356d14bcc86a361da055d1043682f6ca555bd",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 971
+    },
+    {
+      "fingerprint": "5bffa36396ab3e0962ed72962b32ab1702686fb7f02a93db610709256b2d5c79",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 978
+    },
+    {
+      "fingerprint": "d615fbfe28cc63e2de1c620f1c93bf0cdc60dc15f5cf5c508de13fe15b9e41b1",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 985
+    },
+    {
+      "fingerprint": "473f8a8ebb836f63428967b45a9dd684c89e0e7a8d2c6ae8de1d0556138ff1b8",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 993
+    },
+    {
+      "fingerprint": "854daf22a11946c78acd2fec9cf7753e4c615675b9c8c6d61af2b6b1215e3396",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 1001
+    },
+    {
+      "fingerprint": "16cbda5c449e26be25dce08c0b572deab0f84928159ae11a5eeb09cf352294fb",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 1012
+    },
+    {
+      "fingerprint": "875f732eff417da278cb9aefbbe00dfe98659204f4af2d62eba5c8c416a0ff24",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 1344
+    },
+    {
+      "fingerprint": "a3b20b4eae847dd6097df5085854a1d44c405e96e32464a47529566f322f95ae",
+      "rule_id": "js/no-command-injection",
+      "file": "test/skill-validation.test.ts",
+      "line": 1429
+    },
+    {
+      "fingerprint": "f85dac102b7d4a11b03c7a0c62f61fe4feefb99b7cb8eef114fe4f52e09ab82b",
+      "rule_id": "js/no-command-injection",
+      "file": "test/telemetry.test.ts",
+      "line": 14
+    },
+    {
+      "fingerprint": "e4a3deb8ed53a982cfefcc017d31525d53c1b4447f28a21737ad33c175398a46",
+      "rule_id": "js/no-command-injection",
+      "file": "test/touchfiles.test.ts",
+      "line": 168
+    },
+    {
+      "fingerprint": "fddaca4cb5f69c0bdba961b3d46b203a75b7355fcc5f7c5dbb19d935c0c3bd04",
+      "rule_id": "js/no-command-injection",
+      "file": "test/touchfiles.test.ts",
+      "line": 187
+    }
+  ]
+}
