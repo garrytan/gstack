@@ -90,6 +90,7 @@ function generateHelpText(): string {
 // ─── Buffer (from buffers.ts) ────────────────────────────────────
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
 export { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, type LogEntry, type NetworkEntry, type DialogEntry };
+import { shorten } from './shorten';
 
 const CONSOLE_LOG_PATH = config.consoleLog;
 const NETWORK_LOG_PATH = config.networkLog;
@@ -214,12 +215,7 @@ function findClaudeBin(): string | null {
 }
 
 function shortenPath(str: string): string {
-  return str
-    .replace(new RegExp(BROWSE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '$B')
-    .replace(/\/Users\/[^/]+/g, '~')
-    .replace(/\/conductor\/workspaces\/[^/]+\/[^/]+/g, '')
-    .replace(/\.claude\/skills\/gstack\//g, '')
-    .replace(/browse\/dist\/browse/g, '$B');
+  return shorten(str, BROWSE_BIN);
 }
 
 function summarizeToolInput(tool: string, input: any): string {

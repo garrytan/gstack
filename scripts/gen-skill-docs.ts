@@ -12,6 +12,7 @@
 import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import { discoverTemplates } from './discover-skills';
+import { extractNameAndDescription, condenseOpenAIShortDescription } from './resolvers/codex-helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
@@ -94,56 +95,8 @@ function externalSkillName(skillDir: string, frontmatterName?: string): string {
   return `gstack-${baseName}`;
 }
 
-function extractNameAndDescription(content: string): { name: string; description: string } {
-  const fmStart = content.indexOf('---\n');
-  if (fmStart !== 0) return { name: '', description: '' };
-  const fmEnd = content.indexOf('\n---', fmStart + 4);
-  if (fmEnd === -1) return { name: '', description: '' };
+// extractNameAndDescription and condenseOpenAIShortDescription are imported from ./resolvers/codex-helpers
 
-  const frontmatter = content.slice(fmStart + 4, fmEnd);
-  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-  const name = nameMatch ? nameMatch[1].trim() : '';
-
-  let description = '';
-  const lines = frontmatter.split('\n');
-  let inDescription = false;
-  const descLines: string[] = [];
-  for (const line of lines) {
-    if (line.match(/^description:\s*\|?\s*$/)) {
-      inDescription = true;
-      continue;
-    }
-    if (line.match(/^description:\s*\S/)) {
-      description = line.replace(/^description:\s*/, '').trim();
-      break;
-    }
-    if (inDescription) {
-      if (line === '' || line.match(/^\s/)) {
-        descLines.push(line.replace(/^  /, ''));
-      } else {
-        break;
-      }
-    }
-  }
-  if (descLines.length > 0) {
-    description = descLines.join('\n').trim();
-  }
-
-  return { name, description };
-}
-
-const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
-
-function condenseOpenAIShortDescription(description: string): string {
-  const firstParagraph = description.split(/\n\s*\n/)[0] || description;
-  const collapsed = firstParagraph.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= OPENAI_SHORT_DESCRIPTION_LIMIT) return collapsed;
-
-  const truncated = collapsed.slice(0, OPENAI_SHORT_DESCRIPTION_LIMIT - 3);
-  const lastSpace = truncated.lastIndexOf(' ');
-  const safe = lastSpace > 40 ? truncated.slice(0, lastSpace) : truncated;
-  return `${safe}...`;
-}
 
 function generateOpenAIYaml(displayName: string, shortDescription: string): string {
   return `interface:

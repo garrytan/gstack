@@ -12,12 +12,14 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { shorten as shortenImpl } from './shorten';
 
 const QUEUE = process.env.SIDEBAR_QUEUE_PATH || path.join(process.env.HOME || '/tmp', '.gstack', 'sidebar-agent-queue.jsonl');
 const SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '34567', 10);
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const POLL_MS = 200;  // 200ms poll — keeps time-to-first-token low
 const B = process.env.BROWSE_BIN || path.resolve(__dirname, '../../.claude/skills/gstack/browse/dist/browse');
+const shorten = (s: string) => shortenImpl(s, B);
 
 let lastLine = 0;
 let authToken: string | null = null;
@@ -101,14 +103,7 @@ async function sendEvent(event: Record<string, any>, tabId?: number): Promise<vo
 
 // ─── Claude subprocess ──────────────────────────────────────────
 
-function shorten(str: string): string {
-  return str
-    .replace(new RegExp(B.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '$B')
-    .replace(/\/Users\/[^/]+/g, '~')
-    .replace(/\/conductor\/workspaces\/[^/]+\/[^/]+/g, '')
-    .replace(/\.claude\/skills\/gstack\//g, '')
-    .replace(/browse\/dist\/browse/g, '$B');
-}
+// shorten is imported from ./shorten (line above)
 
 function describeToolCall(tool: string, input: any): string {
   if (!input) return '';

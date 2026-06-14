@@ -10,19 +10,10 @@ import { findInstalledBrowsers, importCookies, listSupportedBrowserNames } from 
 import { validateNavigationUrl } from './url-validation';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TEMP_DIR, isPathWithin } from './platform';
+import { TEMP_DIR, isPathWithin, validateOutputPath } from './platform';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 
-// Security: Path validation for screenshot output
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
-
-function validateOutputPath(filePath: string): void {
-  const resolved = path.resolve(filePath);
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
-  if (!isSafe) {
-    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-  }
-}
+// validateOutputPath is imported from ./platform
 
 /**
  * Aggressive page cleanup selectors and heuristics.

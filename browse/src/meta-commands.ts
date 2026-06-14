@@ -10,20 +10,12 @@ import { validateNavigationUrl } from './url-validation';
 import * as Diff from 'diff';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TEMP_DIR, isPathWithin } from './platform';
+import { TEMP_DIR, isPathWithin, validateOutputPath } from './platform';
+export { validateOutputPath };
 import { resolveConfig } from './config';
 import type { Frame } from 'playwright';
 
-// Security: Path validation to prevent path traversal attacks
-const SAFE_DIRECTORIES = [TEMP_DIR, process.cwd()];
-
-export function validateOutputPath(filePath: string): void {
-  const resolved = path.resolve(filePath);
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir));
-  if (!isSafe) {
-    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-  }
-}
+// validateOutputPath is imported from ./platform
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
 function tokenizePipeSegment(segment: string): string[] {
