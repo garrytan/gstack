@@ -1,6 +1,6 @@
 ---
 name: gstack-openclaw-ceo-review
-description: Use when asked to review a plan, challenge a proposal, run a CEO review, poke holes in an approach, think bigger about scope, or decide whether to expand or reduce the plan.
+description: "OpenClaw-native method clone. Manual — invoke only when the user explicitly names gstack-openclaw-ceo-review."
 ---
 
 # CEO Plan Review
