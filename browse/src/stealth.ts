@@ -194,6 +194,28 @@ export const STEALTH_LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
 ];
 
+/**
+ * Chromium's setuid sandbox requires unprivileged user namespaces, which are
+ * typically disabled in containers (Docker/CI) and are NEVER available for the
+ * root user on Linux. In those cases Chromium aborts at launch with
+ * "Chromium sandboxing failed!" / the process closes immediately. Detect all
+ * three cases and disable the sandbox so launches succeed.
+ *
+ * Returns `['--no-sandbox']` when sandboxing is known to be unavailable,
+ * otherwise an empty array. Spread this into a chromium launch's `args`.
+ *
+ * This must be applied to EVERY launch site — headless `launch()`, headed
+ * `launchHeaded()`, and the extension-reload handoff — otherwise headed mode
+ * crashes as root even though headless works.
+ */
+export function sandboxDisableArgs(): string[] {
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  if (process.env.CI || process.env.CONTAINER || isRoot) {
+    return ['--no-sandbox'];
+  }
+  return [];
+}
+
 /** Test-only helper: report whether extended mode is currently active. */
 export function isExtendedStealthEnabled(): boolean {
   return extendedModeEnabled();
