@@ -1268,7 +1268,28 @@ GBRAIN_BIN=$(command -v gbrain)
 [ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
 claude mcp remove gbrain -s user 2>/dev/null || true
 claude mcp remove gbrain 2>/dev/null || true
-claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+
+# Windows: the bun-generated `gbrain` binstub (gbrain.exe) re-launches the bun
+# runtime in a NEW console, so registering it as the MCP command pops a visible
+# terminal window/tab on every Claude Code session. Registering `bun <entry>
+# serve` directly lets bun attach to Claude Code's headless pseudo-console
+# (the same reason node-based MCP servers don't pop a window). The entry is the
+# gbrain package's `bin` (src/cli.ts), reachable through the bun global
+# node_modules for both `bun install -g` and `bun link`ed clones. POSIX is
+# unaffected; fall back to the binstub if the entry isn't found.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    GBRAIN_ENTRY="$HOME/.bun/install/global/node_modules/gbrain/src/cli.ts"
+    if [ -f "$GBRAIN_ENTRY" ] && [ -f "$HOME/.bun/bin/bun.exe" ]; then
+      claude mcp add --scope user gbrain -- "$HOME/.bun/bin/bun.exe" "$GBRAIN_ENTRY" serve
+    else
+      claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+    fi
+    ;;
+  *)
+    claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+    ;;
+esac
 claude mcp list | grep gbrain  # verify: should show "✓ Connected"
 ```
 
