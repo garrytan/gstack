@@ -1038,6 +1038,14 @@ Then prepend a one-line HTML comment to the plan file:
   a developer tool (the plan describes something developers install, integrate, or build
   on top of) or if an AI agent is the primary user (OpenClaw actions, Claude Code skills,
   MCP servers).
+- Record the match COUNT for each scope, not just yes/no, and never skip a phase
+  silently. A scope under the 2-match threshold means the phase is dropped, so make the
+  miss visible: when a scope lands at 0-1 matches yet the plan plausibly touches it
+  (hyphenated terms like `form-control`/`api-endpoint`, synonyms not in the list, or
+  terms inside code fences that grep skips), flag it as a near-miss rather than a clean
+  no. A scope sitting at exactly 2 matches is borderline — one fewer match on a re-run
+  would silently drop the phase — so call that out too. In every case offer the override:
+  the user can tell you to force the phase and you run it regardless of the count.
 
 ### Step 3: Load skill files from disk
 
@@ -1064,8 +1072,11 @@ Read each file using the Read tool:
 
 Follow ONLY the review-specific methodology, sections, and required outputs.
 
-Output: "Here's what I'm working with: [plan summary]. UI scope: [yes/no]. DX scope: [yes/no].
-Loaded review skills from disk. Starting full review pipeline with auto-decisions."
+Output: "Here's what I'm working with: [plan summary]. UI scope: [yes/no] ([N] matches).
+DX scope: [yes/no] ([N] matches). [For any scope that is not detected or borderline (0-2
+matches), add: "Note: <scope> review will be <skipped / included on a thin margin> — if
+that's wrong, tell me to force it and I'll run the phase."] Loaded review skills from disk.
+Starting full review pipeline with auto-decisions."
 
 ---
 
