@@ -13,33 +13,37 @@ PROJECT_DIR="$(pwd)"
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
 
-# 1. Try cached slug first (guarantees consistency across sessions)
-if [[ -f "$CACHE_FILE" ]]; then
-  SLUG=$(cat "$CACHE_FILE")
+# 1. Compute the slug from the git remote — the source of truth. Run separately
+#    from the pipeline so `set -o pipefail` can't swallow the error into an empty
+#    slug. Computing from the remote on EVERY run (not just on a cache miss) is
+#    what keeps a corrected remote from being shadowed by a stale cached slug:
+#    the cache used to be trusted forever, so a copy-scaffolded repo kept its
+#    source project's slug indefinitely even after its remote was repointed.
+REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
+if [[ -n "$REMOTE_URL" ]]; then
+  RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+  SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
 fi
 
-# 2. If no cache, compute from git remote (separated from pipeline to avoid
-#    pipefail swallowing the error and producing an empty slug)
-if [[ -z "${SLUG:-}" ]]; then
-  REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
-  if [[ -n "$REMOTE_URL" ]]; then
-    RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-    SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
-  fi
+# 2. No remote configured (a remote-less repo, or a non-repo dir): fall back to
+#    the cached slug for cross-session stability. Re-sanitize on read — a poisoned
+#    ~/.gstack/slug-cache/<key> would otherwise inject shell into
+#    `eval "$(gstack-slug)"`.
+if [[ -z "${SLUG:-}" && -f "$CACHE_FILE" ]]; then
+  SLUG=$(tr -cd 'a-zA-Z0-9._-' < "$CACHE_FILE")
 fi
 
-# 3. Fallback to basename only when there's truly no git remote configured
+# 3. Still nothing: basename fallback.
 SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
 
-# 3b. Re-sanitize unconditionally before the value is echoed into `eval`/`source`
-#     output. The compute (2) and fallback (3) paths already filter, but a value
-#     read straight from the cache file (1) does NOT — a poisoned
-#     ~/.gstack/slug-cache/<key> would otherwise inject shell into
-#     `eval "$(gstack-slug)"`. Filtering here honors the [a-zA-Z0-9._-] invariant
-#     promised in the header on every path, and heals a poisoned cache on write (4).
+# 4. Re-sanitize unconditionally before the value is echoed into `eval`/`source`
+#    output. Honors the [a-zA-Z0-9._-] invariant promised in the header on every
+#    path (the cache-read path in (2) and basename in (3) both already filter).
 SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
 
-# 4. Cache the slug for future sessions (atomic write, fail silently)
+# 5. Refresh the cache to match the resolved slug (atomic write, fail silently).
+#    When a remote exists this OVERWRITES any stale/poisoned entry, so the cache
+#    self-heals on the next run instead of pinning a wrong slug forever.
 if [[ -n "$SLUG" ]]; then
   mkdir -p "$CACHE_DIR" 2>/dev/null || true
   CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
