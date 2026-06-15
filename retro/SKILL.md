@@ -996,8 +996,8 @@ cat ~/.gstack/greptile-history.md 2>/dev/null || true
 # 9. TODOS.md backlog (if available)
 cat TODOS.md 2>/dev/null || true
 
-# 10. Test file count
-find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' 2>/dev/null | grep -v node_modules | wc -l
+# 10. Test file count (polyglot conventions; prunes vendored/virtualenv dirs)
+find . \( -name node_modules -o -name .venv -o -name venv -o -name site-packages -o -name vendor -o -name .git \) -prune -o \( -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' -o -name 'test_*.py' -o -name '*Test.java' \) -type f -print 2>/dev/null | wc -l
 
 # 11. Regression test commits in window
 git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage"
