@@ -33,6 +33,16 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=\${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(${ctx.paths.binDir}/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "\${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "\${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || true)
@@ -48,7 +58,7 @@ _QUESTION_TUNING=$(${ctx.paths.binDir}/gstack-config get question_tuning 2>/dev/
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"${ctx.skillName}","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "\${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -90,6 +100,19 @@ _CHECKPOINT_MODE=$(${ctx.paths.binDir}/gstack-config get checkpoint_mode 2>/dev/
 _CHECKPOINT_PUSH=$(${ctx.paths.binDir}/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "\${CLAUDE_PLAN_FILE:-}\${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "\${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true${ctx.host === 'gbrain' || ctx.host === 'hermes' ? `
 if command -v gbrain &>/dev/null; then
   _BRAIN_JSON=$(gbrain doctor --fast --json 2>/dev/null || echo '{}')

@@ -890,6 +890,7 @@ We're building a new user dashboard that shows recent activity, notifications, a
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -974,6 +975,7 @@ We're building a new user dashboard that shows recent activity, notifications, a
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -1068,6 +1070,7 @@ Replace session-cookie auth with JWT tokens. Currently using express-session + R
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -1450,6 +1453,7 @@ export function main() { return Dashboard(); }
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
 
     // Set up remote-slug shim and browse shims (plan-eng-review uses remote-slug for artifact path)
     setupBrowseShims(planDir);
@@ -2256,6 +2260,7 @@ describeIfSelected('Plan Design Review E2E', ['plan-design-review-plan-mode', 'p
       path.join(ROOT, 'plan-design-review', 'SKILL.md'),
       path.join(reviewDir, 'plan-design-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-design-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(reviewDir, 'plan-design-review', 'sections'), { recursive: true }); }
 
     // Create a plan file with intentional design gaps
     fs.writeFileSync(path.join(reviewDir, 'plan.md'), `# Plan: User Dashboard
@@ -3158,6 +3163,7 @@ describeIfSelected('Office Hours Spec Review E2E', ['office-hours-spec-review'],
       path.join(ROOT, 'office-hours', 'SKILL.md'),
       path.join(ohDir, 'office-hours', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'office-hours', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(ohDir, 'office-hours', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -3220,6 +3226,7 @@ describeIfSelected('Plan CEO Review Benefits-From E2E', ['plan-ceo-review-benefi
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(benefitsDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(benefitsDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {

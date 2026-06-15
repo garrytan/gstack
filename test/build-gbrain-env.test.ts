@@ -15,7 +15,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { buildGbrainEnv } from "../lib/gbrain-exec";
+import { buildGbrainEnv, isTransactionModePooler } from "../lib/gbrain-exec";
 
 describe("buildGbrainEnv", () => {
   let home: string;
@@ -116,5 +116,75 @@ describe("buildGbrainEnv", () => {
     const baseEnv = { HOME: home, DATABASE_URL: "postgresql://gbrain/db" };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe("postgresql://gbrain/db");
+  });
+
+  // --- GBRAIN_PREPARE auto-detection (#1435) ---
+
+  it("sets GBRAIN_PREPARE=true when DATABASE_URL targets port 6543 (transaction-mode pooler)", () => {
+    const poolerUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: poolerUrl }));
+    const baseEnv = { HOME: home };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.DATABASE_URL).toBe(poolerUrl);
+    expect(result.GBRAIN_PREPARE).toBe("true");
+  });
+
+  it("does not set GBRAIN_PREPARE when DATABASE_URL targets port 5432 (session-mode pooler)", () => {
+    const sessionUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:5432/postgres";
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: sessionUrl }));
+    const baseEnv = { HOME: home };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.GBRAIN_PREPARE).toBeUndefined();
+  });
+
+  it("does not set GBRAIN_PREPARE for pglite (no port in URL)", () => {
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: "postgresql://gbrain/db" }));
+    const baseEnv = { HOME: home };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.GBRAIN_PREPARE).toBeUndefined();
+  });
+
+  it("respects caller's explicit GBRAIN_PREPARE=false (opt-out)", () => {
+    const poolerUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: poolerUrl }));
+    const baseEnv = { HOME: home, GBRAIN_PREPARE: "false" };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.GBRAIN_PREPARE).toBe("false");
+  });
+
+  it("sets GBRAIN_PREPARE even when caller DATABASE_URL already matches config on port 6543", () => {
+    const poolerUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: poolerUrl }));
+    const baseEnv = { HOME: home, DATABASE_URL: poolerUrl };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.GBRAIN_PREPARE).toBe("true");
+  });
+});
+
+describe("isTransactionModePooler", () => {
+  it("returns true for Supabase transaction-mode pooler URL (port 6543)", () => {
+    expect(isTransactionModePooler(
+      "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres"
+    )).toBe(true);
+  });
+
+  it("returns false for session-mode pooler URL (port 5432)", () => {
+    expect(isTransactionModePooler(
+      "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+    )).toBe(false);
+  });
+
+  it("returns false for pglite-style URL (no port)", () => {
+    expect(isTransactionModePooler("postgresql://gbrain/db")).toBe(false);
+  });
+
+  it("returns false for unparseable URL", () => {
+    expect(isTransactionModePooler("not-a-url")).toBe(false);
+  });
+
+  it("handles postgres:// scheme (without 'ql')", () => {
+    expect(isTransactionModePooler(
+      "postgres://postgres.abc:pw@host:6543/postgres"
+    )).toBe(true);
   });
 });

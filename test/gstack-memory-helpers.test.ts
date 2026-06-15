@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -95,6 +95,47 @@ describe("secretScanFile", () => {
       expect(result.findings).toEqual([]);
     }
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("probes the gitleaks executable directly before scanning", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const binDir = join(dir, "bin");
+    const log = join(dir, "gitleaks-calls.log");
+    const file = join(dir, "clean.txt");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(file, "no secrets here\n");
+    writeFileSync(
+      join(binDir, "gitleaks"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+if [ "$1" = "version" ]; then
+  exit 0
+fi
+if [ "$1" = "detect" ]; then
+  echo '[]'
+  exit 0
+fi
+exit 2
+`,
+      "utf-8",
+    );
+    chmodSync(join(binDir, "gitleaks"), 0o755);
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath || ""}`;
+    try {
+      _resetGitleaksAvailabilityCache();
+      const result = secretScanFile(file);
+      expect(result.scanner).toBe("gitleaks");
+      expect(result.findings).toEqual([]);
+      const calls = readFileSync(log, "utf-8").trim().split("\n");
+      expect(calls[0]).toBe("version");
+      expect(calls[1]).toContain("detect --no-git --source");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

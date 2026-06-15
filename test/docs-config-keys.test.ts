@@ -46,6 +46,14 @@ function scanDocsForConfigKeys(): { docPath: string; key: string; line: number }
   return hits;
 }
 
+function runConfig(args: string[], tmpHome: string) {
+  return spawnSync(CONFIG_BIN, args, {
+    encoding: 'utf-8',
+    env: { ...process.env, HOME: tmpHome, GSTACK_HOME: tmpHome },
+    timeout: 5000,
+  });
+}
+
 describe('docs ↔ gstack-config key drift guard', () => {
   test('docs/ references at least one config key (smoke)', () => {
     const hits = scanDocsForConfigKeys();
@@ -65,15 +73,32 @@ describe('docs ↔ gstack-config key drift guard', () => {
   // without a Git Bash interpreter shim. Skip on Windows — the deprecated-key
   // denylist test above already pins the v1.27.0.0 rename behavior at the
   // doc layer, which is the actual invariant this wave defends.
+  test.skipIf(process.platform === 'win32')('`explain_level` is exposed as a documented default', () => {
+    const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-cfg-'));
+    try {
+      const get = runConfig(['get', 'explain_level'], tmpHome);
+      expect(get.status).toBe(0);
+      expect(get.stdout.trim()).toBe('default');
+
+      const defaults = runConfig(['defaults'], tmpHome);
+      expect(defaults.status).toBe(0);
+      expect(defaults.stdout).toContain('explain_level:');
+      expect(defaults.stdout).toContain('default');
+
+      const list = runConfig(['list'], tmpHome);
+      expect(list.status).toBe(0);
+      expect(list.stdout).toContain('explain_level:');
+      expect(list.stdout).toContain('default');
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
   test.skipIf(process.platform === 'win32')('`gstack-config get artifacts_sync_mode` returns a value (the rename landed)', () => {
     // Run from a clean HOME so the user's local config doesn't pollute.
     const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-cfg-'));
     try {
-      const result = spawnSync(CONFIG_BIN, ['get', 'artifacts_sync_mode'], {
-        encoding: 'utf-8',
-        env: { ...process.env, HOME: tmpHome, GSTACK_HOME: tmpHome },
-        timeout: 5000,
-      });
+      const result = runConfig(['get', 'artifacts_sync_mode'], tmpHome);
       expect(result.status).toBe(0);
       // A known key returns its default value, not the "unknown key" error string.
       expect(result.stderr).not.toContain('not recognized');

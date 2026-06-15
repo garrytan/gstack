@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { execFileSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -45,6 +45,16 @@ function runDetect(env: Partial<NodeJS.ProcessEnv>): string {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, ...env },
   });
+}
+
+/** Run detect with --is-ok and return its exit code (never throws). */
+function runIsOk(env: Partial<NodeJS.ProcessEnv>): number {
+  const r = spawnSync(BUN_BIN, ["run", DETECT_BIN, "--is-ok"], {
+    timeout: 15_000,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...env },
+  });
+  return r.status ?? 1;
 }
 
 interface DetectShape {
@@ -239,6 +249,69 @@ exit 0
       expect(parsed.gbrain_config_exists).toBe(true);
       expect(parsed.gbrain_engine).toBe("pglite");
       expect(parsed.gbrain_local_status).toBe("ok");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("bin/gstack-gbrain-detect --is-ok — live gate", () => {
+  it("exits non-zero when gbrain is not on PATH (no-cli)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "detect-isok-"));
+    try {
+      const code = runIsOk({
+        HOME: tmp,
+        PATH: "/usr/bin:/bin", // no gbrain
+        GSTACK_HOME: tmp,
+        GSTACK_DETECT_NO_CACHE: "1",
+      });
+      expect(code).not.toBe(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 0 when a fake gbrain reports a healthy engine (ok)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "detect-isok-"));
+    const bindir = join(tmp, "bin");
+    const home = join(tmp, "home");
+    const configDir = join(home, ".gbrain");
+    try {
+      mkdirSync(bindir, { recursive: true });
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config.json"), JSON.stringify({ engine: "pglite" }));
+      const fake = `#!/bin/sh
+case "$1 $2" in
+  "--version ")        echo "gbrain 0.33.1.0"; exit 0 ;;
+  "sources list")      echo '{"sources":[]}'; exit 0 ;;
+  "doctor "*)          echo '{"status":"ok","checks":[]}'; exit 0 ;;
+esac
+exit 0
+`;
+      const gbrainPath = join(bindir, "gbrain");
+      writeFileSync(gbrainPath, fake);
+      chmodSync(gbrainPath, 0o755);
+
+      const code = runIsOk({
+        HOME: home,
+        PATH: `${bindir}:/usr/bin:/bin`,
+        GSTACK_HOME: tmp,
+        GSTACK_DETECT_NO_CACHE: "1",
+      });
+      expect(code).toBe(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("exit code agrees with the JSON gbrain_local_status (no skew)", () => {
+    // Run both surfaces against the same env and assert they never disagree.
+    const tmp = mkdtempSync(join(tmpdir(), "detect-isok-"));
+    try {
+      const env = { HOME: tmp, PATH: "/usr/bin:/bin", GSTACK_HOME: tmp, GSTACK_DETECT_NO_CACHE: "1" };
+      const status = (JSON.parse(runDetect(env)) as DetectShape).gbrain_local_status;
+      const code = runIsOk(env);
+      expect(code === 0).toBe(status === "ok");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

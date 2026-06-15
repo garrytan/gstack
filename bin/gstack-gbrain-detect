@@ -18,7 +18,8 @@
  *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
  *     "gstack_brain_git": true|false,
  *     "gstack_artifacts_remote": "https://..." | "",
- *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db",
+ *     "gbrain_pooler_mode": "transaction"|"session"|null
  *   }
  *
  * Backward compatibility (per plan codex #5): the 9 pre-existing fields stay
@@ -42,6 +43,7 @@ import {
   resolveGbrainBin,
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
+import { isTransactionModePooler } from "../lib/gbrain-exec";
 
 const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
 const SCRIPT_DIR = __dirname;
@@ -96,6 +98,17 @@ function detectConfig(): { exists: boolean; engine: "pglite" | "postgres" | null
     return { exists: true, engine: parsed.engine };
   }
   return { exists: true, engine: null };
+}
+
+// --- pooler mode detection (#1435) ---
+//
+// Reads DATABASE_URL from ~/.gbrain/config.json and checks whether it targets
+// a PgBouncer transaction-mode pooler (port 6543). Surfaced so /sync-gbrain
+// and /setup-gbrain can advise users when search may require GBRAIN_PREPARE.
+function detectPoolerMode(): "transaction" | "session" | "unknown" | null {
+  const parsed = tryReadJSON(GBRAIN_CONFIG) as { database_url?: string } | null;
+  if (!parsed?.database_url) return null;
+  return isTransactionModePooler(parsed.database_url) ? "transaction" : "session";
 }
 
 // --- gbrain doctor health (any nonzero exit or non-"ok"/"warnings" status → false) ---
@@ -215,9 +228,20 @@ function main(): void {
     gstack_brain_git: detectBrainGit(),
     gstack_artifacts_remote: detectArtifactsRemote(),
     gbrain_local_status: localEngineStatus({ noCache }),
+    gbrain_pooler_mode: detectPoolerMode(),
   };
 
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+}
+
+// --is-ok: live engine-status gate. Exits 0 iff gbrain is usable ("ok"), 1
+// otherwise. Runs detection live (never reads the possibly-stale
+// gbrain-detection.json), so callers — setup, bin/dev-setup, and
+// `gstack-config gbrain-refresh` — can decide whether to render the gbrain
+// :user variant without duplicating the JSON grep. Prints nothing on stdout.
+if (process.argv.includes("--is-ok")) {
+  const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
+  process.exit(localEngineStatus({ noCache }) === "ok" ? 0 : 1);
 }
 
 main();

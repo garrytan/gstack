@@ -82,6 +82,7 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
+PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -91,6 +92,9 @@ while [ $# -gt 0 ]; do
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
     --team)    TEAM_MODE=1; shift ;;
     --no-team) NO_TEAM_MODE=1; shift ;;
+    --plan-tune-hooks)    PLAN_TUNE_HOOKS_MODE="yes"; shift ;;
+    --no-plan-tune-hooks) PLAN_TUNE_HOOKS_MODE="no"; shift ;;
+    --plan-tune-hooks=*)  PLAN_TUNE_HOOKS_MODE="${1#--plan-tune-hooks=}"; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
@@ -259,6 +263,84 @@ ensure_playwright_browser() {
       bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
     ) >/dev/null 2>&1
   fi
+}
+
+# Ensure a color-emoji font is installed (Linux only).
+#
+# Chromium renders emoji code points as .notdef "tofu" (▯) when no color-emoji
+# font is installed. macOS ships "Apple Color Emoji" and Windows ships "Segoe UI
+# Emoji", so they're fine out of the box. Most Linux distros and containers ship
+# NO color-emoji font, which is why make-pdf output shows tofu in headers/tables
+# that contain emoji. Install Noto Color Emoji to fix it.
+#
+# Best-effort: warn (don't fail) if we can't install — PDFs still generate, they
+# just fall back to tofu for emoji as before. Skip entirely with
+# GSTACK_SKIP_FONTS=1 (CI without sudo, managed machines, offline envs).
+#
+# Returns 0 and sets EMOJI_FONT_INSTALLED=1 when it actually installs a font.
+EMOJI_FONT_INSTALLED=0
+ensure_emoji_font() {
+  # macOS/Windows ship a color-emoji font; nothing to do.
+  [ "$(uname -s)" = "Linux" ] || return 0
+  [ "${GSTACK_SKIP_FONTS:-0}" = "1" ] && return 0
+
+  # Idempotency: a real COLOR emoji font that resolves for an actual emoji code
+  # point (U+1F600). `fc-list :lang=und-zsye` is too broad — it matches symbol
+  # and last-resort fallback fonts — so we use fc-match and require color=True.
+  if command -v fc-match >/dev/null 2>&1; then
+    if fc-match -f '%{family[0]}\t%{color}\n' ':lang=und-zsye:charset=1F600' 2>/dev/null | grep -qi 'True'; then
+      return 0
+    fi
+  fi
+
+  local sudo=""
+  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+    # -n: never prompt. If a password is required we fail fast into the
+    # warn-not-fail path below instead of hanging a non-interactive setup.
+    sudo="sudo -n"
+  fi
+
+  # Every package-manager call is wrapped in `timeout` so a stuck dpkg/rpm lock
+  # or a wedged mirror fails fast into the warn path instead of hanging setup.
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Installing color-emoji font (fonts-noto-color-emoji) so make-pdf emoji render (set GSTACK_SKIP_FONTS=1 to skip)..."
+    DEBIAN_FRONTEND=noninteractive timeout 30 $sudo apt-get update -qq >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive timeout 120 $sudo apt-get install -y -qq fonts-noto-color-emoji >/dev/null 2>&1 || return 1
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "Installing color-emoji font (google-noto-color-emoji-fonts)..."
+    timeout 120 $sudo dnf install -y google-noto-color-emoji-fonts >/dev/null 2>&1 || return 1
+  elif command -v pacman >/dev/null 2>&1; then
+    echo "Installing color-emoji font (noto-fonts-emoji)..."
+    timeout 120 $sudo pacman -Sy --noconfirm noto-fonts-emoji >/dev/null 2>&1 || return 1
+  elif command -v apk >/dev/null 2>&1; then
+    echo "Installing color-emoji font (font-noto-emoji)..."
+    timeout 120 $sudo apk add --no-cache font-noto-emoji >/dev/null 2>&1 || return 1
+  else
+    return 1
+  fi
+
+  # Refresh fontconfig cache so Chromium picks up the new font. Run under sudo
+  # for the system cache dirs (unprivileged fc-cache fails on unwritable dirs).
+  if command -v fc-cache >/dev/null 2>&1; then
+    $sudo fc-cache -f >/dev/null 2>&1 || fc-cache -f >/dev/null 2>&1 || true
+  fi
+  EMOJI_FONT_INSTALLED=1
+  return 0
+}
+
+# After a fresh font install, stop any running browse render daemon so the next
+# make-pdf render spawns a fresh Chromium that sees the new font. Chromium
+# caches its font list at process start, so a daemon that was alive before the
+# install would keep emitting tofu. `browse stop` is the graceful API; the
+# daemon auto-respawns on the next render. Best-effort and per-project-root, so
+# we also print a note for daemons in other roots.
+refresh_browse_daemon_for_fonts() {
+  [ "$EMOJI_FONT_INSTALLED" -eq 1 ] || return 0
+  if [ -x "$BROWSE_BIN" ]; then
+    "$BROWSE_BIN" stop >/dev/null 2>&1 || true
+  fi
+  echo "  Installed a color-emoji font. The next make-pdf render will show emoji."
+  echo "  If a gstack browser is running in another project, restart it to pick up the font."
 }
 
 prepare_bun_for_windows_compile() {
@@ -433,6 +515,19 @@ if ! ensure_playwright_browser; then
   exit 1
 fi
 
+# 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).
+#     Best-effort: warn instead of failing if it can't install.
+if ! ensure_emoji_font; then
+  echo "  Note: could not auto-install a color-emoji font. Emoji in make-pdf" >&2
+  echo "  output may render as boxes (▯). Install one manually, e.g.:" >&2
+  echo "    Debian/Ubuntu: sudo apt-get install fonts-noto-color-emoji" >&2
+  echo "    Fedora:        sudo dnf install google-noto-color-emoji-fonts" >&2
+  echo "    Arch:          sudo pacman -S noto-fonts-emoji" >&2
+  echo "    Alpine:        sudo apk add font-noto-emoji" >&2
+else
+  refresh_browse_daemon_for_fonts
+fi
+
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
@@ -474,6 +569,14 @@ link_claude_skill_dirs() {
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
       _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      # Link the sections/ subdir for carved skills (v2 plan T9). The prefixed
+      # Claude skill dir otherwise holds only SKILL.md, so a runtime
+      # "Read sections/<name>.md" 404s. Route through _link_or_copy so Windows
+      # gets a fresh copy (and re-copies on every ./setup, refreshing staleness).
+      if [ -d "$gstack_dir/$dir_name/sections" ]; then
+        if [ -e "$target/sections" ] || [ -L "$target/sections" ]; then rm -rf "$target/sections"; fi
+        _link_or_copy "$gstack_dir/$dir_name/sections" "$target/sections"
+      fi
       linked+=("$link_name")
     fi
   done
@@ -481,6 +584,26 @@ link_claude_skill_dirs() {
     echo "  linked skills: ${linked[*]}"
     _print_windows_copy_note_once
   fi
+}
+
+# Claude Code skips the repo-shaped ~/.claude/skills/gstack directory when
+# building the user-facing slash-command list. Keep the repo path for runtime
+# assets, and add a separate thin wrapper whose frontmatter name remains
+# `gstack` so `/gstack` can autocomplete.
+link_claude_root_skill_alias() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local target="$skills_dir/_gstack-command"
+
+  [ -f "$gstack_dir/SKILL.md" ] || return 0
+  if [ -L "$target" ]; then
+    rm -f "$target"
+  fi
+  mkdir -p "$target"
+  if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
+  _link_or_copy "$gstack_dir/SKILL.md" "$target/SKILL.md"
+  echo "  linked root skill alias: gstack"
+  _print_windows_copy_note_once
 }
 
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
@@ -869,6 +992,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # reads the correct (patched) name: values for symlink naming
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
@@ -940,6 +1064,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       fi
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
@@ -1027,6 +1152,20 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
           -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
           -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
           "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
+      # Carved skills (v2 plan T9): rewrite + copy each sections/*.md the same way,
+      # so a runtime "Read sections/<name>.md" resolves under ~/.kiro and doesn't
+      # leak a ~/.codex or ~/.claude path. Kiro builds from the codex output, so
+      # these section files only exist for skills that have been carved.
+      if [ -d "$skill_dir/sections" ]; then
+        mkdir -p "$target_dir/sections"
+        for section_file in "$skill_dir/sections"/*; do
+          [ -f "$section_file" ] || continue
+          sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+              -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
+              -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
+              "$section_file" > "$target_dir/sections/$(basename "$section_file")"
+        done
+      fi
     done
     echo "gstack ready (kiro)."
     echo "  browse: $BROWSE_BIN"
@@ -1127,4 +1266,240 @@ if [ "$NO_TEAM_MODE" -eq 1 ]; then
   fi
 
   log "Team mode disabled: auto-update hook removed."
+fi
+
+# ─── GBrain detection + conditional SKILL.md regen ──────────────────────
+#
+# Detect whether gbrain is installed and persist the result to
+# ~/.gstack/gbrain-detection.json so gen-skill-docs can decide whether to
+# render GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS blocks. If detected,
+# regenerate the Claude-host SKILL.md files with the un-suppressed
+# (compressed) brain-aware blocks via `bun run gen:skill-docs:user`.
+#
+# If gbrain is not detected, the canonical no-gbrain SKILL.md files
+# (which were just generated above by `gen:skill-docs --host claude` if
+# applicable, or which are checked in) stay as-is. Zero token overhead
+# for non-gbrain users.
+#
+# Users who install gbrain after running ./setup should re-run setup OR
+# call `gstack-config gbrain-refresh` + `bun run gen:skill-docs:user`.
+DETECT_BIN="$SOURCE_GSTACK_DIR/bin/gstack-gbrain-detect"
+GBRAIN_STATE_DIR="${GSTACK_HOME:-$HOME/.gstack}"
+DETECTION_FILE="$GBRAIN_STATE_DIR/gbrain-detection.json"
+# PID-unique tmp so concurrent setups (parallel Conductor workspaces) can't
+# clobber each other's in-flight detection write.
+DETECTION_TMP="$DETECTION_FILE.$$.tmp"
+mkdir -p "$GBRAIN_STATE_DIR"
+if [ -x "$DETECT_BIN" ]; then
+  if "$DETECT_BIN" > "$DETECTION_TMP" 2>/dev/null; then
+    mv "$DETECTION_TMP" "$DETECTION_FILE"
+    # Single source of truth for "is gbrain usable" — `--is-ok` runs live
+    # detection (exit 0 iff ok), so setup, bin/dev-setup, and gstack-config
+    # all gate on the same check instead of re-grepping the JSON.
+    if "$DETECT_BIN" --is-ok 2>/dev/null; then
+      if [ -n "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
+        # Dev/source tree (set by bin/dev-setup): never regenerate tracked
+        # SKILL.md in place — that dirties checked-in source. Detection is
+        # still persisted above; the dev workspace renders the :user variant
+        # into an untracked dir, and other projects get blocks via
+        # `gstack-config gbrain-refresh`.
+        log "gbrain detected — GSTACK_SKIP_GBRAIN_REGEN set: leaving tracked SKILL.md canonical (dev/source tree)."
+      else
+        log "gbrain detected — regenerating Claude SKILL.md with brain-aware blocks (~250 token overhead per planning skill)..."
+        (
+          cd "$SOURCE_GSTACK_DIR"
+          bun_cmd run gen:skill-docs:user --host claude 2>&1 | tail -3
+        ) || log "  warning: gen:skill-docs:user failed — run 'bun run gen:skill-docs:user' manually if you want brain-aware blocks"
+      fi
+    else
+      log "gbrain not detected — brain-aware blocks suppressed in planning-skill SKILL.md files (zero token overhead)."
+      log "  To enable: install gbrain via /setup-gbrain, then re-run ./setup or 'gstack-config gbrain-refresh'."
+    fi
+  else
+    rm -f "$DETECTION_TMP"
+    log "  warning: gstack-gbrain-detect failed — brain-aware blocks will stay suppressed"
+  fi
+fi
+
+# 11. Plan-tune cathedral hook install (T8).
+#
+# Registers PostToolUse (deterministic AUQ capture) + PreToolUse (preference
+# enforcement) hooks in ~/.claude/settings.json so /plan-tune actually does
+# something at runtime instead of being agent-convention. Explicit consent UX
+# per D4 + Codex: never mutate settings.json silently.
+#
+# Idempotent via _gstack_source tag = 'plan-tune-cathedral'. If both hooks
+# already registered under that tag, the install is a no-op (no prompt).
+PLAN_TUNE_LOG_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-log-hook"
+PLAN_TUNE_PREF_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-preference-hook"
+AUQ_ERROR_FALLBACK_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/auq-error-fallback-hook"
+PLAN_TUNE_INSTALL_MARKER="$HOME/.gstack/.plan-tune-hooks-prompted"
+
+if [ "$NO_TEAM_MODE" -ne 1 ] \
+   && [ -x "$SETTINGS_HOOK" ] \
+   && [ -x "$PLAN_TUNE_LOG_HOOK" ] \
+   && [ -x "$PLAN_TUNE_PREF_HOOK" ]; then
+
+  # Already installed? Require BOTH the plan-tune source AND the AUQ-error-fallback
+  # source — so an existing install that predates the fallback hook re-runs the
+  # install (which is idempotent for the plan-tune hooks) and picks up the new one.
+  ALREADY_INSTALLED=0
+  _HOOK_SOURCES=$("$SETTINGS_HOOK" list-sources 2>/dev/null || true)
+  if printf '%s' "$_HOOK_SOURCES" | grep -q "plan-tune-cathedral" \
+     && printf '%s' "$_HOOK_SOURCES" | grep -q "auq-error-fallback"; then
+    ALREADY_INSTALLED=1
+  fi
+
+  # Resolve the desired action without ever blocking.
+  # Priority: CLI flag (--plan-tune-hooks / --no-plan-tune-hooks)
+  #         > env (GSTACK_PLAN_TUNE_HOOKS=yes|no)
+  #         > saved config (plan_tune_hooks)
+  #         > smart default ("prompt" → timed prompt on a real TTY, else skip).
+  # This guarantees scripted/workspace setups (conductor, CI) are never
+  # interactive: pass --no-plan-tune-hooks (or --plan-tune-hooks) and the
+  # block runs to completion with no `read`.
+  PT_DECISION="$PLAN_TUNE_HOOKS_MODE"
+  [ -z "$PT_DECISION" ] && PT_DECISION="${GSTACK_PLAN_TUNE_HOOKS:-}"
+  [ -z "$PT_DECISION" ] && PT_DECISION="$("$GSTACK_CONFIG" get plan_tune_hooks 2>/dev/null || true)"
+  # Normalize: strip whitespace + lowercase so "YES", "Yes", " yes" from a flag
+  # or env var all resolve correctly (an unrecognized opt-in must NOT silently
+  # downgrade to skip). Unknown values fall through to "prompt".
+  PT_DECISION=$(printf '%s' "$PT_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+  case "$PT_DECISION" in
+    y|yes|true|install|on|1) PT_DECISION="yes" ;;
+    n|no|false|skip|off|0)   PT_DECISION="no" ;;
+    *)                       PT_DECISION="prompt" ;;
+  esac
+
+  # Conductor host reliability: the PreToolUse preference hook also carries the
+  # Conductor-prose enforcement (deny the flaky mcp__conductor__AskUserQuestion,
+  # redirect to a prose decision brief). A Conductor workspace setup otherwise
+  # falls through to "prompt" → the non-interactive skip below, leaving Conductor
+  # users without that backstop. Treat Conductor as an implicit opt-in — but
+  # only on the silent fall-through, never overriding an explicit --no-plan-tune-hooks.
+  if [ "$PT_DECISION" = "prompt" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+    PT_DECISION="yes"
+    _PT_CONDUCTOR_AUTO=1
+  fi
+
+  _install_plan_tune_hooks() {
+    "$SETTINGS_HOOK" add-event \
+      --event PostToolUse \
+      --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+      --command "$PLAN_TUNE_LOG_HOOK" \
+      --source plan-tune-cathedral \
+      --timeout 5
+    "$SETTINGS_HOOK" add-event \
+      --event PreToolUse \
+      --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+      --command "$PLAN_TUNE_PREF_HOOK" \
+      --source plan-tune-cathedral \
+      --timeout 5
+    # AskUserQuestion-failure prose-fallback reliability hook (OV3:B). Fires only when
+    # an AskUserQuestion call returns an error/missing result; inert on success and
+    # inert if the platform doesn't invoke PostToolUse on tool errors. MUST use its
+    # OWN source tag: gstack-settings-hook dedupes by (event, matcher, source) and
+    # REPLACES the entry's hooks, so sharing 'plan-tune-cathedral' would overwrite the
+    # question-log capture hook (same event+matcher). A distinct source = a second
+    # PostToolUse entry; both run in parallel.
+    if [ -x "$AUQ_ERROR_FALLBACK_HOOK" ]; then
+      "$SETTINGS_HOOK" add-event \
+        --event PostToolUse \
+        --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+        --command "$AUQ_ERROR_FALLBACK_HOOK" \
+        --source auq-error-fallback \
+        --timeout 5
+    fi
+  }
+
+  if [ "$ALREADY_INSTALLED" -eq 1 ]; then
+    log ""
+    log "Plan-tune hooks already installed. Run \`$SETTINGS_HOOK list-sources\` to inspect."
+  elif [ "$PT_DECISION" = "yes" ]; then
+    # Explicit opt-in (flag / env / config) or Conductor implicit opt-in. Non-interactive.
+    _install_plan_tune_hooks
+    log ""
+    if [ "${_PT_CONDUCTOR_AUTO:-0}" -eq 1 ]; then
+      log "AskUserQuestion reliability hooks installed (Conductor detected): decisions"
+      log "render as a prose brief instead of the flaky AskUserQuestion tool. Inspect with /plan-tune."
+    else
+      log "Plan-tune hooks installed. Run /plan-tune anytime to inspect."
+    fi
+    touch "$PLAN_TUNE_INSTALL_MARKER"
+  elif [ "$PT_DECISION" = "no" ]; then
+    # Explicit opt-out (flag / env / config). Non-interactive.
+    log ""
+    log "Plan-tune cathedral hooks not installed (opted out)."
+    log "Install later with: ./setup --plan-tune-hooks  (or /update-config)."
+    touch "$PLAN_TUNE_INSTALL_MARKER"
+  elif [ -f "$PLAN_TUNE_INSTALL_MARKER" ]; then
+    # Previously declined. Don't re-ask. User can re-enable via /update-config.
+    :
+  elif [ "$QUIET" -ne 1 ] && [ -t 0 ] && [ -t 1 ]; then
+    # Real interactive terminal with no recorded preference: ask, with explicit
+    # consent + diff preview. The read is time-bounded and defaults to "skip" so
+    # it can never hang an automated/forwarded TTY (the conductor failure mode).
+    _PT_PROMPT_TIMEOUT=10  # single source of truth for the read + the countdown text
+    log ""
+    log "──────────────────────────────────────────────────────────"
+    log "Plan-tune cathedral: install Claude Code hooks?"
+    log "──────────────────────────────────────────────────────────"
+    log ""
+    log "These hooks make /plan-tune settings actually bind at runtime:"
+    log "  • PostToolUse hook captures every AskUserQuestion fire (no agent"
+    log "    compliance required). Today it's agent-convention and the log"
+    log "    is empty in dogfood."
+    log "  • PreToolUse hook enforces 'never-ask' preferences via Claude Code's"
+    log "    permissionDecision protocol. Today preferences are agent-honored"
+    log "    convention; this makes them binding."
+    log ""
+    log "Diff preview (PostToolUse capture hook):"
+    "$SETTINGS_HOOK" diff-event \
+      --event PostToolUse \
+      --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+      --command "$PLAN_TUNE_LOG_HOOK" \
+      --source plan-tune-cathedral \
+      --timeout 5 2>/dev/null || true
+    log ""
+    log "Backup: settings.json.bak.<ts> written before any mutation."
+    log "Rollback: $SETTINGS_HOOK rollback"
+    log ""
+    printf "Install both hooks now? [y/N] (default: N, auto-skips in %ss): " "$_PT_PROMPT_TIMEOUT"
+    read -t "$_PT_PROMPT_TIMEOUT" -r PLAN_TUNE_INSTALL_REPLY </dev/tty 2>/dev/null || PLAN_TUNE_INSTALL_REPLY=""
+    case "$PLAN_TUNE_INSTALL_REPLY" in
+      y|Y)
+        _install_plan_tune_hooks
+        log ""
+        log "Plan-tune hooks installed. Run /plan-tune anytime to inspect."
+        touch "$PLAN_TUNE_INSTALL_MARKER"
+        ;;
+      n|N)
+        log ""
+        log "Skipped. Re-run ./setup --plan-tune-hooks or use /update-config to install later."
+        touch "$PLAN_TUNE_INSTALL_MARKER"
+        ;;
+      *)
+        # Empty / timed out — treat as "ask me again" (don't persist a decline).
+        log ""
+        log "No response — skipped for now. Re-run ./setup --plan-tune-hooks to install."
+        ;;
+    esac
+  else
+    # Non-interactive (CI, scripted/workspace setup, quiet). Never prompt.
+    log ""
+    log "Plan-tune cathedral hooks not installed (non-interactive setup)."
+    log "Install with: ./setup --plan-tune-hooks"
+    log "  (or set GSTACK_PLAN_TUNE_HOOKS=yes, or run the commands below)"
+    log "  $SETTINGS_HOOK add-event --event PostToolUse \\"
+    log "    --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \\"
+    log "    --command $PLAN_TUNE_LOG_HOOK --source plan-tune-cathedral --timeout 5"
+    log "  $SETTINGS_HOOK add-event --event PreToolUse \\"
+    log "    --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \\"
+    log "    --command $PLAN_TUNE_PREF_HOOK --source plan-tune-cathedral --timeout 5"
+  fi
+fi
+
+# Also tear down plan-tune hooks on --no-team (matches the existing pattern).
+if [ "$NO_TEAM_MODE" -eq 1 ] && [ -x "$SETTINGS_HOOK" ]; then
+  "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null || true
 fi

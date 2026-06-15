@@ -36,6 +36,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'browse-basic':    ['browse/src/**', 'browse/test/test-server.ts'],
   'browse-snapshot': ['browse/src/**', 'browse/test/test-server.ts'],
 
+  // Hermetic isolation canaries (hermetic-env.ts is also a GLOBAL touchfile;
+  // these entries exist so the canaries themselves stay tier-classified)
+  'hermetic-canary':   ['test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
+  'hermetic-sentinel': ['test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
+
   // SKILL.md setup + preamble (depend on ROOT SKILL.md + gen-skill-docs)
   'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -111,16 +116,28 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // written a never-ask preference, AUQ should still auto-decide rather than
   // surfacing the question. Touches the question-tuning + preference
   // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
-  'auto-decide-preserved':        ['scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'plan-ceo-review/**', 'bin/gstack-question-preference', 'bin/gstack-config', 'bin/gstack-slug', 'test/helpers/claude-pty-runner.ts'],
+  'auto-decide-preserved':        ['scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'plan-ceo-review/**', 'bin/gstack-question-preference', 'bin/gstack-config', 'bin/gstack-slug', 'hosts/claude/hooks/question-preference-hook.ts', 'lib/is-conductor.ts', 'test/helpers/claude-pty-runner.ts'],
+
+  // Conductor → prose decision brief (Conductor signal makes prose the default;
+  // the PreToolUse hook denies the flaky tool). Touches the resolver that owns
+  // the Conductor rule, the preamble signal, the hook, and the detection helper.
+  'conductor-prose':              ['scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'scripts/resolvers/preamble.ts', 'plan-eng-review/**', 'hosts/claude/hooks/question-preference-hook.ts', 'lib/is-conductor.ts', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-conductor-prose.test.ts'],
 
   // Real-PTY E2E batch (#6 new tests on the harness).
   // Each one tests behavior the SDK harness can't observe (rendered TTY,
   // numbered-option lists, multi-phase ordering, idempotency state echo).
-  'ask-user-question-format-pty':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'auq-format-gate':                           ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/helpers/llm-judge.ts'],
   'plan-ceo-mode-routing':       ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
   'plan-design-with-ui-scope':   ['plan-design-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
   'budget-regression-pty':       ['test/helpers/eval-store.ts', 'test/skill-budget-regression.test.ts'],
-  'ship-idempotency-pty':        ['ship/**', 'bin/gstack-next-version', 'lib/worktree.ts', 'test/helpers/claude-pty-runner.ts'],
+  'ship-idempotency-pty':        ['ship/**', 'bin/gstack-next-version', 'bin/gstack-version-bump', 'scripts/resolvers/sections.ts', 'lib/worktree.ts', 'test/helpers/claude-pty-runner.ts'],
+  'ship-section-loading':        ['ship/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts'],
+  'plan-ceo-section-loading':    ['plan-ceo-review/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts'],
+  // Data-driven behavioral guard for the 'plan'/'prompt' carves (eng, design,
+  // devex, office-hours + future PR2 carves). One file iterating CARVE_GUARDS;
+  // the selector sets GSTACK_CARVE_SKILL=<name> to scope cost to the changed
+  // skill (D-CODEX A). Touching the registry/helper or sections.ts runs all.
+  'carve-section-loading':       ['plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'office-hours/**', 'document-release/**', 'design-consultation/**', 'cso/**', 'test/helpers/carve-guards.ts', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts'],
   'autoplan-chain-pty':          ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
   'e2e-harness-audit':            ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/claude-pty-runner.ts'],
 
@@ -149,6 +166,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // confirm" plan write. runPlanSkillFloorCheck cannot detect that shape
   // (it exits on first AUQ); runPlanSkillCounting can.
   'plan-eng-multi-finding-batching': ['plan-eng-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'scripts/resolvers/review.ts', 'test/helpers/claude-pty-runner.ts', 'test/fixtures/forcing-finding-seeds.ts', 'test/skill-e2e-plan-eng-multi-finding-batching.test.ts'],
+  'plan-ceo-split-overflow': ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'bin/gstack-question-preference', 'test/helpers/claude-pty-runner.ts', 'test/fixtures/forcing-finding-seeds.ts', 'test/skill-e2e-plan-ceo-split-overflow.test.ts'],
   'brain-privacy-gate':           ['scripts/resolvers/preamble/generate-brain-sync-block.ts', 'scripts/resolvers/preamble.ts', 'bin/gstack-brain-sync', 'bin/gstack-artifacts-init', 'bin/gstack-config', 'test/helpers/agent-sdk-runner.ts'],
 
   // /setup-gbrain Path 4 (Remote MCP) — happy + bad-token end-to-end via
@@ -189,6 +207,13 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // /plan-tune (v1 observational)
   'plan-tune-inspect':         ['plan-tune/**', 'scripts/question-registry.ts', 'scripts/psychographic-signals.ts', 'scripts/one-way-doors.ts', 'bin/gstack-question-log', 'bin/gstack-question-preference', 'bin/gstack-developer-profile'],
+
+  // /plan-tune cathedral (T16 — 5 E2E scenarios, all gate per D12)
+  'plan-tune-hook-capture':      ['hosts/claude/hooks/**', 'bin/gstack-question-log', 'bin/gstack-developer-profile', 'plan-tune/**'],
+  'plan-tune-enforcement':       ['hosts/claude/hooks/**', 'bin/gstack-question-preference', 'scripts/question-registry.ts'],
+  'plan-tune-annotation':        ['hosts/claude/hooks/**', 'scripts/declared-annotation.ts', 'scripts/psychographic-signals.ts', 'scripts/question-registry.ts'],
+  'plan-tune-codex-import':      ['bin/gstack-codex-session-import', 'bin/gstack-question-log', 'docs/spikes/codex-session-format.md'],
+  'plan-tune-dream-cycle':       ['bin/gstack-distill-free-text', 'bin/gstack-distill-apply', 'hosts/claude/hooks/**', 'plan-tune/**'],
 
   // Codex offering verification
   'codex-offered-office-hours':  ['office-hours/**', 'scripts/gen-skill-docs.ts'],
@@ -276,6 +301,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-shotgun-session':         ['design-shotgun/**', 'scripts/resolvers/design.ts'],
   'design-shotgun-full':            ['design-shotgun/**', 'design/src/**', 'browse/src/**'],
 
+  // /diagram (diagram-render bundle consumers). Triplet = deterministic
+  // functional (gate); authoring quality = LLM-judged benchmark (periodic).
+  'diagram-triplet':            ['diagram/**', 'lib/diagram-render/**', 'browse/src/write-commands.ts', 'browse/src/read-commands.ts'],
+  'diagram-authoring-quality':  ['diagram/**', 'lib/diagram-render/**', 'test/helpers/llm-judge.ts'],
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
 
@@ -360,6 +390,52 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/agent-sdk-runner.ts',
     'scripts/resolvers/model-overlay.ts',
   ],
+
+  // /ios-qa — agent flow E2E. Daemon + stub StateServer + codegen
+  // exercised end-to-end. The no-device path is gate-tier; the with-device
+  // path requires GSTACK_HAS_IOS_DEVICE=1 and is periodic-tier.
+  'ios-qa-e2e':       ['ios-qa/**', 'ios-fix/**', 'ios-design-review/**', 'ios-clean/**', 'ios-sync/**', 'test/skill-e2e-ios.test.ts'],
+  // Swift-build invariant test — requires the Swift toolchain. Compiles the
+  // fixture SPM package + runs the XCTest suite that validates the real
+  // Swift StateServer implementation (loopback bind, boot token rotation,
+  // session lock). Periodic-tier — Swift build is heavier than TS unit tests.
+  'ios-qa-swift-build': ['ios-qa/templates/**', 'test/fixtures/ios-qa/FixtureApp/**', 'test/skill-e2e-ios-swift-build.test.ts'],
+  // Real-device path — only runs with GSTACK_HAS_IOS_DEVICE=1 + a paired
+  // iPhone. Validates the CoreDevice agent + iOS SDK toolchain. Periodic-tier.
+  'ios-qa-device':    ['ios-qa/templates/**', 'test/fixtures/ios-qa/FixtureApp/**', 'test/skill-e2e-ios-device.test.ts'],
+
+  // /spec end-to-end via PTY — exercises the full Phase 1→5 pipeline
+  // including --execute spawn. Periodic-tier — paid + non-deterministic.
+  'spec-execute':     ['spec/**', 'test/skill-e2e-spec-execute.test.ts'],
+
+  // /office-hours brain-writeback path under fake gbrain CLI (v1.50.0.0
+  // T7). Drives /office-hours with a regenerated SKILL.md that has the
+  // compressed GBRAIN_SAVE_RESULTS block + a fake gbrain on PATH; asserts
+  // the agent calls `gbrain put office-hours/<slug>` with valid YAML
+  // frontmatter. Touched by anything that changes resolver output, gen
+  // pipeline, detection helper, refresh subcommand, or the on-demand
+  // docs the resolver points to.
+  'office-hours-brain-writeback': [
+    'scripts/resolvers/gbrain.ts',
+    'scripts/gen-skill-docs.ts',
+    'bin/gstack-gbrain-detect',
+    'bin/gstack-config',
+    'office-hours/SKILL.md.tmpl',
+    'docs/gbrain-write-surfaces.md',
+    'test/fixtures/office-hours-brain-writeback/**',
+    'test/skill-e2e-office-hours-brain-writeback.test.ts',
+  ],
+
+  // gbrain CLI real round-trip against a local PGLite store (v1.50.0.0
+  // T11). Proves the gbrain CLI persistence contract gstack relies on —
+  // a `gbrain put` followed by `gbrain get` returns the body. Skips if
+  // VOYAGE_API_KEY is unset OR gbrain CLI not on PATH. Touched by the
+  // resolver (which emits the CLI shape) and the test itself.
+  'gbrain-roundtrip-local': [
+    'scripts/resolvers/gbrain.ts',
+    'test/skill-e2e-gbrain-roundtrip-local.test.ts',
+  ],
+
 };
 
 /**
@@ -370,6 +446,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Browse core — gate (if browse breaks, everything breaks)
   'browse-basic': 'gate',
   'browse-snapshot': 'gate',
+
+  // Hermetic isolation — gate (deterministic env/config assertions; if the
+  // clean room breaks, every other eval's signal is contaminated)
+  'hermetic-canary': 'gate',
+  'hermetic-sentinel': 'gate',
 
   // SKILL.md setup — gate (if setup breaks, no skill works)
   'skillmd-setup-discovery': 'gate',
@@ -407,6 +488,13 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // Office Hours
   'office-hours-spec-review': 'gate',
+  // Brain-writeback E2E — periodic per cost (claude -p) + non-deterministic
+  // (model interprets the gbrain instruction). Matches nearby
+  // setup-gbrain-path4-* tier classification.
+  'office-hours-brain-writeback': 'periodic',
+  // GBrain CLI round-trip — periodic per Voyage embedding cost (~$0.001/run)
+  // and external-API-dependency (skips cleanly if VOYAGE_API_KEY unset).
+  'gbrain-roundtrip-local': 'periodic',
   'office-hours-forcing-energy': 'gate',       // V1.1 mode-posture regression gate (Sonnet generator)
   // 'office-hours-builder-wildness' retiered to periodic in v1.32 contributor
   // wave: this is an LLM-judge creativity score (axis_a ≥4 on a "wildness"
@@ -437,16 +525,20 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // v1.21+ auto-mode regression tests
   'office-hours-auto-mode': 'gate',
   'auto-decide-preserved': 'periodic',
+  'conductor-prose': 'periodic',
   'e2e-harness-audit': 'gate',
 
   // Real-PTY E2E batch — tier classification:
   //   gate: cheap, deterministic, run on every PR
   //   periodic: long-running or expensive (>$3/run), run weekly
-  'ask-user-question-format-pty':            'gate',       // ~$0.50/run, single skill probe
+  'auq-format-gate':                         'gate',       // ~$0.50/run, SDK capture, single skill probe
   'plan-ceo-mode-routing':     'periodic',   // ~$3/run, deep navigation through 8-12 prior AskUserQuestions
   'plan-design-with-ui-scope': 'gate',       // ~$0.80/run
   'budget-regression-pty':     'gate',       // free, library-only assertion
   'ship-idempotency-pty':      'periodic',   // ~$3/run, real /ship in plan mode
+  'ship-section-loading':      'periodic',   // ~$3/run, real /ship; asserts section reads
+  'plan-ceo-section-loading':  'periodic',   // ~$3-5/run, real /plan-ceo-review; asserts section read
+  'carve-section-loading':     'periodic',   // ~$1-2/skill, data-driven; GSTACK_CARVE_SKILL scopes to one
   'autoplan-chain-pty':        'periodic',   // ~$8/run, all 3 phases sequential
 
   // Per-finding count + review-report-at-bottom — periodic because each
@@ -462,6 +554,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-design-finding-floor': 'gate',
   'plan-devex-finding-floor':  'gate',
   'plan-eng-multi-finding-batching': 'periodic',
+  'plan-ceo-split-overflow': 'periodic',
 
   // Privacy gate for gstack-brain-sync — periodic (non-deterministic LLM call,
   // costs ~$0.30-$0.50 per run, not needed on every commit)
@@ -508,6 +601,13 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
 
   // /plan-tune — gate (core v1 DX promise: plain-English intent routing)
   'plan-tune-inspect': 'gate',
+
+  // /plan-tune cathedral (T16 per D12 — all gate)
+  'plan-tune-hook-capture': 'gate',
+  'plan-tune-enforcement': 'gate',
+  'plan-tune-annotation': 'gate',
+  'plan-tune-codex-import': 'gate',
+  'plan-tune-dream-cycle': 'gate',
 
   // Codex offering verification
   'codex-offered-office-hours': 'gate',
@@ -577,6 +677,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-shotgun-session': 'gate',
   'design-shotgun-full': 'periodic',
 
+  // /diagram — triplet is deterministic functional, judge is a quality benchmark
+  'diagram-triplet': 'gate',
+  'diagram-authoring-quality': 'periodic',
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': 'gate',
 
@@ -626,6 +730,16 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Overlay efficacy harness (SDK, paid) — periodic only
   'overlay-harness-opus-4-7-fanout-toy': 'periodic',
   'overlay-harness-opus-4-7-fanout-realistic': 'periodic',
+
+  // /ios-qa daemon + codegen — no-device path runs every PR (no hardware
+  // dependency, deterministic). with-device path requires GSTACK_HAS_IOS_DEVICE.
+  'ios-qa-e2e': 'gate',
+  // Swift toolchain only, no device required, but heavier than TS unit tests.
+  'ios-qa-swift-build': 'periodic',
+  // Requires a real connected + paired iPhone. Manual-trigger only.
+  'ios-qa-device': 'periodic',
+  // /spec end-to-end PTY pipeline (paid, non-deterministic — periodic-tier).
+  'spec-execute': 'periodic',
 };
 
 /**
@@ -650,6 +764,9 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
   // Plan Reviews
   'plan-ceo-review/SKILL.md modes':       ['plan-ceo-review/SKILL.md', 'plan-ceo-review/SKILL.md.tmpl'],
   'plan-eng-review/SKILL.md sections':    ['plan-eng-review/SKILL.md', 'plan-eng-review/SKILL.md.tmpl'],
+
+  // /spec authored-spec quality (paid LLM-judge — periodic-tier).
+  'spec authored quality':                ['spec/SKILL.md', 'spec/SKILL.md.tmpl', 'test/fixtures/spec/**'],
   'plan-design-review/SKILL.md passes':   ['plan-design-review/SKILL.md', 'plan-design-review/SKILL.md.tmpl'],
 
   // Design skills
@@ -684,6 +801,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
  */
 export const GLOBAL_TOUCHFILES = [
   'test/helpers/session-runner.ts',  // All E2E tests use this runner
+  'test/helpers/hermetic-env.ts',    // Changes every E2E child's environment
   'test/helpers/eval-store.ts',      // All E2E tests store results here
   'test/helpers/touchfiles.ts',      // Self-referential — reclassifying wrong is dangerous
 ];

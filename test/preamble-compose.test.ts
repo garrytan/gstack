@@ -70,3 +70,13 @@ describe('Preamble composition order', () => {
     expect(out).not.toContain('## AskUserQuestion Format');
   });
 });
+
+describe('Conductor signal (preamble bash)', () => {
+  test('claude preamble emits CONDUCTOR_SESSION, gated on != headless (Issue 8)', () => {
+    const out = generatePreamble(makeCtx('claude', 2, 'claude'));
+    expect(out).toContain('echo "CONDUCTOR_SESSION: true"');
+    // The emission must be suppressed when the session is headless (eval/CI
+    // inside Conductor must BLOCK, not render prose to nobody).
+    expect(out).toMatch(/"\$_SESSION_KIND" != "headless"[\s\S]*CONDUCTOR_WORKSPACE_PATH[\s\S]*CONDUCTOR_PORT[\s\S]*CONDUCTOR_SESSION: true/);
+  });
+});

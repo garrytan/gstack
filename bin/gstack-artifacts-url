@@ -49,6 +49,19 @@ strip_git() {
   echo "${1%.git}"
 }
 
+valid_owner_repo() {
+  local owner_repo="$1"
+  case "$owner_repo" in
+    ""|/*|*/|*//*)
+      return 1
+      ;;
+  esac
+  case "$owner_repo" in
+    */*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Parse to (host, owner_repo) regardless of input shape.
 parse_url() {
   local u="$1"
@@ -82,7 +95,7 @@ parse_url() {
       exit 3
       ;;
   esac
-  if [ -z "$host" ] || [ -z "$owner_repo" ] || [ "$owner_repo" = "$u" ]; then
+  if [ -z "$host" ] || ! valid_owner_repo "$owner_repo"; then
     echo "gstack-artifacts-url: failed to parse host/owner from: $u" >&2
     exit 3
   fi

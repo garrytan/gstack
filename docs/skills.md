@@ -5,6 +5,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
 | [`/office-hours`](#office-hours) | **YC Office Hours** | Start here. Six forcing questions that reframe your product before you write code. Pushes back on your framing, challenges premises, generates implementation alternatives. Design doc feeds into every downstream skill. |
+| [`/spec`](#spec) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Backlog-ready output that downstream skills can pick up. Optional agent spawn at the end. |
 | [`/plan-ceo-review`](#plan-ceo-review) | **CEO / Founder** | Rethink the problem. Find the 10-star product hiding inside the request. Four modes: Expansion, Selective Expansion, Hold Scope, Reduction. |
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
@@ -32,6 +33,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
 | [`/plan-tune`](#plan-tune) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
+| [`/spec`](#spec) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
@@ -53,7 +55,13 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch GStack Browser with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. Watch every action live. |
 | [`/setup-deploy`](#setup-deploy) | **Deploy Configurator** | One-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
-| [`/make-pdf`](#make-pdf) | **PDF Generator** | Turn any markdown file into a publication-quality PDF. Proper margins, page numbers, cover pages, clickable TOC. |
+| [`/make-pdf`](#make-pdf) | **PDF Generator** | Turn any markdown file into a publication-quality PDF. Proper margins, page numbers, cover pages, clickable TOC. Mermaid/excalidraw fences render as vector diagrams; `--to html\|docx` for other formats. |
+| [`/diagram`](#diagram) | **Diagram Maker** | English in, diagram out: mermaid source + editable `.excalidraw` (open it on excalidraw.com, hand-drawn style) + rendered SVG/PNG. Fully offline. |
+| [`/ios-qa`](#ios-qa) | **iOS QA Lead** | Live-device iOS QA via USB CoreDevice tunnel + embedded StateServer. Reads Swift source, codegens accessors, drives the real iPhone. Optionally exposes the device over Tailscale for remote agents. |
+| [`/ios-fix`](#ios-fix) | **iOS Autonomous Fixer** | Closes the find→fix→verify loop on a real iPhone. Captures a reproducing snapshot, fixes the source, rebuilds, redeploys, verifies. |
+| [`/ios-design-review`](#ios-design-review) | **iOS Designer's Eye** | 10-dimension Apple HIG audit on a real iPhone. Rates each screen, says what would make it a 10. |
+| [`/ios-clean`](#ios-clean) | **iOS Bridge Cleanup** | Convenience wrapper to strip DebugBridge SPM + `#if DEBUG` wiring. The structural Release-build guard is in Package.swift + CI; this skill is for guided manual removals. |
+| [`/ios-sync`](#ios-sync) | **iOS Bridge Resync** | Regenerate accessors and Swift templates against the latest upstream gstack. Run when you add new `@Observable` classes or upgrade gstack. |
 
 ---
 
@@ -1178,3 +1186,78 @@ Claude: Replied to Greptile. All tests pass.
 ```
 
 Three Greptile comments. One real fix. One auto-acknowledged. One false positive pushed back with a reply. Total extra time: about 30 seconds.
+
+---
+
+## `/ios-qa`
+
+Live-device iOS QA. The fork's load-bearing insight was: don't simulate, don't run XCTest, don't bring up WebDriverAgent. Embed an HTTP server in the app under test, drive it from a Mac-side daemon over the USB CoreDevice IPv6 tunnel.
+
+The agent reads your Swift source, finds `@Observable` classes with `@Snapshotable`-marked fields, codegens typed accessors, deploys a debug bridge, then runs a closed find→fix→verify loop.
+
+### Architecture in one diagram
+
+```
+       ┌──────────────────────┐   USB CoreDevice (IPv6)   ┌──────────────────┐
+       │ gstack-ios-qa daemon │ ────────────────────────▶ │ iOS app          │
+       │ (Mac, bun/TS)        │   bearer + X-Session-Id   │ StateServer      │
+       │ - rotates boot token │                           │ (loopback only)  │
+       │ - mints session toks │                           └──────────────────┘
+       │ - capability tiers   │
+       │ - audit + redact     │
+       └──────────────────────┘
+                ▲
+                │ Tailscale (optional, --tailnet)
+                │
+       ┌──────────────────────┐
+       │ Remote agent         │
+       │ (OpenClaw, etc.)     │
+       └──────────────────────┘
+```
+
+The iOS app's `StateServer` binds loopback only (`::1` + `127.0.0.1`). The Mac daemon owns tailnet identity validation, capability tiers, and the audit trail. Remote agents NEVER see the boot token — only short-lived session tokens (1h default, 24h hard cap) minted via Tailscale identity gating.
+
+### The unlock: USB-tethered + Tailscale = remote iOS QA from any agent
+
+A Mac plus an iPhone you already own plus the Tailscale free tier replaces what most teams pay BrowserStack/Sauce Labs for. Any HTTP-capable agent on your tailnet can drive the iOS app once you've minted them a session token. Tailscale ACLs scope which identities can reach the Mac at which capability tier.
+
+See `ios-qa/docs/tailscale-acl-example.md` for the runnable setup.
+
+### Capability tiers
+
+| Tier | Endpoints |
+|------|-----------|
+| observe | `/screenshot`, `/elements`, `GET /state/*`, `/state/snapshot`, `/healthz` |
+| interact | observe + `/tap`, `/swipe`, `/type`, `/session/*` |
+| mutate | interact + `POST /state/<key>` |
+| restore | mutate + `POST /state/restore` |
+
+Default minted tokens get `interact`. Higher tiers require explicit owner mint.
+
+---
+
+## `/ios-fix`
+
+Iron Law: no fix without a reproducing snapshot. The agent captures pre-bug state via `GET /state/snapshot`, writes the fix, rebuilds, redeploys, restores the snapshot, and verifies the bug is gone. The snapshot becomes a regression test fixture so the bug can't recur silently.
+
+Mirrors `/qa`'s find-bug → fix → re-verify loop for iOS.
+
+---
+
+## `/ios-design-review`
+
+Designer's-eye QA on a real iPhone. Connects to the same `/ios-qa` daemon in observe-tier mode and screenshots every screen. Scores 10 dimensions 0-10: typography hierarchy, spacing rhythm, color hierarchy, touch targets, loading/empty/error states, accessibility, animation discipline, iOS idiom alignment, information density, AI-slop check.
+
+For each score < 7, uses AskUserQuestion to present the issue with recommended fix.
+
+---
+
+## `/ios-clean`
+
+Convenience wrapper. The structural Release-build guard against shipping DebugBridge is in `Package.swift` (`.when(configuration: .debug)`) plus a CI invariant test. `/ios-clean` is for developers who want a guided removal flow or who manually added the SPM dependency without going through `/ios-qa`.
+
+---
+
+## `/ios-sync`
+
+Run after upgrading gstack or adding new `@Observable` classes. Detects what's installed, runs gen-accessors against the latest upstream templates, refreshes any changed Swift files, verifies the app rebuilds. Cache-key invalidation handles Swift version changes, generator git rev changes, and source changes.

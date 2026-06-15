@@ -1,0 +1,146 @@
+#!/usr/bin/env bun
+/**
+ * gstack-redact-prepush — git pre-push hook that scans the diff being pushed for
+ * HIGH-severity credentials and blocks the push on a hit.
+ *
+ * THIS IS A GUARDRAIL, NOT ENFORCEMENT. `git push --no-verify` bypasses it, as
+ * does `GSTACK_REDACT_PREPUSH=skip`. It catches accidental credential pushes,
+ * the most common real-world leak. It does NOT scan history, binary/LFS/submodule
+ * files, or non-added lines. History scanning is /cso's job.
+ *
+ * Git pre-push interface: refs are read from STDIN, one per line:
+ *   <local ref> <local sha> <remote ref> <remote sha>
+ * We scan the ADDED lines of <remote sha>..<local sha> per ref (what's being
+ * pushed). Special cases:
+ *   - remote sha all-zeroes  → new branch: diff against merge-base with the
+ *     remote's default branch (fallback: scan all commits unique to local ref).
+ *   - local sha all-zeroes   → branch delete: nothing to scan, skip.
+ *   - force-push             → remote..local still gives the net new content.
+ *
+ * Behavior:
+ *   - HIGH finding in added lines → print + exit 1 (block), for public AND private.
+ *   - MEDIUM → warn (non-blocking). LOW/WARN → silent.
+ *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
+ *
+ * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
+ * gstack-redact CLI), which chains any pre-existing hook.
+ */
+import { spawnSync } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { scan, type Finding } from "../lib/redact-engine";
+
+const ZERO = /^0+$/;
+// The canonical empty-tree object; diffing against it yields all content as added.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+function git(args: string[]): string {
+  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? (r.stdout ?? "") : "";
+}
+
+function defaultRemoteBranch(): string {
+  // origin/HEAD → origin/main, fall back to main/master.
+  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+  if (sym) return sym.replace("refs/remotes/", "");
+  for (const b of ["origin/main", "origin/master"]) {
+    if (git(["rev-parse", "--verify", b]).trim()) return b;
+  }
+  return "origin/main";
+}
+
+/** Return the added-line text for a ref update being pushed. */
+function addedLinesFor(localSha: string, remoteSha: string): string {
+  let range: string;
+  if (ZERO.test(remoteSha)) {
+    // New branch: prefer what's unique to localSha vs the remote default branch.
+    // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
+    // branch content is scanned as added — fail-safe (scans more, never less).
+    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
+  } else {
+    // Existing branch (incl. force-push): net new content remote..local.
+    range = `${remoteSha}..${localSha}`;
+  }
+  // -U0: only changed lines; we keep lines starting with '+' (added), drop the
+  // +++ file header. Unified diff added lines start with a single '+'.
+  const diff = git(["diff", "--unified=0", "--no-color", range]);
+  const added: string[] = [];
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      added.push(line.slice(1));
+    }
+  }
+  return added.join("\n");
+}
+
+function logSkip(reason: string): void {
+  try {
+    const home = process.env.GSTACK_HOME || path.join(os.homedir(), ".gstack");
+    const dir = path.join(home, "security");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(
+      path.join(dir, "prepush-skip.jsonl"),
+      JSON.stringify({ ts: new Date().toISOString(), reason }) + "\n",
+    );
+  } catch {
+    // best-effort; never block a push because logging failed
+  }
+}
+
+function main() {
+  if ((process.env.GSTACK_REDACT_PREPUSH || "").toLowerCase() === "skip") {
+    logSkip(process.env.GSTACK_REDACT_PREPUSH_REASON || "env-skip");
+    process.stderr.write("gstack-redact-prepush: skipped via GSTACK_REDACT_PREPUSH=skip\n");
+    process.exit(0);
+  }
+
+  const stdin = fs.readFileSync(0, "utf8");
+  const refs = stdin
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.split(/\s+/));
+
+  const allHigh: Finding[] = [];
+  let mediumCount = 0;
+
+  for (const [, localSha, , remoteSha] of refs) {
+    if (!localSha || ZERO.test(localSha)) continue; // branch delete → nothing pushed
+    const added = addedLinesFor(localSha, remoteSha || "0");
+    if (!added.trim()) continue;
+    // Visibility doesn't change HIGH behavior; pass private so nothing is treated
+    // as public-strict (HIGH blocks regardless either way).
+    const result = scan(added, { repoVisibility: "private" });
+    for (const f of result.findings) {
+      if (f.severity === "HIGH") allHigh.push(f);
+      else if (f.severity === "MEDIUM") mediumCount++;
+    }
+  }
+
+  if (mediumCount > 0) {
+    process.stderr.write(
+      `gstack-redact-prepush: ${mediumCount} MEDIUM finding(s) in pushed diff (PII/internal). ` +
+        "Not blocking. Review before this becomes public.\n",
+    );
+  }
+
+  if (allHigh.length > 0) {
+    process.stderr.write(
+      "\n⛔ gstack-redact-prepush BLOCKED the push — credential(s) in the pushed diff:\n\n",
+    );
+    for (const f of allHigh) {
+      process.stderr.write(`  HIGH  ${f.id}  ${f.preview}\n`);
+    }
+    process.stderr.write(
+      "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n" +
+        "This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n",
+    );
+    process.exit(1);
+  }
+
+  process.exit(0);
+}
+
+main();

@@ -2,13 +2,7 @@
 name: browse
 preamble-tier: 1
 version: 1.1.0
-description: |
-  Fast headless browser for QA testing and site dogfooding. Navigate any URL, interact with
-  elements, verify page state, diff before/after actions, take annotated screenshots, check
-  responsive layouts, test forms and uploads, handle dialogs, and assert element states.
-  ~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
-  user flow, or file a bug with evidence. Use when asked to "open in browser", "test the
-  site", "take a screenshot", or "dogfood this". (gstack)
+description: Fast headless browser for QA testing and site dogfooding. (gstack)
 triggers:
   - browse a page
   - headless browser
@@ -21,6 +15,16 @@ allowed-tools:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+Navigate any URL, interact with
+elements, verify page state, diff before/after actions, take annotated screenshots, check
+responsive layouts, test forms and uploads, handle dialogs, and assert element states.
+~100ms per command. Use when you need to test a feature, verify a deployment, dogfood a
+user flow, or file a bug with evidence. Use when asked to "open in browser", "test the
+site", "take a screenshot", or "dogfood this".
 
 ## Preamble (run first)
 
@@ -42,6 +46,16 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -57,7 +71,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"browse","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"browse","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -99,6 +113,19 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -108,7 +135,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -143,7 +170,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -154,7 +181,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -230,6 +257,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -623,6 +651,51 @@ $B screenshot /tmp/out.png --selector .tweet-card
 ```
 Scale must be 1-3 (gstack policy cap). Changing `--scale` recreates the browser context; refs from `snapshot` are invalidated (rerun `snapshot`), but `load-html` content is replayed automatically. Not supported in headed mode.
 
+### 14. Offline render mode (rasterize your own HTML/JSON, zero network)
+
+This is the blessed path for "I just want to turn my own local HTML or JSON into a
+PNG/PDF/bytes on disk" — Excalidraw diagrams, tweet/quote cards, og-images,
+report rasterization. It is **plain headless, shared Chromium, no proxy, no Xvfb,
+no anti-bot stealth**. Default `$B` is already exactly this; you do not pass
+`--headed` or `--proxy`. One Chromium per box, shared by every skill — **do not
+`npm i puppeteer` and ship a second browser** (see the note under the cheatsheet).
+
+Two output shapes, pick by what you have:
+
+**A) Visual output → `screenshot --selector` (preferred).** If the thing you want
+is a picture of something on the page, screenshot it. The PNG is written from the
+browser process straight to disk — the image bytes never cross the CDP wire.
+
+```bash
+echo '<div id="card" style="width:400px;height:200px;background:#1da1f2;color:#fff;padding:20px">hi</div>' > /tmp/card.html
+$B viewport 480x600 --scale 2
+$B load-html /tmp/card.html
+$B screenshot /tmp/card.png --selector '#card'   # disk path — no megabytes over CDP
+```
+(Use the disk path, NOT `screenshot --base64` — base64 serializes the bytes back
+through the command channel, which is the cost you're trying to avoid.)
+
+**B) Bytes a function returns → `js --out` / `eval --out`.** When a library hands
+you the result as a return value (a base64 data URL, a blob, computed JSON) rather
+than painting a stable element — e.g. Excalidraw's export function returns a PNG
+data URL — write the evaluate result straight to disk. `--out` decodes a
+`data:*;base64,...` result to raw bytes automatically (pass `--raw` to write the
+literal string). The payload is written by the daemon and never serialized back
+out to the CLI/stdout.
+
+```bash
+# Load the render bundle, signal readiness, then render-to-file.
+$B load-html /tmp/excalidraw-export.html        # bundle sets window.__render + a #done flag
+$B wait '#done'                                  # deterministic ready handshake
+$B js "window.__render(SCENE_JSON)" --out /tmp/diagram.png   # data URL → decoded PNG on disk
+```
+
+`--out` is a WRITE: it needs the `write` scope and is never allowed over the
+pair-agent tunnel (a remote agent can't write to your disk). Parent directories
+are created; malformed base64 errors instead of writing corrupt bytes. Pick A when
+you can (no CDP transfer at all); reach for B only when the bytes come back as a
+return value.
+
 ## Puppeteer → browse cheatsheet
 
 Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:
@@ -636,6 +709,8 @@ Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:
 | `await (await page.$('.x')).screenshot({path})` | `$B screenshot <path> --selector .x` |
 | `await page.screenshot({fullPage: true, path})` | `$B screenshot <path>` (full page default) |
 | `await page.screenshot({clip: {x, y, w, h}, path})` | `$B screenshot <path> --clip x,y,w,h` |
+| `const r = await page.evaluate(fn)` | `$B js "<expr>"` (result to stdout) |
+| `fs.writeFileSync(out, Buffer.from(dataUrl.split(',')[1],'base64'))` | `$B js "<expr>" --out <file>` (data URL auto-decoded) |
 
 Worked example (the tweet-renderer flow — Puppeteer → browse):
 
@@ -649,6 +724,13 @@ $B screenshot /tmp/out.png --selector .tweet-card
 ```
 
 Aliases: typing `setcontent` or `set-content` routes to `load-html` automatically. Typing a typo (`load-htm`) returns `Did you mean 'load-html'?`.
+
+**Don't bundle your own puppeteer/Chromium.** `browse` is the one shared Chromium
+per box. Skills that need to rasterize local HTML/JSON (diagrams, cards, og-images)
+should route through `browse` — `screenshot --selector` for visual output,
+`load-html` + `js --out` for bytes a function returns — instead of
+`npm i puppeteer` and downloading a second Chromium that drifts out of version sync.
+One install to pin, one daemon's lifecycle to manage.
 
 ## User Handoff
 
@@ -854,10 +936,10 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `cookies` | All cookies as JSON |
 | `css <sel> <prop>` | Computed CSS value |
 | `dialog [--clear]` | Dialog messages |
-| `eval <file>` | Run JavaScript from a file in the page context and return result as string. Path must resolve under /tmp or cwd (no traversal). Use eval for multi-line scripts; use js for one-liners. |
+| `eval <file> [--out <file>] [--raw]` | Run JavaScript from a file in the page context and return result as string. Path must resolve under /tmp or cwd (no traversal). Use eval for multi-line scripts; use js for one-liners. With --out <file>, the result is written to disk (base64 data URL decoded to bytes unless --raw); --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel). |
 | `inspect [selector] [--all] [--history]` | Deep CSS inspection via CDP — full rule cascade, box model, computed styles |
 | `is <prop> <sel|@ref>` | State check on element. Valid <prop> values: visible, hidden, enabled, disabled, checked, editable, focused (case-sensitive). <sel> accepts a CSS selector OR an @ref token from a prior snapshot (e.g. @e3, @c1) — refs are interchangeable with selectors anywhere a selector is expected. |
-| `js <expr>` | Run inline JavaScript expression in the page context and return result as string. Same JS sandbox as eval; the only difference is js takes an inline expr while eval reads from a file. |
+| `js <expr> [--out <file>] [--raw]` | Run inline JavaScript expression in the page context and return result as string. Same JS sandbox as eval; the only difference is js takes an inline expr while eval reads from a file. With --out <file>, the result is written to disk instead of returned (a base64 data URL is decoded to raw bytes unless --raw is given) — ideal for rasterizing local renders to PNG without serializing megabytes back through the CLI. --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel). |
 | `network [--clear]` | Network requests |
 | `perf` | Page load timings |
 | `storage  |  storage set <key> <value>` | Read both localStorage and sessionStorage as JSON. With "set <key> <value>", write to localStorage only (sessionStorage is read-only via this command — set it with `js sessionStorage.setItem(...)`). |
@@ -903,6 +985,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `disconnect` | Disconnect headed browser, return to headless mode |
 | `focus [@ref]` | Bring headed browser window to foreground (macOS) |
 | `handoff [message]` | Open visible Chrome at current page for user takeover |
+| `memory [--json]` | Snapshot Bun heap + per-tab JS heap + Chromium process tree + bounded buffer sizes. JSON output with --json. |
 | `restart` | Restart server |
 | `resume` | Re-snapshot after user takeover, return control to AI |
 | `state save|load <name>` | Save/load browser state (cookies + URLs) |

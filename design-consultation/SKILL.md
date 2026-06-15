@@ -2,14 +2,7 @@
 name: design-consultation
 preamble-tier: 3
 version: 1.0.0
-description: |
-  Design consultation: understands your product, researches the landscape, proposes a
-  complete design system (aesthetic, typography, color, layout, spacing, motion), and
-  generates font+color preview pages. Creates DESIGN.md as your project's design source
-  of truth. For existing sites, use /plan-design-review to infer the system instead.
-  Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
-  Proactively suggest when starting a new project's UI with no existing
-  design system or DESIGN.md. (gstack)
+description: "Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview... (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -50,6 +43,15 @@ gbrain:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
+
+## When to invoke this skill
+
+Creates DESIGN.md as your project's design source
+of truth. For existing sites, use /plan-design-review to infer the system instead.
+Use when asked to "design system", "brand guidelines", or "create DESIGN.md".
+Proactively suggest when starting a new project's UI with no existing
+design system or DESIGN.md.
+
 ## Preamble (run first)
 
 ```bash
@@ -70,6 +72,16 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -85,7 +97,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"design-consultation","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"design-consultation","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -127,6 +139,19 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -136,7 +161,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -171,7 +196,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -182,7 +207,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -258,6 +283,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -305,13 +331,39 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 "AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
 
-**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+**Conductor rule (read before the MCP rule):** if `CONDUCTOR_SESSION: true` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any `mcp__*__AskUserQuestion` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns `[Tool result missing due to internal error]`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a `[plan-tune auto-decide] <id> → <option>` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with `bin/gstack-question-log` (the PostToolUse capture hook never fires on a prose path, so `/plan-tune` history/learning depends on this call).
 
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report `BLOCKED — AskUserQuestion unavailable`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
+**Rule (non-Conductor):** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+
+If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+
+### When AskUserQuestion is unavailable or a call fails
+
+Tell three outcomes apart:
+
+1. **Auto-decide denial (NOT a failure).** The result contains `[plan-tune auto-decide] <id> → <option>` — the preference hook working as designed. Proceed with that option. Do NOT retry, do NOT fall back to prose.
+2. **Genuine failure** — no variant in your tool list, OR the variant is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns `[Tool result missing due to internal error]`).
+   - If it was present and **errored** (not absent), retry the SAME call **once** — but only if no answer could have surfaced (a missing-result error can arrive after the user already saw the question; retrying would double-prompt, so if it may have reached them, treat as pending, don't retry).
+   - Then branch on `SESSION_KIND` (echoed by the preamble; empty/absent ⇒ `interactive`):
+     - `spawned` → defer to the **Spawned session** block: auto-choose the recommended option. Never prose, never BLOCKED.
+     - `headless` → `BLOCKED — AskUserQuestion unavailable`; stop and wait (no human can answer).
+     - `interactive` → **prose fallback** (below).
+
+**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
+
+1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
+2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
+3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
+
+Layout: a `D<N>` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+
+**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
+
+**One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
 
 ```
 D<N> — <one-line question title>
@@ -344,25 +396,41 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
-12. **Non-ASCII characters — write directly, never \u-escape.** When any
-    string field (question, option label, option description) contains
-    Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
-    the literal UTF-8 characters in the JSON string. **Never escape them
-    as `\uXXXX`.** Claude Code's tool parameter pipe is UTF-8 native
-    and passes characters through unchanged. Manually escaping requires
-    recalling each codepoint from training, which is unreliable for long
-    CJK strings — the model regularly emits the wrong codepoint (e.g.
-    writes `\u3103` thinking it is 管 U+7BA1, but `\u3103` is
-    actually ㄃, so the user sees `管理工具` rendered as `㄃3用箱`).
-    The trigger is long, multi-line questions with hundreds of CJK
-    characters: that is exactly when reflexive escaping kicks in and
-    exactly when miscoding is most damaging. Long ≠ escape. Keep
-    characters literal.
+### Handling 5+ options — split, never drop
 
-    Wrong: `"question": "請選擇\uXXXX\uXXXX\uXXXX\uXXXX"`
-    Right: `"question": "請選擇管理工具"`
+AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
+drop, merge, or silently defer one to fit. Pick a compliant shape:
 
-    Only JSON-mandatory escapes remain allowed: `\n`, `\t`, `\"`, `\\`.
+- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
+  layout variants). One call, 5th surfaced only if first 4 don't fit.
+- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
+  Fire N sequential calls, one per option. Default to this when unsure.
+
+Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
+Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
+decision actions), and 4 buckets:
+**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
+
+After the chain, fire `D<N>.final` to validate the assembled set (reprompt
+dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
+revise one option without re-running the chain.
+
+For N>6, fire a `D<N>.0` meta-AskUserQuestion first (proceed / narrow / batch).
+
+question_ids for split chains: `<skill>-split-<option-slug>` (kebab-case ASCII,
+≤64 chars, `-2`/`-3` suffix on collision). The runtime checker
+(`bin/gstack-question-preference`) refuses `never-ask` on any `*-split-*` id,
+so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
+
+**Full rule + worked examples + Hold/dependency semantics:** see
+`docs/askuserquestion-split.md` in the gstack repo. Read on demand when N>4.
+
+**Non-ASCII characters — write directly, never \u-escape.** When any string
+field contains Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text,
+emit the literal UTF-8 characters; never escape them as `\uXXXX` (the pipe is
+UTF-8 native, and manual escaping miscodes long CJK strings). Only `\n`,
+`\t`, `\"`, `\\` remain allowed. Full rationale + worked example: see
+`docs/askuserquestion-cjk.md`. Read on demand when a question contains CJK.
 
 ### Self-check before emitting
 
@@ -375,8 +443,11 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
+- [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
+- [ ] If you split, you checked dependencies between options before firing the chain
+- [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
 
 
 ## Artifacts Sync (skill start)
@@ -559,11 +630,18 @@ if [ -d "$_PROJ" ]; then
   fi
   _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
   [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
+  if [ -f "$_PROJ/decisions.active.json" ]; then
+    echo "--- ACTIVE DECISIONS (recent, scope-relevant) ---"
+    ~/.claude/skills/gstack/bin/gstack-decision-search --recent 5 2>/dev/null
+    echo "--- END DECISIONS ---"
+  fi
   echo "--- END ARTIFACTS ---"
 fi
 ```
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
+
+**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -576,89 +654,12 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - User-turn override wins: if the current message asks for terse / no explanations / just the answer, skip this section.
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
-Jargon list, gloss on first use if the term appears:
-- idempotent
-- idempotency
-- race condition
-- deadlock
-- cyclomatic complexity
-- N+1
-- N+1 query
-- backpressure
-- memoization
-- eventual consistency
-- CAP theorem
-- CORS
-- CSRF
-- XSS
-- SQL injection
-- prompt injection
-- DDoS
-- rate limit
-- throttle
-- circuit breaker
-- load balancer
-- reverse proxy
-- SSR
-- CSR
-- hydration
-- tree-shaking
-- bundle splitting
-- code splitting
-- hot reload
-- tombstone
-- soft delete
-- cascade delete
-- foreign key
-- composite index
-- covering index
-- OLTP
-- OLAP
-- sharding
-- replication lag
-- quorum
-- two-phase commit
-- saga
-- outbox pattern
-- inbox pattern
-- optimistic locking
-- pessimistic locking
-- thundering herd
-- cache stampede
-- bloom filter
-- consistent hashing
-- virtual DOM
-- reconciliation
-- closure
-- hoisting
-- tail call
-- GIL
-- zero-copy
-- mmap
-- cold start
-- warm start
-- green-blue deploy
-- canary deploy
-- feature flag
-- kill switch
-- dead letter queue
-- fan-out
-- fan-in
-- debounce
-- throttle (UI)
-- hydration mismatch
-- memory leak
-- GC pause
-- heap fragmentation
-- stack overflow
-- null pointer
-- dangling pointer
-- buffer overflow
+Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap, so the complete thing is the goal. Recommend full coverage (tests, edge cases, error paths) — boil the ocean one lake at a time. The only thing out of scope is genuinely unrelated work (rewrites, multi-quarter migrations); flag that as separate scope, never as an excuse for a shortcut.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -701,7 +702,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"design-consultation","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -959,6 +964,17 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+## Section index — Read each section when its situation applies
+
+This skill is a decision-tree skeleton. The steps below point to on-demand
+sections. Read a section in full before doing its step; do not work from memory.
+
+| When | Read this section |
+|------|-------------------|
+| building the complete design-system proposal, drill-downs, the design preview, and writing DESIGN.md (Phases 3-6, after product context and research) | `sections/proposal-and-preview.md` |
+
+---
+
 ## Phase 1: Product Context
 
 Ask the user a single question that covers everything you need to know. Pre-fill what you can infer from the codebase.
@@ -1144,400 +1160,8 @@ Present subagent output under a `CLAUDE SUBAGENT (design direction):` header.
 ```
 Replace STATUS with "clean" or "issues_found", SOURCE with "codex+subagent", "codex-only", "subagent-only", or "unavailable".
 
-## Phase 3: The Complete Proposal
-
-This is the soul of the skill. Propose EVERYTHING as one coherent package.
-
-**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
-
-```
-Based on [product context] and [research findings / my design knowledge]:
-
-AESTHETIC: [direction] — [one-line rationale]
-DECORATION: [level] — [why this pairs with the aesthetic]
-LAYOUT: [approach] — [why this fits the product type]
-COLOR: [approach] + proposed palette (hex values) — [rationale]
-TYPOGRAPHY: [3 font recommendations with roles] — [why these fonts]
-SPACING: [base unit + density] — [rationale]
-MOTION: [approach] — [rationale]
-
-This system is coherent because [explain how choices reinforce each other].
-
-SAFE CHOICES (category baseline — your users expect these):
-  - [2-3 decisions that match category conventions, with rationale for playing safe]
-
-RISKS (where your product gets its own face):
-  - [2-3 deliberate departures from convention]
-  - For each risk: what it is, why it works, what you gain, what it costs
-
-The safe choices keep you literate in your category. The risks are where
-your product becomes memorable. Which risks appeal to you? Want to see
-different ones? Or adjust anything else?
-```
-
-The SAFE/RISK breakdown is critical. Design coherence is table stakes — every product in a category can be coherent and still look identical. The real question is: where do you take creative risks? The agent should always propose at least 2 risks, each with a clear rationale for why the risk is worth taking and what the user gives up. Risks might include: an unexpected typeface for the category, a bold accent color nobody else uses, tighter or looser spacing than the norm, a layout approach that breaks from convention, motion choices that add personality.
-
-**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
-
-### Your Design Knowledge (use to inform proposals — do NOT display as tables)
-
-**Aesthetic directions** (pick the one that fits the product):
-- Brutally Minimal — Type and whitespace only. No decoration. Modernist.
-- Maximalist Chaos — Dense, layered, pattern-heavy. Y2K meets contemporary.
-- Retro-Futuristic — Vintage tech nostalgia. CRT glow, pixel grids, warm monospace.
-- Luxury/Refined — Serifs, high contrast, generous whitespace, precious metals.
-- Playful/Toy-like — Rounded, bouncy, bold primaries. Approachable and fun.
-- Editorial/Magazine — Strong typographic hierarchy, asymmetric grids, pull quotes.
-- Brutalist/Raw — Exposed structure, system fonts, visible grid, no polish.
-- Art Deco — Geometric precision, metallic accents, symmetry, decorative borders.
-- Organic/Natural — Earth tones, rounded forms, hand-drawn texture, grain.
-- Industrial/Utilitarian — Function-first, data-dense, monospace accents, muted palette.
-
-**Decoration levels:** minimal (typography does all the work) / intentional (subtle texture, grain, or background treatment) / expressive (full creative direction, layered depth, patterns)
-
-**Layout approaches:** grid-disciplined (strict columns, predictable alignment) / creative-editorial (asymmetry, overlap, grid-breaking) / hybrid (grid for app, creative for marketing)
-
-**Color approaches:** restrained (1 accent + neutrals, color is rare and meaningful) / balanced (primary + secondary, semantic colors for hierarchy) / expressive (color as a primary design tool, bold palettes)
-
-**Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
-
-**Font recommendations by purpose:**
-- Display/Hero: Satoshi, General Sans, Instrument Serif, Fraunces, Clash Grotesk, Cabinet Grotesk
-- Body: Instrument Sans, DM Sans, Source Sans 3, Geist, Plus Jakarta Sans, Outfit
-- Data/Tables: Geist (tabular-nums), DM Sans (tabular-nums), JetBrains Mono, IBM Plex Mono
-- Code: JetBrains Mono, Fira Code, Berkeley Mono, Geist Mono
-
-**Font blacklist** (never recommend):
-Papyrus, Comic Sans, Lobster, Impact, Jokerman, Bleeding Cowboys, Permanent Marker, Bradley Hand, Brush Script, Hobo, Trajan, Raleway, Clash Display, Courier New (for body)
-
-**Overused fonts** (never recommend as primary — use only if user specifically requests):
-Inter, Roboto, Arial, Helvetica, Open Sans, Lato, Montserrat, Poppins, Space Grotesk.
-
-Space Grotesk is on the list specifically because every AI design tool converges on it
-as "the safe alternative to Inter." That's the convergence trap. Treat it the same as
-Inter: only use if the user asks for it by name.
-
-**Anti-convergence directive:** Across multiple generations in the same project, VARY
-light/dark, fonts, and aesthetic directions. Never propose the same choices twice
-without explicit justification. If the user's prior session used Geist + dark + editorial,
-propose something different this time (or explicitly acknowledge you're doubling down
-because it fits the brief). Convergence across generations is slop.
-
-**AI slop anti-patterns** (never include in your recommendations):
-- Purple/violet gradients as default accent
-- 3-column feature grid with icons in colored circles
-- Centered everything with uniform spacing
-- Uniform bubbly border-radius on all elements
-- Gradient buttons as the primary CTA pattern
-- Generic stock-photo-style hero sections
-- system-ui / -apple-system as the primary display or body font (the "I gave up on typography" signal)
-- "Built for X" / "Designed for Y" marketing copy patterns
-
-### Coherence Validation
-
-When the user overrides one section, check if the rest still coheres. Flag mismatches with a gentle nudge — never block:
-
-- Brutalist/Minimal aesthetic + expressive motion → "Heads up: brutalist aesthetics usually pair with minimal motion. Your combo is unusual — which is fine if intentional. Want me to suggest motion that fits, or keep it?"
-- Expressive color + restrained decoration → "Bold palette with minimal decoration can work, but the colors will carry a lot of weight. Want me to suggest decoration that supports the palette?"
-- Creative-editorial layout + data-heavy product → "Editorial layouts are gorgeous but can fight data density. Want me to show how a hybrid approach keeps both?"
-- Always accept the user's final choice. Never refuse to proceed.
-
----
-
-## Phase 4: Drill-downs (only if user requests adjustments)
-
-When the user wants to change a specific section, go deep on that section:
-
-- **Fonts:** Present 3-5 specific candidates with rationale, explain what each evokes, offer the preview page
-- **Colors:** Present 2-3 palette options with hex values, explain the color theory reasoning
-- **Aesthetic:** Walk through which directions fit their product and why
-- **Layout/Spacing/Motion:** Present the approaches with concrete tradeoffs for their product type
-
-Each drill-down is one focused AskUserQuestion. After the user decides, re-check coherence with the rest of the system.
-
----
-
-## Phase 5: Design System Preview (default ON)
-
-This phase generates visual previews of the proposed design system. Two paths depending on whether the gstack designer is available.
-
-### Path A: AI Mockups (if DESIGN_READY)
-
-Generate AI-rendered mockups showing the proposed design system applied to realistic screens for this product. This is far more powerful than an HTML preview — the user sees what their product could actually look like.
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)"
-mkdir -p "$_DESIGN_DIR"
-echo "DESIGN_DIR: $_DESIGN_DIR"
-```
-
-Construct a design brief from the Phase 3 proposal (aesthetic, colors, typography, spacing, layout) and the product context from Phase 1:
-
-```bash
-$D variants --brief "<product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].>" --count 3 --output-dir "$_DESIGN_DIR/"
-```
-
-Run quality check on each variant:
-
-```bash
-$D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
-```
-
-Show each variant inline (Read tool on each PNG) for instant preview.
-
-**Before presenting to the user, self-gate:** For each variant, ask yourself: *"Would
-a human designer be embarrassed to put their name on this?"* If yes, discard the
-variant and regenerate. This is a hard gate. A mediocre AI mockup is worse than no
-mockup. Embarrassment triggers include: purple gradient hero, 3-column SaaS grid,
-centered-everything, Inter body text, generic stock-photo vibe, system-ui font,
-gradient CTA button, bubble-radius everything. Any of those = reject and regenerate.
-
-Tell the user: "I've generated 3 visual directions applying your design system to a realistic [product type] screen. Pick your favorite in the comparison board that just opened in your browser. You can also remix elements across variants."
-
-### Comparison Board + Feedback Loop
-
-Create the comparison board and serve it over HTTP:
-
-```bash
-$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
-```
-
-This command generates the board HTML, starts an HTTP server on a random port,
-and opens it in the user's default browser. **Run it in the background** with `&`
-because the server needs to stay running while the user interacts with the board.
-
-Parse the port from stderr output: `SERVE_STARTED: port=XXXXX`. You need this
-for the board URL and for reloading during regeneration cycles.
-
-**PRIMARY WAIT: AskUserQuestion with board URL**
-
-After the board is serving, use AskUserQuestion to wait for the user. Include the
-board URL so they can click it if they lost the browser tab:
-
-"I've opened a comparison board with the design variants:
-http://127.0.0.1:<PORT>/ — Rate them, leave comments, remix
-elements you like, and click Submit when you're done. Let me know when you've
-submitted your feedback (or paste your preferences here). If you clicked
-Regenerate or Remix on the board, tell me and I'll generate new variants."
-
-**Do NOT use AskUserQuestion to ask which variant the user prefers.** The comparison
-board IS the chooser. AskUserQuestion is just the blocking wait mechanism.
-
-**After the user responds to AskUserQuestion:**
-
-Check for feedback files next to the board HTML:
-- `$_DESIGN_DIR/feedback.json` — written when user clicks Submit (final choice)
-- `$_DESIGN_DIR/feedback-pending.json` — written when user clicks Regenerate/Remix/More Like This
-
-```bash
-if [ -f "$_DESIGN_DIR/feedback.json" ]; then
-  echo "SUBMIT_RECEIVED"
-  cat "$_DESIGN_DIR/feedback.json"
-elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
-  echo "REGENERATE_RECEIVED"
-  cat "$_DESIGN_DIR/feedback-pending.json"
-  rm "$_DESIGN_DIR/feedback-pending.json"
-else
-  echo "NO_FEEDBACK_FILE"
-fi
-```
-
-The feedback JSON has this shape:
-```json
-{
-  "preferred": "A",
-  "ratings": { "A": 4, "B": 3, "C": 2 },
-  "comments": { "A": "Love the spacing" },
-  "overall": "Go with A, bigger CTA",
-  "regenerated": false
-}
-```
-
-**If `feedback.json` found:** The user clicked Submit on the board.
-Read `preferred`, `ratings`, `comments`, `overall` from the JSON. Proceed with
-the approved variant.
-
-**If `feedback-pending.json` found:** The user clicked Regenerate/Remix on the board.
-1. Read `regenerateAction` from the JSON (`"different"`, `"match"`, `"more_like_B"`,
-   `"remix"`, or custom text)
-2. If `regenerateAction` is `"remix"`, read `remixSpec` (e.g. `{"layout":"A","colors":"B"}`)
-3. Generate new variants with `$D iterate` or `$D variants` using updated brief
-4. Create new board: `$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"`
-5. Reload the board in the user's browser (same tab):
-   `curl -s -X POST http://127.0.0.1:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
-6. The board auto-refreshes. **AskUserQuestion again** with the same board URL to
-   wait for the next round of feedback. Repeat until `feedback.json` appears.
-
-**If `NO_FEEDBACK_FILE`:** The user typed their preferences directly in the
-AskUserQuestion response instead of using the board. Use their text response
-as the feedback.
-
-**POLLING FALLBACK:** Only use polling if `$D serve` fails (no port available).
-In that case, show each variant inline using the Read tool (so the user can see them),
-then use AskUserQuestion:
-"The comparison board server failed to start. I've shown the variants above.
-Which do you prefer? Any feedback?"
-
-**After receiving feedback (any path):** Output a clear summary confirming
-what was understood:
-
-"Here's what I understood from your feedback:
-PREFERRED: Variant [X]
-RATINGS: [list]
-YOUR NOTES: [comments]
-DIRECTION: [overall]
-
-Is this right?"
-
-Use AskUserQuestion to verify before proceeding.
-
-**Save the approved choice:**
-```bash
-echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
-```
-
-After the user picks a direction:
-
-- Use `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"` to analyze the approved mockup and extract design tokens (colors, typography, spacing) that will populate DESIGN.md in Phase 6. This grounds the design system in what was actually approved visually, not just what was described in text.
-- If the user wants to iterate further: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
-
-**Plan mode vs. implementation mode:**
-- **If in plan mode:** Add the approved mockup path (the full `$_DESIGN_DIR` path) and extracted tokens to the plan file under an "## Approved Design Direction" section. The design system gets written to DESIGN.md when the plan is implemented.
-- **If NOT in plan mode:** Proceed directly to Phase 6 and write DESIGN.md with the extracted tokens.
-
-### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
-
-Generate a polished HTML preview page and open it in the user's browser. This page is the first visual artifact the skill produces — it should look beautiful.
-
-```bash
-PREVIEW_FILE="/tmp/design-consultation-preview-$(date +%s).html"
-```
-
-Write the preview HTML to `$PREVIEW_FILE`, then open it:
-
-```bash
-open "$PREVIEW_FILE"
-```
-
-### Preview Page Requirements (Path B only)
-
-The agent writes a **single, self-contained HTML file** (no framework dependencies) that:
-
-1. **Loads proposed fonts** from Google Fonts (or Bunny Fonts) via `<link>` tags
-2. **Uses the proposed color palette** throughout — dogfood the design system
-3. **Shows the product name** (not "Lorem Ipsum") as the hero heading
-4. **Font specimen section:**
-   - Each font candidate shown in its proposed role (hero heading, body paragraph, button label, data table row)
-   - Side-by-side comparison if multiple candidates for one role
-   - Real content that matches the product (e.g., civic tech → government data examples)
-5. **Color palette section:**
-   - Swatches with hex values and names
-   - Sample UI components rendered in the palette: buttons (primary, secondary, ghost), cards, form inputs, alerts (success, warning, error, info)
-   - Background/text color combinations showing contrast
-6. **Realistic product mockups** — this is what makes the preview page powerful. Based on the project type from Phase 1, render 2-3 realistic page layouts using the full design system:
-   - **Dashboard / web app:** sample data table with metrics, sidebar nav, header with user avatar, stat cards
-   - **Marketing site:** hero section with real copy, feature highlights, testimonial block, CTA
-   - **Settings / admin:** form with labeled inputs, toggle switches, dropdowns, save button
-   - **Auth / onboarding:** login form with social buttons, branding, input validation states
-   - Use the product name, realistic content for the domain, and the proposed spacing/layout/border-radius. The user should see their product (roughly) before writing any code.
-7. **Light/dark mode toggle** using CSS custom properties and a JS toggle button
-8. **Clean, professional layout** — the preview page IS a taste signal for the skill
-9. **Responsive** — looks good on any screen width
-
-The page should make the user think "oh nice, they thought of this." It's selling the design system by showing what the product could feel like, not just listing hex codes and font names.
-
-If `open` fails (headless environment), tell the user: *"I wrote the preview to [path] — open it in your browser to see the fonts and colors rendered."*
-
-If the user says skip the preview, go directly to Phase 6.
-
----
-
-## Phase 6: Write DESIGN.md & Confirm
-
-If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the primary source for DESIGN.md values — colors, typography, and spacing grounded in the approved mockup rather than text descriptions alone. Merge extracted tokens with the Phase 3 proposal (the proposal provides rationale and context; the extraction provides exact values).
-
-**If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
-
-**If NOT in plan mode:** Write `DESIGN.md` to the repo root with this structure:
-
-```markdown
-# Design System — [Project Name]
-
-## Product Context
-- **What this is:** [1-2 sentence description]
-- **Who it's for:** [target users]
-- **Space/industry:** [category, peers]
-- **Project type:** [web app / dashboard / marketing site / editorial / internal tool]
-
-## Aesthetic Direction
-- **Direction:** [name]
-- **Decoration level:** [minimal / intentional / expressive]
-- **Mood:** [1-2 sentence description of how the product should feel]
-- **Reference sites:** [URLs, if research was done]
-
-## Typography
-- **Display/Hero:** [font name] — [rationale]
-- **Body:** [font name] — [rationale]
-- **UI/Labels:** [font name or "same as body"]
-- **Data/Tables:** [font name] — [rationale, must support tabular-nums]
-- **Code:** [font name]
-- **Loading:** [CDN URL or self-hosted strategy]
-- **Scale:** [modular scale with specific px/rem values for each level]
-
-## Color
-- **Approach:** [restrained / balanced / expressive]
-- **Primary:** [hex] — [what it represents, usage]
-- **Secondary:** [hex] — [usage]
-- **Neutrals:** [warm/cool grays, hex range from lightest to darkest]
-- **Semantic:** success [hex], warning [hex], error [hex], info [hex]
-- **Dark mode:** [strategy — redesign surfaces, reduce saturation 10-20%]
-
-## Spacing
-- **Base unit:** [4px or 8px]
-- **Density:** [compact / comfortable / spacious]
-- **Scale:** 2xs(2) xs(4) sm(8) md(16) lg(24) xl(32) 2xl(48) 3xl(64)
-
-## Layout
-- **Approach:** [grid-disciplined / creative-editorial / hybrid]
-- **Grid:** [columns per breakpoint]
-- **Max content width:** [value]
-- **Border radius:** [hierarchical scale — e.g., sm:4px, md:8px, lg:12px, full:9999px]
-
-## Motion
-- **Approach:** [minimal-functional / intentional / expressive]
-- **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
-- **Duration:** micro(50-100ms) short(150-250ms) medium(250-400ms) long(400-700ms)
-
-## Decisions Log
-| Date | Decision | Rationale |
-|------|----------|-----------|
-| [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
-```
-
-**Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
-
-```markdown
-## Design System
-Always read DESIGN.md before making any visual or UI decisions.
-All font choices, colors, spacing, and aesthetic direction are defined there.
-Do not deviate without explicit user approval.
-In QA mode, flag any code that doesn't match DESIGN.md.
-```
-
-**AskUserQuestion Q-final — show summary and confirm:**
-
-List all decisions. Flag any that used agent defaults without explicit user confirmation (the user should know what they're shipping). Options:
-- A) Ship it — write DESIGN.md and CLAUDE.md
-- B) I want to change something (specify what)
-- C) Start over
-
-After shipping DESIGN.md, if the session produced screen-level mockups or page layouts
-(not just system-level tokens), suggest:
-"Want to see this design system as working Pretext-native HTML? Run /design-html."
-
----
-
+> **STOP.** Before building the complete design-system proposal, drill-downs, the design preview, and writing DESIGN.md (Phases 3-6, after product context and research), Read `~/.claude/skills/gstack/design-consultation/sections/proposal-and-preview.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.
 ## Capture Learnings
 
 If you discovered a non-obvious pattern, pitfall, or architectural insight during

@@ -1,6 +1,7 @@
+import type { TemplateContext } from '../types';
 
-
-export function generateContextHealth(): string {
+export function generateContextHealth(ctx?: TemplateContext): string {
+  if (ctx?.explainLevel === 'terse') return '';
   return `## Context Health (soft directive)
 
 During long-running skill sessions, periodically write a brief \`[PROGRESS]\` summary: done, next, surprises.

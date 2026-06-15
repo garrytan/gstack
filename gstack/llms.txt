@@ -26,6 +26,7 @@ Conventions:
 - [/design-review](design-review/SKILL.md): Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them.
 - [/design-shotgun](design-shotgun/SKILL.md): Design shotgun: generate multiple AI design variants, open a comparison board, collect structured feedback, and iterate.
 - [/devex-review](devex-review/SKILL.md): Live developer experience audit.
+- [/diagram](diagram/SKILL.md): Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you can open on excalidraw.com, and rendered SVG + PNG (clean mermaid style; the .excalidraw carries the hand-drawn aesthetic).
 - [/document-generate](document-generate/SKILL.md): Generate missing documentation from scratch for a feature, module, or entire project.
 - [/document-release](document-release/SKILL.md): Post-ship documentation update.
 - [/freeze](freeze/SKILL.md): Restrict file edits to a specific directory for the session.
@@ -34,6 +35,11 @@ Conventions:
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
 - [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
+- [/ios-clean](ios-clean/SKILL.md): Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.
+- [/ios-design-review](ios-design-review/SKILL.md): Visual design audit for iOS apps on real hardware.
+- [/ios-fix](ios-fix/SKILL.md): Autonomous iOS bug fixer.
+- [/ios-qa](ios-qa/SKILL.md): Live-device iOS QA for SwiftUI apps.
+- [/ios-sync](ios-sync/SKILL.md): Regenerate the iOS debug bridge against the latest upstream gstack templates.
 - [/land-and-deploy](land-and-deploy/SKILL.md): Land and deploy workflow.
 - [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
 - [/learn](learn/SKILL.md): Manage project learnings.
@@ -56,6 +62,7 @@ Conventions:
 - [/setup-gbrain](setup-gbrain/SKILL.md): Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or Supabase brain, register MCP, capture per-remote trust policy.
 - [/ship](ship/SKILL.md): Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.
 - [/skillify](skillify/SKILL.md): Codify the most recent successful /scrape flow into a permanent browser-skill on disk.
+- [/spec](spec/SKILL.md): Turn vague intent into a precise, executable spec in five phases.
 - [/sync-gbrain](sync-gbrain/SKILL.md): Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.
 - [/unfreeze](unfreeze/SKILL.md): Clear the freeze boundary set by /freeze, allowing edits to all directories again.
 
@@ -75,10 +82,10 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `cookies`: All cookies as JSON
 - `css <sel> <prop>`: Computed CSS value
 - `dialog [--clear]`: Dialog messages
-- `eval <file>`: Run JavaScript from a file in the page context and return result as string.
+- `eval <file> [--out <file>] [--raw]`: Run JavaScript from a file in the page context and return result as string.
 - `inspect [selector] [--all] [--history]`: Deep CSS inspection via CDP — full rule cascade, box model, computed styles
 - `is <prop> <sel|@ref>`: State check on element.
-- `js <expr>`: Run inline JavaScript expression in the page context and return result as string.
+- `js <expr> [--out <file>] [--raw]`: Run inline JavaScript expression in the page context and return result as string.
 - `network [--clear]`: Network requests
 - `perf`: Page load timings
 - `storage  |  storage set <key> <value>`: Read both localStorage and sessionStorage as JSON.
@@ -135,6 +142,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `disconnect`: Disconnect headed browser, return to headless mode
 - `focus [@ref]`: Bring headed browser window to foreground (macOS)
 - `handoff [message]`: Open visible Chrome at current page for user takeover
+- `memory [--json]`: Snapshot Bun heap + per-tab JS heap + Chromium process tree + bounded buffer sizes.
 - `restart`: Restart server
 - `resume`: Re-snapshot after user takeover, return control to AI
 - `state save|load <name>`: Save/load browser state (cookies + URLs)

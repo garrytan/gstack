@@ -36,6 +36,16 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <($GSTACK_BIN/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$($GSTACK_BIN/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$($GSTACK_BIN/gstack-config get telemetry 2>/dev/null || true)
@@ -51,7 +61,7 @@ _QUESTION_TUNING=$($GSTACK_BIN/gstack-config get question_tuning 2>/dev/null || 
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"ship","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"ship","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -93,6 +103,19 @@ _CHECKPOINT_MODE=$($GSTACK_BIN/gstack-config get checkpoint_mode 2>/dev/null || 
 _CHECKPOINT_PUSH=$($GSTACK_BIN/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -102,7 +125,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -137,7 +160,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -148,7 +171,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -224,6 +247,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -271,13 +295,39 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 "AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
 
-**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+**Conductor rule (read before the MCP rule):** if `CONDUCTOR_SESSION: true` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any `mcp__*__AskUserQuestion` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns `[Tool result missing due to internal error]`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a `[plan-tune auto-decide] <id> → <option>` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with `bin/gstack-question-log` (the PostToolUse capture hook never fires on a prose path, so `/plan-tune` history/learning depends on this call).
 
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report `BLOCKED — AskUserQuestion unavailable`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
+**Rule (non-Conductor):** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+
+If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+
+### When AskUserQuestion is unavailable or a call fails
+
+Tell three outcomes apart:
+
+1. **Auto-decide denial (NOT a failure).** The result contains `[plan-tune auto-decide] <id> → <option>` — the preference hook working as designed. Proceed with that option. Do NOT retry, do NOT fall back to prose.
+2. **Genuine failure** — no variant in your tool list, OR the variant is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns `[Tool result missing due to internal error]`).
+   - If it was present and **errored** (not absent), retry the SAME call **once** — but only if no answer could have surfaced (a missing-result error can arrive after the user already saw the question; retrying would double-prompt, so if it may have reached them, treat as pending, don't retry).
+   - Then branch on `SESSION_KIND` (echoed by the preamble; empty/absent ⇒ `interactive`):
+     - `spawned` → defer to the **Spawned session** block: auto-choose the recommended option. Never prose, never BLOCKED.
+     - `headless` → `BLOCKED — AskUserQuestion unavailable`; stop and wait (no human can answer).
+     - `interactive` → **prose fallback** (below).
+
+**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
+
+1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
+2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
+3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
+
+Layout: a `D<N>` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+
+**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
+
+**One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
 
 ```
 D<N> — <one-line question title>
@@ -310,25 +360,41 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
-12. **Non-ASCII characters — write directly, never \u-escape.** When any
-    string field (question, option label, option description) contains
-    Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
-    the literal UTF-8 characters in the JSON string. **Never escape them
-    as `\uXXXX`.** Claude Code's tool parameter pipe is UTF-8 native
-    and passes characters through unchanged. Manually escaping requires
-    recalling each codepoint from training, which is unreliable for long
-    CJK strings — the model regularly emits the wrong codepoint (e.g.
-    writes `\u3103` thinking it is 管 U+7BA1, but `\u3103` is
-    actually ㄃, so the user sees `管理工具` rendered as `㄃3用箱`).
-    The trigger is long, multi-line questions with hundreds of CJK
-    characters: that is exactly when reflexive escaping kicks in and
-    exactly when miscoding is most damaging. Long ≠ escape. Keep
-    characters literal.
+### Handling 5+ options — split, never drop
 
-    Wrong: `"question": "請選擇\uXXXX\uXXXX\uXXXX\uXXXX"`
-    Right: `"question": "請選擇管理工具"`
+AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
+drop, merge, or silently defer one to fit. Pick a compliant shape:
 
-    Only JSON-mandatory escapes remain allowed: `\n`, `\t`, `\"`, `\\`.
+- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
+  layout variants). One call, 5th surfaced only if first 4 don't fit.
+- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
+  Fire N sequential calls, one per option. Default to this when unsure.
+
+Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
+Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
+decision actions), and 4 buckets:
+**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
+
+After the chain, fire `D<N>.final` to validate the assembled set (reprompt
+dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
+revise one option without re-running the chain.
+
+For N>6, fire a `D<N>.0` meta-AskUserQuestion first (proceed / narrow / batch).
+
+question_ids for split chains: `<skill>-split-<option-slug>` (kebab-case ASCII,
+≤64 chars, `-2`/`-3` suffix on collision). The runtime checker
+(`bin/gstack-question-preference`) refuses `never-ask` on any `*-split-*` id,
+so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
+
+**Full rule + worked examples + Hold/dependency semantics:** see
+`docs/askuserquestion-split.md` in the gstack repo. Read on demand when N>4.
+
+**Non-ASCII characters — write directly, never \u-escape.** When any string
+field contains Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text,
+emit the literal UTF-8 characters; never escape them as `\uXXXX` (the pipe is
+UTF-8 native, and manual escaping miscodes long CJK strings). Only `\n`,
+`\t`, `\"`, `\\` remain allowed. Full rationale + worked example: see
+`docs/askuserquestion-cjk.md`. Read on demand when a question contains CJK.
 
 ### Self-check before emitting
 
@@ -341,8 +407,11 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
+- [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
+- [ ] If you split, you checked dependencies between options before firing the chain
+- [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
 
 
 ## Artifacts Sync (skill start)
@@ -525,11 +594,18 @@ if [ -d "$_PROJ" ]; then
   fi
   _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
   [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
+  if [ -f "$_PROJ/decisions.active.json" ]; then
+    echo "--- ACTIVE DECISIONS (recent, scope-relevant) ---"
+    $GSTACK_BIN/gstack-decision-search --recent 5 2>/dev/null
+    echo "--- END DECISIONS ---"
+  fi
   echo "--- END ARTIFACTS ---"
 fi
 ```
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
+
+**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `$GSTACK_BIN/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `$GSTACK_BIN/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -542,89 +618,12 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - User-turn override wins: if the current message asks for terse / no explanations / just the answer, skip this section.
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
-Jargon list, gloss on first use if the term appears:
-- idempotent
-- idempotency
-- race condition
-- deadlock
-- cyclomatic complexity
-- N+1
-- N+1 query
-- backpressure
-- memoization
-- eventual consistency
-- CAP theorem
-- CORS
-- CSRF
-- XSS
-- SQL injection
-- prompt injection
-- DDoS
-- rate limit
-- throttle
-- circuit breaker
-- load balancer
-- reverse proxy
-- SSR
-- CSR
-- hydration
-- tree-shaking
-- bundle splitting
-- code splitting
-- hot reload
-- tombstone
-- soft delete
-- cascade delete
-- foreign key
-- composite index
-- covering index
-- OLTP
-- OLAP
-- sharding
-- replication lag
-- quorum
-- two-phase commit
-- saga
-- outbox pattern
-- inbox pattern
-- optimistic locking
-- pessimistic locking
-- thundering herd
-- cache stampede
-- bloom filter
-- consistent hashing
-- virtual DOM
-- reconciliation
-- closure
-- hoisting
-- tail call
-- GIL
-- zero-copy
-- mmap
-- cold start
-- warm start
-- green-blue deploy
-- canary deploy
-- feature flag
-- kill switch
-- dead letter queue
-- fan-out
-- fan-in
-- debounce
-- throttle (UI)
-- hydration mismatch
-- memory leak
-- GC pause
-- heap fragmentation
-- stack overflow
-- null pointer
-- dangling pointer
-- buffer overflow
+Curated jargon list lives at `$GSTACK_ROOT/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap, so the complete thing is the goal. Recommend full coverage (tests, edge cases, error paths) — boil the ocean one lake at a time. The only thing out of scope is genuinely unrelated work (rewrites, multi-quarter migrations); flag that as separate scope, never as an excuse for a shortcut.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -667,7 +666,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `$GSTACK_BIN/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 $GSTACK_BIN/gstack-question-log '{"skill":"ship","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -831,6 +834,10 @@ Only *actions* are idempotent:
 - Step 17: If already pushed, skip the push command
 - Step 19: If PR exists, update the body instead of creating a new PR
 Never skip a verification step because a prior `/ship` run already performed it.
+
+---
+
+
 
 ---
 
@@ -1282,6 +1289,22 @@ EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval
 ```
 
 If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
+
+**Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
+A plain backgrounded eval lives in the harness's process group and dies to a
+SIGTERM ("polite quit") on a turn boundary, a stopped monitor, or an interruption
+(observed mid-`/ship`: `script terminated by signal SIGTERM`). Run it through
+`$GSTACK_ROOT/bin/gstack-detach` instead — it survives in its own
+session, serializes against other worktrees via a machine lock (no API
+saturation), and writes a guaranteed `### gstack-detach EXIT=<code> ###` sentinel:
+
+```bash
+$GSTACK_ROOT/bin/gstack-detach --label ship-evals --lock gstack-evals --timeout 5400 -- <project eval command>
+```
+
+Then poll the printed log path; break on the `EXIT=` sentinel (covers both pass
+and crash — silence is never success). The detached run survives even if your
+poller is reaped.
 
 **4. Check results:**
 
@@ -1883,6 +1906,43 @@ Example:
 \`[P1] (confidence: 9/10) app/models/user.rb:42 — SQL injection via string interpolation in where clause\`
 \`[P2] (confidence: 5/10) app/controllers/api/v1/users_controller.rb:18 — Possible N+1 query, verify with production logs\`
 
+### Pre-emit verification gate (#1539 — kills the "field doesn't exist" FP class)
+
+Before any finding is promoted to the report, the gate requires:
+
+1. **Quote the specific code line that motivates the finding** — file:line plus
+   the verbatim text of the line(s) that triggered it. If the finding is "field
+   X doesn't exist on model Y", quote the lines of class Y where the field
+   would live. If "dict.get() might return None", quote the dict initialization.
+   If "race condition between A and B", quote both A and B.
+
+2. **If you cannot quote the motivating line(s), the finding is unverified.**
+   Force its confidence to 4-5 (suppressed from the main report). It still goes
+   into the appendix so reviewers can audit calibration, but the user does NOT
+   see it in the critical-pass output. Do not work around this by inventing
+   speculative confidence 7+ — that defeats the gate.
+
+**Framework-meta nudge:** When the symbol is generated by a framework
+metaclass, descriptor, ORM Meta inner-class, or migration history (Django
+`Meta`, Rails `has_many`/`scope`, SQLAlchemy `relationship`/`Column`,
+TypeORM decorators, Sequelize `init`/`belongsTo`, Prisma generated client),
+quote the meta-construct (the `Meta` block, the migration, the decorator,
+the schema file) instead of expecting the literal name in the class body.
+The verification is "I read the source that creates this symbol", not "I
+grep'd for the name and didn't find it." Deeper framework-aware verification
+(model introspection, migration-history-aware checks, ORM dialect detection)
+is deliberately out of scope for the lighter gate — see the deferred
+`~/.gstack-dev/plans/1539-framework-aware-review.md` design doc.
+
+The FP classes the gate kills (measured against Django Sprint 2.5 #1539):
+
+| FP class | Why the gate catches it |
+|---|---|
+| "field doesn't exist on model" | Requires quoting the model class body or Meta; the field's absence becomes obvious |
+| "dict.get() might be None" | Requires quoting the dict initialization (e.g. Django form's `cleaned_data` is `{}`-initialized) |
+| "save() might lose fields" | Requires quoting the ORM signature or model definition |
+| "update_fields might miss X" | Requires quoting the field set; if X doesn't exist, the FP is self-evident |
+
 **Calibration learning:** If you report a finding with confidence < 7 and the user
 confirms it IS a real issue, that is a calibration event. Your initial confidence was
 too low. Log the corrected pattern as a learning so future reviews catch it with
@@ -2088,150 +2148,43 @@ If any learnings come back, name which one applies to the version bump or CHANGE
 
 ## Step 12: Version bump (auto-decide)
 
-**Idempotency check:** Before bumping, classify the state by comparing `VERSION` against the base branch AND against `package.json`'s `version` field. Four states: FRESH (do bump), ALREADY_BUMPED (skip bump), DRIFT_STALE_PKG (sync pkg only, no re-bump), DRIFT_UNEXPECTED (stop and ask).
+The deterministic version-state logic is the tested **`gstack-version-bump`** CLI
+(classify / write / repair). The bump-LEVEL decision and queue-collision handling
+stay agent judgment; the slot pick stays `gstack-next-version`.
 
-```bash
-if ! git rev-parse --verify origin/<base> >/dev/null 2>&1; then
-  echo "ERROR: Unable to resolve origin/<base>. Run 'git fetch origin' or verify the base branch exists."
-  exit 1
-fi
-
-BASE_VERSION=$(git show origin/<base>:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
-CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "0.0.0.0")
-[ -z "$BASE_VERSION" ] && BASE_VERSION="0.0.0.0"
-[ -z "$CURRENT_VERSION" ] && CURRENT_VERSION="0.0.0.0"
-PKG_VERSION=""
-PKG_EXISTS=0
-if [ -f package.json ]; then
-  PKG_EXISTS=1
-  if command -v node >/dev/null 2>&1; then
-    PKG_VERSION=$(node -e 'const p=require("./package.json");process.stdout.write(p.version||"")' 2>/dev/null)
-    PARSE_EXIT=$?
-  elif command -v bun >/dev/null 2>&1; then
-    PKG_VERSION=$(bun -e 'const p=require("./package.json");process.stdout.write(p.version||"")' 2>/dev/null)
-    PARSE_EXIT=$?
-  else
-    echo "ERROR: package.json exists but neither node nor bun is available. Install one and re-run."
-    exit 1
-  fi
-  if [ "$PARSE_EXIT" != "0" ]; then
-    echo "ERROR: package.json is not valid JSON. Fix the file before re-running /ship."
-    exit 1
-  fi
-fi
-echo "BASE: $BASE_VERSION  VERSION: $CURRENT_VERSION  package.json: ${PKG_VERSION:-<none>}"
-
-if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
-  if [ "$PKG_EXISTS" = "1" ] && [ -n "$PKG_VERSION" ] && [ "$PKG_VERSION" != "$CURRENT_VERSION" ]; then
-    echo "STATE: DRIFT_UNEXPECTED"
-    echo "package.json version ($PKG_VERSION) disagrees with VERSION ($CURRENT_VERSION) while VERSION matches base."
-    echo "This looks like a manual edit to package.json bypassing /ship. Reconcile manually, then re-run."
-    exit 1
-  fi
-  echo "STATE: FRESH"
-else
-  if [ "$PKG_EXISTS" = "1" ] && [ -n "$PKG_VERSION" ] && [ "$PKG_VERSION" != "$CURRENT_VERSION" ]; then
-    echo "STATE: DRIFT_STALE_PKG"
-  else
-    echo "STATE: ALREADY_BUMPED"
-  fi
-fi
-```
-
-Read the `STATE:` line and dispatch:
-
-- **FRESH** → proceed with the bump action below (steps 1–4).
-- **ALREADY_BUMPED** → skip the bump by default, BUT check for queue drift first: call `bin/gstack-next-version` with the implied bump level (derived from `CURRENT_VERSION` vs `BASE_VERSION`), compare its `.version` against `CURRENT_VERSION`. If they differ (queue moved since last ship), use **AskUserQuestion**: "VERSION drift detected: you claim v<CURRENT> but next available is v<NEW> (queue moved). A) Rebump to v<NEW> and rewrite CHANGELOG header + PR title (recommended), B) Keep v<CURRENT> — will be rejected by CI version-gate until resolved." If A, treat this as FRESH with `NEW_VERSION=<new>` and run steps 1-4 (which will also trigger Step 13 CHANGELOG header rewrite and Step 19 PR title rewrite). If B, reuse `CURRENT_VERSION` and warn that CI will likely reject. If util is offline, warn and reuse `CURRENT_VERSION`.
-- **DRIFT_STALE_PKG** → a prior `/ship` bumped `VERSION` but failed to update `package.json`. Run the sync-only repair block below (after step 4). Do NOT re-bump. Reuse `CURRENT_VERSION` for CHANGELOG and PR body. (Queue check still runs in ALREADY_BUMPED terms after repair.)
-- **DRIFT_UNEXPECTED** → `/ship` has halted (exit 1). Resolve manually; /ship cannot tell which file is authoritative.
-
-1. Read the current `VERSION` file (4-digit format: `MAJOR.MINOR.PATCH.MICRO`)
-
-2. **Auto-decide the bump level based on the diff:**
-   - Count lines changed (`git diff origin/<base>...HEAD --stat | tail -1`)
-   - Check for feature signals: new route/page files (e.g. `app/*/page.tsx`, `pages/*.ts`), new DB migration/schema files, new test files alongside new source files, or branch name starting with `feat/`
-   - **MICRO** (4th digit): < 50 lines changed, trivial tweaks, typos, config
-   - **PATCH** (3rd digit): 50+ lines changed, no feature signals detected
-   - **MINOR** (2nd digit): **ASK the user** if ANY feature signal is detected, OR 500+ lines changed, OR new modules/packages added
-   - **MAJOR** (1st digit): **ASK the user** — only for milestones or breaking changes
-
-   Save the chosen level as `BUMP_LEVEL` (one of `major`, `minor`, `patch`, `micro`). This is the user-intended level. The next step decides *placement* — the level stays the same even if queue-aware allocation has to advance past a claimed slot.
-
-3. **Queue-aware version pick (workspace-aware ship, v1.6.4.0+).** Call `bin/gstack-next-version` to see what's already claimed by open PRs + active sibling Conductor worktrees, then render the queue state to the user:
-
+1. **Classify state** — pure reader, never writes:
    ```bash
-   QUEUE_JSON=$(bun run bin/gstack-next-version \
-     --base <base> \
-     --bump "$BUMP_LEVEL" \
-     --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
-   NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
-   CLAIMED_COUNT=$(echo "$QUEUE_JSON" | jq -r '.claimed | length')
-   ACTIVE_SIBLING_COUNT=$(echo "$QUEUE_JSON" | jq -r '.active_siblings | length')
-   OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
-   REASON=$(echo "$QUEUE_JSON" | jq -r '.reason // ""')
+   bun run $GSTACK_ROOT/bin/gstack-version-bump classify --base <base>
    ```
+   Read the JSON `state` and dispatch:
+   - **FRESH** → do the bump (steps 2-4).
+   - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
+   - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
+   - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
-   - If `OFFLINE=true` or the util fails (auth expired, no `gh`/`glab`, network): fall back to local `BUMP_LEVEL` arithmetic (bump `BASE_VERSION` at the chosen level). Print `⚠ workspace-aware ship offline — using local bump only`. Continue.
-   - If `CLAIMED_COUNT > 0`: render the queue table to the user so they can see landing order at a glance:
-     ```
-     Queue on <base> (vBASE_VERSION):
-       #<pr> <branch> → v<version>   [⚠ collision with #<other>]
-     Active sibling workspaces (WIP, not yet PR'd):
-       <path> → v<version> (committed Nh ago)
-     Your branch will claim: vNEW_VERSION  (<reason>)
-     ```
-   - If `ACTIVE_SIBLING_COUNT > 0` and any active sibling's VERSION is `>= NEW_VERSION`, use **AskUserQuestion**: "Sibling workspace <path> has v<X> committed <N>h ago but hasn't PR'd yet. Wait for them to ship first, or advance past? A) Advance past (recommended for unrelated work), B) Abort /ship and sync up with sibling first."
-   - Validate `NEW_VERSION` matches `MAJOR.MINOR.PATCH.MICRO`. If util returns an empty or malformed version, fall back to local bump.
+2. **Decide the bump level** from the diff (agent judgment):
+   - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
+   - **MINOR**: **ASK** if any feature signal (new route/page, migration, new module), OR 500+ lines. **MAJOR**: **ASK** — milestones or breaking changes only.
+   Save as `BUMP_LEVEL`. The level is the user-intended bump; queue-aware placement may advance the slot without changing the level.
 
-4. **Validate** `NEW_VERSION` and write it to **both** `VERSION` and `package.json`. This block runs only when `STATE: FRESH`.
+3. **Queue-aware pick** (workspace-aware ship):
+   ```bash
+   QUEUE_JSON=$(bun run $GSTACK_ROOT/bin/gstack-next-version --base <base> --bump "$BUMP_LEVEL" --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
+   NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
+   ```
+   If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic and print `⚠ workspace-aware ship offline — using local bump only`. If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **AskUserQuestion**: advance past (unrelated work) or abort and sync with the sibling.
 
-```bash
-if ! printf '%s' "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "ERROR: NEW_VERSION ($NEW_VERSION) does not match MAJOR.MINOR.PATCH.MICRO pattern. Aborting."
-  exit 1
-fi
-echo "$NEW_VERSION" > VERSION
-if [ -f package.json ]; then
-  if command -v node >/dev/null 2>&1; then
-    node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW_VERSION" || {
-      echo "ERROR: failed to update package.json. VERSION was written but package.json is now stale. Fix and re-run — the new idempotency check will detect the drift."
-      exit 1
-    }
-  elif command -v bun >/dev/null 2>&1; then
-    bun -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW_VERSION" || {
-      echo "ERROR: failed to update package.json. VERSION was written but package.json is now stale."
-      exit 1
-    }
-  else
-    echo "ERROR: package.json exists but neither node nor bun is available."
-    exit 1
-  fi
-fi
-```
+4. **Write the bump** (FRESH, or an approved rebump):
+   ```bash
+   bun run $GSTACK_ROOT/bin/gstack-version-bump write --version "$NEW_VERSION"
+   ```
+   The CLI validates the 4-digit `MAJOR.MINOR.PATCH.MICRO` pattern and writes **both** VERSION and package.json. On a half-write (VERSION written, package.json failed) it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
 
-**DRIFT_STALE_PKG repair path** — runs when idempotency reports `STATE: DRIFT_STALE_PKG`. No re-bump; sync `package.json.version` to the current `VERSION` and continue. Reuse `CURRENT_VERSION` for CHANGELOG and PR body.
-
-```bash
-REPAIR_VERSION=$(cat VERSION | tr -d '\r\n[:space:]')
-if ! printf '%s' "$REPAIR_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "ERROR: VERSION file contents ($REPAIR_VERSION) do not match MAJOR.MINOR.PATCH.MICRO pattern. Refusing to propagate invalid semver into package.json. Fix VERSION manually, then re-run /ship."
-  exit 1
-fi
-if command -v node >/dev/null 2>&1; then
-  node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$REPAIR_VERSION" || {
-    echo "ERROR: drift repair failed — could not update package.json."
-    exit 1
-  }
-else
-  bun -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$REPAIR_VERSION" || {
-    echo "ERROR: drift repair failed."
-    exit 1
-  }
-fi
-echo "Drift repaired: package.json synced to $REPAIR_VERSION. No version bump performed."
-```
-
----
+5. **Record the release decision** (durable cross-session memory). The bump level is a real decision the next session should not re-derive blind:
+   ```bash
+   $GSTACK_ROOT/bin/gstack-decision-log '{"decision":"Ship NEW_VERSION (BUMP_LEVEL)","rationale":"WHY","scope":"repo","source":"skill","confidence":9}' 2>/dev/null || true
+   ```
+   Substitute `NEW_VERSION`, `BUMP_LEVEL`, and a one-line `WHY` (the signal that set the level: diff scale, a new feature, a breaking change). Best-effort and non-interactive; never blocks the ship. Skip on the ALREADY_BUMPED path (the decision was logged on the run that did the bump).
 
 ## Step 13: CHANGELOG (auto-generate)
 
@@ -2481,6 +2434,8 @@ git push -u origin <branch-name>
 
 ---
 
+**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `$GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
 **Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
@@ -2522,7 +2477,7 @@ gh pr view --json url,number,state -q 'if .state == "OPEN" then "PR #\(.number):
 glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS" else "NO_MR" end' 2>/dev/null || echo "NO_MR"
 ```
 
-If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body "..."` (GitHub) or `glab mr update -d "..."` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run.
+If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub) or `glab mr update -d ...` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 19) before editing — scan the temp file, then `gh pr edit --body-file` from it.**
 
 **Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
 
@@ -2576,6 +2531,39 @@ you missed it.>
 <If no plan file: "No plan file detected.">
 <If plan items deferred: list deferred items>
 
+## Linked Spec
+<Auto-detect: look for /spec archives matching this branch via:
+  eval "$($GSTACK_ROOT/bin/gstack-paths)"
+  eval "$($GSTACK_ROOT/bin/gstack-slug)"
+  CURRENT_BRANCH=$(git branch --show-current)
+  SPEC_ARCHIVES="$GSTACK_STATE_ROOT/projects/$SLUG/specs"
+  # Find newest archive whose spec_branch frontmatter matches current branch (or one of its
+  # parents — if spec spawned worktree spec/<slug>-$$, the spawned worktree IS where /ship runs).
+  SPEC_FILE=$(grep -l "^spec_branch: $CURRENT_BRANCH$" "$SPEC_ARCHIVES"/*.md 2>/dev/null | head -1)
+  [ -z "$SPEC_FILE" ] && exit  # no spec; omit this section entirely
+  SPEC_ISSUE=$(grep "^spec_issue_number:" "$SPEC_FILE" | cut -d' ' -f2)
+  [ -z "$SPEC_ISSUE" ] && exit  # spec archive exists but no issue number; omit
+
+  # CONDITIONAL Closes #N (codex F4): only add when Plan Completion above is "complete".
+  # If the plan completion gate from Step 8 reports any deferred or failed items, emit:
+  #   "Linked to #$SPEC_ISSUE (partial delivery — NOT auto-closing; close manually after follow-up)"
+  # If Plan Completion is fully complete, emit:
+  #   "Closes #$SPEC_ISSUE"
+  # and include the Closes #N line in the PR body so GitHub auto-closes on merge.>
+
+<Format:
+  Closes #<N>
+
+  This PR delivers the spec at <archive path relative to repo root>.
+  Spec filed: <spec_filed_at from frontmatter>>
+
+<If partial delivery, emit instead:
+  Linked to #<N> (partial delivery — not auto-closing).
+  Deferred items: <list from Plan Completion>.
+  Close #<N> manually after follow-up lands.>
+
+<If no /spec archive matches this branch: omit this entire section.>
+
 ## Verification Results
 <If verification ran: summary from Step 8.1 (N PASS, M FAIL, K SKIPPED)>
 <If skipped: reason (no plan, no server, no verification section)>
@@ -2598,15 +2586,42 @@ you missed it.>
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-**If GitHub:**
+#### Redaction scan (PR body + title) — runs before create AND edit
+
+The PR body is world-readable on a public repo. Scan-at-sink before sending:
+write the composed body to a temp file, scan THAT file with the shared engine,
+and pass the same file to `gh`/`glab`. Wrap any Codex / Greptile / eval output
+sections in tool-attributed fences (` ```codex-review ` / ` ```greptile `) so the
+engine WARN-degrades the example credentials those tools quote instead of blocking
+the PR (a live-format credential inside the fence still blocks).
+
+```bash
+REDACT_VIS=$($GSTACK_ROOT/bin/gstack-config get redact_repo_visibility 2>/dev/null)
+[ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
+REDACT_VIS="${REDACT_VIS:-unknown}"
+PR_BODY_FILE=$(mktemp)
+cat > "$PR_BODY_FILE" <<'PR_BODY_EOF'
+<PR body from above>
+PR_BODY_EOF
+$GSTACK_ROOT/bin/gstack-redact --from-file "$PR_BODY_FILE" --repo-visibility "$REDACT_VIS" --self-email "$(git config user.email 2>/dev/null)" --json
+case $? in
+  3) echo "BLOCKED — credential in PR body. Rotate + redact, do not create the PR."; exit 1 ;;
+  2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
+esac
+# Also scan the title (short, single-line):
+printf '%s' "v$NEW_VERSION <type>: <summary>" | $GSTACK_ROOT/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+```
+
+HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
+`--auto-redact`). Same scan runs before the `gh pr edit --body` path (Step 17).
+
+**If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
 ```bash
 # PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
 # (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body "$(cat <<'EOF'
-<PR body from above>
-EOF
-)"
+gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body-file "$PR_BODY_FILE"
+rm -f "$PR_BODY_FILE"
 ```
 
 **If GitLab:**
@@ -2650,6 +2665,39 @@ Substitute from earlier steps:
 - **BRANCH**: current branch name
 
 This step is automatic — never skip it, never ask for confirmation.
+
+---
+
+## Step 21: Plan-tune discoverability nudge (first-successful-ship only)
+
+Plan-tune cathedral T15. After a successful ship, surface /plan-tune once
+per machine. Single line, non-blocking, marker-gated so it never re-fires.
+
+```bash
+_NUDGE_MARKER="$HOME/.gstack/.plan-tune-nudge-shown"
+_QT=$($GSTACK_ROOT/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+if [ ! -f "$_NUDGE_MARKER" ] && [ "$_QT" = "false" ]; then
+  echo ""
+  echo "gstack can learn from your AskUserQuestion answers. Run /plan-tune to opt in"
+  echo "— it captures which prompts you find valuable vs noisy and (with hooks installed)"
+  echo "auto-decides your never-ask preferences."
+  touch "$_NUDGE_MARKER"
+fi
+```
+
+If the marker exists, OR question_tuning is already on, the nudge is a
+no-op. The marker guarantees at-most-once per machine. To re-enable:
+`rm ~/.gstack/.plan-tune-nudge-shown` before next ship.
+
+---
+
+## Section self-check (before you finish)
+
+You ran a carved skill. For your situation, list every section the Section index
+named as applying, and confirm you issued a Read for each one. If you executed any
+of those steps from memory without reading its section, you skipped the source of
+truth — STOP, Read it now, and redo that step. Deterministic version work goes
+through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 
 ---
 

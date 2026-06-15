@@ -35,6 +35,7 @@ import {
 } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { buildGbrainEnv, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
 
 export type LocalEngineStatus =
   | "ok"
@@ -112,6 +113,7 @@ export function resolveGbrainBin(env?: NodeJS.ProcessEnv): string | null {
       timeout: 2_000,
       stdio: ["ignore", "ignore", "ignore"],
       env: e,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     result = "gbrain";
   } catch {
@@ -134,6 +136,7 @@ export function readGbrainVersion(env?: NodeJS.ProcessEnv): string {
       timeout: 2_000,
       stdio: ["ignore", "pipe", "ignore"],
       env: e,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     result = out.trim().split("\n")[0] || "";
   } catch {
@@ -226,12 +229,21 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
   if (!existsSync(gbrainConfigPath())) return "missing-config";
 
   // 3. Probe gbrain sources list.
+  //
+  // Seed DATABASE_URL from ~/.gbrain/config.json (via buildGbrainEnv, the
+  // same helper the sync orchestrator uses in lib/gbrain-exec.ts). Without
+  // this, Bun autoloads a project's .env when the probe runs inside a repo
+  // that defines its own DATABASE_URL (e.g. an app DB on a different port),
+  // gbrain connects to the wrong DB, and the classifier falsely reports
+  // broken-db. This also makes the result cwd-independent, so the 60s cache
+  // can no longer propagate a poisoned negative to clean directories.
   try {
     execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
       timeout: PROBE_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
-      env: env ?? process.env,
+      env: buildGbrainEnv({ baseEnv: env ?? process.env }),
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     return "ok";
   } catch (err) {

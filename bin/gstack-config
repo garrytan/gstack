@@ -8,11 +8,13 @@
 #   gstack-config defaults           — show just the defaults table
 #
 # Env overrides (for testing):
+#   GSTACK_STATE_ROOT — override ~/.gstack state directory (highest priority,
+#                       matches D16 cathedral isolation convention)
 #   GSTACK_HOME       — override ~/.gstack state directory (aligns with writer scripts)
 #   GSTACK_STATE_DIR  — legacy alias for GSTACK_HOME (kept for backwards compat)
 set -euo pipefail
 
-STATE_DIR="${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}"
+STATE_DIR="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}}"
 CONFIG_FILE="$STATE_DIR/config.yaml"
 
 # Annotated header for new config files. Written once on first `set`.
@@ -73,8 +75,27 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# ─── Plan-tune hooks ─────────────────────────────────────────────────
+# plan_tune_hooks: prompt   # Controls whether ./setup installs the plan-tune
+#                           #   Claude Code hooks (PostToolUse capture +
+#                           #   PreToolUse preference enforcement).
+#                           #   prompt — ask on a real TTY, skip otherwise (default)
+#                           #   yes    — install non-interactively
+#                           #   no     — skip non-interactively
+#                           # Override per-run: ./setup --plan-tune-hooks /
+#                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
-# codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
+# codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
+#                           #   Codex runs as a standard step in /review, /ship,
+#                           #   /document-release, plan reviews, and /autoplan (auto
+#                           #   falls back to a Claude subagent if Codex is missing or
+#                           #   not authenticated). disabled = skip all Codex passes.
+#                           #   Asymmetry on disabled: diff-review (/review, /ship) still
+#                           #   runs the free Claude adversarial subagent; plan-review and
+#                           #   /document-release skip the outside-voice step entirely.
+#                           #   An invalid value is REJECTED (existing value preserved) so
+#                           #   a typo cannot silently turn paid Codex calls on or off.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -100,6 +121,7 @@ lookup_default() {
     skill_prefix) echo "false" ;;
     checkpoint_mode) echo "explicit" ;;
     checkpoint_push) echo "false" ;;
+    explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
@@ -107,19 +129,145 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
+
+    redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
+    redact_prepush_hook) echo "false" ;;
+    # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
+    #   brain_trust_policy@<hash>  — unset on fresh install; setup-gbrain
+    #                                writes 'personal' for local engines,
+    #                                asks the user for remote-ambiguous.
+    #   salience_allowlist          — empty falls through to
+    #                                SALIENCE_DEFAULT_ALLOWLIST (D9).
+    #   user_slug_at_<hash>         — empty triggers resolve-user-slug
+    #                                fallback chain (D4 A3) on first call.
+    brain_trust_policy*) echo "unset" ;;
+    salience_allowlist) echo "" ;;
+    user_slug_at_*) echo "" ;;
     *) echo "" ;;
   esac
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# Brain-integration helpers (T5+T10+T16)
+# ──────────────────────────────────────────────────────────────────────
+
+# Compute sha8 of a string. Used for endpoint hashing.
+sha8_of() {
+  printf '%s' "$1" | shasum -a 256 | cut -c1-8
+}
+
+# Detect the active brain endpoint hash. Reads ~/.claude.json for the gbrain
+# MCP server URL. Falls back to the literal 'local' when no MCP is configured.
+endpoint_hash() {
+  _claude_json="$HOME/.claude.json"
+  if [ -f "$_claude_json" ] && command -v jq >/dev/null 2>&1; then
+    _url=$(jq -r '.mcpServers.gbrain.url // .mcpServers.gbrain.transport.url // empty' "$_claude_json" 2>/dev/null)
+    if [ -n "$_url" ] && [ "$_url" != "null" ]; then
+      sha8_of "$_url"
+      return 0
+    fi
+  fi
+  printf '%s' "local"
+}
+
+# Detect endpoint hash collisions. When two distinct endpoints share the same
+# sha8 prefix (rare but possible), escalate to sha16 by emitting the longer
+# hash. Detection: scan config file for existing brain_trust_policy@<hash> or
+# user_slug_at_<hash> keys; if any non-active hash equals the active sha8 but
+# would differ at sha16, the active endpoint needs sha16.
+endpoint_hash_with_collision_check() {
+  _active=$(endpoint_hash)
+  if [ "$_active" = "local" ]; then
+    printf '%s' "$_active"
+    return 0
+  fi
+  # If a different endpoint (different URL) shares this sha8, escalate.
+  # We only catch this when the config has another endpoint recorded.
+  _matching=$(grep -E "^(brain_trust_policy|user_slug_at)@${_active}" "$CONFIG_FILE" 2>/dev/null | head -1 || true)
+  _claude_json="$HOME/.claude.json"
+  if [ -n "$_matching" ] && [ -f "$_claude_json" ] && command -v jq >/dev/null 2>&1; then
+    _url=$(jq -r '.mcpServers.gbrain.url // .mcpServers.gbrain.transport.url // empty' "$_claude_json" 2>/dev/null)
+    _sha16=$(printf '%s' "$_url" | shasum -a 256 | cut -c1-16)
+    # Look for any sha16-namespaced key that conflicts. If a stored sha16 exists
+    # and differs from current sha16, that's the collision evidence; emit sha16.
+    _stored16=$(grep -E "^(brain_trust_policy|user_slug_at)@${_sha16}" "$CONFIG_FILE" 2>/dev/null | head -1 || true)
+    if [ -n "$_stored16" ]; then
+      printf '%s' "$_sha16"
+      return 0
+    fi
+  fi
+  printf '%s' "$_active"
+}
+
+# Resolve the user-slug per D4 A3 chain:
+#   1. mcp__gbrain__whoami.client_name (best effort via gbrain CLI shell-out)
+#   2. $USER env
+#   3. sha8($(git config user.email))
+#   4. anonymous-<sha8(hostname)>
+# Persists result via gstack-config set user_slug_at_<endpoint-hash> on first call.
+resolve_user_slug() {
+  _hash=$(endpoint_hash_with_collision_check)
+  _stored=$(grep -E "^user_slug_at_${_hash}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+  if [ -n "$_stored" ]; then
+    printf '%s' "$_stored"
+    return 0
+  fi
+
+  _slug=""
+
+  # Layer 1: gbrain whoami
+  if command -v gbrain >/dev/null 2>&1; then
+    _whoami=$(gbrain whoami --json 2>/dev/null || true)
+    if [ -n "$_whoami" ] && command -v jq >/dev/null 2>&1; then
+      _client_name=$(printf '%s' "$_whoami" | jq -r '.client_name // .token_name // empty' 2>/dev/null || true)
+      if [ -n "$_client_name" ] && [ "$_client_name" != "null" ]; then
+        _slug=$(printf '%s' "$_client_name" | tr '[:upper:] ' '[:lower:]-' | tr -dc '[:alnum:]-')
+      fi
+    fi
+  fi
+
+  # Layer 2: $USER
+  if [ -z "$_slug" ] && [ -n "${USER:-}" ]; then
+    _slug=$(printf '%s' "$USER" | tr '[:upper:] ' '[:lower:]-' | tr -dc '[:alnum:]-')
+  fi
+
+  # Layer 3: sha8 of git email
+  if [ -z "$_slug" ]; then
+    _email=$(git config user.email 2>/dev/null || true)
+    if [ -n "$_email" ]; then
+      _slug="email-$(sha8_of "$_email")"
+    fi
+  fi
+
+  # Layer 4: anonymous-<sha8(hostname)>
+  if [ -z "$_slug" ]; then
+    _slug="anonymous-$(sha8_of "$(hostname 2>/dev/null || echo unknown)")"
+  fi
+
+  # Persist via direct file write (avoid recursion into gstack-config set)
+  mkdir -p "$STATE_DIR"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    printf '%s' "$CONFIG_HEADER" > "$CONFIG_FILE"
+  fi
+  if ! grep -qE "^user_slug_at_${_hash}:" "$CONFIG_FILE" 2>/dev/null; then
+    echo "user_slug_at_${_hash}: ${_slug}" >> "$CONFIG_FILE"
+  fi
+
+  printf '%s' "$_slug"
 }
 
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    # Validate key (alphanumeric + underscore only)
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
-      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+    # Validate key (alphanumeric + underscore + optional @<hash> suffix for
+    # endpoint-namespaced keys introduced by the brain-aware planning layer)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-f0-9]+)?$'; then
+      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
       exit 1
     fi
-    VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    # Use literal match for keys containing @ (sha hashes), regex otherwise
+    VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-f0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
     if [ -z "$VALUE" ]; then
       VALUE=$(lookup_default "$KEY")
     fi
@@ -128,10 +276,16 @@ case "${1:-}" in
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
-    # Validate key (alphanumeric + underscore only)
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+$'; then
-      echo "Error: key must contain only alphanumeric characters and underscores" >&2
+    # Validate key (alphanumeric + underscore + optional @<hash> suffix)
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-f0-9]+)?$'; then
+      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
       exit 1
+    fi
+    # Validate brain_trust_policy value domain (D4 / D11)
+    if printf '%s' "$KEY" | grep -qE '^brain_trust_policy(@|$)' && \
+       [ "$VALUE" != "personal" ] && [ "$VALUE" != "shared" ] && [ "$VALUE" != "unset" ]; then
+      echo "Warning: brain_trust_policy '$VALUE' not recognized. Valid values: personal, shared, unset. Using unset." >&2
+      VALUE="unset"
     fi
     # V1: whitelist values for keys with closed value domains. Unknown values warn + default.
     if [ "$KEY" = "explain_level" ] && [ "$VALUE" != "default" ] && [ "$VALUE" != "terse" ]; then
@@ -141,6 +295,28 @@ case "${1:-}" in
     if [ "$KEY" = "artifacts_sync_mode" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "artifacts-only" ] && [ "$VALUE" != "full" ]; then
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
+    fi
+    # redact_repo_visibility: a LOCAL override for repos gh/glab can't read (e.g.
+    # self-hosted GitLab). It lives in ~/.gstack/config.yaml (never committed), so
+    # it can't be used to weaken the gate repo-wide for other contributors.
+    if [ "$KEY" = "redact_repo_visibility" ] && [ "$VALUE" != "public" ] && [ "$VALUE" != "private" ] && [ "$VALUE" != "unknown" ]; then
+      echo "Warning: redact_repo_visibility '$VALUE' not recognized. Valid values: public, private, unknown. Using unknown." >&2
+      VALUE="unknown"
+    fi
+    if [ "$KEY" = "redact_prepush_hook" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
+      echo "Warning: redact_prepush_hook '$VALUE' not recognized. Valid values: true, false. Using false." >&2
+      VALUE="false"
+    fi
+    if [ "$KEY" = "plan_tune_hooks" ] && [ "$VALUE" != "prompt" ] && [ "$VALUE" != "yes" ] && [ "$VALUE" != "no" ]; then
+      echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
+      VALUE="prompt"
+    fi
+    # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
+    # an invalid value is REJECTED and the existing setting is left unchanged — a typo
+    # must never silently flip the switch and turn paid Codex calls on or off.
+    if [ "$KEY" = "codex_reviews" ] && [ "$VALUE" != "enabled" ] && [ "$VALUE" != "disabled" ]; then
+      echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
+      exit 1
     fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
@@ -169,9 +345,9 @@ case "${1:-}" in
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted; do
+               skill_prefix checkpoint_mode checkpoint_push explain_level \
+               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -185,14 +361,89 @@ case "${1:-}" in
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix checkpoint_mode checkpoint_push codex_reviews \
-               gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted; do
+               skill_prefix checkpoint_mode checkpoint_push explain_level \
+               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
+  endpoint-hash)
+    # Brain integration helper (T10): print active brain endpoint sha8
+    endpoint_hash_with_collision_check
+    ;;
+  resolve-user-slug)
+    # Brain integration helper (T16 / D4 A3): resolve + persist user-slug
+    resolve_user_slug
+    ;;
+  gbrain-refresh)
+    # Brain integration helper: re-detect gbrain installation state and
+    # persist to ~/.gstack/gbrain-detection.json. gen-skill-docs reads this
+    # file (when invoked with --respect-detection) to decide whether to
+    # render GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS blocks in
+    # generated SKILL.md files.
+    #
+    # Run this after installing or uninstalling gbrain so your locally
+    # generated SKILL.md files match your installation state.
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    DETECT_BIN="$SCRIPT_DIR/gstack-gbrain-detect"
+    DETECTION_FILE="$STATE_DIR/gbrain-detection.json"
+    mkdir -p "$STATE_DIR"
+    if [ ! -x "$DETECT_BIN" ]; then
+      echo "gstack-gbrain-detect not found at $DETECT_BIN" >&2
+      exit 1
+    fi
+    if ! "$DETECT_BIN" > "$DETECTION_FILE.tmp" 2>/dev/null; then
+      printf '{"gbrain_on_path":false,"gbrain_local_status":"no-cli"}\n' > "$DETECTION_FILE.tmp"
+    fi
+    mv "$DETECTION_FILE.tmp" "$DETECTION_FILE"
+
+    # Summarize for the user. Use python (already required elsewhere) to
+    # parse the JSON portably; fall back to grep if python is unavailable.
+    PYTHON_CMD=$(command -v python3 || command -v python || true)
+    if [ -n "$PYTHON_CMD" ]; then
+      STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_local_status','unknown'))" 2>/dev/null || echo unknown)
+      VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_version') or 'unknown')" 2>/dev/null || echo unknown)
+    else
+      STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
+      VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
+      [ -z "$STATUS" ] && STATUS=unknown
+      [ -z "$VERSION" ] && VERSION=unknown
+    fi
+
+    case "$STATUS" in
+      ok)
+        echo "Detected gbrain v$VERSION."
+        # Render brain-aware blocks INTO the global install so EVERY project's
+        # Claude sessions get them (other projects read SKILL.md + sections from
+        # ~/.claude/skills/gstack via absolute paths baked at gen time). Guards
+        # (never mutate an arbitrary directory): the target must exist, not be a
+        # symlink (a symlinked install points at a dev worktree — rendering there
+        # would dirty tracked source), and look like a real gstack clone.
+        INSTALL_DIR="$HOME/.claude/skills/gstack"
+        if [ ! -d "$INSTALL_DIR" ]; then
+          echo "No global install at $INSTALL_DIR — nothing to render. (Dev workspaces get blocks via bin/dev-setup.)"
+        elif [ -L "$INSTALL_DIR" ]; then
+          echo "Skip: $INSTALL_DIR is a symlink (likely a dev worktree). Rendering there would dirty tracked source — run bin/dev-setup in that worktree instead."
+        elif [ ! -f "$INSTALL_DIR/VERSION" ] || [ ! -f "$INSTALL_DIR/package.json" ]; then
+          echo "Skip: $INSTALL_DIR doesn't look like a gstack clone (missing VERSION/package.json) — refusing to modify it."
+        elif ! command -v bun >/dev/null 2>&1; then
+          echo "Skip: bun not on PATH — can't render. Install bun, then re-run 'gstack-config gbrain-refresh'."
+        elif ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude >/dev/null 2>&1 ); then
+          echo "Rendered brain-aware blocks into $INSTALL_DIR — now live across all your projects' Claude sessions."
+          echo "Note: this dirties the install's git tree (generated blocks differ from main, by design)."
+          echo "      A 'git reset --hard origin/main' there reverts them; re-run 'gstack-config gbrain-refresh' to restore."
+        else
+          echo "Warning: render failed. Run 'cd $INSTALL_DIR && bun run gen:skill-docs:user --host claude' manually to see the error."
+        fi
+        ;;
+      *)
+        echo "gbrain not detected (local-status: $STATUS) → brain-aware blocks will be suppressed in planning-skill SKILL.md files."
+        echo "Install gbrain (see /setup-gbrain) and re-run 'gstack-config gbrain-refresh' once it's configured."
+        ;;
+    esac
+    ;;
   *)
-    echo "Usage: gstack-config {get|set|list|defaults} [key] [value]"
+    echo "Usage: gstack-config {get|set|list|defaults|endpoint-hash|resolve-user-slug|gbrain-refresh} [key] [value]"
     exit 1
     ;;
 esac

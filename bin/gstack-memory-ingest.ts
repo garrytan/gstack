@@ -65,6 +65,7 @@ import {
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
 import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
+import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -907,13 +908,23 @@ interface StagingResult {
  * Filename = `${slug}.md`. mkdir is recursive. Existing files overwrite.
  * Errors per-file are collected; the whole batch is best-effort.
  */
+/**
+ * Staging-relative path for a prepared page's slug. Single source of truth so
+ * writeStaged() (which mints the map) and the resume-path reconstruction (#1802
+ * C4) compute identical keys — if they diverge, readNewFailures() silently stops
+ * mapping gbrain's failures back to sources and failed files get marked ingested.
+ */
+export function stagedRelPath(slug: string): string {
+  return `${slug}.md`;
+}
+
 function writeStaged(prepared: PreparedPage[], stagingDir: string): StagingResult {
   mkdirSync(stagingDir, { recursive: true });
   const stagedPathToSource = new Map<string, string>();
   const errors: Array<{ slug: string; error: string }> = [];
   let written = 0;
   for (const p of prepared) {
-    const relPath = `${p.slug}.md`;
+    const relPath = stagedRelPath(p.slug);
     const absPath = join(stagingDir, relPath);
     try {
       mkdirSync(dirname(absPath), { recursive: true });
@@ -978,7 +989,7 @@ function parseImportJson(stdout: string): ImportJsonResult | null {
  * staging-dir-relative filename gbrain saw (e.g. "transcripts/foo.md").
  * stagedPathToSource maps that back to the original source file.
  */
-function readNewFailures(
+export function readNewFailures(
   syncFailuresPath: string,
   preImportOffset: number,
   stagedPathToSource: Map<string, string>,
@@ -1198,6 +1209,17 @@ function preparePages(
 function makeStagingDir(): string {
   const dir = join(GSTACK_HOME, `.staging-ingest-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
+  // Mint the ownership marker (#1802) so cleanupStagingDir() and decideResume()
+  // can prove this dir was created by us before any recursive delete or resume.
+  // #1802 C5: fail hard if the marker can't be written — a marker-less dir would
+  // be refused by the guard forever (leaked, never cleaned). Tear down the
+  // partial dir and rethrow so the caller fails loudly instead of leaking.
+  try {
+    writeFileSync(join(dir, STAGING_MARKER), `${process.pid}\n${Date.now()}\n`, "utf-8");
+  } catch (err) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    throw err;
+  }
   return dir;
 }
 
@@ -1259,8 +1281,21 @@ function isRemoteHttpMcpMode(): boolean {
  * cleanup failure.
  */
 function cleanupStagingDir(dir: string): void {
+  // #1802 deletion chokepoint: never recurse-delete a path we cannot PROVE we
+  // own. A poisoned resume could otherwise route the repo root here.
+  const verdict = checkOwnedStagingDir(dir, GSTACK_HOME);
+  if (!verdict.ok) {
+    console.error(
+      `[gbrain] staging cleanup REFUSED: "${dir}" is not an owned staging dir ` +
+        `(${verdict.reason}). Skipping rm -rf to prevent data loss (#1802).`,
+    );
+    return;
+  }
   try {
-    rmSync(dir, { recursive: true, force: true });
+    // #1802 C5: delete the realpath-resolved dir the guard validated, not the
+    // raw input — closes the TOCTOU gap where `dir` is a symlink swapped between
+    // the check above and this rmSync. canonicalPath is always set when ok.
+    rmSync(verdict.canonicalPath ?? dir, { recursive: true, force: true });
   } catch {
     // best-effort
   }
@@ -1272,13 +1307,39 @@ function cleanupStagingDir(dir: string): void {
  *   1. forward the signal to the child (otherwise gbrain orphans, holds the
  *      PGLite write lock, and burns CPU — observed during 2026-05-10 cold-run
  *      testing)
- *   2. synchronously clean up the staging dir BEFORE process.exit (otherwise
- *      finally blocks in async callers don't run after process.exit from
- *      inside a signal handler, leaking the staging dir on every interrupt)
+ *   2. PRESERVE the staging dir when gbrain has written an import-checkpoint
+ *      pointing at it (the next /sync-gbrain run can resume from
+ *      processedIndex+1). Otherwise synchronously clean up before
+ *      process.exit, since `finally` blocks in ingestPass never run after
+ *      process.exit fires from inside a signal handler.
+ *
+ * Resume semantics added for #1611: prior behavior unconditionally cleaned
+ * up the staging dir on SIGTERM, so the gbrain checkpoint always pointed at
+ * a missing dir and the next run had to restage from scratch.
  */
 let _activeImportChild: ChildProcess | null = null;
 let _activeStagingDir: string | null = null;
 let _signalHandlersInstalled = false;
+
+/**
+ * Returns true if gbrain has written ~/.gbrain/import-checkpoint.json with
+ * `dir` matching the current active staging dir. Indicates the next run
+ * can resume against this staging dir.
+ */
+function stagingDirIsCheckpointed(stagingDir: string): boolean {
+  try {
+    // Read HOME from env so tests can redirect; homedir() caches.
+    const home = process.env.HOME || homedir();
+    const cpPath = join(home, ".gbrain", "import-checkpoint.json");
+    if (!existsSync(cpPath)) return false;
+    const raw = readFileSync(cpPath, "utf-8");
+    const cp = JSON.parse(raw) as { dir?: string };
+    return cp.dir === stagingDir;
+  } catch {
+    return false;
+  }
+}
+
 function installSignalForwarder(): void {
   if (_signalHandlersInstalled) return;
   _signalHandlersInstalled = true;
@@ -1290,11 +1351,24 @@ function installSignalForwarder(): void {
         // child may have already exited between the alive-check and the kill
       }
     }
-    // Synchronously clean up the active staging dir before exiting. The async
-    // `finally` blocks in ingestPass never run after process.exit fires from
-    // inside this handler, so cleanup has to happen here.
     if (_activeStagingDir) {
-      cleanupStagingDir(_activeStagingDir);
+      if (stagingDirIsCheckpointed(_activeStagingDir)) {
+        // Preserve for next-run resume. The orchestrator's decideResume()
+        // (in gstack-gbrain-sync.ts) will see the checkpoint + dir and
+        // re-invoke gbrain import against this same staging dir, picking
+        // up from processedIndex+1. See #1611.
+        try {
+          process.stderr.write(
+            `[memory-ingest] ${signal} received — preserving staging dir for resume: ${_activeStagingDir}\n`,
+          );
+        } catch {
+          // best-effort: stderr may be closed already
+        }
+      } else {
+        // No checkpoint pointing here — the import never reached gbrain or
+        // crashed before writing one. Clean up so we don't leak the dir.
+        cleanupStagingDir(_activeStagingDir);
+      }
       _activeStagingDir = null;
     }
     // Re-raise to default action so the parent actually exits. Without this,
@@ -1310,10 +1384,32 @@ function installSignalForwarder(): void {
  * that kill the child on parent SIGTERM/SIGINT. Returns the same shape as
  * spawnSync's result so the caller doesn't care which mode was used.
  */
+/**
+ * #1611: the `gbrain import` is the long pole on big brains. Its timeout is
+ * configurable via GSTACK_INGEST_TIMEOUT_MS (default 30 min, 1min–24h) so large
+ * memory corpora aren't SIGTERM'd mid-import. On timeout we SIGTERM the child,
+ * which preserves gbrain's import-checkpoint.json (see installSignalForwarder)
+ * so the next run resumes instead of restarting from scratch.
+ */
+const DEFAULT_IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
+export function resolveImportTimeoutMs(
+  raw: string | undefined = process.env.GSTACK_INGEST_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw === "") return DEFAULT_IMPORT_TIMEOUT_MS;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || Number.isNaN(n) || n < 60_000 || n > 86_400_000) {
+    console.error(
+      `[memory-ingest] GSTACK_INGEST_TIMEOUT_MS="${raw}" invalid (need 60000–86400000ms); using ${DEFAULT_IMPORT_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_IMPORT_TIMEOUT_MS;
+  }
+  return n;
+}
+
 function runGbrainImport(
   stagingDir: string,
   timeoutMs: number,
-): Promise<{ status: number | null; stdout: string; stderr: string }> {
+): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   installSignalForwarder();
   return new Promise((resolve) => {
     // Seed DATABASE_URL from gbrain's own config so this stage works
@@ -1346,6 +1442,7 @@ function runGbrainImport(
         status: timedOut ? null : status,
         stdout,
         stderr,
+        timedOut,
       });
     });
     child.on("error", (err) => {
@@ -1355,6 +1452,7 @@ function runGbrainImport(
         status: null,
         stdout,
         stderr: stderr + `\n[spawn-error] ${(err as Error).message}`,
+        timedOut,
       });
     });
   });
@@ -1444,19 +1542,69 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   // entirely. gstack-brain-sync push will pick the dir up via its allowlist
   // and the brain admin's pull job will index transcripts into the remote
   // brain. Local PGLite (if any) stays code-only.
+  //
+  // Resume branch for #1611: when the orchestrator sets
+  // GSTACK_INGEST_RESUME_DIR (because gbrain's import-checkpoint.json points
+  // at an existing dir from a prior SIGTERM'd run), reuse that staging dir
+  // and skip the prepare/writeStaged phase entirely. gbrain's checkpoint
+  // tells it where to resume.
   const remoteHttpMode = isRemoteHttpMcpMode();
-  const stagingDir = remoteHttpMode
-    ? makePersistentTranscriptDir()
-    : makeStagingDir();
+  const resumeDir = process.env.GSTACK_INGEST_RESUME_DIR;
+  // #1802 second entry point: this binary is runnable directly, so it must not
+  // trust GSTACK_INGEST_RESUME_DIR just because it exists — a stale/poisoned env
+  // could make us `gbrain import` (and later clean up) an arbitrary directory.
+  // Prove ownership here too, independently of the orchestrator's decideResume.
+  const resuming = !remoteHttpMode
+    && typeof resumeDir === "string"
+    && resumeDir.length > 0
+    && existsSync(resumeDir)
+    && checkOwnedStagingDir(resumeDir, GSTACK_HOME).ok;
+  if (!remoteHttpMode && resumeDir && resumeDir.length > 0 && !resuming) {
+    console.error(
+      `[memory-ingest] ignoring GSTACK_INGEST_RESUME_DIR="${resumeDir}" — not a proven staging dir (#1802); staging fresh.`,
+    );
+  }
+  const stagingDir = resuming
+    ? resumeDir!
+    : remoteHttpMode
+      ? makePersistentTranscriptDir()
+      : makeStagingDir();
   // Register staging dir with the signal forwarder so SIGTERM/SIGINT can
-  // synchronously clean it up before process.exit (the async finally block
-  // below does NOT run after a signal-handler exit). In remote-http mode we
-  // skip registration — the dir is meant to persist.
+  // either preserve (when gbrain checkpointed it) or synchronously clean up.
+  // The async finally block below does NOT run after a signal-handler exit.
+  // In remote-http mode we skip registration — the dir is meant to persist.
   if (!remoteHttpMode) {
     _activeStagingDir = stagingDir;
   }
+  // #1802 C3: set when the import-timeout branch leaves a resumable checkpoint
+  // pointing at this staging dir, so the finally preserves it for the next run
+  // instead of deleting it (the SIGTERM forwarder's preserve branch only runs
+  // when the PARENT is signalled, which an internal timeout never does).
+  let preserveStaging = false;
   try {
-    const staging = writeStaged(prep.prepared, stagingDir);
+    let staging: StagingResult;
+    if (resuming) {
+      // Pages are already on disk from the previous run. Skip writeStaged.
+      // The "written" count for the verdict reflects what's on disk now;
+      // gbrain's import will skip already-completed entries via its own
+      // checkpoint (processedIndex+1).
+      if (!args.quiet) {
+        console.error(
+          `[memory-ingest] resuming previous staging dir ${stagingDir} (skipping prepare phase)`,
+        );
+      }
+      // #1802 C4: reconstruct stagedPathToSource from the prepared pages so
+      // readNewFailures() can still map gbrain's per-file failures back to
+      // sources on resume. An empty map made every failed file fall through to
+      // state-recording — i.e. silently marked ingested despite failing.
+      const stagedPathToSource = new Map<string, string>();
+      for (const p of prep.prepared) {
+        stagedPathToSource.set(stagedRelPath(p.slug), p.source_path);
+      }
+      staging = { staging_dir: stagingDir, written: prep.prepared.length, errors: [], stagedPathToSource };
+    } else {
+      staging = writeStaged(prep.prepared, stagingDir);
+    }
     failed += staging.errors.length;
     if (!args.quiet && staging.errors.length > 0) {
       for (const e of staging.errors.slice(0, 5)) {
@@ -1542,13 +1690,42 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // spawn, parent termination orphans the gbrain process (observed
     // during 2026-05-10 cold-run testing — gbrain kept running 15 min
     // after the orchestrator timed out).
-    const importResult = await runGbrainImport(stagingDir, 30 * 60 * 1000);
+    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs());
 
     const stdout = importResult.stdout || "";
     const stderr = importResult.stderr || "";
     const importJson = parseImportJson(stdout);
 
     if (importResult.status !== 0) {
+      // #1611/#1802 C3: on timeout, gbrain may have written
+      // import-checkpoint.json so the next /sync-gbrain can resume. But an
+      // INTERNAL timeout (runGbrainImport kills the child and returns here)
+      // never signals the parent, so the SIGTERM forwarder's preserve branch
+      // doesn't run — and the finally would otherwise delete the staging dir
+      // despite a "checkpoint preserved" message. Mirror the forwarder: preserve
+      // only when gbrain actually checkpointed against this dir; otherwise let
+      // the finally clean up (nothing to resume) and say so honestly.
+      if (importResult.timedOut) {
+        const mins = Math.round(resolveImportTimeoutMs() / 60000);
+        const checkpointed = stagingDirIsCheckpointed(stagingDir);
+        const msg = checkpointed
+          ? `gbrain import timed out after ${mins}min; checkpoint preserved — re-run ` +
+            `/sync-gbrain to resume (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`
+          : `gbrain import timed out after ${mins}min before writing a checkpoint; ` +
+            `re-run /sync-gbrain to restage (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`;
+        if (checkpointed) preserveStaging = true;
+        console.error(`[memory-ingest] ${msg}`);
+        return {
+          written: 0,
+          skipped_secret: prep.skippedSecret,
+          skipped_dedup: prep.skippedDedup,
+          skipped_unattributed: prep.skippedUnattributed,
+          failed,
+          duration_ms: Date.now() - t0,
+          partial_pages: prep.partialPages,
+          system_error: msg,
+        };
+      }
       const tail = (stderr.trim().split("\n").pop() || "").slice(0, 300);
       const msg = `gbrain import exited ${importResult.status}: ${tail}`;
       console.error(`[memory-ingest] ERR: ${msg}`);
@@ -1644,7 +1821,15 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       );
     }
   } finally {
-    cleanupStagingDir(stagingDir);
+    // #1802 D1: in remote-http mode `stagingDir` is the PERSISTENT transcript
+    // dir (makePersistentTranscriptDir, under ~/.gstack/transcripts/) that
+    // gstack-brain-sync push must pick up — it is NOT a `.staging-ingest-*` dir
+    // and must never be deleted here. The remote-http branch above already
+    // documents this intent ("Skip the ... cleanupStagingDir paths"), but a
+    // `finally` runs on its `return`, so the gate has to live here. Gating on
+    // mode (rather than widening the ownership guard) keeps checkOwnedStagingDir
+    // strict: it only ever sees `.staging-ingest-*` dirs.
+    if (!remoteHttpMode && !preserveStaging) cleanupStagingDir(stagingDir);
     _activeStagingDir = null;
   }
 
@@ -1744,7 +1929,12 @@ async function main(): Promise<void> {
   if (result.system_error) process.exit(1);
 }
 
-main().catch((err) => {
-  console.error(`gstack-memory-ingest fatal: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// Guard so the module is import-safe for unit tests (e.g. resolveImportTimeoutMs).
+// The orchestrator runs it as `bun gstack-memory-ingest.ts ...`, where
+// import.meta.main is true, so the CLI path is unaffected.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`gstack-memory-ingest fatal: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

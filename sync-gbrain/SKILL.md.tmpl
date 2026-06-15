@@ -47,14 +47,31 @@ When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
 - `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo)
+- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
+- `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id>` cycle; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
+- `/sync-gbrain --no-dream` — skip the dream cycle that `--full` would otherwise auto-run.
 - `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
 - `/sync-gbrain --no-memory` / `--no-brain-sync` — selectively skip stages
 - `/sync-gbrain --quiet` — suppress per-stage output
+- `/sync-gbrain --refresh-cache` — force-rebuild brain-aware planning cache (v1.48; replaces /brain-refresh-context per D1 fold). Skips code + memory stages; routes to `gstack-brain-cache refresh --project <slug>`.
+- `/sync-gbrain --audit` — emit summary of gstack-owned pages per project + sensitive-content audit (v1.48 / D10 lifecycle). Read-only.
 
 Pass-through args go straight to the orchestrator at
 `{{BIN_DIR}}/gstack-gbrain-sync.ts`.
+
+**`--refresh-cache` short-circuit:** when this flag is present, the skill
+runs ONLY the cache refresh (`gstack-brain-cache refresh --project <slug>`
+for the current worktree's slug, plus a cross-project refresh of
+user-profile if `gstack/user-profile/<user-slug>` exists). Code +
+memory + brain-sync stages are skipped. Useful when the user knows the
+brain has new info gstack should pick up before the next planning skill.
+
+**`--audit` short-circuit:** when this flag is present, the skill runs
+`gstack-brain-cache list --project <slug> --json`, summarizes by page
+type, then scans for any cached salience entries that ended up outside
+the SALIENCE_DEFAULT_ALLOWLIST (T17 / D9 leak check). Read-only; no
+modifications to brain or cache.
 
 ---
 
@@ -64,6 +81,29 @@ Before doing anything, check that /setup-gbrain has been run on this Mac.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null
+```
+
+**Brain trust policy gate (v1.48 / Phase 1.5 / D4 — added by T13+T5c):**
+If `gbrain_mcp_mode == "remote-http"` from the detect output AND the per-
+endpoint policy is `unset`, the policy question MUST fire here before
+the orchestrator runs. Local engines auto-set to `personal` silently per
+the per-transport default table.
+
+```bash
+_HASH=$(~/.claude/skills/gstack/bin/gstack-config endpoint-hash 2>/dev/null)
+_POLICY=$(~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@$_HASH 2>/dev/null || echo unset)
+echo "BRAIN_TRUST_POLICY[$_HASH]: $_POLICY"
+```
+
+If `_POLICY == "unset"` AND `_HASH != "local"`, AskUserQuestion per the
+Step 9.5 wording in `/setup-gbrain` (personal vs shared, with persistence
+to `brain_trust_policy@<hash>` and conditional `artifacts_sync_mode=full`
+flip for personal). Then continue.
+
+If `_POLICY == "unset"` AND `_HASH == "local"`, auto-set personal:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH personal
 ```
 
 **Split-engine model (v1.34.0.0+).** Code stage runs locally against the
@@ -101,7 +141,9 @@ BEFORE invoking the orchestrator:
   "Your brain queries (the `mcp__gbrain__*` tools) work via remote MCP, but
   symbol code search needs a local PGLite. Run `/setup-gbrain` and pick
   'Yes' at the new 'local code index' prompt (Step 4.5), or run
-  `gbrain init --pglite --json` directly. Continuing without code stage."
+  `gbrain init --pglite --json --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024`
+  directly (drop the voyage flags if `VOYAGE_API_KEY` isn't set). Continuing
+  without code stage."
   Then proceed to Step 2 — the orchestrator's `runCodeImport()` and
   `runMemoryIngest()` will return SKIP per plan D12; only `runBrainSyncPush()`
   will run. Do NOT abort.
@@ -114,7 +156,8 @@ BEFORE invoking the orchestrator:
     1. Re-run /setup-gbrain — Step 1.5 offers Retry / Switch to PGLite /
        Switch brain mode / Quit (plan D4).
     2. Repair manually: mv ~/.gbrain/config.json ~/.gbrain/config.json.bak
-       && gbrain init --pglite --json
+       && gbrain init --pglite --json --embedding-model voyage:voyage-code-3 \
+          --embedding-dimensions 1024   (drop voyage flags if VOYAGE_API_KEY unset)
   Re-run /sync-gbrain after.
   ```
   Do NOT continue — the orchestrator would skip code+memory and only run
@@ -179,19 +222,101 @@ If B: continue to Step 4 with the empty-corpus state recorded.
 
 ---
 
+## Step 3.5: Call-graph health check (offer `--dream`)
+
+`gbrain code-callers` / `code-callees` (who-calls-this / what-this-calls) return
+`count: 0` until a `gbrain dream` cycle runs the `resolve_symbol_edges` phase for
+this source — not done by the code import in Step 2.
+
+**One hard prerequisite:** building a call graph requires this source's active
+**schema pack to extract code symbols** (the `extract_atoms` phase). On a pack
+that doesn't declare it (e.g. `gbrain-base` / `gbrain-base-v2`), a `dream` cycle
+completes but `resolve_symbol_edges` matches nothing — the graph stays empty no
+matter how many times you run it. So "build the call graph" is only meaningful on
+a code-aware pack. The `--dream` stage detects this and reports it honestly
+(a WARN row) rather than claiming a build that didn't happen. gbrain exposes pack
+capability only at cycle runtime (no pre-flight query as of 0.41.x), so we can't
+detect it before running. `code-def` / `code-refs` need the same symbol
+extraction; they are NOT free "direct lookups" on a non-code-aware pack.
+
+Detect whether this source's call graph is built via doctor's `cycle_freshness`
+check, matching the cwd `SOURCE_ID` literally:
+
+```bash
+SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
+  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+CYCLE=$(gbrain doctor --json --fast 2>/dev/null \
+  | jq -r --arg id "$SOURCE_ID" '
+      (.checks[] | select(.name=="cycle_freshness")) as $c
+      | if $c.status=="ok" then "completed"
+        elif ($c.message | index($id)) then "never"
+        else "unknown" end' 2>/dev/null || echo unknown)
+# index($id) = literal substring (NOT test() regex), matching the lib reader in
+# cycleCompleted(). A fail/warn that doesn't name this source → "unknown" (don't
+# mask other-source failures).
+echo "call graph for $SOURCE_ID: $CYCLE"
+```
+
+If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
+`PAGES > 0`, AskUserQuestion via the format in the preamble:
+
+> D2 — This repo's call graph isn't built. Build it now?
+>
+> ELI10: `gbrain code-callers`/`code-callees` (who calls this function / what it
+> calls) return nothing until the `resolve_symbol_edges` phase runs for this
+> source. `gbrain dream --source <this source>` runs it (scoped to this
+> worktree's code, takes a few minutes). It only produces a graph if this
+> source's schema pack extracts code symbols; if it doesn't, the run completes
+> but the graph stays empty and the dream row will say so.
+>
+> Recommendation: A — call-graph queries return 0 until this runs, and the code
+> index is already populated. If A comes back as a WARN ("pack does not extract
+> code symbols"), the fix is a code-aware schema pack, not re-running dream.
+>
+> Note: options differ in kind, not coverage — no completeness score.
+>
+> A) Run /sync-gbrain --dream now (recommended)
+> B) Skip — I'll run it later
+
+If A: re-invoke the orchestrator with `--dream --code-only` (skips memory +
+brain-sync; the dream stage still runs because it's gated on `--dream`). Then
+report the dream stage's ACTUAL row — `OK call graph built (N edges)` vs a
+`WARN` that names why the graph is still empty (non-code-aware pack, missing
+embedding key, or 0 edges matched). Do not claim success on a WARN.
+If B: continue to Step 4 with the call-graph-not-built state recorded for the
+verdict.
+
+If `CYCLE == completed` or `unknown`, do not prompt — but note `completed` means
+only that a cycle has run, not that edges exist (a non-code-aware pack reports
+`completed` with an empty graph). Step 5's verdict row surfaces the real state.
+
+---
+
 ## Step 4: Refresh `## GBrain Search Guidance` block in CLAUDE.md
 
 Capability check (per /plan-eng-review §6):
 
 ```bash
 SLUG="_capability_check_$$"
+CAPABILITY_OK=0
 if [ -f ~/.gbrain/config.json ] && \
-   gbrain --version 2>/dev/null | grep -q '^gbrain ' && \
-   echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1 && \
-   gbrain search "ping" 2>/dev/null | grep -q "$SLUG"; then
-  CAPABILITY_OK=1
-else
-  CAPABILITY_OK=0
+   gbrain --version 2>/dev/null | grep -q '^gbrain '; then
+  # GBRAIN_PREPARE=true ensures prepared statements stay enabled when
+  # connecting through a PgBouncer transaction-mode pooler (port 6543).
+  # Without it, search silently returns no results (#1435).
+  export GBRAIN_PREPARE=true
+  if echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1; then
+    # Retry search up to 3 times with 1s delay — under transaction-mode
+    # pooling the search index may not be visible on the next connection
+    # immediately after the put.
+    for _attempt in 1 2 3; do
+      if gbrain search "ping" 2>/dev/null | grep -q "$SLUG"; then
+        CAPABILITY_OK=1
+        break
+      fi
+      sleep 1
+    done
+  fi
 fi
 gbrain delete "$SLUG" 2>/dev/null || true
 ```
@@ -215,12 +340,19 @@ over Grep when the question is semantic or when you don't know the exact
 identifier yet.
 
 **This worktree is pinned to a worktree-scoped code source** via the
-`.gbrain-source` file in the repo root (kubectl-style context). Any
-`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, or `query`
-call from anywhere under this worktree routes to that source by default —
-no `--source` flag needed. Conductor sibling worktrees of the same repo
-each have their own pin and their own indexed pages, so semantic results
-match the actual code on disk in this worktree.
+`.gbrain-source` file in the repo root (kubectl-style context).
+`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
+`query` from anywhere under this worktree route to that source by default —
+no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
+commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
+of the same repo each have their own pin and their own indexed pages, so
+semantic results match the code on disk here.
+
+Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
+built first — run `/sync-gbrain --dream` (or `--full`) if they return
+`count: 0`. This only works if this source's gbrain schema pack extracts code
+symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
+and reports a WARN. `code-def`/`code-refs` need the same extraction.
 
 Two indexed corpora available via the `gbrain` CLI:
 - This worktree's code (auto-pinned via `.gbrain-source`).
@@ -241,6 +373,12 @@ Grep is still right for known exact strings, regex, multiline patterns, and
 file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
 auto-sync across all worktrees, run `gbrain autopilot --install` once per
 machine — gbrain's daemon handles incremental refresh on a schedule.
+
+Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
+orchestrator refuses destructive source ops when it detects a running autopilot
+to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
+add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
+sync code walk for them requires an explicit `--allow-reclone` opt-in.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```
@@ -279,6 +417,7 @@ gbrain status: GREEN
   Engine .......... OK   <pglite|supabase>
   Capability ...... OK   write+search round-trip
   CWD source ...... OK   <gstack-code-{repo_slug}> (page_count=<N>)
+  Call graph ...... OK   <N> edges resolved (code-callers/callees live)
   ~/.gstack source. OK   <gstack-brain-{user}> (page_count=<N>) — managed by /setup-gbrain
   Memory sync ..... OK   <artifacts_sync_mode>
   CLAUDE.md ....... OK   ## GBrain Search Guidance present
@@ -287,9 +426,27 @@ gbrain status: GREEN
 Run `/sync-gbrain` again any time gbrain feels off; safe and idempotent.
 ```
 
+The **Call graph** row reports the most authoritative signal available:
+
+1. **If a dream stage ran this invocation** (`--dream`, or `--full` auto-build),
+   mirror its row verbatim — it's the ground truth for this run:
+   - `OK   <N> edges resolved (code-callers/callees live)`
+   - `WARN dream ran but this source's schema pack does not extract code symbols
+     — switch to a code-aware pack (\`gbrain schema use <pack>\`)`
+   - `WARN dream ran but the embed phase failed (missing embedding key)`
+   - `WARN dream ran but resolved 0 edges (no code symbols matched yet)`
+2. **Otherwise** fall back to the `CYCLE` value from Step 3.5, with honest wording
+   (a completed cycle proves a cycle ran, NOT that edges exist):
+   - `completed` → `OK   cycle complete — code-callers/callees live IF this source's pack extracts code symbols`
+   - `never` → `WARN call graph not built — run /sync-gbrain --dream`
+   - `unknown` → `WARN could not probe call graph (doctor unavailable) — run /sync-gbrain --dream if code-callers returns 0`
+
+Any `WARN` Call graph row flips the verdict to YELLOW.
+
 If any row is YELLOW or RED, the verdict line says so and the failing rows
 surface a one-line "next action" (e.g., `Capability ...... ERR  capability
 check failed; CLAUDE.md guidance block REMOVED — run /setup-gbrain to repair`).
+A `never`/`unknown` Call graph row flips the verdict to YELLOW.
 
 ---
 

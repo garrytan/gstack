@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getProjectEvalDir } from './eval-store';
+import { hermeticChildEnv, isHermeticEnabled } from './hermetic-env';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json'); // heartbeat stays global
@@ -167,6 +168,10 @@ export async function runSkillTest(options: {
     '--max-turns', String(maxTurns),
     '--allowed-tools', ...allowedTools,
   ];
+  // Hermetic children get zero MCP servers (no --mcp-config is passed).
+  // Gated on the same call-time check as the env scrub so EVALS_HERMETIC=0
+  // restores operator MCP along with the operator env.
+  if (isHermeticEnabled()) args.push('--strict-mcp-config');
 
   // Write prompt to a temp file OUTSIDE workingDirectory to avoid race conditions
   // where afterAll cleanup deletes the dir before cat reads the file (especially
@@ -176,7 +181,14 @@ export async function runSkillTest(options: {
 
   const proc = Bun.spawn(['sh', '-c', `cat "${promptFile}" | claude ${args.map(a => `"${a}"`).join(' ')}`], {
     cwd: workingDirectory,
-    env: extraEnv ? { ...process.env, ...extraEnv } : undefined,
+    // Hermetic by default (see test/helpers/hermetic-env.ts): operator
+    // session context (CONDUCTOR_*, CLAUDECODE, ~/.claude config, ~/.gstack)
+    // never reaches the child; EVALS_HERMETIC=0 restores the legacy env.
+    // Default GSTACK_HEADLESS=1 so eval/E2E runs classify as headless (BLOCK on an
+    // AskUserQuestion failure rather than emit a prose question no human reads). A
+    // suite exercising the INTERACTIVE prose-fallback path opts out by passing
+    // `env: { GSTACK_HEADLESS: '' }` — extraEnv wins because it spreads last.
+    env: hermeticChildEnv({ GSTACK_HEADLESS: '1', ...extraEnv }),
     stdout: 'pipe',
     stderr: 'pipe',
   });

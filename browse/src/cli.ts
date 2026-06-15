@@ -11,11 +11,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
+import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -209,6 +211,86 @@ function cleanupLegacyState(): void {
   }
 }
 
+// ─── Chromium profile lock helpers (#1781) ─────────────────────
+/** Profile dir used by headed/connect Chromium sessions. */
+function chromiumProfileDir(): string {
+  return path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+}
+
+/** Remove Chromium SingletonLock/Socket/Cookie so a relaunch can acquire the
+ * profile. Safe to call when absent. */
+function cleanChromiumProfileLocks(profileDir: string = chromiumProfileDir()): void {
+  for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    safeUnlinkQuiet(path.join(profileDir, lockFile));
+  }
+}
+
+/** Kill an orphaned Chromium that still holds the profile's SingletonLock. The
+ * lock symlink target is "hostname-PID"; killing that PID tears down its
+ * renderer tree so the next launch starts clean. No-op when absent/stale. */
+async function killOrphanChromium(profileDir: string = chromiumProfileDir()): Promise<void> {
+  try {
+    const lockTarget = fs.readlinkSync(path.join(profileDir, 'SingletonLock')); // "hostname-12345"
+    const orphanPid = parseInt(lockTarget.split('-').pop() || '', 10);
+    if (orphanPid && isProcessAlive(orphanPid)) {
+      safeKill(orphanPid, 'SIGTERM');
+      await new Promise(r => setTimeout(r, 1000));
+      if (isProcessAlive(orphanPid)) {
+        safeKill(orphanPid, 'SIGKILL');
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT' && err?.code !== 'EINVAL') throw err;
+  }
+}
+
+/** Bounded /health probe. Returns true if the server answers within `attempts`
+ * tries spaced `backoffMs` apart — distinguishes a busy-but-alive daemon from a
+ * dead one (#1781) so a slow server isn't killed and restarted into a crash-loop. */
+async function probeHealthWithBackoff(port: number, attempts = 3, backoffMs = 250): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    if (await isServerHealthy(port)) return true;
+    if (i < attempts - 1) await Bun.sleep(backoffMs);
+  }
+  return false;
+}
+
+/**
+ * Build the env for an auto-restart after a crash. headed/proxy/configHash are
+ * reapplied from THIS invocation OR the persisted server state, so a restart
+ * triggered by a plain command (goto/status, no --headed flag) never silently
+ * downgrades a headed session to headless (#1781). Pure + exported for tests.
+ */
+export function buildRestartEnv(
+  globalFlags: GlobalFlags | null | undefined,
+  oldState: ServerState | null,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (globalFlags?.proxyUrl) env.BROWSE_PROXY_URL = globalFlags.proxyUrl;
+  if (globalFlags?.headed || oldState?.mode === 'headed') env.BROWSE_HEADED = '1';
+  const configHash = globalFlags?.configHash || oldState?.configHash;
+  if (configHash) env.BROWSE_CONFIG_HASH = configHash;
+  return env;
+}
+
+/** macOS only: pull the headed Chromium window to the user's current Space.
+ * "Google Chrome for Testing" frequently opens behind the active window or on
+ * another Space — the first thing users read as "I can't see the browser"
+ * (#1781). Best-effort, fire-and-forget, never throws. The app name is a fixed
+ * literal (no interpolation). */
+function raiseHeadedWindowMacOS(): void {
+  if (process.platform !== 'darwin') return;
+  try {
+    nodeSpawn('osascript', ['-e', 'tell application "Google Chrome for Testing" to activate'], {
+      stdio: 'ignore',
+      detached: true,
+    }).unref();
+  } catch {
+    // osascript missing or app not present — non-fatal
+  }
+}
+
 // ─── Server Lifecycle ──────────────────────────────────────────
 async function startServer(extraEnv?: Record<string, string>): Promise<ServerState> {
   ensureStateDir(config);
@@ -217,7 +299,12 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   safeUnlink(config.stateFile);
   safeUnlink(path.join(config.stateDir, 'browse-startup-error.log'));
 
-  let proc: any = null;
+  // #1781: clear a stale Chromium profile lock (and kill the orphan still
+  // holding it) before launch, so an auto-restart after an abrupt kill isn't
+  // blocked by the previous Chromium's SingletonLock — the self-inflicted
+  // crash-loop. Previously only the manual connect preamble did this.
+  await killOrphanChromium();
+  cleanChromiumProfileLocks();
 
   // Allow the caller to opt out of the parent-process watchdog by setting
   // BROWSE_PARENT_PID=0 in the environment. Useful for CI, non-interactive
@@ -240,12 +327,22 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
-    // macOS/Linux: Bun.spawn + unref works correctly
-    proc = Bun.spawn(['bun', 'run', SERVER_SCRIPT], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
+    // loop — it does NOT call setsid(), so the spawned server stays in the
+    // parent's process session. When the CLI runs inside a session-managed
+    // shell (e.g. Claude Code's per-command Bash sandbox, Conductor, CI
+    // step runners), the session leader's exit sends SIGHUP to every PID in
+    // the session, killing the bun server (and its Chromium grandchildren).
+    // Even with BROWSE_PARENT_PID=0 disabling the watchdog, SIGHUP still
+    // reaps the server. Use Node's child_process.spawn with detached:true,
+    // which calls setsid() so the server becomes its own session leader
+    // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
+    // the Windows path's rationale — same root cause, different OS API.
+    nodeSpawn('bun', ['run', SERVER_SCRIPT], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
-    });
-    proc.unref();
+    }).unref();
   }
 
   // Wait for server to become healthy.
@@ -260,27 +357,17 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     await Bun.sleep(100);
   }
 
-  // Server didn't start in time — try to get error details
-  if (proc?.stderr) {
-    // macOS/Linux: read stderr from the spawned process
-    const reader = proc.stderr.getReader();
-    const { value } = await reader.read();
-    if (value) {
-      const errText = new TextDecoder().decode(value);
-      throw new Error(`Server failed to start:\n${errText}`);
+  // Server didn't start in time — check the on-disk startup error log.
+  // Both platforms now spawn with stdio: 'ignore', so the server writes
+  // errors to disk for the CLI to read (see server.ts start().catch).
+  const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
+  try {
+    const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
+    if (errorLog) {
+      throw new Error(`Server failed to start:\n${errorLog}`);
     }
-  } else {
-    // Windows: check startup error log (server writes errors to disk since
-    // stderr is unavailable due to stdio: 'ignore' for detachment)
-    const errorLogPath = path.join(config.stateDir, 'browse-startup-error.log');
-    try {
-      const errorLog = fs.readFileSync(errorLogPath, 'utf-8').trim();
-      if (errorLog) {
-        throw new Error(`Server failed to start:\n${errorLog}`);
-      }
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') throw e;
-    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') throw e;
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
 }
@@ -486,26 +573,42 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      console.error('[browse] Command timed out after 30s');
+      // #1781: a 30s timeout on a heavy page usually means busy, not dead.
+      // Don't kill a live server (that's what triggered the crash-loop) — report
+      // and exit so the user can retry rather than losing their (headed) window.
+      const ts = readState();
+      const alive = ts?.pid ? isProcessAlive(ts.pid) : false;
+      console.error(alive
+        ? '[browse] Command timed out after 30s (server still alive — busy, not restarting). Retry, or raise load.'
+        : '[browse] Command timed out after 30s');
       process.exit(1);
     }
-    // Connection error — server may have crashed
+    // Connection error — server may have crashed, OR may just be busy.
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+      const oldState = readState();
+      // #1781 busy-vs-dead: a single-threaded daemon under beacon/extension load
+      // can briefly stop answering HTTP while still alive. Before declaring a
+      // crash, if the process is alive give /health a bounded chance to recover
+      // and just retry the command — never kill+restart a live-but-busy server.
+      if (oldState?.pid && isProcessAlive(oldState.pid) && await probeHealthWithBackoff(oldState.port)) {
+        if (retries >= 1) throw new Error('[browse] Server unresponsive after retry — aborting');
+        console.error('[browse] Server was briefly unresponsive (busy); retrying command...');
+        return sendCommand(oldState, command, args, retries + 1);
+      }
+      // Truly dead (or health never recovered) → restart.
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
       console.error('[browse] Server connection lost. Restarting...');
-      // Kill the old server to avoid orphaned chromium processes
-      const oldState = readState();
       if (oldState && oldState.pid) {
         await killServer(oldState.pid);
       }
-      // Reapply --proxy / --headed flags from this invocation when restarting
-      // after a crash. Without this, a proxied daemon that dies mid-command
-      // would silently restart in default direct/headless mode and bypass
-      // the SOCKS bridge.
-      const restartEnv: Record<string, string> = {};
-      if (_globalFlags?.proxyUrl) restartEnv.BROWSE_PROXY_URL = _globalFlags.proxyUrl;
-      if (_globalFlags?.headed) restartEnv.BROWSE_HEADED = '1';
-      if (_globalFlags?.configHash) restartEnv.BROWSE_CONFIG_HASH = _globalFlags.configHash;
+      // startServer() now clears the Chromium SingletonLock + reaps the orphan,
+      // so the relaunch isn't blocked by the dead Chromium's profile lock (#1781).
+      //
+      // Reapply --proxy / --headed when restarting. headed comes from THIS
+      // invocation OR the persisted server mode, so a restart triggered by a
+      // plain command (goto/status, no --headed) never silently downgrades a
+      // headed session to headless (#1781). Same for proxy/configHash.
+      const restartEnv = buildRestartEnv(_globalFlags, oldState);
       const newState = await startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
       return sendCommand(newState, command, args, retries + 1);
     }
@@ -966,30 +1069,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       }
     }
 
-    // Kill orphaned Chromium processes that may still hold the profile lock.
-    // The server PID is the Bun process; Chromium is a child that can outlive it
-    // if the server is killed abruptly (SIGKILL, crash, manual rm of state file).
-    const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-    try {
-      const singletonLock = path.join(profileDir, 'SingletonLock');
-      const lockTarget = fs.readlinkSync(singletonLock); // e.g. "hostname-12345"
-      const orphanPid = parseInt(lockTarget.split('-').pop() || '', 10);
-      if (orphanPid && isProcessAlive(orphanPid)) {
-        safeKill(orphanPid, 'SIGTERM');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        if (isProcessAlive(orphanPid)) {
-          safeKill(orphanPid, 'SIGKILL');
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-    } catch (err: any) {
-      if (err?.code !== 'ENOENT' && err?.code !== 'EINVAL') throw err;
-    }
-
-    // Clean up Chromium profile locks (can persist after crashes)
-    for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-      safeUnlinkQuiet(path.join(profileDir, lockFile));
-    }
+    // Kill an orphaned Chromium still holding the profile lock (the Bun server
+    // PID's Chromium child can outlive an abrupt kill/crash), then clear the
+    // lock files so the launch is clean. Shared with the auto-restart path (#1781).
+    await killOrphanChromium();
+    cleanChromiumProfileLocks();
 
     // Delete stale state file
     safeUnlinkQuiet(config.stateFile);
@@ -1027,38 +1111,29 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       });
       const status = await resp.text();
       console.log(`Connected to real Chrome\n${status}`);
+      // #1781: surface the window — it often opens behind/on another Space.
+      raiseHeadedWindowMacOS();
+      if (process.platform === 'darwin') {
+        console.log('(If you still don\'t see it, check Mission Control / other Spaces.)');
+      }
 
       // sidebar-agent.ts spawn was here. Ripped alongside the chat queue —
       // the Terminal pane runs an interactive PTY now, no more one-shot
       // claude -p subprocesses to multiplex.
 
       // Auto-start terminal agent (non-compiled bun process). Owns the PTY
-      // WebSocket for the sidebar Terminal pane.
-      let termAgentScript = path.resolve(__dirname, 'terminal-agent.ts');
-      if (!fs.existsSync(termAgentScript)) {
-        termAgentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'terminal-agent.ts');
-      }
+      // WebSocket for the sidebar Terminal pane. Routes through the shared
+      // spawnTerminalAgent helper so the CLI cold-start path and the
+      // server.ts watchdog respawn path share one implementation. The
+      // helper handles prior-PID cleanup, script lookup, and env wiring.
       try {
-        if (fs.existsSync(termAgentScript)) {
-          // Kill old terminal-agents so a stale port file can't trick the
-          // server into routing /pty-session at a dead listener.
-          try {
-            const { spawnSync } = require('child_process');
-            spawnSync('pkill', ['-f', 'terminal-agent\\.ts'], { stdio: 'ignore', timeout: 3000 });
-          } catch (err: any) {
-            if (err?.code !== 'ENOENT') throw err;
-          }
-          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
-            cwd: config.projectDir,
-            env: {
-              ...process.env,
-              BROWSE_STATE_FILE: config.stateFile,
-              BROWSE_SERVER_PORT: String(newState.port),
-            },
-            stdio: ['ignore', 'ignore', 'ignore'],
-          });
-          termProc.unref();
-          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
+        const newPid = spawnTerminalAgent({
+          stateFile: config.stateFile,
+          serverPort: newState.port,
+          cwd: config.projectDir,
+        });
+        if (newPid) {
+          console.log(`[browse] Terminal agent started (PID: ${newPid})`);
         }
       } catch (err: any) {
         // Non-fatal: chat still works without the terminal agent.
@@ -1067,6 +1142,96 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
       process.exit(1);
+    }
+
+    // ─── Outer Supervisor (v1.44+, opt-in) ──────────────────────────
+    //
+    // Default: fire-and-forget (CLI exits, server runs detached). This is
+    // the contract every existing call site relies on, including Claude
+    // Code's Bash tool which expects `$B connect` to return promptly.
+    //
+    // Opt-in via `--supervise` flag or BROWSE_SUPERVISE=1 env: the CLI
+    // stays attached, polls the spawned server's PID every 30s, and
+    // respawns it through the same headed-mode startServer path on
+    // unexpected exit. Crash-loop guard: 5 respawns inside 5 min →
+    // give up and exit 1 with a clear error. SIGINT / SIGTERM cleanly
+    // tear down the supervised server before exit.
+    //
+    // Out of scope for v1.44 minimum: routing the Chromium-disconnect
+    // exit-code-1 path back through this supervisor. The terminal-agent
+    // watchdog (T5) already covers the highest-frequency restart case;
+    // Chromium-crash-respawn is documented as a follow-up so the
+    // supervisor stays a tight, testable primitive.
+    const superviseRequested = commandArgs.includes('--supervise')
+      || process.env.BROWSE_SUPERVISE === '1';
+    if (!superviseRequested) {
+      process.exit(0);
+    }
+    console.log('[browse] Supervisor mode: monitoring server. Ctrl-C to stop.');
+    let supervisorExiting = false;
+    const teardownAndExit = (signal: string) => {
+      if (supervisorExiting) return;
+      supervisorExiting = true;
+      console.log(`\n[browse] ${signal} received — stopping server.`);
+      const state = readState();
+      if (state?.pid && isProcessAlive(state.pid)) {
+        safeKill(state.pid, 'SIGTERM');
+      }
+      process.exit(0);
+    };
+    process.on('SIGINT', () => teardownAndExit('SIGINT'));
+    process.on('SIGTERM', () => teardownAndExit('SIGTERM'));
+
+    const SUPERVISOR_TICK_MS = parseInt(
+      process.env.GSTACK_SUPERVISOR_TICK_MS || '30000',
+      10,
+    );
+    const SUPERVISOR_GUARD_WINDOW_MS = 5 * 60_000;
+    const SUPERVISOR_GUARD_MAX = 5;
+    const SUPERVISOR_BACKOFF_MS = (process.env.GSTACK_SUPERVISOR_BACKOFF || '1000,2000,4000,8000,30000')
+      .split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n));
+    const respawns: number[] = [];
+
+    while (!supervisorExiting) {
+      await new Promise(resolve => setTimeout(resolve, SUPERVISOR_TICK_MS));
+      if (supervisorExiting) break;
+      const state = readState();
+      if (state?.pid && isProcessAlive(state.pid)) continue;
+      // Server died. Prune rolling window and check guard.
+      const now = Date.now();
+      while (respawns.length && now - respawns[0] > SUPERVISOR_GUARD_WINDOW_MS) {
+        respawns.shift();
+      }
+      if (respawns.length >= SUPERVISOR_GUARD_MAX) {
+        console.error(
+          `[browse] Supervisor: ${SUPERVISOR_GUARD_MAX} crashes in ${SUPERVISOR_GUARD_WINDOW_MS / 1000}s — giving up.`,
+        );
+        process.exit(1);
+      }
+      const attempt = respawns.length;
+      respawns.push(now);
+      const backoff = SUPERVISOR_BACKOFF_MS[Math.min(attempt, SUPERVISOR_BACKOFF_MS.length - 1)] ?? 30_000;
+      console.warn(`[browse] Supervisor: server PID gone — respawning in ${backoff}ms (attempt ${attempt + 1}/${SUPERVISOR_GUARD_MAX})...`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      if (supervisorExiting) break;
+      try {
+        const respawned = await startServer(serverEnv);
+        console.log(`[browse] Supervisor: server respawned (PID ${respawned.pid}, port ${respawned.port}).`);
+        // Re-spawn the terminal-agent too; same env wiring as the initial connect.
+        try {
+          spawnTerminalAgent({
+            stateFile: config.stateFile,
+            serverPort: respawned.port,
+            cwd: config.projectDir,
+          });
+        } catch (err: any) {
+          console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);
+        }
+      } catch (err: any) {
+        console.error(`[browse] Supervisor: server respawn failed: ${err?.message || err}`);
+        // Let the next tick try again — the crash-loop guard already
+        // bounded the retries via the rolling window.
+      }
     }
     process.exit(0);
   }
@@ -1118,11 +1283,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         safeKill(existingState.pid, 'SIGKILL');
       }
     }
-    // Clean profile locks and state file
-    const profileDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
-    for (const lockFile of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-      safeUnlinkQuiet(path.join(profileDir, lockFile));
-    }
+    // #1781: killing the daemon can orphan its Chromium child tree, which keeps
+    // holding the SingletonLock and makes the next `connect` fail to launch.
+    // Reap the orphan via the lock, then clear the lock files + state.
+    await killOrphanChromium();
+    cleanChromiumProfileLocks();
     // Xvfb orphan cleanup: if the recorded PID still matches our Xvfb (by
     // cmdline AND start-time), kill it. PID-only would risk killing a
     // recycled PID belonging to an unrelated process.
@@ -1182,6 +1347,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   }
 
   await sendCommand(state, command, commandArgs);
+
+  // #1781: `focus` means "show me the window". The server-side focus activates
+  // the page via CDP, but on macOS the app can still sit on another Space — pull
+  // it to the user's current Space too.
+  if (command === 'focus') raiseHeadedWindowMacOS();
 }
 
 if (import.meta.main) {

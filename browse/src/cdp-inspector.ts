@@ -13,6 +13,7 @@
  */
 
 import type { Page } from 'playwright';
+import { getOrCreateCdpSession } from './cdp-bridge';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -106,15 +107,23 @@ async function getOrCreateSession(page: Page): Promise<any> {
     }
   }
 
-  session = await page.context().newCDPSession(page);
-  cdpSessions.set(page, session);
+  session = await getOrCreateCdpSession(page, cdpSessions);
 
-  // Enable DOM and CSS domains
-  await session.send('DOM.enable');
-  await session.send('CSS.enable');
-  initializedPages.add(page);
+  // Enable DOM and CSS domains on first init for this page. The session
+  // itself is cached + close-detached by getOrCreateCdpSession; the
+  // initializedPages WeakSet is inspector-layer state that needs its
+  // own close hook to stay in sync.
+  if (!initializedPages.has(page)) {
+    await session.send('DOM.enable');
+    await session.send('CSS.enable');
+    initializedPages.add(page);
+    page.once('close', () => initializedPages.delete(page));
+  }
 
-  // Auto-detach on navigation
+  // Auto-detach on navigation — DOM/CSS domain state is tied to the
+  // document. Close-detach (from getOrCreateCdpSession) handles the
+  // tab-close case; framenavigated catches in-tab navigation that
+  // invalidates inspector state without closing the tab.
   page.once('framenavigated', () => {
     try {
       session.detach().catch(() => {});
@@ -130,7 +139,41 @@ async function getOrCreateSession(page: Page): Promise<any> {
 
 // ─── Modification History ───────────────────────────────────────
 
+// Bounded FIFO of style modifications. Pre-cap, this was an unbounded
+// module-scoped array that grew for every CSS edit made through $B css
+// across the whole browser session — small per-entry footprint but no
+// upper bound, the kind of slow leak that compounds over multi-day
+// inspector use. The cap is 200 because per-session undo workflows
+// rarely walk back more than a handful of edits, and a user who really
+// wants to roll a long change back can `$B css reset` to revert all of
+// them. totalPushed is monotonic across the session so undoModification
+// can tell the user when their target index has been evicted, instead
+// of just "no modification at index N".
+const MOD_HISTORY_CAP = 200;
 const modificationHistory: StyleModification[] = [];
+let modHistoryTotalPushed = 0;
+
+function pushModification(mod: StyleModification): void {
+  modificationHistory.push(mod);
+  modHistoryTotalPushed++;
+  while (modificationHistory.length > MOD_HISTORY_CAP) {
+    modificationHistory.shift();
+  }
+}
+
+// Test-only entry: exposes the history-cap mechanics (push, reset, cap value)
+// without requiring a CDP-driven Page. Production code must go through
+// modifyStyle / undoModification / resetModifications.
+export const __testInternals = {
+  pushModification,
+  MOD_HISTORY_CAP,
+  getRawHistory: () => modificationHistory.slice(),
+  getTotalPushed: () => modHistoryTotalPushed,
+  resetForTest: () => {
+    modificationHistory.length = 0;
+    modHistoryTotalPushed = 0;
+  },
+};
 
 // ─── Specificity Calculation ────────────────────────────────────
 
@@ -559,7 +602,7 @@ export async function modifyStyle(
     method,
   };
 
-  modificationHistory.push(modification);
+  pushModification(modification);
   return modification;
 }
 
@@ -569,7 +612,12 @@ export async function modifyStyle(
 export async function undoModification(page: Page, index?: number): Promise<void> {
   const idx = index ?? modificationHistory.length - 1;
   if (idx < 0 || idx >= modificationHistory.length) {
-    throw new Error(`No modification at index ${idx}. History has ${modificationHistory.length} entries.`);
+    const evictedNote = modHistoryTotalPushed > MOD_HISTORY_CAP
+      ? ` (most recent ${MOD_HISTORY_CAP} only — ${modHistoryTotalPushed - MOD_HISTORY_CAP} earlier entries evicted at the cap)`
+      : '';
+    throw new Error(
+      `No modification at index ${idx}. History has ${modificationHistory.length} entries${evictedNote}.`,
+    );
   }
 
   const mod = modificationHistory[idx];
@@ -623,6 +671,23 @@ export function getModificationHistory(): StyleModification[] {
 }
 
 /**
+ * Diagnostic accessor for the $B memory snapshot. Returns current buffer
+ * occupancy, the cap, and how many entries have been evicted since the
+ * last reset.
+ */
+export function getModificationHistoryStats(): {
+  current: number;
+  cap: number;
+  evicted: number;
+} {
+  return {
+    current: modificationHistory.length,
+    cap: MOD_HISTORY_CAP,
+    evicted: Math.max(0, modHistoryTotalPushed - MOD_HISTORY_CAP),
+  };
+}
+
+/**
  * Reset all modifications, restoring original values.
  */
 export async function resetModifications(page: Page): Promise<void> {
@@ -648,6 +713,7 @@ export async function resetModifications(page: Page): Promise<void> {
     }
   }
   modificationHistory.length = 0;
+  modHistoryTotalPushed = 0;
 }
 
 /**

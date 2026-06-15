@@ -57,7 +57,7 @@ while IFS= read -r f; do
     *.md) DOCS=true ;;
 
     # Config
-    package.json|package-lock.json|yarn.lock|bun.lockb) CONFIG=true ;;
+    package.json|package-lock.json|yarn.lock|bun.lock|bun.lockb) CONFIG=true ;;
     Gemfile|Gemfile.lock) CONFIG=true ;;
     *.yml|*.yaml) CONFIG=true ;;
     .github/*) CONFIG=true ;;
@@ -75,7 +75,10 @@ while IFS= read -r f; do
 
     # Backend: everything else that's code (excluding views/components already matched)
     *.rb|*.py|*.go|*.rs|*.java|*.php|*.ex|*.exs) BACKEND=true ;;
-    *.ts|*.js) BACKEND=true ;;  # Non-component TS/JS is backend
+    # Non-component TS/JS is backend. Include ESM/CJS (.mjs/.cjs) and
+    # explicit-module TS (.mts/.cts) — #1810: these matched no category, so an
+    # ESM/CJS-only PR skipped the backend reviewer entirely.
+    *.ts|*.js|*.mjs|*.cjs|*.mts|*.cts) BACKEND=true ;;
   esac
 done <<< "$FILES"
 
