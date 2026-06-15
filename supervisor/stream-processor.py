@@ -76,7 +76,7 @@ def tool_summary(name: str, inp: dict) -> str:
         return (inp.get("url") or inp.get("query", ""))[:80]
     return str(inp)[:80]
 
-def detect_task(text: str, current: str | None) -> str | None:
+def detect_task(text: str, current):  # current: Optional[str]
     """Scan Bash command or text output for a kernel/task claim."""
     if current:
         return current
