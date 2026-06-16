@@ -16,9 +16,22 @@ import { homedir } from "os";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+// Codex `payload.originator` values map to four buckets so /retro global can
+// distinguish real codex dev (Codex Desktop) from subagent invocations
+// (codex_exec) and CC-driven calls (Claude Code). See issue #1315.
+type CodexOriginator = "desktop" | "exec" | "claude_code" | "other";
+
 interface Session {
   tool: "claude_code" | "codex" | "gemini";
   cwd: string;
+  codexOriginator?: CodexOriginator;
+}
+
+interface CodexOriginatorCounts {
+  desktop: number;
+  exec: number;
+  claude_code: number;
+  other: number;
 }
 
 interface Repo {
@@ -26,6 +39,7 @@ interface Repo {
   remote: string;
   paths: string[];
   sessions: { claude_code: number; codex: number; gemini: number };
+  codex_originators: CodexOriginatorCounts;
 }
 
 interface DiscoveryResult {
@@ -34,7 +48,7 @@ interface DiscoveryResult {
   repos: Repo[];
   tools: {
     claude_code: { total_sessions: number; repos: number };
-    codex: { total_sessions: number; repos: number };
+    codex: { total_sessions: number; repos: number; originators: CodexOriginatorCounts };
     gemini: { total_sessions: number; repos: number };
   };
   total_sessions: number;
@@ -304,6 +318,24 @@ export function extractCwdFromJsonl(filePath: string): string | null {
   return null;
 }
 
+// Codex rollouts ship a free-form `payload.originator` string. Real values
+// seen in the wild: "Codex Desktop" (interactive dev), "codex_exec" (cron /
+// scripted / subagent), "Claude Code" (CC's MCP / subagent integration).
+// Anything else lands in `other` rather than being silently dropped. We trim
+// before lowercasing so a stray trailing space ("Codex Desktop ") still maps.
+function normalizeCodexOriginator(raw: unknown): CodexOriginator {
+  if (typeof raw !== "string") return "other";
+  const v = raw.trim().toLowerCase();
+  if (v === "codex desktop" || v === "codex_desktop") return "desktop";
+  if (v === "codex_exec" || v === "codex exec") return "exec";
+  if (v === "claude code" || v === "claude_code") return "claude_code";
+  return "other";
+}
+
+function emptyOriginatorCounts(): CodexOriginatorCounts {
+  return { desktop: 0, exec: 0, claude_code: 0, other: 0 };
+}
+
 function scanCodex(since: Date): Session[] {
   const sessionsDir = process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions");
   if (!existsSync(sessionsDir)) return [];
@@ -353,7 +385,11 @@ function scanCodex(since: Date): Session[] {
               if (!firstLine) continue;
               const meta = JSON.parse(firstLine);
               if (meta.type === "session_meta" && meta.payload?.cwd) {
-                sessions.push({ tool: "codex", cwd: meta.payload.cwd });
+                sessions.push({
+                  tool: "codex",
+                  cwd: meta.payload.cwd,
+                  codexOriginator: normalizeCodexOriginator(meta.payload.originator),
+                });
               }
             } catch {
               console.error(`Warning: could not parse Codex session ${filePath}`);
@@ -515,8 +551,12 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
     }
 
     const sessionCounts = { claude_code: 0, codex: 0, gemini: 0 };
+    const codexOriginators = emptyOriginatorCounts();
     for (const s of data.sessions) {
       sessionCounts[s.tool]++;
+      if (s.tool === "codex") {
+        codexOriginators[s.codexOriginator ?? "other"]++;
+      }
     }
 
     repos.push({
@@ -524,6 +564,7 @@ async function resolveAndDeduplicate(sessions: Session[]): Promise<Repo[]> {
       remote,
       paths: data.paths,
       sessions: sessionCounts,
+      codex_originators: codexOriginators,
     });
   }
 
@@ -566,13 +607,18 @@ async function main() {
   const codexRepos = new Set(repos.filter((r) => r.sessions.codex > 0).map((r) => r.remote)).size;
   const geminiRepos = new Set(repos.filter((r) => r.sessions.gemini > 0).map((r) => r.remote)).size;
 
+  const codexOriginatorTotals = emptyOriginatorCounts();
+  for (const s of codexSessions) {
+    codexOriginatorTotals[s.codexOriginator ?? "other"]++;
+  }
+
   const result: DiscoveryResult = {
     window: since,
     start_date: startDate,
     repos,
     tools: {
       claude_code: { total_sessions: ccSessions.length, repos: ccRepos },
-      codex: { total_sessions: codexSessions.length, repos: codexRepos },
+      codex: { total_sessions: codexSessions.length, repos: codexRepos, originators: codexOriginatorTotals },
       gemini: { total_sessions: geminiSessions.length, repos: geminiRepos },
     },
     total_sessions: allSessions.length,
@@ -585,13 +631,22 @@ async function main() {
     // Summary format
     console.log(`Window: ${since} (since ${startDate})`);
     console.log(`Sessions: ${allSessions.length} total (CC: ${ccSessions.length}, Codex: ${codexSessions.length}, Gemini: ${geminiSessions.length})`);
+    if (codexSessions.length > 0) {
+      const o = codexOriginatorTotals;
+      console.log(`  Codex originators: desktop=${o.desktop}, exec=${o.exec}, claude_code=${o.claude_code}, other=${o.other}`);
+    }
     console.log(`Repos: ${repos.length} unique`);
     console.log("");
     for (const repo of repos) {
       const total = repo.sessions.claude_code + repo.sessions.codex + repo.sessions.gemini;
       const tools = [];
       if (repo.sessions.claude_code > 0) tools.push(`CC:${repo.sessions.claude_code}`);
-      if (repo.sessions.codex > 0) tools.push(`Codex:${repo.sessions.codex}`);
+      if (repo.sessions.codex > 0) {
+        const o = repo.codex_originators;
+        // Show the desktop/exec split inline when codex sessions are present —
+        // a single number hid real-dev vs subagent activity in /retro global.
+        tools.push(`Codex:${repo.sessions.codex} (desktop=${o.desktop}, exec=${o.exec}, cc=${o.claude_code}${o.other > 0 ? `, other=${o.other}` : ""})`);
+      }
       if (repo.sessions.gemini > 0) tools.push(`Gemini:${repo.sessions.gemini}`);
       console.log(`  ${repo.name} (${total} sessions) — ${tools.join(", ")}`);
       console.log(`    Remote: ${repo.remote}`);
