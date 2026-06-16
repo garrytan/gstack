@@ -768,6 +768,7 @@ Parse the user's input to determine which command to run:
 - `/learn` (no arguments) → **Show recent**
 - `/learn search <query>` → **Search**
 - `/learn prune` → **Prune**
+- `/learn refine` → **Refine (dedup)**
 - `/learn export` → **Export**
 - `/learn stats` → **Stats**
 - `/learn add` → **Manual add**
@@ -827,6 +828,44 @@ Present each flagged entry via AskUserQuestion:
 For removals, read the learnings.jsonl file and remove the matching line, then write
 back. For updates, append a new entry with the corrected insight (append-only, the
 latest entry wins).
+
+---
+
+## Refine (dedup)
+
+Find and merge near-duplicate learnings. `gstack-learnings-search` only collapses
+EXACT `key+type` duplicates, so the same lesson relogged under a different key
+accumulates over time. Refine catches semantic near-duplicates too, keeping the
+highest-confidence survivor and unioning their `files` lists — so the store stays a
+clean playbook instead of a pile of restatements.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-refine --review 2>/dev/null || echo "No learnings yet."
+```
+
+The output has two bands. Read them differently:
+
+1. **Auto-mergeable** (`◆ keep` / `✕ merge` lines): near-duplicates above the merge
+   threshold. The highest-confidence row survives; the others would be merged into
+   it. If any are reported, confirm with the user via AskUserQuestion before
+   touching anything:
+   - A) Merge them — runs `--apply` (atomic write, leaves a `.bak`)
+   - B) Leave them as-is
+
+2. **REVIEW** (`?` lines): gray-zone pairs BELOW the merge bar that might be
+   duplicates. These are NEVER auto-merged. Present them to the user and let them
+   decide per pair whether to consolidate by hand. Do not apply these.
+
+Only after the user picks "Merge them" for band 1, apply the merges:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-refine --apply 2>/dev/null
+```
+
+The refine pass is deterministic and file-only (no gbrain, no network); `--apply`
+never rewrites a file that has an unparseable line.
 
 ---
 

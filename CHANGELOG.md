@@ -1,5 +1,73 @@
 # Changelog
 
+## [1.59.0.0] - 2026-06-16
+
+## **Your learnings store stops hoarding the same lesson twice. `/learn refine` finds**
+## **the reworded duplicates exact-key dedup never could, and merges them on your say-so.**
+
+gstack-learnings-search has always deduped learnings by exact key plus type, latest
+winner. That misses the common case: the same lesson logged twice under different
+keys, once as `seed-service-thread-safety` and again as `sqlalchemy-session-threads`,
+worded differently each time. Those pile up until the store reads like a wall of
+restatements.
+
+The new `/learn refine`, backed by `bin/gstack-learnings-refine`, finds semantic
+near-duplicates and merges them, keeping the highest-confidence row and unioning the
+files each one cited. It is deterministic and file-only: no embeddings database, no
+model, no network, so it runs with gbrain off. It blends word-level TF-IDF cosine,
+where rare shared terms carry the signal, with character-trigram cosine, which
+survives rewording and `sessions` versus `session`. Neither signal alone catches a
+reworded duplicate. The larger of the two does.
+
+Nothing moves without your sign-off. `/learn refine` is dry-run by default and splits
+the output into two bands: auto-mergeable duplicates above the 0.70 bar, and a REVIEW
+band of gray-zone pairs it will never merge on its own. `--apply` writes atomically
+and leaves a `.bak`, and it refuses to rewrite a file that has an unparseable line.
+
+### The numbers that matter
+
+Reproduce: `bun test test/gstack-learnings-refine.test.ts`, then
+`gstack-learnings-refine --all --review --debug-scores` on any store. The scores below
+are the blended similarity on the test fixtures.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Dedup scope | exact key+type only | plus semantic near-duplicates | recall up |
+| Reworded-dup pair (word-cosine 0.58, under the bar) | missed | caught at 0.77 blended | found |
+| Unrelated same-domain pair | would need an unsafe low threshold | stays under 0.20 | no false merge |
+| Merge safety | none | dry-run default, `.bak`, skip-on-parse-error | reversible |
+| Coverage | none | 10 unit tests | pinned |
+
+The 0.70 default sits in the gap. The reworded pair scores 0.58 on words alone, under
+any threshold safe enough to use, but the character-trigram signal lifts it to 0.77.
+Because `--apply` deletes a row, the bar is tuned for precision, and the REVIEW band
+catches the rest without ever deleting on a guess.
+
+### What this means for you
+
+Run `/learn refine` when the store feels noisy. It shows what it would merge, you
+approve, it merges. Gray-zone candidates are listed for you to judge by hand, never
+merged silently. The whole pass is local and reversible, so there is no reason to let
+the playbook rot into restatements.
+
+### Itemized changes
+
+#### Added
+- **`bin/gstack-learnings-refine`**: semantic dedup for the learnings store. Blends
+  word TF-IDF cosine with character-trigram cosine, clusters near-duplicates by
+  union-find, and keeps the highest effective-confidence survivor (same decay model
+  as `gstack-learnings-search`) with `files` lists unioned. Flags: `--all` / `--slug`,
+  `--apply`, `--sim`, `--min-entries` (lazy-on-overflow), `--type`, `--cross-type`,
+  `--review` / `--review-floor`, `--json`, `--debug-scores`. Dry-run by default;
+  `--apply` is atomic, leaves a `.bak`, and never rewrites a file with an unparseable
+  line.
+- **`/learn refine`**: new subcommand in the learn skill. Runs the dry-run, presents
+  the auto-mergeable and REVIEW bands, and applies only after AskUserQuestion
+  confirmation.
+- **`test/gstack-learnings-refine.test.ts`**: 10 tests covering near-dup clustering,
+  exact-dup compaction, cross-type gating, `--apply` (file union, confidence bump,
+  idempotency, parse-error safety), the `--review` gray-zone band, and `--min-entries`.
+
 ## [1.58.1.0] - 2026-06-14
 
 ## **Local evals stop lying. Spawned `claude` test children run in a sealed clean room,**
