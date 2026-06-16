@@ -1,0 +1,314 @@
+#!/usr/bin/env bun
+// gstack-learnings-refine — semantic de-duplication for the project learnings store.
+//
+// WHY: gstack-learnings-search only collapses EXACT key+type duplicates ("latest
+// winner"). The same lesson relogged under a different key accumulates forever.
+// This merges near-identical insights, keeping the highest-confidence survivor
+// and unioning their file lists — the "grow-and-refine" step the log/search pair
+// never had.
+//
+// HOW: deterministic and dependency-free — no embeddings DB, no model, no
+// network (works with gbrain OFF, per the file-only doctrine). It blends word-
+// level TF-IDF cosine with character-trigram cosine: rare shared terms
+// (resolve_ticker, to_thread, SameSite) drive precision, char-trigrams give
+// paraphrase recall (sessions~session, reordered clauses). Neither alone catches
+// a reworded duplicate; the max of them does.
+//
+// SAFE BY DEFAULT: dry-run unless --apply. --apply writes atomically (temp +
+// rename) and leaves a .bak; a file with any unparseable line is never rewritten.
+//
+// Scope mirrors gstack-learnings-search: the current project (via gstack-slug) by
+// default, --slug SLUG for one project, --all for every project.
+//
+// Usage:
+//   gstack-learnings-refine [--all | --slug SLUG] [--apply]
+//                           [--sim N]          blended-similarity threshold (default 0.70)
+//                           [--min-entries N]  skip files with fewer live rows (lazy-on-overflow)
+//                           [--type T]         inspect only one type (dry-run only)
+//                           [--cross-type]     allow merges across different types
+//                           [--review]         also list gray-zone pairs (>= --review-floor,
+//                                              < --sim) for manual inspection — NEVER merged
+//                           [--review-floor N] gray-zone lower bound (default 0.55)
+//                           [--json]           machine-readable output
+
+import { readFileSync, writeFileSync, renameSync, readdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+
+const SCRIPT_DIR = import.meta.dir;
+const GSTACK_HOME = process.env.GSTACK_HOME || join(homedir(), '.gstack');
+
+const argv = process.argv.slice(2);
+const has = (n) => argv.includes(n);
+const opt = (n, d) => { const i = argv.indexOf(n); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : d; };
+
+if (has('--help') || has('-h')) {
+  console.log(readFileSync(import.meta.path, 'utf8').split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
+  process.exit(0);
+}
+
+const APPLY = has('--apply');
+const SIM = parseFloat(opt('--sim', '0.70'));
+const MIN_ENTRIES = parseInt(opt('--min-entries', '0'), 10);
+const TYPE_FILTER = opt('--type', '');
+const CROSS_TYPE = has('--cross-type');
+const REVIEW = has('--review');
+const REVIEW_FLOOR = parseFloat(opt('--review-floor', '0.55'));
+const JSON_OUT = has('--json');
+const SLUG = opt('--slug', '');
+
+if (APPLY && TYPE_FILTER) {
+  console.error('--type is an inspection filter; drop it to --apply (apply always operates on the whole file).');
+  process.exit(2);
+}
+if (REVIEW && REVIEW_FLOOR >= SIM) {
+  console.error(`--review-floor (${REVIEW_FLOOR}) must be below --sim (${SIM}); nothing would fall in the gray zone.`);
+  process.exit(2);
+}
+
+// Resolve the current project's slug the same way the other learnings tools do.
+function currentSlug() {
+  try {
+    const p = Bun.spawnSync([join(SCRIPT_DIR, 'gstack-slug')], { cwd: process.cwd() });
+    const m = (p.stdout?.toString() || '').match(/^SLUG=(.*)$/m);
+    return m ? m[1].trim() : '';
+  } catch { return ''; }
+}
+
+const projectsDir = join(GSTACK_HOME, 'projects');
+let files = [];
+if (has('--all')) {
+  if (existsSync(projectsDir)) {
+    for (const d of readdirSync(projectsDir)) {
+      const f = join(projectsDir, d, 'learnings.jsonl');
+      if (existsSync(f)) files.push(f);
+    }
+  }
+} else {
+  const slug = SLUG || currentSlug();
+  if (slug) files = [join(projectsDir, slug, 'learnings.jsonl')];
+}
+files = files.filter((f) => existsSync(f));
+
+// ---- text → tokens ---------------------------------------------------------
+const STOP = new Set((
+  'the a an and or but to of in on at for with from by as is are be was were been being it its ' +
+  'this that these those use used using when then if else not no into via over under per you your ' +
+  'we our they their them his her my so do does done can could should would may might must will ' +
+  'shall vs etc only also more most than such which what who how why where all any each one two'
+).split(/\s+/));
+const tokenize = (s) => (s || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !STOP.has(t));
+
+// ---- similarity vectors ----------------------------------------------------
+// word: TF-IDF cosine over stop-filtered tokens (precision; rare terms dominate)
+// char: TF cosine over character trigrams (paraphrase recall; morphology-robust)
+// blended = max(word, char): catches a reworded dup either alone would miss,
+// while unrelated pairs stay low on BOTH.
+const charTris = (s) => {
+  const t = (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const out = [];
+  for (let i = 0; i < t.length - 2; i++) out.push(t.slice(i, i + 3));
+  return out;
+};
+const tfVec = (toks, idf) => {
+  const tf = new Map();
+  for (const t of toks) tf.set(t, (tf.get(t) || 0) + 1);
+  const v = new Map(); let norm = 0;
+  for (const [t, c] of tf) { const w = c * (idf ? idf.get(t) : 1); v.set(t, w); norm += w * w; }
+  return { v, norm: Math.sqrt(norm) || 1 };
+};
+function buildVectors(rows) {
+  const wordDocs = rows.map((e) => [...tokenize(e.key), ...tokenize(e.key), ...tokenize(e.insight)]); // key x2
+  const charDocs = rows.map((e) => charTris(`${e.key} ${e.insight}`));
+  const N = rows.length;
+  const idf = new Map();
+  for (const toks of wordDocs) for (const t of new Set(toks)) idf.set(t, (idf.get(t) || 0) + 1);
+  for (const [t, df] of idf) idf.set(t, Math.log(1 + N / df));
+  return rows.map((_, i) => ({ word: tfVec(wordDocs[i], idf), char: tfVec(charDocs[i], null) }));
+}
+function cosOf(a, b) {
+  const [small, big] = a.v.size < b.v.size ? [a, b] : [b, a];
+  let dot = 0;
+  for (const [t, w] of small.v) { const o = big.v.get(t); if (o) dot += w * o; }
+  return dot / (a.norm * b.norm);
+}
+const cosine = (a, b) => Math.max(cosOf(a.word, b.word), cosOf(a.char, b.char));
+
+// ---- confidence decay (mirrors gstack-learnings-search) --------------------
+const NOW = Date.now();
+const effConf = (e) => {
+  let conf = e.confidence || 5;
+  if (e.source === 'observed' || e.source === 'inferred') {
+    const days = Math.floor((NOW - new Date(e.ts).getTime()) / 86400000);
+    conf = Math.max(0, conf - Math.floor(days / 30));
+  }
+  return conf;
+};
+
+// ---- union-find ------------------------------------------------------------
+const makeUF = (n) => {
+  const p = Array.from({ length: n }, (_, i) => i);
+  const find = (x) => { while (p[x] !== x) { p[x] = p[p[x]]; x = p[x]; } return x; };
+  return { find, uni: (a, b) => { p[find(a)] = find(b); } };
+};
+
+// ---- per-file refinement ---------------------------------------------------
+const report = [];
+for (const file of files) {
+  const slug = file.split('/').slice(-2)[0];
+  let raw;
+  try { raw = readFileSync(file, 'utf8'); } catch { continue; }
+
+  let parseError = false;
+  const rows = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line)); } catch { parseError = true; }
+  }
+
+  // 1) exact dedup, latest-winner per key+type (same as search)
+  const withKey = rows.filter((e) => e.key && e.type);
+  const seen = new Map();
+  for (const e of withKey) {
+    const dk = `${e.key}|${e.type}`;
+    const ex = seen.get(dk);
+    if (!ex || new Date(e.ts) > new Date(ex.ts)) seen.set(dk, e);
+  }
+  const live = Array.from(seen.values());
+  const exactDropped = withKey.length - live.length;
+
+  if (live.length < MIN_ENTRIES) continue;
+
+  // 2) semantic clustering over the live set
+  const vecs = buildVectors(live);
+  const uf = makeUF(live.length);
+  const edges = [];
+  const allSims = [];
+  for (let i = 0; i < live.length; i++) {
+    for (let j = i + 1; j < live.length; j++) {
+      const sameType = live[i].type === live[j].type;
+      const s = cosine(vecs[i], vecs[j]);
+      allSims.push([i, j, s, sameType]);
+      if (!CROSS_TYPE && !sameType) continue;
+      if (s >= SIM) { uf.uni(i, j); edges.push([i, j, s]); }
+    }
+  }
+  if (has('--debug-scores')) {
+    console.error(`\n# ${slug}: blend(word,char) pairwise (>=0.2), * = same-type`);
+    for (const [i, j, s, st] of allSims.filter((x) => x[2] >= 0.2).sort((a, b) => b[2] - a[2])) {
+      const w = cosOf(vecs[i].word, vecs[j].word), c = cosOf(vecs[i].char, vecs[j].char);
+      console.error(`  ${s.toFixed(3)} ${st ? '*' : ' '} (w=${w.toFixed(2)} c=${c.toFixed(2)}) [${live[i].key}] ~ [${live[j].key}]`);
+    }
+  }
+
+  // 3) group into clusters
+  const groups = new Map();
+  for (let i = 0; i < live.length; i++) {
+    const r = uf.find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(i);
+  }
+  const simOf = (i, j) => { const e = edges.find(([a, b]) => (a === i && b === j) || (a === j && b === i)); return e ? e[2] : 0; };
+
+  const clusters = [];
+  const dropIdx = new Set();
+  const mergeInto = new Map();
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue;
+    const ranked = [...idxs].sort((a, b) => {
+      const ca = effConf(live[a]), cb = effConf(live[b]);
+      if (cb !== ca) return cb - ca;
+      const ta = new Date(live[a].ts).getTime(), tb = new Date(live[b].ts).getTime();
+      if (tb !== ta) return tb - ta;
+      return (live[b].insight || '').length - (live[a].insight || '').length;
+    });
+    const survivor = ranked[0];
+    const members = ranked.slice(1);
+    if (TYPE_FILTER && live[survivor].type !== TYPE_FILTER) continue;
+    const fileUnion = new Set();
+    let maxConf = 0;
+    for (const k of idxs) {
+      for (const f of (live[k].files || [])) fileUnion.add(f);
+      maxConf = Math.max(maxConf, live[k].confidence || 0);
+    }
+    mergeInto.set(survivor, { files: fileUnion, conf: maxConf });
+    for (const m of members) dropIdx.add(m);
+    clusters.push({
+      survivor: { key: live[survivor].key, type: live[survivor].type, conf: effConf(live[survivor]), insight: live[survivor].insight },
+      members: members.map((m) => ({ key: live[m].key, type: live[m].type, conf: effConf(live[m]), sim: +simOf(survivor, m).toFixed(3), insight: live[m].insight })),
+    });
+  }
+
+  // gray-zone review pairs: similar enough to inspect, below the merge bar.
+  // Skip endpoints already being merged, so the list is only NEW candidates.
+  const reviewPairs = [];
+  if (REVIEW) {
+    for (const [i, j, s, st] of allSims) {
+      if (s < REVIEW_FLOOR || s >= SIM) continue;
+      if (!CROSS_TYPE && !st) continue;
+      if (dropIdx.has(i) || dropIdx.has(j)) continue;
+      if (TYPE_FILTER && live[i].type !== TYPE_FILTER && live[j].type !== TYPE_FILTER) continue;
+      reviewPairs.push({
+        sim: +s.toFixed(3),
+        a: { key: live[i].key, type: live[i].type, insight: live[i].insight },
+        b: { key: live[j].key, type: live[j].type, insight: live[j].insight },
+      });
+    }
+    reviewPairs.sort((x, y) => y.sim - x.sim);
+  }
+
+  report.push({ slug, file, totalRows: rows.length, liveCount: live.length, exactDropped, clusters, semanticDropped: dropIdx.size, reviewPairs, parseError });
+
+  // 4) apply
+  if (APPLY && (exactDropped > 0 || dropIdx.size > 0)) {
+    if (parseError) { console.error(`[refine] ${slug}: unparseable line(s) present — skipping rewrite to avoid data loss.`); continue; }
+    const out = [];
+    for (let i = 0; i < live.length; i++) {
+      if (dropIdx.has(i)) continue;
+      const e = { ...live[i] };
+      const merge = mergeInto.get(i);
+      if (merge) {
+        if (merge.files.size) e.files = [...merge.files].sort();
+        if (merge.conf) e.confidence = merge.conf;
+      }
+      out.push(e);
+    }
+    out.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+    writeFileSync(`${file}.bak`, raw);
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, out.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    renameSync(tmp, file);
+  }
+}
+
+// ---- output ----------------------------------------------------------------
+if (JSON_OUT) {
+  console.log(JSON.stringify({ apply: APPLY, sim: SIM, crossType: CROSS_TYPE, report }, null, 2));
+  process.exit(0);
+}
+
+const trunc = (s, n = 100) => (s || '').length > n ? `${s.slice(0, n)}…` : (s || '');
+let totalClusters = 0, totalDropped = 0, totalExact = 0, totalReview = 0;
+for (const r of report) {
+  totalClusters += r.clusters.length; totalDropped += r.semanticDropped; totalExact += r.exactDropped;
+  totalReview += (r.reviewPairs || []).length;
+  if (r.clusters.length === 0 && r.exactDropped === 0 && (r.reviewPairs || []).length === 0) continue;
+  console.log(`\n■ ${r.slug}  (${r.liveCount} live${r.exactDropped ? `, ${r.exactDropped} exact-dup row(s) to compact` : ''})`);
+  for (const c of r.clusters) {
+    console.log(`  ◆ keep [${c.survivor.key}] (${c.survivor.type}, conf ${c.survivor.conf})`);
+    console.log(`      ${trunc(c.survivor.insight)}`);
+    for (const m of c.members) {
+      console.log(`    ✕ merge [${m.key}] (${m.type}, conf ${m.conf})  sim=${m.sim}`);
+      console.log(`      ${trunc(m.insight)}`);
+    }
+  }
+  for (const p of (r.reviewPairs || [])) {
+    console.log(`  ? ${p.sim.toFixed(3)} REVIEW (possible dup, NOT merged): [${p.a.key}] (${p.a.type}) ~ [${p.b.key}] (${p.b.type})`);
+    console.log(`      ${trunc(p.a.insight)}`);
+    console.log(`      ${trunc(p.b.insight)}`);
+  }
+}
+const reviewBit = REVIEW ? ` · ${totalReview} review pair(s)` : '';
+console.log(`\n${APPLY ? 'APPLIED' : 'DRY-RUN'}: ${report.length} file(s) scanned · ${totalClusters} near-dup cluster(s) · ${totalDropped} semantic row(s) ${APPLY ? 'merged' : 'mergeable'} · ${totalExact} exact-dup row(s) ${APPLY ? 'compacted' : 'compactable'}${reviewBit}`);
+if (!APPLY && (totalDropped > 0 || totalExact > 0)) console.log('Re-run with --apply to write changes (atomic, leaves a .bak).');
+if (REVIEW && totalReview > 0) console.log('REVIEW pairs are never auto-merged — inspect them, then merge by hand or with a tighter --sim.');
