@@ -29,4 +29,17 @@ describe("one-way-door credential keyword net (#1839)", () => {
       expect(classifyQuestion({ summary: `rotate my ${noun}` }).oneWay).toBe(true);
     }
   });
+
+  // revoke/reset/rotate must all share the same credential noun list. Previously
+  // "secret" was only in rotate (missing from revoke and reset) and "access key"
+  // was missing from reset, so "revoke my secret" / "reset my secret" /
+  // "reset my access key" leaked through as two-way (auto-decidable).
+  test("revoke/reset/rotate are all parallel for every credential noun", () => {
+    for (const verb of ["revoke", "reset", "rotate"]) {
+      for (const noun of ["api key", "token", "secret", "credential", "access key", "password"]) {
+        const r = classifyQuestion({ summary: `${verb} my ${noun}` });
+        expect(r.oneWay, `${verb} my ${noun} should be one-way`).toBe(true);
+      }
+    }
+  });
 });

@@ -62,9 +62,12 @@ const DESTRUCTIVE_PATTERNS: RegExp[] = [
   /\bterraform\s+destroy\b/i,
   /\brollback\b/i,
 
-  // Credentials / auth — allow filler words ("the", "my") between verb and noun
-  /\brevoke\s+[\w\s]*\b(api key|token|credential|access key|password)\b/i,
-  /\breset\s+[\w\s]*\b(api key|token|password|credential)\b/i,
+  // Credentials / auth — allow filler words ("the", "my") between verb and noun.
+  // Keep the noun alternation identical across revoke/reset/rotate so the three
+  // verbs stay parallel; a noun in one but not the others is a false-negative
+  // safety hole (e.g. "reset my secret" must be one-way just like "rotate my secret").
+  /\brevoke\s+[\w\s]*\b(api key|token|secret|credential|access key|password)\b/i,
+  /\breset\s+[\w\s]*\b(api key|token|secret|credential|access key|password)\b/i,
   /\brotate\s+[\w\s]*\b(api key|token|secret|credential|access key|password)\b/i,
 
   // Scope / architecture forks (reversible with effort — still deserve confirmation)
