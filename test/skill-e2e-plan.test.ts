@@ -692,7 +692,7 @@ Read plan.md — that's the plan to review. This is a standalone plan document, 
 Proceed directly to the full review. Skip any AskUserQuestion calls — this is non-interactive.
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections.
 
-CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After completing your review, you MUST write a "## GSTACK REVIEW REPORT" section to the END of plan.md, exactly as described in the "Plan File Review Report" section of SKILL.md. If gstack-review-read is not available or returns NO_REVIEWS, write the placeholder table with all four review rows (CEO, Codex, Eng, Design). Use the Edit tool to append to plan.md — do NOT overwrite the existing plan content.
+CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After completing your review, you MUST write a "## GSTACK REVIEW REPORT" section to the END of plan.md, exactly as described in the "Plan File Review Report" section of SKILL.md. If gstack-review-read is not available or returns NO_REVIEWS, write the placeholder table with all five review rows (CEO, Codex, Eng, Design, DX). The report MUST end with the mandatory unresolved-decisions status as its final line — the exact unbolded line NO UNRESOLVED DECISIONS when nothing is open, or a "**UNRESOLVED DECISIONS:**" block of bullets when items remain. Nothing may follow it. Use the Edit tool to append to plan.md — do NOT overwrite the existing plan content.
 
 This review report at the bottom of the plan is the MOST IMPORTANT deliverable of this test.`,
       workingDirectory: planDir,
@@ -741,7 +741,24 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
     expect(afterReport).toContain('Eng Review');
     expect(afterReport).toContain('Design Review');
 
-    console.log('Plan review report found at bottom of plan.md');
+    // Mandatory unresolved-decisions status (plan-flag-unresolved-issues): the report's
+    // final non-whitespace line must be the unresolved status — the exact sentinel or a
+    // bullet of an UNRESOLVED DECISIONS block, with nothing (CODEX/CROSS-MODEL/VERDICT/
+    // prose) after it.
+    expect(afterReport).toContain('UNRESOLVED DECISIONS');
+    // Compute from afterReport (the report section to EOF), not the whole file, so a
+    // mid-file report surfaces the real trailing content in the failure message.
+    const nonEmpty = afterReport.split('\n').map(l => l.trim()).filter(l => l !== '');
+    const lastLine = nonEmpty[nonEmpty.length - 1];
+    const isSentinel = lastLine === 'NO UNRESOLVED DECISIONS';
+    const isUnresolvedBullet =
+      /^[-*]\s+/.test(lastLine) && !/VERDICT/i.test(lastLine) && afterReport.includes('UNRESOLVED DECISIONS:');
+    expect(
+      isSentinel || isUnresolvedBullet,
+      `report must end with the unresolved-decisions status; last line was: ${lastLine}`,
+    ).toBe(true);
+
+    console.log('Plan review report found at bottom of plan.md (ends with unresolved status)');
   }, 420_000);
 });
 

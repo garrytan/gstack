@@ -95,8 +95,8 @@ you missed it.>
 
 ## Linked Spec
 <Auto-detect: look for /spec archives matching this branch via:
-  eval "$(${ctx.paths.binDir}/gstack-paths)"
-  eval "$(${ctx.paths.binDir}/gstack-slug)"
+  eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+  eval "$(~/.claude/skills/gstack/bin/gstack-slug)"
   CURRENT_BRANCH=$(git branch --show-current)
   SPEC_ARCHIVES="$GSTACK_STATE_ROOT/projects/$SLUG/specs"
   # Find newest archive whose spec_branch frontmatter matches current branch (or one of its

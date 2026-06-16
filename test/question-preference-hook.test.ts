@@ -60,7 +60,7 @@ function writeGlobalPref(questionId: string, preference: string): void {
   fs.writeFileSync(f, JSON.stringify(prefs, null, 2));
 }
 
-function runHook(stdin: object, cwd?: string): {
+function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>): {
   stdout: string;
   stderr: string;
   status: number;
@@ -72,7 +72,15 @@ function runHook(stdin: object, cwd?: string): {
   }
   env.GSTACK_STATE_ROOT = stateRoot;
   delete env.GSTACK_HOME;
+  // Strip ambient Conductor markers so these cases characterize NON-Conductor
+  // behavior deterministically — otherwise running the suite inside Conductor
+  // (CONDUCTOR_WORKSPACE_PATH/PORT set) would flip every defer into the
+  // [conductor] prose deny. The Conductor cases below opt back in explicitly
+  // via extraEnv.
+  delete env.CONDUCTOR_WORKSPACE_PATH;
+  delete env.CONDUCTOR_PORT;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
+  if (extraEnv) Object.assign(env, extraEnv);
   const res = spawnSync(HOOK, [], {
     env,
     input: JSON.stringify({ ...stdin, cwd: cwd || fixtureCwd }),
@@ -334,6 +342,108 @@ describe('MCP variant', () => {
       },
     });
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+});
+
+// ----------------------------------------------------------------------
+// Conductor: deny + prose redirect (transport avoidance, not preference)
+// ----------------------------------------------------------------------
+
+describe('Conductor prose redirect', () => {
+  const CONDUCTOR = { CONDUCTOR_PORT: '55070' };
+
+  test('two-way, no preference → deny with [conductor] prose directive', () => {
+    const r = runHook({
+      session_id: 'c1',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-c1',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/do not call askuserquestion/i);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/reply with a letter/i);
+  });
+
+  test('UNMARKED question (modal path) → deny with prose directive', () => {
+    const r = runHook({
+      session_id: 'c2',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-c2',
+      tool_input: {
+        questions: [
+          { question: 'No marker — an ad-hoc question', options: ['A) Yes (recommended)', 'B) No'] },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
+  });
+
+  test('one-way door → deny with prose directive (NOT defer — destructive must reach human via prose)', () => {
+    const r = runHook({
+      session_id: 'c3',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-c3',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-test-failure-triage> Tests failed.',
+            options: ['A) Fix now (recommended)', 'B) Investigate', 'C) Ack and ship'],
+          },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/typed confirmation/i);
+  });
+
+  test('CONDUCTOR_WORKSPACE_PATH alone also triggers the redirect', () => {
+    const r = runHook({
+      session_id: 'c4',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c4',
+      tool_input: {
+        questions: [{ question: '<gstack-qid:test-q> Pick?', options: ['A) X (recommended)', 'B) Y'] }],
+      },
+    }, undefined, { CONDUCTOR_WORKSPACE_PATH: '/Users/x/conductor/ws' });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
+  });
+
+  test('PRECEDENCE: full never-ask auto-decide still wins over Conductor prose', () => {
+    writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
+    const r = runHook({
+      session_id: 'c5',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-c5',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-pre-landing-review-fix> Pre-landing review flagged issue.',
+            options: ['A) Fix now (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    // auto-decide reason, NOT the conductor prose reason
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('plan-tune auto-decide');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toContain('[conductor]');
+  });
+
+  test('non-AUQ tool in Conductor → still defer (no redirect on unrelated tools)', () => {
+    const r = runHook(
+      { session_id: 'c6', tool_name: 'Bash', tool_use_id: 'tu-c6', tool_input: {} },
+      undefined,
+      CONDUCTOR,
+    );
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
   });
 });
 

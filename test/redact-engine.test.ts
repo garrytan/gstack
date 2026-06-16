@@ -49,6 +49,36 @@ describe("HIGH credential patterns", () => {
     });
   }
 
+  // #1868 — modern OpenAI keys use base64url bodies (with - and _). The old
+  // [A-Za-z0-9]{32,} regex stopped at the first separator and missed them all,
+  // failing a HIGH credential OPEN through the redaction gate.
+  test("openai.key flags modern sk-proj-/sk-svcacct-/sk-admin- shapes (#1868)", () => {
+    const missed = [
+      "sk-proj-Ab12_Cd34-Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv",
+      "sk-svcacct-abc_def-ghijklmnopqrstuvwxyz0123456789ABCDEF",
+      "sk-admin-AAAA_BBBB-CCCC_DDDD-EEEE_FFFF-GGGG_HHHH1234",
+    ];
+    for (const key of missed) {
+      expect(ids(`OPENAI_API_KEY=${key}`)).toContain("openai.key");
+    }
+    // legacy contiguous shape still flags
+    expect(ids("sk-proj-" + "a".repeat(40))).toContain("openai.key");
+  });
+
+  test("openai.key does not over-match prose / malformed sk- strings (#1868 calibration)", () => {
+    // HIGH tier BLOCKS, so false positives on prose are costly. None of these
+    // should flag as openai.key.
+    const benign = [
+      "the sk-learning-rate-schedule-was-tuned-carefully", // hyphenated prose
+      "sk--double-dash-typo-not-a-real-key",
+      "use sk-proj for the project prefix in docs", // no body
+      "sk-short", // too short, no prefix
+    ];
+    for (const text of benign) {
+      expect(ids(text)).not.toContain("openai.key");
+    }
+  });
+
   test("twilio.auth_token needs an SID nearby", () => {
     const sid = "AC" + "a".repeat(32);
     const tok = "b".repeat(32);
@@ -238,6 +268,27 @@ describe("oversize fails CLOSED", () => {
     expect(r.counts.HIGH).toBe(1);
     expect(r.findings[0].id).toBe("engine.input_too_large");
     expect(exitCodeFor(r)).toBe(3);
+  });
+
+  // #1824: a malformed --max-bytes used to reach the engine as NaN. `byteLen >
+  // NaN` is always false, silently disabling the fail-closed guard. The engine
+  // guardrail must fall back to the default cap for any non-finite / <= 0 value.
+  test("NaN maxBytes falls back to the default cap (does NOT disable the guard)", () => {
+    const big = "a".repeat(2 * 1024 * 1024); // > 1 MiB default cap
+    const r = scan(big, { maxBytes: NaN });
+    expect(r.oversize).toBe(true);
+    expect(r.findings[0].id).toBe("engine.input_too_large");
+    expect(exitCodeFor(r)).toBe(3);
+  });
+
+  test("negative / zero maxBytes falls back to the default cap", () => {
+    // negative would make `byteLen > -5` always true (block everything);
+    // the guardrail normalizes it to the default instead.
+    const small = "ok";
+    expect(scan(small, { maxBytes: -5 }).oversize).toBeFalsy();
+    expect(scan(small, { maxBytes: 0 }).oversize).toBeFalsy();
+    const big = "a".repeat(2 * 1024 * 1024);
+    expect(scan(big, { maxBytes: -5 }).oversize).toBe(true);
   });
 });
 
