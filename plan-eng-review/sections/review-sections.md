@@ -44,6 +44,16 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+If you applied a prior learning and the session ended green (its tests passed, app ran
+clean, a validator confirmed it), reward it so proven lessons rise above their stated
+confidence (use `--harmful` if it misled you):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-feedback [key] [type] --helpful --signal tests-passed
+```
+
+Net-negative learnings sink and get flagged for prune.
+
 ### 1. Architecture review
 Evaluate:
 * Overall system design and component boundaries.
@@ -830,7 +840,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"plan-eng-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"plan-eng-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}' --signal SIGNAL
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -839,6 +849,12 @@ this session, log it for future sessions:
 
 **Sources:** `observed` (you found this in the code), `user-stated` (user told you),
 `inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Signal:** `--signal` is the objective check that confirmed this lesson THIS session:
+`tests-passed`, `app-ran-clean`, `validator`, `benchmark`, or `exec-success`. No
+objective check? Use `--signal none` — it parks as a candidate (confidence-capped) to
+promote later via /learn instead of polluting the trusted store. `user-stated` is always
+trusted. Be honest; "none" is the right answer more often than not.
 
 **Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
 An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.

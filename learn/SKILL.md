@@ -768,6 +768,8 @@ Parse the user's input to determine which command to run:
 - `/learn` (no arguments) → **Show recent**
 - `/learn search <query>` → **Search**
 - `/learn prune` → **Prune**
+- `/learn candidates` → **Candidates (promote)**
+- `/learn feedback` → **Feedback**
 - `/learn export` → **Export**
 - `/learn stats` → **Stats**
 - `/learn add` → **Manual add**
@@ -827,6 +829,55 @@ Present each flagged entry via AskUserQuestion:
 For removals, read the learnings.jsonl file and remove the matching line, then write
 back. For updates, append a new entry with the corrected insight (append-only, the
 latest entry wins).
+
+---
+
+## Candidates (promote)
+
+Show learnings that were captured WITHOUT a reliable signal (logged with
+`--signal none`), so they were parked instead of trusted. Review them and promote the
+ones that have since proven out.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-search --candidates --limit 50 2>/dev/null || echo "No candidates."
+```
+
+For each candidate, decide with the user via AskUserQuestion:
+- A) Promote it — it has proven correct
+- B) Leave it parked
+- C) Discard it
+
+To promote, re-log it into the trusted store with the user's confirmation as the
+signal (read the candidate's fields from `learnings-candidates.jsonl`), then remove
+the line from the candidates file:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":N,"source":"user-stated","files":["FILE1"]}'
+```
+
+(`source:user-stated` is always trusted, so no `--signal` is needed when the user
+explicitly confirms a candidate.)
+
+---
+
+## Feedback
+
+Record that a prior learning helped or misled you, so the ranking reflects what
+actually works. Proven learnings rise above their stated confidence; net-negative
+ones sink and get flagged for prune.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-learnings-feedback KEY TYPE --helpful --signal tests-passed
+# or, if it misled you:
+~/.claude/skills/gstack/bin/gstack-learnings-feedback KEY TYPE --harmful --note "what went wrong"
+```
+
+Use `--signal` to note the objective check that confirmed it (`tests-passed`,
+`app-ran-clean`, `validator`, `benchmark`, `exec-success`). Feedback is append-only and
+event-sourced; it never edits the learning row itself.
 
 ---
 

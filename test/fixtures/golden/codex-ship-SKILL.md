@@ -1837,6 +1837,11 @@ $GSTACK_BIN/gstack-learnings-search --limit 10 --query "release ship version cha
 If learnings are found, incorporate them into your analysis. When a review finding
 matches a past learning, note it: "Prior learning applied: [key] (confidence N, from [date])"
 
+When you applied a prior learning and this session ended with an objective signal
+(tests passed, app ran clean, a validator confirmed it), reward it:
+`$GSTACK_BIN/gstack-learnings-feedback [key] [type] --helpful --signal tests-passed`
+(use `--harmful` if it misled you).
+
 ## Step 8.2: Scope Drift Detection
 
 Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
@@ -2111,7 +2116,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-$GSTACK_BIN/gstack-learnings-log '{"skill":"ship","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+$GSTACK_BIN/gstack-learnings-log '{"skill":"ship","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}' --signal SIGNAL
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -2120,6 +2125,12 @@ $GSTACK_BIN/gstack-learnings-log '{"skill":"ship","type":"TYPE","key":"SHORT_KEY
 
 **Sources:** `observed` (you found this in the code), `user-stated` (user told you),
 `inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
+
+**Signal:** `--signal` is the objective check that confirmed this lesson THIS session:
+`tests-passed`, `app-ran-clean`, `validator`, `benchmark`, or `exec-success`. No
+objective check? Use `--signal none` — it parks as a candidate (confidence-capped) to
+promote later via /learn instead of polluting the trusted store. `user-stated` is always
+trusted. Be honest; "none" is the right answer more often than not.
 
 **Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
 An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
