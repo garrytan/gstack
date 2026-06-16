@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.59.1.0] - 2026-06-16
+
+## **A second outside voice. `/grok` is the symmetric counterpart to `/codex` —**
+## **an independent review, challenge, or consult from xAI's Grok, same contract.**
+
+Cross-model independence was a single point of failure: every automatic outside-voice
+step routed through Codex, so when Codex was down or you wanted a genuinely different
+model, the chain fell back to a Claude subagent and lost the cross-model signal. `/grok`
+adds a second, independent voice with the exact `/codex` contract: **review** (diff-scoped,
+`[P1]`/`[P2]` findings, pass/fail gate), **challenge** (adversarial failure-mode hunt), and
+**consult** (open Q&A with session resume via `-r`/`-c`). It runs read-only through
+`gstack-grok-probe`, which handles auth (`~/.grok/auth.json` or `$XAI_API_KEY`), a timeout
+wrapper, and telemetry.
+
+The plan-review dashboard now distinguishes the two outside voices: the GSTACK REVIEW
+REPORT carries a `grok-review` row alongside `codex-review`, labels each as OpenAI vs xAI,
+and the CROSS-MODEL line fires when **two or more** outside-voice reviews exist instead of
+assuming Claude-plus-Codex. `/ship`'s dashboard reads the `grok-review` log the same way.
+
+Run `/grok review`, `/grok challenge security`, or `/grok Is this migration ordering safe?`
+after `./setup`. Requires `grok` on PATH and auth via `grok login` or `$XAI_API_KEY`.
+
 ## [1.58.4.0] - 2026-06-18
 
 ## **A community bug-fix wave plus a test-gate that finally sees the questions it was missing.**
