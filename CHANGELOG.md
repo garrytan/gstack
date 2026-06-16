@@ -1,5 +1,76 @@
 # Changelog
 
+## [1.60.0.0] - 2026-06-16
+
+## **Your learnings store stops trusting every guess and starts learning which lessons**
+## **actually work. Capture is gated on a real signal; ranking rewards what proves out.**
+
+gstack-learnings-search has always ranked learnings by a confidence the agent assigns
+itself, decayed only by age. So an unverified hunch landed in the trusted store next to
+a test-verified truth, and a lesson proven right fifty times decayed at the same rate as
+a spurious one. Two changes fix that.
+
+First, capture is signal-gated. gstack-learnings-log takes `--signal`: a lesson backed by
+an objective check that fired this session (tests-passed, app-ran-clean, validator,
+benchmark, exec-success) or stated by the user goes to the trusted store. Anything logged
+with `--signal none` is parked in a candidates pool with its confidence capped, so an
+unverified guess can no longer outrank a verified lesson. You promote candidates later via
+`/learn` once they prove out. Without `--signal` the old behavior is preserved, so nothing
+breaks on day one.
+
+Second, ranking is reinforced. New `gstack-learnings-feedback` records, append-only, that a
+learning helped or misled you. gstack-learnings-search now ranks by decayed confidence PLUS
+net feedback, so proven lessons rise above their stated confidence and net-negative ones
+sink and get flagged for prune. The capture and search blocks every tier-2 skill emits now
+pass `--signal` and prompt you to reward a learning when a session ends green.
+
+### The numbers that matter
+
+Reproduce: `bun test test/gstack-learnings-reinforce.test.ts`. Scores are the search
+ranking on the test fixtures.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Capture gate | none, everything trusted | reliable signal -> trusted, else candidate | gated |
+| Unverified guess (conf 9, no signal) | trusted at 9 | candidate at 4, promote to keep | can't outrank verified |
+| Ranking input | time-decay only | decayed confidence + net feedback | reinforced |
+| Proven learning (conf 9, +2 feedback) | 9 | 11, above the 10 cap | rises |
+| Misleading learning (conf 9, -2 feedback) | 9 | 7, flagged PRUNE | sinks |
+| Existing callers (no --signal) | trusted | trusted, unchanged | backward-compatible |
+
+Because the gate is opt-in and net feedback starts at zero, a store with no signals and no
+feedback ranks exactly as it does today. The behavior only changes once a skill passes a
+signal or you record feedback.
+
+### What this means for you
+
+Your memory stops drifting toward plausible-but-unverified noise. Lessons earn their place
+by surviving a real check, and earn their rank by actually helping. Run `/learn candidates`
+to review what is parked, `/learn feedback` to reward or penalize a learning by hand, and
+`/learn` to see the reinforced ranking with prune flags.
+
+### Itemized changes
+
+#### Added
+- **`bin/gstack-learnings-feedback`**: append-only, event-sourced helpful/harmful events
+  (`<key> <type> --helpful|--harmful [--signal CLASS] [--note TEXT]`), injection-sanitized
+  like the other writers. Never edits the learning row.
+- **Signal-gating in `bin/gstack-learnings-log`**: opt-in `--signal` routes to the trusted
+  store or a `learnings-candidates.jsonl` pool with confidence ceiling-clamped to 4. No
+  `--signal` preserves historical behavior.
+- **Reinforced ranking in `bin/gstack-learnings-search`**: aggregates net feedback per
+  key+type and ranks by decayed confidence + net, flags net-negative entries for prune, and
+  adds `--candidates` to list the gated-out pool.
+- **`/learn candidates` and `/learn feedback`**: promote parked candidates and record
+  feedback from the skill.
+- **`test/gstack-learnings-reinforce.test.ts`**: 11 tests across gating, the candidates
+  pool, feedback events, and reinforced ranking.
+
+#### Changed
+- **`scripts/resolvers/learnings.ts`**: the capture block every tier-2 skill emits now
+  passes `--signal`, and the search block prompts feedback when a learning is applied and a
+  session ends with an objective signal. Regenerated SKILL.md files reflect this.
+
 ## [1.58.1.0] - 2026-06-14
 
 ## **Local evals stop lying. Spawned `claude` test children run in a sealed clean room,**
