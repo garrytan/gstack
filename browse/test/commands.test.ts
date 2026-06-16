@@ -622,6 +622,42 @@ describe('Tabs', () => {
   });
 });
 
+// ─── Server Control ────────────────────────────────────────────
+
+describe('Server Control', () => {
+  test('status returns healthy', async () => {
+    const result = await handleMetaCommand('status', [], bm, async () => {});
+    expect(result).toContain('healthy');
+  });
+
+  test('stop returns response before shutdown fires (regression: crash-loop)', async () => {
+    let shutdownCalled = false;
+    const shutdown = () => { shutdownCalled = true; };
+
+    const result = await handleMetaCommand('stop', [], bm, shutdown);
+    // The fix defers shutdown via setTimeout(0) so the response flushes first.
+    // shutdownCalled must still be false here — the deferred callback hasn't fired yet.
+    expect(shutdownCalled).toBe(false);
+    expect(result).toBe('Server stopped');
+
+    // Wait for the deferred shutdown to fire.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(shutdownCalled).toBe(true);
+  });
+
+  test('restart returns response before shutdown fires (regression: crash-loop)', async () => {
+    let shutdownCalled = false;
+    const shutdown = () => { shutdownCalled = true; };
+
+    const result = await handleMetaCommand('restart', [], bm, shutdown);
+    expect(shutdownCalled).toBe(false);
+    expect(result).toBe('Restarting...');
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(shutdownCalled).toBe(true);
+  });
+});
+
 // ─── Diff ───────────────────────────────────────────────────────
 
 describe('Diff', () => {

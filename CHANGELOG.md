@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.32.0.1] - 2026-06-16
+
+### Fixed
+
+- **browse daemon: fix `stop` / `restart` crash-loop** — `meta-commands.ts`
+  called `await shutdown()` before returning the HTTP response, tearing down
+  the listener so the response never flushed. The CLI saw `ECONNRESET`, its
+  crash-retry logic re-sent the command, and the daemon logged "crashed twice
+  in a row" before exit. Fix: defer `shutdown()` via `setTimeout(0)` so the
+  response flushes first. Added regression tests for both commands.
+
 ## [1.32.0.0] - 2026-05-10
 
 ## **Seven contributor PRs land. Three are security or hardening.**

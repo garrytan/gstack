@@ -411,14 +411,19 @@ export async function handleMetaCommand(
     }
 
     case 'stop': {
-      await shutdown();
+      // Defer shutdown so the HTTP response flushes before the listener
+      // is torn down.  Without this deferral the CLI sees ECONNRESET,
+      // its crash-retry logic re-sends the command, and the daemon logs
+      // "crashed twice in a row" before exit.
+      setTimeout(() => { shutdown(); }, 0);
       return 'Server stopped';
     }
 
     case 'restart': {
-      // Signal that we want a restart — the CLI will detect exit and restart
+      // Same deferral as stop: send the response first, then exit so the
+      // CLI can restart the daemon cleanly.
       console.log('[browse] Restart requested. Exiting for CLI to restart.');
-      await shutdown();
+      setTimeout(() => { shutdown(); }, 0);
       return 'Restarting...';
     }
 
