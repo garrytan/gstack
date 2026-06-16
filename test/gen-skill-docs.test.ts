@@ -323,6 +323,31 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('git branch --show-current');
   });
 
+  // #2001: update_check: false silences the binary but the upgrade-handling
+  // instruction prose used to ship unconditionally. Every skill that carries
+  // the runtime config-echo cluster must (a) echo UPDATE_CHECK so the
+  // instruction layer can read it, and (b) gate the UPGRADE_AVAILABLE /
+  // JUST_UPGRADED prose on it — the same echo-then-gate convention every other
+  // flag (PROACTIVE, SKILL_PREFIX, EXPLAIN_LEVEL, QUESTION_TUNING) follows.
+  test('update_check opt-out gates preamble echo and upgrade-handling prose (issue #2001)', () => {
+    let checked = 0;
+    for (const skill of CLAUDE_GENERATED_SKILLS) {
+      const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
+      // Scope: only skills that render the runtime config-echo cluster.
+      if (!content.includes('echo "QUESTION_TUNING: $_QUESTION_TUNING"')) continue;
+      checked++;
+      expect(content, `${skill.dir} must echo UPDATE_CHECK`).toContain('echo "UPDATE_CHECK: $_UPDATE_CHECK"');
+      expect(content, `${skill.dir} must read update_check config`).toContain('_UPDATE_CHECK=$(');
+      // Whenever the upgrade-handling prose ships, it must gate on the flag.
+      if (content.includes('UPGRADE_AVAILABLE <old> <new>')) {
+        expect(content, `${skill.dir} upgrade prose must gate on UPDATE_CHECK`)
+          .toContain('If `UPDATE_CHECK` is `"false"`');
+      }
+    }
+    // Guard against the scope filter silently matching nothing.
+    expect(checked).toBeGreaterThan(0);
+  });
+
   test('tier 2+ skills contain ELI10 simplification rules (AskUserQuestion format)', () => {
     // Root SKILL.md is tier 1 (no AskUserQuestion format). Check a tier 2+ skill instead.
     // v1.7.0.0 Pros/Cons format uses "ELI10 (ALWAYS)" rather than "Simplify (ELI10".
