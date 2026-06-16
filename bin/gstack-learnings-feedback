@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# gstack-learnings-feedback — record that a learning helped or misled this session.
+# Usage: gstack-learnings-feedback <key> <type> --helpful|--harmful [--signal CLASS] [--note "..."]
+#
+# Append-only, event-sourced: each call adds one line to learnings-feedback.jsonl.
+# gstack-learnings-search aggregates net (helpful - harmful) per key+type and ranks
+# by decayed-confidence PLUS net feedback, so proven lessons rise above their stated
+# confidence and net-negative ones sink and surface for prune. Counters are never
+# stored on the learning row itself — the append-only log stays the source of truth.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+mkdir -p "$GSTACK_HOME/projects/$SLUG"
+
+KEY="${1:-}"; TYPE="${2:-}"; shift 2 2>/dev/null || true
+DELTA=""; SIGNAL=""; NOTE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --helpful) DELTA="helpful"; shift ;;
+    --harmful) DELTA="harmful"; shift ;;
+    --signal) SIGNAL="${2:-}"; shift 2 ;;
+    --note) NOTE="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+if [ -z "$KEY" ] || [ -z "$TYPE" ] || [ -z "$DELTA" ]; then
+  echo "gstack-learnings-feedback: usage: <key> <type> --helpful|--harmful [--signal CLASS] [--note TEXT]" >&2
+  exit 1
+fi
+
+VALIDATED=$(KEY="$KEY" TYPE="$TYPE" DELTA="$DELTA" SIGNAL="$SIGNAL" NOTE="$NOTE" bun -e "
+import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
+const e = { key: process.env.KEY, type: process.env.TYPE, delta: process.env.DELTA };
+const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational', 'investigation'];
+if (!/^[a-zA-Z0-9_-]+$/.test(e.key)) { process.stderr.write('invalid key\n'); process.exit(1); }
+if (!ALLOWED_TYPES.includes(e.type)) { process.stderr.write('invalid type\n'); process.exit(1); }
+if (e.delta !== 'helpful' && e.delta !== 'harmful') { process.stderr.write('delta must be helpful or harmful\n'); process.exit(1); }
+const sig = process.env.SIGNAL || '';
+const ALLOWED_SIGNALS = ['tests-passed', 'app-ran-clean', 'validator', 'benchmark', 'exec-success', 'none'];
+if (sig) { if (!ALLOWED_SIGNALS.includes(sig)) { process.stderr.write('invalid signal\n'); process.exit(1); } e.signal = sig; }
+const note = process.env.NOTE || '';
+if (note) { if (hasInjection(note)) { process.stderr.write('note rejected\n'); process.exit(1); } e.note = note; }
+e.ts = new Date().toISOString();
+console.log(JSON.stringify(e));
+" 2>/dev/null)
+
+if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
+  exit 1
+fi
+
+echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings-feedback.jsonl"
+echo "gstack-learnings-feedback: recorded $DELTA for [$KEY] ($TYPE)." >&2
+
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/learnings-feedback.jsonl" 2>/dev/null &
