@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
 # gstack-learnings-log — append a learning to the project learnings file
-# Usage: gstack-learnings-log '{"skill":"review","type":"pitfall","key":"n-plus-one","insight":"...","confidence":8,"source":"observed"}'
+# Usage: gstack-learnings-log '{"skill":"review","type":"pitfall","key":"n-plus-one","insight":"...","confidence":8,"source":"observed"}' [--signal CLASS]
 # Valid types: pattern, pitfall, preference, architecture, tool, operational, investigation
 #
 # Append-only storage. Duplicates (same key+type) are resolved at read time
 # by gstack-learnings-search ("latest winner" per key+type).
+#
+# Signal-gating (opt-in via --signal): a lesson backed by a reliable in-session
+# signal (tests-passed | app-ran-clean | validator | benchmark | exec-success) or
+# source=user-stated is written to the trusted store. Anything else is parked in
+# learnings-candidates.jsonl with confidence ceiling-clamped, so an unverified guess
+# can't outrank a verified lesson (promote it later via /learn). WITHOUT --signal the
+# historical behavior is preserved (everything is trusted).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
-INPUT="$1"
+INPUT="$1"; shift || true
+SIGNAL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --signal) SIGNAL="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
-# Validate and sanitize input
-VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+# Validate, sanitize, and signal-gate. Output is "<route>\t<json>", route ∈ {trusted, candidate}.
+VALIDATED=$(printf '%s' "$INPUT" | GSTACK_LEARNING_SIGNAL="$SIGNAL" bun -e "
 import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
 const raw = await Bun.stdin.text();
 let j;
@@ -62,14 +76,37 @@ if (!j.ts) j.ts = new Date().toISOString();
 // user-stated = user explicitly told the agent this. All others are AI-generated.
 j.trusted = j.source === 'user-stated';
 
-console.log(JSON.stringify(j));
+// Signal-gating (opt-in). Only gates when a --signal was passed; otherwise every
+// entry is trusted, preserving historical behavior.
+const STRONG_SIGNALS = ['tests-passed', 'app-ran-clean', 'validator', 'benchmark', 'exec-success'];
+const signal = process.env.GSTACK_LEARNING_SIGNAL || '';
+let route = 'trusted';
+if (signal) {
+  if (![...STRONG_SIGNALS, 'none'].includes(signal)) {
+    process.stderr.write('gstack-learnings-log: invalid --signal \"' + signal + '\", must be one of: ' + STRONG_SIGNALS.join(', ') + ', none\n');
+    process.exit(1);
+  }
+  j.signal = signal;
+  const reliable = STRONG_SIGNALS.includes(signal) || j.source === 'user-stated';
+  if (!reliable) { route = 'candidate'; if (j.confidence > 4) j.confidence = 4; }
+}
+
+console.log(route + '\t' + JSON.stringify(j));
 " 2>/dev/null)
 
 if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
   exit 1
 fi
 
-echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+ROUTE="${VALIDATED%%$'\t'*}"
+JSON="${VALIDATED#*$'\t'}"
 
-# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
-"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/learnings.jsonl" 2>/dev/null &
+if [ "$ROUTE" = "candidate" ]; then
+  # Parked, not trusted: review and promote via /learn. Not synced to gbrain.
+  echo "$JSON" >> "$GSTACK_HOME/projects/$SLUG/learnings-candidates.jsonl"
+  echo "gstack-learnings-log: no reliable signal — parked as a candidate (promote via /learn)." >&2
+else
+  echo "$JSON" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+  # gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+  "$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/learnings.jsonl" 2>/dev/null &
+fi
