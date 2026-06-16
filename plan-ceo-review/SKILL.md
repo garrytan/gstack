@@ -1111,6 +1111,16 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+If you applied a prior learning and the session ended green (its tests passed, app ran
+clean, a validator confirmed it), reward it so proven lessons rise above their stated
+confidence (use `--harmful` if it misled you):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-feedback [key] [type] --helpful --signal tests-passed
+```
+
+Net-negative learnings sink and get flagged for prune.
+
 
 
 ## Brain Context (preflight)
