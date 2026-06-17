@@ -297,6 +297,7 @@ When the user's request matches an available skill, invoke it via the Skill tool
 | Save/resume context | /context-save or /context-restore |
 | workflow testing/workflow QA/ | worklow-qa
 | Design / Build | req-spec
+| Fleet setup / new workstation / install agents | /setup-fleet
 
 ## Cross-session decision memory
 
